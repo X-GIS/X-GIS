@@ -31,4 +31,32 @@ const blog = defineCollection({
   }),
 })
 
-export const collections = { blog }
+// Generated API reference — TypeDoc markdown for @xgis/shader-dsl, written into
+// src/content/api/ by scripts/build-api-reference.ts and GITIGNORED. Nothing here is
+// authored: the TSDoc at each symbol's definition site is the only authority, and
+// shader-dsl/src/api-doc-coverage.test.ts is what keeps a symbol from joining the public
+// surface without one (#1695).
+//
+// The schema is deliberately minimal. `generated` is the one frontmatter key the pipeline
+// writes (typedoc.json's `frontmatterGlobals`), and asserting it is how a hand-authored file
+// dropped into this directory fails the build instead of quietly shipping as reference —
+// the directory is regenerated from scratch on every build, so such a file would vanish
+// without warning on the next one.
+// `generateId` PRESERVES CASE. Astro's default slugifies, which lowercases — and TypeDoc
+// writes its ~1.5k cross-references with the symbol's real casing (`/api/index/functions/
+// emitConst`). With the default, 250 of the 332 pages resolve to a lowercased route while
+// every link keeps the original case, so three quarters of the reference 404s AND the build
+// still exits 0. Case is also correct on its own terms here: `emitConst` is the identifier a
+// reader types, `emitconst` is not a thing.
+const api = defineCollection({
+  loader: glob({
+    pattern: '**/*.md',
+    base: './src/content/api',
+    generateId: ({ entry }) => entry.replace(/\.md$/, ''),
+  }),
+  schema: z.object({
+    generated: z.literal(true),
+  }),
+})
+
+export const collections = { blog, api }

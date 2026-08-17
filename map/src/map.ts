@@ -23,6 +23,7 @@ import {
 import { uploadPalette, type PaletteTextures } from './render/palette-textures'
 import { HeatmapTargets } from './render/heatmap-targets'
 import { warnStageBlockUnsupported } from './render/stage-block-warning'
+import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
@@ -145,7 +146,7 @@ import { CanvasCursorController } from './cursor'
 import { TileCatalog } from '@xgis/data'
 import { isTileTemplate } from '@xgis/data'
 import { buildShowSourceMaps } from './show-source-maps'
-import { parseHexColor, hexToRgba, applyFilter, applyGeometry } from './feature-helpers'
+import { hexToRgba, applyFilter, applyGeometry } from './feature-helpers'
 import {
   inspectMapPipeline,
   captureMapSnapshot,
@@ -2963,12 +2964,12 @@ export class XGISMap {
       }
       if (color) bgColor = color
     }
-    // Use hexToRgba (nullable variant) so an invalid hex shape falls
-    // through to the renderer's built-in default instead of silently
-    // painting black. parseHexColor always returns [0,0,0,1] on
-    // regex-fail; switching to the null-returning variant surfaces
-    // the bad input as "no override" rather than "opaque black
-    // background".
+    // An invalid hex shape falls through to the renderer's built-in
+    // default instead of silently painting black: hexToRgba's null
+    // surfaces the bad input as "no override" rather than "opaque
+    // black background". (Until #1666 the null-returning helper had a
+    // total twin that answered [0, 0, 0, 1] here; there is now one
+    // function and this is its only behaviour.)
     if (bgColor) {
       const parsed = hexToRgba(bgColor)
       if (parsed !== null) this._backgroundColor = parsed
@@ -3738,10 +3739,10 @@ export class XGISMap {
         !show.geometryExpr &&
         this.pointRenderer
       ) {
-        const fillHex = show.fill
-        const strokeHex = show.stroke
-        const fill = fillHex ? parseHexColor(fillHex) : null
-        const stroke = strokeHex ? parseHexColor(strokeHex) : null
+        // #1666 — a MALFORMED constant is null (as a MISSING one already was), so the dot
+        // draws uncoloured; these are also evalPerFeatureColor's fallback, hence never black.
+        const fill = hexToRgba(show.fill)
+        const stroke = hexToRgba(show.stroke)
 
         // Resolve the typed size PropertyShape to a concrete scalar
         // at the current camera state. Evaluated once at layer build
@@ -3788,13 +3789,16 @@ export class XGISMap {
 
         // #732 S5 — per-feature FILL / STROKE colour (data-driven point paint), the colour-axis
         // mirror of perFeatureSizes above. The compiler emits show.fillColorExpr /
-        // show.strokeColorExpr when a point layer's fill/stroke is a match/interpolate over a
-        // feature property. Evaluate the AST per feature (reserved keys injected, throw-isolated
-        // like applyFilter), parse the resolved hex → rgba, and fall back to the layer constant so
-        // an unmatched feature paints the default arm. null (no expr) keeps the constant unchanged.
+        // show.strokeColorExpr when a point layer's fill/stroke is a match/gradient over a feature
+        // property. Evaluate the AST per feature (reserved keys injected, throw-isolated like
+        // applyFilter), parse the resolved hex → rgba, and fall back to the layer constant so an
+        // unmatched feature paints the default arm. null (no expr) keeps the constant unchanged.
+        // #1664 — that isolation is also the WARNING site: a data-driven colour HAS no layer
+        // constant, so a fallback here is an uncoloured feature and must not be silent.
         const evalPerFeatureColor = (
           expr: { ast?: unknown } | null | undefined,
           fallback: [number, number, number, number] | null,
+          axis: 'fill' | 'stroke',
         ): ([number, number, number, number] | null)[] | null => {
           if (!expr?.ast) return null
           const ast = expr.ast as import('@xgis/compiler').Expr
@@ -3811,18 +3815,22 @@ export class XGISMap {
             let r: unknown
             try {
               r = evaluate(ast, bag)
-            } catch {
-              return fallback
+            } catch (e) {
+              r = e
             }
-            if (typeof r === 'string') {
-              const c = parseHexColor(r)
-              return c ? [c[0], c[1], c[2], c[3]] : fallback
-            }
+            // Mirror of the label path (render/passes/label-pass.ts): the token / CSS
+            // resolver FIRST, then the parse. `hexToRgba` answers null for anything it
+            // does not recognise (before #1666 its total twin answered opaque BLACK), so
+            // an authored `red`, a data-carried token or a typo reaches the warning below
+            // instead of painting a wrong colour and reporting it as a right one (#1664).
+            const c = typeof r === 'string' ? hexToRgba(resolveColor(r) ?? r) : null
+            if (c) return [c[0], c[1], c[2], c[3]]
+            warnPerFeatureColorUnresolved(show.layerName ?? show.targetName, axis, r)
             return fallback
           })
         }
-        const perFeatureFills = evalPerFeatureColor(show.fillColorExpr, fill)
-        const perFeatureStrokes = evalPerFeatureColor(show.strokeColorExpr, stroke)
+        const perFeatureFills = evalPerFeatureColor(show.fillColorExpr, fill, 'fill')
+        const perFeatureStrokes = evalPerFeatureColor(show.strokeColorExpr, stroke, 'stroke')
 
         // Resolve shape name to GPU shape_id
         const shapeId = show.shape ? (this.shapeRegistry?.getShapeId(show.shape) ?? 0) : 0

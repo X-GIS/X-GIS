@@ -14,7 +14,7 @@
 //   • compiler/src/convert/paint-fill.ts:101 addFillOutline → emits
 //     `stroke-<color>` (the xgis utility fill-outline-color lowers to).
 //   • The polygon renderer parses that into `show.stroke` →
-//     vector-tile-renderer.ts:2350 parseHexColor → cachedStrokeColor[0..3].
+//     vector-tile-renderer.ts:2350 hexToRgba → cachedStrokeColor[0..3].
 //   • render() copies it into stroke_color uniform slots 20-23
 //     (vector-tile-renderer.ts:2410-2411), and the per-tile loop stages the
 //     stroke ALPHA into uf[23]:

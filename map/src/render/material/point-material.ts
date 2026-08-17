@@ -8,6 +8,7 @@
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitPointWgsl, emitPointGlslStages, type PointVariantSpec } from '../../shaders/dsl/point'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
@@ -62,13 +63,30 @@ export class PointDraper {
     private readonly shaderVariant: PointVariantSpec | null = null,
   ) {
     const bias = { constant: -10, slopeScale: -1, clamp: 0 }
+    // #1679 inc 6 — the bake is read ONLY for the default (variant-free) program. The
+    // baked key `wgsl/point` carries no variant token, so handing it to a
+    // variant-carrying draper would serve the DEFAULT bytes while this thunk asked for
+    // the composed ones — `wgsl-for.ts` returns a hit WITHOUT running the thunk. That is
+    // not a slow frame, it is the wrong colour, and it is the exact failure the
+    // `shaderVariant` doc above records having shipped once already. `undefined` here is
+    // the pre-bake path, pinned in `wgsl-for-baked.test.ts`.
+    const bakedPointIds =
+      this.shaderVariant === null
+        ? {
+            wgsl: simpleWgslId('point'),
+            glsl: {
+              vertex: simpleGlslId('point', 'vertex'),
+              fragment: simpleGlslId('point', 'fragment'),
+            },
+          }
+        : undefined
     // #1057 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE backend
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
-    // samplers via emulateStorage; on WebGPU these are ignored.
+    // samplers via the default storage lowering; on WebGPU these are ignored.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant)),
-      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant)),
+      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant), bakedPointIds?.wgsl),
+      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant), bakedPointIds?.glsl),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',

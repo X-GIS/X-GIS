@@ -9,6 +9,7 @@ import {
   extractInterpolateZoomStops,
   extractInterpolateZoomArrayStops,
   extractInterpolateZoomColorStops,
+  resolveColorTokenLiterals,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
@@ -175,7 +176,9 @@ export const strokeBindingHandler: BindingHandler = {
           // strokeColorExpr emission.
           const rgba = hexToRgba(defaultHex)
           acc.strokeColor = colorConstant(rgba[0], rgba[1], rgba[2], rgba[3])
-          acc.strokeColorExpr = { ast: item.binding! }
+          // #1664 — same colour-token normalisation the fill arm applies, so the
+          // per-feature CPU bake and the GPU variant read one hex literal.
+          acc.strokeColorExpr = { ast: resolveColorTokenLiterals(item.binding!) }
         } else {
           // Per-feature `case` / `match` expression on width.
           acc.strokeWidthExpr = { ast: item.binding! }

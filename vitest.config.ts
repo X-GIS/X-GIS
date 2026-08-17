@@ -22,6 +22,13 @@ export default defineConfig({
       // CI leg's file set.
       'playground/dev/**/*.test.ts',
       'playground/src/**/*.test.ts',
+      // Repo-tooling unit tests (the changelog generator). CI-covered by the
+      // `data` leg (test.yml passes `data/src scripts`); the spawned git probes
+      // in the suite self-skip on CI's depth-1 checkout. Co-located with the
+      // script deliberately — the alternative (parking the test inside a
+      // package's src/) would put a scripts/ import inside that package's
+      // tsconfig rootDir and break its `tsc --build`.
+      'scripts/**/*.test.ts',
     ],
     // shader-dsl projections are host-injected (configureProjections); configure
     // once before any suite touches the projection emit / cpu-projection path.

@@ -54,6 +54,72 @@ export { compileModuleJs } from './core/cpu-codegen'
 // plus the standalone wgslLayout(struct, kind) offset engine.
 export * from './core/reflect'
 
+// Module FRAGMENTS (#1711) — a header-less emit for a host that owns the program and
+// composes our declarations into it, with the directive/precision lines it must hoist
+// returned as structured `preamble` data rather than concatenated into source the
+// consumer would have to strip. `emitFragment` (WGSL) is star-re-exported from the
+// backend above; `emitGlslFragment` from the GLSL one. The shared shapes live here.
+export { type EmitFragment, type FragmentDeclares } from './core/fragment'
+
+// Per-variant compile + link gate (#1715) — emit EVERY point of a variant family and put
+// each one through a real WebGL2 driver. The GL context is a structural PARAMETER, so the
+// package needs no DOM lib and a test can drive the aggregation with a recorder while the
+// real run goes through a real driver.
+export {
+  linkVariants,
+  validateVariantsWgsl,
+  type GlLinker,
+  type VariantLinkResult,
+  type WgslValidator,
+  type WgslCompiled,
+  type WgslMessage,
+  type VariantWgslResult,
+} from './core/variant-link'
+
+// Emit IDENTITY (#1715) — the emit mode as a stable one-line stamp, so a committed
+// artifact can say which mode produced it. A pure function, deliberately not injected
+// into emitted source: the reported failure was a production build rewriting a committed
+// registry that the dev-mode goldens then disagreed with, and the registry banner (see
+// `buildRegistry`'s `stamp`) is where that difference needs to be visible.
+export { emitIdentity, type EmitTarget, type EmitIdentityInput } from './core/emit-identity'
+
+// Registry generation (#1716) — the reusable half: validate a DISCOVERED module set
+// against a CURATED id order and render a keyed registry module from it. Pure (no
+// filesystem), because the scan convention belongs to the caller; what everyone would
+// otherwise re-invent differently is the two-way drift check.
+export {
+  buildRegistry,
+  type RegistryEntry,
+  type BuildRegistryOptions,
+  type BuiltRegistry,
+} from './core/registry'
+
+// Variant FAMILIES (#1712) — the typed matrix for feature axes a HOST decides at runtime,
+// the case AUTHORING.md §11's build-time specialisation deliberately does not cover.
+// Per-variant modules + reflections + a derived key, emitted either preprocessor-free (the
+// only shape WGSL can have) or, opt-in on GLSL, as one source with a GENERATED #if ladder.
+export {
+  variantFamily,
+  selectGuardedArm,
+  type VariantFamily,
+  type VariantFamilySpec,
+  type Variant,
+  type AxisValues,
+  type GuardDefines,
+} from './core/variant-family'
+
+// Semantic comparison of two modules (#1714) — IR + reflection, not text, so the
+// optimizer's temporaries / declaration order / generated names do not drown the
+// diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it
+// makes possible is a production claim a consumer ships, not an authoring aid.
+export {
+  semanticDiff,
+  isSemanticallyEqual,
+  type SemanticDiff,
+  type SemanticDiffOptions,
+  type SemanticAspect,
+} from './core/semantic-diff'
+
 // The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +
 // LEVEL_PASSES table are internal — emit.ts drives them; no consumer ever imported
 // them through this barrel.)
@@ -61,11 +127,17 @@ export { type OptLevel } from './core/passes/opt'
 
 // Public error surface: the coded base class + the EMIT-time validation gate.
 // (`Diagnostic` is the type of ValidationError.diagnostics.) Everything else on
-// the diagnostics/lint/measure axis is DEV tooling — import it from
-// '@xgis/shader-dsl/dev' (#740 R2b): lintModule / summarize / formatDiagnostics /
-// checkSingleExit / requiredCaps / assertCaps / diagnose / formatReport / CODES /
-// dslError / formatLoc / setSourceTracing / emitSize / countOps / optimizerReport /
+// the diagnostics/lint/measure axis is exported from '@xgis/shader-dsl/dev'
+// (#740 R2b): lintModule / summarize / formatDiagnostics / checkSingleExit /
+// requiredCaps / assertCaps / diagnose / formatReport / CODES / dslError /
+// formatLoc / setSourceTracing / emitSize / countOps / optimizerReport /
 // lowerForBackend / emitModuleWithReflection.
+//
+// That split is about the AUTHORING SURFACE, not about which code runs in
+// production: passes/required-caps is squarely on the production path — assertCaps
+// gates every emit from lowerForBackend, and `reflect()` (main barrel) derives
+// `requiredFeatures` from requiredCaps (#1670). Only its named export lives on the
+// dev entry, because an author writing a shader never calls it directly.
 export { ShaderDslError } from './core/diagnostics/error'
 export { validate, ValidationError } from './core/passes/validate'
 export { type Diagnostic } from './core/passes/lint/engine'

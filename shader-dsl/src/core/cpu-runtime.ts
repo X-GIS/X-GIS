@@ -17,7 +17,27 @@
 
 import type { BinOp } from './ir'
 
+/** The runtime value shape shared by both CPU backends (the tree-walk interpreter in
+ *  `oracle.ts` and the compiled `new Function` twin in `cpu-codegen.ts`) — plain JS
+ *  values, never a typed array or GPU buffer. A scalar (f32/f64/i32/u32/bool) is a
+ *  plain JS `number`/`boolean`, evaluated in full f64 precision with no `fround` (see
+ *  this file's header for the f64-algebra caveat that follows from that). A
+ *  vec/vec64/mat is a flat `number[]`, mutable and shared BY REFERENCE — a `p.x = …`
+ *  field write mutates the caller's array in place, which is what makes the IR's
+ *  assignable lvalues (member/index writes) work without a separate store step. A
+ *  struct is a `CpuStruct`. This is the one value type `CpuModule.setBinding` accepts.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export type CpuValue = number | boolean | number[] | CpuStruct
+/** A struct value at CPU-eval time: a plain field-keyed object, built either by the
+ *  `construct` IR node (`MyStruct(a, b, …)` → fields in declaration order) or
+ *  field-by-field through a struct-typed `var` (zero-initialised by `zeroOf`, then
+ *  written via `assign(out.f, …)`). Not branded to any particular struct — the field
+ *  set is whatever the authoring struct declared, checked structurally by the caller.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface CpuStruct {
   [k: string]: CpuValue
 }
@@ -235,16 +255,39 @@ export const BUILTINS: Record<string, Builtin> = {
 // worst failure mode for a reference backend.
 export const GPU_STUBS: Record<string, Builtin> = {
   textureSample: () => [0, 0, 0, 1],
+  textureSampleLevel: () => [0, 0, 0, 1],
   fwidth: () => 0,
   dpdx: () => 0,
   dpdy: () => 0,
   textureLoad: () => [0, 0, 0, 1],
+  // 2d-array reads (#1651) — same placeholder/throw contract as their 2d twins:
+  // the oracle has no texture memory, so under `gpuStubs` they yield opaque black.
+  textureSampleArray: () => [0, 0, 0, 1],
+  textureSampleLevelArray: () => [0, 0, 0, 1],
+  textureLoadArray: () => [0, 0, 0, 1],
   textureDimensions: () => [1, 1], // 1×1, not 0×0 — a divide-by-dimensions stays finite
+  textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
 }
 
 /** Test-only surfaces (#763 O5): the oracle's builtin coverage, pinned against the
  *  intrinsic catalogue so a new portable intrinsic cannot ship without a CPU twin. */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))
+/** The names of every GPU-only intrinsic the oracle cannot genuinely evaluate — the
+ *  keys of `GPU_STUBS` (textureSample / textureSampleLevel / fwidth / dpdx / dpdy /
+ *  textureLoad and their 2d-array twins, plus textureDimensions / textureNumLayers),
+ *  not the placeholder implementations themselves. Calling one of these from a
+ *  compiled module THROWS unless it was compiled with `{ gpuStubs: true }`, in which
+ *  case it returns an opaque placeholder (`[0,0,0,1]` for a texture read, `0` for a
+ *  derivative) instead of a value the interpreter has any way to compute — a
+ *  reference backend fails loud by default rather than hand back a plausible-wrong
+ *  number. Exists so a test can union this set with `ORACLE_BUILTIN_NAMES` against
+ *  the full intrinsic catalogue and assert every WGSL/GLSL-emittable intrinsic has
+ *  either a real CPU implementation or a documented stub here — the check that stops
+ *  a new "portable" intrinsic from shipping with no CPU twin and throwing
+ *  `unknown fn` at first CPU use.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const ORACLE_GPU_STUB_NAMES: ReadonlySet<string> = new Set(Object.keys(GPU_STUBS))
 
 function applyMinMax(f: (a: number, b: number) => number, a: CpuValue, b: CpuValue): number[] {

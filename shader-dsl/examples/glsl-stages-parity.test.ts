@@ -46,4 +46,30 @@ describe('emitGlslStages — shared lowering is byte-identical to per-stage lowe
     expect(b.vertex).toBe(a.vertex)
     expect(b.fragment).toBe(a.fragment)
   })
+
+  // #1673 — the float-precision emit option reaches BOTH stage strings. emitGlslStages
+  // spells the shared lowered module twice (assembleGlsl per stage), so an option read
+  // in only one of those calls would ship a highp vertex beside a mediump fragment and
+  // still look fine in any single-stage test. Asserted over the whole renderable corpus
+  // so a family whose vertex is shared across variants cannot hide it.
+  for (const ex of renderable) {
+    it(`${ex.id}: floatPrecision threads through emitGlslStages into both stages`, () => {
+      const both = emitGlslStages(ex.module, { floatPrecision: 'mediump' })
+      expect(both.vertex).toContain('precision mediump float;')
+      expect(both.fragment).toContain('precision mediump float;')
+      expect(both.vertex).not.toContain('precision highp float;')
+      expect(both.fragment).not.toContain('precision highp float;')
+      // BYTE-NEUTRALITY of the default, over the same real corpus the goldens cover:
+      // an explicit 'highp' must reproduce the option-free bytes exactly, and the only
+      // difference to the mediump emit is that one token.
+      const def = emitGlslStages(ex.module)
+      expect(emitGlslStages(ex.module, { floatPrecision: 'highp' })).toEqual(def)
+      expect(both.vertex.replace('precision mediump float;', 'precision highp float;')).toBe(
+        def.vertex,
+      )
+      expect(both.fragment.replace('precision mediump float;', 'precision highp float;')).toBe(
+        def.fragment,
+      )
+    })
+  }
 })

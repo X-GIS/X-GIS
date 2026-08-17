@@ -35,10 +35,9 @@
 // complex expressions; the adapter's null is the runtime's signal
 // to use the inline fragment emit.
 
-import type { Expr } from '../parser/ast'
 import type { ColorValue, DataExpr } from '../ir/render-node'
 import { rgbaToHex } from '../ir/render-node'
-import { resolveColor } from '../tokens/colors'
+import { resolveColorHexFromAST } from './shader-gen-helpers'
 import type { MatchEmitSpec, TernaryEmitSpec, TernaryBranchSpec } from './compute-gen'
 
 /** Lower a `conditional` ColorValue (branches × fallback) into a
@@ -78,11 +77,12 @@ export function lowerConditionalColorToTernary(
  *  argument with `object === null` (implicit current feature) — any
  *  other shape (nested function call, chained pipe) is too complex
  *  for the current single-field-stride compute kernel and returns
- *  null. Arms' values must be a ColorLiteral, an Identifier /
- *  hyphenated-palette-token BinaryExpr resolving to a named colour,
- *  or a colour-string literal; non-resolvable arms are skipped
- *  (mirrors shader-gen's `resolveColorFromAST` behaviour exactly so
- *  cross-path category IDs stay aligned). */
+ *  null. Arm values are resolved by shader-gen's
+ *  `resolveColorHexFromAST` — the SAME function the inline-shader path
+ *  uses, so which arms resolve (and to which hex) cannot drift across
+ *  the two paths and cross-path category IDs stay aligned; #1667
+ *  deleted the second copy that had drifted on CSS colour functions.
+ *  Non-resolvable arms are skipped. */
 export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
   const ast = expr.ast
   if (ast.kind !== 'FnCall') return null
@@ -97,7 +97,7 @@ export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
   let defaultColorHex: string | null = null
 
   for (const arm of ast.matchBlock.arms) {
-    const hex = resolveColorOfAST(arm.value)
+    const hex = resolveColorHexFromAST(arm.value)
     if (!hex) continue
     if (arm.pattern === '_') {
       defaultColorHex = hex
@@ -115,58 +115,4 @@ export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
   }
 
   return { fieldName: fieldExpr.field, arms, defaultColorHex }
-}
-
-/** Pure-string resolver for arm value ASTs. Accepts the shapes the
- *  compiler produces:
- *
- *    - Identifier 'cornflowerblue'           → CSS named colour
- *    - StringLiteral '"cornflowerblue"'      → same
- *    - StringLiteral '"rgb(255,0,0)"'        → CSS rgb/hsl function
- *    - ColorLiteral  '#f00' / '#f00f' /
- *                    '#ff0000' / '#ff0000ff' → verbatim CSS hex
- *    - BinaryExpr    'rose-500'              → hyphenated palette token
- *                    (parses as Identifier - Number; see below)
- *
- *  All four CSS hex shapes pass through (3 / 4 / 6 / 8 digits) so
- *  user-authored styles like `match(.class) { fire -> #f00 }` work
- *  on the compute path the same way they work on the inline-shader
- *  path. Anything else (compound expressions, var refs) returns
- *  null and the runtime falls back to inline-fragment emit. */
-function resolveColorOfAST(node: Expr): string | null {
-  if (node.kind === 'ColorLiteral') {
-    const v = node.value
-    if (typeof v === 'string' && /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
-      return v
-    }
-    return null
-  }
-  if (node.kind === 'Identifier') {
-    const hex = resolveColor(node.name)
-    return hex ?? null
-  }
-  if (node.kind === 'StringLiteral') {
-    const hex = resolveColor(node.value)
-    return hex ?? null
-  }
-  // Hyphenated palette names parse as subtraction: `rose-500` →
-  // BinaryExpr(Identifier("rose") - NumberLiteral(500)). Reconstruct the
-  // token and try the palette — the exact rule resolveColorFromAST
-  // (shader-gen-helpers.ts) applies, and this resolver MUST mirror it or
-  // compute-kernel vs inline-shader category IDs drift apart. Before #1068
-  // the parser's match-arm identifier-minus special case masked the gap by
-  // emitting Identifier("rose-500") here; with that special case removed,
-  // arm values take the general-expression path like every other colour
-  // position (e.g. gradient() args). Non-palette subtractions (`foo - 1`)
-  // miss the palette and stay arithmetic.
-  if (
-    node.kind === 'BinaryExpr' &&
-    node.op === '-' &&
-    node.left.kind === 'Identifier' &&
-    node.right.kind === 'NumberLiteral'
-  ) {
-    const hex = resolveColor(`${node.left.name}-${node.right.value}`)
-    return hex ?? null
-  }
-  return null
 }

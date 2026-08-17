@@ -17,7 +17,7 @@ beforeAll(() => {
   }
 })
 
-import { FrameUniform, FRAME_UNIFORM_SIZE_BYTES, WGSL_FRAME_UNIFORM } from './frame-uniform'
+import { FrameUniform, FRAME_UNIFORM_SIZE_BYTES, wgslFrameUniform } from './frame-uniform'
 
 // Lightweight Camera stub matching `getFrameView`'s contract.
 function fakeCamera(opts: { matrix?: Float32Array; logDepthFc?: number; zoom?: number } = {}): {
@@ -101,10 +101,14 @@ describe('FrameUniform', () => {
   })
 
   it('exports a WGSL struct declaration for shader consumers', () => {
-    expect(WGSL_FRAME_UNIFORM).toContain('struct FrameUniform')
-    expect(WGSL_FRAME_UNIFORM).toContain('mvp: mat4x4<f32>')
-    expect(WGSL_FRAME_UNIFORM).toContain('proj_params: vec4<f32>')
-    expect(WGSL_FRAME_UNIFORM).toContain('viewport: vec4<f32>')
+    const wgsl = wgslFrameUniform()
+    expect(wgsl).toContain('struct FrameUniform')
+    expect(wgsl).toContain('mvp: mat4x4<f32>')
+    expect(wgsl).toContain('proj_params: vec4<f32>')
+    expect(wgsl).toContain('viewport: vec4<f32>')
+    // Memoised: the emit runs on FIRST call, not at import — and the second call must
+    // hand back that same string rather than re-emitting (#1473 residue).
+    expect(wgslFrameUniform()).toBe(wgsl)
   })
 
   it('meters-per-pixel scales by 2^zoom', () => {

@@ -32,6 +32,29 @@ function formatValidationMessage(diags: readonly Diagnostic[]): string {
   return [head, ...lines].join('\n')
 }
 
+/** Thrown by `validate()` when a module fails an emit-time gate. Subclasses
+ *  {@link ShaderDslError} and carries code `SD0020`, so an `instanceof ShaderDslError` handler
+ *  still catches it and a code-based one still routes it.
+ *
+ *  The reason to catch this specific class is {@link ValidationError.diagnostics}: `validate()`
+ *  collects EVERY error-severity diagnostic before throwing, not just the first, so one throw
+ *  reports the whole failing surface. `.message` renders the same list as text; the array is
+ *  what you present in a UI.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { ValidationError } from '@xgis/shader-dsl'
+ *
+ *  try {
+ *    validate(MODULE)
+ *  } catch (e) {
+ *    if (e instanceof ValidationError) for (const d of e.diagnostics) report(d.ruleId, d.message)
+ *    else throw e
+ *  }
+ *  ```
+ */
 export class ValidationError extends ShaderDslError {
   /** Every error-severity diagnostic that caused the failure (not just the first). */
   readonly diagnostics: readonly Diagnostic[]

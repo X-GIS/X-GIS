@@ -1,9 +1,32 @@
 {
   "name": "@xgis/shader-dsl",
   "version": "0.0.1",
+  "description": "A TypeScript shader DSL: author a typed node graph once and emit WGSL, GLSL ES 3.00, an f64 CPU oracle, and pipeline reflection from the same source.",
+  "keywords": [
+    "shader",
+    "wgsl",
+    "glsl",
+    "webgpu",
+    "webgl2",
+    "gpu",
+    "shading-language",
+    "dsl",
+    "typescript",
+    "reflection"
+  ],
   "license": "MIT",
-  "private": true,
+  "author": "X-GIS",
+  "homepage": "https://github.com/X-GIS/X-GIS/tree/main/shader-dsl#readme",
+  "bugs": {
+    "url": "https://github.com/X-GIS/X-GIS/issues"
+  },
   "type": "module",
+  "sideEffects": [
+    "./src/core/ir/builder.ts"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
@@ -13,33 +36,29 @@
     "./examples": "./examples/index.ts"
   },
   "files": [
-    "dist"
+    "src",
+    "examples",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "tsconfig.tests.json",
+    "AUTHORING.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "!**/*.test.ts",
+    "!**/__emit-goldens__",
+    "!**/AGENTS.md",
+    "!**/*.tsbuildinfo"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/X-GIS/X-GIS.git",
+    "directory": "shader-dsl"
+  },
   "scripts": {
-    "build": "tsc --build && tsc -p tsconfig.tests.json",
-    "bake:goldens": "cd .. && UPDATE_EMIT_GOLDENS=1 bunx vitest run shader-dsl/examples/emit-goldens.test.ts"
+    "build": "tsc --build && tsc -p tsconfig.tests.json"
   },
   "publishConfig": {
-    "main": "./dist/index.js",
-    "module": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./dev": {
-        "types": "./dist/dev.d.ts",
-        "default": "./dist/dev.js"
-      },
-      "./emit-prod": {
-        "types": "./dist/emit-prod.d.ts",
-        "default": "./dist/emit-prod.js"
-      },
-      "./core/ir": {
-        "types": "./dist/core/ir/index.d.ts",
-        "default": "./dist/core/ir/index.js"
-      }
-    }
+    "access": "public"
   }
 }

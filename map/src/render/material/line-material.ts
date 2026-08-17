@@ -18,7 +18,8 @@ import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
-import { wgslFor } from './wgsl-for'
+import { lineGlslId, lineWgslId } from '../../shaders/baked/ids'
+import { glslFor, readsWgsl, wgslFor } from './wgsl-for'
 
 /** The translucent-line offscreen ACCUM format — ONE authority for the
  *  offscreen texture (line-renderer.ensureOffscreenRhi) and the max-blend
@@ -30,7 +31,7 @@ export const LINE_OFFSCREEN_FORMAT = 'rgba8unorm' as const
 // WebGL2 by-name bind-layout entries (#834 M5 slice 1) — the RHI-native twin
 // of the two raw GPUBindGroupLayouts. Names come from the DSL: a uniform
 // block's tag = its struct name; texture/storage names = the binding names
-// (storage lowers to R32F data textures named <buffer>_tex by emulateStorage).
+// (storage lowers to R32F data textures named <buffer>_tex by default).
 const LINE_TILE_ENTRIES: RhiBindLayoutEntry[] = [
   { binding: 0, kind: 'uniform', dynamic: true, name: 'TileUniforms' },
   // sprite_atlas/sprite_samp — the fs_line_pattern variant samples the sprite
@@ -115,13 +116,35 @@ export class LineDraper {
     this.material = this.buildMaterial(false)
   }
 
+  /** The baked ids of one line pipeline, or `undefined` while a composer variant is live.
+   *
+   *  #1679 inc 7 — the `line` keys carry pick and entry tokens but NO variant token, and
+   *  `wgsl-for.ts` serves a hit WITHOUT running the thunk. Handing an id over for a
+   *  variant-carrying layer would therefore paint the variant-free stroke: no crash, no
+   *  failing pipeline, just the wrong colour — the failure the `variant` doc above records
+   *  having shipped once, and the same guard `point-material.ts` carries. */
+  private bakedLineIds(pick: boolean) {
+    if (this.variant !== null) return undefined
+    return {
+      wgsl: lineWgslId(pick),
+      vertex: lineGlslId(pick, 'vertex'),
+      fragment: lineGlslId(pick, 'fragment'),
+      pattern: lineGlslId(pick, 'fragment-pattern'),
+      max: lineGlslId(pick, 'fragment-max'),
+    }
+  }
+
   private buildMaterial(pick: boolean): Material {
     // WebGL2: entry-array groups (by-name reflection) + the GLSL twins; the
     // raw GPUBindGroupLayouts are proxy no-ops under ?forcegl2 and never
     // wrapped. Pick stays WebGPU-only (fail-closed on WebGl2Device).
-    const gl2 = this.rhi.backend === 'webgl2'
+    // The capability seam, not the backend's identity (#1679 inc 7, following inc 0):
+    // `groups` picks the entry-array layout for the same reason the source does — the
+    // device reads GLSL — so both derive from one question.
+    const gl2 = !readsWgsl(this.rhi)
+    const baked = this.bakedLineIds(pick)
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick), baked?.wgsl),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       // #1605 Phase 3 — the WebGL2 twin composes the SAME variant as the WGSL
@@ -129,8 +152,12 @@ export class LineDraper {
       // render the default stroke on WebGL2 for a variant-carrying layer: no
       // crash, no failing pipeline, just the wrong colour — which is exactly
       // why the renderer-level gate alone was not the whole fix.
-      vsCode: gl2 ? emitLineGlsl(this.variant, pick, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment') : undefined,
+      vsCode: glslFor(this.rhi, () => emitLineGlsl(this.variant, pick, 'vertex'), baked?.vertex),
+      fsCode: glslFor(
+        this.rhi,
+        () => emitLineGlsl(this.variant, pick, 'fragment'),
+        baked?.fragment,
+      ),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: gl2
@@ -154,7 +181,11 @@ export class LineDraper {
           fsEntry: 'fs_line_pattern',
           // GLSL has one main per stage — the pattern variant carries its own
           // emitted fragment twin (#834 M5 slice 5).
-          fsCode: gl2 ? emitLineGlsl(this.variant, pick, 'fragment-pattern') : undefined,
+          fsCode: glslFor(
+            this.rhi,
+            () => emitLineGlsl(this.variant, pick, 'fragment-pattern'),
+            baked?.pattern,
+          ),
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
       ],
@@ -165,13 +196,18 @@ export class LineDraper {
    *  offscreen RT (BLEND_MAX, no depth). One fragment variant (no pattern). LAZY.
    *  On webgl2 the twin carries entry-array groups + the fs_line_max GLSL (#834 M5). */
   private maxMat(): Material {
-    const gl2 = this.rhi.backend === 'webgl2'
+    const gl2 = !readsWgsl(this.rhi)
+    const baked = this.bakedLineIds(false)
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false)),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false), baked?.wgsl),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
-      vsCode: gl2 ? emitLineGlsl(this.variant, false, 'vertex') : undefined,
-      fsCode: gl2 ? emitLineGlsl(this.variant, false, 'fragment-max') : undefined,
+      vsCode: glslFor(this.rhi, () => emitLineGlsl(this.variant, false, 'vertex'), baked?.vertex),
+      fsCode: glslFor(
+        this.rhi,
+        () => emitLineGlsl(this.variant, false, 'fragment-max'),
+        baked?.max,
+      ),
       // The offscreen ACCUM format, not the canvas format: this pipeline draws
       // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
       // authority both the texture and this target derive from — a canvas-
@@ -193,10 +229,21 @@ export class LineDraper {
    *  cam=0, an ortho mvp (tile group) and a bake-mpp layer slot with viewport_height=0 (skip the
    *  screen-space width clamp), so the flat-Mercator VS arm draws the stroke into tile-local NDC just
    *  like the fill bake. Alpha blend (composites over the baked fill), depthCompare 'always' /
-   *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only). */
+   *  depthWrite false (inert, matches the fill bake). WebGPU-only (the bake is WebGPU-only).
+   *
+   *  #1473 residue — the WGSL went through `wgslFor` in the two materials above and RAW here,
+   *  the one place the pre-seam spelling survived. The guard is inert on the path that runs
+   *  (this material is only ever built on WebGPU, where `wgslFor` emits), so it buys
+   *  consistency rather than milliseconds: no reader has to wonder whether this site is
+   *  deliberately unguarded, and a WebGL2 device that ever reached here fails on a missing
+   *  source instead of paying for one it cannot read. */
   private bakeMat(): Material {
     return (this._bakeMaterial ??= new Material(this.rhi, {
-      shader: emitLineWgsl(this.variant, false),
+      shader: wgslFor(
+        this.rhi,
+        () => emitLineWgsl(this.variant, false),
+        this.bakedLineIds(false)?.wgsl,
+      ),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',

@@ -21,7 +21,7 @@
 // Mercator DSFUN math as the point/icon/arrow/circle packers.
 
 import { worldCopyMercX } from '../render/point-feature-packer'
-import { parseHexColor } from '../feature-helpers'
+import { hexToRgba } from '../feature-helpers'
 import { EARTH, lonLatToECEF } from '@xgis/shared'
 import {
   PARTICLE_RETAINED_FEAT,
@@ -59,7 +59,10 @@ function resolve<T, D>(acc: Packed<T, D> | undefined, d: D, i: number): T | unde
 function normColor(c: IconColor | undefined): [number, number, number, number] {
   if (c === undefined) return [1, 1, 1, 1]
   if (typeof c === 'string') {
-    const parsed = parseHexColor(c)
+    // #1666 — this fallback used to be DEAD: the parser was total and answered opaque
+    // BLACK for a caller-supplied `'red'` / `'rebeccapurple'` / typo, so the default the
+    // next line asks for was unreachable. `hexToRgba` answers null and it runs.
+    const parsed = hexToRgba(c)
     return parsed ? [parsed[0], parsed[1], parsed[2], parsed[3]] : [1, 1, 1, 1]
   }
   return [c[0], c[1], c[2], c[3] ?? 1]

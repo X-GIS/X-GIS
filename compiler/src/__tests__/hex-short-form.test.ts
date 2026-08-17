@@ -4,7 +4,7 @@
 //   - hexToRgba                              (ir/render-node.ts)
 //   - resolveColor                           (tokens/colors.ts)
 //   - resolveColorFromAST                    (codegen/shader-gen.ts — private)
-//   - lowerMatchColorToMatch.resolveColorOfAST (codegen/compute-lowering.ts — via lowering)
+//   - lowerMatchColorToMatch                  (codegen/compute-lowering.ts — via lowering)
 //
 // CSS spec allows 3/4/6/8 hex digits (lengths 4/5/7/9 including
 // the leading `#`). Until this commit the codepaths that consume
@@ -57,8 +57,9 @@ describe('resolveColor — short-form hex passes through unchanged', () => {
 })
 
 describe('lowerMatchColorToMatch — short-form hex arm value', () => {
-  // The compute-lowering adapter is the public entry point; its
-  // private resolveColorOfAST was previously the choke point that
+  // The compute-lowering adapter is the public entry point; the arm
+  // resolver behind it (resolveColorHexFromAST, shader-gen-helpers.ts;
+  // a private copy until #1667) was previously the choke point that
   // rejected #fff. Verifying the lowering accepts short form is the
   // visible behaviour change.
   function matchExprWithArm(armHex: string): DataExpr {
@@ -100,7 +101,7 @@ describe('lowerMatchColorToMatch — short-form hex arm value', () => {
   it('still rejects malformed hex (e.g. #ff has 2 digits)', () => {
     // Two-digit hex is not a CSS shape; the adapter drops the arm.
     const spec = lowerMatchColorToMatch(matchExprWithArm('#ff'))
-    // The arm is silently skipped (resolveColorOfAST returns null),
+    // The arm is silently skipped (resolveColorHexFromAST returns null),
     // so spec.arms ends up empty. The default still synthesises.
     expect(spec!.arms).toHaveLength(0)
   })

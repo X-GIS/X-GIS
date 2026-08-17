@@ -178,14 +178,25 @@ const CEILINGS: Record<string, number> = {
   // 2 drawSegments calls), and narrow the two warnStageBlockUnsupported('line',
   // ...) call sites to the genuinely-rejected case now that a feature-free
   // @stroke expression is actually consumed.
-  // MERGE UNION (#1355 <- main): +7 over main's 4863. This row auto-merged CLEANLY and
-  // therefore silently took main's ceiling WITHOUT this branch's paired raise — the exact
-  // failure the #1575 note below records; the vitest leg, not the merge, is what caught it.
-  // What lands here is the `arenaBytes()` thin accessor (same shape as `getCacheSize`
-  // beside it) plus its two imports; the SUM it forwards to lives in render-stats-bytes.ts
-  // rather than here, so the growth is the seam and not the logic. MEASURED post-prettier
-  // on the merged file (4870), never main's number plus an assumed delta.
-  'map/src/render/vector-tile-renderer.ts': 4870,
+  // 4863→4913 (#1592, measured post-prettier per §12): the RHI data-driven fill.
+  // The two substantial pieces — the per-variant Material cache and the per-tile
+  // feat_data buffer/bind-group — were NOT added here; they are their own owner
+  // (render/rhi-fill-variant.ts, 211 lines) precisely because this file is at its
+  // ceiling, and the pure pack it shares with FeatureDataBinder is a third file
+  // (render/feature-data-pack.ts). What lands here is only the wiring a renderer
+  // cannot delegate: the lazy owner field + accessor, the narrowed fill bail
+  // (`!fill && !dataDriven`) with the variant Material lookup, the null-fill
+  // branches for `fill_color` / `fillA`, the per-tile group selection in the draw
+  // loop, and the two teardown hooks (eviction + destroy).
+  // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
+  // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
+  // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
+  // MERGE UNION (#1355 <- main, second time): main's 4911 plus this branch's seam —
+  // the `arenaBytes()` thin accessor (same shape as `getCacheSize` beside it) and its
+  // import; the SUM it forwards to lives in render-stats-bytes.ts. Non-overlapping,
+  // so the sides compose; value is MEASURED post-merge post-prettier, never one
+  // side's number plus an assumed delta.
+  'map/src/render/vector-tile-renderer.ts': 4919,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -590,12 +601,25 @@ const CEILINGS: Record<string, number> = {
   // body, and each needs the label naming its URL. +13 = 3 calls + 5 lines of why +
   // the import's prettier wrap. MEASURED on the merged file, not derived from the
   // pre-#1605 base: the two raises land in different regions and therefore SUM.
-  // MERGE UNION (#1364 <- main): non-overlapping, so main's growth and this branch's
-  // SHRINK compose — never take one side, never max(). This branch's −7 is the
-  // post-allSettled outcome policy moving out to source-load-outcome.ts; inline it
+  // 5431→5436 (#1664): the per-feature colour bake stops failing SILENTLY. A
+  // data-driven fill has no layer constant to fall back to, so the catch that
+  // isolated one bad expression was also swallowing "this feature has no colour".
+  // +5 = the warning import, the `axis` parameter that names which of fill/stroke
+  // failed, the report call, and one line of why. The message, its latch and its
+  // injectable sink live in render/per-feature-color-warning.ts — only the call
+  // site is irreducible here, because only here are the layer and the axis known.
+  // 5436→5439 (#1664 review fold-in): the accept side of that same catch. `parseHexColor`
+  // is TOTAL — opaque BLACK for anything it does not recognise — so a non-hex string
+  // ("red", a data-carried token, a typo) painted a WRONG colour and reported it as a
+  // right one, the one failure mode the warning above cannot see. +3 = the token/CSS
+  // resolver ahead of the NULLABLE parse (one line, replacing two) plus the four lines
+  // naming why, mirroring what render/passes/label-pass.ts has always done. MEASURED.
+  // MERGE UNION (#1364 <- main): non-overlapping, so main's growth (#1664, above) and
+  // this branch's SHRINK compose — never take one side, never max(). The branch's −7 is
+  // the post-allSettled outcome policy moving out to source-load-outcome.ts; inline it
   // needed a live GPU context to reach, so it had no test at all. Value below is the
   // MEASURED post-merge, post-prettier count.
-  'map/src/map.ts': 5424,
+  'map/src/map.ts': 5434,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -604,10 +628,15 @@ const CEILINGS: Record<string, number> = {
   // machine itself lives in paint-transitions.ts). Cohesive layer-API
   // ownership (registry + style proxy + feature events) — shrink-only
   // from now; split (LayerIdRegistry / events vs style) if it grows again.
-  // 830→820 (#1364): the map-level error-event payload moved out to
-  // map-error-event.ts — a self-contained cluster nothing else in this file
-  // touches. Re-exported here, so existing import paths are unchanged.
-  'map/src/layer.ts': 820,
+  // 830→817 (#1666): the local `parseHexColor` wrapper is gone — a THIRD copy of the CSS
+  // hex regex, existing only to turn the total parser's opaque black back into the null the
+  // setters gate on. feature-helpers' `hexToRgba` now IS that contract, so the setters call
+  // it directly. Deleting a duplicate authority, not moving lines elsewhere.
+  // MERGE UNION (#1364 <- main): both sides SHRANK from 830 — main's −13 (#1666, above)
+  // and this branch's −10 (the map-level error-event payload moving out to
+  // map-error-event.ts, re-exported so import paths are unchanged) — and the removals
+  // compose. Value is the MEASURED post-merge, post-prettier count.
+  'map/src/layer.ts': 813,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -1163,7 +1192,9 @@ const CEILINGS: Record<string, number> = {
   // instead of hardcoding null — the VT/tile-point path is what an inline-GeoJSON point
   // source actually renders through, so without it a point stage block reached no pixels
   // at all (browser-probed). Most of the delta is the two rationale comments.
-  'map/src/render/point-renderer.ts': 1209,
+  // 1209→1208 (#1666): the two `fillHex`/`strokeHex` temporaries existed only to feed a
+  // `hex ? parse(hex) : null` ternary the null-returning `hexToRgba` makes redundant.
+  'map/src/render/point-renderer.ts': 1208,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -1263,7 +1294,13 @@ const CEILINGS: Record<string, number> = {
   // own doc-only edits (twin references retired to past tense, `?rhichain=1`/Inc-F4
   // present-tense framing corrected now the flip is done and the twin is deleted)
   // account for the rest.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1497,
+  // 1497→1447 (#1703, measured post-hook): the storage-buffer emulation's create/write
+  // pair, its GL format table and its typed-view rule moved to
+  // rhi-webgl2/src/storage-data-texture.ts. The element axis (R32F/R32UI/R32I) would
+  // have pushed this file over its ceiling; the ratchet's own instruction — extract,
+  // don't grow — was the right call, since the data texture is one concern and the
+  // device file only allocates, binds and deletes it.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1447,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1482,7 +1519,12 @@ const CEILINGS: Record<string, number> = {
   // spec default chain that resolves to it) moved out to
   // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
   'compiler/src/convert/layers-symbol.ts': 1357,
-  'compiler/src/ir/lower-label.ts': 1187,
+  // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
+  // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
+  // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
+  // -300, and the label silently kept the layer default. +3 = the import + the two
+  // wrapped call sites' shared 2-line why; the rewrite itself lives in lower-helpers.
+  'compiler/src/ir/lower-label.ts': 1190,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).

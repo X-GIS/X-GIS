@@ -52,6 +52,7 @@ describe('reflectionToBindGroupLayoutEntries', () => {
               space: 'storage',
               access: 'read_write',
               resourceKind: 'storage-buffer',
+              owner: 'module',
             },
           ],
         },
@@ -60,6 +61,11 @@ describe('reflectionToBindGroupLayoutEntries', () => {
       storage: [],
       entries: [],
       overrides: [],
+      // #1670 — always-present, like `overrides`; this synthetic fixture needs none.
+      requiredFeatures: [],
+      // #1713 — same contract: always present, empty when the module expects nothing
+      // from its host.
+      requires: [],
     }
     expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]]))).toEqual([
       { binding: 0, visibility: F, buffer: { type: 'storage' } },

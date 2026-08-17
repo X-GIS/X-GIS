@@ -21,6 +21,7 @@
 // a deferred follow-up.
 
 import type { Camera } from '../camera'
+import { prefetchLazyShaders } from '../shaders/baked/install'
 import { lonLatToECEF } from '@xgis/shared'
 import { activeBody } from '@xgis/shared'
 import { getSampleCount } from '@xgis/engine'
@@ -264,6 +265,15 @@ export class HeatmapRenderer {
       fi++
     }
     if (points.length === 0) return
+
+    // #1679 inc 9 — START the lazy-group fetch here. `drapers()` is a memoised getter fired
+    // on the DRAW path and cannot await a chunk, so importing at CONSTRUCTION would miss on
+    // the first build and pay the full emit anyway. This point is strictly before the first
+    // draw (the drapers comment records them being "built lazily at first draw so addLayer
+    // never touches the stub device"), so the fetch has a real window to land in. Placed
+    // AFTER the empty-layer return: a layer with no points never draws, so it must not pull
+    // a chunk it will never read. Fire-and-forget — it can neither throw nor reject.
+    prefetchLazyShaders(this.rhi)
 
     const lons = new Float64Array(points.length)
     const lats = new Float64Array(points.length)

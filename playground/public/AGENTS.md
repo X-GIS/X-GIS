@@ -16,6 +16,18 @@ Static assets served verbatim by Vite at the `/` root during local development a
 
 The `data/` subdirectory holds the GeoJSON geographic assets. Note that `playground/public/data/*` is gitignored except an allow-list (see `.gitignore`): only the committed assets travel with the repo — Natural Earth **110m** layers (`ne_110m_{countries,ocean,land,coastline,rivers,lakes,populated_places}.geojson`), `countries.geojson`, `land.geojson`, and the small `fixture-*.geojson` files for isolated render/pipeline tests (triangle, point, line, line-join, square, antimeridian, mercator-clip, categorical, stress-many, points-pop, EPSG:5179 Seoul reprojection). Higher-resolution Natural Earth (`ne_10m_*` / `ne_50m_*`) and any `.xgt` tiles referenced by demos are gitignored bulk assets fetched/generated locally, not checked in.
 
+### Fetching the bulk Natural Earth assets
+
+```
+bun run fetch:demo-data
+```
+
+73.8 MB across eight files, into `data/`, still gitignored afterwards. Thirteen demos need them — `physical-map-10m`, `physical-map-50m`, `rivers-10m`, `states-10m`, `states-provinces`, `layered-borders`, `night-map`, `water-hierarchy`, `populated-places`, `raster-overlay`, `zoom-lod` among them. Without the fetch those demos hang before `__xgisReady`: the dev server answers a missing `/data/*.geojson` with its HTML 404 page at **status 200**, so the source ingest rejects the body rather than seeing a clean 404.
+
+The local names are **not** the upstream names — `ne_50m_rivers.geojson` is Natural Earth's `ne_50m_rivers_lake_centerlines`, `ne_50m_states.geojson` is `ne_50m_admin_1_states_provinces`. That mapping lives in `scripts/fetch-demo-data.ts` (`DEMO_ASSETS`) because it cannot be guessed, and `scripts/demo-data-coverage.test.ts` gates it: an asset a demo references must be either checked in or listed there, so a new demo cannot quietly depend on a file nobody can obtain.
+
+Unlike the checked-in 110m files, the fetched copies are **raw upstream** — no property pruning. The 110m files were pruned per-file for git size (rivers keeps 7 of 35 keys; `countries` is a different vintage entirely, with 71 UPPERCASE keys), and that is not one reproducible recipe. It costs nothing here: of the demos that need these assets, all but two style by geometry alone, and the two that read a property (`admin`, in `states-10m` / `states-provinces`) find it upstream.
+
 ## For AI Agents
 
 ### Working In This Directory

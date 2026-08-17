@@ -1,6 +1,27 @@
 import { describe, it, expect } from 'vitest'
 import { wgslLayout, reflect } from './reflect'
-import { mat4x4fT, vec4fT, vec3fT, f32T, f64T, u32T, type StructDecl, type ModuleDecl } from './ir'
+import {
+  mat4x4fT,
+  vec4fT,
+  vec3fT,
+  f32T,
+  f64T,
+  u32T,
+  texture2dfT,
+  texture2dMsfT,
+  texture2dArrayfT,
+  texture2duT,
+  texture2diT,
+  texture2dArrayuT,
+  samplerT,
+  fn,
+  module,
+  vec4,
+  toF32,
+  type StructDecl,
+  type ModuleDecl,
+} from './ir'
+import { uniformStruct } from './sot'
 
 const struct = (
   name: string,
@@ -135,6 +156,7 @@ describe('reflect — module metadata walker', () => {
             name: 'u',
             space: 'uniform',
             resourceKind: 'uniform-buffer',
+            owner: 'module',
             structName: 'Uniforms',
           },
         ],
@@ -143,5 +165,162 @@ describe('reflect — module metadata walker', () => {
     expect(r.uniforms[0]?.size).toBe(80) // mat4x4(64) + vec4(16)
     expect(r.entries.map((e) => e.stage)).toEqual(['vertex', 'compute'])
     expect(r.entries.find((e) => e.stage === 'compute')?.workgroupSize).toBe(64)
+  })
+})
+
+// #1651 — `resourceKind: 'texture'` alone under-describes a texture binding: a host
+// creating the bind group needs the DIM to pick a 2d / 2d-array / multisampled view.
+// textureDim is therefore set on EVERY texture entry (never "only when interesting" —
+// that would make `undefined` mean both "a 2d texture" and "not a texture").
+// #1703 adds the second axis: dim alone still under-describes the binding, because a
+// host must ALSO know whether the view is float or integer — WebGPU's sampleType must
+// be 'uint'/'sint' and WebGL2 must back it with R32UI/R32I. textureElem carries the
+// same always-set contract as textureDim, for the same reason.
+describe('reflect — texture bind entries carry their dim (#1651) and element (#1703)', () => {
+  it('sets textureDim + textureElem on every texture entry and on no other kind', () => {
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [
+        { group: 0, binding: 0, name: 'flat_tex', space: 'uniform', type: texture2dfT },
+        { group: 0, binding: 1, name: 'atlas', space: 'uniform', type: texture2dArrayfT },
+        { group: 0, binding: 2, name: 'ms_tex', space: 'uniform', type: texture2dMsfT },
+        { group: 0, binding: 3, name: 'samp', space: 'uniform', type: samplerT },
+        { group: 0, binding: 4, name: 'ids', space: 'uniform', type: texture2duT },
+        { group: 0, binding: 5, name: 'deltas', space: 'uniform', type: texture2diT },
+        { group: 0, binding: 6, name: 'id_atlas', space: 'uniform', type: texture2dArrayuT },
+      ],
+      funcs: [],
+    }
+    expect(reflect(m).bindGroups[0]?.entries).toEqual([
+      {
+        group: 0,
+        binding: 0,
+        name: 'flat_tex',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d',
+        textureElem: 'f32',
+      },
+      {
+        group: 0,
+        binding: 1,
+        name: 'atlas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d-array',
+        textureElem: 'f32',
+      },
+      {
+        group: 0,
+        binding: 2,
+        name: 'ms_tex',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d-ms',
+        textureElem: 'f32',
+      },
+      // the sampler entry carries NEITHER field — both are texture-only
+      {
+        group: 0,
+        binding: 3,
+        name: 'samp',
+        space: 'uniform',
+        resourceKind: 'sampler',
+        owner: 'module',
+      },
+      // #1703 — the two axes are INDEPENDENT: same dim, different element, and the
+      // array/integer combination reports both.
+      {
+        group: 0,
+        binding: 4,
+        name: 'ids',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d',
+        textureElem: 'u32',
+      },
+      {
+        group: 0,
+        binding: 5,
+        name: 'deltas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d',
+        textureElem: 'i32',
+      },
+      {
+        group: 0,
+        binding: 6,
+        name: 'id_atlas',
+        space: 'uniform',
+        resourceKind: 'texture',
+        owner: 'module',
+        textureDim: '2d-array',
+        textureElem: 'u32',
+      },
+    ])
+  })
+})
+
+describe('reflect() reports the bindings a LOWERING injects, not just the declared ones (#1724)', () => {
+  // The `_fp64` anti-fast-math guard is auto-injected by fp64Lower, inside emit. Before this,
+  // the emitted source declared a binding reflect() did not report, so a host building its
+  // bind group from the reflection never bound the guard the shader samples. On WebGPU that
+  // is a validation error; on WebGL2 there is no error at all — the sampler stays on its
+  // default unit and the guard silently reads a value that is not 1.0.
+  const f64Module = () => {
+    const U = uniformStruct('U', { group: 0, binding: 0, as: 'u' }, { epoch: f64T })
+    return module({
+      uses: [U],
+      funcs: [
+        // An ADD in df64 — one of the helpers that genuinely reads the guard (the
+        // comparisons do not, which is why the injection is conditional).
+        fn('fs', {}, () => vec4(toF32(U.field.epoch.add(1.0)), 0.0, 0.0, 1.0), {
+          stage: 'fragment',
+        }),
+      ],
+    })
+  }
+
+  it('reports `_fp64` for a module that uses f64 arithmetic', () => {
+    const names = reflect(f64Module()).bindGroups.flatMap((g) => g.entries.map((e) => e.name))
+    expect(names).toContain('_fp64')
+  })
+
+  it('describes it completely enough to actually bind', () => {
+    // A name alone is not bindable. `resourceKind` + `textureDim` + `textureElem` are what a
+    // host needs to create the 1x1 texture the guard requires.
+    const e = reflect(f64Module())
+      .bindGroups.flatMap((g) => g.entries)
+      .find((x) => x.name === '_fp64')!
+    expect(e).toMatchObject({ resourceKind: 'texture', textureDim: '2d', textureElem: 'f32' })
+    expect(e.owner).toBe('module') // ours to create, not the host's to supply
+  })
+
+  it("reports NO guard for the 'integer' flavor, which never reads one", () => {
+    // The arm that makes the two above mean something: if reflect() simply appended `_fp64`
+    // to every f64 module, this would fail. It is the lowering's decision, and the lowering
+    // makes a different one here — so a host on Apple/Metal (recommendFp64Flavor picks
+    // 'integer') is told to bind exactly what that emit declares.
+    const names = reflect(f64Module(), { fp64Flavor: 'integer' }).bindGroups.flatMap((g) =>
+      g.entries.map((e) => e.name),
+    )
+    expect(names).not.toContain('_fp64')
+    expect(names).toContain('u') // …and the module's own bindings are still all there
+  })
+
+  it('leaves a module without f64 completely untouched', () => {
+    const U = uniformStruct('P', { group: 0, binding: 0, as: 'p' }, { k: f32T })
+    const plain = module({
+      uses: [U],
+      funcs: [fn('fs', {}, () => vec4(U.field.k, 0.0, 0.0, 1.0), { stage: 'fragment' })],
+    })
+    expect(reflect(plain).bindGroups.flatMap((g) => g.entries.map((e) => e.name))).toEqual(['p'])
   })
 })

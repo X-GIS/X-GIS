@@ -79,8 +79,29 @@ import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int'
 //             Metal oracle where every float formulation collapses; also
 //             immune to ANGLE-D3D11/FXC's composed-tree folding. No `_fp64`
 //             guard binding is injected (the integer bodies never read it).
+/** Which error-free-transform primitives back the emulated-double (`df64`) lowering. Both
+ *  flavours compute the same values; they differ in what a DOWNSTREAM shader compiler is able
+ *  to do to them.
+ *
+ *  - `'float'` — the guarded float EFTs. The default, and the byte-identical-emit baseline.
+ *  - `'integer'` — integer bit arithmetic in the `twoSum`/`twoProd`/`div`/`sqrt` leaves (the
+ *    compositions above them are shared). The point is that a fast-math pass CANNOT reassociate
+ *    integer ops, so the hi/lo split survives. Proven necessary on the Apple/Metal oracle, where
+ *    every float formulation collapses, and it is likewise immune to ANGLE-D3D11/FXC's composed-
+ *    tree folding.
+ *
+ *  Reach for `'integer'` when a target's compiler is known to fold the float EFTs — the symptom
+ *  is df64 silently degrading to f32 precision on one platform while every other target is fine.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export type Fp64Flavor = 'float' | 'integer'
 
+/** Options for the fp64 lowering pass. Omitting `flavor` selects `'float'` — see
+ *  {@link Fp64Flavor} for when that default is the wrong one.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface Fp64LowerOptions {
   readonly flavor?: Fp64Flavor
 }
@@ -280,6 +301,7 @@ function lowerExpr(e: Expr, ctx: LowerCtx): Expr {
     case 'lit':
       return isF64(e.type) ? pairLit(e.value as number) : e
     case 'constref':
+    case 'externref': // #1713 — a host-provided global is spelled by the host, never lowered
     case 'overrideref': // #923 — a specialization constant is a WGSL scalar, never f64
     case 'param':
     case 'varref':
@@ -710,6 +732,7 @@ function exprHasF64(e: Expr): boolean {
   switch (e.op) {
     case 'lit':
     case 'constref':
+    case 'externref':
     case 'overrideref':
     case 'param':
     case 'varref':
@@ -1119,10 +1142,13 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
   const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER)
   if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
-  // #923 — carry specialization constants through the f64 rebuild (a non-f64 module
-  // already short-circuits via `return m` above, keeping them; an f64 module that also
-  // declares overrides must not lose them). Overrides are WGSL scalars, untouched by
-  // f64 lowering. Absent ⇒ omit the key, so an override-free f64 emit stays identical.
-  const rebuilt: ModuleDecl = { consts, structs, bindings, funcs: [...funcs, ...helpers] }
-  return m.overrides ? { ...rebuilt, overrides: m.overrides } : rebuilt
+  // SPREAD the source module, then override the four fields this pass actually rewrites
+  // — the sibling idiom every other rebuilding pass uses. That carries `overrides`,
+  // `enables`, and any FUTURE optional ModuleDecl field for free; hand-listing the
+  // survivors is what dropped `enables` here in the first place (#1670), invisibly: tsc
+  // cannot see it (the field is optional), and every emit path read the AUTHORED module,
+  // so the loss only surfaced through a consumer deriving from the LOWERED module —
+  // reflect() of a lowered module (emitModuleWithReflection) losing `requiredFeatures` on
+  // f64 modules ONLY. Pinned by backends/extension-profile.test.ts.
+  return { ...m, consts, structs, bindings, funcs: [...funcs, ...helpers] }
 }

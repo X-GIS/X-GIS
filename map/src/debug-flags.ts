@@ -9,10 +9,10 @@
 
 import { emitOverdrawFsWgsl } from './shaders/dsl/overdraw-fs'
 
-function readDebugFlag(): string | null {
+function readDebugFlag(param = 'debug'): string | null {
   if (typeof window === 'undefined') return null
   try {
-    return new URL(window.location.href).searchParams.get('debug')
+    return new URL(window.location.href).searchParams.get(param)
   } catch {
     return null
   }
@@ -132,6 +132,22 @@ export function sceneScalePinned(): number | null {
   return SCENE_SCALE_URL
 }
 
+/** `?nobake=1` — boot-time opt-OUT of the committed shader bake (#1678), so the closed-set
+ *  artifact is ignored and every shader is emitted at runtime as it was before the bake.
+ *
+ *  Read PER CALL, not latched into a module const like `DEBUG_OVERDRAW`: this one is asked
+ *  once per device boot (`seedBakedShaders`), and `map.run()` can re-boot against a changed
+ *  URL. Same non-latched shape as `animTimePinnedSeconds` / `sceneScalePinned`.
+ *
+ *  It exists for the render gate: `playground/e2e/_1678-hillshade-bake-hash-gate.spec.ts`
+ *  renders the same hillshade scene twice, once served from the artifact and once with this
+ *  flag set, and requires the two canvases to hash EQUAL. Without a way to turn the bake off
+ *  there is no control arm, and "the baked bytes are the bytes that would have been emitted"
+ *  would be an assertion about the artifact only, never about the frame. */
+export function bakedShadersDisabled(): boolean {
+  return readDebugFlag('nobake') === '1'
+}
+
 /** Format of the overdraw accumulator render target. r16float lets
  *  per-pixel fragment counts grow well beyond the [0, 1] range that
  *  the bgra8unorm swapchain would clip; ~65 k max before overflow,
@@ -139,11 +155,22 @@ export function sceneScalePinned(): number | null {
  *  every renderer's debug pipeline. */
 export const OVERDRAW_ACCUM_FORMAT: GPUTextureFormat = 'r16float'
 
+let _overdrawFsSource: string | undefined
+
 /** Constant fragment-shader output for additive accumulation. Every
  *  fragment writes 1.0 to the red channel; the compose pass divides
  *  by an exposure constant before applying the colormap. WGSL emitted
- *  from the polygon DSL — see runtime/src/engine/shaders/dsl/overdraw-fs.ts. */
-export const OVERDRAW_FS_SOURCE = emitOverdrawFsWgsl()
+ *  from the polygon DSL — see shaders/dsl/overdraw-fs.ts.
+ *
+ *  MEMOISED ACCESSOR, not a module const (#1473 residue): as a `const` this ran the
+ *  emit at IMPORT time, and this module is imported by most of the render tree — so
+ *  every boot, on either backend, paid for one WGSL fragment shader before a device
+ *  existed, and `?debug=overdraw` is off in all of them. The mode is dormant but not
+ *  dead (its compose pass is WebGPU-only, `isOverdrawActive`), so the source stays;
+ *  it is now produced on first ask and cached. */
+export function overdrawFsSource(): string {
+  return (_overdrawFsSource ??= emitOverdrawFsWgsl())
+}
 
 /** Blend state — pure additive on the red channel. Alpha is also
  *  summed defensively in case future code reads it. */

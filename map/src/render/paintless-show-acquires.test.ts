@@ -66,7 +66,11 @@ describe('renderFillsRhi acquires before it asks what the show paints (#1046 Inc
   const iRequest = body.indexOf('this.source.requestTiles(toLoad)')
   // #1583 wrapped this bail in a block (it now also reports the fill-gap
   // warning), so the anchor is the block opener, not `if (!fill) return`.
-  const iFillBail = body.indexOf('if (!fill) {')
+  // #1592 narrowed the CONDITION — a data-driven fill has no CPU colour but is
+  // now drawable through the variant Material, so only the residue this backend
+  // still cannot paint bails here. The bail itself, and every ordering property
+  // below, is unchanged; the anchor tracks the new opener.
+  const iFillBail = body.indexOf('if (!fill && !dataDriven) {')
   const iAlphaBail = body.indexOf('if (fillA <= 0.005) return')
 
   it('every anchor is still present (not vacuous — #996)', () => {

@@ -8,7 +8,7 @@ import { isWebMercator } from '@xgis/geo'
 import { SINGLE_COPY } from '../camera/camera-world-copies'
 import { getSampleCount, FrameArena } from '@xgis/engine'
 import type { ShapeRegistry } from '../text/sdf-shape'
-import { parseHexColor } from '../feature-helpers'
+import { hexToRgba } from '../feature-helpers'
 import { resolveNumberShape } from './paint-shape-resolve'
 import type { PointLayer } from './point-renderer-types'
 import { buildPointModule, pointU as POINT_U } from '../shaders/dsl/point'
@@ -304,7 +304,7 @@ export class PointRenderer {
     // turn claimed to mirror polygon's pipeline-factory.ts precedent; that was
     // wrong (polygon has never composed GLSL on WebGL2 either — it returns
     // before building any variant pipeline there, which is what #1592/#1583's
-    // fill-gap warning is about). Composed GLSL + emulateStorage + preamble
+    // fill-gap warning is about). Composed GLSL + the storage lowering + preamble
     // consts/funcs is proven to compile and link on real WebGL2 by
     // _webgl2-point-link-gate.spec.ts, and to PAINT by
     // _stage-block-point-webgl2-gate.spec.ts.
@@ -474,11 +474,10 @@ export class PointRenderer {
     if (this.tilePoints.length === 0) return
     const N = this.tilePoints.length
 
-    // Parse show colors
-    const fillHex = show.fill
-    const strokeHex = show.stroke
-    const fill = fillHex ? parseHexColor(fillHex) : null
-    const stroke = strokeHex ? parseHexColor(strokeHex) : null
+    // Parse show colors. #1666 — a malformed hex is null, same as a missing one, so it
+    // clears the fill/stroke flag bits below instead of arriving as opaque black.
+    const fill = hexToRgba(show.fill)
+    const stroke = hexToRgba(show.stroke)
     const opacity = show.opacity ?? 1.0
     const radiusPx = show.size ?? 6
     // #722 S4 — data-driven per-feature size (fixes #17), mirrors the inline

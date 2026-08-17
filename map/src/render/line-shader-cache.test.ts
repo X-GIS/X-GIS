@@ -20,10 +20,7 @@ function baseVariant(overrides: Partial<ShaderVariantInfo> = {}): ShaderVariantI
     featureFields: [],
     uniformFields: [],
     categoryOrder: {},
-    paletteColorGradients: [],
     paletteScalarGradients: [],
-    fillUsesPalette: false,
-    strokeUsesPalette: false,
     opacityUsesPalette: false,
     fillIsDefault: true,
     strokeIsDefault: false,
@@ -74,10 +71,6 @@ describe('toComposerLineVariant (#1605)', () => {
       computeBindings: [{ paintAxis: 'stroke', bindGroup: 2, binding: 0 }] as never,
     })
     expect(toComposerLineVariant(variant)).toBeNull()
-  })
-
-  it('paletteColorGradients present → null (not supported yet)', () => {
-    expect(toComposerLineVariant(baseVariant({ paletteColorGradients: [0] }))).toBeNull()
   })
 
   it('paletteScalarGradients present → null (not supported yet)', () => {

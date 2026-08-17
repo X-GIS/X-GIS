@@ -21,7 +21,8 @@ import type {
   RhiSampler,
   RhiRenderPass,
 } from '@xgis/engine'
-import { emitFlowAdvectWgsl, emitFlowAdvectGlsl } from '../../shaders/dsl/flow-advect'
+import { emitFlowAdvectWgsl, emitFlowAdvectGlslStages } from '../../shaders/dsl/flow-advect'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** Floats in AdvectParams: step(4) + phase(4). */
 export const FLOW_ADVECT_UNIFORM_FLOATS = 8
@@ -47,12 +48,16 @@ export class FlowAdvectDraper {
     format: string,
     sampleCount = 1,
   ) {
+    // #1473 residue — this site emitted BOTH languages unconditionally and lowered the GLSL
+    // module once per stage. Mirroring CoverageDraper (the header's own rule) now means
+    // mirroring its thunk seam too: one language per device, one lowering for the GLSL pair.
+    // Byte-neutral — `emitFlowAdvectGlslStages` is pinned byte-identical to two per-stage
+    // calls by `glsl-stage-entry-parity.test.ts`.
     this.material = new Material(rhi, {
-      shader: emitFlowAdvectWgsl(),
+      shader: wgslFor(rhi, emitFlowAdvectWgsl),
       vsEntry: 'vs_flow_advect',
       fsEntry: 'fs_flow_advect',
-      vsCode: emitFlowAdvectGlsl('vertex'),
-      fsCode: emitFlowAdvectGlsl('fragment'),
+      ...glslStagesFor(rhi, emitFlowAdvectGlslStages),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [[...FLOW_ADVECT_BINDINGS]],

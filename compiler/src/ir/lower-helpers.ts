@@ -8,6 +8,7 @@ import { parseExpressionString } from '../parser/parser'
 import { parseTextTemplate, isBareExpressionTemplate } from '../format'
 import type { TextValue, TextPart } from './render-node'
 import type { ZoomStopsWithBase } from './lower-types'
+import { resolveColorHexFromAST } from '../codegen/shader-gen-helpers'
 
 /** Convert the AST.Expr bound to a `label-[<binding>]` utility into
  *  a TextValue. When the binding is a string literal we treat it as
@@ -370,4 +371,94 @@ export function extractInterpolateDensityColorStops(
     }
   }
   return stops.length >= 2 ? stops : null
+}
+
+// ═══ Colour-token literals in a data-driven colour expression (#1664) ═══
+//
+// `fill gradient(.speed, 0, 120, sky-300, rose-600)` reaches lowering with its two
+// endpoints as ARITHMETIC: the grammar has no colour-token terminal, so `sky-300`
+// lexes as `Identifier("sky") - NumberLiteral(300)`. The GPU codegen has always
+// undone that (`resolveColorHexFromAST`), which is why a token ramp renders on the
+// WebGPU polygon path; the CPU evaluator has not, so `evaluate()` returned the
+// number -300, every per-feature colour was rejected as "not a string", and the
+// point / arrow paths painted the layer constant — which for a data-driven fill is
+// null (#1592, gate `_point-gradient-gl2-gate.spec.ts`).
+//
+// Fixing it HERE rather than in the evaluator is what keeps one authority: after
+// this pass the colour position holds the same hex the GPU would have resolved, so
+// both back-ends read one literal and neither owns a palette table. The transform
+// is IDENTITY-PRESERVING — an expression whose colour positions are already
+// literals (every Mapbox-converted style, which emits `"#rrggbb"`) is returned by
+// reference, unchanged, so no existing variant key, golden or feature layout moves.
+//
+// It also removes a real GPU-side wart: `collectFields` counted the `sky` / `rose`
+// halves of those tokens as FEATURE FIELDS, so a token ramp compiled a 3-wide
+// feat_data stride (`ff:rose,sky,speed`) where the hex spelling of the same ramp
+// compiled a 1-wide one. Both spellings now produce the identical variant.
+
+/** Colour positions, mirroring `codegen/shader-gen.ts` processColorValue exactly:
+ *  `gradient`/`scale` args 3+4, and every `match` arm value (the `_` default
+ *  included). Any other shape is left alone. */
+function colorPositionLiteral(node: AST.Expr): AST.Expr {
+  // Only the shapes the evaluator gets WRONG today are rewritten. A bare
+  // `Identifier` evaluates to a property lookup (null for a palette name), the
+  // hyphen form to negative arithmetic, and a `StringLiteral` token to a string
+  // no hex parser accepts. A `ColorLiteral` and a data-driven `rgb(.r,…)` already
+  // evaluate correctly on both sides, so they are deliberately NOT touched.
+  if (
+    node.kind === 'Identifier' ||
+    node.kind === 'StringLiteral' ||
+    (node.kind === 'BinaryExpr' &&
+      node.op === '-' &&
+      node.left.kind === 'Identifier' &&
+      node.right.kind === 'NumberLiteral')
+  ) {
+    const hex = resolveColorHexFromAST(node)
+    // Non-colour names miss the palette and stay exactly as authored, so a
+    // feature property really called `foo` is never captured.
+    if (hex && !(node.kind === 'StringLiteral' && node.value === hex)) {
+      return { kind: 'StringLiteral', value: hex }
+    }
+    return node
+  }
+  return resolveColorTokenLiterals(node)
+}
+
+/** Rewrite every colour position of a data-driven colour expression to the hex
+ *  literal the GPU codegen resolves it to. Returns `ast` itself when nothing
+ *  needed rewriting.
+ *
+ *  PRODUCER BOUNDARY — where this is applied, and where it deliberately is not.
+ *  It belongs at every site that STORES a per-feature colour AST for a consumer
+ *  that will evaluate it as a COLOUR:
+ *    - fill        `ir/lower-bindings-fill.ts` (the data-driven `fill` binding)
+ *    - stroke      `ir/lower-bindings-line.ts` (`strokeColorExpr`)
+ *    - label/icon  `ir/lower-label.ts` (`labelColorExpr`, `labelIconColorExpr`)
+ *  It is deliberately NOT applied to STAGE-BLOCK colours (`ir/lower.ts:945-946`,
+ *  `| stage color { … }`): a stage body is authored in the GPU's VALUE domain —
+ *  its result is a vec4, not a hex string — so rewriting a token there would
+ *  replace an arithmetic term with a string the value domain cannot consume.
+ *  A new colour-AST producer joins the first list; a new value-domain one does
+ *  not. */
+export function resolveColorTokenLiterals(ast: AST.Expr): AST.Expr {
+  if (ast.kind !== 'FnCall' || ast.callee.kind !== 'Identifier') return ast
+  const name = ast.callee.name
+  if ((name === 'gradient' || name === 'scale') && ast.args.length === 5) {
+    const lo = colorPositionLiteral(ast.args[3]!)
+    const hi = colorPositionLiteral(ast.args[4]!)
+    if (lo === ast.args[3] && hi === ast.args[4]) return ast
+    return { ...ast, args: [ast.args[0]!, ast.args[1]!, ast.args[2]!, lo, hi] }
+  }
+  if (name === 'match' && ast.matchBlock) {
+    const block = ast.matchBlock
+    let changed = false
+    const arms = block.arms.map((arm) => {
+      const value = colorPositionLiteral(arm.value)
+      if (value === arm.value) return arm
+      changed = true
+      return { ...arm, value }
+    })
+    return changed ? { ...ast, matchBlock: { ...block, arms } } : ast
+  }
+  return ast
 }

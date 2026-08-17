@@ -62,6 +62,21 @@
 // three were already retired by earlier increments in this program without the baseline
 // being lowered to match, so this locks the measured count rather than a remembered one.
 //
+// 38→35 (#1679 increment 0, measured at this commit): `RetainedArrowAdvectedDraper` held the
+// last of the dual-source `const gl2` selections the 47→43 entry above retired everywhere
+// else — its GLSL half was guarded by an identity read while its WGSL half was not guarded at
+// all — and both halves now go through `wgsl-for.ts`, i.e. through `caps.shaderLanguage`. That
+// is one read (36→35); the other two had already been retired by earlier increments without
+// the baseline following them down, so this locks the MEASURED count rather than a remembered
+// one, exactly as the 42→38 entry did.
+//
+// 35→33 (#1679 increment 7, measured at this commit): `LineRhiDraper` was the last draper
+// whose GLSL half never went through the seam at all — inc 0 routed seven others but missed
+// this one, because line spells its stages as an EMITTER ARGUMENT
+// (`emitLineGlsl(variant, pick, stageArg)`) rather than as a `…GlslStages` pair. Both of its
+// `const gl2` reads are gone: the source now comes from `glslFor` and the entry-array GROUP
+// selection from `readsWgsl`, which is the same question asked once. Two reads, 35→33.
+//
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
 // reaches the real tree, so `count <= BASELINE` can never pass by scanning an empty set.
@@ -72,7 +87,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 38
+const BASELINE = 33
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

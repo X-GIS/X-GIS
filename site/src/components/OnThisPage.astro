@@ -1,4 +1,5 @@
 ---
+import '../styles/scroll-rail.css'
 // Right-side sticky "On this page" TOC for docs pages. Astro's
 // `getHeadings()` (called from a parent .astro) yields a flat list
 // of `{ depth, slug, text }` entries; we filter to H2/H3 and render
@@ -24,9 +25,9 @@ const items = headings.filter(h => h.depth >= 2 && h.depth <= 3)
 
 {items.length > 0 && (
   <aside class="hidden xl:block">
-    <nav class="sticky top-20 text-[12.5px] leading-[1.6] max-h-[calc(100vh-6rem)] overflow-auto pr-2">
+    <nav class="sticky top-20 text-[12.5px] leading-[1.6] pr-2" aria-label="On this page">
       <p class="font-mono text-[11px] text-fg-mute uppercase tracking-[0.16em] mb-3">On this page</p>
-      <ul class="space-y-1.5 border-l border-line">
+      <ul class="otp-list scroll-rail space-y-1.5 border-l border-line">
         {items.map(h => (
           <li>
             <a
@@ -89,3 +90,17 @@ const items = headings.filter(h => h.depth >= 2 && h.depth <= 3)
     }
   }
 </script>
+
+<style>
+  /* Sizing only. The scroll affordance — thin scrollbar, edge fade, reduced-motion — is
+   * shared with the left symbol rail in src/styles/scroll-rail.css, because these two had
+   * the same problem and fixing only one is how they drifted apart in the first place.
+   *
+   * Only the LIST carries it: the "On this page" label sits outside, so it no longer
+   * scrolls away with a long TOC. Of 332 generated pages only 4 exceed 25 entries
+   * (Node 52, ReadonlyNode 51, CODES 26 — class members, where a TOC earns its space);
+   * the 194-entry group index is suppressed at the layout instead. */
+  .otp-list {
+    max-height: calc(100vh - 9rem);
+  }
+</style>

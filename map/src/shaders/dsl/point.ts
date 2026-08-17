@@ -726,8 +726,8 @@ export const emitPointWgsl = (variant: PointVariantSpec | null = null): string =
   emitModule(buildPointModule(variant))
 
 /** GLSL ES 3.00 twin for the WebGL2 backend (#1057) — the SAME point module, split per
- *  stage, with `emulateStorage` lowering the feat_data / shapes / segments storage buffers
- *  to R32F data-texture samplers (WebGl2Device's storage-buffer emulation). GLSL ES has one
+ *  stage, with the default storage→data-texture lowering turning the feat_data / shapes /
+ *  segments buffers into R32F samplers (WebGl2Device's storage emulation). GLSL ES has one
  *  `main` per stage, so the non-kept stage entry is filtered out. Consumed by PointDraper
  *  behind a live `rhi.backend === 'webgl2'` guard, so the WebGPU boot never pays this emit
  *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). `variant` is always null on WebGL2 this
@@ -741,7 +741,6 @@ export const emitPointGlsl = (
   return emitGlslModule(
     { ...m, funcs: m.funcs.filter((f) => stageOf(f) === undefined || f.name === keep) },
     stage,
-    { emulateStorage: true },
   )
 }
 
@@ -755,5 +754,4 @@ export const emitPointGlslStages = (
   emitGlslStages(buildPointModule(variant), {
     vertexEntry: 'vs_point',
     fragmentEntry: 'fs_point',
-    emulateStorage: true,
   })

@@ -1,0 +1,33 @@
+{
+  // #1681 B1 — the PACKAGE-LOCAL compiler baseline.
+  //
+  // Every tsconfig in this package used to `extends "../tsconfig.base.json"` — the
+  // MONOREPO root's. That made the package uncompilable anywhere else: a vendored
+  // source copy (the real production consumer pulls this package in with a
+  // source-copying script) or an isolated CI checkout has no `../tsconfig.base.json`,
+  // so `tsc -p .` fails before it reads a single .ts file. Every extends chain in
+  // shader-dsl/ now terminates HERE, inside the package, so the directory compiles
+  // standing alone.
+  //
+  // This is a deliberate copy of the repo root's tsconfig.base.json and therefore a
+  // second authority (CLAUDE.md §12). It is GATED: `src/tsconfig-drift.test.ts` reads
+  // both files and fails, NAMING the option, if this one is not at least as strict as
+  // the root — and also fails if any tsconfig in this package starts extending
+  // outside it again. Keep the two in sync by editing both; the gate is what tells
+  // you that you did not.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "skipLibCheck": true,
+    "types": ["@webgpu/types"]
+  }
+}

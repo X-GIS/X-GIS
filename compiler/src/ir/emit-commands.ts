@@ -334,10 +334,10 @@ export interface SceneCommands {
    *  default (dark navy). */
   background?: string
   /** Scene-wide constant/gradient pool (P3 Step 1, see palette.ts).
-   *  Runtime calls `uploadPalette` to create the GPU storage textures
-   *  and binds them to every variant whose `paletteColorGradients`
-   *  is non-empty. Empty (or absent) when no zoom-interpolated paint
-   *  property was eligible for textureSampleLevel routing. */
+   *  Runtime calls `uploadPalette` to create the GPU storage textures and binds them to
+   *  every variant whose `paletteScalarGradients` is non-empty. COLOUR gradients are
+   *  still collected here (the packer walks them) but no variant samples them since
+   *  #1661 — a zoom-interpolated colour resolves on the CPU into `u.<axis>_color`. */
   palette?: import('../codegen/palette').Palette
   /** P4 plan — one entry per (renderNodeIndex, paintAxis) that
    *  needs a compute kernel evaluation. The runtime consumes this

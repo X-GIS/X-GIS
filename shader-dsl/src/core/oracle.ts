@@ -73,6 +73,20 @@ interface Ctx {
   gpuStubs: boolean
 }
 
+/** The shape both CPU backends return — `compileModule`'s tree-walk interpreter and
+ *  `compileModuleJs`'s compiled `new Function` twin — so a caller can swap between
+ *  them without touching call sites (map's cpu-projections does exactly that: it
+ *  compiles with `compileModuleJs` and falls back to this interpreter only when
+ *  `new Function` construction itself throws, e.g. under a CSP `unsafe-eval` block).
+ *  `fns` is a callable-by-name table matching the IR module's declared functions,
+ *  params positional in declaration order; `setBinding` injects a storage/uniform
+ *  binding's value (e.g. the shapes/segments arrays `sdf_shape` reads) before a fn
+ *  that reads it runs. The bit-identity contract the two backends hold to —
+ *  `compileModuleJs(m).fns.f(args) === compileModule(m).fns.f(args)`, `Object.is`
+ *  element-for-element — is exactly this shape being interchangeable.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export interface CpuModule {
   fns: Record<string, (...args: CpuValue[]) => CpuValue>
   /** Inject a storage/uniform binding value (e.g. the shapes/segments arrays
@@ -94,6 +108,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
       if (v === undefined) throw new Error(`shader-dsl/cpu: unknown override ${e.name}`)
       return v
     }
+    // #1713 — see cpu-codegen: no host here, so no value. Throw rather than fabricate.
+    case 'externref':
+      throw new Error(`shader-dsl/cpu: host-provided global '${e.name}' has no CPU value`)
     case 'param':
     case 'varref': {
       if (env.has(e.name)) return env.get(e.name) as CpuValue
@@ -343,12 +360,12 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         )
       }
       case 'raw': {
-        // Phase 2 PR 2e.B.2 — raw WGSL passthrough is GPU-only; it has no
+        // Phase 2 PR 2e.B.2 — raw passthrough is GPU-only; it has no
         // CPU evaluation. Reaching here means a raw Stmt was placed on a
         // shader path that also runs through the CPU mirror (cpu-projections
         // / compute eval), which is a composition bug — fail loudly.
         throw new Error(
-          'shader-dsl/cpu: raw WGSL Stmt reached CPU backend — raw passthrough is GPU-only',
+          'shader-dsl/cpu: raw Stmt reached CPU backend — raw passthrough is GPU-only',
         )
       }
     }
@@ -356,6 +373,26 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   return NORMAL
 }
 
+/** The CPU (f64) tree-walk interpreter — a differential reference for the WGSL/GLSL
+ *  GPU backends, re-walking the SAME IR node-by-node on every call (no code
+ *  generation) and evaluating every op with `Math.*` in full f64, never `fround`.
+ *  That makes it an ALGEBRA oracle, not an f32-precision one: it proves the IR picked
+ *  the right ops in the right order (matching the hand-written f64 mirror to ≤1mm),
+ *  and it is structurally blind to f32-rounding bugs that exist only once the GPU
+ *  truncates per-vertex — see this module's header for two bugs it could never have
+ *  caught. Shares `validate`/`autoVars` with the WGSL/GLSL writers, so it rejects the
+ *  same malformed modules they would. `opts.gpuStubs` is off by default — a call to a
+ *  GPU-only intrinsic (`ORACLE_GPU_STUB_NAMES`) throws rather than returning a
+ *  plausible-wrong value; pass `{ gpuStubs: true }` only when a placeholder value
+ *  (opaque black texture reads, zero derivatives) is an acceptable stand-in for the
+ *  test at hand. Production-used (map's cpu-projections) as the fallback
+ *  `compileModuleJs` reaches for when `new Function` itself is unavailable — prefer
+ *  that backend on any hot per-frame path, and reach for this one directly when
+ *  debugging (one implementation, no generated-source layer between you and the IR)
+ *  or when the host cannot `eval`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.

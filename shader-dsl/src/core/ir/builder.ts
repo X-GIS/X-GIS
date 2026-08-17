@@ -13,8 +13,11 @@ import {
   type ModuleDecl,
   type ConstDecl,
   type OverrideDecl,
+  type ExternVarDecl,
   type StructDecl,
   type BindingDecl,
+  type RawStmt,
+  type RawPayload,
   ASSEMBLED_AS,
 } from './nodes'
 import {
@@ -29,11 +32,25 @@ import {
   u32,
   callFn,
   overrideRef,
+  externRef,
   installStmtSink,
 } from './node'
 import { dslError } from '../diagnostics/error'
 import { captureLoc, recordLoc } from '../diagnostics/loc'
 
+/** The signature record for {@link externFn} — a bare name-to-type param map, with no room
+ *  for a stage attribute or a struct-handle field (those are {@link FnParamSpec}, `fn()`'s
+ *  richer version). An extern is a forward-declared CALL only, never a pipeline entry point,
+ *  so it never needs `@builtin`/`@location`.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  const LLP_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT } satisfies ParamSpec
+ *  export const project = externFn('project', LLP_PARAMS, vec2fT)
+ *  ```
+ */
 export type ParamSpec = Record<string, ShaderType>
 /** An entry-point param carrying a stage attribute — `builtin('vertex_index', u32T)` /
  *  `location(0, vec4fT)` (the SAME FieldSpec the ioStruct fields use). A plain ShaderType value is
@@ -53,6 +70,24 @@ type ParamAttr = {
  *  `fn({ in: PointOut }, ({ in }) => in.uv…)` — the body receives the TYPED field
  *  proxy, retiring the `PointOut.of(p.in)` re-assertion at every consumer. */
 type StructParamHandle = { readonly type: ShaderType; of(node: ReadonlyNode): object }
+/** The param record `fn()` accepts — each value is a plain {@link ShaderType} (an ordinary
+ *  helper param), a `builtin(...)`/`location(...)` FieldSpec (a stage-attributed entry-point
+ *  param), or a structDecl/ioStruct handle (the body receives the TYPED field proxy instead
+ *  of re-asserting `Struct.of(p.field)`). One record shape covers both plain helpers and
+ *  `@vertex`/`@fragment`/`@compute` entries — see {@link FnHandle} for the call surface it
+ *  produces.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  const vs = fn(
+ *    'vs_flow_advect',
+ *    { idx: builtin('vertex_index', u32T) } satisfies FnParamSpec,
+ *    (p) => { ... },
+ *  )
+ *  ```
+ */
 export type FnParamSpec = Record<string, ShaderType | ParamAttr | StructParamHandle>
 type ParamTypeOf<E> = E extends ParamAttr
   ? E['type']
@@ -71,6 +106,27 @@ type ParamNodes<P extends FnParamSpec> = {
     : ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>>
 }
 
+/** The Stmt collector every `fn()` body writes into — `let`/`var`/`assign`/`if`/`forRange`/
+ *  `switch`/`ret`/`break`/`continue`/`discard`/`raw` each push one `Stmt` onto `.stmts` in
+ *  authored order. This is the passed-builder API: `fn()` hands its body the Builder as the
+ *  second argument, and the ambient free functions (`Let`/`Var`/`If`/`Loop`/`Return`/…) are a
+ *  thin convenience layer that resolve `currentBuilder()` to the innermost one of these and
+ *  forward to it — so `b.let(...)` and the ambient `Let(...)` emit the identical Stmt. Reach
+ *  for the Builder directly (rather than the ambient surface) when a Stmt is authored OUTSIDE
+ *  an active `fn()`/`If`/`Loop` scope — e.g. a composer that assembles a `Stmt[]` fragment by
+ *  hand and splices it in later, where `currentBuilder()` would throw SD0013 (no active scope).
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  // Outside an active fn() scope — e.g. a shader composer building a Stmt[] to splice in.
+ *  const b = new Builder()
+ *  const base = b.let('ext_base', fillExpr)
+ *  b.assign(out.color, vec4(base.swizzle('xyz'), base.w))
+ *  return b.stmts
+ *  ```
+ */
 export class Builder {
   readonly stmts: Stmt[] = []
 
@@ -195,6 +251,16 @@ export class Builder {
     this.push({ s: 'placeholder', tag })
   }
 
+  /** Splice a verbatim per-target statement (#1671) — the fluent-body twin of
+   *  the free `rawStmt()` factory. Use `b.raw()` inside `fn()` bodies (a bare
+   *  `rawStmt(...)` call there is a silently DISCARDED expression — the returned
+   *  Stmt is never pushed, so nothing is emitted); use the free `rawStmt()` when
+   *  assembling a `Stmt[]` body array by hand. Goes through `push`, so it gets
+   *  `recordLoc` like every other statement. */
+  raw(payload: RawPayload): void {
+    this.push(rawStmt(payload))
+  }
+
   /** if / else-if / else chain. Returns a chainer so `.elif().else()` reads
    *  top-to-bottom. The If stmt is pushed on the first call and mutated in
    *  place by subsequent .elif/.else. */
@@ -278,6 +344,23 @@ export class Builder {
   }
 }
 
+/** The chain object {@link Builder.if} / {@link If} return, so `.elif(...)` /`.else(...)`
+ *  read top-to-bottom in authored order. Never construct one directly — it is reached only
+ *  through the builder call that starts a chain; its methods mutate the SAME `if` Stmt in
+ *  place (pushed once, on the first arm), so an unterminated chain (no trailing `.else`)
+ *  still emits a valid `if`/`else if` with no `else` block.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  If(p.idx.eq(1), () => {
+ *    pos.assign(vec2(3, -1))
+ *  }).elif(p.idx.eq(2), () => {
+ *    pos.assign(vec2(-1, 3))
+ *  })
+ *  ```
+ */
 export class IfChain {
   constructor(
     private readonly parent: Builder,
@@ -393,6 +476,20 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?
  *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
 type StructArg = { readonly $: ReadonlyNode }
 
+/** The type `fn()` returns — a typed, callable handle that IS also a `FuncDecl`, so the same
+ *  value both makes calls (`foo({ lon, lat })`) and drops straight into `module({ funcs: [foo]
+ *  })` / `foo.decl`. Use `FnHandle<P, R>` as a type annotation when a handle built elsewhere
+ *  (e.g. behind a lazy `buildProjectionArtifacts()`) needs to cross a module boundary as a
+ *  value other code can call — the params/return are pinned in the type, so a caller gets the
+ *  same object-param completeness checking `fn()`'s own return value would give.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  export type CoverageFilterFn = FnHandle<{ v: typeof f32T; zoom: typeof f32T }, 'bool'>
+ *  ```
+ */
 export type FnHandle<P extends FnParamSpec, R extends string> = FuncDecl & {
   /** Typed object-param call — TS checks names, types, completeness. Raw numbers
    *  are accepted and lift to the DECLARED param type (a u32 param gets a u32
@@ -490,7 +587,7 @@ type FnOpts = {
    *  Accepts the typed `location(0, T)` FieldSpec too (#763 X3 — its `.attr` is used), and
    *  DEFAULTS to `@location(0)` for a bare non-struct fragment return (every observed site
    *  used exactly that string; omitting it used to die late in the driver). */
-  retAttr?: string | { readonly attr: string }
+  retAttr?: string | { readonly attr: string; readonly builtin?: string }
 }
 // A body may return the raw node OR a struct field proxy (`return o` — #763 X14):
 // the proxy forwards `.expr`/`.type` to its base var, so `bld.ret` reads it like
@@ -676,6 +773,10 @@ export function fn(
     (opts?.stage === 'fragment' && ret.kind !== 'struct' && ret.kind !== 'void'
       ? '@location(0)'
       : undefined)
+  // The FieldSpec form carries the STRUCTURED builtin id — preserve it (#1672): dropping
+  // it here made `retAttr: builtin('point_size', …)` invisible to assertBuiltins, the
+  // one authoring path where an absent builtin could still reach WGSL text silently.
+  const retBuiltin = typeof retAttrRaw === 'string' ? undefined : retAttrRaw?.builtin
   const decl: FuncDecl = {
     name,
     params: paramList,
@@ -686,6 +787,7 @@ export function fn(
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
     retAttr,
+    retBuiltin,
     allowEarlyReturn: opts?.allowEarlyReturn,
     lintDisable: opts?.lintDisable,
   }
@@ -702,6 +804,7 @@ export function fn(
     body: decl.body,
     attrs: decl.attrs,
     retAttr: decl.retAttr,
+    retBuiltin: decl.retBuiltin,
     allowEarlyReturn: decl.allowEarlyReturn,
     lintDisable: decl.lintDisable,
     decl,
@@ -729,6 +832,22 @@ export type ExternFn<P extends ParamSpec, R extends ShaderType> = {
   (args: { readonly [K in keyof P]: ReadonlyNode<KeyOf<P[K]>> | number }): Node<KeyOf<R>>
   (...args: NodeLike[]): Node<KeyOf<R>>
 }
+/** Forward-declare a callable whose real definition (`fn(...)`) is authored somewhere else,
+ *  or built later than the caller's own module-load time (see {@link ExternFn}). Prefer a real
+ *  `fn()` + its `FnHandle` whenever the callee IS importable at the call site — reach for
+ *  `externFn` only for the genuine forward-reference case, since it buys a typed call at the
+ *  cost of the caller no longer being able to `module({ funcs: [thatFn] })` (there's no decl
+ *  to list; the body must be linked in separately at emit).
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  const LLP_PARAMS = { lon_deg: f32T, lat_deg: f32T, proj_params: vec4fT }
+ *  export const project = externFn('project', LLP_PARAMS, vec2fT)
+ *  // callable now — its real fn() body is linked in later, at emit, via the projection module.
+ *  ```
+ */
 export function externFn<P extends ParamSpec, R extends ShaderType>(
   name: string,
   params: P,
@@ -753,6 +872,25 @@ export type UsesHandle =
   | { readonly decl: StructDecl | ConstDecl }
   | { readonly binding: BindingDecl; readonly elementDecl?: StructDecl }
 
+/** The input shape {@link module} accepts — a `Partial<ModuleDecl>` whose `funcs` also takes a
+ *  key-named record (`{ vs, fs }`) as an alternative to the classic array, and whose `uses`
+ *  lets structs/bindings/consts be DERIVED from declarator handles instead of restated by
+ *  hand. Prefer the record `funcs` form when the module's fn names are literally its own
+ *  variable names (an anonymous `fn(params, body)` is named by its key here — no separate
+ *  `name` string to keep in sync); prefer the array form when order matters and the fns
+ *  already carry explicit names.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  export const ICON_MODULE: ModuleDecl = module({
+ *    structs: [U.struct, VsOut.decl],
+ *    bindings: [U.binding, atlasTex.binding, atlasSmp.binding],
+ *    funcs: [vs, fs],
+ *  })
+ *  ```
+ */
 export interface ModuleParts extends Omit<Partial<ModuleDecl>, 'funcs'> {
   readonly funcs?: readonly FuncDecl[] | Readonly<Record<string, FuncDecl>>
   /** Handle list — structs/bindings/consts are DERIVED from these (#763 X1). */
@@ -980,6 +1118,10 @@ export function module(parts: ModuleParts): ModuleDecl {
     // #923 — carry the specialization-constant declarators through (absent ⇒ omit the
     // key, so an override-free module object stays byte-identical to before).
     ...(parts.overrides ? { overrides: parts.overrides } : {}),
+    // #1713 — same carry-through for host-provided globals. Passed EXPLICITLY rather than
+    // through `uses:`: an ExternVarHandle is `{ node, decl }`, which the `uses` dispatch's
+    // `'decl' in h` branch would route to addConst and silently emit as a module constant.
+    ...(parts.externs ? { externs: parts.externs } : {}),
   }
   // #628 — carry the opt-in language-feature caps through (absent ⇒ omit the key, so an
   // enables-free module object stays byte-identical to before).
@@ -995,6 +1137,29 @@ export function module(parts: ModuleParts): ModuleDecl {
  *  directly instead. */
 export function constExpr(name: string, type: ShaderType, value: Node): ConstDecl {
   return { name, type, wgslValue: 0, cpuValue: 0, valueExpr: value.expr }
+}
+
+/** Author a `raw` Stmt — the verbatim-splice escape hatch (#1671). Give the
+ *  spelling for every target the module must build for:
+ *
+ *  ```ts
+ *  rawStmt({ wgsl: 'return vec4<f32>(1.0);', glsl: 'return vec4(1.0);' })
+ *  ```
+ *
+ *  The object form is deliberate: the payloads are SYMMETRIC (a glsl-only raw is
+ *  as expressible as a wgsl-only one), and each backend fails closed (SD0030) on
+ *  the side it was not given — so an omitted spelling is a build error on that
+ *  target, never a silent mis-emit. At least ONE side is required at the type
+ *  level: `rawStmt({})` is a compile error (see `RawPayload`).
+ *
+ *  PLACEMENT: this FACTORY returns a Stmt — use it when assembling a `Stmt[]`
+ *  body array by hand. Inside a fluent `fn()` body use `b.raw(payload)` instead;
+ *  a bare `rawStmt(...)` call there is a silently discarded expression (the
+ *  returned Stmt is never pushed, so nothing is emitted). Not to be confused
+ *  with the Backend fragment of the same name (backend.ts), which CONSUMES this
+ *  node. */
+export function rawStmt(payload: RawPayload): RawStmt {
+  return { s: 'raw', ...payload }
 }
 
 /** A pipeline SPECIALIZATION CONSTANT (#923) handle — `.node` is the opaque READ
@@ -1029,6 +1194,54 @@ export function overrideConst<T extends ShaderType>(
   return { node: overrideRef(name, type), decl: { name, type, default: defaultValue } }
 }
 
+/** The pair `externVar` returns: the read node, and the declaration to hand `module()`. */
+export interface ExternVarHandle<K extends string> {
+  readonly node: ReadonlyNode<K>
+  readonly decl: ExternVarDecl
+}
+
+/** Declare a HOST-PROVIDED global (#1713) — the variable twin of {@link externFn}.
+ *
+ * MapLibre's prelude hands a shader values like `u_matrix` or `terrain.terrain_delta` as
+ * loose globals we do not declare. Before this they could only enter a module as raw text
+ * or as a fake binding: untyped, invisible to `reflect()`, and unprotected from
+ * `mangle`'s rename. This declares them abstractly instead.
+ *
+ * Emits NOTHING on either backend. What it buys is everything around the reference —
+ * type checking at the use site, survival through `mangle`, and an entry in
+ * `reflect().requires` (and in a fragment's `requires`, #1711) so a composer can check the
+ * module's expectations against what the prelude actually provides.
+ *
+ * `spelling` maps the logical name onto each target, so moving to a host that exposes the
+ * same value differently — a WGSL struct member or a bound uniform instead of a GLSL
+ * prelude global — is a spelling-map change rather than a source rewrite. That is the
+ * point of declaring these now rather than at migration time.
+ *
+ * ```ts
+ * const uMatrix = externVar('u_matrix', mat4fT, { stage: 'vertex' })
+ * const clip = uMatrix.node.mul(worldPos)     // type-checked; emits `u_matrix * …`
+ * ```
+ *
+ * @param name - the logical symbol name, and the default spelling on both targets.
+ * @param type - its shader type, for checking every read.
+ * @param opts - per-target `spelling`, and an advisory `stage`.
+ */
+export function externVar<T extends ShaderType>(
+  name: string,
+  type: T,
+  opts?: { spelling?: { wgsl?: string; glsl?: string }; stage?: ExternVarDecl['stage'] },
+): ExternVarHandle<KeyOf<T>> {
+  return {
+    node: externRef(name, type),
+    decl: {
+      name,
+      type,
+      ...(opts?.spelling ? { spelling: opts.spelling } : {}),
+      ...(opts?.stage ? { stage: opts.stage } : {}),
+    },
+  }
+}
+
 // ── Ambient free-function authoring surface (C2) ──
 // Capitalised to avoid JS keyword clashes (If/Loop/Let/Var/Return/Switch); each
 // routes to the INNERMOST active scope (currentBuilder), so no `Builder` param is
@@ -1037,6 +1250,21 @@ export function overrideConst<T extends ShaderType>(
 // emit stays byte-identical. IfChain.elif/.else accept a zero-arg `() => …` body
 // (a 0-arg fn is assignable where `(b) => void` is wanted), so chains read clean too.
 
+/** Immutable binding — `let name = expr;` — over the innermost active scope. The ambient
+ *  counterpart of {@link Builder.let}: routes to `currentBuilder()` instead of taking a
+ *  `Builder` param, so it reads plainly inside a `fn()` body without threading `b` through
+ *  every nested `If`/`Loop` callback. Prefer this over re-evaluating an expensive expression
+ *  (a texture sample, a swizzle chain) at each use site — the WGSL/GLSL backends do not CSE
+ *  arbitrary sub-expressions for you.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  const vu = Let(textureSample(uTex.node, samp.node, uv).x)
+ *  const vv = Let(textureSample(vTex.node, samp.node, uv).x)
+ *  ```
+ */
 export function Let<K extends string>(value: ReadonlyNode<K>): ReadonlyNode<K>
 export function Let<K extends string>(name: string, value: ReadonlyNode<K>): ReadonlyNode<K>
 export function Let<K extends string>(
@@ -1076,6 +1304,24 @@ export function Var<T extends ShaderType>(
   }
   return currentBuilder().var(nameOrTypeOrInit, typeOrInit as Node<KeyOf<T>> | undefined)
 }
+/** Push an EXPLICIT `return value;` (or bare `return;`) onto the innermost scope. Required for
+ *  any return from inside `If`/`Loop`/`Switch` control flow: a native JS `return` inside a
+ *  nested body callback only exits that closure — it does not lower to a WGSL/GLSL return, so
+ *  it reads as an early exit but silently falls through instead (see `subBody`'s note on this).
+ *  A body's own FINAL, top-level return is the one place a plain native `return value` works
+ *  (`fn()` appends it for you). For the common "return early if a condition holds" shape,
+ *  {@link ReturnIf} is the more readable guard-clause spelling.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  If(winding.ne(0), () => {
+ *    Return(f32(1).sub(min_dist))
+ *  })
+ *  Return(f32(1).add(min_dist))
+ *  ```
+ */
 export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value)
 /** Guard clause — `if (cond) { return value; }`. The readable, EXPLICIT early return:
  *  reads as "return value if cond", unlike `If(cond, () => value)` which looks like a
@@ -1083,8 +1329,48 @@ export const Return = (value?: ReadonlyNode): void => currentBuilder().ret(value
 export const ReturnIf = (cond: ReadonlyNode<'bool'>, value?: ReadonlyNode): void => {
   currentBuilder().if(cond, (b) => b.ret(value))
 }
+/** Push a `continue;` onto the innermost scope — skips to the next iteration of the nearest
+ *  ENCLOSING loop. An `If`/`Switch` body nested inside a `Loop` is not itself a loop boundary,
+ *  so `Continue()` written inside a guard nested in a loop still targets that outer loop, not
+ *  the guard.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  If(outsideRange(arcOnSeg, halfS.mul(-2), segLen.add(halfS.mul(2))), () => Continue())
+ *  ```
+ */
 export const Continue = (): void => currentBuilder().continue()
+/** Push a `break;` onto the innermost scope — exits the nearest enclosing `Loop` (or the
+ *  current `Switch` case) outright, same nesting rule as {@link Continue}: an `If` nested
+ *  inside the loop is not itself a break boundary.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  Loop(u32(0), (i) => i.lt(u32(72)), () => {
+ *    const d = Let(length(p).sub(1))
+ *    If(d.lt(0.001), () => Break()) // hit — stop marching
+ *  })
+ *  ```
+ */
 export const Break = (): void => currentBuilder().break()
+/** Push a `discard;` onto the innermost scope — kills the current fragment invocation (no
+ *  color/depth write) and returns immediately, WGSL/GLSL's fragment-only terminator. Typically
+ *  guarded by an `If` for a cull test (backface, alpha-clip, out-of-bounds) rather than called
+ *  unconditionally.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  If(cosC.lt(0), () => {
+ *    Discard()
+ *  })
+ *  ```
+ */
 export const Discard = (): void => currentBuilder().discard()
 
 /** `if (cond) { body }` over the innermost scope; a body may `return value` for an
@@ -1192,7 +1478,11 @@ export function when<K extends string>(
   return iv.ref(vt!) as Node<K>
 }
 
-/** @deprecated Use `when(cond, then, else)` — the unified condition-dispatch primitive. */
+/** Two-arm value-by-condition dispatch — the original name for what is now {@link when}'s
+ *  2-arm form. Kept as a thin forwarding alias so pre-`when` call sites keep compiling.
+ *
+ *  @deprecated Use `when(cond, then, else)` — the unified condition-dispatch primitive.
+ */
 export function ifExpr<K extends string>(
   cond: ReadonlyNode<'bool'>,
   thenVal: () => ReadonlyNode<K>,
@@ -1201,7 +1491,12 @@ export function ifExpr<K extends string>(
   return when(cond, thenVal, elseVal)
 }
 
-/** @deprecated Use `when(arms, else)` — the unified condition-dispatch primitive. */
+/** N-arm value-by-condition dispatch (first true condition wins) — the original name for what
+ *  is now {@link when}'s array-arms form. Kept as a thin forwarding alias so pre-`when` call
+ *  sites keep compiling.
+ *
+ *  @deprecated Use `when(arms, else)` — the unified condition-dispatch primitive.
+ */
 export function condExpr<K extends string>(
   arms: ReadonlyArray<readonly [ReadonlyNode<'bool'>, () => ReadonlyNode<K>]>,
   elseVal: () => ReadonlyNode<K>,

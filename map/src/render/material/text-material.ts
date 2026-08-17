@@ -18,6 +18,7 @@ import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitTextWgsl } from '../../shaders/dsl/text'
 import { emitTextGlslStages } from '../../shaders/dsl/text'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 // WebGL2 by-name entries — the RHI-native twin of the raw text bind-group
@@ -58,10 +59,13 @@ export class TextDraper {
   ) {
     const gl2 = rhi.backend === 'webgl2'
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitTextWgsl),
+      shader: wgslFor(rhi, emitTextWgsl, simpleWgslId('text')),
       vsEntry: 'vs',
       fsEntry: 'fs',
-      ...glslStagesFor(rhi, emitTextGlslStages),
+      ...glslStagesFor(rhi, emitTextGlslStages, {
+        vertex: simpleGlslId('text', 'vertex'),
+        fragment: simpleGlslId('text', 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [gl2 ? TEXT_ENTRIES : wrapWebGpuBindGroupLayout(bgLayout)],

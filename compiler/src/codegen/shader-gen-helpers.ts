@@ -79,13 +79,24 @@ function toHashInput(v: string | { readonly expr: unknown } | undefined): string
 export function resolveColorFromAST(
   node: import('../parser/ast').Expr,
 ): [number, number, number, number] | null {
+  const hex = resolveColorHexFromAST(node)
+  return hex ? hexToRgba(hex) : null
+}
+
+/** The HEX half of `resolveColorFromAST` — which AST shapes name a colour, and
+ *  which hex each one names. Split out (#1664) so the lower-time colour-token
+ *  normaliser (`ir/lower-helpers.ts` resolveColorTokenLiterals) can rewrite a
+ *  token into the literal THIS function would have resolved, instead of carrying
+ *  a second copy of the shape rules. The rgba form above is now derived from it,
+ *  so the two can never disagree about what `sky-300` means. */
+export function resolveColorHexFromAST(node: import('../parser/ast').Expr): string | null {
   if (node.kind === 'Identifier') {
     const hex = resolveColor(node.name)
-    if (hex) return hexToRgba(hex)
+    if (hex) return hex
   }
   if (node.kind === 'StringLiteral') {
     const hex = resolveColor(node.value)
-    if (hex) return hexToRgba(hex)
+    if (hex) return hex
   }
   // Hex literal direct from a synthesized AST (e.g. mergeLayers'
   // `match() { value -> #rrggbbaa }` arms) AND user-authored short
@@ -97,7 +108,7 @@ export function resolveColorFromAST(
   if (node.kind === 'ColorLiteral' && typeof node.value === 'string') {
     const hex = node.value
     if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-      return hexToRgba(hex)
+      return hex
     }
   }
   // Hyphenated color names parsed as subtraction: sky-300 → Identifier("sky") - NumberLiteral(300)
@@ -109,7 +120,7 @@ export function resolveColorFromAST(
   ) {
     const colorName = `${node.left.name}-${node.right.value}`
     const hex = resolveColor(colorName)
-    if (hex) return hexToRgba(hex)
+    if (hex) return hex
   }
   // CSS rgb / rgba / hsl / hsla function call. Reconstruct the
   // source-text from the AST so the same parser in resolveColor()
@@ -120,7 +131,7 @@ export function resolveColorFromAST(
       const reconstructed = reconstructCssFnCall(node)
       if (reconstructed) {
         const hex = resolveColor(reconstructed)
-        if (hex) return hexToRgba(hex)
+        if (hex) return hex
       }
     }
   }

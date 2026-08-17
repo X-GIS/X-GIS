@@ -47,10 +47,13 @@ export const NON_BUILTIN_CALLEES: ReadonlySet<string> = new Set([
   // hex-encode at convert time (tokens/colors.ts) and the GPU
   // reconstruction path (codegen/shader-gen-helpers.ts) handles the
   // constant CSS form; both are orthogonal to callee validation.
-  // Data-driven DSL forms — intercepted by codegen/shader-gen.ts and
-  // rendered on the GPU (categorical → auto-palette, gradient → ramp).
+  // Data-driven DSL form — intercepted by codegen/shader-gen.ts and rendered on
+  // the GPU (categorical → auto-palette). `gradient` used to sit here too; #1664
+  // moved it into BUILTIN_FN_NAMES, because the point / arrow paints bake their
+  // per-feature colour on the CPU and `callBuiltin` now evaluates the same ramp.
+  // The GPU interception is unchanged — like `rgb` above, a name can be both a
+  // codegen special form and a genuine builtin.
   'categorical',
-  'gradient',
   // Feature-property presence accessor — recognised by the WGSL codegen
   // (codegen/wgsl-expr.ts). The Mapbox converter lowers `["has", k]` to
   // `.k != null`, but a hand-authored `has(.k)` is still a legal callee.

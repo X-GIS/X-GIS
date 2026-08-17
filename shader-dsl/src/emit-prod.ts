@@ -11,22 +11,31 @@
 //
 // Typical build-time use:
 //
-//   import { mangle, minify, obfuscate } from '@xgis/shader-dsl/emit-prod'
+//   import { obfuscate, decodeShaderLog } from '@xgis/shader-dsl/emit-prod'
 //   const renames = new Map<string, string>()
-//   const wgsl = emitModule(m, { plugins: [mangle({ renames }), minify()] })
-//   // or the standard pair as a preset:
-//   const fs = emitGlslModule(m, 'fragment', { plugins: obfuscate() })
+//   const fs = emitGlslModule(m, 'fragment', {
+//     parens: 'minimal',
+//     plugins: obfuscate({ renames }),
+//   })
+//   // …keep `renames` out of the bundle; it is what turns a shipped driver
+//   // error back into authored names:
+//   console.error(decodeShaderLog(info.messages[0].message, renames))
 //
 // Every renderable example is compiled AND pixel-compared through obfuscate()
 // on real Tint + ANGLE by playground/e2e/_emit-obfuscate-gate.spec.ts.
 
 import type { EmitPlugin } from './core/emit'
 import { mangleModule } from './core/passes/mangle'
-import { minifyShaderText } from './core/emit-minify'
+import { minifyShaderText, type MinifyOptions } from './core/emit-minify'
+import { aliasShaderTypes } from './core/emit-alias'
+import { pruneRedundantPrototypes } from './core/emit-prune'
 import { inlineLinearAll } from './core/passes/inline-linear'
 
 export type { EmitPlugin, EmitOptions } from './core/emit'
-export { minifyShaderText } from './core/emit-minify'
+export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
+export { aliasShaderTypes } from './core/emit-alias'
+export { pruneRedundantPrototypes } from './core/emit-prune'
+export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log'
 export { mangleModule, type MangleResult } from './core/passes/mangle'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
@@ -49,10 +58,14 @@ export function mangle(opts?: { renames?: Map<string, string> }): EmitPlugin {
 }
 
 /** Text-minification plugin: whitespace/comment compaction of the emitted
- *  string. Token-safe by construction (WGSL/GLSL have no string literals; `#`
- *  directives keep their own line). */
-export function minify(): EmitPlugin {
-  return { name: 'minify', transformText: minifyShaderText }
+ *  string, plus lossless numeric-literal canonicalisation (`1.0` → `1.`; pass
+ *  `{ numbers: false }` to keep the literals as emitted). The minifier LEXES
+ *  the text and writes a separator only where maximal munch would otherwise
+ *  merge two tokens, so it is token-safe by construction — a property the
+ *  example corpus asserts directly (examples/minify-safety.test.ts) and real
+ *  Tint + ANGLE confirm (_emit-obfuscate-gate.spec.ts). */
+export function minify(opts?: MinifyOptions): EmitPlugin {
+  return { name: 'minify', transformText: (code) => minifyShaderText(code, opts) }
 }
 
 /** Call-graph-flattening plugin (obfuscation): inlines every safely-inlinable
@@ -69,8 +82,37 @@ export function inline(): EmitPlugin {
   return { name: 'inline', transformIR: inlineLinearAll }
 }
 
-/** The standard production preset: [mangle, minify]. Spread it into a
- *  `{ plugins }` bag — `emitModule(m, { plugins: obfuscate({ renames }) })`. */
+/** Type-name aliasing plugin: gives each heavily-used TYPE a one-character name
+ *  and declares it once — WGSL `alias A=vec2<f32>;`, GLSL `#define A vec2` —
+ *  then rewrites every spelling, constructor position included. Type names are
+ *  the heaviest identifiers mangle may not touch (both languages reserve them),
+ *  and after mangle they are the largest remaining category in the shipped text.
+ *  Pays for itself per spelling or it is skipped, so a one-use type is left
+ *  alone. Splices by token offset, so it composes in either order with
+ *  minify(). Pass a Map as `renames` to receive `type -> alias` in the same
+ *  authored → emitted direction mangle() reports, so one map decodes both. */
+export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin {
+  return {
+    name: 'alias-types',
+    transformText: (code) => aliasShaderTypes(code, opts?.renames),
+  }
+}
+
+/** Forward-prototype pruning plugin (GLSL only). The GLSL backend emits a
+ *  prototype for EVERY helper because it cannot promise the function section is
+ *  in dependency order; this drops the ones whose DEFINITION already declares
+ *  the function at each of its uses, and keeps the rest. Worth its own pass: on
+ *  the real map shader corpus — where a module drags in the df64 library and the
+ *  projection graph — prototypes are 9.5% of the production-transformed text,
+ *  a figure the toy examples hide almost entirely. No-op on WGSL. */
+export function prune(): EmitPlugin {
+  return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes }
+}
+
+/** The standard production preset: [mangle, aliasTypes, minify] — rename the
+ *  authored vocabulary, shorten the type vocabulary it may not rename, then
+ *  compact with f32-exact literal re-spelling. Spread it into a `{ plugins }` bag —
+ *  `emitModule(m, { parens: 'minimal', plugins: obfuscate({ renames }) })`. */
 export function obfuscate(opts?: { renames?: Map<string, string> }): EmitPlugin[] {
-  return [mangle(opts), minify()]
+  return [mangle(opts), prune(), aliasTypes(opts), minify({ numbers: 'f32' })]
 }

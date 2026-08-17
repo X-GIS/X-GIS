@@ -79,7 +79,12 @@ describe('palette-emit — buildPaletteBindingDecls', () => {
     expect(buildPaletteBindingDecls(palette)).toEqual([])
   })
 
-  it('color gradient → color atlas binding + sampler, no scalar', () => {
+  it('color gradient → NO decls at all (#1661 — the colour axis resolves on the CPU)', () => {
+    // Was: color_grad_atlas + palette_samp. A zoom-interpolated COLOUR now resolves in
+    // `resolveColorShape` into `u.<axis>_color` and no shader samples the colour atlas,
+    // so declaring the binding would put a texture nothing reads on every variant's
+    // group. The colour gradient is still COLLECTED into the palette (that is what
+    // `packPalette` consumes) — this asserts only that it declares no binding.
     const palette = collectPalette(
       sceneFromNodes(
         makeNode({
@@ -87,13 +92,8 @@ describe('palette-emit — buildPaletteBindingDecls', () => {
         }),
       ),
     )
-    const decls = buildPaletteBindingDecls(palette)
-    const names = decls.map((d) => d.name)
-    expect(names).toContain('color_grad_atlas')
-    expect(names).not.toContain('scalar_grad_atlas')
-    expect(names).toContain('palette_samp')
-    expect(decls.find((d) => d.name === 'color_grad_atlas')).toMatchObject({ binding: 2 })
-    expect(decls.find((d) => d.name === 'palette_samp')).toMatchObject({ binding: 4 })
+    expect(palette.colorGradients.length, 'still collected, just not bound').toBe(1)
+    expect(buildPaletteBindingDecls(palette)).toEqual([])
   })
 
   it('scalar gradient only → scalar atlas binding + sampler, no color', () => {
@@ -116,7 +116,10 @@ describe('palette-emit — buildPaletteBindingDecls', () => {
     expect(decls.find((d) => d.name === 'scalar_grad_atlas')).toMatchObject({ binding: 3 })
   })
 
-  it('mixed gradients → both atlases + single shared sampler', () => {
+  it('mixed gradients → the SCALAR atlas + sampler only (#1661)', () => {
+    // The discriminating case: a scene carrying BOTH gradient kinds. The scalar half
+    // must still bind — it has no CPU twin — while the colour half must not, which is
+    // what separates "the colour arm was removed" from "binding emission broke".
     const palette = collectPalette(
       sceneFromNodes(
         makeNode({
@@ -128,16 +131,18 @@ describe('palette-emit — buildPaletteBindingDecls', () => {
       ),
     )
     const names = buildPaletteBindingDecls(palette).map((d) => d.name)
-    expect(names).toContain('color_grad_atlas')
+    expect(names).not.toContain('color_grad_atlas')
     expect(names).toContain('scalar_grad_atlas')
     expect(names.filter((n) => n === 'palette_samp').length).toBe(1)
   })
 
   it('honors custom binding slots', () => {
+    // Driven by a SCALAR gradient since #1661 — a colour gradient declares nothing, so
+    // a colour-driven palette would make this vacuous rather than failing (#996).
     const palette = collectPalette(
       sceneFromNodes(
         makeNode({
-          fill: { kind: 'zoom-interpolated', stops: [zs(0, RED), zs(20, BLUE)] } as ColorValue,
+          size: { kind: 'zoom-interpolated', stops: [zs(0, 4), zs(20, 16)] } as SizeValue,
         }),
       ),
     )
@@ -147,7 +152,10 @@ describe('palette-emit — buildPaletteBindingDecls', () => {
       scalarGradientBinding: 8,
       samplerBinding: 9,
     })
-    expect(decls.find((d) => d.name === 'color_grad_atlas')).toMatchObject({ group: 2, binding: 7 })
+    expect(decls.find((d) => d.name === 'scalar_grad_atlas')).toMatchObject({
+      group: 2,
+      binding: 8,
+    })
     expect(decls.find((d) => d.name === 'palette_samp')).toMatchObject({ group: 2, binding: 9 })
   })
 

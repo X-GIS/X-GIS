@@ -27,6 +27,7 @@ import { Camera } from '../camera'
 import type { ShowCommand, ShaderVariantInfo } from './renderer-types'
 import { variantProducesFill } from './renderer-helpers'
 import { reportRhiFillGap } from './rhi-fill-gap-warning'
+import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
@@ -40,10 +41,10 @@ import {
   resolveFillPatternPack,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import { wgslFor, glslStagesFor } from './material/wgsl-for'
+import { POLY_FILL, POLY_PATTERN } from '../shaders/baked/ids'
+import { polygonGlslStagesFor, polygonShaderFor } from './material/polygon-baked'
 import { executeItems, type Material } from '@xgis/engine'
 import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
-import { emitPolygonWgsl, emitPolygonGlslStages } from '../shaders/dsl/polygon'
 
 // Per-tile uniform packing goes through a typed UniformBlock over the polygon
 // 'Uniforms' struct (#733 P2d): layout from wgslLayout(polygonU.struct) — the
@@ -94,7 +95,7 @@ import {
   strokeBakeKey,
   type BakeStrokeStyle,
 } from './vector-drape-stroke'
-import { parseHexColor } from '../feature-helpers'
+import { hexToRgba } from '../feature-helpers'
 import { arenaByteTotals } from '../render-stats-bytes'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
@@ -240,6 +241,8 @@ export class VectorTileRenderer {
    *  allocates a fresh closure per call. */
   private readonly _releaseTileHook = (handleKey: string): void => {
     this._featureBinder.releaseTile(handleKey)
+    // #1592 — same eviction key frees the RHI path's per-tile feat_data.
+    this._fillVariantsRhi?.releaseTile(handleKey)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
@@ -697,6 +700,17 @@ export class VectorTileRenderer {
   private _fillMatRhi: Material | null = null
   private _fillTileBgRhi: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
 
+  /** #1592 — the DATA-DRIVEN half of this path: per-variant Materials + per-tile
+   *  feat_data. Lazy so a scene with no `fill match(…)` never builds it. */
+  private _fillVariantsRhi: RhiFillVariantPath | null = null
+  private fillVariants(): RhiFillVariantPath {
+    return (this._fillVariantsRhi ??= new RhiFillVariantPath(
+      this.rhi,
+      this.format,
+      toVertexBufferLayout(POLYGON_FILL_FORMAT),
+    ))
+  }
+
   /** The default flat-fill Material with GLSL twins — built lazily ONCE on the
    *  webgl2 backend (emitPolygonGlsl null-variant, no pick, single-sample).
    *
@@ -712,8 +726,8 @@ export class VectorTileRenderer {
     if (this._fillMatRhi) return this._fillMatRhi
     this._fillMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, false)),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -734,8 +748,8 @@ export class VectorTileRenderer {
     if (this._fillPickMatRhi) return this._fillPickMatRhi
     this._fillPickMatRhi = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, true)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, true)),
+      shader: polygonShaderFor(this.rhi, true),
+      ...polygonGlslStagesFor(this.rhi, true, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -772,10 +786,8 @@ export class VectorTileRenderer {
     if (this._fillPatternMatRhi) return this._fillPatternMatRhi
     this._fillPatternMatRhi = buildFillPatternGroundMaterial({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () =>
-        emitPolygonGlslStages(null, false, { fragment: 'fs_fill_pattern' }),
-      ),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_PATTERN),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [
@@ -820,8 +832,8 @@ export class VectorTileRenderer {
     if (this._fillBakeMatRhi) return this._fillBakeMatRhi
     this._fillBakeMatRhi = buildBakeFillMaterial({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(null, false)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(null, false)),
+      shader: polygonShaderFor(this.rhi, false),
+      ...polygonGlslStagesFor(this.rhi, false, POLY_FILL),
       format: this.format,
       sampleCount: 1,
       rhiGroups: [[{ binding: 0, kind: 'uniform', dynamic: true, name: 'Uniforms' }]],
@@ -1137,8 +1149,17 @@ export class VectorTileRenderer {
     // fill — label-only, points-only, a hit area at alpha 0 — and still need its
     // tiles, because the label dispatch and the point emit read THIS selection.
     // Below them it never ran for those shows: they drew NOTHING, silently.
-    const fill = resolvedShow.fill ?? (show.fill ? parseHexColor(show.fill) : null)
-    if (!fill) {
+    const fill = resolvedShow.fill ?? hexToRgba(show.fill)
+    // #1592 — a data-driven fill has NO CPU colour by construction (resolved-show.ts
+    // documents `fill: null` for it), because its colour is a composed expression the
+    // variant Material evaluates per feature. `varMat` is that Material. The PICK pass
+    // deliberately keeps the null-variant pick material: its fragment writes feature
+    // ids from the vertex attribute and never a colour, so it needs the bail lifted,
+    // not a variant of its own.
+    const dataDriven = !fill && rhiVariantFillSupported(show.shaderVariant)
+    const varMat =
+      dataDriven && mode === 'color' ? this.fillVariants().materialFor(show.shaderVariant) : null
+    if (!fill && !dataDriven) {
       // #1583 — blank, but loud. reportRhiFillGap always returns 0 (the draw
       // count for a fill it did not draw); that is NOT this bail's return
       // value here — `missing` (the tile-acquisition count computed above,
@@ -1150,7 +1171,9 @@ export class VectorTileRenderer {
       return missing
     }
     const opacity = resolvedShow.opacity
-    const fillA = fill[3] * opacity
+    // A data-driven fill's alpha lives inside the expression, so there is no CPU
+    // alpha to threshold on — 1 is the "draw it, the shader decides" stand-in.
+    const fillA = (fill?.[3] ?? 1) * opacity
     if (fillA <= 0.005) return missing
 
     // #1059 — fill-pattern twin. The SAME single authority the WebGPU render() packs
@@ -1170,15 +1193,18 @@ export class VectorTileRenderer {
     const mat =
       mode === 'pick'
         ? this.ensureFillPickMaterialRhi()
-        : pack.active
-          ? this.ensureFillPatternMaterialRhi()
-          : this.ensureFillMaterialRhi()
+        : (varMat ??
+          (pack.active ? this.ensureFillPatternMaterialRhi() : this.ensureFillMaterialRhi()))
     const frame = camera.getViewForProjection(projType, canvasWidth, canvasHeight, dpr)
     this.logDepthFc = frame.logDepthFc
     const B = this.frameBlock
     B.set.mvp(frame.matrix)
     if (pack.active) B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
-    else B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    else if (fill) B.set.fill_color(fill[0], fill[1], fill[2], fillA)
+    // Data-driven: `u.fill_color` is dead in the variant shader (the composed
+    // expression replaces the fill-return), but the slot is written anyway so no
+    // stale bytes from a previous show's draw survive in this ring slot.
+    else B.set.fill_color(0, 0, 0, fillA)
     B.set.proj_params(projType, projCenterLon, projCenterLat, 0)
     this.currentProjType = projType
     const ge = globeEyeUniform(frame.eye)
@@ -1257,7 +1283,26 @@ export class VectorTileRenderer {
       // tile (dirty-range, one bufferSubData). The WebGPU path defers to one
       // end-of-pass flush only because submit-ordering guarantees it there.
       this.flushUniformStaging()
-      const tileBg = pack.active ? this.fillPatternTileBgRhi() : this.fillTileBgRhi()
+      // #1592 — the data-driven group binds THIS tile's feat_data next to the ring.
+      // The props come from the source (not the GPUTile) because the tile cache holds
+      // only GPU handles; label-feature-source reads them the same way, well after
+      // upload, so they are live for the tile's lifetime. A tile whose slice carries
+      // no packable props yields null and is skipped rather than drawn against an
+      // unbound storage entry.
+      const ringBuf = this.uniformRing?.rhiBuffer
+      const tileBg =
+        varMat && ringBuf
+          ? this.fillVariants().tileBindGroup(
+              varMat,
+              ringBuf,
+              show.shaderVariant!,
+              sliceLayer,
+              key,
+              this.source.getTileData(key, sliceLayer)?.featureProps,
+            )
+          : pack.active
+            ? this.fillPatternTileBgRhi()
+            : this.fillTileBgRhi()
       if (!tileBg) continue
       executeItems(mat, pass, [
         {
@@ -1312,7 +1357,7 @@ export class VectorTileRenderer {
     if (!this.source?.hasData() || !this.source.getIndex()) return 0
     this.ensureUniformRing()
 
-    const stroke = resolvedShow.stroke ?? (show.stroke ? parseHexColor(show.stroke) : null)
+    const stroke = resolvedShow.stroke ?? hexToRgba(show.stroke)
     if (!stroke) return 0
     const opacity = resolvedShow.opacity
     const strokeWidthPx = resolvedShow.strokeWidth
@@ -2130,6 +2175,10 @@ export class VectorTileRenderer {
     this._store.destroy()
 
     this._featureBinder.destroy()
+    // #1592 — the RHI variant path owns its own Materials + per-tile feat_data
+    // buffers; nothing else references them, so nothing else would reclaim them.
+    this._fillVariantsRhi?.destroy()
+    this._fillVariantsRhi = null
 
     this.uniformRing?.destroy()
     this.uniformRing = null
@@ -2239,16 +2288,16 @@ export class VectorTileRenderer {
     this._uploads.drain()
   }
 
-  /** #1371 — re-request every tile key this renderer currently has GPU-resident. Called after
-   *  a host data push swapped the source's BACKEND: the catalog still holds (and this renderer
-   *  still draws) the previous backend's tiles, and `refreshTiles` is the one request path that
-   *  does not skip a cached key. The replacements arrive through the normal sink, and
-   *  `applyReplacedTiles` below swaps them in — so the layer never goes blank. */
+  /** #1371 — re-request the tile keys a host data push made stale by swapping the source's
+   *  BACKEND: `refreshTiles` is the one request path that does not skip a cached key, and
+   *  `applyReplacedTiles` below swaps the replacements in, so the layer never goes blank.
+   *  #1728 — UNCONDITIONAL: zero GPU-resident tiles is the state an empty push leaves (the
+   *  drop below), and skipping the call there stranded the NEXT push's data forever. */
   reseedTiles(): void {
     if (!this.source?.refreshTiles) return
     const keys = new Set<number>()
     for (const inner of this._store.cache().values()) for (const k of inner.keys()) keys.add(k)
-    if (keys.size > 0) this.source.refreshTiles([...keys])
+    this.source.refreshTiles([...keys])
   }
 
   /** #1371 — swap in tiles whose CPU data was replaced since the last frame. The new data is
@@ -2671,7 +2720,7 @@ export class VectorTileRenderer {
       this.cachedShowFill = ''
     } else if (show.fill !== this.cachedShowFill) {
       this.cachedShowFill = show.fill ?? ''
-      const raw = show.fill ? parseHexColor(show.fill) : null
+      const raw = hexToRgba(show.fill)
       this.cachedFillColor[0] = raw ? raw[0] : 0
       this.cachedFillColor[1] = raw ? raw[1] : 0
       this.cachedFillColor[2] = raw ? raw[2] : 0
@@ -2686,7 +2735,7 @@ export class VectorTileRenderer {
       this.cachedShowStroke = ''
     } else if (show.stroke !== this.cachedShowStroke) {
       this.cachedShowStroke = show.stroke ?? ''
-      const raw = show.stroke ? parseHexColor(show.stroke) : null
+      const raw = hexToRgba(show.stroke)
       this.cachedStrokeColor[0] = raw ? raw[0] : 0
       this.cachedStrokeColor[1] = raw ? raw[1] : 0
       this.cachedStrokeColor[2] = raw ? raw[2] : 0

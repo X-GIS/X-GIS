@@ -16,6 +16,7 @@ import {
   emitArrowRetainedWgsl,
   emitArrowRetainedGlslStages,
 } from '../../shaders/dsl/arrow-retained'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { wgslFor, glslStagesFor } from './wgsl-for'
 
 export class RetainedArrowDraper {
@@ -26,8 +27,11 @@ export class RetainedArrowDraper {
     // so the WebGPU boot never pays the double emit (#778 P6). WebGl2Device.createPipeline
     // requires the split sources; WebGPU ignores them. Mirrors RetainedIconDraper.
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitArrowRetainedWgsl),
-      ...glslStagesFor(rhi, emitArrowRetainedGlslStages),
+      shader: wgslFor(rhi, emitArrowRetainedWgsl, simpleWgslId('arrow-retained')),
+      ...glslStagesFor(rhi, emitArrowRetainedGlslStages, {
+        vertex: simpleGlslId('arrow-retained', 'vertex'),
+        fragment: simpleGlslId('arrow-retained', 'fragment'),
+      }),
       vsEntry: 'vs_arrow_retained',
       fsEntry: 'fs_arrow_retained',
       format: format as 'bgra8unorm',

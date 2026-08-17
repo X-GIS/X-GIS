@@ -11,7 +11,7 @@
 // and it runs over the AUTHORED module (before lowering), so reported `loc`s resolve.
 
 import type { ModuleDecl } from '../ir'
-import type { Backend } from '../backend'
+import { Capabilities, type Backend } from '../backend'
 import {
   lint,
   summarize,
@@ -23,6 +23,11 @@ import { RULES, CORE_RULES } from '../passes/lint/rules'
 import { requiredCaps } from '../passes/required-caps'
 import { formatLoc } from './error'
 
+/** Options for {@link diagnose}. Every field is optional; the default is "run the full ruleset
+ *  and check no backend".
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
 export interface DiagnoseOptions {
   /** Which ruleset to run — 'all' (full RULES, default) or 'core' (emit-time CORE_RULES). */
   readonly rules?: 'core' | 'all'
@@ -32,6 +37,23 @@ export interface DiagnoseOptions {
   readonly config?: LintConfig
 }
 
+/** What {@link diagnose} returns: every {@link Diagnostic} it found, plus the {@link LintSummary}
+ *  counts over the same set. The two are consistent by construction — the summary is computed
+ *  from that exact array, not gathered separately — so `summary.errors > 0` is the cheap way to
+ *  decide whether emit should proceed, and `diagnostics` is what you render.
+ *
+ *  The array is in no promised order; sort it yourself if you present it.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { diagnose, formatReport } from '@xgis/shader-dsl/dev'
+ *
+ *  const report = diagnose(MODULE, { backend: wgslBackend })
+ *  if (report.summary.errors > 0) throw new Error(formatReport(report))
+ *  ```
+ */
 export interface DiagnosticReport {
   readonly diagnostics: readonly Diagnostic[]
   readonly summary: LintSummary
@@ -45,8 +67,12 @@ export function diagnose(m: ModuleDecl, opts?: DiagnoseOptions): DiagnosticRepor
 
   if (opts?.backend) {
     const req = requiredCaps(m)
-    if (!opts.backend.caps.covers(req)) {
-      const missing = opts.backend.caps.missing(req)
+    // Derived from the backend's ONE capability authority, exactly as assertCaps does
+    // (#1670) — this non-throwing check and the throwing gate must not read two
+    // different surfaces. Built once per call, over 9 keys.
+    const caps = Capabilities.fromProfile(opts.backend.capProfile)
+    if (!caps.covers(req)) {
+      const missing = caps.missing(req)
       diagnostics.push({
         ruleId: 'unsupported-capability',
         severity: 'error',

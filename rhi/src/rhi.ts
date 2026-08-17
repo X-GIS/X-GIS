@@ -50,6 +50,22 @@ export interface RhiBufferDesc {
    *  a valid `copyBufferSubData` read source). Additive + default false: an
    *  un-set buffer's usage flags are byte-identical to before. */
   copySrc?: boolean
+  /** For `usage: 'storage'` ONLY — the buffer's ELEMENT type (#1703). Default `'f32'`,
+   *  so every pre-existing storage buffer is byte-identical to before.
+   *
+   *  WebGPU ignores this: a storage buffer there is a real buffer and the shader's own
+   *  `array<T>` types it. WebGL2 has no SSBO and emulates one as a DATA TEXTURE, whose
+   *  internal format must MATCH the sampler the emitted GLSL declares — `array<f32>`
+   *  lowers to `sampler2D` (R32F), `array<u32>` to `usampler2D` (R32UI), `array<i32>`
+   *  to `isampler2D` (R32I).
+   *
+   *  Get it wrong and nothing throws: a texture whose format disagrees with its sampler
+   *  type is INCOMPLETE, and `texelFetch` on an incomplete texture silently returns 0.
+   *  So this is not a hint — it is the half of the contract the shader cannot state.
+   *
+   *  It is a separate field rather than something inferred from the `writeBuffer` data,
+   *  because the texture is allocated at CREATE time, before any data exists. */
+  elem?: 'f32' | 'u32' | 'i32'
   label?: string
 }
 
@@ -438,7 +454,11 @@ export interface RhiCaps {
    *  WebGL2: feature-DETECTED (EXT_color_buffer_float && EXT_float_blend) —
    *  the canonical proof this is a capability, not an alias for backend
    *  identity: a desktop WebGL2 context commonly answers true. Consumer:
-   *  heatmap/oit shouldRun gates + RenderTargets float-target allocation. */
+   *  heatmap/oit shouldRun gates + RenderTargets float-target allocation.
+   *  The same pair of features has NEUTRAL ids in the shader DSL — `floatRenderTarget`
+   *  + `float32Blend` in each backend's `capProfile` (#1670) — which is the vocabulary
+   *  the extension strings here must stay in sync with; deriving this cap from those
+   *  profiles is a recorded follow-up, not today's change. */
   readonly floatBlendTargets: boolean
   /** Compute execution: native compute passes or the fragment-GPGPU lowering.
    *  Consumer: the compute dispatcher seam only — passes never read it. */

@@ -1,0 +1,610 @@
+/* ═══ Long-form prose typography — ONE authority for rendered markdown ═══
+ *
+ * Extracted verbatim from src/pages/blog/[...slug].astro (#1700), where it lived in an
+ * inline `<style is:global>` and therefore shipped on blog pages only. The generated API
+ * reference renders markdown too, and without these rules it rendered as an unstyled wall:
+ * an h1 the same size as body text, no paragraph rhythm, parameters as loose lines.
+ *
+ * Every selector is shared by BOTH surfaces via `:is(.blog-prose, .api-prose)`, so the two
+ * cannot drift into different typography. Rules that only make sense for one of them live in
+ * the clearly-marked section at the bottom, not in a second copy of the shared block.
+ */
+
+/* Apple-style long-form reading: generous measure, calm hierarchy, hairline
+     rules. Code fences are handled by astro-expressive-code; this styles the
+     prose around them. */
+:is(.blog-prose, .api-prose) {
+  font-size: 19px;
+  line-height: 1.7;
+  color: var(--color-fg-dim);
+}
+:is(.blog-prose, .api-prose) > * + * {
+  margin-top: 1.6em;
+}
+/* Prose caps at the 700px measure (~66–73 chars at 19px) and centers
+     while the layout is a single column (< lg). Once the grid engages
+     (lg+) the article lives in its own track, so prose left-aligns and the
+     wide children — code fences (.expressive-code), tables (.table-scroll),
+     figures incl. the LiveShader embed (figure.live-shader), and display
+     math (.katex-display) — break out to fill the content column toward
+     the TOC. Wide content still scrolls inside its own box, so the fluid
+     column is never blown out. */
+:is(.blog-prose, .api-prose) > * {
+  max-width: 700px;
+  margin-inline: auto;
+}
+@media (min-width: 1024px) {
+  :is(.blog-prose, .api-prose) > * {
+    margin-inline: 0;
+  }
+  :is(.blog-prose, .api-prose) > .expressive-code,
+  :is(.blog-prose, .api-prose) > .table-scroll,
+  :is(.blog-prose, .api-prose) > figure,
+  :is(.blog-prose, .api-prose) > .katex-display {
+    max-width: none;
+  }
+}
+:is(.blog-prose, .api-prose) h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--color-fg);
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  margin-top: 2.4em;
+  margin-bottom: 0.2em;
+}
+:is(.blog-prose, .api-prose) h3 {
+  font-weight: 400;
+  color: var(--color-fg);
+  font-size: 23px;
+  margin-top: 1.8em;
+  margin-bottom: 0.35em;
+}
+/* Anchor targets land below the fixed header. */
+:is(.blog-prose, .api-prose) h2,
+:is(.blog-prose, .api-prose) h3 {
+  scroll-margin-top: 6rem;
+}
+/* Hover "#" permalink appended by rehypeHeadingAnchors (astro.config). */
+:is(.blog-prose, .api-prose) .heading-anchor {
+  margin-left: 0.4em;
+  color: var(--color-fg-mute);
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+:is(.blog-prose, .api-prose) h2:hover .heading-anchor,
+:is(.blog-prose, .api-prose) h3:hover .heading-anchor,
+:is(.blog-prose, .api-prose) .heading-anchor:focus-visible {
+  opacity: 1;
+}
+:is(.blog-prose, .api-prose) .heading-anchor:hover {
+  color: var(--color-accent);
+}
+:is(.blog-prose, .api-prose) p {
+  color: var(--color-fg-dim);
+}
+:is(.blog-prose, .api-prose) strong {
+  color: var(--color-fg);
+  font-weight: 500;
+}
+:is(.blog-prose, .api-prose) a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+:is(.blog-prose, .api-prose) a:hover {
+  color: var(--color-accent-hover);
+}
+:is(.blog-prose, .api-prose) ul,
+:is(.blog-prose, .api-prose) ol {
+  padding-left: 1.3em;
+}
+:is(.blog-prose, .api-prose) ul {
+  list-style: disc;
+}
+:is(.blog-prose, .api-prose) ol {
+  list-style: decimal;
+}
+:is(.blog-prose, .api-prose) li + li {
+  margin-top: 0.4em;
+}
+:is(.blog-prose, .api-prose) :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--color-fg);
+  background: var(--color-bg-card);
+  border-radius: 5px;
+  padding: 0.1em 0.4em;
+}
+:is(.blog-prose, .api-prose) blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  color: var(--color-fg-mute);
+  font-style: italic;
+}
+/* Figures / images — hairline-framed on the dark surface, with a quiet
+     mono caption (matches the meta/eyebrow voice). Latent until a post
+     embeds one; figures already break out to the full column at lg. */
+:is(.blog-prose, .api-prose) figure img,
+:is(.blog-prose, .api-prose) :not(figure) > img {
+  width: 100%;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+}
+:is(.blog-prose, .api-prose) figcaption {
+  margin-top: 0.7em;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--color-fg-mute);
+}
+/* Citation markers ([1], [2][3]) — linked to the matching #ref-N item in
+     "## References" by rehypeCitations (astro.config.mjs). Superscript so
+     they read as references, not body text. */
+:is(.blog-prose, .api-prose) a.citation {
+  font-size: 0.72em;
+  vertical-align: super;
+  line-height: 0;
+  text-decoration: none;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+}
+:is(.blog-prose, .api-prose) a.citation:hover {
+  text-decoration: underline;
+}
+/* Reference-list targets land below the fixed header, same as headings. */
+:is(.blog-prose, .api-prose) ol li[id^='ref-'] {
+  scroll-margin-top: 6rem;
+}
+/* Tables (comparison/reference tables in a few posts) — the browser
+     default is borderless and unreadable on the dark surface. rehypeWrapTables
+     (astro.config.mjs) wraps each <table> in .table-scroll > .table-scroll-inner
+     so a too-wide table doesn't blow out the prose measure; the OUTER static
+     box paints a right-edge fade that stays pinned to the visible edge while
+     the INNER box scrolls — see astro.config.mjs for why the fade can't live
+     on the scrolling element itself. */
+:is(.blog-prose, .api-prose) .table-scroll {
+  position: relative;
+}
+:is(.blog-prose, .api-prose) .table-scroll::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--color-bg));
+  pointer-events: none;
+  /* Hidden until script below confirms the table actually overflows —
+       a table that fits shouldn't show a "there's more" hint. Visible by
+       default so a table still reads as scrollable without JS. */
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+:is(.blog-prose, .api-prose) .table-scroll:not(.has-overflow)::after {
+  opacity: 0;
+}
+:is(.blog-prose, .api-prose) .table-scroll-inner {
+  overflow-x: auto;
+}
+:is(.blog-prose, .api-prose) table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+:is(.blog-prose, .api-prose) th,
+:is(.blog-prose, .api-prose) td {
+  border: 1px solid var(--color-line);
+  padding: 0.55em 0.9em;
+  text-align: left;
+  vertical-align: top;
+  /* Gives the row a background lighter than the page, so the .table-scroll
+       right-edge fade (which fades TO the page's --color-bg) has something
+       to fade FROM — an empty <td> is otherwise transparent, showing the
+       page background straight through, which is the SAME color the fade
+       ends on and would make the fade invisible everywhere it isn't
+       overlapping a glyph. */
+  background: var(--color-bg-elev);
+}
+:is(.blog-prose, .api-prose) th {
+  background: var(--color-bg-card);
+  color: var(--color-fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+/* Admonition callouts (:::note / :::tip / :::warning / :::caution /
+     :::important) produced by remarkCallouts (astro.config.mjs). Coloured
+     left rail + uppercase mono label, matching the <Callout> component used on
+     docs pages — but reachable from plain markdown. Colours mirror
+     components/Callout.astro. */
+:is(.blog-prose, .api-prose) .callout {
+  border-left: 2px solid;
+  border-radius: 0 6px 6px 0;
+  padding: 0.75rem 1rem 0.8rem;
+  font-size: 15px;
+  line-height: 1.6;
+}
+:is(.blog-prose, .api-prose) .callout > * {
+  max-width: none;
+  margin-inline: 0;
+}
+:is(.blog-prose, .api-prose) .callout > * + * {
+  margin-top: 0.5em;
+}
+:is(.blog-prose, .api-prose) .callout > p {
+  color: var(--color-fg-dim);
+}
+:is(.blog-prose, .api-prose) .callout-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+:is(.blog-prose, .api-prose) .callout-note {
+  border-color: rgba(203, 106, 60, 0.6);
+  background: rgba(203, 106, 60, 0.05);
+}
+:is(.blog-prose, .api-prose) .callout-note .callout-label {
+  color: #cb6a3c;
+}
+:is(.blog-prose, .api-prose) .callout-tip {
+  border-color: rgba(52, 211, 153, 0.6);
+  background: rgba(52, 211, 153, 0.05);
+}
+:is(.blog-prose, .api-prose) .callout-tip .callout-label {
+  color: #6ee7b7;
+}
+:is(.blog-prose, .api-prose) .callout-warning {
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.05);
+}
+:is(.blog-prose, .api-prose) .callout-warning .callout-label {
+  color: #fcd34d;
+}
+:is(.blog-prose, .api-prose) .callout-caution {
+  border-color: rgba(251, 113, 133, 0.6);
+  background: rgba(251, 113, 133, 0.05);
+}
+:is(.blog-prose, .api-prose) .callout-caution .callout-label {
+  color: #fda4af;
+}
+:is(.blog-prose, .api-prose) .callout-important {
+  border-color: rgba(181, 138, 90, 0.6);
+  background: rgba(181, 138, 90, 0.05);
+}
+:is(.blog-prose, .api-prose) .callout-important .callout-label {
+  color: #b58a5a;
+}
+/* KaTeX on the dark surface: inherit the prose color, keep display math
+     scrollable on narrow screens instead of overflowing the measure. */
+:is(.blog-prose, .api-prose) .katex {
+  color: var(--color-fg);
+  font-size: 1.06em;
+}
+:is(.blog-prose, .api-prose) .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+
+/* ═══ API-reference rules ═══
+ *
+ * A reference page is not an essay. It is scanned, re-scanned, and left — so the type is
+ * denser than the blog's, the structural labels recede, and the only things that carry
+ * weight are the ones a reader is actually hunting: the symbol name, the signature, and the
+ * parameter names.
+ *
+ * TypeDoc emits a fixed shape, and each level gets the treatment its ROLE deserves:
+ *   h1  the symbol            — the page's subject
+ *   h2  "Call Signature"      — a structural label, repeated once per overload
+ *   h3  Parameters / Returns  — a section within one signature
+ *   h4  a parameter name      — dense, repeated, list-like
+ */
+
+.api-prose {
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+.api-prose h1 {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(28px, 3.2vw, 36px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--color-fg);
+  margin: 0 0 1.25rem;
+  font-weight: 400;
+}
+
+/* The "Kind: " prefix TypeDoc heads every symbol page with ("Function: emitConst()"),
+ * split out by astro.config.mjs's rehypeApiHeading into its own leading `<span>` so the h1
+ * itself is just the name — the left rail already groups by kind and the breadcrumb already
+ * shows the subpath (#1695 item 12). `display: block` forces it onto its own line above the
+ * name without touching sibling structure (kept OUT of the h1 flow that the reordering rules
+ * below key off of `h1:first-child`). */
+.api-prose h1 .api-kind-eyebrow {
+  display: block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-mute);
+  margin-bottom: 0.4em;
+}
+
+/* Structural labels, NOT titles. They were display-sized and dominated a page whose subject
+ * is the h1 above them — and on an overloaded symbol like `fn` the same word appears four
+ * times. Set as a quiet rule-and-caption so the eye skips to the content under them. */
+.api-prose h2 {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-mute);
+  margin: 2.75rem 0 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-line);
+}
+/* The first label sits right under the signature — no rule, it would double the one the
+ * "Defined in" line already draws. */
+.api-prose h2:first-of-type {
+  margin-top: 1.75rem;
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* A section within one signature — "Parameters", "Returns", "Type Parameters". Keyed off the
+ * ROLE class astro.config.mjs's rehypeApiHeadingRole puts on it, not off the depth: TypeDoc
+ * puts the same role at h3 on a plain function and h4 on an overloaded one, and the previous
+ * depth-keyed rule applied `text-transform: uppercase` to whatever landed at h3 — which on a
+ * function page is the PARAMETER NAME. `v` published as `V`. */
+.api-prose :is(h3, h4, h5, h6).api-h-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-dim);
+  margin: 1.75rem 0 0.5rem;
+}
+
+/* A parameter / member name — an IDENTIFIER, at whatever depth this page happens to put it.
+ * Dense and repeated, so it reads as a list item rather than a heading, with the type line
+ * pulled tight underneath. Never transformed: the text is code. */
+.api-prose :is(h2, h3, h4, h5, h6).api-h-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-fg);
+  border-top: 0;
+  padding-top: 0;
+  margin: 1.1rem 0 0.2rem;
+}
+/* The type belongs to the name above it, so it is set as one block with it rather than as a
+ * paragraph that happens to follow. Was ~48px apart, which read as two unrelated rows. */
+.api-prose .api-h-name + p {
+  margin-top: 0;
+  font-size: 13px;
+  color: var(--color-fg-dim);
+}
+.api-prose .api-h-name + .api-type-line {
+  margin-top: 0.1rem;
+  color: var(--color-fg-mute);
+}
+
+/* THE SIGNATURE. typedoc-plugin-markdown emits it as a blockquote (`> **fn**(…)`), which
+ * the blog's quote styling would render as a pull-quote in italics. It is the single thing
+ * most readers open the page for, so it gets a panel and the accent rule instead — and its
+ * cross-references stay visible as links, which the old `useCodeBlocks` rendering could not
+ * do at all (it emitted bare, unlinked, untyped parameter names). */
+.api-prose blockquote {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.7;
+  font-style: normal;
+  color: var(--color-fg);
+  background: var(--color-bg-elev);
+  border: 0;
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0 4px 4px 0;
+  padding: 0.85rem 1rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+}
+.api-prose blockquote p {
+  margin: 0;
+}
+/* Inline code that IS a type must not carry the blog's chip styling — each identifier is its
+ * own <code> with the brackets as bare text between them, so the padding and background turned
+ * `fn<P, R>(params, body)` into `fn< P , R >( params , body )`, with a visible gap at every
+ * token boundary. Strip it: the line is already monospace, so the chips added nothing but the
+ * gaps.
+ *
+ * Two selectors, one rule. The blockquote is the signature; `.api-type-line` is every OTHER
+ * place TypeDoc emits a bare type expression — Returns, Parameters, Type Parameters, Extends —
+ * tagged at build time by rehypeApiTypeLines (astro.config.mjs). Fixing only the blockquote is
+ * what let `Node<"f32">` ship as four boxes in the Returns section of all 332 pages. */
+/* `code:not(pre code)`, NOT `:not(pre) > code`. The latter needs an intermediate element to
+ * fill the `:not(pre)` slot, so it styled `<a><code>Node</code></a>` and skipped the sibling
+ * `<code>"f32"</code>` sitting directly under the tagged `<p>` — half of `Node<"f32">` lost
+ * its chip and the other half kept it, which is worse than either. Measured, not reasoned. */
+.api-prose blockquote code:not(pre code),
+.api-prose .api-type-line code:not(pre code) {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* Item 20 (#1695 audit): was `text-decoration: none` + a border-bottom at 35% opacity —
+ * distinguished from the surrounding signature text by ACCENT COLOUR ALONE (fails WCAG 1.4.1,
+ * Use of Colour), since that border was faint enough to compute as textDecorationLine "none"
+ * (measured), unlike every other .api-prose/.blog-prose link (measured "underline"). A real
+ * underline is the colour-independent cue; kept thin and offset so a signature dense with
+ * linked identifiers (e.g. `fn<P, R>(params: P, body: (p: P) => R): R`) doesn't turn into a
+ * wall of lines. */
+.api-prose blockquote a {
+  color: var(--color-accent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.api-prose blockquote a:hover {
+  text-decoration-color: var(--color-accent);
+}
+
+/* Item 14 (#1695 audit): a big union/intersection type alias (Expr.md: ~2500 chars, one
+ * markdown line) already WRAPS inside the generic 700px prose measure — it was never
+ * literally overflowing — but every other wide block on this page (code fences, tables,
+ * the member summary below) is allowed past that measure at lg+ and the signature
+ * blockquote wasn't, so it wrapped into more, narrower lines than it needed to. Give it
+ * the same breakout. `overflow-x: auto` above still catches the pathological case (a
+ * single token too long to wrap at all). */
+@media (min-width: 1024px) {
+  .api-prose > blockquote {
+    max-width: none;
+  }
+}
+
+/* `Defined in: …` — provenance. Useful, not the subject: quiet, and ruled off so it reads as
+ * metadata rather than as the description's first sentence. */
+.api-prose p:has(> a[href*='/blob/']) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--color-fg-mute);
+  padding-bottom: 1.1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-line);
+}
+
+/* `Exported from …` — the OTHER provenance line, written into every scaffolded doc comment, so
+ * it is on all 332 pages. It was set as body prose sitting directly above the muted "Defined
+ * in" line: two provenance sentences at two different weights, the louder one being the less
+ * useful. Worse, the chip on each specifier pushed the separating comma outside the box, so it
+ * read as `@xgis/shader-dsl` , `@xgis/shader-dsl/core/ir` — a comma floating in the gap.
+ * Same voice as its neighbour, chips off, and the two read as one metadata block. */
+.api-prose .api-exported-from {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--color-fg-mute);
+  margin-bottom: 0.4rem;
+}
+.api-prose .api-exported-from code:not(pre code) {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: inherit;
+  color: var(--color-fg-dim);
+}
+
+/* Reading order is fixed at the DOM (rehypeApiReadingOrder in astro.config.mjs), NOT with
+ * `order` tiers. The tiers that used to live here moved pixels while leaving the DOM — and
+ * therefore speech order and focus order — unchanged, which left the original defect in place
+ * for screen readers and added a focus-order mismatch that the unfixed page did not have.
+ * `.api-prose` stays a plain block: source order is now the truth. */
+
+.api-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: 2.5rem 0;
+}
+
+/* Item 16 (#1695 audit): a jump-list for pages with many members (Node: 46, ReadonlyNode:
+ * 45) — ApiReference.astro builds it from the SAME headings the right rail already has, so
+ * there's nothing here to keep in sync by hand. A quiet panel, not a second TOC: the
+ * category labels reuse the h2 voice (mono, uppercase, muted) at a size below it, and the
+ * links wrap as a dense row instead of one-per-line so ~45 names still fit in a few lines. */
+.api-prose .api-member-summary {
+  padding: 0.9rem 1.1rem 1rem;
+  background: var(--color-bg-elev);
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+}
+.api-prose .api-member-summary-label {
+  margin: 0 0 0.7rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-fg-mute);
+}
+.api-prose .api-member-summary-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em 0.7em;
+}
+.api-prose .api-member-summary-group + .api-member-summary-group {
+  margin-top: 0.5em;
+}
+.api-prose .api-member-summary-group-label {
+  flex: 0 0 6.5em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--color-fg-mute);
+}
+.api-prose .api-member-summary-group ul {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.35em 0.9em;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.api-prose .api-member-summary-group li {
+  margin: 0;
+}
+/* Item 20 sibling (#1695 audit): same colour-alone defect as the signature blockquote link
+ * above — a border-bottom at 30% opacity in place of a real underline. Same fix. */
+.api-prose .api-member-summary a {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  color: var(--color-accent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.api-prose .api-member-summary a:hover {
+  text-decoration-color: var(--color-accent);
+}
+
+/* ═══ Group-index pages ═══
+ *
+ * TypeDoc's index for a subpath is a bare bullet list of every export — 284 of them for the
+ * `.` entry point, one per line, which is a 284-row scroll with nothing to scan by. Columns
+ * turn that into something a reader can sweep in one screen. The generated `# index` H1 is
+ * REMOVED from the DOM by astro.config.mjs's rehypeApiHeading (not merely hidden — a
+ * `display: none` copy is still a second <h1> for assistive tech, #1695 item 8); the layout
+ * renders the import SPECIFIER as the page's only h1 instead, since "index" names an output
+ * directory and is not a thing anyone types. */
+.api-prose--index ul {
+  columns: 2;
+  column-gap: 2.5rem;
+  padding-left: 0;
+  list-style: none;
+}
+@media (min-width: 1280px) {
+  .api-prose--index ul {
+    columns: 3;
+  }
+}
+.api-prose--index li {
+  break-inside: avoid;
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+}
+.api-prose--index li + li {
+  margin-top: 0;
+}

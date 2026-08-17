@@ -9,42 +9,74 @@ with a real type checker, an optimizer, a lint pass, and now pipeline **reflecti
 under `core/`, not any application's shaders. (X-GIS's own shaders author _through_ this
 package like any other consumer.)
 
-> `private: true` — build-to-tarball only; this package is **not** published to npm.
+> **Distribution: a git submodule, not npm** (#1681 C). This package is **not published to
+> npm**. `git subtree split --prefix=shader-dsl` re-roots this directory as a standalone
+> MIRROR repository, and the consuming project takes that mirror as a submodule
+> (`.github/workflows/mirror-shader-dsl.yml` pushes it on every merge to `main` that touches
+> this package). The
+> monorepo stays authoritative; the mirror is **read-only** and fixes flow back through
+> X-GIS. There is consequently no version policy, no tag convention and no release script —
+> the `version` field is not a release.
 
 ## Capability taxonomy (honest)
 
-| Capability                                                                                                                                                         | Standing                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                                           |
-| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                                           |
-| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                                               |
-| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                                           |
-| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                                                      |
-| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **NEW**                                                                                                                                                                              |
-| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                                                    |
-| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO + MRT draw buffers, WebGL2 compile+render-verified (see `examples/`, #847); compute/SSBO/MSAA-load fail closed |
-| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **aspirational** — mono-target (WGSL) but credible for v1                                                                                                                            |
+| Capability                                                                                                                                                         | Standing                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                                                                                                                                                            |
+| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                                                                                                                                                            |
+| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                                                                                                                                                                |
+| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                                                                                                                                                            |
+| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                                                                                                                                                                       |
+| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **NEW**                                                                                                                                                                                                                                                                                               |
+| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                                                                                                                                                                     |
+| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO + MRT draw buffers, WebGL2 compile+render-verified (see `examples/`, #847); a read-only SSBO lowers to a data texture by default (writes + unsupported shapes fail closed), compute emulation is opt-in, MSAA-load fails closed |
+| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **aspirational** — mono-target (WGSL) but credible for v1                                                                                                                                                                                                                                             |
 
 ## Install / build
 
-This is a workspace package (build-to-tarball, not published):
+Inside this monorepo:
 
 ```bash
 bun install
 bun run build          # tsc --build → dist/ + .d.ts, then a noEmit type-check of tests + examples
-npm pack               # → xgis-shader-dsl-0.0.1.tgz (ships dist/ only)
 ```
 
-> **Publish tooling (#763 V6):** the `publishConfig` `exports`/`main`/`types` overrides are a
-> **pnpm/bun extension** — plain `npm publish` ignores them, so the tarball's `exports` would
-> still point at `src/**` while `files` ships only `dist/` → a broken package. If this is ever
-> published, use `pnpm publish` or `bun publish`. (`private: true` keeps the hazard dormant.)
-
-Consume it from the built artifact:
+`dist/` is a build artifact, not a shipped one — it is gitignored, so neither a fresh clone nor
+the mirror contains it. The monorepo resolves `@xgis/shader-dsl` through the `exports` map to
+**source** (`./src/*.ts`):
 
 ```ts
 import { fn, module, emitModule, reflect } from '@xgis/shader-dsl'
 ```
+
+### Consuming it outside the monorepo
+
+Take the mirror repository (see the note at the top) as a submodule; its root IS this
+directory, so it compiles standing alone:
+
+```bash
+git submodule add <mirror-url> vendor/shader-dsl
+tsc -p vendor/shader-dsl
+```
+
+MEASURED (#1681 C): a fresh clone of the mirror type-checks with `tsc -p .` to **exit 0**,
+emitting 82 JS files, with **no `node_modules` anywhere up the tree**.
+
+That is the whole point of the layout: every `extends` in this package terminates INSIDE the
+package (#1681 B1), and nothing tracked under `shader-dsl/` names a path outside it — gated by
+[`src/self-contained.test.ts`](./src/self-contained.test.ts).
+
+Two things a consumer must know:
+
+- **It ships TypeScript source.** `main`/`exports` name `./src/*.ts`, so the consuming build
+  needs a toolchain that compiles TS (Vite, `tsc`, esbuild, …). Plain Node cannot import it
+  as-is — #1686.
+- **`./examples` additionally needs `allowImportingTsExtensions`.** The example modules import
+  each other with explicit `.ts` extensions; `src/` does not, which is why `tsc -p .` (src
+  only) resolves without the flag.
+
+The mirror is **read-only**: fix things here, in X-GIS, and the next merge fast-forwards it.
+`CHANGELOG.md` is generated from git history by the root `bun run changelog`.
 
 ## Usage — author, emit WGSL, and reflect
 

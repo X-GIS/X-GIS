@@ -1,0 +1,77 @@
+/* ═══ Sticky side rails that scroll — ONE authority for both of them ═══
+ *
+ * The docs layout has two: the symbol navigation on the left and "On this page" on the
+ * right. They had the same problem and only one of them got fixed, which is the drift this
+ * file exists to stop — the left rail kept a default scrollbar and a scrolling header for a
+ * commit after the right one stopped.
+ *
+ * Three rules, and each is a measured complaint rather than polish:
+ *
+ *   1. Only the LIST scrolls. The rail's header (a label, and on the left a filter box) must
+ *      stay put — a filter you have to scroll back up to reach is worse than no filter.
+ *   2. The scrollbar is thinned to the rail's own weight. A default scrollbar on a 248px
+ *      rail reads as a browser artifact sitting on top of the design.
+ *   3. The cut is FADED, not guillotined, so it reads as "more below" instead of as clipping.
+ *
+ * The left rail measured 6888px of content against 804px of viewport (327 symbols) — this is
+ * not a rail anyone scrubs through by hand, which is why the nav also scrolls its current
+ * item into view on load. That part is behaviour, not style, and lives in the layout.
+ */
+
+.scroll-rail {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+  /* Fade both edges. The top fade is small so a list scrolled to 0 barely shows it. */
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 12px,
+    #000 calc(100% - 20px),
+    transparent 100%
+  );
+}
+
+.scroll-rail::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-rail::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 3px;
+}
+.scroll-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* A list that is NOT scrolling must not be faded — there is nothing below to hint at, and a
+ * permanently dimmed last row reads as a rendering bug. Scroll-driven animations give this
+ * for free where supported; elsewhere the static mask above is the graceful floor. */
+@supports (animation-timeline: scroll()) {
+  .scroll-rail {
+    /* The base style must be NO fade, not the static one above. A `scroll()` timeline on an
+     * element with nothing to scroll is INACTIVE, and an animation on an inactive timeline is
+     * not in effect — so the element falls back to exactly this declaration. Leaving the
+     * static mask as the base meant a short rail (the "On this page" list on a 4-heading page:
+     * measured scrollHeight 144 === clientHeight 144) rendered permanently dimmed at both
+     * edges, which is the "reads as a rendering bug" case the comment above already named and
+     * then shipped anyway. With the fade removed here, a non-scrolling rail is clean and a
+     * scrolling one still gets the animated fade from the keyframes below. */
+    mask-image: none;
+    animation: scroll-rail-fade linear both;
+    animation-timeline: scroll(self block);
+  }
+  @keyframes scroll-rail-fade {
+    from {
+      mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 20px), transparent 100%);
+    }
+    to {
+      mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 100%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-rail {
+    animation: none;
+  }
+}

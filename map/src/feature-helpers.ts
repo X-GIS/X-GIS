@@ -11,24 +11,34 @@ import type { GeoJSONFeatureCollection } from '@xgis/data'
 
 // ─── Color helpers ─────────────────────────────────────────────────
 
-/** Parse `#rgb` / `#rrggbb` / `#rrggbbaa` to [r, g, b, a] in 0..1.
- *  Defaults missing channels: alpha to 1, all RGB to 0 on unrecognised
- *  input. Never returns null — callers needing a "did this parse?"
- *  signal should use {@link hexToRgba} instead. Previously duplicated
- *  in map.ts and vector-tile-renderer.ts; consolidated here. */
-export function parseHexColor(hex: string): [number, number, number, number] {
+/** Parse `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` to [r, g, b, a] in
+ *  0..1, or `null` for null / undefined / empty / any string that is not
+ *  one of those four shapes. THE SINGLE colour-string parser for this
+ *  package — every caller reads its answer through this one function.
+ *
+ *  The null IS the contract, and it is why the total variant is gone.
+ *  This used to be two functions: a total `parseHexColor` that answered
+ *  opaque BLACK for anything it did not recognise, plus a nullable
+ *  wrapper over it. Black is a WRONG colour reported as a right one — an
+ *  authored `red`, a data-carried palette token, a `#zzz` typo — and it
+ *  is indistinguishable at the buffer from an authored black, so no gate
+ *  downstream could ever see it (#1666). The shape gate itself is not
+ *  optional either way: `parseInt('zz', 16)` = NaN reaching the colour
+ *  buffer makes the GPU sample undefined behaviour, so the only question
+ *  was what the rejected case returns.
+ *
+ *  Callers that legitimately want a fallback now write it AT THE CALL
+ *  SITE (`?? [1, 1, 1, 1]`, `?? dflt`, `?? layerConstant`), where the
+ *  reliance is visible in review instead of buried in this function. */
+export function hexToRgba(hex: string | null | undefined): [number, number, number, number] | null {
+  if (typeof hex !== 'string') return null
+  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
+    return null
+  }
   let r = 0,
     g = 0,
     b = 0,
     a = 1
-  // Reject non-hex content early. Without this, `parseInt("zz", 16)` =
-  // NaN propagated through to the colour buffer; the renderer's
-  // float-array view stored NaN per channel and the GPU sampled
-  // undefined behaviour (typically black-with-jitter depending on
-  // driver). Mirror of the layer.ts wrapper regex guard.
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-    return [0, 0, 0, 1]
-  }
   if (hex.length === 4) {
     r = parseInt(hex[1] + hex[1], 16) / 255
     g = parseInt(hex[2] + hex[2], 16) / 255
@@ -53,26 +63,6 @@ export function parseHexColor(hex: string): [number, number, number, number] {
     a = parseInt(hex.slice(7, 9), 16) / 255
   }
   return [r, g, b, a]
-}
-
-/** Nullable variant of {@link parseHexColor}: returns null for null /
- *  undefined / empty / INVALID-SHAPE input. Callers that propagate a
- *  "no colour declared" intent (label fill fallback, time-interpolated
- *  colour stops) need this distinction over the all-zero default —
- *  AND the layer-style fill / stroke setter validation gates rely on
- *  the null signal to reject typo'd colour strings instead of
- *  silently rendering black.
- *
- *  Pre-fix the regex validation lived inside parseHexColor where it
- *  always returned the [0,0,0,1] black default for invalid input;
- *  the gate `parseHexColor(v) === null` in layer.ts (and callers
- *  expecting hexToRgba to signal validity) was dead code, and an
- *  authored `"red"` reached the renderer as black. */
-export function hexToRgba(hex: string | null | undefined): [number, number, number, number] | null {
-  if (!hex) return null
-  if (typeof hex !== 'string') return null
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) return null
-  return parseHexColor(hex)
 }
 
 // ─── Geometry helpers ──────────────────────────────────────────────

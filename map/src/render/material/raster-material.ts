@@ -10,7 +10,9 @@ import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '../../shaders/dsl/raster'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
+import { pickedModuleGlslId, pickedModuleWgslId } from '../../shaders/baked/ids'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** One raster tile to draw: its texture + 64-byte per-tile uniform. The texture is
  *  backend-agnostic: a raw `GPUTexture` (the WebGPU pilot — bridged to a view here)
@@ -63,13 +65,22 @@ export class RasterDraper {
     // Raster is texture-only (uniform + texture + sampler) — no storage buffers — so the
     // GLSL emit needs no data-texture emulation, and group 0's single UBO + single texture
     // bind correctly by ORDER (no reflection name needed).
-    const rasterModule = buildRasterModule(false)
+    //
+    // #1473 residue — this site kept the pre-`wgsl-for.ts` shape after every sibling
+    // draper moved: it emitted the WGSL unconditionally (dead weight on a WebGL2 device)
+    // and lowered the module ONCE PER STAGE. Both halves now route through the thunk
+    // seam, so each device pays for exactly the language it reads and the GLSL pair
+    // shares one lowering. The BYTES a WebGL2 device receives are unchanged:
+    // `emitGlslStages` is byte-identical to two `emitGlslModule` calls (shader-dsl's
+    // glsl-stages-parity pins it) — only which work runs changes.
     this.material = new Material(rhi, {
-      shader: emitRasterWgsl(false),
+      shader: wgslFor(rhi, () => emitRasterWgsl(false), pickedModuleWgslId('raster', false)),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_tile',
-      vsCode: emitGlslModule(rasterModule, 'vertex'),
-      fsCode: emitGlslModule(rasterModule, 'fragment'),
+      ...glslStagesFor(rhi, () => emitGlslStages(buildRasterModule(false)), {
+        vertex: pickedModuleGlslId('raster', false, 'vertex'),
+        fragment: pickedModuleGlslId('raster', false, 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [
@@ -106,14 +117,19 @@ export class RasterDraper {
   }
 
   /** Lazily build the pick-pass Material (colour + rg32uint MRT). Deferred so the non-pick path —
-   *  including the WebGl2 checker, which fail-closes on an rg32uint MRT — never builds it. */
+   *  including the WebGl2 checker, which fail-closes on an rg32uint MRT — never builds it.
+   *
+   *  #1473 residue — this site additionally built the pick module TWICE (once per stage);
+   *  it is built once and lowered once now. Same thunk seam, same byte-for-byte GLSL. */
   private pickMat(): Material {
     return (this._pickMaterial ??= new Material(this.rhi, {
-      shader: emitRasterWgsl(true),
+      shader: wgslFor(this.rhi, () => emitRasterWgsl(true), pickedModuleWgslId('raster', true)),
       vsEntry: 'vs_tile',
       fsEntry: 'fs_tile',
-      vsCode: emitGlslModule(buildRasterModule(true), 'vertex'),
-      fsCode: emitGlslModule(buildRasterModule(true), 'fragment'),
+      ...glslStagesFor(this.rhi, () => emitGlslStages(buildRasterModule(true)), {
+        vertex: pickedModuleGlslId('raster', true, 'vertex'),
+        fragment: pickedModuleGlslId('raster', true, 'fragment'),
+      }),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

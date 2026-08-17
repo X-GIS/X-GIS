@@ -1,0 +1,31 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+
+  "entryPoints": [
+    "../shader-dsl/src/index.ts",
+    "../shader-dsl/src/dev.ts",
+    "../shader-dsl/src/emit-prod.ts",
+    "../shader-dsl/src/core/ir/index.ts"
+  ],
+  "tsconfig": "../shader-dsl/tsconfig.json",
+
+  "plugin": ["typedoc-plugin-markdown", "typedoc-plugin-frontmatter"],
+
+  "out": "./src/content/api",
+  // NOTE: publicPath is NOT set here. It must carry astro.config's `base` (/X-GIS on the
+  // deployed site, / locally), which a static config file cannot know — so
+  // scripts/build-api-reference.ts derives it and passes --publicPath on the CLI.
+  "outputFileStrategy": "members",
+
+  "excludeInternal": true,
+  "readme": "none",
+
+  "name": "@xgis/shader-dsl",
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true,
+  "useCodeBlocks": false,
+
+  "frontmatterGlobals": {
+    "generated": true
+  }
+}

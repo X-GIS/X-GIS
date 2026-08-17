@@ -6,8 +6,8 @@ import { test, expect, type Page } from '@playwright/test'
 // WebGPU pass-chain, and the VT tile-points inline flush (VectorTileRenderer's
 // per-tile flushTilePoints) only ran inside the WebGPU encoder. This spec proves
 // each path end-to-end through the shared PointDraper Material GLSL twin
-// (emitPointGlsl — storage buffers lowered to data-texture samplers via
-// emulateStorage), the writePointFrameUniform pack, and the SDF quad buffers:
+// (emitPointGlsl — storage buffers lowered to data-texture samplers by
+// default), the writePointFrameUniform pack, and the SDF quad buffers:
 //
 //   1. DIRECT-LAYER points (inc1) — GeoJSON sources routed through
 //      pointRenderer.addLayer draw via renderFrameViaRhi -> pointRenderer.renderRhi

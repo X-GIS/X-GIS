@@ -10,12 +10,39 @@
 //
 // Codes are append-only and never renumbered: a consumer may match on `err.code`.
 
+/** One entry of the diagnostic catalogue: the `SD####` code, the INVARIANT half of its message,
+ *  and an optional one-line remedy. The dynamic half of a real error (the offending types, the
+ *  field name) is not here — it is supplied at the throw site and composed into
+ *  {@link ShaderDslError}'s `.message`, which is why the summary can be relied on as a category
+ *  while the message cannot.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ */
 export interface ErrorCodeDef {
   readonly code: string
   readonly summary: string
   readonly hint?: string
 }
 
+/** The whole diagnostic catalogue, keyed by code — the single source of truth for what every
+ *  `SD####` means. Read it to build your own error UI (a code → docs link, a severity map, a
+ *  localised message table) rather than parsing `.message`, which composes the summary below
+ *  with per-throw detail and is not a stable format.
+ *
+ *  APPEND-ONLY, and never renumbered: a code that ships keeps its number forever, precisely so
+ *  a consumer may `switch` on `err.code` across versions. A test snapshots this object, so
+ *  adding or removing an entry is a deliberate diff rather than a silent one.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ *
+ *  @example
+ *  ```ts
+ *  import { CODES, type ErrorCode } from '@xgis/shader-dsl'
+ *
+ *  const docsUrl = (code: ErrorCode) => `https://x-gis.dev/errors/${code}`
+ *  console.log(CODES.SD0002.summary) // 'binary op on mismatched vectors'
+ *  ```
+ */
 export const CODES = {
   // ── Authoring-time type errors (thrown from core/ir/node.ts) ──
   SD0001: {
@@ -76,10 +103,30 @@ export const CODES = {
     summary: 'override (specialization constant) must be a WGSL scalar type',
     hint: 'overrideConst supports bool/i32/u32/f32 only — WGSL forbids vec/matrix/array/struct overrides; decompose into per-component scalar overrides',
   },
+  SD0015: {
+    code: 'SD0015',
+    summary: 'array-texture layer must be an integer',
+    hint: 'a fractional layer literal is a naga compile error in WGSL but silently rounds in GLSL (layer = floor(z + 0.5), so 1.5 reads layer 2) — the backends would diverge; pass an integer, or an i32/u32 node',
+  },
+  SD0016: {
+    code: 'SD0016',
+    // Split out of SD0014 (#1710). hostUniform borrowed that code for a shape it does not
+    // describe, so a reader who hit it was pointed at specialization constants and told to
+    // decompose into "per-component scalar overrides" — advice for a different declarator.
+    summary: 'host-owned resource has a shape the target cannot spell',
+    hint: 'hostUniform takes a scalar/vector/matrix — a host-owned STRUCT is hostBlock, which chooses its GLSL spelling with `glsl: "loose" | "std140-block"`; a loose block flattens to one uniform per member, so its members must themselves be scalar/vector/matrix',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },
-  SD0030: { code: 'SD0030', summary: 'unsupported feature for this backend' },
+  SD0030: {
+    code: 'SD0030',
+    summary: 'unsupported feature for this backend',
+    // #1717 Ask 3 — close the discovery loop. The error already names the capability; what
+    // a reader needs next is where the per-backend support table lives, and that a
+    // capability with no row is a HARD stop rather than something to work around.
+    hint: 'see AUTHORING.md §10 (Capabilities & extensions) for the per-backend support table; a capability the target has no capProfile row for fails closed by design',
+  },
 
   // ── fp64 (emulated double precision) — passes/fp64-lower.ts ──
   SD0040: {
@@ -119,6 +166,27 @@ export const CODES = {
     summary: 'smoothstep with constant edge0 >= edge1 (undefined in GLSL ES)',
     hint: 'write 1 − smoothstep(lo, hi, x) instead of reversing the edges',
   },
+  // The hint is deliberately GENERIC and enumerates NO fix family (#1654): the
+  // per-builtin fix lives in the rule's FRAGMENT_ONLY_IDS table (the single
+  // fix-authority) and reaches the reader through the diagnostic's own message.
+  // Enumerating families here would re-create the untested sync contract that
+  // table replaced — one new family and the catalogue would lie again.
+  SD0109: {
+    code: 'SD0109',
+    summary: 'a fragment-only builtin is reachable from a vertex or compute entry',
+    hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
+/** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
+ *  from {@link CODES} rather than restated, so the two can never disagree. Annotate a handler
+ *  parameter with it and `tsc` will reject a typo'd or retired code, and an exhaustive `switch`
+ *  over it will fail to compile when a new code is added.
+ *
+ *  Note this is the type of a code the package CAN throw, not a promise about
+ *  {@link ShaderDslError}'s `.code` field, which is a plain `string` — a subclass or a future
+ *  version may carry a code this union does not have, so narrow rather than assume.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/dev`.
+ */
 export type ErrorCode = keyof typeof CODES

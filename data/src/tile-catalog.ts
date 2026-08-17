@@ -1055,14 +1055,14 @@ export class TileCatalog {
     if (this.cache.has(key)) this._replacedKeys.add(key)
   }
 
-  /** #1371 — re-request `keys` even when they are already cached, so a source whose BACKEND
-   *  was swapped (a host data push) re-tiles the keys it is currently showing. `requestTiles`
-   *  deliberately skips a cached key; this is the one caller that must not.
-   *
+  /** #1371 — re-request the keys a BACKEND swap (a host data push) made stale, which
+   *  `requestTiles` would otherwise skip for being cached; this is the one caller that must not.
    *  #1402 — QUEUED, not issued once: `requestTiles` stops at the concurrency cap, so a one-shot
-   *  refresh of a 19-tile viewport re-tiled the first 8 and left the rest drawing the previous
-   *  backend's data forever (nothing else ever re-requests a cached key). */
+   *  refresh of a 19-tile viewport stranded the rest — NOTHING else re-requests a cached key.
+   *  #1728 — the stale set is EVERY cached key, not just the caller's (what it DRAWS): after an
+   *  empty push — a host clearing before refilling — the caller can name nothing at all. */
   refreshTiles(keys: number[]): void {
+    for (const [k] of this.cache.entries()) this._refreshQueue.add(k)
     for (const k of keys) this._refreshQueue.add(k)
     this.requestTiles(keys, true)
   }

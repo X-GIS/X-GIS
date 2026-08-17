@@ -101,23 +101,43 @@ side-by-side composite. `Read` downscales large images, so this silently loses t
 sub-pixel offsets, seams, missing shields, and width changes that real bugs live in.
 Eyeballing a downscaled composite is NOT verification.
 
-### "There is no GPU here" is HALF true — and the wrong half is the one that matters
+### "There is no GPU here" is FALSE — for BOTH backends
 
-**WebGL2 RENDERS in this environment. WebGPU does not.** SwiftShader gives a real WebGL2
-context headlessly, which is exactly what CI's `render-gate` leg drives; WebGpuDevice has
-no software adapter, so WebGPU-only paths (raster gates, `navigator.gpu` compute) really
-are local-GPU-only. Saying "no GPU, cannot verify" and skipping the render is therefore
-NOT a valid excuse — it is only valid for the WebGPU half.
+**WebGL2 and WebGPU both run headlessly here, on SwiftShader.** An earlier version of this
+section said WebGPU did not, and that claim cost real work: it was quoted as the reason the
+WGSL half of #1715 "could not be verified in this environment", by a session that had just
+finished quoting the paragraph below about re-checking exactly this kind of claim.
+
+Measured, in a GPU-less cloud container, with the bundled `headless_shell`: `_wgsl-compile-gate`
+compiles every emitted variant on real **Tint**; `_emit-obfuscate-gate` **draws** and asserts
+byte-identical frames; `_shader-math-parity` executes a WGSL **compute** pass; and the full map
+boots on WebGPU with no `forcegl2` (console: _"WebGPU is experimental on this platform"_). The
+Chromium build ships the ICD that makes it work — `libvk_swiftshader.so` and
+`vk_swiftshader_icd.json` in `chrome-linux/`.
 
 ```
 cd playground && XGIS_SOFTWARE_GPU=1 HEADED=0 \
   XGIS_CHROMIUM_EXECUTABLE=$(ls -d /opt/pw-browsers/chromium_headless_shell-*/chrome-linux/headless_shell | head -1) \
-  ./node_modules/.bin/playwright test <spec>          # page: ?forcegl2=1
+  ./node_modules/.bin/playwright test <spec>          # WebGL2 page: ?forcegl2=1
 ```
 
 (`XGIS_CHROMIUM_EXECUTABLE` only when Playwright's pinned build differs from the
-preinstalled one — never run `playwright install` here. Assert `backend === 'webgl2'` in
-the spec so a silent fallback cannot green it.)
+preinstalled one — never run `playwright install` here. Assert the backend in the spec so a
+silent fallback cannot green it.)
+
+**Two things make WebGPU look absent, and both are easy to hit** — which is how the wrong
+claim survived. `playwright.config.ts:97-105` already sets what is needed; a hand-rolled probe
+usually does not:
+
+- **`--enable-unsafe-swiftshader` is required.** `--enable-unsafe-webgpu --use-vulkan=swiftshader`
+  alone still leaves `'gpu' in navigator === false`.
+- **A secure context is required.** `about:blank` has no `navigator.gpu` at all; the dev
+  server's `https://localhost:3000` does. A probe that never navigates concludes the platform
+  has no WebGPU.
+
+What IS still local-GPU-only is performance and hardware-raster fidelity — SwiftShader is slow
+and its rasterization is its own, so timing gates and hardware-pixel comparisons stay off this
+path. Correctness of compile / link / validate / draw is not on that list.
 
 This was paid for: the multi-region coverage work shipped a `deps.renderer` captured
 before the GPU assigned it — `undefined` forever, breaking every ramp-only coverage push
@@ -278,6 +298,12 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 - `tsc --build` replays CACHED errors from stale `.tsbuildinfo` after branch churn —
   `--force` before diagnosing a phantom type error; one that survives `--force` is likely
   a missing package.json dep masked by that package's own tsconfig `paths` (PR #1220).
+- `git add -A` stages whatever the session happened to leave lying around. A screenshot
+  harness written into the repo (rather than the scratch dir) rode into a commit that way
+  and needed a second commit to remove it. The tell is that the commit's file count does
+  not match the change you described. **Read `git status --porcelain` and stage by PATH**
+  when the working tree holds anything you did not intend to ship; keep probe scripts,
+  captures and logs in the session scratch dir, never under a package.
 
 **Gates / ratchets**
 
@@ -299,6 +325,20 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 
 **Verification**
 
+- A PAGE is verified by looking at the PAGE, not at the markdown behind it. Every gate around
+  the API reference was green and the pages were still wrong: an identifier heading published
+  UPPERCASED (a parameter `v` rendered `V`, on a case-sensitive language's reference), the
+  breadcrumb painted behind the fixed header, `Node<"f32">` shattered into four chips, and
+  every page loading pre-scrolled — `voidT` opened with its own `<h1>` at y=-5 — because a
+  rail's `scrollIntoView` scrolls EVERY scrollable ancestor, the document included. None of it
+  is visible in the generated `.md`, and none of it can fail a build. Screenshot the built page
+  and read it at full resolution (§5's tile split), then measure the DOM (`getBoundingClientRect`,
+  `getComputedStyle`, `scrollY`) — the numbers name the cause the picture only shows.
+- Astro's content layer caches RENDERED html in `site/node_modules/.astro/data-store.json`, and
+  editing a rehype plugin in `astro.config.mjs` does NOT invalidate it — a clean `bun run build`
+  emits the OLD markup with no warning, so a correct plugin looks broken and invites a "fix".
+  `build-api-reference.ts` now drops that file on every run; if a plugin edit still seems inert,
+  delete it before doubting the plugin.
 - Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
   Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
   (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.
@@ -314,6 +354,17 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   watch failed IDENTICALLY to the wire working, so no premise fix could ever green it. Don't
   just check fail-before goes red — CUT THE SPECIFIC MECHANISM and confirm the message names
   the severed half. → `2026-07-28-the-assertion-that-failed-either-way.md`
+- One step EARLIER than the entry above: the assertions can be fine and the INPUTS still carry
+  no information. A storage-upload rewrite shipped 5 green tests that each passed a WHOLE typed
+  array (`byteOffset` 0) — the exact case where the buggy `new Uint32Array(data.buffer)` and the
+  correct windowed view are the same line. Production passes frame-arena SUBARRAYS, so WebGL2
+  uploaded a neighbouring renderer's bytes and drew nothing. Feed at least one input shaped the
+  way real callers shape it, and plant a decoy around it.
+  → `2026-08-14-every-test-passed-offset-zero.md`
+- A change that REFACTORS a shared path owes the gates of that path's CONSUMERS, not the gates of
+  the feature that motivated it — those are different sets, and the feature's own are the ones you
+  will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
+  gates that used the rewritten upload were not. → same post
 - Assert on the quantity the subsystem MOVES, not one downstream of it, and never attribute a
   cause from a COMPOSITE number: triangles = tiles × geometry-per-tile, so a coarser tile set
   read as "the ladder added 44% geometry" when the selector had done exactly its job (tiles

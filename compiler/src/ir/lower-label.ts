@@ -22,6 +22,7 @@ import {
   extractMatchDefaultColor,
   extractInterpolateZoomStops,
   extractInterpolateZoomColorStops,
+  resolveColorTokenLiterals,
 } from './lower-helpers'
 import { type ZoomStop, type Diagnostic, hexToRgba, buildLabelShapes } from './render-node'
 
@@ -272,8 +273,10 @@ export function lowerLabelProps(
             }
           }
           // Non-zoom-interp colour binding → per-feature expression
-          // (Mapbox `text-color: case/match`).
-          labelColorExpr = { ast: item.binding }
+          // (Mapbox `text-color: case/match`). Token arms take the same
+          // colour-token normalisation fill / stroke apply — un-rewritten,
+          // `sky-300` evaluates to -300 and label-pass.ts drops it (#1664).
+          labelColorExpr = { ast: resolveColorTokenLiterals(item.binding) }
           continue
         }
         // icon-color zoom-interp / per-feature binding (iter 138) —
@@ -291,7 +294,7 @@ export function lowerLabelProps(
               continue
             }
           }
-          labelIconColorExpr = { ast: item.binding }
+          labelIconColorExpr = { ast: resolveColorTokenLiterals(item.binding) }
           continue
         }
         if (name === 'label-halo-color') {

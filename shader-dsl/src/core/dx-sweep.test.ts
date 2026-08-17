@@ -16,12 +16,27 @@ import {
   vec3fT,
   vec4fT,
   texture2dfT,
+  texture2dMsfT,
+  texture2dArrayfT,
+  texture2duT,
+  texture2diT,
+  texture2dArrayuT,
+  texture2dArrayiT,
+  typeKey,
   samplerT,
   dot,
   length,
   smoothstep,
   textureSample,
+  textureSampleLevel,
+  textureLoad,
+  textureNumLayers,
+  textureDimensions,
+  toF32,
+  vec2i,
+  type Node,
   type ReadonlyNode,
+  type ShaderType,
 } from './ir'
 import { structDecl, uniformStruct, arrayOf, resource } from './sot'
 import { emitModule } from './backends/wgsl'
@@ -32,6 +47,11 @@ import type { FuncDecl } from './ir'
 // FuncDecl, not ReturnType<typeof fn> — a concrete handle's object-call arg map
 // is contravariant against the widened FnParamSpec form (the R9 emitOne lesson).
 const emitF = (f: FuncDecl): string => emitModule(module({ funcs: { f } }))
+
+// Reads a node's PHANTOM key back as a value so a key claim is a plain assignment
+// (`const k: 'texture_2d<u32>' = keyOfNode(n)`). tsc-only — the phantom is never
+// assigned at runtime, and nothing here calls it for its value.
+const keyOfNode = <K extends string>(_n: ReadonlyNode<K>): K => undefined as unknown as K
 
 describe('#763 X — type-surface sweep', () => {
   it('X5: scalar-node % vec-node broadcasts like the other four ops', () => {
@@ -49,6 +69,194 @@ describe('#763 X — type-surface sweep', () => {
       return textureSample(tex.node, smp.node, uv)
     })
     expect(g.decl.name).toBe('x6')
+  })
+
+  it('#1650: textureSampleLevel pins the same key constraints, plus the level arg', () => {
+    const tex = resource('lvl_tex', texture2dfT, { group: 0, binding: 0 })
+    const smp = resource('lvl_smp', samplerT, { group: 0, binding: 1 })
+    const ms = resource('lvl_ms', texture2dMsfT, { group: 0, binding: 2 })
+    const g = fn('lvl', { uv: vec2fT, uv3: vec3fT }, ({ uv, uv3 }) => {
+      // The explicit LOD is REQUIRED (it is the whole point of the intrinsic). Kept in
+      // an UNCALLED thunk: omitting it also throws at author time (lift(undefined)),
+      // and this probe is about tsc rejecting it, not about the throw.
+      // @ts-expect-error — missing the level argument
+      const noLevel = () => textureSampleLevel(tex.node, smp.node, uv)
+      // @ts-expect-error — sampler where the texture goes
+      const swapped = textureSampleLevel(smp.node, tex.node, uv, 0)
+      // @ts-expect-error — uv must be vec2<f32>
+      const uvRank = textureSampleLevel(tex.node, smp.node, uv3, 0)
+      // @ts-expect-error — a multisampled texture has no mip chain (textureLoad only)
+      const msTex = textureSampleLevel(ms.node, smp.node, uv, 0)
+      void [noLevel, swapped, uvRank, msTex]
+      return textureSampleLevel(tex.node, smp.node, uv, 1)
+    })
+    expect(g.decl.name).toBe('lvl')
+  })
+
+  it('#1651: the 2d-array overloads pin the LAYER argument (arity + key)', () => {
+    const arr = resource('arr_tex', texture2dArrayfT, { group: 0, binding: 0 })
+    const tex = resource('arr_2d', texture2dfT, { group: 0, binding: 1 })
+    const smp = resource('arr_smp', samplerT, { group: 0, binding: 2 })
+    const g = fn('arr', { uv: vec2fT, uv3: vec3fT, lvl: f32T }, ({ uv, uv3, lvl }) => {
+      // The layer is REQUIRED on an array texture — the 3-arg (2d) overload rejects the
+      // array key and the 4-arg one rejects the arity, so the diagnostic is the
+      // "no overload matches" class. Uncalled thunk: kept uncalled purely so the
+      // suppressed tsc error cannot poison the fn body being authored around it.
+      // @ts-expect-error — missing the layer argument on an ARRAY texture
+      const noLayer = () => textureSample(arr.node, smp.node, uv)
+      // @ts-expect-error — a plain 2d texture has NO layer argument (wrong key for the array id)
+      const layerOn2d = textureSample(tex.node, smp.node, uv, 0)
+      // @ts-expect-error — uv must be vec2<f32> on the array form too
+      const uvRank = textureSample(arr.node, smp.node, uv3, 0)
+      // @ts-expect-error — an array read needs BOTH the layer and the level
+      const noLevel = () => textureSampleLevel(arr.node, smp.node, uv, 0)
+      // @ts-expect-error — the layer is an INDEX: an f32-keyed node is not an i32/u32 one
+      const f32Layer = textureSample(arr.node, smp.node, uv, lvl)
+      void [noLayer, layerOn2d, uvRank, noLevel, f32Layer]
+      return textureSample(arr.node, smp.node, uv, 1).add(
+        textureSampleLevel(arr.node, smp.node, uv, u32(0), 0),
+      )
+    })
+    expect(g.decl.name).toBe('arr')
+  })
+
+  it('#1651: textureLoad pins the layer the same way, and ACCEPTS the union key', () => {
+    const arr = resource('ld_arr', texture2dArrayfT, { group: 0, binding: 0 })
+    const tex = resource('ld_2d', texture2dfT, { group: 0, binding: 1 })
+    const g = fn('ld', { lvl: f32T }, ({ lvl }) => {
+      const c = vec2i(0, 0)
+      // @ts-expect-error — an ARRAY load needs the layer (the 3-arg form is 2d/MS-only)
+      const noLayer = () => textureLoad(arr.node, c, 0)
+      // @ts-expect-error — a plain 2d texture has NO layer argument (4-arg is array-only)
+      const layerOn2d = textureLoad(tex.node, c, 0, 0)
+      // @ts-expect-error — the layer is an INDEX: an f32-keyed node is not an i32/u32 one
+      const f32Layer = textureLoad(arr.node, c, lvl, 0)
+      void [noLayer, layerOn2d, f32Layer]
+      // POSITIVE probe: the layer parameter is the union-INSIDE form, so a node
+      // typed `ReadonlyNode<'i32' | 'u32'>` (not yet narrowed to either) is accepted
+      // as-is — the union-OUTSIDE spelling would reject exactly this value.
+      const layer: ReadonlyNode<'i32' | 'u32'> = u32(1)
+      return textureLoad(arr.node, c, layer, 0)
+    })
+    expect(g.decl.name).toBe('ld')
+  })
+
+  it('#1658: textureNumLayers is ARRAY-key only — 2d and sampler args are tsc errors', () => {
+    const arr = resource('nl_arr', texture2dArrayfT, { group: 0, binding: 0 })
+    const tex = resource('nl_2d', texture2dfT, { group: 0, binding: 1 })
+    const smp = resource('nl_smp', samplerT, { group: 0, binding: 2 })
+    const g = fn('nl', {}, () => {
+      // A plain 2d texture HAS no layer count — the array key is the whole constraint
+      // (textureDimensions deliberately accepts all three dims; this one must not).
+      // Uncalled thunks: these are tsc-only probes, kept out of the authored body.
+      // @ts-expect-error — a plain 2d texture has no layer count
+      const on2d = () => textureNumLayers(tex.node)
+      // @ts-expect-error — a sampler is not a texture (the #763 X6 key class)
+      const onSampler = () => textureNumLayers(smp.node)
+      void [on2d, onSampler]
+      // POSITIVE probe: the array form returns u32, so it needs toF32 to join float math.
+      return toF32(textureNumLayers(arr.node))
+    })
+    expect(g.decl.name).toBe('nl')
+  })
+
+  it('#1703: an integer texture carries the INTEGER key, and the load result follows it', () => {
+    const tu = resource('it_u', texture2duT, { group: 0, binding: 0 })
+    const ti = resource('it_i', texture2diT, { group: 0, binding: 1 })
+    const tf = resource('it_f', texture2dfT, { group: 0, binding: 2 })
+    const au = resource('it_au', texture2dArrayuT, { group: 0, binding: 3 })
+    // KeyOf must INFER the element — a hardcoded `<f32>` arm would hand a usampler2D
+    // the FLOAT key, where textureSample's overload accepts it and only naga objects.
+    const ku: 'texture_2d<u32>' = keyOfNode(tu.node)
+    const ki: 'texture_2d<i32>' = keyOfNode(ti.node)
+    const kau: 'texture_2d_array<u32>' = keyOfNode(au.node)
+    const kf: 'texture_2d<f32>' = keyOfNode(tf.node)
+    void [ku, ki, kau, kf]
+    const g = fn('it', {}, () => {
+      const c = vec2i(0, 0)
+      // The load result tracks the texture's element, so a u32 texel lands in a
+      // vec4<u32> node and an i32 one in vec4<i32> — assigning either to the other,
+      // or to vec4<f32>, is the compile error that keeps the two halves in step.
+      const lu: Node<'vec4<u32>'> = textureLoad(tu.node, c, 0)
+      const li: Node<'vec4<i32>'> = textureLoad(ti.node, c, 0)
+      const lau: Node<'vec4<u32>'> = textureLoad(au.node, c, 0, 0)
+      // @ts-expect-error — a u32 texel is NOT a vec4<f32>
+      const asFloat: Node<'vec4<f32>'> = textureLoad(tu.node, c, 0)
+      // @ts-expect-error — nor is it a vec4<i32> (the two integer keys are distinct)
+      const asSigned: Node<'vec4<i32>'> = textureLoad(tu.node, c, 0)
+      void [li, lau, asFloat, asSigned]
+      // textureDimensions/textureNumLayers are element-BLIND: an extent is an extent.
+      const dim: Node<'vec2<u32>'> = textureDimensions(tu.node)
+      const n: Node<'u32'> = textureNumLayers(au.node)
+      return lu.x.add(dim.x).add(n)
+    })
+    expect(g.decl.name).toBe('it')
+  })
+
+  it('#1703: textureSample* REJECT an integer texture — the WGSL/GLSL split is closed at tsc', () => {
+    // Filtering integer texels is undefined, so WGSL has no textureSample for
+    // texture_2d<u32> at all. GLSL's texture(usampler2D, …) WOULD compile (NEAREST) —
+    // allowing it would mint a construct that builds on WebGL2 and cannot be expressed
+    // on WebGPU, which is the one thing authoring once for both targets must not do.
+    // These probes are what stops a future overload widening from re-opening it.
+    const tu = resource('ns_u', texture2duT, { group: 0, binding: 0 })
+    const au = resource('ns_au', texture2dArrayuT, { group: 0, binding: 1 })
+    const ti = resource('ns_i', texture2diT, { group: 0, binding: 2 })
+    const smp = resource('ns_smp', samplerT, { group: 0, binding: 3 })
+    const g = fn('ns', { uv: vec2fT }, ({ uv }) => {
+      // @ts-expect-error — no filtered sample of an unsigned texture
+      const su = () => textureSample(tu.node, smp.node, uv)
+      // @ts-expect-error — nor of a signed one
+      const si = () => textureSample(ti.node, smp.node, uv)
+      // @ts-expect-error — nor of an unsigned ARRAY texture
+      const sau = () => textureSample(au.node, smp.node, uv, 0)
+      // @ts-expect-error — explicit-LOD sampling is still SAMPLING (the LOD is not the issue)
+      const slu = () => textureSampleLevel(tu.node, smp.node, uv, 0)
+      // @ts-expect-error — array explicit-LOD form, same reason
+      const slau = () => textureSampleLevel(au.node, smp.node, uv, 0, 0)
+      void [su, si, sau, slu, slau]
+      const c = vec2i(0, 0)
+      return toF32(textureLoad(tu.node, c, 0).x) // the ONE legal read form
+    })
+    expect(g.decl.name).toBe('ns')
+  })
+
+  it('#1703: a multisampled INTEGER texture is unrepresentable, not a runtime throw', () => {
+    // The texture type is a two-arm union pinned to `elem: 'f32'` on '2d-ms', so this
+    // never reaches emit — where it would have been a plausible-looking
+    // `texture_multisampled_2d<u32>` that GLSL fails closed on anyway.
+    // @ts-expect-error — '2d-ms' admits no element but f32
+    const bad = { kind: 'texture', dim: '2d-ms', elem: 'u32' } as const satisfies ShaderType
+    void bad
+    expect(typeKey(texture2dMsfT)).toBe('texture_multisampled_2d<f32>')
+    // typeKey must stay byte-identical to KeyOf's arms — they are two spellings of the
+    // same key and a drift between them is invisible until an overload silently stops
+    // matching. All four new constants, both axes.
+    expect(typeKey(texture2duT)).toBe('texture_2d<u32>')
+    expect(typeKey(texture2diT)).toBe('texture_2d<i32>')
+    expect(typeKey(texture2dArrayuT)).toBe('texture_2d_array<u32>')
+    expect(typeKey(texture2dArrayiT)).toBe('texture_2d_array<i32>')
+  })
+
+  it('#1651: a FRACTIONAL layer literal throws SD0015 at author time', () => {
+    // The backends would DIVERGE on it: naga rejects a float array_index, GLSL
+    // silently rounds (layer = floor(z + 0.5), so 1.5 reads layer 2). The guard
+    // lives in the shared layerArg helper, so one form witnesses all three ids.
+    const arr = resource('frac_arr', texture2dArrayfT, { group: 0, binding: 0 })
+    const smp = resource('frac_smp', samplerT, { group: 0, binding: 1 })
+    expect(() =>
+      fn('frac', { uv: vec2fT }, ({ uv }) => textureSample(arr.node, smp.node, uv, 1.5)),
+    ).toThrow(/SD0015/)
+  })
+
+  it('#1651: ShaderType texture dims are exactly the three the emitters spell', () => {
+    // The emitters' texture switches are runtime-exhaustive (`satisfies never`),
+    // but KeyOf (ir/types.ts) is a conditional TYPE with a `string` fallback tsc
+    // cannot flag — a new dim would silently drop resource() nodes to `string`.
+    // A new dim must go red HERE first, pointing at KeyOf's arms.
+    type TexDim = Extract<ShaderType, { kind: 'texture' }>['dim']
+    const covered: TexDim extends '2d' | '2d-ms' | '2d-array' ? true : never = true
+    expect(covered).toBe(true)
   })
 
   it('X7: dot/length are K-constrained — dot(v2, v3) is a tsc error', () => {

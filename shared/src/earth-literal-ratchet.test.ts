@@ -43,6 +43,27 @@ const ALLOWLIST: readonly string[] = [
   // body-consts.test.ts. Not a migration entry; do not delete.
   'map/src/shaders/dsl/ecef.ts',
   'map/src/shaders/dsl/projections.ts',
+  // The committed build-time shader bake (#1678 / #1484). These files are GENERATED
+  // shader SOURCE: the emitters fold the two ConstDecl files above into every shader as
+  // literals, so an Earth artifact necessarily spells `6378137.0` — that IS the baked
+  // output, not a second authority for the number. They cannot import EARTH; a shader
+  // string has no imports. The binding invariant is enforced instead of forbidden:
+  // `baked-sync.test.ts`'s meta gate asserts the artifact's stamped consts bit-equal the
+  // live ConstDecls, and `body-guard.ts` refuses to serve the bake when they differ, so
+  // a stale-Earth artifact fails a gate rather than rendering a wrong-planet frame.
+  // PERMANENT while the bake ships; regenerated only by `bun run bake:shaders`. SIX files,
+  // one per (language, group) — the split is what lets a boot download only the groups it
+  // reads: 'hillshade' seeds the emit pool, 'boot' is installed into the baked-source store
+  // at device attach, 'lazy' is imported by nothing (see `FAMILY_GROUPS` in
+  // map/src/shaders/baked/ids.ts). This list is strict-shrink in BOTH directions, so a
+  // renamed or added artifact must land here in the same commit — #1679 increment 4 renamed
+  // the two `-rest` files into `-boot` + `-lazy` and this is the other half of that change.
+  'map/src/shaders/baked/baked-glsl-hillshade.generated.ts',
+  'map/src/shaders/baked/baked-glsl-boot.generated.ts',
+  'map/src/shaders/baked/baked-glsl-lazy.generated.ts',
+  'map/src/shaders/baked/baked-wgsl-hillshade.generated.ts',
+  'map/src/shaders/baked/baked-wgsl-boot.generated.ts',
+  'map/src/shaders/baked/baked-wgsl-lazy.generated.ts',
 ]
 
 /** Same exemptions as the dependency ratchet: runtime is the pre-#732

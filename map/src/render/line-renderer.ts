@@ -737,7 +737,7 @@ export class LineRenderer {
     // precedent; that was wrong (polygon has never composed GLSL on WebGL2
     // either — pipeline-factory.ts returns before building any variant
     // pipeline there, which is what #1592/#1583's fill-gap warning is about).
-    // Composed GLSL + emulateStorage + preamble consts/funcs is proven to
+    // Composed GLSL + the storage lowering + preamble consts/funcs is proven to
     // compile and link on real WebGL2 by _webgl2-line-link-gate.spec.ts.
     const composerVariant = toComposerLineVariant(variant)
     const key = composerVariant ? variant!.key : '__base__'

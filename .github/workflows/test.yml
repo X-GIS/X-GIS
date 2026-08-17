@@ -126,6 +126,18 @@ jobs:
               - 'data/**'
               - 'pipeline/**'
               - 'playground/**'
+              # scripts (#1700): `scripts/**/*.test.ts` is in vitest's include and the
+              # `data` leg's path args (`data/src scripts`) — but it was in NO filter, so a
+              # scripts-only PR set code=false, every leg skipped its steps, and all 17
+              # checks posted green in ~4s having run nothing. That made the changelog suite
+              # and the doc-signature ratchet CI-dark for changes to themselves.
+              - 'scripts/**'
+              # ONE named site file, not `site/**` — the deliberate exclusion above still
+              # holds for the site at large. scripts/doc-signature-drift.test.ts READS this
+              # page and asserts every signature it transcribes still names a live export,
+              # so an edit here has to run vitest or the ratchet is dark in exactly the
+              # scenario it exists for: the doc rotting while CI stays green (#1700).
+              - 'site/src/pages/shader-dsl/reference.astro'
               - 'bun.lock'
               - 'bun.lockb'
               - 'package.json'
@@ -238,8 +250,15 @@ jobs:
           # @xgis/data (74 files after the tile-catalog / tile-selection suites
           # arrived from runtime/src/data). Its own leg — combined with the
           # backend leg below it would sit at ~148, over the threshold.
+          # `scripts` rides the light data leg: the changelog-generator suite
+          # (scripts/emit-changelog.test.ts) is mostly pure fixtures, and the
+          # spawned probes that read THIS repo's history self-skip on the
+          # depth-1 checkout (no `main~N`). The two that build a throwaway repo
+          # in a tmpdir do NOT skip, on purpose — one of them pins the guard
+          # that refuses to render an unbounded changelog from a shallow clone,
+          # which is precisely a depth-1 checkout's shape.
           - id: data
-            args: data/src
+            args: data/src scripts
           # Backend + leaf packages (@xgis/engine, @xgis/rhi-webgl2,
           # @xgis/rhi-webgpu, @xgis/pipeline, @xgis/shared, @xgis/geo). These were
           # CI-DARK before #959/#1008: sharded by directory, the matrix never
@@ -648,6 +667,20 @@ jobs:
           WORKERS: '1'
         # _glsl-compile-gate: the ONE continuous gate on the GLSL ES 3.00 backend —
         # compiles + links emitGlslModule output on a real WebGL2 context (#763 G1).
+        # _glsl-texture-gate: the fused-sampler path + explicit-LOD (textureLod in BOTH
+        # stages) with the two-channel mip-selection readback (#1650). Existed since
+        # phase A but was never in this list — a gate nobody runs is not a gate (§12).
+        # _glsl-texture-array-gate: the 2d-array texture surface (#1651) — WGSL appends
+        # the layer, GLSL folds it into a vec3 coordinate on a sampler2DArray, so only a
+        # real driver proves the emitted coordinate SELECTS the requested (layer, level).
+        # Compile+link plus a readback whose every channel is owned by one array read.
+        # _glsl-integer-texture-gate: the texture ELEMENT axis (#1703) — usampler2D /
+        # isampler2D and the array<u32> storage lowering that rides them. Needs a real
+        # driver twice over: GLSL ES 3.00 §4.5.4 predeclares no precision for an integer
+        # sampler, so a missing `precision highp usampler2D;` is a COMPILE error the
+        # emitted string looks fine without; and only a driver shows that the R32UI texel
+        # reaches the shader unchanged. Mutation-probed — severing the precision-line
+        # derivation turns all four red with the driver rejecting the shader.
         # _shader-dsl-mrt-render: multi-@location fragment outputs drawn into two
         # attachments + read back per attachment (#847).
         # _shader-dsl-mouse-interaction: every {kind:'mouse'} example must render a
@@ -698,7 +731,11 @@ jobs:
         # GLSL twins (incl. fs_line_pattern / fs_line_max + the compositor) compile AND link
         # on real WebGL2. Both existed but were NEVER in this list, so when 82fede5 moved
         # PROJECTIONS out of the engine barrel they stopped even LOADING and nothing noticed
-        # — a gate nobody runs is not a gate (§12). ~1 min for 4 tests, SwiftShader-safe.
+        # — a gate nobody runs is not a gate (§12). ~1 min for 5 tests, SwiftShader-safe.
+        # _compute-parity: draw+readback byte-parity of the compute→fragment GPGPU
+        # lowering vs the CPU-f64 oracle — the ONE semantic (not just compile) gate over
+        # the storage data-texture fetch, promoted when the lowering became default-on
+        # (#1647; 3 consecutive clean local SwiftShader runs before registration).
         # _s111-deferred-coverage-gate: a `type: coverage` source must not hold the FIRST
         # FRAME (#1426). Holds the cell's bytes on the wire and asserts the map is running,
         # its basemap layer armed and its raster pass fetching tiles while getCoverage() is
@@ -735,6 +772,13 @@ jobs:
         # A constant-fill twin is the control arm, so the blank arm cannot pass on a broken
         # harness. Verified both directions (warning present/absent; pixels unchanged at
         # twin 0.359 / data-driven 0.000). Goes RED when #1592 lands, by design. ~20 s.
+        # _point-gradient-gl2-gate: the point/arrow twin of the data-driven story (#1664) —
+        # a per-feature `fill gradient()` on the SDF point path AND the arrow path must
+        # paint per-feature hues on WebGL2. Hue-angle clustering (invariant under blending
+        # toward black/white, so immune to AA/coverage differences), constant-fill twins as
+        # in-run control arms, both ramp-endpoint hue families asserted. Fail-before
+        # observed on these exact spec bytes (chromatic 0, hues 0, "not one pixel carries
+        # a colour") with the evaluator fix probe-reverted; green with it restored. ~14 s.
         # _stage-block-parity: the #1563 sibling gate — a @color stage block must render
         # pixel-identical to its utility twin on webgl2. It has existed since #1538 and was
         # registered in NO workflow, so it ran nowhere (#1587 folded it in). Verified green
@@ -830,5 +874,5 @@ jobs:
           # wall-clock pair must not abort the compile/parity/pixel gates before they
           # have reported. Quiet-machine ordering is unaffected — each invocation is its
           # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _shader-dsl-mrt-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _reseed-data-push-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts
+          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts
           ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts

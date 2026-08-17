@@ -1,5 +1,7 @@
 {
-  "extends": "../tsconfig.base.json",
+  // #1681 B1 — the PACKAGE-LOCAL base, never the monorepo root's: this directory
+  // must compile when it is vendored out of the repo. See tsconfig.base.json.
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
@@ -7,8 +9,8 @@
     "types": []
   },
   "include": ["src/**/*.ts"],
-  // #763 V6 — tests never reach dist/ (the publishable tarball ships `files: ["dist"]`;
-  // compiled *.test.js/.d.ts were riding along). Test TYPE-CHECKING is not lost: the
+  // #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along
+  // into the build output). Test TYPE-CHECKING is not lost: the
   // `build` script chains `tsc -p tsconfig.tests.json` (a noEmit pass over src + examples).
   "exclude": ["src/**/*.test.ts"]
 }

@@ -34,14 +34,15 @@
 //     to own (#1005) plus map/engine/geo/data/rhi*. That retires the "two LOC
 //     authorities" trap recorded in CLAUDE.md §12.
 //
-// What remains are the live locks below (Gates 2, 6, 7, and 8 — added by #1565,
-// which locks the CI render paths-filter against the same vacuous-gate failure
-// mode this header is otherwise a record of).
+// What remains are the live locks below (Gates 2, 6, 7, 8 — added by #1565, which
+// locks the CI render paths-filter against the same vacuous-gate failure mode this
+// header is otherwise a record of — and 9, #1678's bundle lock on the baked-shader
+// registry).
 // GPU-free; rides the `test (map-*)` CI legs.
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, dirname, relative } from 'node:path'
+import { join, dirname, relative, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -167,6 +168,14 @@ describe('arch ratchet: Gate-8 — the CI `render` filter covers every rendering
   const EXEMPT: Record<string, string> = {
     'rhi/**': 'interfaces-only → typecheck-covered; no emitted code',
     'pipeline/**': 'imported only by seoul-* demos, never the id=minimal gate fixtures',
+    // Added to `code` by #1700, which found it was in NO filter at all: a scripts-only PR
+    // set code=false, every leg skipped its steps, and 17 checks posted green in ~4s having
+    // run nothing — so the changelog suite and the doc-signature ratchet were CI-dark for
+    // changes to themselves. It is exempt from `render` because scripts/ is repo TOOLING
+    // (precheck, changelog, gap-matrix, the doc ratchet) that nothing shipped imports —
+    // verified: no file under map/, playground/, rhi*/, engine/, compiler/, data/ or site/
+    // imports from scripts/, so it is in no bundle and on no render path.
+    'scripts/**': 'repo tooling; imported by nothing shipped, so it is on no render path',
   }
 
   it('every package glob in `code` is in `render` too, or exempt with a reason', () => {
@@ -201,5 +210,65 @@ describe('arch ratchet: Gate-8 — the CI `render` filter covers every rendering
       pathsFilterGlobs(yaml, 'render').includes('rhi-webgpu/**'),
       '`rhi-webgpu/**` must be in the CI `render` paths-filter (#1565) — map/src/gpu-boot.ts value-imports it on every default-backend boot, and _polygon-fill-flat-pixel-gate is a SwiftShader-WebGPU RASTER gate',
     ).toBe(true)
+  })
+})
+
+// ── Gate 9: the baked-shader REGISTRY stays out of the runtime bundle (#1678) ──
+// `map/src/shaders/baked/registry.ts` value-imports all 24 dsl emitters — polygon, line,
+// point, icon, text, the retained-instance family, the heatmap passes. That whole module
+// graph is precisely what the build-time bake exists to keep OUT of the shipped bundle:
+// the runtime consume half (`seed-hillshade.ts`) reads STRINGS out of a committed
+// artifact and must never reach the generators that produced them.
+//
+// Today that rests on nothing but comment discipline — three files say "the seeder cannot
+// import the registry" and no mechanism enforces it, which is CLAUDE.md §12's "intent in a
+// comment is not wiring". One `import { BAKED_SHADER_KEYS } from './registry'` added to the
+// seeder for convenience would pull every emitter back in, and the only symptom would be a
+// bigger bundle — invisible to tsc, to vitest, and to every render gate.
+//
+// `import type` is fine and is what the four artifacts, `body-guard.ts` and
+// `seed-hillshade.ts` already use: tsc erases it, so it moves no code. The one value
+// importer allowed is `bake.ts`, which IS the build-time half (the generator drives it and
+// the sync gate imports it; neither is reachable from a boot).
+describe('arch ratchet: Gate-9 — only bake.ts value-imports the baked-shader registry (#1678)', () => {
+  const REGISTRY = join(ROOT, 'map/src/shaders/baked/registry.ts')
+  const ALLOWED = ['map/src/shaders/baked/bake.ts']
+
+  /** Static VALUE imports + dynamic `import()` of `registry.ts`, resolved as specifiers
+   *  so a future `../shaders/baked/registry` from elsewhere in map/src is caught too. */
+  function valueImportsRegistry(abs: string): boolean {
+    const src = readFileSync(abs, 'utf8')
+    const specs: string[] = []
+    for (const m of src.matchAll(/^[ \t]*import\s+(?!type\b)[\s\S]*?from\s*['"]([^'"]+)['"]/gm))
+      specs.push(m[1] as string)
+    for (const m of src.matchAll(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) specs.push(m[1] as string)
+    return specs.some((s) => s.startsWith('.') && resolvePath(dirname(abs), s) + '.ts' === REGISTRY)
+  }
+
+  it('no non-test module under map/src value-imports shaders/baked/registry.ts', () => {
+    const offenders = walkTs(join(ROOT, 'map/src'))
+      .filter(valueImportsRegistry)
+      .map(rel)
+      .filter((f) => !ALLOWED.includes(f))
+      .sort()
+    expect(
+      offenders,
+      `these modules VALUE-import the baked-shader registry, which drags all 24 dsl emitters ` +
+        `into the runtime bundle and defeats the bake (#1678):\n${offenders.join('\n')}\n` +
+        `Use \`import type\` for the artifact/meta shapes, and \`shaders/baked/ids.ts\` (a leaf ` +
+        `with no imports) for the id spellings.`,
+    ).toEqual([])
+  })
+
+  it('the detector is live — bake.ts IS seen as a value importer (#996)', () => {
+    // Without this the gate passes identically whether the regex works or matches nothing.
+    expect(
+      valueImportsRegistry(join(ROOT, 'map/src/shaders/baked/bake.ts')),
+      'bake.ts value-imports the registry; a detector that misses it would pass on everything',
+    ).toBe(true)
+    expect(
+      valueImportsRegistry(join(ROOT, 'map/src/shaders/baked/seed-hillshade.ts')),
+      'seed-hillshade.ts must import the registry with `import type` only',
+    ).toBe(false)
   })
 })

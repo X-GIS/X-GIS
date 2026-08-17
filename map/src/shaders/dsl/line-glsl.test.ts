@@ -15,7 +15,7 @@ describe('emitLineGlsl — GLSL twin shape (#834 M5)', () => {
     // Instanced segment quad: both builtins feed vs_line.
     expect(vs).toMatch(/gl_VertexID/)
     expect(vs).toMatch(/gl_InstanceID/)
-    // emulateStorage: no storage buffers survive; data textures + texelFetch do.
+    // storage lowering: no storage buffers survive; data textures + texelFetch do.
     expect(vs).not.toMatch(/\bbuffer\s+\w/)
     expect(vs).toContain('texelFetch')
   })

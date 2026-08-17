@@ -29,7 +29,7 @@ import {
 } from '@xgis/engine'
 // The opaque pass hands a neutral RhiRenderPass (#1046 F3b Inc-2d) — the
 // former wrapWebGpuPass bridge and its backend caveats retired with it.
-import { emitGlslModule } from '@xgis/shader-dsl'
+import { emitGlslStages } from '@xgis/shader-dsl'
 import { isGlobeProj } from '@xgis/geo'
 import { lonLatToECEF } from '@xgis/shared'
 import type { Camera } from '../camera'
@@ -40,6 +40,8 @@ import {
 } from '../shaders/dsl/under-occluder'
 import { rasterGlobeCamAnchor } from './raster-renderer'
 import { globeEyeUniform } from './globe-eye-uniform'
+import { pickedModuleGlslId, pickedModuleWgslId } from '../shaders/baked/ids'
+import { glslStagesFor, wgslFor } from './material/wgsl-for'
 
 // Sphere mesh density — matches the synthetic earth-surface fill (128×64), whose
 // silhouette this occluder sits just inside; 360/128 = 2.8° lon step keeps the
@@ -130,14 +132,26 @@ export class UnderOccluderRenderer {
     rhi.writeBuffer(this.indexBuffer, 0, mesh.indices)
   }
 
+  // #1473 residue — this site kept the pre-`wgsl-for.ts` shape: it emitted the WGSL
+  // unconditionally (dead weight on a WebGL2 device, which reads only vsCode/fsCode) and
+  // built + lowered the module ONCE PER STAGE. Both halves route through the thunk seam
+  // now, so each device pays for exactly the language it reads and the GLSL pair shares
+  // one lowering. The BYTES a WebGL2 device receives are unchanged: `emitGlslStages` is
+  // byte-identical to two `emitGlslModule` calls, pinned for THIS family by
+  // `material/glsl-stage-entry-parity.test.ts` — only which work runs changes.
   private buildMaterial(pickEnabled: boolean): Material {
-    const mod = buildUnderOccluderModule(pickEnabled)
     return new Material(this.rhi, {
-      shader: emitUnderOccluderWgsl(pickEnabled),
+      shader: wgslFor(
+        this.rhi,
+        () => emitUnderOccluderWgsl(pickEnabled),
+        pickedModuleWgslId('under-occluder', pickEnabled),
+      ),
       vsEntry: 'vs_occluder',
       fsEntry: 'fs_occluder',
-      vsCode: emitGlslModule(mod, 'vertex'),
-      fsCode: emitGlslModule(mod, 'fragment'),
+      ...glslStagesFor(this.rhi, () => emitGlslStages(buildUnderOccluderModule(pickEnabled)), {
+        vertex: pickedModuleGlslId('under-occluder', pickEnabled, 'vertex'),
+        fragment: pickedModuleGlslId('under-occluder', pickEnabled, 'fragment'),
+      }),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [[{ binding: 0, kind: 'uniform' }]],

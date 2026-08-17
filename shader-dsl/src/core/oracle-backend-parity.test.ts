@@ -109,6 +109,54 @@ describe('#763 O — oracle backend parity', () => {
     expect(loose.fns['o3']!(0, 0, [0.5, 0.5])).toEqual([0, 0, 0, 1])
   })
 
+  it('O3: the 2d-array reads (#1651) carry the SAME stub contract as their 2d twins', () => {
+    const arrTex = { op: 'param', type: { kind: 'texture', dim: '2d-array' }, name: 't' }
+    const smp = { op: 'param', type: { kind: 'sampler' }, name: 's' }
+    const uv = { op: 'param', type: vec2fT, name: 'uv' }
+    const layer = { op: 'lit', type: u32T, value: 1 }
+    const arrayCall = (fnId: string, args: readonly unknown[]): FuncDecl => ({
+      name: 'o3a',
+      params: [
+        { name: 't', type: arrTex.type as ShaderType },
+        { name: 's', type: smp.type as ShaderType },
+        { name: 'uv', type: vec2fT },
+      ],
+      ret: vec4fT,
+      body: [
+        { s: 'return', expr: { op: 'call', fn: fnId, type: vec4fT, args } },
+      ] as unknown as Stmt[],
+    })
+    const cases: readonly (readonly [string, readonly unknown[]])[] = [
+      ['textureSampleArray', [arrTex, smp, uv, layer]],
+      ['textureSampleLevelArray', [arrTex, smp, uv, layer, { op: 'lit', type: f32T, value: 0 }]],
+      ['textureLoadArray', [arrTex, uv, layer, layer]],
+    ]
+    for (const [fnId, args] of cases) {
+      const decl = arrayCall(fnId, args)
+      const strict = compileModule(module({ funcs: [decl] }))
+      expect(() => strict.fns['o3a']!(0, 0, [0.5, 0.5]), fnId).toThrow(/GPU-only/)
+      const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true })
+      expect(loose.fns['o3a']!(0, 0, [0.5, 0.5]), fnId).toEqual([0, 0, 0, 1])
+    }
+  })
+
+  it('O3: the layer-count query (#1658) carries the SAME stub contract as the array reads', () => {
+    const arrTex = { op: 'param', type: { kind: 'texture', dim: '2d-array' }, name: 't' }
+    const decl: FuncDecl = {
+      name: 'o3n',
+      params: [{ name: 't', type: arrTex.type as ShaderType }],
+      ret: u32T,
+      body: [
+        { s: 'return', expr: { op: 'call', fn: 'textureNumLayers', type: u32T, args: [arrTex] } },
+      ] as unknown as Stmt[],
+    }
+    const strict = compileModule(module({ funcs: [decl] }))
+    expect(() => strict.fns['o3n']!(0)).toThrow(/GPU-only/)
+    const loose = compileModule(module({ funcs: [decl] }), { gpuStubs: true })
+    // 1 layer, not 0 — the same finite-placeholder rule as textureDimensions' 1×1.
+    expect(loose.fns['o3n']!(0)).toBe(1)
+  })
+
   it('O4: round is roundTiesToEven, not Math.round', () => {
     const f = fn('o4', { x: f32T }, ({ x }) => round(x))
     const m = compileModule(module({ funcs: [f] }))
@@ -123,7 +171,7 @@ describe('#763 O — oracle backend parity', () => {
     const EXPR_COVERED = new Set(['select'])
     // GLSL-only synthetic: created by lowerStorageToDataTexture INSIDE the GLSL
     // emit path — compileModule never sees it (and `unknown fn` would fail loud).
-    const GLSL_SYNTHETIC = new Set(['storageFetchF32'])
+    const GLSL_SYNTHETIC = new Set(['storageFetchF32', 'storageFetchU32', 'storageFetchI32'])
     const catalogued = Object.keys(INTRINSICS)
     const missing = catalogued.filter(
       (name) =>

@@ -50,7 +50,7 @@ import {
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import { ioStruct, builtin, location, uniformStruct, storageBuffer } from '@xgis/shader-dsl'
-import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import { emitModule, emitGlslModule, emitGlslStages } from '@xgis/shader-dsl'
 import {
   flat_rel,
   needs_backface_cull,
@@ -230,10 +230,12 @@ export const emitHeatmapAccumWgsl = (): string => emitModule(buildHeatmapAccumMo
 /** GLSL ES 3.00 twin of the accum shader (forced-WebGL2 heatmap twin, #1060).
  *  Per-stage assembly (mirrors emitLineGlsl): the vertex stage carries the
  *  projection consts/fns + vs_heatmap and lowers the `feat_data` storage array
- *  to an R32F data texture via `emulateStorage` (WebGL2 has no SSBO — the RHI
+ *  to an R32F data texture by default (WebGL2 has no SSBO — the RHI
  *  binds the storage buffer's data texture, texelFetch in the VS reads the same
  *  DSFUN slots the WGSL storage read did). The fragment stage is a pure radial
- *  Gaussian (no storage / projection), so module() drops the unused decls. */
+ *  Gaussian: module() passes the explicit bindings array through UNTOUCHED (so the
+ *  storage binding keeps the default lowering on for this stage too — #1649), and it
+ *  is the emitter's per-stage scope that drops unused decls from the emitted text. */
 export const emitHeatmapAccumGlsl = (stage: 'vertex' | 'fragment'): string =>
   emitGlslModule(
     module({
@@ -243,5 +245,12 @@ export const emitHeatmapAccumGlsl = (stage: 'vertex' | 'fragment'): string =>
       funcs: stage === 'vertex' ? [...getGpuProjectionFuncs(), vs] : [fs],
     }),
     stage,
-    { emulateStorage: true },
   )
+
+/** Both GLSL stages from ONE lowering (see emitGlslStages). The per-stage twin above prunes
+ *  the module before each emit, so it lowers + runs the optimizer fixpoint twice; the whole
+ *  module carries exactly one entry per stage, so nothing needs naming and the emitter's own
+ *  per-stage scope drops what the stage does not reach. Byte-identical to two calls of the
+ *  per-stage form — pinned by map/src/render/material/glsl-stage-entry-parity.test.ts. */
+export const emitHeatmapAccumGlslStages = (): { vertex: string; fragment: string } =>
+  emitGlslStages(buildHeatmapAccumModule())

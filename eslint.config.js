@@ -68,6 +68,9 @@ export default tseslint.config(
         // a nested tsconfig would hijack from the package project.)
         projectService: {
           allowDefaultProject: [
+            // The package's own src ROOT — a test about the PACKAGE (its tsconfigs,
+            // its manifest) rather than about `core/`. #1681 added the first one.
+            'shader-dsl/src/*.test.ts',
             'shader-dsl/src/core/*.test.ts',
             'shader-dsl/src/core/backends/*.test.ts',
             'shader-dsl/src/core/diagnostics/*.test.ts',
@@ -127,11 +130,14 @@ export default tseslint.config(
             'vitest.setup.ts',
           ],
           // the default cap is 8 matched files per run; a refactor staging many
-          // test files at once must still lint. 117 files match today (86 shader-dsl
-          // src tests + the script/config/bench globs above). Keep real headroom: at
-          // a zero-headroom 96 the 97th match (vitest.config.ts) failed to parse the
-          // day one new repo script landed (#1055 Wave 2).
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 160,
+          // test files at once must still lint. 162 files match today (109 shader-dsl
+          // src tests + 53 from the script/config/bench globs above). Keep real
+          // headroom: at a zero-headroom 96 the 97th match (vitest.config.ts) failed to
+          // parse the day one new repo script landed (#1055 Wave 2), and 160 broke the
+          // same way the day #1716's generator added its second scripts/ file — the
+          // error names vitest.config.ts / vitest.setup.ts, which have nothing to do
+          // with the change that tipped it, so budget generously rather than exactly.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 240,
         },
         tsconfigRootDir: import.meta.dirname,
       },

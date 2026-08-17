@@ -10,6 +10,14 @@
 // identically by both targets (`name(args)`), which also covers user-defined
 // function calls (they flow through the same `call` op and pass through).
 
+/** Which emit target `spellIntrinsic` and the `INTRINSICS` table spell for — `'wgsl'` or
+ *  `'glsl'`. Narrower than it looks: this is the two-column key of THIS registry's `Spelling`
+ *  record, not a general backend identifier — the GLSL backend's own `Backend.id` is
+ *  `'glsl-es300'`, not `'glsl'`. A future third writer (SPIR-V, MSL) needs a new column added
+ *  here (and a new case in `spellIntrinsic`) before it needs anything from `core/backend.ts`.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export type IntrinsicTarget = 'wgsl' | 'glsl'
 
 type Spelling = {
@@ -18,6 +26,13 @@ type Spelling = {
 }
 
 const join = (args: readonly string[]): string => args.join(', ')
+
+// The storage-emulation fetch body, shared by the f32/u32/i32 ids below (#1703). The
+// 2D-tiled index math is element-INDEPENDENT — only the sampler type the binding
+// declares changes, and that is carried by the binding, not by this text. One authority
+// so the three ids cannot drift into three different tilings.
+const storageFetchGlsl = (a: readonly string[]): string =>
+  `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`
 
 /** Neutral intrinsic id -> per-target spelling. Absent = identity passthrough. */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
@@ -34,6 +49,42 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   textureSample: {
     wgsl: (a) => `textureSample(${join(a)})`,
     glsl: (a) => `texture(${a[0]}, ${a[2]})`,
+  },
+  // textureSampleLevel(tex, samp, uv, level) — explicit-LOD sample; same tex+samp
+  // fusion as textureSample, so the sampler arg (a[1]) is dropped on GLSL.
+  // LOAD-BEARING (#1650 decision): the array / offset / bias variants must each take
+  // a NEW neutral id (#1651 adds textureSampleLevelArray) — NEVER an arity branch on
+  // this entry. A spelling that switches on args.length makes the id's meaning depend
+  // on the call site, which is exactly the WGSL leak the registry exists to prevent.
+  textureSampleLevel: {
+    wgsl: (a) => `textureSampleLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, ${a[2]}, ${a[3]})`,
+  },
+  // ── 2d-array sampling (#1651) — DISTINCT ids, never an arity branch above ──
+  //
+  // textureSampleArray(tex, samp, uv, layer). WGSL keeps the ARRAY as a separate
+  // argument (`textureSample(t, s, uv, layer)`); GLSL ES 3.00 has no array-specific
+  // spelling at all — the layer rides in the coordinate's THIRD component
+  // (`texture(sampler2DArray, vec3(uv, layer))`), which is exactly why this cannot be
+  // an args.length branch on textureSample: the two ids restructure the arguments
+  // differently, they do not merely add one.
+  textureSampleArray: {
+    wgsl: (a) => `textureSample(${join(a)})`,
+    // a[1] (the sampler) fuses away; float() because GLSL ES has no implicit
+    // int→float at a constructor component (the registry's existing cast convention).
+    glsl: (a) => `texture(${a[0]}, vec3(${a[2]}, float(${a[3]})))`,
+  },
+  // textureSampleLevelArray(tex, samp, uv, layer, level) — the any-stage array read
+  // (an explicit LOD needs no derivatives, so it is legal in vertex/compute too).
+  textureSampleLevelArray: {
+    wgsl: (a) => `textureSampleLevel(${join(a)})`,
+    glsl: (a) => `textureLod(${a[0]}, vec3(${a[2]}, float(${a[3]})), ${a[4]})`,
+  },
+  // textureLoadArray(tex, coord, layer, level) — unfiltered texel fetch. GLSL folds
+  // the layer into an ivec3 coordinate; the lod arg is `int` (WGSL passes u32).
+  textureLoadArray: {
+    wgsl: (a) => `textureLoad(${join(a)})`,
+    glsl: (a) => `texelFetch(${a[0]}, ivec3(${a[1]}, int(${a[2]})), int(${a[3]}))`,
   },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
   // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
@@ -100,12 +151,30 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // wrap in uvec2() so the GLSL type matches the IR's u32 type. Without this the
   // mismatch is masked while the call is inlined into an int context, but breaks the
   // moment the optimizer's CSE hoists it into a typed `uvec2 _cse = …` local.
+  // 2d-array (#1651) needs NO array-specific id here: WGSL textureDimensions returns
+  // vec2<u32> for an array texture too (the layer count is textureNumLayers), and
+  // GLSL's textureSize(sampler2DArray, lod) returns an ivec3 whose extra component the
+  // uvec2() constructor legally DROPS (GLSL ES 3.00 §5.4.2). Escape hatch if a driver
+  // ever objects: spell the truncation explicitly as `uvec2(textureSize(t, l).xy)`.
   textureDimensions: {
     wgsl: (a) => `textureDimensions(${join(a)})`,
     glsl: (a) =>
       a.length >= 2
         ? `uvec2(textureSize(${a[0]}, int(${a[1]})))`
         : `uvec2(textureSize(${a[0]}, 0))`,
+  },
+  // textureNumLayers(t) — the layer COUNT of a 2d-array texture (#1658), i.e. the
+  // ivec3 component the entry above deliberately DROPS. Its own id, not an overload
+  // of textureDimensions: WGSL has a dedicated function, GLSL ES 3.00 has none and
+  // reads `.z` off textureSize. GLSL's textureSize REQUIRES a lod argument, and the
+  // layer count is LOD-INVARIANT (a mip reduces width/height only — depth stays N),
+  // so 0 is always correct here regardless of the level the caller cares about. The
+  // uint() wrap matches the IR's u32 type, same reason as the uvec2() above: the
+  // signed ivec3 would be an int/uint compile error once CSE hoists the call into a
+  // typed `uint _cse = …` local.
+  textureNumLayers: {
+    wgsl: (a) => `textureNumLayers(${join(a)})`,
+    glsl: (a) => `uint(textureSize(${a[0]}, 0).z)`,
   },
   // The fp64 anti-fast-math guard VALUE (runtime 1.0), spelled as a texel
   // fetch from the injected `_fp64` 1×1 texture (passes/fp64-lower.ts owns
@@ -127,8 +196,26 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // backend sees this call (the pre-pass creates it); the wgsl spelling is unused.
   storageFetchF32: {
     wgsl: (a) => `storageFetchF32(${join(a)})`,
-    glsl: (a) =>
-      `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`,
+    glsl: storageFetchGlsl,
+  },
+  // The INTEGER twins (#1703) — the TYPED-texture leg of the same emulation, for a
+  // top-level array<u32> / array<i32>. The index math is identical (hence the shared
+  // spelling above); what differs is the sampler the binding declares — usampler2D /
+  // isampler2D over an R32UI / R32I data texture — and therefore the type of the
+  // fetched vec. That difference rides a DISTINCT ID rather than a type branch on one
+  // id, the same rule the textureSample/textureSampleArray split follows.
+  //
+  // Why typed textures and not u32-lanes-bitcast-through-R32F: GLSL ES 3.00 §2.1.1
+  // permits flushing ANY denormal to zero, and small integers are denormal f32 bit
+  // patterns (1u is 1.4e-45), so the bitcast route can legally lose values. Exactness
+  // is the entire point of an integer array.
+  storageFetchU32: {
+    wgsl: (a) => `storageFetchU32(${join(a)})`,
+    glsl: storageFetchGlsl,
+  },
+  storageFetchI32: {
+    wgsl: (a) => `storageFetchI32(${join(a)})`,
+    glsl: storageFetchGlsl,
   },
 }
 
@@ -142,6 +229,19 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
 // calls. An intrinsic that gains a hardcoded binding name MUST register it
 // here, or per-stage emit drops the binding while the spelling still names it
 // (a GPU compile error, caught by the compile gates).
+/** Which binding name(s) an intrinsic's SPELLING references TEXTUALLY, for the one intrinsic
+ *  (`f64Guard`) that names a binding inside its emitted string rather than through an `Expr`
+ *  argument — normal reference collection over the IR (`ir/collect-refs`) has no argument node
+ *  to walk, so it cannot see this reference at all. The real consumer is the GLSL per-stage emit
+ *  scope (`backends/glsl.ts` `stageScope`): it keeps only the bindings a reachable function
+ *  varrefs, then adds this table's entries for every INTRINSIC CALL it kept, so `_fp64` survives
+ *  stage-trimming even though nothing in the IR names it directly. Any new intrinsic that
+ *  hardcodes a binding name into its spelling (the way `f64Guard` hardcodes `_fp64`) MUST add a
+ *  row here, or per-stage emit will drop the binding while the spelling still reads it — a GLSL
+ *  compile error naming an undeclared sampler, not caught until a real WebGL2 driver sees it.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
   f64Guard: ['_fp64'],
 }
@@ -168,6 +268,18 @@ export function spellIntrinsic(
 // compile time. Listing the portable ids EXPLICITLY here turns "absent = assume identity" into
 // "absent = unclassified", which the catalogue test (intrinsic-coverage.test.ts) flags: every
 // builtin id the surface emits must be in INTRINSICS (divergent) OR here (asserted identical).
+/** The builtin ids asserted to spell IDENTICALLY on both targets — `sin`, `dot`, `clamp`, and
+ *  friends — so they carry no `INTRINSICS` entry and fall through `spellIntrinsic` as the plain
+ *  `name(args)` identity. This set itself is never consulted BY `spellIntrinsic` (which only
+ *  reads `INTRINSICS`); it exists so `isKnownIntrinsic` can tell "deliberately identical" apart
+ *  from "nobody has classified this yet" — and that distinction is load-bearing at RUNTIME, not
+ *  just in the coverage test: `fp64Lower` calls `isKnownIntrinsic` while walking f64 operands
+ *  (e.g. to reject an unsupported builtin over a `mat64` value), so a new divergent builtin
+ *  added here BY MISTAKE would silently emit the same (wrong-on-one-target) string instead of
+ *  failing the catalogue test that actually catches it.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   // genType1 (component-wise unary) — same name in WGSL + GLSL ES 3.00.
   'sin',
@@ -215,6 +327,16 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
 // fp64Lower into constructs / the identity. The CPU oracle evaluates them
 // natively (BUILTINS); if one leaked to a backend the emitted call is invalid
 // GLSL — the wgslType/glslType SD0040 backstops make the leak loud.
+/** Builtin ids the authoring surface can produce that are consumed ENTIRELY by `fp64Lower`
+ *  before any backend ever runs — the f64 widen/pack/unpack trio. Unlike `PORTABLE_INTRINSICS`
+ *  (which DOES reach `spellIntrinsic`, just spelled identically), these are rewritten away
+ *  during lowering and must NEVER survive to it: `isKnownIntrinsic` deliberately excludes them,
+ *  so if one leaks through unlowered, the backend's type-spelling backstop (`wgslType`/
+ *  `glslType`, error code SD0040) catches it loudly instead of emitting an invalid call the
+ *  driver would reject with no line back to the authoring site.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
 export const PRE_EMIT_INTRINSICS: ReadonlySet<string> = new Set(['f64', 'f64FromParts', 'f64Parts'])
 
 /** True if `name` is a builtin the registry knows how to spell on every target — either a

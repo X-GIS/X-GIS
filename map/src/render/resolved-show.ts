@@ -268,8 +268,8 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
       ? resolveColorShape(ps.line.stroke, cameraZoom, elapsedMs, inputs)
       : null
 
-  // Static-hex fallback for the `null` case. parseHexColor lives in
-  // map.ts; we just hand back whatever the ShowCommand already
+  // Static-hex fallback for the `null` case. The hex parser (hexToRgba)
+  // lives in feature-helpers.ts; we just hand back whatever the ShowCommand already
   // computed at compile time (`resolvedFillRgba` is the bake-time
   // staging field used by classifyVectorTileShows).
   const fill: RGBA | null =
