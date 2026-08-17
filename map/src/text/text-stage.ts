@@ -2167,5 +2167,9 @@ export class TextStage {
   destroy(): void {
     this.renderer.destroy()
     this.gpu.destroy()
+    // #1404 — host last: GlyphAtlasGPU.host is a live reference into it
+    // (glyph-atlas-gpu.ts:36), so destroying the host first would leave
+    // `gpu.destroy()` running against an already-torn-down collaborator.
+    this.host.destroy()
   }
 }
