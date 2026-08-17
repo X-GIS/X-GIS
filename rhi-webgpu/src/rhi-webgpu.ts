@@ -659,7 +659,15 @@ struct VsOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
           // RhiBindLayoutEntry.vertexVisible on why this is not simply `vis` for everything
           // (WebGPU's sampled-texture limit is per stage).
           const texVis = e.vertexVisible ? vis : GPUShaderStage.FRAGMENT
-          if (e.kind === 'texture') return { binding: e.binding, visibility: texVis, texture: {} }
+          if (e.kind === 'texture')
+            return {
+              binding: e.binding,
+              visibility: texVis,
+              // RhiBindLayoutEntry.unfilterableFloat on why this cannot simply default to
+              // `{}` (sampleType 'float') for everything — an unfilterable-float-format
+              // texture (r32float, rg32float) fails validation against that default.
+              texture: e.unfilterableFloat ? { sampleType: 'unfilterable-float' } : {},
+            }
           return { binding: e.binding, visibility: texVis, sampler: {} }
         }),
       }),
