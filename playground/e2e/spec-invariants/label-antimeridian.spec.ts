@@ -56,7 +56,10 @@ test('OFM Bright @ zoom=0.5/lon=175 — labels do not cluster at antimeridian', 
   await page.setViewportSize({ width: 900, height: 1400 })
 
   // Convert + encode for the __import path (sessionStorage / hash channel).
-  const xgisSource = convertMapboxStyle(OFM_BRIGHT, { warn: () => {} })
+  // `warn` is not a ConvertMapboxStyleOptions field — convertMapboxStyle
+  // has never taken a warn callback (warnings are collected internally and
+  // surfaced only via options.coverage.warnings); this was a no-op.
+  const xgisSource = convertMapboxStyle(OFM_BRIGHT)
   const b64 = Buffer.from(xgisSource, 'utf8').toString('base64')
 
   await page.goto(`/demo.html?id=__import&label=OFM+Bright#src=${b64}`, {

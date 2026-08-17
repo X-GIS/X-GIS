@@ -158,7 +158,7 @@ export class GeoJSONCompilePool {
             }
           },
         )
-        w.addEventListener('error', (e) => {
+        w.addEventListener('error', (e: ErrorEvent) => {
           console.error('[geojson-compile-worker]', e.message)
           // Reject ONLY the jobs dispatched to THIS worker so callers don't
           // hang on a crashed worker — without this the inline-GeoJSON source's
