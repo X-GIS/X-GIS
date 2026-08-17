@@ -18,25 +18,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisMap {
-  vtSources: Map<
-    string,
-    {
-      renderer: {
-        _selection?: { _hysteresisZ?: number }
-        getDrawStats?: () => { tilesVisible: number }
-      }
-    }
-  >
-  camera: { zoom: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Zoom transition: hold previous LOD until next is ready', () => {
   test.use({ viewport: { width: 1280, height: 720 } })
 

@@ -13,16 +13,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface _TileDiag {
-  needed: number
-  missed: number
-  gpuUnique: number
-  catalogCached: number
-  catalogLoading: number
-  uploadQueued: number
-  gpuCap: number
-}
-
 test('tile coverage — no persistent gaps under interaction', async ({ page }) => {
   test.setTimeout(220_000)
   const errs: string[] = []

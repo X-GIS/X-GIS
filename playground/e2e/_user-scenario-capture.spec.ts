@@ -18,17 +18,6 @@ import { test, expect } from '@playwright/test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
-interface XgisMap {
-  vtSources?: Map<string, { renderer: { _hysteresisZ?: number } }>
-  camera?: { zoom: number; centerX: number; centerY: number; pitch?: number; bearing?: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 const OUT_DIR = 'test-results/user-scenario-capture'
 
 test.describe('User scenario capture', () => {

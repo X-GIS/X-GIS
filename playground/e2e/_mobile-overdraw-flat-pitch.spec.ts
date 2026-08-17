@@ -23,16 +23,6 @@ interface VTRDiag {
   source?: unknown
   gpuCache?: Map<string, Map<number, { tileZoom?: number }>>
 }
-interface XGISMap {
-  vtSources?: Map<string, { renderer: VTRDiag }>
-  camera?: { zoom: number; centerX: number; centerY: number; pitch?: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XGISMap
-    __xgisReady?: boolean
-  }
-}
 
 test.describe('Mobile flat-pitch over-draw', () => {
   test.use({ viewport: { width: 430, height: 715 } })

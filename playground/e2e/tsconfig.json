@@ -7,6 +7,11 @@
   // noEmit resolution surface only. Same pattern as shader-dsl/examples/tsconfig.json.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // #1683 — the base sets `rootDir: "./src"`, resolved against the REPO ROOT, and
+    // there is no <repo>/src. Every spec then reports TS6059 ("not under rootDir")
+    // and tsc aborts before it type-checks a single line. Override explicitly, the
+    // same way playground/tsconfig.json does, so this project is actually runnable.
+    "rootDir": "../..",
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "declaration": false,
