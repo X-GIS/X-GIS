@@ -184,20 +184,18 @@ describe('#598 finalize_corner — emitted WGSL wiring (fails on the pre-fix abs
   it('feeds flat_rel the DSFUN camera-relative longitude, not the absolute degree', () => {
     const b = body()
     // camera-relative longitude: corner.x − cam_h.x − cam_l.x (the precise DSFUN delta).
-    expect(b).toContain('corner.x - tile.cam_h.x')
-    expect(b).toContain('tile.cam_l.x')
+    expect(b).toContain('corner.x - u.cam_h.x')
+    expect(b).toContain('u.cam_l.x')
     // the old lossy reconstruction `(corner + tile_origin_merc).x / …` for the
     // LONGITUDE must be gone (the abs-merc reconstruction survives only for .y / lat).
-    expect(b).not.toContain('(corner + tile.tile_origin_merc).x')
+    expect(b).not.toContain('(corner + u.tile_origin_merc).x')
   })
 
   it('recentres the projection onto clon = 0 (proj_params.y → 0, ref_lon → tile_ref_lon − clon)', () => {
     const b = body()
     // proj_params passed to flat_rel with y zeroed.
-    expect(b).toContain(
-      'vec4<f32>(tile.proj_params.x, 0.0, tile.proj_params.z, tile.proj_params.w)',
-    )
+    expect(b).toContain('vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w)')
     // ref_lon recentred by subtracting clon.
-    expect(b).toContain('- tile.proj_params.y')
+    expect(b).toContain('- u.proj_params.y')
   })
 })

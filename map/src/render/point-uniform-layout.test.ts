@@ -64,6 +64,7 @@ const CONTRACT = {
   cam_ecef_l: 28,
   circle_params: 32,
   globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
+  zoom: 40, // #1635 — camera zoom, the lane a stage block's `zoom` builtin reads
 }
 
 describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contract)', () => {
@@ -78,9 +79,12 @@ describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contrac
     expect(refl.slot).toEqual(CONTRACT)
   })
 
-  it('struct is 160 bytes / 40 f32 slots — exactly the renderer Float32Array', () => {
+  it('struct is 176 bytes / 44 f32 slots — exactly the renderer Float32Array', () => {
     // #600 — grew 144→160 (globe_eye vec4 @36 for the globe(7) eye-horizon cull).
-    expect(wgsl.sizeBytes).toBe(160)
-    expect(refl.slots).toBe(40)
+    // #1635 — grew 160→176: `zoom: f32` at slot 40 plus std140's 12 B tail pad to
+    // the struct's 16 B alignment. The 3 pad slots are addressable but unwritten;
+    // the next scalar lane added here costs zero extra bytes.
+    expect(wgsl.sizeBytes).toBe(176)
+    expect(refl.slots).toBe(44)
   })
 })
