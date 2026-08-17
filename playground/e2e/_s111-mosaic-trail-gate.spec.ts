@@ -268,11 +268,12 @@ async function mosaic(page: import('@playwright/test').Page) {
  *  domain advects at the full rate everywhere, the west at 0.37 of it on average and at almost
  *  nothing along its edges.
  *
- *  0.20 is derived from that asymmetry, NOT yet measured on both sides. Run this spec against
- *  `origin/main` (red) and this branch (green) and replace this paragraph with the two numbers,
- *  the way `_s111-mosaic-arrow-field-gate` records its 0.0000 / 0.2041 — a bound whose two ends
- *  were never measured is a guess with a decimal point on it. */
-const CROSS_HALF_BOUND = 0.2
+ *  MEASURED, both sides (SwiftShader WebGL2, 680x700 buffer, x0=49 shift=291, 2026-08-17):
+ *  origin/main rel = 0.020 (crossHalf 0.156 — the translation residue exactly as predicted);
+ *  this branch rel = 0.193 (crossHalf 1.489 — 9.7x main). 0.10 sits between them with ~5x
+ *  margin on the red side and ~2x on the green side, the same convention as
+ *  `_s111-mosaic-arrow-field-gate`'s 0.0000 / 0.2041 record. */
+const CROSS_HALF_BOUND = 0.1
 
 test.describe('S-111 mosaic — each domain advects its OWN trail (#1499)', () => {
   test('the two domains paint DIFFERENT advected images, not one image twice', async ({ page }) => {
