@@ -37,9 +37,7 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 `fn` authors **all** functions: plain helpers and `@vertex` / `@fragment` / `@compute`
 entry points. There is no separate `entryFn` / `computeFn`.
 
-```ts
-fn(name?, params, ret?, body, opts?)
-```
+Full signature: [`fn`](https://x-gis.github.io/X-GIS/api/index/functions/fn).
 
 - **`name`** — optional. Omit it for an auto `_fn{n}` name. Keep an explicit name for any
   fn referenced by a _string_ (an `externFn`, a placeholder-swap lookup) or compared in a
@@ -399,8 +397,9 @@ Loop(
 )
 ```
 
-`Loop(init, cond, body, step?)` (optional leading name string names the WGSL counter;
-`step` defaults to `+1`). **Both** callbacks receive the counter — a body written `() => {}`
+[`Loop`](https://x-gis.github.io/X-GIS/api/index/functions/Loop) (optional leading name
+string names the WGSL counter; `step` defaults to `+1`). **Both** callbacks receive the
+counter — a body written `() => {}`
 that references `i` compiles as JS closure syntax but `i` is not in scope: `tsc` flags it
 (`Cannot find name 'i'`), and a transpile-only runner (vitest) surfaces it at build time as
 `while building fn '…': in Loop body: i is not defined` (#843). `Continue()` / `Break()`
@@ -508,8 +507,8 @@ A `fn` body's **final** `return value` is native TS (the body's terminal `return
 one is fine and is type-checked. `Return()` / `ReturnIf()` are for early exits inside
 `If` / `Loop` / `Switch`. (`fn` with an early `Return` needs `opts.allowEarlyReturn`.)
 
-`Loop(init, cond, body, step?)` is the C-style for loop; `Continue()` / `Break()` /
-`Discard()` are the loop/fragment terminators.
+[`Loop`](https://x-gis.github.io/X-GIS/api/index/functions/Loop) is the C-style for loop;
+`Continue()` / `Break()` / `Discard()` are the loop/fragment terminators.
 
 ---
 
@@ -535,8 +534,9 @@ const VsOut = ioStruct('VsOut', {
   (`'position'`, `'vertex_index'`, `'instance_index'`, `'front_facing'`, `'frag_depth'`,
   `'global_invocation_id'`, …), passed through verbatim — typed as `string` today
   (#763 H7), so a typo surfaces at pipeline creation, not at tsc.
-- **`location(n, type, interpolate?)`** → a `@location(n)` field, optionally
-  `@interpolate(<mode>)` with `mode ∈ 'flat' | 'linear' | 'perspective'` — `'flat'` is
+- [**`location`**](https://x-gis.github.io/X-GIS/api/index/functions/location) → a
+  `@location(n)` field, optionally `@interpolate(<mode>)` with
+  `mode ∈ 'flat' | 'linear' | 'perspective'` — `'flat'` is
   the mode the GLSL backend also honors (emits the `flat` qualifier on both sides).
 - **`VsOut.type`** — the struct's `ShaderType` (use it as a param type, e.g.
   `{ input: VsOut.type }`).
@@ -886,7 +886,7 @@ try {
 `ValidationError` listing **all** failures (with each diagnostic's code, rule, fn, and — when
 source tracing is on — `file:line:col`). The diagnostics are also on `err.diagnostics`.
 
-### `diagnose(module, opts?)` — the one "what's wrong with this?" entry
+### `diagnose` — the one "what's wrong with this?" entry
 
 Run the lint ruleset and (optionally) a backend capability check together, **without throwing**,
 and render a human report:
@@ -1082,8 +1082,9 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   it is a claim about the CONTEXT, so the mode stands down to the lossless
   canonicalisation for any shader mentioning `f16`. `obfuscate()` uses it. Pass
   `{ numbers: false }` to leave literals as emitted when diffing against a
-  hand-checked baseline. `minifyShaderText(code, opts?)` is the raw function it
-  wraps, for a string you already hold.
+  hand-checked baseline.
+  [`minifyShaderText`](https://x-gis.github.io/X-GIS/api/emit-prod/functions/minifyShaderText)
+  is the raw function it wraps, for a string you already hold.
 - **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
   every safely-inlinable helper is inlined at all its call sites, so those
   functions vanish. Single-return helpers inline by expression substitution;
@@ -1454,7 +1455,7 @@ Two honesty notes a reader needs before trusting a row:
 
 | Need                           | Write                                                                                                     |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| A function                     | `fn(name?, params, body)` — return type inferred                                                          |
+| A function                     | [`fn`](https://x-gis.github.io/X-GIS/api/index/functions/fn) — return type inferred                       |
 | An entry point                 | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })`                             |
 | A module                       | `module({ consts, structs, bindings, funcs })`                                                            |
 | An intermediate value          | plain `const x = expr`                                                                                    |
