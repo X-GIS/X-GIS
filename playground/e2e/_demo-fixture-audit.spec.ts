@@ -85,11 +85,13 @@ if (DEMO_IDS.length === 0) {
 
 // Assets `.gitignore:4-8` keeps OUT of the repo on purpose — bulk Natural
 // Earth extracts and tiler output, too large to track and regenerated locally.
+// Same idea for `playground/.gitignore:1` (`public/ofm-mirror/`) — the #834 M5
+// offline OFM mirror, deliberately local-only rather than too large (#1640).
 // A clean checkout (CI, a container, a fresh clone) legitimately cannot render
 // a demo that needs one, so those are SKIPPED rather than judged. Every other
 // missing asset stays a failure: that is #1626's class, where the file simply
 // was never committed and the fix is to commit it.
-const BULK_ASSET_RE = /ne_(?:10m|50m)_[\w-]+\.geojson|\.xgvt\b|\.pmtiles\b/i
+const BULK_ASSET_RE = /ne_(?:10m|50m)_[\w-]+\.geojson|\.xgvt\b|\.pmtiles\b|ofm-mirror\//i
 
 // Console noise that fires on nearly every demo and isn't actionable.
 const CONSOLE_NOISE =
@@ -298,7 +300,8 @@ for (const id of DEMO_IDS) {
     )
     if (assetMissing) {
       result.skipReason =
-        'asset not provisioned in this checkout (bulk data is deliberately untracked — .gitignore:4-8)'
+        'asset not provisioned in this checkout (deliberately untracked — bulk data at ' +
+        '.gitignore:4-8, or a local-only mirror like playground/.gitignore:1, #1640)'
       writeFileSync(join(OUT, 'per-demo', `${id}.json`), JSON.stringify(result, null, 2))
     }
     // Skipping AFTER the JSON write, so REPORT.md still carries the reason —

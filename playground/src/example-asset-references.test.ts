@@ -30,6 +30,9 @@ const EXAMPLES = resolve(HERE, 'examples')
  *  the browser requests `/data/<ref>` (verified against the network trace in
  *  #1626), so this is the directory a bare reference must land in. */
 const ASSET_ROOT = 'playground/public/data'
+/** A root-absolute ref (e.g. "/dem-fixture.png") is served from `public/`
+ *  itself, not `/data/` — this is the base a tracked file must land under. */
+const PUBLIC_ROOT = 'playground/public'
 
 /** Bulk Natural Earth extracts and tiler output, kept out of the repo on
  *  purpose (.gitignore:4-8) because they are too large to track. A demo may
@@ -37,6 +40,13 @@ const ASSET_ROOT = 'playground/public/data'
  *  audit reports as a skip rather than a failure. Everything else a demo
  *  names must ship. */
 const BULK_ALLOWLIST = /^ne_(?:10m|50m)_[\w-]+\.geojson$|\.xgvt$|\.pmtiles$/
+
+/** Root-absolute refs (served from `public/` directly — see `refShips` below)
+ *  that are deliberately local-only rather than too large to track. Parallel
+ *  to BULK_ALLOWLIST, but for the "not shipped on purpose" class. `/ofm-mirror/`
+ *  is playground/.gitignore:1 — the #834 M5 offline OFM mirror, regenerated
+ *  locally per the notes in ofm-bright-local.xgis (see #1640). */
+const ROOT_ALLOWLIST = /^\/ofm-mirror\//
 
 /** Comments may contain prose with `from "…"` in it — strip before matching,
  *  or the extractor invents references nobody wrote. */
@@ -54,17 +64,17 @@ function xgisFiles(dir: string): string[] {
   return out
 }
 
-/** Local asset references in one `.xgis` source. External URLs, XYZ templates
- *  and root-absolute paths (served from `public/` directly, not `/data/`) are
- *  not this gate's business. */
+/** Local asset references in one `.xgis` source: relative refs (checked against
+ *  ASSET_ROOT below) and root-absolute refs (served from `public/` directly, not
+ *  `/data/` — e.g. "/dem-fixture.png" — checked by `refShips` against PUBLIC_ROOT
+ *  and known routes). External URLs and XYZ templates are not this gate's business. */
 function localRefs(src: string): string[] {
   const refs = new Set<string>()
   for (const m of src.matchAll(/\burl\s*:\s*"([^"]+)"/g)) refs.add(m[1]!)
   for (const m of src.matchAll(/\bfrom\s+"([^"]+)"/g)) refs.add(m[1]!)
   for (const m of src.matchAll(/\bimport\s+"([^"]+)"/g)) refs.add(m[1]!)
   return [...refs].filter(
-    (r) =>
-      !/^(?:https?:|data:|pmtiles:|\/\/)/.test(r) && !r.startsWith('/') && !/\{[zxy]\}/.test(r),
+    (r) => !/^(?:https?:|data:|pmtiles:|\/\/)/.test(r) && !/\{[zxy]\}/.test(r),
   )
 }
 
@@ -74,6 +84,47 @@ const trackedAssets = new Set(
     .split('\n')
     .filter(Boolean),
 )
+
+const trackedPublic = new Set(
+  execFileSync('git', ['ls-files', PUBLIC_ROOT], { cwd: REPO_ROOT, encoding: 'utf8' })
+    .trim()
+    .split('\n')
+    .filter(Boolean),
+)
+
+// A root-absolute ref may instead be served by a REWRITE rather than a tracked file —
+// the vite dev-server proxy or loader.ts's URL_REWRITES table (protomaps pmtiles, the
+// opendata worker). Read the prefixes straight out of those two files rather than
+// hand-copying a list here, so an added route is covered automatically and a removed
+// one starts failing this gate instead of silently drifting from it.
+const viteConfigSrc = readFileSync(resolve(REPO_ROOT, 'playground/vite.config.ts'), 'utf8')
+const loaderSrc = readFileSync(resolve(REPO_ROOT, 'playground/src/demos/loader.ts'), 'utf8')
+
+/** `server.proxy` keys, e.g. "/pmtiles-proxy/protomaps". */
+const proxyPrefixes = [...viteConfigSrc.matchAll(/'(\/[^']+)':\s*\{/g)].map((m) => m[1]!)
+
+/** `URL_REWRITES` regex-literal sources (dev + prod entries), compiled back into
+ *  RegExps — each capture is already valid regex source, lifted verbatim from the
+ *  literal it was written as. */
+const rewritePatterns = [...loaderSrc.matchAll(/\[\s*\/((?:\\.|[^/\n])+)\/[a-z]*\s*,/g)].map(
+  (m) => new RegExp(m[1]!),
+)
+
+/** True when a root-absolute ref resolves via the dev-server proxy or a URL rewrite,
+ *  rather than a tracked file under PUBLIC_ROOT. */
+function isRoutedRef(ref: string): boolean {
+  return proxyPrefixes.some((p) => ref.startsWith(p)) || rewritePatterns.some((re) => re.test(ref))
+}
+
+/** Does this ref resolve in a clean checkout? Relative refs (checked against
+ *  ASSET_ROOT/BULK_ALLOWLIST) and root-absolute refs (checked against PUBLIC_ROOT,
+ *  known routes, then ROOT_ALLOWLIST) each have their own base and allowlist. */
+function refShips(ref: string): boolean {
+  if (ref.startsWith('/')) {
+    return trackedPublic.has(`${PUBLIC_ROOT}${ref}`) || isRoutedRef(ref) || ROOT_ALLOWLIST.test(ref)
+  }
+  return trackedAssets.has(`${ASSET_ROOT}/${ref}`) || BULK_ALLOWLIST.test(ref)
+}
 
 const files = xgisFiles(EXAMPLES)
 const references = files.flatMap((f) =>
@@ -91,17 +142,29 @@ describe('demo asset references resolve to files that actually ship (#1626)', ()
       'no local asset references parsed — did the syntax change?',
     ).toBeGreaterThan(100)
     expect(trackedAssets.size, `git ls-files ${ASSET_ROOT} returned nothing`).toBeGreaterThan(10)
+    expect(trackedPublic.size, `git ls-files ${PUBLIC_ROOT} returned nothing`).toBeGreaterThan(10)
+    expect(
+      proxyPrefixes.length,
+      'no server.proxy prefixes parsed from vite.config.ts — did its shape change?',
+    ).toBeGreaterThan(0)
+    expect(
+      rewritePatterns.length,
+      'no URL_REWRITES entries parsed from loader.ts — did its shape change?',
+    ).toBeGreaterThan(0)
   })
 
-  it('every referenced asset is either tracked in git or a documented bulk extract', () => {
+  it('every referenced asset is tracked in git, a known route, or a documented exception', () => {
     const missing = references
-      .filter(({ ref }) => !trackedAssets.has(`${ASSET_ROOT}/${ref}`) && !BULK_ALLOWLIST.test(ref))
+      .filter(({ ref }) => !refShips(ref))
       .map(({ file, ref }) => `${file.slice(REPO_ROOT.length + 1)} → "${ref}"`)
     expect(
       missing,
-      `these demos reference assets that are not in the repo and are not bulk data, so they ` +
-        `cannot load in a clean checkout (see #1626). Commit the asset under ${ASSET_ROOT}/ and ` +
-        `whitelist it in .gitignore, or drop the reference:\n  ${missing.join('\n  ')}`,
+      `these demos reference assets that are not in the repo, not routed by the dev server / ` +
+        `URL_REWRITES, and not a documented exception, so they cannot load in a clean checkout ` +
+        `(see #1626). Commit the asset under ${ASSET_ROOT}/ (or ${PUBLIC_ROOT}/ for a ` +
+        `root-absolute ref), or if it is deliberately local-only, whitelist it in ` +
+        `BULK_ALLOWLIST / ROOT_ALLOWLIST (see #1640), or drop the reference:\n  ` +
+        `${missing.join('\n  ')}`,
     ).toEqual([])
   })
 
