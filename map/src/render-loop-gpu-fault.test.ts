@@ -183,6 +183,54 @@ describe('GpuFaultDrain — validation queue → typed map error event (#1599)',
     expect(sink.fired.map((e) => e.error)).toEqual(['a', 'b', 'c'])
     expect(drain.faultCount).toBe(3)
   })
+
+  it('survives a host listener clearing the queue INSIDE fireErrorEvent', () => {
+    const ctx = fakeCtx()
+    const fired: XGISMapErrorInfo[] = []
+    // The case above clears BETWEEN drains. A host `'error'` listener runs
+    // SYNCHRONOUSLY inside `fireErrorEvent`, i.e. inside the drain's own walk, and
+    // may clear the queue there (`.length = 0`, what the e2e helper does) — so the
+    // array can empty mid-loop, under the index the walk is holding.
+    const clearingSink: ErrorEventSink = {
+      fireErrorEvent: (info) => {
+        fired.push(info)
+        ctx._validationErrors.length = 0
+      },
+    }
+    const drain = new GpuFaultDrain()
+
+    pushValidationError(ctx, 'a')
+    pushValidationError(ctx, 'b')
+    drain.drain(ctx, clearingSink)
+    // 'a' fires; the listener destroys the rest of the queue with it, and the walk
+    // stops at the NEW length instead of reading past the end.
+    expect(fired.map((e) => e.error)).toEqual(['a'])
+
+    // The next two frames must still be correct: no throw, no replay of 'a', and
+    // entries pushed after the clear still fire.
+    pushValidationError(ctx, 'c')
+    drain.drain(ctx, clearingSink)
+    pushValidationError(ctx, 'd')
+    drain.drain(ctx, clearingSink)
+
+    expect(fired.map((e) => e.error)).toEqual(['a', 'c', 'd'])
+    expect(drain.faultCount).toBe(3)
+  })
+
+  it('does not store `undefined` as the last-seen entry after such a clear', () => {
+    // `this._seen = q[q.length - 1]!` writes `q[-1]` — `undefined` — into a field
+    // typed `ValidationEntry | null` on exactly the path above, and the `!` is what
+    // hides that from tsc. The drain's only reader (`lastIndexOf`) happens to treat
+    // `undefined` and `null` alike, so no black-box assertion can separate the two
+    // states today; pin the coalesce at the source instead, so the lie cannot come
+    // back and reach a future reader that DOES dereference the field.
+    const drainSrc = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'render-loop-gpu-fault.ts'),
+      'utf8',
+    )
+    expect(drainSrc, 'the tail write asserts non-null again').not.toContain('q[q.length - 1]!')
+    expect(drainSrc).toContain('this._seen = last ?? null')
+  })
 })
 
 // The drain can be perfect and never run — "a diagnostic nothing can reach is not
@@ -204,13 +252,30 @@ describe('GpuFaultDrain is WIRED into the render loop (#1599)', () => {
   })
 
   it('both popped validation scopes route their message into the shared ctx queue', () => {
-    // reportErrorScope's ctx argument is what puts a scope-resolved validation
-    // error into the SAME queue the drain reads (render-loop-helpers.ts, #1599).
+    // reportErrorScope's third argument is the INJECTED sink — it is what puts a
+    // scope-resolved validation error into the SAME queue the drain reads
+    // (render-loop-helpers.ts, #1599). Both call sites close over the real writer.
     expect(src).toContain(
-      'reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this.host.ctx)',
+      'reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, (msg) =>',
     )
     expect(src).toContain(
-      "reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this.host.ctx)",
+      "reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', (msg) =>",
+    )
+    expect(src.match(/pushValidationError\(this\.host\.ctx, msg\)/g)).toHaveLength(2)
+  })
+
+  it('the popped-scope helper stays backend-NEUTRAL — the sink is injected (#991)', () => {
+    // Writing the queue inside render-loop-helpers.ts needs a CONCRETE backend
+    // adapter import there, and that file has no row in the #991 backend-adapter
+    // ratchet's baseline (deleted at #1046 F4 Inc-A) — its STRICT per-file equality
+    // turns any import into a red `vitest map/src`. Passing a `(msg: string) => void`
+    // keeps the adapter import at this call site, where it is already baselined.
+    const helpers = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'render-loop-helpers.ts'),
+      'utf8',
+    )
+    expect(helpers, 'render-loop-helpers.ts took a backend-adapter import').not.toMatch(
+      /from\s*['"]@xgis\/rhi-webg(?:pu|l2)['"]/,
     )
   })
 })

@@ -860,13 +860,16 @@ const CEILINGS: Record<string, number> = {
   // unrelated to #1575. Auto-merge silently took main's ceiling edit without the paired
   // file edit that justified it on main's side; restored to the branch's own measured
   // reality.
-  // 818→840 (#1599): `reportErrorScope` takes the RenderContext and queues a RESOLVED
-  // validation message on `ctx._validationErrors` — the shared capped sink the WebGPU
-  // uncapturederror listener and the WebGL2 takeGlErrors drain already write, so all
-  // three fault origins have ONE consumer. +22 = the 2 imports, the signature prettier
-  // now wraps over 4 lines, the 3-line body block, and the contract prose naming why the
-  // rejected arm stays log-only and why nothing double-counts.
-  'map/src/render-loop-helpers.ts': 840,
+  // 818→841 (#1599): `reportErrorScope` hands a RESOLVED validation message to an
+  // INJECTED `(msg: string) => void` sink, so all three fault origins reach the one
+  // capped queue the per-frame GPU-fault drain reads. +23 = the signature prettier now
+  // wraps over 4 lines, the 3-line body block, and the contract prose naming why the
+  // rejected arm stays log-only and why nothing double-counts. The sink is a callback
+  // and NOT the RenderContext (#1599 fix-up, review finding 1): writing the queue here
+  // would need a concrete backend-adapter import, which the #991 backend-adapter
+  // ratchet rejects for this file — it has no baseline row — and would falsify this
+  // module's "no GPU coupling" header. No import was added; the prose paid for the +23.
+  'map/src/render-loop-helpers.ts': 841,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -1115,13 +1118,16 @@ const CEILINGS: Record<string, number> = {
   // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
   // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
   // took the inline prefetch block out of the chain path too.
-  // 937→948 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
+  // 937→955 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
   // GpuFaultDrain field, and the call after the GL-error drain. The drain itself lives in
-  // render-loop-gpu-fault.ts (a new ~88-LOC file) precisely so this god-file does not
-  // absorb it; +11 is the wiring plus the prose naming why an async validation fault
-  // cannot reach the 3-strike halt. The two reportErrorScope call sites gained an
-  // argument in place.
-  'map/src/render-loop.ts': 948,
+  // render-loop-gpu-fault.ts (a new ~94-LOC file) precisely so this god-file does not
+  // absorb it; the wiring plus the prose naming why an async validation fault cannot
+  // reach the 3-strike halt is +11 of it. The remaining +7 is the #1599 fix-up (review
+  // finding 1): both reportErrorScope call sites now build the validation sink HERE —
+  // `(msg) => pushValidationError(this.host.ctx, msg)`, which prettier wraps over 3
+  // lines each — because this file is the one that already holds the baselined
+  // backend-adapter import, and render-loop-helpers.ts must not take one.
+  'map/src/render-loop.ts': 955,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

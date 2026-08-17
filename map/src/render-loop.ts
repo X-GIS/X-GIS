@@ -327,8 +327,13 @@ export class RenderLoop {
         fn()
       } finally {
         // Report BOTH a resolved validation error AND a rejected pop —
-        // the rejection was previously swallowed (Audit ⑧ B2).
-        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this.host.ctx)
+        // the rejection was previously swallowed (Audit ⑧ B2). #1599: the
+        // resolved message also goes into the shared capped queue the GPU-fault
+        // drain below reads. The sink is injected so render-loop-helpers.ts
+        // stays free of the concrete-backend import (#991 ratchet).
+        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, (msg) =>
+          pushValidationError(this.host.ctx, msg),
+        )
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -583,7 +588,9 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this.host.ctx)
+    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', (msg) =>
+      pushValidationError(this.host.ctx, msg),
+    )
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom

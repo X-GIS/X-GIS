@@ -83,6 +83,12 @@ export class GpuFaultDrain {
       }
       this._count++
     }
-    this._seen = q[q.length - 1]!
+    // Re-read the tail: `fireErrorEvent` runs HOST code synchronously, and a
+    // listener may clear the queue in place (`.length = 0`) — then `q.length - 1`
+    // is -1 and the read is `undefined`, not a `ValidationEntry`. Coalesce to
+    // null so the next drain starts a fresh diff instead of holding a bogus
+    // identity that `lastIndexOf` can never find.
+    const last = q[q.length - 1]
+    this._seen = last ?? null
   }
 }
