@@ -180,13 +180,14 @@ describe('the draw loop actually consumes drawOrder() (#1602)', () => {
     expect(
       SOURCE,
       'the draw loop must consume the relevance order — iterating `states` directly is the bug',
-    ).toContain('for (const s of this.drawOrder())')
-    // And nothing else may walk `states` to draw. The three remaining `states.values()` walks are
-    // the flow-field probe, the flow-field pick and the byte total — none of them a draw order.
-    // Pinned so a fourth has to be looked at rather than assumed harmless.
+    ).toContain('for (const [region, s] of this.drawOrder())')
+    // And nothing else may walk `states` to draw. The two remaining `states.values()` walks are
+    // the flow-field pick and the byte total — none of them a draw order. (The flow-field probe
+    // walk left with hasDrapedFlowField(), absorbed by drapedFlowFields() in #1499.)
+    // Pinned so a third has to be looked at rather than assumed harmless.
     expect(
       SOURCE.split('of this.states.values()').length - 1,
       'a new states.values() walk appeared — is it deciding draw order again?',
-    ).toBe(3)
+    ).toBe(2)
   })
 })
