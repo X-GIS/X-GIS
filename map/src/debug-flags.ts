@@ -7,6 +7,7 @@
 // because most affect pipeline construction and would require
 // rebuilding every renderer. To change a flag, reload the page.
 
+import { QUALITY, resolveQuality, updateQuality } from '@xgis/engine'
 import { emitOverdrawFsWgsl } from './shaders/dsl/overdraw-fs'
 
 function readDebugFlag(param = 'debug'): string | null {
@@ -46,6 +47,36 @@ if (DEBUG_OVERDRAW && typeof window !== 'undefined') {
  *  captured at an earlier device-selection time would go stale across a re-boot. */
 export function isOverdrawActive(caps: { executionModel: string }): boolean {
   return DEBUG_OVERDRAW && caps.executionModel !== 'immediate'
+}
+
+/** Bring the boot-time `?debug=overdraw` quality clamp in line with the DEVICE (#1615).
+ *
+ *  `resolveQuality()` runs at module load, so the only thing it can ask about the mode is
+ *  the URL — no `RhiDevice`, no caps, and engine must not import map to reach
+ *  `isOverdrawActive` anyway. It therefore clamps `{ msaa: 1, picking: false }` from the
+ *  flag ALONE, which is right for boot and wrong forever after on a device that cannot run
+ *  the mode: `?debug=overdraw&picking=1` on WebGL2 (`executionModel: 'immediate'`) renders
+ *  the ordinary scene with picking silently off, and nothing ever revisits it. Every other
+ *  consumer of the flag asks `isOverdrawActive(caps)` per read; this one value is latched,
+ *  so it needs an explicit correction instead.
+ *
+ *  `picking` is re-derived from the resolver with the debug override lifted — the URL's own
+ *  answer, not a guess — so `?picking=1` is honoured and a boot with no picking flag stays
+ *  off. `msaa` is deliberately NOT restored: its clamp is a pipeline-variant-matrix cost
+ *  argument (a debug mode does not earn 4× variants of every pipeline), not a capability
+ *  one, so it holds on both devices and on neither device does raising it buy anything.
+ *
+ *  A pure function of the caps handed in, like `isOverdrawActive` itself: called once per
+ *  device boot, it re-settles across a `map.run()` re-boot that lands on a different
+ *  backend rather than fossilising the first device's answer. Idempotent — a second call
+ *  with the same caps changes nothing. */
+export function reconcileOverdrawQualityClamp(caps: { executionModel: string }): void {
+  // No flag, no clamp to correct — and no touching a `picking` the host may have set
+  // itself through `map.setQuality()`.
+  if (!DEBUG_OVERDRAW) return
+  const picking = isOverdrawActive(caps) ? false : resolveQuality(false).picking
+  if (QUALITY.picking === picking) return
+  updateQuality({ picking })
 }
 
 /** `?debug=checker` — keep the legacy analytic red/blue checker as the
