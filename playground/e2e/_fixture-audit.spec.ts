@@ -67,7 +67,9 @@ test('audit all fixtures under interaction', async ({ page }) => {
       if (m.type() === 'error') errors.push(t)
       else if (m.type() === 'warning') warns.push(t)
     }
-    const onPageError = (e: Error): void => errors.push(`[pageerror] ${e.message}`)
+    const onPageError = (e: Error): void => {
+      errors.push(`[pageerror] ${e.message}`)
+    }
     page.on('console', onConsole)
     page.on('pageerror', onPageError)
 

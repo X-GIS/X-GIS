@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import type { VariantLinkResult } from '../../shader-dsl/src/core/variant-link'
+import type { WgslVariantSurvey } from './_variant-link-survey'
 
 // Per-variant compile/link gate (#1715 Problem A): EVERY point of a variant family must
 // emit GLSL ES 3.00 that compiles AND links on a real WebGL2 driver.
@@ -27,10 +29,12 @@ test('every variant of a family compiles and links on WebGL2', async ({ page }) 
   // while proving a quarter of what it claims.
   expect(survey.distinctFragments, 'variants collapsed to identical sources').toBe(4)
 
-  const failed = survey.rows.filter((r) => !r.ok)
+  const failed = survey.rows.filter((r: VariantLinkResult) => !r.ok)
   expect(
     failed,
-    failed.map((r) => `${r.key}: ${r.failedAt ?? '?'} — ${r.log ?? ''}`).join('\n'),
+    failed
+      .map((r: VariantLinkResult) => `${r.key}: ${r.failedAt ?? '?'} — ${r.log ?? ''}`)
+      .join('\n'),
   ).toEqual([])
 })
 
@@ -63,6 +67,11 @@ test('every variant of a family passes WGSL validation', async ({ page }) => {
     'the known-bad control module reported no error — getCompilationInfo is not validating',
   ).toBeGreaterThan(0)
 
-  const bad = survey.rows.filter((r) => r.errors.length > 0)
-  expect(bad, bad.map((r) => `${r.key}:\n  ${r.errors.join('\n  ')}`).join('\n')).toEqual([])
+  const bad = survey.rows.filter((r: WgslVariantSurvey['rows'][number]) => r.errors.length > 0)
+  expect(
+    bad,
+    bad
+      .map((r: WgslVariantSurvey['rows'][number]) => `${r.key}:\n  ${r.errors.join('\n  ')}`)
+      .join('\n'),
+  ).toEqual([])
 })

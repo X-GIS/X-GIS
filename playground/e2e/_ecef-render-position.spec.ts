@@ -40,7 +40,7 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
     cam.bearing = 0
     cam.pitch = 0
     const frame = cam.getECEFFrameView(512, 512, 1)
-    return { mvp: Array.from(frame.matrix) }
+    return { mvp: Array.from(frame.matrix) as number[] }
   })
 
   // Polygon: a small quad around lon=10°, lat=0°. Tile center = its own corner
@@ -49,7 +49,11 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
   const cameraCenter = ecefSphere(0, 0) // camera anchor (getECEFCenter uses sphere)
   // off = tileEcefCenter − cameraCenter (matches the renderer write); FIX adds
   // it to ecef_rtc so the VS projects vertex − cameraCenter (camera-relative).
-  const camRel: [number, number, number] = [
+  // number[] (not a 3-tuple): the args object below carries it into
+  // page.evaluate()'s generic Arg inference alongside mvp/verts (both
+  // number[]) — a narrower tuple type here left no overload of the
+  // 2-arg evaluate() satisfiable (TS2769) once mixed into that literal.
+  const camRel: number[] = [
     tileCenter[0] - cameraCenter[0],
     tileCenter[1] - cameraCenter[1],
     tileCenter[2] - cameraCenter[2],
@@ -126,8 +130,9 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
         @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 1.0, 1.0, 1.0); }`
         const mod = device.createShaderModule({ code })
         const info = await mod.getCompilationInfo()
-        const err = info.messages.filter((m) => m.type === 'error')
-        if (err.length) throw new Error('compile: ' + err.map((m) => m.message).join('|'))
+        const err = info.messages.filter((m: { type: string }) => m.type === 'error')
+        if (err.length)
+          throw new Error('compile: ' + err.map((m: { message: string }) => m.message).join('|'))
         const pipe = device.createRenderPipeline({
           layout: 'auto',
           vertex: {

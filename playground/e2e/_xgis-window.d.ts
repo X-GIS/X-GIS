@@ -120,3 +120,16 @@ declare module '*?worker' {
   const workerConstructor: new (options?: { name?: string }) => Worker
   export default workerConstructor
 }
+
+// compiler/src/tiler/vector-tiler.ts, data/src/geojson.ts and
+// map/src/core/polygon-mesh.ts import 'earcut' and are dragged into this
+// program transitively (via spec imports). data/tsconfig.json already
+// shims this (data/src/earcut.d.ts), but that file sits outside this
+// program's rootDir-derived graph — ambient .d.ts files are pulled in by
+// `include`, not by another package's tsconfig. Mirrors data/src/earcut.d.ts
+// verbatim so both shims describe the same (untyped) package identically.
+declare module 'earcut' {
+  function earcut(data: ArrayLike<number>, holeIndices?: number[] | null, dim?: number): number[]
+  namespace earcut {}
+  export default earcut
+}

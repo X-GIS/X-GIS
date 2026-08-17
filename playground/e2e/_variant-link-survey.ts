@@ -21,7 +21,13 @@ import {
   type VariantLinkResult,
 } from '../../shader-dsl/src/core/variant-link'
 import { variantFamily } from '../../shader-dsl/src/core/variant-family'
-import { builtin, ioStruct, location, resource } from '../../shader-dsl/src/core/sot'
+import {
+  builtin,
+  ioStruct,
+  location,
+  resource,
+  type IoStruct,
+} from '../../shader-dsl/src/core/sot'
 import {
   fn,
   module,
@@ -72,9 +78,16 @@ function probeFamily() {
             .mul(4)
             .sub(1)
           const pos = vec4(x, y, 0, 1)
+          // VsOut is IoStruct<F1> | IoStruct<F2> (F1/F2 differ only in the 'uv'
+          // field) because `varying` is a plain boolean, not a literal `true`/
+          // `false` TS can correlate across the two ternaries below — so
+          // .construct's signature is a union tsc can't call with a fresh 'uv'
+          // literal (excess-property). Cast through the real IoStruct shape
+          // (sot.ts) rather than inventing a structural stand-in.
+          const construct = (VsOut as unknown as IoStruct<any>).construct
           return varying
-            ? VsOut.construct({ pos, uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)) })
-            : VsOut.construct({ pos })
+            ? construct({ pos, uv: vec2(x.mul(0.5).add(0.5), y.mul(0.5).add(0.5)) })
+            : construct({ pos })
         },
         { stage: 'vertex' },
       )

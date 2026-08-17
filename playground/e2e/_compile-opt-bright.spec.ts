@@ -119,7 +119,10 @@ function runBreakdown(fixtureName: string, label: string): void {
 
     // Composed pipeline (mirrors runtime).
     const t4 = performance.now()
-    const opt = optimize(sceneRaw, program)
+    // optimize(scene: Scene): Scene — one param. `program` was passed
+    // here too but is dead: optimize() never reads a second argument
+    // (only `lower(program)` above does). Dropped, not renamed away.
+    const opt = optimize(sceneRaw)
     const t5 = performance.now()
 
     console.log(
@@ -264,7 +267,9 @@ function runNativeBreakdown(xgisFile: string, label: string): void {
   )
 
   const t4 = performance.now()
-  const opt = optimize(sceneRaw, program)
+  // optimize(scene: Scene): Scene — see compileFullyInstrumented above;
+  // `program` is dead here too (lower(program) is the only consumer).
+  const opt = optimize(sceneRaw)
   const t5 = performance.now()
 
   console.log(
