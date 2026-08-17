@@ -21,27 +21,44 @@
 import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
 
-async function pump(page: Page): Promise<void> {
-  for (let i = 0; i < 25; i++) {
-    await page.evaluate(() =>
-      (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.(),
-    )
-    await page.waitForTimeout(80)
-  }
-}
-
 /** Count near-white pixels — the numeral fill colour (`label-color-#fff`). The imagery
- *  basemap is network-blocked (below) and the bathymetry ramp tops out well short of white,
- *  so a decisive near-white count is specific to rendered glyph coverage, not the backdrop. */
+ *  basemap is network-blocked (below) and the bathymetry ramp is blue-tinted throughout,
+ *  so an all-channels > 200 count is specific to rendered glyph coverage, not the backdrop.
+ *  Threshold calibrated on the settled flat frame under single-sample SwiftShader
+ *  (?forcegl2=1): glyph interiors peak at min-channel 243 and the blend leaves only 3 px
+ *  above 230, while > 200 counts 441 px and the ramp contributes ~0 there (a contributing
+ *  ramp would add tens of thousands — the light top band alone spans ~30k px). */
 function countWhite(png: PNG): number {
   let n = 0
   for (let i = 0; i < png.data.length; i += 4) {
     const r = png.data[i]!,
       g = png.data[i + 1]!,
       b = png.data[i + 2]!
-    if (r > 230 && g > 230 && b > 230) n++
+    if (r > 200 && g > 200 && b > 200) n++
   }
   return n
+}
+
+/** Poll until the white-pixel count clears `floor` twice in a row, or the budget runs
+ *  out — then return the last count. A fixed pump is the settle bug the reseed and
+ *  dateline gates already paid for (coverage load + async label prepare + SwiftShader
+ *  raster can push first numerals well past any fixed wait); polling on the metric the
+ *  assertion reads cannot manufacture a pass — below-floor counts just keep polling
+ *  until the budget expires and the assertion then fails on the real final count. */
+async function settleWhite(page: Page, floor: number, budgetMs = 90_000): Promise<number> {
+  const t0 = Date.now()
+  let last = 0
+  let hits = 0
+  while (Date.now() - t0 < budgetMs) {
+    await page.evaluate(() =>
+      (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.(),
+    )
+    await page.waitForTimeout(500)
+    last = countWhite(PNG.sync.read(await page.locator('#xg-canv, canvas').first().screenshot()))
+    hits = last > floor ? hits + 1 : 0
+    if (hits >= 2) break
+  }
+  return last
 }
 
 test.describe('coverage sounding numerals on globe/tilted-azimuthal projections (#1435)', () => {
@@ -62,9 +79,7 @@ test.describe('coverage sounding numerals on globe/tilted-azimuthal projections 
       () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
       { timeout: 30_000 },
     )
-    await pump(page)
-    const flatPng = PNG.sync.read(await page.locator('#xg-canv, canvas').first().screenshot())
-    const flatWhite = countWhite(flatPng)
+    const flatWhite = await settleWhite(page, 50)
     console.log(`[coverage-sounding-globe] flat white=${flatWhite}`)
     expect(flatWhite, 'control: numerals draw on the flat camera').toBeGreaterThan(50)
 
@@ -82,9 +97,7 @@ test.describe('coverage sounding numerals on globe/tilted-azimuthal projections 
           ?.camera?.globeMode === true,
       { timeout: 10_000 },
     )
-    await pump(page)
-    const globePng = PNG.sync.read(await page.locator('#xg-canv, canvas').first().screenshot())
-    const globeWhite = countWhite(globePng)
+    const globeWhite = await settleWhite(page, 50)
     console.log(`[coverage-sounding-globe] globe white=${globeWhite}`)
 
     // THE #1435 CLAIM: post-fix, the globe camera prints numerals too. A regression back to
