@@ -86,11 +86,14 @@ describe('#1522 parallel arc fidelity', () => {
       expect(lon, `lon ${lon} left the authored 170..190 branch`).toBeLessThanOrEqual(190)
     }
 
-    // (b) The SAME 20° span authored as the folded pair. Interpolating that raw
-    //     −340° delta walks the long way round and draws a world-spanning line
-    //     — the failure mode a naive lon lerp introduces, and the one thing the
-    //     great-circle interpolant got right for free. The delta is unwrapped
-    //     to +20 instead, so no vertex ever reaches the far side of the globe.
+    // (b) The SAME 20° span authored as the folded pair. A naive lon lerp of the
+    //     raw −340° delta would walk every MIDPOINT the long way round; the delta
+    //     is unwrapped to +20 instead, so no vertex ever reaches the far side of
+    //     the globe — which is exactly (and only) what the per-vertex check below
+    //     proves. The raw endpoint keeps its authored −170 (same output as the old
+    //     great-circle interpolant), so the last adjacent-pair lon delta is still
+    //     ~359° in raw coords; the antimeridian SPLIT downstream owns that seam
+    //     (wrap-line-antimeridian.test.ts), not this assertion.
     const folded = subdivideLine([
       [170, 0],
       [-170, 0],
