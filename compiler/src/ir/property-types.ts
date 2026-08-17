@@ -134,6 +134,12 @@ export interface RasterShapes {
   saturation: PropertyShape<number>
   contrast: PropertyShape<number>
   resamplingNearest: boolean
+  /** `raster-fade-duration` (#1257) — per-tile cross-fade ms, constant-only.
+   *  Absent (undefined) = layer didn't author it — distinct from an
+   *  authored `0` — so the runtime falls back to its map-option/default
+   *  duration instead of the (nonexistent) PropertyShape no-op the other
+   *  axes use. Deliberately left out of {@link defaultRasterShapes} below. */
+  fadeDurationMs?: number
 }
 
 /** Spec-default raster colour adjustments (all no-ops). Returned fresh on

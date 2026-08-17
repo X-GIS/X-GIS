@@ -3612,6 +3612,17 @@ export class XGISMap {
         this.rasterRenderer.setSourceMaxzoom(
           'maxzoom' in data && typeof data.maxzoom === 'number' ? data.maxzoom : undefined,
         )
+        // Style-authored `raster-fade-duration` (#1257) — constant-only, so
+        // resolved once here (not per-frame, unlike the colour-adjust axes).
+        // Undefined leaves the map-option/default duration already pushed by
+        // applyEffectiveRasterFadeDuration() untouched — byte-identical. `?.`
+        // tolerates a hand-built ShowCommand double whose paintShapes omits
+        // `raster` entirely (real compiler output always carries it).
+        if (show.paintShapes.raster?.fadeDurationMs !== undefined) {
+          this.rasterRenderer.setRasterFadeDurationMs(
+            this._prefersReducedMotion() ? 0 : show.paintShapes.raster.fadeDurationMs,
+          )
+        }
         // Capture the show so the frame loop can resolve its
         // `paintShapes.opacity` per zoom (OFM Liberty's natural_earth
         // raster fades 0.6 → 0.1 across z=0..6). First-wins — multi-

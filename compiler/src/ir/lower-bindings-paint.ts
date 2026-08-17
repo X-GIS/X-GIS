@@ -622,6 +622,14 @@ export const miscUtilHandlers: BindingHandler[] = [
     },
   },
   {
+    match: (c) => c.name.startsWith('raster-fade-duration-'),
+    apply: (c) => {
+      const n = parseFloat(c.name.slice('raster-fade-duration-'.length))
+      if (!isNaN(n)) c.acc.rasterFadeDurationMs = n
+      return true
+    },
+  },
+  {
     match: (c) => c.name.startsWith('projection-'),
     apply: (c) => {
       c.acc.projection = c.name.slice(11)

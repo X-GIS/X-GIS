@@ -122,6 +122,7 @@ export interface LayerAccumulator {
   rasterSaturation: number | undefined
   rasterContrast: number | undefined
   rasterResamplingNearest: boolean | undefined
+  rasterFadeDurationMs: number | undefined
   // Hillshade DEM-relief paint axes (#777 Phase II). All undefined = layer
   // didn't author the axis → renderer falls back to the spec default (no-op).
   hillshadeDirection: number | undefined

@@ -234,6 +234,9 @@ export interface RenderNodeRasterPaint {
   /** `raster-resampling: nearest` flag. Default (unauthored / 'linear')
    *  = linear sampler, byte-identical to today. */
   rasterResamplingNearest?: boolean
+  /** `raster-fade-duration` — per-tile cross-fade ms (#1257). Absent falls
+   *  back to the map-option/default (300); `0` is a distinct authored value. */
+  rasterFadeDurationMs?: number
 }
 
 /** Heatmap paint axes (Mapbox `heatmap-*`, Phase R). Present only on a layer
