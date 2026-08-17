@@ -1203,6 +1203,9 @@ export class WebGl2Device implements RhiDevice {
         )
       }
     }
+    // `entries` is stored wholesale, so `RhiBindLayoutEntry.unfilterableFloat` rides along
+    // unread — WebGL2 has no sampleType concept (GLSL ES has no separate unfilterable-float
+    // sampler type); the flag is a structural no-op here, same as `vertexVisible` above (#1384).
     return wrap<RhiBindGroupLayout>({ entries: [...entries] } satisfies Gl2BindGroupLayout)
   }
 
