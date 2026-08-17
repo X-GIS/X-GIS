@@ -33,8 +33,8 @@ import {
   type TilePointFrameArgs,
   type TilePointPackKey,
   type TilePointShow,
-  tilePointPackKeyEqual,
 } from './tile-point-pack-key'
+import { TilePointCache } from './tile-point-cache'
 import { type TilePointDrawDeps, refreshTilePointUniformAndDraw } from './tile-point-draw'
 
 // Float-slot indices derived from the single-source POINT_FORMAT spec so the
@@ -151,6 +151,11 @@ export function writePointFrameUniform(
       circlePitchScaleMap ? 1 : 0,
     ],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+    // #1635 — the camera zoom a `@color`/`@stroke` stage block reads as `u.zoom`.
+    // `camera.zoom` is the same quantity VTR packs into the polygon/line lane
+    // (vector-tile-renderer's `currentCameraZoom = camera.zoom`), so the three
+    // composer hosts agree on what `zoom` means.
+    zoom: camera.zoom,
   })
 }
 
@@ -234,7 +239,7 @@ export class PointRenderer {
     // this layout feeds ensurePointDraper.
     this.vertexBufferLayout = toVertexBufferLayout(POINT_FORMAT)
 
-    // reflected std140 Uniforms size (160 bytes after #600 globe_eye).
+    // reflected std140 Uniforms size (176 bytes after #1635 zoom).
     // UNIFORM|COPY_DST, byte-identical via bufUsage('uniform', writable:true).
     this.uniformBuffer = this.rhi.createBuffer({
       size: this.frameBlock.byteLength,
@@ -375,38 +380,18 @@ export class PointRenderer {
     myL: number
     featProps?: Record<string, unknown> | null
   }[] = []
-  private tilePointBuffer: RhiBuffer | null = null
-  private tilePointIndexBuffer: RhiBuffer | null = null
-  private tilePointFeatBuffer: RhiBuffer | null = null
-  /** #1581 leg B — pack key the CURRENT buffers were built from. */
-  private _lastTilePointPackKey: TilePointPackKey | null = null
-  private _lastTilePointTotalN = 0
-  private _lastTilePointVariant: 0 | 1 = 0
-  /** Buffers retired this frame because renderTilePoints rebuilt
-   *  its tile-point geometry. Destroyed at the START of the NEXT
-   *  frame so any in-flight queue.submit() that bound them via
-   *  the per-frame bind group completes first. Mirrors the
-   *  retiredUniformRings pattern in vector-tile-renderer.ts:
-   *  WebGPU spec keeps the GPU-side memory alive after destroy()
-   *  for already-submitted work, but it's illegal to ENQUEUE new
-   *  commands referencing a destroyed buffer. With multi-source
-   *  layered demos (4 VTRs each calling renderTilePoints per
-   *  frame), the rapid destroy+recreate inside renderTilePoints
-   *  hit "Buffer used in submit while destroyed" validation
-   *  errors when the prior frame's command encoder still
-   *  referenced the same bind group. */
-  private retiredTilePointBuffers: RhiBuffer[] = []
+  /** #1632 — the packed tile-point buffers + the pack key each was built from,
+   *  ONE SLOT PER SHOW (plus the retire queue that defers their destroy to the
+   *  next frame). This renderer is per-map but `emitTilePointsRhi` runs per SHOW
+   *  per frame, so the single scalar slot this replaces made the #1581 leg-B memo
+   *  miss every frame as soon as a style carried two point shows. */
+  private readonly _tilePointCache = new TilePointCache()
 
-  /** Drain retired-buffer queue from the previous frame. Safe by
-   *  this point because the previous frame's queue.submit() has
-   *  already returned (it's synchronous in JS) and the GPU keeps
-   *  destroyed buffers' memory alive until that work completes.
-   *  MapRenderer should call this once per frame before any
-   *  renderTilePoints / renderPoints call. */
+  /** Drain the tile-point retired-buffer queue from the previous frame.
+   *  MapRenderer should call this once per frame before any renderTilePoints /
+   *  renderPoints call. */
   beginFrame(): void {
-    if (this.retiredTilePointBuffers.length === 0) return
-    for (const b of this.retiredTilePointBuffers) this.rhi.destroyBuffer(b)
-    this.retiredTilePointBuffers.length = 0
+    this._tilePointCache.drainRetired(this.rhi)
   }
 
   /** Accumulate a point from a visible tile (ECEF DSFUN components).
@@ -448,9 +433,18 @@ export class PointRenderer {
   }
 
   /** #1581 leg B — true when `emitTilePointsRhi` can skip straight to
-   *  `redrawTilePointsCached` instead of accumulate + repack. */
-  canSkipTilePointRepack(key: TilePointPackKey): boolean {
-    return this.tilePointBuffer !== null && tilePointPackKeyEqual(this._lastTilePointPackKey, key)
+   *  `redrawTilePointsCached` instead of accumulate + repack. `showId` (#1632)
+   *  scopes the question to THIS show's cache slot. */
+  canSkipTilePointRepack(showId: string, key: TilePointPackKey): boolean {
+    return this._tilePointCache.canSkip(showId, key)
+  }
+
+  /** #1632 — drop every tile-point slot owned by a destroyed VectorTileRenderer
+   *  (its show ids all carry that renderer's prefix). Called from
+   *  `VectorTileRenderer.destroy()`; without it a setSourceData swap or a style
+   *  edit leaks three GPU buffers per point show. */
+  evictTilePointSlots(prefix: string): void {
+    this._tilePointCache.evictPrefix(prefix)
   }
 
   /** Flush accumulated tile points as a single draw call onto an RHI pass. ONE
@@ -470,6 +464,11 @@ export class PointRenderer {
     show: TilePointShow,
     dpr: number = 1,
     key: TilePointPackKey | null = null,
+    /** #1632 — which cache slot these buffers belong to. TRAILING and optional,
+     *  like `addLayer`'s `shaderVariant`, so no existing positional call site
+     *  shifts; the shared default keeps the pre-#1632 single-slot behaviour for
+     *  callers that pass no key and therefore never hit the memo anyway. */
+    showId: string = '__default__',
   ): void {
     if (this.tilePoints.length === 0) return
     const N = this.tilePoints.length
@@ -595,37 +594,29 @@ export class PointRenderer {
       { verts, u32: u32View, idx: indices, feat: featData, depths: null },
     )
 
-    // Defer destroy of the previous frame's buffers — see
-    // retiredTilePointBuffers comment. Drained at the start of the
-    // next frame via beginFrame() once the prior submit has
-    // completed.
-    if (this.tilePointBuffer) this.retiredTilePointBuffers.push(this.tilePointBuffer)
-    if (this.tilePointIndexBuffer) this.retiredTilePointBuffers.push(this.tilePointIndexBuffer)
-    if (this.tilePointFeatBuffer) this.retiredTilePointBuffers.push(this.tilePointFeatBuffer)
-
     // VERTEX|COPY_DST / INDEX|COPY_DST / STORAGE|COPY_DST, byte-identical via
     // bufUsage(usage, writable:true); writeBuffer = queue.writeBuffer.
-    this.tilePointBuffer = this.rhi.createBuffer({
+    const vertexBuffer = this.rhi.createBuffer({
       size: verts.byteLength,
       usage: 'vertex',
       writable: true,
       label: 'tile-point-vertices',
     })
-    this.rhi.writeBuffer(this.tilePointBuffer, 0, verts)
-    this.tilePointIndexBuffer = this.rhi.createBuffer({
+    this.rhi.writeBuffer(vertexBuffer, 0, verts)
+    const indexBuffer = this.rhi.createBuffer({
       size: indices.byteLength,
       usage: 'index',
       writable: true,
       label: 'tile-point-indices',
     })
-    this.rhi.writeBuffer(this.tilePointIndexBuffer, 0, indices)
-    this.tilePointFeatBuffer = this.rhi.createBuffer({
+    this.rhi.writeBuffer(indexBuffer, 0, indices)
+    const featBuffer = this.rhi.createBuffer({
       size: Math.max(featData.byteLength, 16),
       usage: 'storage',
       writable: true,
       label: 'tile-point-features',
     })
-    this.rhi.writeBuffer(this.tilePointFeatBuffer, 0, featData)
+    this.rhi.writeBuffer(featBuffer, 0, featData)
 
     // Pick the translucent (no depth write) pipeline when the effective alpha
     // drops below 1 so halos/glows rendered from tile sources don't occlude
@@ -636,8 +627,20 @@ export class PointRenderer {
     const strokeA = stroke ? stroke[3] * opacity * tileStrokeOpacity : 1
     const variant: 0 | 1 = opacity < EPS || fillA < EPS || strokeA < EPS ? 1 : 0
 
+    // #1581 leg B / #1632 — stamp what these buffers were built from, into THIS
+    // show's slot, before the draw below reads them back out of it. Retires the
+    // buffers it displaces (destroyed at the start of the next frame).
+    this._tilePointCache.set(showId, {
+      buffer: vertexBuffer,
+      indexBuffer,
+      featBuffer,
+      packKey: key,
+      totalN,
+      variant,
+    })
+
     refreshTilePointUniformAndDraw(
-      this._tilePointDrawDeps(show.shaderVariant),
+      this._tilePointDrawDeps(showId, show.shaderVariant),
       {
         pass,
         camera,
@@ -653,26 +656,22 @@ export class PointRenderer {
       variant,
     )
 
-    // #1581 leg B — stamp what these buffers were built from.
-    this._lastTilePointPackKey = key
-    this._lastTilePointTotalN = totalN
-    this._lastTilePointVariant = variant
-
     // Clear for next frame
     this.tilePoints = []
   }
 
   /** #1581 leg B — buffers unchanged: skip repack, just refresh the
    *  translate/frame uniform and reissue the draw call. */
-  redrawTilePointsCached(args: TilePointFrameArgs): void {
+  redrawTilePointsCached(showId: string, args: TilePointFrameArgs): void {
+    const slot = this._tilePointCache.get(showId)!
     refreshTilePointUniformAndDraw(
       // The variant is re-resolved here too, not just on the repack path: a
       // cached redraw still picks its draper fresh, so a style change that
       // only swaps the variant needs no repack (see TilePointShow's doc).
-      this._tilePointDrawDeps(args.show.shaderVariant),
+      this._tilePointDrawDeps(showId, args.show.shaderVariant),
       args,
-      this._lastTilePointTotalN,
-      this._lastTilePointVariant,
+      slot.totalN,
+      slot.variant,
     )
   }
 
@@ -682,8 +681,12 @@ export class PointRenderer {
    *  GeoJSON point source actually renders through — `map.ts`'s direct
    *  `addLayer` path (wired in Phase 2) is NOT the path those take, so
    *  without this a point stage block reached no pixels at all. */
-  private _tilePointDrawDeps(variant?: ShaderVariantInfo | null): TilePointDrawDeps {
+  private _tilePointDrawDeps(
+    showId: string,
+    variant?: ShaderVariantInfo | null,
+  ): TilePointDrawDeps {
     const draper = this.ensurePointDraper(variant)
+    const slot = this._tilePointCache.get(showId)!
     return {
       frameBlock: this.frameBlock,
       rhi: this.rhi,
@@ -691,9 +694,9 @@ export class PointRenderer {
       pointDraper: draper,
       shapeBuf: this.shapeRegistry?.shapeBuffer ?? this.emptyStorageBuf(),
       segBuf: this.shapeRegistry?.segmentBuffer ?? this.emptyStorageBuf(),
-      featBuffer: this.tilePointFeatBuffer!,
-      vertexBuffer: this.tilePointBuffer!,
-      indexBuffer: this.tilePointIndexBuffer!,
+      featBuffer: slot.featBuffer,
+      vertexBuffer: slot.buffer,
+      indexBuffer: slot.indexBuffer,
     }
   }
 

@@ -1,0 +1,27 @@
+{
+  "projectId": "25e41ac1-7a6b-4dfb-bfbc-5ab1dd52953c",
+  "shape": "package",
+  "pkg": "@xgis/site",
+  "globalName": "XGis",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": ".design-sync-build/global.compiled.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "extraFonts": [
+    "node_modules/@fontsource-variable/inter/index.css",
+    "node_modules/@fontsource-variable/geist-mono/index.css"
+  ],
+  "componentSrcMap": {
+    "Badge": "src/components/ui/badge.tsx",
+    "Button": "src/components/ui/button.tsx",
+    "Card": "src/components/ui/card.tsx",
+    "CardHeader": null,
+    "CardTitle": null,
+    "CardDescription": null,
+    "CardContent": null,
+    "CardFooter": null,
+    "GlobeDemo": null,
+    "Hero": null,
+    "Playground": null
+  }
+}

@@ -40,6 +40,10 @@ export default tseslint.config(
       '**/.tsbuild/**',
       '**/node_modules/**',
       '.claude/**',
+      // design-sync inputs (.design-sync/previews/*.tsx). Agent tooling, not
+      // repo source: esbuild compiles them into preview cards outside every
+      // tsconfig project, so typed lint cannot resolve a project for them.
+      '.design-sync/**',
       '**/__snapshots__/**',
       '**/*.snap',
       '**/coverage/**',

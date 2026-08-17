@@ -617,7 +617,9 @@ export class ListenerRegistry {
 //   - idle        — no pending tile/label work AND camera at rest.
 //   - error       — a lifecycle fault surfaced for observability: 'boot' (init
 //                   failure), 'devicelost' (GPU device lost — engine auto-recovers),
-//                   'halt' (render loop stopped after 3 consecutive frame faults).
+//                   'halt' (render loop stopped after 3 consecutive frame faults),
+//                   'gpufault' (a GPU validation / uncaptured error drained from the
+//                   per-frame validation queue — non-fatal, the loop keeps running).
 //   - backendresolved — fired once per successful boot with the resolved GPU
 //                   backend ('webgpu' | 'webgl2'), so a host can observe a silent
 //                   WebGPU→WebGL2 auto-fallback (#1153 M4). Re-fires on a
@@ -635,7 +637,7 @@ export type XGISMapEventType =
   | 'backendresolved'
 
 /** Phase of a fired map-level `'error'` event. */
-export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt'
+export type XGISMapErrorPhase = 'boot' | 'devicelost' | 'halt' | 'gpufault'
 
 /** Payload carried by a map-level `'error'` event (on the XGISMapEvent). `fatal`
  *  separates an unrecoverable stop (boot failure, 3-strike halt) from a

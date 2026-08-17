@@ -124,7 +124,7 @@ export class GraphicsManager {
   private readonly _copyScratch: Float32Array[] = []
   /** Buffers retired by remove()/rematerialise, destroyed at the START of the next
    *  renderRetained so any in-flight submit that bound them completes first
-   *  (mirrors PointRenderer.retiredTilePointBuffers). */
+   *  (mirrors TilePointCache.retired / drainRetired, render/tile-point-cache.ts). */
   private readonly _retired: RhiBuffer[] = []
   /** DPR baked into the packed pixel sizes; a change re-packs (rare). */
   private dpr = 1

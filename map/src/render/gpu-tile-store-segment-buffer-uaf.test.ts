@@ -15,8 +15,8 @@
 // window (_pendingArenaCompaction) — only these standalone segment buffers were
 // destroyed mid-render.
 //
-// THE FIX (mirror of _retiredArenaBuffers + PointRenderer.retiredTilePointBuffers,
-// render-loop.ts:381-387): _releaseTileSlots RETIRES the segment buffers into
+// THE FIX (mirror of _retiredArenaBuffers + TilePointCache.retired / drainRetired,
+// render/tile-point-cache.ts): _releaseTileSlots RETIRES the segment buffers into
 // _retiredSegmentBuffers; they are destroyed at the next runFrameMaintenance
 // (the post-submit safe window, after the prior frame's queue.submit() has
 // drained) and on destroy().

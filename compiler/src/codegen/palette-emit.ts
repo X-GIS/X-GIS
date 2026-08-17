@@ -66,6 +66,7 @@ import {
   varRefSampler,
   vec2f,
   textureSampleLevelVec4,
+  ZOOM_UNIFORM_REF,
 } from './_util/node-builders'
 
 /** Default bind-group / binding indices for palette resources. The
@@ -110,7 +111,7 @@ export const DEFAULT_PALETTE_SLOTS: PaletteBindingSlots = {
 export function emitColorGradientSample(
   palette: Palette,
   gradientIndex: number,
-  zoomExpr: string = 'u.zoom',
+  zoomExpr: string = ZOOM_UNIFORM_REF,
 ): string {
   const g = palette.colorGradients[gradientIndex]
   if (!g) {
@@ -143,7 +144,7 @@ export function emitColorGradientSample(
 export function emitColorGradientSampleNode(
   palette: Palette,
   gradientIndex: number,
-  zoomVarrefName: string = 'u.zoom',
+  zoomVarrefName: string = ZOOM_UNIFORM_REF,
 ): NodeLike<'vec4<f32>'> | null {
   const g = palette.colorGradients[gradientIndex]
   if (!g) return null
@@ -266,7 +267,7 @@ export function buildScalarSampleFunc(palette: Palette, mode: ScalarPaletteMode)
 export function emitScalarGradientSample(
   palette: Palette,
   gradientIndex: number,
-  zoomExpr: string = 'u.zoom',
+  zoomExpr: string = ZOOM_UNIFORM_REF,
 ): string {
   const g = palette.scalarGradients[gradientIndex]
   if (!g) return '0.0'
@@ -282,7 +283,7 @@ export function emitScalarGradientSample(
 export function emitScalarGradientSampleNode(
   palette: Palette,
   gradientIndex: number,
-  zoomVarrefName: string = 'u.zoom',
+  zoomVarrefName: string = ZOOM_UNIFORM_REF,
 ): NodeLike<'f32'> | null {
   const g = palette.scalarGradients[gradientIndex]
   if (!g) return null

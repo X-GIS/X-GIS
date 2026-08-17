@@ -2181,6 +2181,12 @@ export class VectorTileRenderer {
     // graph is not pinned on globalThis for the page lifetime. See fill-rhi-slot.ts.
     releaseFillRhi(this._fillRhi)
     this._fillRhi = null
+    // #1632 — the shared PointRenderer outlives us and holds one packed-buffer
+    // slot per show id we minted; nothing will ever redraw them again, and GPU
+    // bytes exert no JS GC pressure, so a setSourceData swap would leak three
+    // buffers per point show without this.
+    this._tilePointOwner?.evictTilePointSlots(this._tilePointShowIdPrefix)
+    this._tilePointOwner = null
   }
 
   // Frame-scoped draw accumulators (_frameTilesVisible,
@@ -4079,6 +4085,16 @@ export class VectorTileRenderer {
     )
   }
 
+  /** #1632 — this renderer's tile-point cache namespace. `sliceLayer` alone
+   *  identifies a show WITHIN one renderer, but two VectorTileRenderers over
+   *  different sources can resolve the same (sourceLayer + filter) slice, so the
+   *  per-instance prefix is what keeps their cache slots apart. */
+  private static _nextTilePointPrefix = 1
+  private readonly _tilePointShowIdPrefix = `${VectorTileRenderer._nextTilePointPrefix++}:`
+  /** #1632 — the shared PointRenderer this renderer last emitted tile points
+   *  through, held only so `destroy()` can evict the slots keyed by our prefix. */
+  private _tilePointOwner: PointRenderer | null = null
+
   /** Accumulate this show's tile-point features and flush them onto `pass`.
    *  Single authority for both backends (#1057): the WebGPU render() tail hands
    *  it the chain's RhiRenderPass directly (Inc-2d); the WebGL2 immediate arm
@@ -4114,6 +4130,10 @@ export class VectorTileRenderer {
       return
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    // #1632 — `sliceLayer` identifies the show within this renderer; the instance
+    // prefix makes it unique across renderers sharing one PointRenderer.
+    const showId = this._tilePointShowIdPrefix + sliceLayer
+    this._tilePointOwner = pointRenderer
 
     // #1581 leg B — skip accumulation + repack at a static camera with an
     // unchanged tile set and style: reuse last frame's packed buffers.
@@ -4138,8 +4158,8 @@ export class VectorTileRenderer {
       this.source?.contentGeneration() ?? 0,
       worldCopyMaskOf(pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)),
     )
-    if (pointRenderer.canSkipTilePointRepack(packKey)) {
-      pointRenderer.redrawTilePointsCached(args)
+    if (pointRenderer.canSkipTilePointRepack(showId, packKey)) {
+      pointRenderer.redrawTilePointsCached(showId, args)
       return
     }
 
@@ -4183,6 +4203,7 @@ export class VectorTileRenderer {
       show,
       dpr,
       packKey,
+      showId,
     )
   }
 

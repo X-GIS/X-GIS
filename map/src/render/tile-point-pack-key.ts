@@ -123,7 +123,9 @@ export interface TilePointPackKey {
  *  even side the pack was reused at every origin, and points in newly-entered
  *  tiles never appeared. (Scope, measured rather than assumed: `PointRenderer`
  *  holds ONE cache slot shared by all shows, so with ≥2 point-style shows the memo
- *  already missed every frame — this bit single-point-show scenes.)
+ *  already missed every frame — this bit single-point-show scenes. Pre-#1632
+ *  state: #1632 gave the cache one slot PER SHOW, so multi-show scenes now hit
+ *  the memo too, and are therefore in this XOR-fold's blast radius as well.)
  *
  *  The fix keeps order-independence — addition commutes, which is why a sort is
  *  still unnecessary — but AVALANCHES EACH KEY BEFORE accumulating it. Mixing

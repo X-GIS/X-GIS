@@ -136,6 +136,21 @@ export function refF32(name: string): NodeLike<'f32'> {
   return { expr: { op: 'varref', type: F32_T, name } } as NodeLike<'f32'>
 }
 
+/** THE camera-zoom read, as one string. Every generated expression addresses the
+ *  host shader's group(0) uniform block as `u.` (see `varRefVec4`'s note); the
+ *  zoom-interpolated palette path has emitted `u.zoom` since #929, so this is the
+ *  spelling that already exists rather than a new one. Named here so the stage-
+ *  block path (`wgsl-expr.ts`) and the palette path cannot drift, and so the
+ *  host-side reachability gate can import the name it must declare instead of
+ *  re-typing it (`map/src/render/stage-zoom-uniform.test.ts` — same discipline as
+ *  INPUT_F32_POOL_SIZE / polygon-input-pool.test.ts, #1539). */
+export const ZOOM_UNIFORM_REF = 'u.zoom'
+
+/** The camera zoom as an f32 Node — a REAL uniform read, never a literal (#1635). */
+export function zoomRef(): NodeLike<'f32'> {
+  return refF32(ZOOM_UNIFORM_REF)
+}
+
 // ── Compositions ──
 
 /** vec4(color.rgb, color.a * opacity) — the buildFillExpr composition

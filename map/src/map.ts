@@ -513,8 +513,11 @@ export class XGISMap {
 
   /** Map-level event bus — owns listener registries, load/move/zoom/idle
    *  state, and the per-rAF camera-signature diff. Extracted from map.ts
-   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). */
-  private _eventBus!: MapEventBus
+   *  (2026-06-19 runtime redesign §3.2 "MapEventBus"). Package-internal (no
+   *  `private`, mirroring `mapEventListeners` below) so `FrameLoopHost` can Pick
+   *  it — the render loop fires the `'gpufault'` error event through it (#1599).
+   *  Not public API. */
+  _eventBus!: MapEventBus
 
   // Delegating accessors so existing internal readers (switchController,
   // diagnostics, destroy) stay byte-identical.

@@ -191,13 +191,19 @@ const CEILINGS: Record<string, number> = {
   // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
   // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
   // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
-  // 4911 -> 4923 (#1596): wires the classifyTile call site's new `failureCount` predicate
-  // (+4, one-line lambda + its doc comment) and gates the `pending` consumer's
-  // recordMissedTile() on the new `terminal` flag (+8, one-line condition + the doc for
-  // why the NON-terminal half must keep counting) — the retry ladder itself stays in
-  // PMTilesBackend and the bound in tile-decision.ts; nothing extract-worthy, both
-  // additions are at their sole existing call/consumer site. Measured 4923 post-commit.
-  'map/src/render/vector-tile-renderer.ts': 4923,
+  // 4911→4932 (#1632): the tile-point pack cache became one slot PER SHOW, and the
+  // slot ids need a namespace this renderer alone can mint. The cache itself is a new
+  // owner (render/tile-point-cache.ts) — the 'extract, don't grow' this ratchet asks
+  // for — so what lands here is only the wiring a renderer cannot delegate: the
+  // per-instance show-id prefix, the showId derivation at the emit site, the
+  // PointRenderer back-reference destroy() needs, and the eviction call itself
+  // (without which a setSourceData swap leaks three GPU buffers per point show).
+  // MERGE UNION (#1596 <- main): main's +21 (#1632, above) and this branch's +12 (the
+  // classifyTile failureCount predicate wiring and the terminal-flag gate on the
+  // `pending` consumer's recordMissedTile(); retry ladder stays in PMTilesBackend,
+  // bound in tile-decision.ts) are non-overlapping and compose. Value is the MEASURED
+  // post-merge, post-prettier count (4911 + 21 + 12 = 4944, arithmetic agrees).
+  'map/src/render/vector-tile-renderer.ts': 4944,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -615,7 +621,10 @@ const CEILINGS: Record<string, number> = {
   // right one, the one failure mode the warning above cannot see. +3 = the token/CSS
   // resolver ahead of the NULLABLE parse (one line, replacing two) plus the four lines
   // naming why, mirroring what render/passes/label-pass.ts has always done. MEASURED.
-  'map/src/map.ts': 5439,
+  // 5439→5442 (#1599): `_eventBus` drops `private` so `FrameLoopHost` can Pick it —
+  // the render loop's GPU-fault drain fires the typed `'error'` event through it. +3
+  // is the doc lines naming why it is package-internal, not a new member. MEASURED.
+  'map/src/map.ts': 5442,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -628,7 +637,10 @@ const CEILINGS: Record<string, number> = {
   // hex regex, existing only to turn the total parser's opaque black back into the null the
   // setters gate on. feature-helpers' `hexToRgba` now IS that contract, so the setters call
   // it directly. Deleting a duplicate authority, not moving lines elsewhere.
-  'map/src/layer.ts': 817,
+  // 817→819 (#1599): `XGISMapErrorPhase` gains a fourth member, `'gpufault'` — an async
+  // GPU validation/OOM fault now reaches the typed map `'error'` channel instead of only
+  // the console. +2 = the two prose lines documenting the phase; the union edits in place.
+  'map/src/layer.ts': 819,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -860,7 +872,16 @@ const CEILINGS: Record<string, number> = {
   // unrelated to #1575. Auto-merge silently took main's ceiling edit without the paired
   // file edit that justified it on main's side; restored to the branch's own measured
   // reality.
-  'map/src/render-loop-helpers.ts': 818,
+  // 818→841 (#1599): `reportErrorScope` hands a RESOLVED validation message to an
+  // INJECTED `(msg: string) => void` sink, so all three fault origins reach the one
+  // capped queue the per-frame GPU-fault drain reads. +23 = the signature prettier now
+  // wraps over 4 lines, the 3-line body block, and the contract prose naming why the
+  // rejected arm stays log-only and why nothing double-counts. The sink is a callback
+  // and NOT the RenderContext (#1599 fix-up, review finding 1): writing the queue here
+  // would need a concrete backend-adapter import, which the #991 backend-adapter
+  // ratchet rejects for this file — it has no baseline row — and would falsify this
+  // module's "no GPU coupling" header. No import was added; the prose paid for the +23.
+  'map/src/render-loop-helpers.ts': 841,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -889,7 +910,13 @@ const CEILINGS: Record<string, number> = {
   // them), plus the new LineVariantSpec type, its two composer helpers, and
   // buildLineModule/emitLineWgsl threading a variant param through — the line half of
   // the polygon-only @stroke fragment seam.
-  'map/src/shaders/dsl/line.ts': 1524,
+  // 1524→1542 (#1635): the group(0) block's `_pad_tail0: vec4fT` becomes polygon's four
+  // named f32 lanes (same bytes) so the `zoom` a `@stroke` stage block reads is a lane that
+  // EXISTS, plus the `as: 'tile'`→`as: 'u'` instance rename the composer's plain-text
+  // `u.<lane>` requires and the VS's fill_translate_x/y reads that replace the old `.zw`
+  // index. Structural (+4) — a lane cannot be extracted elsewhere; the rest is the two
+  // rationale comments for a rename whose reason is invisible from the token.
+  'map/src/shaders/dsl/line.ts': 1542,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1115,7 +1142,17 @@ const CEILINGS: Record<string, number> = {
   // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
   // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
   // took the inline prefetch block out of the chain path too.
-  'map/src/render-loop.ts': 937,
+  // 937→957 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
+  // GpuFaultDrain field, and the call after the GL-error drain. The drain itself lives in
+  // render-loop-gpu-fault.ts (a new ~94-LOC file) precisely so this god-file does not
+  // absorb it; the wiring plus the prose naming why an async validation fault cannot
+  // reach the 3-strike halt is +11 of it. The rest is the #1599 fix-up (review finding 1)
+  // + the #1046 seam: the validation sink is built HERE as the single bound
+  // `_queueValidation` field — this file is the one that already holds the baselined
+  // backend-adapter import (render-loop-helpers.ts must not take one), and
+  // gl-error-sink-seam.test.ts pins `pushValidationError(this.host.ctx, ` to exactly
+  // one call site, which that field is.
+  'map/src/render-loop.ts': 957,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1181,7 +1218,15 @@ const CEILINGS: Record<string, number> = {
   // at all (browser-probed). Most of the delta is the two rationale comments.
   // 1209→1208 (#1666): the two `fillHex`/`strokeHex` temporaries existed only to feed a
   // `hex ? parse(hex) : null` ternary the null-returning `hexToRgba` makes redundant.
-  'map/src/render/point-renderer.ts': 1208,
+  // 1208→1213 (#1635): `writePointFrameUniform` packs the new `zoom` lane (point's Uniforms
+  // had none, so a composed `u.zoom` addressed a field that did not exist). One packed field
+  // + its rationale; the lane's full doc lives on the struct in shaders/dsl/point.ts, and the
+  // write is single-authority here by construction (`write()` has no optional fields).
+  // MERGE UNION (#1632 <- main): main's +5 (#1635 zoom lane, above) and this branch's −2
+  // (the tile-point pack scalar cache + retire queue moved out to tile-point-cache.ts,
+  // keyed per show) are non-overlapping and compose. Value is the MEASURED post-merge,
+  // post-prettier count.
+  'map/src/render/point-renderer.ts': 1211,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
