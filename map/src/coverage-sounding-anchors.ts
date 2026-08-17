@@ -97,6 +97,11 @@ export interface SoundingAnchorOptions {
   /** Lattice pitch in that same pixel space. */
   spacingPx: number
   max?: number
+  /** #1434 — zero-alloc out param: when given, receives the RAW (pre-quantised)
+   *  `spacingPx / pxPerCell` ratio this call used. The label-pass zoom-tolerant skip
+   *  records it at prepare time to detect a stride-doubling boundary crossed by a later
+   *  replay. Left untouched when nothing is visible (no `view`). */
+  strideWant?: { value: number }
 }
 
 /** Cells of `handle` that should carry a numeral for the current camera.
@@ -128,7 +133,9 @@ export function coverageSoundingAnchors(
   // One stride for both axes, so the pattern stays square on screen and a rotation cannot
   // swap which axis is coarser. Quantised to a POWER OF TWO: any continuous stride would
   // change on every zoom delta, and each change re-picks every cell.
-  const stride = quantiseStride(opts.spacingPx / view.pxPerCell)
+  const strideWant = opts.spacingPx / view.pxPerCell
+  if (opts.strideWant) opts.strideWant.value = strideWant
+  const stride = quantiseStride(strideWant)
 
   const out: SoundingAnchor[] = []
   // Anchored on cell 0, NOT on the visible range: a phase tied to the view would slide the
@@ -161,8 +168,11 @@ export function coverageSoundingAnchors(
  *  take a new value on every wheel delta, and since the chosen cells are `col % stride === 0`,
  *  every change re-picks the ENTIRE set — the numerals would boil during a zoom. Powers of two
  *  change rarely, and when they do, half the previous cells SURVIVE (every second one), so the
- *  transition reads as thinning rather than as a new pattern. */
-function quantiseStride(want: number): number {
+ *  transition reads as thinning rather than as a new pattern.
+ *
+ *  Exported for #1434: the label-pass zoom-tolerant skip re-applies this same rounding to a
+ *  PREDICTED ratio to detect a boundary crossed since the label set was prepared. */
+export function quantiseStride(want: number): number {
   if (!Number.isFinite(want) || want <= 1) return 1
   return 2 ** Math.round(Math.log2(want))
 }

@@ -13,7 +13,11 @@
 
 import type { LabelDef } from '@xgis/compiler'
 import type { CoverageHandle } from '@xgis/data'
-import { coverageSoundingAnchors, SOUNDING_LATTICE_CSS_PX } from '../../coverage-sounding-anchors'
+import {
+  coverageSoundingAnchors,
+  quantiseStride,
+  SOUNDING_LATTICE_CSS_PX,
+} from '../../coverage-sounding-anchors'
 import { filterAcceptsProps } from '../../feature-helpers'
 import { coverageCellPredicate } from '../../shaders/dsl/coverage-filter-cpu'
 import { unprojectGlobeFromCamera, type Camera } from '../../camera'
@@ -34,6 +38,22 @@ export function soundingUnprojector(
     cam.globeMode
       ? unprojectGlobeFromCamera(cam, px, py, canvasWidth, canvasHeight, dpr)
       : cam.unprojectToLonLat(px, py, canvasWidth, canvasHeight, dpr)
+}
+
+/** #1434 — does the coverage-sounding stride change between the zoom a label set was
+ *  PREPARED at and the zoom NOW, while the #1177 tolerant-zoom skip (±0.15) would otherwise
+ *  replay that prepared set unchanged? `quantiseStride` (coverage-sounding-anchors.ts) snaps
+ *  to a POWER OF TWO, so the selected cell set changes DISCONTINUOUSLY exactly at those
+ *  boundaries — a replay whose zoom drift straddles one reuses a numeral set that no longer
+ *  fits the grid (the reported lag). `pxPerCell` scales with the view's effective px-per-metre,
+ *  which doubles per zoom level, so the ratio at zoom `preparedZoom + dzoom` is a closed-form
+ *  scale of the one measured at prepare time — no re-probe needed. `preparedWant` is NaN when
+ *  the host dispatched no coverage-sounding show at prepare time; every other producer is
+ *  untouched by this predicate. */
+export function soundingStrideInvalidates(preparedWant: number, dzoom: number): boolean {
+  if (!Number.isFinite(preparedWant)) return false
+  const wantNow = preparedWant * 2 ** -dzoom
+  return quantiseStride(wantNow) !== quantiseStride(preparedWant)
 }
 
 /** `TextStage.addLabel`, narrowed to the arguments this arm passes. */
@@ -71,7 +91,10 @@ export interface SoundingDispatchOptions {
  *  The label's property bag is the cell's bands keyed by NAME, so `label-[round(.depth)]`
  *  reads a band exactly the way it would read a feature property — no coverage-specific
  *  authoring vocabulary. Values come from the ORIGINAL grid (`valueAt`, nearest-cell), so
- *  a numeral can only ever print a depth the cell actually holds. */
+ *  a numeral can only ever print a depth the cell actually holds.
+ *
+ *  Returns the raw stride-want ratio this call used (NaN when nothing was visible) — #1434's
+ *  label-pass skip state records it on a prepare frame for `soundingStrideInvalidates` above. */
 export function dispatchCoverageSoundings(
   handle: CoverageHandle,
   unproject: (px: number, py: number) => [number, number] | null,
@@ -80,11 +103,13 @@ export function dispatchCoverageSoundings(
   projectLonLatCopies: (lon: number, lat: number) => Array<[number, number, number]>,
   addLabel: AddLabel,
   opts: SoundingDispatchOptions,
-): void {
+): number {
+  const strideWant = { value: NaN }
   const anchors = coverageSoundingAnchors(handle, unproject, {
     width: viewport.width,
     height: viewport.height,
     spacingPx: SOUNDING_LATTICE_CSS_PX * viewport.dpr,
+    strideWant,
   })
   // `filter:` reaches a coverage layer's NUMERALS here (GeoJSON is pre-filtered into its own
   // FeatureCollection and vector tiles fold the filter into the worker slice key; a grid is
@@ -121,4 +146,5 @@ export function dispatchCoverageSoundings(
       )
     }
   }
+  return strideWant.value
 }
