@@ -3149,10 +3149,10 @@ export class VectorTileRenderer {
           },
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
-          // Marks a `pending` decision `terminal` when the request key is
-          // in the source's bounded negative-cache — lets the consumer
-          // below skip counting a known-failing fetch as a missed tile.
-          isFailed: (k) => this.source!.getTileState(k) === 'failed',
+          // Consecutive fetch failures on record for the key — a `pending`
+          // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
+          // what lets the consumer below stop counting it as a missed tile.
+          failureCount: (k) => this.source!.getTileFailureCount(k),
           sliceLayer,
           // Coherence: any peer slice for this tile still queued blocks
           // primary in this layer too, so all consumers transition
@@ -3244,11 +3244,14 @@ export class VectorTileRenderer {
         }
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        // A terminal decision's requestKey is already in the source's
-        // negative-cache (isFailed) — keep retrying (retry timing is
-        // unchanged, loadTile no-ops while isFailed) but don't count it
-        // as a missed tile, otherwise a permanently-failing key keeps
-        // render-loop-keep-warm hot-looping forever (totalMissed>0). #1596
+        // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
+        // a row. It is still pushed to toLoad above (the source owns retry
+        // timing), but it stops counting as a missed tile so the render loop
+        // can finally idle instead of hot-looping on totalMissed>0 forever.
+        // A key still INSIDE that budget deliberately keeps counting: this
+        // counter is the only VT keep-warm signal, and the retry runs only
+        // from a rendered frame, so suppressing it during the backoff would
+        // strand a transient failure until the next user interaction.
         if (!inner.terminal) this._drawStats.recordMissedTile()
       }
     }

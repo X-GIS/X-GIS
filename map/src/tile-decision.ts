@@ -84,12 +84,32 @@ export type TileDecision =
   /** Fetch needs to start (or continue) — visible tile not yet in
    *  catalog, no usable fallback. `requestKey` is what to fetch
    *  (visible if in archive, else the closest archive ancestor).
-   *  `terminal` is true when `requestKey` is in the source's bounded,
-   *  self-expiring negative cache (`isFailed`) — the request is not a
-   *  transient cold-start miss but a tile the source has already given
-   *  up on for now. Optional/back-compat: call sites that don't supply
-   *  `isFailed` never see it set. See #1596 / #1269. */
+   *  `terminal` is true once `requestKey` has failed
+   *  {@link KEEP_WARM_MAX_FAILURES} consecutive times: the source will
+   *  still retry it, but the caller should stop counting it as a missed
+   *  tile so the render loop can idle. It stays FALSE through the earlier
+   *  backoff windows — that is what keeps the loop alive long enough to
+   *  run the retry a transient failure recovers on. Optional/back-compat:
+   *  call sites that don't supply `failureCount` never see it true.
+   *  See #1596 / #1269. */
   | { kind: 'pending'; requestKey: number | null; terminal?: boolean }
+
+/** Consecutive fetch failures after which a `pending` decision goes
+ *  `terminal` — i.e. the render loop stops staying warm for that tile
+ *  (#1596). The VT half of the policy `render/tile-retry.ts` runs for the
+ *  raster/DEM arm (`MAX_TILE_ATTEMPTS` = 4 over ~10.5 s).
+ *
+ *  Each arm keeps ONE authority for its clock. The raster ledger owns both
+ *  the clock and the bound because nothing else tracks its failures; here
+ *  the SOURCE already owns the clock (`PMTilesBackend`'s negative cache
+ *  escalates 15 s / 30 s / 60 s / 2 min / 5 min per consecutive failure and
+ *  never stops retrying), so this constant adds no second clock — it only
+ *  decides how many of those windows the render loop is willing to stay
+ *  awake for. Three: the loop keeps rendering across the first two windows
+ *  (~45 s), so one 500 or a short server hiccup recovers with no user
+ *  interaction, while a genuinely unfetchable tile stops pinning the loop
+ *  inside a minute instead of forever. */
+export const KEEP_WARM_MAX_FAILURES = 3
 
 export interface ClassifyTileInputs {
   visible: TileCoord
@@ -119,15 +139,14 @@ export interface ClassifyTileInputs {
   hasAnySliceInCatalog: (key: number) => boolean
   /** True iff `key` exists in the source's archive index. */
   hasEntryInIndex: (key: number) => boolean
-  /** True iff `key` is in the source's bounded, self-expiring negative
-   *  cache (e.g. `PMTilesBackend.isFailed` via `TileCatalog.getTileState
-   *  === 'failed'`). Used only to mark a `pending` decision `terminal` —
-   *  the request keeps being pushed to the fetch queue (retry timing is
-   *  unchanged), but the caller can skip counting it as a "missed tile"
-   *  since it is a known, already-failing fetch rather than a transient
-   *  cold-start miss. Optional/back-compat: omitted call sites never
-   *  set `terminal`. See #1596. */
-  isFailed?: (key: number) => boolean
+  /** Consecutive failed fetches the source has on record for `key`
+   *  (`TileCatalog.getTileFailureCount`, i.e. `PMTilesBackend`'s
+   *  negative-cache `count`); 0 when it has never failed. Read ONLY to
+   *  decide `terminal` on a `pending` decision — `requestKey` is pushed
+   *  to the fetch queue either way and retry timing stays the source's,
+   *  unchanged. Optional/back-compat: omitted call sites never see
+   *  `terminal` true. See #1596. */
+  failureCount?: (key: number) => number
   sliceLayer: string
   /** True iff some slice for `visibleKey` is still in the renderer's
    *  deferred-upload queue. When set, even if THIS layer's slice is
@@ -418,8 +437,15 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
         ? archiveAncestor
         : null
   }
-  const terminal = requestKey !== null && (input.isFailed?.(requestKey) ?? false)
-  return { kind: 'pending', requestKey, terminal }
+  // #1596 — `terminal` only once the source has failed this key often enough
+  // that a further retry is no longer plausible. BELOW the bound the decision
+  // stays an ordinary miss, and that is load-bearing: `missedTiles` is the only
+  // VT signal render-loop-keep-warm reads, and the source re-requests a failed
+  // key solely from inside a rendered frame — so idling during the backoff
+  // (which is what gating on the source's `isFailed` boolean did) strands a
+  // transient failure until the user interacts.
+  const failures = requestKey === null ? 0 : input.failureCount?.(requestKey)
+  return { kind: 'pending', requestKey, terminal: (failures ?? 0) >= KEEP_WARM_MAX_FAILURES }
 }
 
 // ═══ Anticipatory prefetch decisions ═══════════════════════════════

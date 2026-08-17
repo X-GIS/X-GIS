@@ -5,7 +5,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
-import { classifyTile, computeProtectedKeys, type ClassifyTileInputs } from './tile-decision'
+import {
+  classifyTile,
+  computeProtectedKeys,
+  KEEP_WARM_MAX_FAILURES,
+  type ClassifyTileInputs,
+} from './tile-decision'
 
 const tile = (z: number, x: number, y: number) => ({ z, x, y, ox: x })
 
@@ -192,60 +197,87 @@ describe('classifyTile', () => {
     if (d.kind === 'pending') expect(d.requestKey).toBe(tileKey(0, 0, 0))
   })
 
-  // #1596 — the negative-cache signal (PMTilesBackend.isFailed /
-  // TileCatalog.getTileState==='failed') existed but was never wired
-  // into classifyFallback, so a permanently-failing key kept classifying
-  // as an ordinary 'pending' miss forever and render-loop-keep-warm never
-  // idled (totalMissed>0 uncapped). `terminal` lets the caller distinguish
-  // "known already-failing" from a transient cold-start miss without
-  // changing retry timing (requestKey is still returned/pushed to load).
-  it('pending decision is terminal when requestKey is in the isFailed negative cache', () => {
-    const visibleKey = tileKey(8, 100, 50)
-    const d = classifyTile(
+  // ═══ #1596 — a VT tile whose fetch keeps failing ═══
+  //
+  // `missedTiles` (this decision's 'pending', counted by the renderer's
+  // `if (!inner.terminal) recordMissedTile()` consumer) is the ONLY VT
+  // signal render-loop-keep-warm and Map.hasPendingSourceWork read, and
+  // the source re-requests a failed key solely from inside a RENDERED
+  // frame. So the classifier owns both halves of the policy: stay a
+  // counted miss across the source's retry budget, then go terminal.
+  //
+  // The pre-fix predicate was the source's `isFailed` BOOLEAN, true from
+  // the first failure onward — which idled the loop inside the first
+  // negative-cache window, so its TTL expired with no frame left to run
+  // the retry and one 500 stranded the tile until a user interaction.
+  // Every case below is chosen to separate that behaviour from this one.
+  const rootKey = tileKey(0, 0, 0) // requestKey for the baseInputs scenario
+  const afterFailures = (failures: number, key = rootKey) =>
+    classifyTile(
       baseInputs({
-        visibleKey,
+        visibleKey: tileKey(8, 100, 50),
         hasEntryInIndex: () => true,
-        // Same scenario as the SHALLOWEST-ancestor test above: requestKey
-        // resolves to the z=0 root key.
-        isFailed: (k) => k === tileKey(0, 0, 0),
+        failureCount: (k) => (k === key ? failures : 0),
       }),
     )
-    expect(d.kind).toBe('pending')
-    if (d.kind === 'pending') {
-      expect(d.requestKey).toBe(tileKey(0, 0, 0))
-      expect(d.terminal).toBe(true)
+
+  it('#1596 transient arm: a tile inside the retry budget stays a counted miss, and stays requested', () => {
+    // 1 .. MAX-1 consecutive failures. Pre-fix every one of these was
+    // terminal, so this is the case that distinguishes the two policies.
+    for (let failures = 1; failures < KEEP_WARM_MAX_FAILURES; failures++) {
+      const d = afterFailures(failures)
+      expect(d.kind).toBe('pending')
+      if (d.kind !== 'pending') continue
+      // Not terminal → the renderer counts it → keepLoopWarm stays true →
+      // a frame still runs when the source's backoff elapses.
+      expect(d.terminal).toBe(false)
+      // ...and that frame re-requests the key: recovery needs no interaction.
+      expect(d.requestKey).toBe(rootKey)
     }
   })
 
-  it('pending decision is NOT terminal for a genuinely cold-start miss (isFailed omitted)', () => {
-    const visibleKey = tileKey(8, 100, 50)
-    const d = classifyTile(
-      baseInputs({
-        visibleKey,
-        hasEntryInIndex: () => true,
-      }),
-    )
-    expect(d.kind).toBe('pending')
-    if (d.kind === 'pending') expect(d.terminal).toBeFalsy()
+  it('#1596 terminal arm: at KEEP_WARM_MAX_FAILURES the decision goes terminal and stays so', () => {
+    for (const failures of [KEEP_WARM_MAX_FAILURES, KEEP_WARM_MAX_FAILURES + 7]) {
+      const d = afterFailures(failures)
+      expect(d.kind).toBe('pending')
+      if (d.kind !== 'pending') continue
+      // Terminal → not counted → totalMissed can reach 0 → the loop idles
+      // in bounded time (two backoff windows) instead of hot-looping forever.
+      expect(d.terminal).toBe(true)
+      // Giving up on keeping the loop AWAKE is not giving up on the tile:
+      // any frame driven by something else still re-requests it.
+      expect(d.requestKey).toBe(rootKey)
+    }
   })
 
-  it('terminal is keyed on the actual requestKey, not merely on isFailed being supplied', () => {
-    // Decoy: isFailed reports a DIFFERENT key as failed. Pins the
-    // `input.isFailed?.(requestKey)` call against a mutant that ORs in
-    // "isFailed !== undefined" instead of actually checking the key.
-    const visibleKey = tileKey(8, 100, 50)
-    const decoyKey = tileKey(3, 1, 1)
+  it('#1596 the boundary is the bound, not "has failed at all"', () => {
+    // Adjacent pair, so an off-by-one in `>=` shows up as a failure here
+    // rather than as one extra backoff window of hot-looping in production.
+    const terminalAfter = (failures: number) => {
+      const d = afterFailures(failures)
+      return d.kind === 'pending' ? d.terminal : 'not-pending'
+    }
+    expect(terminalAfter(KEEP_WARM_MAX_FAILURES - 1)).toBe(false)
+    expect(terminalAfter(KEEP_WARM_MAX_FAILURES)).toBe(true)
+  })
+
+  it('#1596 a genuinely cold-start miss is never terminal (failureCount omitted)', () => {
     const d = classifyTile(
-      baseInputs({
-        visibleKey,
-        hasEntryInIndex: () => true,
-        isFailed: (k) => k === decoyKey,
-      }),
+      baseInputs({ visibleKey: tileKey(8, 100, 50), hasEntryInIndex: () => true }),
     )
     expect(d.kind).toBe('pending')
+    if (d.kind === 'pending') expect(d.terminal).toBe(false)
+  })
+
+  it('#1596 terminal is keyed on the actual requestKey, not merely on failureCount being supplied', () => {
+    // Decoy: a DIFFERENT key is the one that has exhausted the budget.
+    // Pins `input.failureCount?.(requestKey)` against a mutant that ORs in
+    // "failureCount !== undefined" instead of actually asking about the key.
+    const d = afterFailures(KEEP_WARM_MAX_FAILURES + 3, tileKey(3, 1, 1))
+    expect(d.kind).toBe('pending')
     if (d.kind === 'pending') {
-      expect(d.requestKey).toBe(tileKey(0, 0, 0))
-      expect(d.terminal).toBeFalsy()
+      expect(d.requestKey).toBe(rootKey)
+      expect(d.terminal).toBe(false)
     }
   })
 

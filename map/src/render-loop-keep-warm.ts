@@ -25,7 +25,12 @@ export interface KeepWarmInputs {
 
 /** Must the loop render again? Five signals:
  *
- *   - VT tiles with unresolved placeholders (`missedTiles > 0`)
+ *   - VT tiles with unresolved placeholders (`missedTiles > 0`) — including a VT tile
+ *     inside its source's fetch backoff, which is BOUNDED exactly as the raster ledger
+ *     below is: `tile-decision.ts` marks a `pending` decision `terminal` past
+ *     `KEEP_WARM_MAX_FAILURES` consecutive failures and the renderer stops counting it,
+ *     so a permanently-unfetchable tile lets the loop idle while a transient one stays
+ *     warm long enough for the source's retry to run (#1596)
  *   - raster tiles mid-fetch
  *   - hillshade DEM tiles mid-fetch — a hillshade-only scene has no other signal, and
  *     without it the loop idles before the DEM arrives and the arrival never repaints:
