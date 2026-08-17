@@ -60,7 +60,7 @@ Grounded notes:
 - **`@xgis/runtime` no longer exists** (dissolved 2026-07-27). It had shrunk to a
   re-export barrel plus a large test corpus belonging to other packages; the
   capability table and the `<xgis-map>` element moved to `@xgis/map`, which took
-  over publication (`map/src/public.ts` + `publishConfig`).
+  over publication (`map/src/public.ts`).
 - **`@xgis/shared` is the shared math kernel.** It is imported by both the
   renderer's ECEF module and `compiler/src/tiler/vector-tiler.ts`, specifically so
   the tiler and the renderer share one ECEF source instead of hand-mirroring
