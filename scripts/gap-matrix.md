@@ -22,8 +22,8 @@ Properties where the runtime currently degrades or drops a specific value-form.
 | Status | Count |
 |---|---:|
 | supported | 195 |
-| partial | 16 |
-| unsupported | 17 |
+| partial | 17 |
+| unsupported | 16 |
 | na | 15 |
 | **total** | **243** |
 
@@ -48,6 +48,7 @@ Properties marked `partial` — converter accepts but runtime degrades. These ne
 | icon-translate | low | CSS-px viewport offset for icons (independent of text-translate). Constant [dx, dy] form wired end-to-end: converter emits `label-icon-translate-{x,y}-N` (layers-symbol.ts) → LabelDef.iconTranslateX/Y → dispatchIcon adds it (× dpr) to the icon anchor before IconStage.addIcon (label-pass.ts), alongside icon-offset. Default [0,0] = no-op. #777 I-F: the per-feature EXPRESSION form (case/match/get → [dx,dy]) now lowers to `label-icon-translate-[<expr>]` → LabelDef.iconTranslateExpr → applyFeatureExprs evaluates it per feature into iconTranslateX/Y. Still PARTIAL for one residual sub-form: zoom-`interpolate` of the [dx,dy] tuple snaps to the nearest stop (the runtime evaluate does NOT component-interpolate array-valued stops), so a smoothly zoom-animated translate is approximate. |
 | circle-blur | low | Constant numeric form extends the point fragment smoothstep AA band via circle_params.z in the point uniform (layers-circle.ts). Zoom-interp / data-driven forms warn + drop — need a per-feature feat_data slot for per-feature blur. |
 | circle-translate-anchor | low | viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour. |
+| raster-fade-duration | low | Constant-only (#1257). Emits raster-fade-duration-<ms> → paintShapes.raster.fadeDurationMs, overriding the per-tile cross-fade duration (RasterRenderer, runtime default 300ms / XGISMapOptions.rasterFadeDuration) for the authored layer. Zoom-interp / data-driven forms warn and drop. |
 | resampling | low | linear (spec default) / nearest DEM sampling. The MVP single-pass fragment renders the nearest 3×3 field (byte-parity with MapLibre nearest); linear decoded-height smoothing is the documented two-pass upgrade. |
 | interpolate (cubic-bezier) | low | Numeric-valued AND hex-colour-valued zoom/data-driven interpolates densify at compile time into a piecewise-linear approximation (6 samples per segment, CSS bezier-eased via Newton-Raphson; colour stops sampled in sRGB at the eased fraction). Runtime sees a longer linear stop list and visually approximates the bezier curve. Expression-valued (non-literal) stops still warn and fold to pure linear — eased samples can't be computed at compile time. Iter 60-62 + colour-stop landing. |
 | format | low | Span texts concatenated via xgis concat(); per-span TYPOGRAPHY opts (font-scale / text-color / text-font / vertical-align) dropped — X-GIS labels render with one style per layer. Per-section partial-drop semantics: when one section fails to convert (e.g. uses an unsupported accessor), surviving sections still concat — only ALL-sections-fail returns null. An `["image", …]` section IS carried now (#777 I-G): it lowers to the `image(name)` builtin → an inline sprite quad on the text baseline (imageHandler + evaluator; see the `image` row). Still partial only for the typography opts. |

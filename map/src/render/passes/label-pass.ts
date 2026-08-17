@@ -46,7 +46,7 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { resolveIconRotateRad } from './icon-keep-upright-rotate'
-import { dispatchCoverageSoundings } from './dispatch-coverage-soundings'
+import { dispatchCoverageSoundings, soundingUnprojector } from './dispatch-coverage-soundings'
 import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
@@ -1096,7 +1096,7 @@ class LabelPass implements RenderPass {
           for (const [region, entry] of data._coverage) {
             dispatchCoverageSoundings(
               entry.handle,
-              (px, py) => host.camera.unprojectToLonLat(px, py, _canvasW, _canvasH, dpr),
+              soundingUnprojector(host.camera, _canvasW, _canvasH, dpr),
               { width: _canvasW, height: _canvasH, dpr },
               applyFeatureExprs,
               projectLonLatCopies,

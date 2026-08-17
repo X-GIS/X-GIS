@@ -262,6 +262,13 @@ export function unwrapWebGpuTexture(texture: RhiTexture): GPUTexture {
   return u<GPUTexture>(texture)
 }
 
+/** Adopt a native `GPUTexture` as an RHI texture — the inverse of
+ *  `unwrapWebGpuTexture`, mirroring `wrapWebGpuBuffer`. Test-support bridge so
+ *  callers don't hand-copy the hidden `{ native }` field. */
+export function wrapWebGpuTexture(texture: GPUTexture): RhiTexture {
+  return wrap(texture) as unknown as RhiTexture
+}
+
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
  *  so its pipeline is layout-compatible with VTR-built tile bind groups). */
 export function wrapWebGpuBindGroupLayout(layout: GPUBindGroupLayout): RhiBindGroupLayout {
@@ -652,7 +659,15 @@ struct VsOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
           // RhiBindLayoutEntry.vertexVisible on why this is not simply `vis` for everything
           // (WebGPU's sampled-texture limit is per stage).
           const texVis = e.vertexVisible ? vis : GPUShaderStage.FRAGMENT
-          if (e.kind === 'texture') return { binding: e.binding, visibility: texVis, texture: {} }
+          if (e.kind === 'texture')
+            return {
+              binding: e.binding,
+              visibility: texVis,
+              // RhiBindLayoutEntry.unfilterableFloat on why this cannot simply default to
+              // `{}` (sampleType 'float') for everything — an unfilterable-float-format
+              // texture (r32float, rg32float) fails validation against that default.
+              texture: e.unfilterableFloat ? { sampleType: 'unfilterable-float' } : {},
+            }
           return { binding: e.binding, visibility: texVis, sampler: {} }
         }),
       }),

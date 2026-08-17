@@ -67,7 +67,7 @@ function renderPass(ctx: GPUContext, renderer: RasterRenderer, camera: Camera): 
       createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
     }
   ).createCommandEncoder()
-  renderer.render(wrapWebGpuPass(encoder.beginRenderPass()), camera, 0, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(encoder.beginRenderPass()), camera, 0, 0, 0, W, H, 0, DPR)
 }
 
 /** Every tile request 404s. Returns the per-URL attempt tally.

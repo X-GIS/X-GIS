@@ -39,9 +39,10 @@ export const PAINT_RASTER: readonly CoverageEntry[] = [
   },
   {
     name: 'raster-fade-duration',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'low',
-    note: 'Crossfade between zoom levels. X-GIS swaps tiles atomically; no fade.',
+    note: 'Constant-only (#1257). Emits raster-fade-duration-<ms> → paintShapes.raster.fadeDurationMs, overriding the per-tile cross-fade duration (RasterRenderer, runtime default 300ms / XGISMapOptions.rasterFadeDuration) for the authored layer. Zoom-interp / data-driven forms warn and drop.',
+    source: 'paint-raster.ts',
   },
   {
     name: 'raster-resampling',

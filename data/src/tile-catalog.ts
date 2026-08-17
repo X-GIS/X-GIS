@@ -608,14 +608,27 @@ export class TileCatalog {
     return 'unloaded'
   }
 
-  /** Diagnostic — total tile-key count partitioned by state. Cheap;
-   *  no per-key iteration of backends. Useful for FLICKER / load-curve
-   *  inspection in inspectPipeline. The `failed` count is omitted
-   *  because backend failure caches don't expose a size accessor and
-   *  failed keys are typically rare; query individual keys via
-   *  getTileState if needed. */
-  getStateBreakdown(): { cached: number; loading: number } {
-    return { cached: this.cache.size, loading: this.loadingTiles.size }
+  /** Consecutive fetch failures any backend has on record for `key` — the
+   *  count behind `getTileState`'s `'failed'`, which unlike that state
+   *  survives the negative-cache TTL. MAX across backends: the one that has
+   *  failed most is the one that decides whether a retry is still worth
+   *  keeping the render loop awake for (`map/src/tile-decision.ts`, #1596). */
+  getTileFailureCount(key: number): number {
+    let n = 0
+    for (const b of this.backends) {
+      n = Math.max(n, b.failureCount?.(key) ?? 0)
+    }
+    return n
+  }
+
+  /** Diagnostic — tile-key counts by state, plus the BYTES those cached keys
+   *  cost (#1355): a count alone is unbudgetable (256 entries is 64 MB of small
+   *  tiles or 4 GB of large ones), and `bytes` is the very accumulator
+   *  `evictTiles` enforces against. Cheap. `failed` omitted — backend failure
+   *  caches expose no size; use getTileState. */
+  getStateBreakdown(): { cached: number; loading: number; bytes: number } {
+    const c = this.cache
+    return { cached: c.size, loading: this.loadingTiles.size, bytes: c.cachedBytes }
   }
 
   /** True when any tile is still being fetched. Read each frame by the

@@ -8,22 +8,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "publishConfig": {
-    "main": "./dist/index.js",
-    "module": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js"
-      }
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
   "scripts": {
     "build": "tsc --build && vite build && bun scripts/build-dts.ts",
     "bake:shaders": "bun scripts/bake-shaders.ts"

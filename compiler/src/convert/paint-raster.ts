@@ -1,9 +1,9 @@
 // Mapbox `raster` layer paint → xgis utilities. Per-type emitter group
 // extracted from paint.ts; called by the thin dispatcher in paint.ts
-// in the exact same order. Shared emitters (addOpacity /
-// surfaceIgnoredPaint) live in paint-helpers.
+// in the exact same order. Shared emitters (addOpacity) live in
+// paint-helpers.
 import type { MapboxLayer } from './types'
-import { addOpacity, surfaceIgnoredPaint, unwrapLiteralNumeric } from './paint-helpers'
+import { addOpacity, unwrapLiteralNumeric } from './paint-helpers'
 
 /** Unwrap a `["literal", v]` scalar wrapper (string/enum forms). */
 function unwrapScalar(v: unknown): unknown {
@@ -35,6 +35,30 @@ function addRasterScalar(
   }
   warnings.push(
     `Layer "${layerId}" — paint.${prop}: non-constant form not yet supported for raster colour adjustments — value dropped: ${JSON.stringify(raw).slice(0, 60)}`,
+  )
+}
+
+/** Emit the constant `raster-fade-duration` utility (`raster-fade-duration-<ms>`).
+ *  Unlike addRasterScalar above, the spec default (300ms, the runtime's OWN
+ *  fallback — see RasterRenderer._fadeDurationMs) is NOT special-cased here:
+ *  an authored `0` (disable the fade) must still emit, since 0 ≠ "un-authored"
+ *  and both are meaningfully different to the runtime. Only an actually-
+ *  omitted property stays silent. Constant form only — non-constant (zoom /
+ *  data-driven) warns and drops, same as the colour-adjustment scalars. */
+function addRasterFadeDuration(
+  out: string[],
+  raw: unknown,
+  layerId: string,
+  warnings: string[],
+): void {
+  if (raw === undefined || raw === null) return
+  const v = unwrapLiteralNumeric(raw)
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    out.push(`raster-fade-duration-${v}`)
+    return
+  }
+  warnings.push(
+    `Layer "${layerId}" — paint.raster-fade-duration: non-constant form not yet supported — value dropped: ${JSON.stringify(raw).slice(0, 60)}`,
   )
 }
 
@@ -116,5 +140,9 @@ export function emitRasterPaint(
     )
   }
 
-  surfaceIgnoredPaint(layer.id, p, warnings, ['raster-fade-duration'])
+  // raster-fade-duration (#1257): per-tile cross-fade duration in ms. The
+  // per-tile fade mechanism itself is a runtime constant + map-option knob
+  // (RasterRenderer.setRasterFadeDurationMs / XGISMapOptions.rasterFadeDuration);
+  // this is the STYLE property override, constant form only.
+  addRasterFadeDuration(out, p['raster-fade-duration'], layer.id, warnings)
 }

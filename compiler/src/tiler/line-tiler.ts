@@ -4,7 +4,7 @@
 // shared helpers and DSFUN packers are untouched. No algorithm rewrite.
 
 import { clipLineToRect } from './clip'
-import { simplifyLine, mercatorToleranceForZoom } from './simplify'
+import { simplifyLineSphere, mercatorToleranceForZoom } from './simplify'
 import { augmentLineWithArc, tessellateLineToArrays } from './vector-tiler'
 import type { GeometryPart } from './vector-tiler-types'
 import type { TileClipMerc } from './polygon-tiler'
@@ -32,7 +32,7 @@ export function tileLinePart(
   for (const seg of segments) {
     if (seg.length >= 2) {
       const dataLine =
-        z < maxZoom ? simplifyLine(seg, z, isOnBoundaryMerc, mercatorToleranceForZoom(z)) : seg
+        z < maxZoom ? simplifyLineSphere(seg, mercatorToleranceForZoom(z), isOnBoundaryMerc) : seg
       if (dataLine.length >= 2) {
         tessellateLineToArrays(dataLine, fid, scratch.lv, scratch.li)
         featureIds.add(fid)

@@ -4,7 +4,7 @@
 // effects beyond reading the environment). Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
-import { EARTH, isMobileClassViewport } from '@xgis/shared'
+import { EARTH, isMobileClassViewport, linkScaledConcurrency } from '@xgis/shared'
 import { evaluate, makeEvalProps, type GeoJSONFeature } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
@@ -144,7 +144,9 @@ export function extractFeatureColors(
  *  reflects the live viewport. */
 export function maxInflight(): number {
   const w = (typeof window !== 'undefined' ? window.innerWidth : 0) || 0
-  return isMobileClassViewport(w) ? 4 : 16
+  // Scaled by link cost as well as device class (#1356) — same composition as
+  // the catalog-level cap this sits under.
+  return linkScaledConcurrency(isMobileClassViewport(w) ? 4 : 16)
 }
 
 /** Per-key negative cache TTL (ms) for tiles that the fetcher has

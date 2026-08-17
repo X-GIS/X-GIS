@@ -186,6 +186,14 @@ export function installWebGPUStub(options: StubInstallOptions = {}): StubInstall
       writeTexture: () => {
         bump('queue.writeTexture')
       },
+      // #1623 — the RHI's `copyExternalImage` lands here (rhi-webgpu.ts:518). Without it
+      // every ImageBitmap upload threw `undefined is not a function` INSIDE the loaders'
+      // cleanup try/catch, which swallowed it and resolved null — so an upload gate failed
+      // identically whether the code under test was fixed or not. Counted like writeTexture
+      // so a gate can assert the upload actually happened.
+      copyExternalImageToTexture: () => {
+        bump('queue.copyExternalImageToTexture')
+      },
       onSubmittedWorkDone: () => Promise.resolve(),
     },
     createBuffer: (d: GPUBufferDescriptor) => {

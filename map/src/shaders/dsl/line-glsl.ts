@@ -22,9 +22,8 @@ import { compositeModule, vsFullGl, fsFull } from './line-composite'
  *  per stage, so the pattern pipeline variant needs its own fragment source
  *  rather than an entry-name override. The three array<Struct> storage
  *  buffers (segments / shapes / shape_segments) lower to R32F data textures
- *  by default. `variant` is null on every call site today (line's
- *  variant seam is WebGPU-only for now, #1605 Phase 3 is the WebGL2 follow-
- *  up) — kept as a param for signature symmetry with emitPolygonGlsl. */
+ *  by default. `variant` carries a real composer variant as of #1605 Phase 3
+ *  (line-material.ts passes `this.variant` through). */
 export const emitLineGlsl = (
   variant: LineVariantSpec | null,
   pickEnabled: boolean,

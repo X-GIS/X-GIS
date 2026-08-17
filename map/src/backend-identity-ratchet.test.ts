@@ -77,6 +77,10 @@
 // `const gl2` reads are gone: the source now comes from `glslFor` and the entry-array GROUP
 // selection from `readsWgsl`, which is the same question asked once. Two reads, 35→33.
 //
+// 33→32 (#1623): HillshadeRenderer.loadTileTexture's `this.rhi.backend !== 'webgl2'` fork
+// (the WebGPU raw-device `loadImageTexture` arm, the raster family's last one — #1579
+// closed raster's own copy) is gone; both backends load through the RHI unconditionally.
+//
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
 // reaches the real tree, so `count <= BASELINE` can never pass by scanning an empty set.
@@ -87,7 +91,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 33
+const BASELINE = 32
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

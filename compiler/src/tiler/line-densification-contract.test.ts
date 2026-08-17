@@ -8,7 +8,7 @@ import type { GeoJSONFeature } from './geojson-types'
 // premise that fetched vector tiles were the one source path with no
 // subdivision. They are not: EVERY source — fetched MVT, local GeoJSON, and
 // X-GIS's own tiler output alike — reaches the GPU through `decomposeFeatures`,
-// whose `makeLinePart` already calls `subdivideGreatCircle`. Measured on four
+// whose `makeLinePart` already calls `subdivideLine`. Measured on four
 // parallels of 30° chords, the counts are identical with and without the
 // decoder pass:
 //
@@ -18,7 +18,7 @@ import type { GeoJSONFeature } from './geojson-types'
 // So the decoder pass was reverted as redundant, and these tests moved here to
 // keep the invariant gated at the stage that actually provides it. They assert
 // the CONTRACT — no emitted edge exceeds the subdivision bound, the invariants
-// hold — not `subdivideGreatCircle`'s exact output, so refining that function
+// hold — not `subdivideLine`'s exact output, so refining that function
 // does not break them.
 //
 // Why the bound matters: a line of constant latitude is straight in Mercator
@@ -82,8 +82,8 @@ describe('decomposeFeatures — line densification contract (#1497)', () => {
   it('keeps a >±180 antimeridian wrap monotone', () => {
     // MapLibre's convention authors a seam-crossing line past ±180 so the
     // renderer can draw it at world-copy +1. Interpolated vertices must stay on
-    // that same 360° branch — a naive slerp folds 185° back to -175° and shreds
-    // the polyline into ±360° jumps at the seam (#1221).
+    // that same 360° branch — the great-circle interpolant folded 185° back to
+    // -175° and shredded the polyline into ±360° jumps at the seam (#1221).
     const parts = lineParts([
       [170, 0],
       [190, 0],
@@ -98,16 +98,24 @@ describe('decomposeFeatures — line densification contract (#1497)', () => {
     }
   })
 
-  it('follows the great circle, not the chord, over a long high-latitude edge', () => {
-    // A 160° arc between two 84°N endpoints bulges to ~88.95°N at its midpoint
-    // — measured, not assumed. Linear interpolation would hold 84° the whole
-    // way, so this distinguishes a geodesic densifier from a naive one, which
-    // no edge-length bound can.
+  it('stays on the authored line over a long high-latitude edge', () => {
+    // The REVERSE of what this file asserted until #1522, and the whole of that
+    // change's semantics in one assertion. A 160° great-circle arc between two
+    // 84°N endpoints bulges to ~88.95°N at its midpoint — measured, and exactly
+    // where the old geodesic densifier put its vertices. Densification adds
+    // vertices ON the authored line; it does not relocate the line, so every
+    // inserted vertex holds the endpoints' latitude and only longitude advances.
     const parts = lineParts([
       [-170, 84],
       [-10, 84],
     ])
-    const peak = Math.max(...parts.flat().map(([, lat]) => lat))
-    expect(peak).toBeGreaterThan(86)
+    const all = parts.flat()
+    // Non-vacuity: subdivision must have fired, or there are no interpolated
+    // vertices for the latitude check to be about. (17 sub-segments — the
+    // parallel is 160·cos(84) = 16.7° long, which is the span that governs
+    // here; the great circle between the same two points runs over the pole
+    // and is only 11.8°.)
+    expect(all.length).toBeGreaterThan(10)
+    for (const [, lat] of all) expect(lat).toBeCloseTo(84, 12)
   })
 })

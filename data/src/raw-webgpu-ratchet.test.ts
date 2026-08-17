@@ -8,11 +8,12 @@
 // the missing gate (companion to map/src/raw-webgpu-ratchet.test.ts, same signal +
 // STRICT shrink-only convention — see that file's header for the full rationale).
 //
-// The current 6 tokens (data/src/tile-select.ts + tile-select-types.ts) are the
-// GPU texture-upload seam flagged in #997; they are BASELINED here to lock the
-// footprint (no NEW GPU touch in data), and driven to 0 when that path relocates to
-// the render layer (@xgis/map) — the reduction lowers the baseline in the same
-// commit. Close-out = this map == {} (data fully GPU-free).
+// The current 1 token (data/src/tile-select-types.ts — a `GPUTexture` field on a
+// type) is all that survives of the GPU texture-upload seam flagged in #997: the
+// upload itself relocated to the render layer (@xgis/map) in #1623. It is BASELINED
+// here to lock the footprint (no NEW GPU touch in data), and driven to 0 when that
+// type follows — the reduction lowers the baseline in the same commit.
+// Close-out = this map == {} (data fully GPU-free).
 //
 // GPU-free; rides the `test (engine-rhi-data)` CI leg (which runs `data/src`).
 
@@ -65,7 +66,9 @@ function rawWebgpuCount(abs: string): number {
 // Measured 2026-07-11. Ordered by path.
 const BASELINE: Record<string, number> = {
   'data/src/tile-select-types.ts': 1,
-  'data/src/tile-select.ts': 5,
+  // #1623 — `data/src/tile-select.ts`: 5 -> 0. `loadImageTexture` (the last raw-device
+  // texture upload in @xgis/data) was deleted when hillshade's WebGPU arm moved onto the
+  // RHI; the entry is REMOVED rather than lowered, per the a===0 arm below (lock the win).
 }
 
 describe('raw-WebGPU ratchet: @xgis/data is GPU-free (#997)', () => {

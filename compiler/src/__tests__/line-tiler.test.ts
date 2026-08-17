@@ -19,7 +19,7 @@ describe('line feature tiling with arc-length', () => {
   }
 
   it('decomposeFeatures produces a line GeometryPart traversing the source endpoints', () => {
-    // makeLinePart now subdivides edges along the great circle before
+    // makeLinePart densifies each edge in the authored lon/lat space before
     // emitting the part (so globe projections render arcs, not chords).
     // The subdivided coords pass through every original endpoint in
     // order with intermediate sub-vertices in between.

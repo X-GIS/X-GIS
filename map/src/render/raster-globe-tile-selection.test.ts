@@ -63,7 +63,7 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
   const renderer = new RasterRenderer(ctx)
   renderer.setUrlTemplate('https://tiles.example.com/{z}/{x}/{y}.png')
   // Isolate tile SELECTION from the #1307 fade FEATURE: with a non-zero fade
-  // duration a freshly-shown tile (firstShownFrame ramp) also draws its cached
+  // duration a freshly-shown tile (firstShownMs ramp) also draws its cached
   // parent BENEATH for the cross-fade, inflating the draw count above the
   // selector's output (this test's invariant). fadeDuration 0 = instant full
   // opacity, byte-identical to the pre-fade path — so the count reflects pure
@@ -85,14 +85,14 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
     renderer as unknown as {
       tileCache: Map<
         string,
-        { texture: unknown; lastUsedFrame: number; firstShownFrame: number; globalBG?: unknown }
+        { texture: unknown; lastUsedFrame: number; firstShownMs: number; globalBG?: unknown }
       >
     }
   ).tileCache
   const fakeTexture = { createView: () => ({}), destroy: () => undefined }
 
   const seedTile = (z: number, x: number, y: number): void => {
-    cache.set(`${z}/${x}/${y}`, { texture: fakeTexture, lastUsedFrame: 0, firstShownFrame: 0 })
+    cache.set(`${z}/${x}/${y}`, { texture: fakeTexture, lastUsedFrame: 0, firstShownMs: 0 })
   }
 
   // Seed globe tiles
@@ -133,7 +133,7 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
 
-  renderer.render(wrapWebGpuPass(pass), camera, projType, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(pass), camera, projType, 0, 0, W, H, 0, DPR)
 
   return drawCount
 }

@@ -709,6 +709,7 @@ function lowerLayer(
   let rasterSaturation: number | undefined
   let rasterContrast: number | undefined
   let rasterResamplingNearest: boolean | undefined
+  let rasterFadeDurationMs: number | undefined
   /* eslint-enable prefer-const -- end of the hoisted paint-axis cluster */
 
   // Mapbox `hillshade-*` DEM-relief axes (#777 Phase II). undefined = layer
@@ -805,6 +806,7 @@ function lowerLayer(
     rasterSaturation,
     rasterContrast,
     rasterResamplingNearest,
+    rasterFadeDurationMs,
     hillshadeDirection,
     hillshadeAltitude,
     hillshadeAnchorMap,
@@ -983,6 +985,7 @@ function lowerLayer(
   rasterSaturation = acc.rasterSaturation
   rasterContrast = acc.rasterContrast
   rasterResamplingNearest = acc.rasterResamplingNearest
+  rasterFadeDurationMs = acc.rasterFadeDurationMs
   hillshadeDirection = acc.hillshadeDirection
   hillshadeAltitude = acc.hillshadeAltitude
   hillshadeAnchorMap = acc.hillshadeAnchorMap
@@ -1242,6 +1245,7 @@ function lowerLayer(
     rasterSaturation,
     rasterContrast,
     rasterResamplingNearest,
+    rasterFadeDurationMs,
     hillshadeDirection,
     hillshadeAltitude,
     hillshadeAnchorMap,

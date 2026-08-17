@@ -97,7 +97,9 @@ import {
 } from './vector-drape-stroke'
 import { hexToRgba } from '../feature-helpers'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
+import { arenaByteTotals } from '../render-stats-bytes'
 import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
+import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
@@ -2079,6 +2081,12 @@ export class VectorTileRenderer {
     return this._featureBinder.hasFeatureData()
   }
 
+  /** #1355 — arena live/capacity bytes for this source (same thin-accessor
+   *  shape as `getCacheSize`; the sum itself lives with the telemetry). */
+  arenaBytes(): { live: number; capacity: number } {
+    return arenaByteTotals(this._store)
+  }
+
   getCacheSize(): number {
     return this._store.cacheCount()
   }
@@ -2181,6 +2189,12 @@ export class VectorTileRenderer {
     // graph is not pinned on globalThis for the page lifetime. See fill-rhi-slot.ts.
     releaseFillRhi(this._fillRhi)
     this._fillRhi = null
+    // #1632 — the shared PointRenderer outlives us and holds one packed-buffer
+    // slot per show id we minted; nothing will ever redraw them again, and GPU
+    // bytes exert no JS GC pressure, so a setSourceData swap would leak three
+    // buffers per point show without this.
+    this._tilePointOwner?.evictTilePointSlots(this._tilePointShowIdPrefix)
+    this._tilePointOwner = null
   }
 
   // Frame-scoped draw accumulators (_frameTilesVisible,
@@ -2217,8 +2231,9 @@ export class VectorTileRenderer {
 
   /** Thin forwarder. The shape is DERIVED from the owner rather than restated:
    *  the hand-copied literal that used to live here was a second authority for
-   *  one type, and adding a field meant editing both. */
-  getDrawStats(): ReturnType<FrameDrawStats['getDrawStats']> {
+   *  one type, and adding a field meant editing both. `DrawStatsSnapshot` (#1355)
+   *  is that single authority, named by the owner. */
+  getDrawStats(): DrawStatsSnapshot {
     return this._drawStats.getDrawStats()
   }
 
@@ -3149,6 +3164,10 @@ export class VectorTileRenderer {
           },
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
+          // Consecutive fetch failures on record for the key — a `pending`
+          // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
+          // what lets the consumer below stop counting it as a missed tile.
+          failureCount: (k) => this.source!.getTileFailureCount(k),
           sliceLayer,
           // Coherence: any peer slice for this tile still queued blocks
           // primary in this layer too, so all consumers transition
@@ -3240,7 +3259,15 @@ export class VectorTileRenderer {
         }
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        this._drawStats.recordMissedTile()
+        // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
+        // a row. It is still pushed to toLoad above (the source owns retry
+        // timing), but it stops counting as a missed tile so the render loop
+        // can finally idle instead of hot-looping on totalMissed>0 forever.
+        // A key still INSIDE that budget deliberately keeps counting: this
+        // counter is the only VT keep-warm signal, and the retry runs only
+        // from a rendered frame, so suppressing it during the backoff would
+        // strand a transient failure until the next user interaction.
+        if (!inner.terminal) this._drawStats.recordMissedTile()
       }
     }
 
@@ -4067,6 +4094,16 @@ export class VectorTileRenderer {
     )
   }
 
+  /** #1632 — this renderer's tile-point cache namespace. `sliceLayer` alone
+   *  identifies a show WITHIN one renderer, but two VectorTileRenderers over
+   *  different sources can resolve the same (sourceLayer + filter) slice, so the
+   *  per-instance prefix is what keeps their cache slots apart. */
+  private static _nextTilePointPrefix = 1
+  private readonly _tilePointShowIdPrefix = `${VectorTileRenderer._nextTilePointPrefix++}:`
+  /** #1632 — the shared PointRenderer this renderer last emitted tile points
+   *  through, held only so `destroy()` can evict the slots keyed by our prefix. */
+  private _tilePointOwner: PointRenderer | null = null
+
   /** Accumulate this show's tile-point features and flush them onto `pass`.
    *  Single authority for both backends (#1057): the WebGPU render() tail hands
    *  it the chain's RhiRenderPass directly (Inc-2d); the WebGL2 immediate arm
@@ -4102,6 +4139,10 @@ export class VectorTileRenderer {
       return
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
+    // #1632 — `sliceLayer` identifies the show within this renderer; the instance
+    // prefix makes it unique across renderers sharing one PointRenderer.
+    const showId = this._tilePointShowIdPrefix + sliceLayer
+    this._tilePointOwner = pointRenderer
 
     // #1581 leg B — skip accumulation + repack at a static camera with an
     // unchanged tile set and style: reuse last frame's packed buffers.
@@ -4126,8 +4167,8 @@ export class VectorTileRenderer {
       this.source?.contentGeneration() ?? 0,
       worldCopyMaskOf(pointWorldCopies(projType, camera, canvasWidth, canvasHeight, dpr)),
     )
-    if (pointRenderer.canSkipTilePointRepack(packKey)) {
-      pointRenderer.redrawTilePointsCached(args)
+    if (pointRenderer.canSkipTilePointRepack(showId, packKey)) {
+      pointRenderer.redrawTilePointsCached(showId, args)
       return
     }
 
@@ -4171,6 +4212,7 @@ export class VectorTileRenderer {
       show,
       dpr,
       packKey,
+      showId,
     )
   }
 

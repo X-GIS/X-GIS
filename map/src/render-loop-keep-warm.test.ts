@@ -12,7 +12,9 @@
 // backoff on a rendered-FRAME counter it was worse still — the clock itself froze.)
 
 import { describe, it, expect } from 'vitest'
+import { tileKey } from '@xgis/compiler'
 import { keepLoopWarm, type KeepWarmTiles } from './render-loop-keep-warm'
+import { classifyTile, KEEP_WARM_MAX_FAILURES } from './tile-decision'
 
 const tiles = (loads: boolean, retries: boolean): KeepWarmTiles => ({
   hasPendingLoads: () => loads,
@@ -76,5 +78,56 @@ describe('keepLoopWarm', () => {
       }),
     )
     expect(scanned, 'an earlier signal short-circuits the scan').toBe(0)
+  })
+})
+
+// ═══ #1575's VT twin — #1596 ═══
+//
+// The raster arm above is bounded by `FailedTileLedger.hasPendingRetries()`. The VT arm
+// has no ledger of its own: a failing VT tile reaches this gate ONLY as `totalMissed`,
+// fed by the renderer's one line
+//
+//   if (!inner.terminal) this._drawStats.recordMissedTile()   (vector-tile-renderer.ts)
+//
+// applied to a `classifyTile` 'pending' decision. So the VT keep-warm window IS
+// tile-decision's `KEEP_WARM_MAX_FAILURES` bound, and both arms of the policy are
+// observable here without a GPU. The renderer needs a device; the decision it applies
+// does not, which is why that subsystem was extracted in the first place.
+describe('#1596 — a failing VT tile reaches this gate through totalMissed', () => {
+  /** The renderer's consumer line above, replayed over ONE visible tile whose fetch has
+   *  failed `failures` times in a row. Returns what `totalMissed` would be that frame. */
+  const missedFor = (failures: number): number => {
+    const d = classifyTile({
+      visible: { z: 8, x: 100, y: 50, ox: 100 },
+      visibleKey: tileKey(8, 100, 50),
+      maxLevel: 14,
+      parentAtMaxLevel: -1,
+      archiveAncestor: -1,
+      layerCache: new Map<number, unknown>(),
+      hasSliceInCatalog: () => false,
+      hasAnySliceInCatalog: () => false,
+      hasEntryInIndex: () => true,
+      failureCount: () => failures,
+      sliceLayer: 'water',
+    })
+    return d.kind === 'pending' && !d.terminal ? 1 : 0
+  }
+
+  it('transient: the loop stays warm across the source backoff, so the retry can run', () => {
+    // The pre-fix predicate (the source's `isFailed` boolean) made the FIRST failure
+    // terminal: totalMissed hit 0 inside the first negative-cache window, the loop idled,
+    // and the TTL then expired with no frame left to re-request — one 500 stranded the
+    // tile until a user interaction. These two assertions are false under that policy.
+    expect(missedFor(1)).toBe(1)
+    expect(keepLoopWarm(inputs({ totalMissed: missedFor(1) }))).toBe(true)
+    expect(keepLoopWarm(inputs({ totalMissed: missedFor(KEEP_WARM_MAX_FAILURES - 1) }))).toBe(true)
+  })
+
+  it('permanent: past the budget the miss stops counting and the loop idles', () => {
+    // The other half — and false under the PRE-#1596 code, where every 'pending' counted
+    // and totalMissed>0 kept an unfetchable tile hot-looping at 60 fps forever.
+    expect(missedFor(KEEP_WARM_MAX_FAILURES)).toBe(0)
+    expect(keepLoopWarm(inputs({ totalMissed: missedFor(KEEP_WARM_MAX_FAILURES) }))).toBe(false)
+    expect(keepLoopWarm(inputs({ totalMissed: missedFor(KEEP_WARM_MAX_FAILURES + 9) }))).toBe(false)
   })
 })

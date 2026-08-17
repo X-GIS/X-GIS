@@ -258,6 +258,12 @@ them. In particular, `bun run build` is the typecheck authority (vitest does not
 and watch for **TS6133 orphaned-import** errors that a plain `vite build` silently ignores.
 Merge only when the full local gate AND CI are green.
 
+**Standing owner authorization (2026-08-17):** once a PR that resolves an issue has passed
+the full gate above (plus §5 render verification where the diff touches rendering),
+merging it to main is pre-approved by default — execute the merge (pr-merge-gauntlet)
+without asking per-PR. This waives no gate and no verification; it removes only the
+per-merge confirmation.
+
 ## 12. Lessons Ledger — consult BEFORE acting (hard-won, session-verified)
 
 Every rule below was paid for with a real incident; the cited post under
@@ -365,6 +371,11 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   the feature that motivated it — those are different sets, and the feature's own are the ones you
   will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
   gates that used the rewritten upload were not. → same post
+- ORDER decides which half a red run accuses. Once that same gate HAD a distinguishing assertion
+  it still mis-attributed: the lever check sat below the selector-outcome checks, and since a dead
+  lever and an ignored live one leave the SAME tile histogram, the first assertion to run is the
+  one that reports — a controller-half cut died naming the selector. Assert the CAUSE before the
+  EFFECT, and cut EACH half separately; one cut only ever proves one message. → `#1444`
 - Assert on the quantity the subsystem MOVES, not one downstream of it, and never attribute a
   cause from a COMPOSITE number: triangles = tiles × geometry-per-tile, so a coarser tile set
   read as "the ladder added 44% geometry" when the selector had done exactly its job (tiles
