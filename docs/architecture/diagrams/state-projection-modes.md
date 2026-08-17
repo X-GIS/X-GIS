@@ -6,8 +6,8 @@ in `projection/camera.ts` (`getViewForProjection` routing, the `globeMode` /
 `globeOrtho` flags, `getFrameView` vs `getECEFFrameView`, `_globeFrame`),
 `projection/projections-table.ts` (the 8 `projType` rows + the
 `isFlat`/`isGlobe`/`isCylindrical`/`isSeam`/`periodic` columns +
-`promotesToGlobeWhenTilted` / `routeToSphereSelector`), and the per-frame
-promotion in `render-loop.ts` (`render` → `azimuthalTilted`).
+`promotesToGlobeWhenTilted` / `routeToSphereSelector`), and the promotion in
+`camera.ts` (`Camera.setProjection`), which `render-loop.ts` calls per frame.
 
 The core fact: **ECEF is the data coordinate system, but the _display_
 projection is a separate concern** (camera.ts:681-684). Every projType maps
@@ -97,10 +97,11 @@ stateDiagram-v2
 - **The promotion set is exactly {3,4,5}.** `promotesToGlobeWhenTilted` is
   defined as `!isFlat && !isGlobe && !isCylindrical`, which over the table
   resolves to orthographic / azimuthal_equidistant / stereographic only
-  (projections-table.ts:143-146). The render loop computes
-  `azimuthalTilted = promotesToGlobeWhenTilted(projType) && camera.pitch > 0`
-  and, when true, overwrites `projType = 7` and sets
-  `camera.globeMode = isGlobeProj(projType)` (render-loop.ts:152-161). At
+  (projections-table.ts:143-146). `Camera.setProjection` computes
+  `azimuthalTilted = promotesToGlobeWhenTilted(sourceProjType) && this.pitch > 0`
+  and, when true, resolves `projType = GLOBE_PROJ_TYPE` and sets
+  `globeMode = isGlobeProj(projType)` (camera.ts:159-166) — it is the only
+  writer of those fields; the render loop just calls it per frame (#1506). At
   `pitch=0` they stay on their exact 2D disc (so stereographic ≠ ortho is
   preserved); at `pitch>0` they become true spheres.
 

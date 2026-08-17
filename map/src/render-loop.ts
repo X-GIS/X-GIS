@@ -23,12 +23,7 @@ import {
   flushPerFrameMarks,
 } from './__profile__/perf-marks'
 import { mercatorYToLat } from '@xgis/geo'
-import {
-  PROJECTION_NAME_TO_TYPE,
-  isGlobeProj,
-  promotesToGlobeWhenTilted,
-  poleLimit,
-} from '@xgis/geo'
+import { PROJECTION_NAME_TO_TYPE, poleLimit } from '@xgis/geo'
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import { resizeCanvas, pushValidationError } from '@xgis/rhi-webgpu'
 import { isOverdrawActive, sceneScalePinned } from './debug-flags'
@@ -153,28 +148,12 @@ export class RenderLoop {
     if (this.host._startTime === null) this.host._startTime = performance.now()
     this.host._elapsedMs = performance.now() - this.host._startTime
 
-    let projType = PROJECTION_NAME_TO_TYPE[this.host.projectionName] ?? 0
-    // Azimuthal-when-tilted: ortho/azimuthal_eq/stereographic are exact
-    // 2D discs at pitch=0 but promote to the true 3D sphere once the
-    // user tilts. At pitch>0 we drive the globe vertex path (projType 7
-    // → proj_globe) with the camera's ORTHOGRAPHIC orbit matrix
-    // (globeOrtho was set in setProjection). At pitch=0 they stay on
-    // their exact 2D projection so the CPU/GPU consistency contract and
-    // each projection's identity (stereographic ≠ ortho) are preserved.
-    const azimuthalTilted = promotesToGlobeWhenTilted(projType) && this.host.camera.pitch > 0
-    // The SOURCE azimuthal projType (3/4/5) survives the promotion to 7 so
-    // the globeOrtho framing path can apply that projType's flat view-height
-    // cap (flatViewHeightCapM) — without this the promoted projType=7 would
-    // feed the WORLD_MERC default into globeAltitude's ortho branch and the
-    // ortho (3) disc, which needs the 2·EARTH_R cap, would jump scale the
-    // instant the user tilts (project: azimuthal-disc-pitch-framing).
-    this.host.camera.azimuthalProjType = projType
-    if (azimuthalTilted) projType = 7
-    this.host.camera.globeMode = isGlobeProj(projType)
-    // Hand the resolved projection kind to the camera so zoomAt can pick
-    // a projection-correct cursor anchor (orthographic needs the spherical
-    // inverse, not the flat-Mercator-plane unproject).
-    this.host.camera.projType = projType
+    // The CAMERA owns the projection resolution (#1506): it applies the
+    // azimuthal-when-tilted promotion, sets its own projType /
+    // azimuthalProjType / globeMode, and returns what this frame draws with.
+    const projType = this.host.camera.setProjection(
+      PROJECTION_NAME_TO_TYPE[this.host.projectionName] ?? 0,
+    )
     const { canvas } = this.host.ctx
     const w = canvas.width,
       h = canvas.height
