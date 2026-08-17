@@ -1580,8 +1580,18 @@ export class TextStage {
       // Skip when label can't fit — Mapbox drops it rather than truncate.
       if (totalAdvancePx > totalLineLen) continue
       let startS = p.centerOffsetPx - totalAdvancePx * 0.5
-      // Skip when the requested centre + label extends past the polyline.
-      if (startS < 0 || startS + totalAdvancePx > totalLineLen + 0.5) continue
+      // #1793 — CLAMP (don't drop) when the label fits the line but the
+      // requested centre would push it past one end. The along-line lattice
+      // (place-labels-along-line.ts) picks `centerOffsetPx` by fixed world-
+      // anchored spacing, blind to the label's shaped width — on a run
+      // truncated by the viewport/tile edge (short world-spanning lines at
+      // low zoom, e.g. demotiles geolines) its one in-window stop can land
+      // within a few px of an end even though the run has hundreds of spare
+      // px elsewhere. Sliding the anchor inward keeps the full, untruncated
+      // label on the line the lattice already chose to label — this is a
+      // POSITION fix, not the truncation the check above still forbids.
+      if (startS < 0) startS = 0
+      else if (startS + totalAdvancePx > totalLineLen) startS = totalLineLen - totalAdvancePx
 
       // Mapbox `text-keep-upright` (default true): when the label's
       // overall direction would render text upside-down, flip the
