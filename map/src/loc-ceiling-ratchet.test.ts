@@ -898,7 +898,13 @@ const CEILINGS: Record<string, number> = {
   // them), plus the new LineVariantSpec type, its two composer helpers, and
   // buildLineModule/emitLineWgsl threading a variant param through — the line half of
   // the polygon-only @stroke fragment seam.
-  'map/src/shaders/dsl/line.ts': 1524,
+  // 1524→1542 (#1635): the group(0) block's `_pad_tail0: vec4fT` becomes polygon's four
+  // named f32 lanes (same bytes) so the `zoom` a `@stroke` stage block reads is a lane that
+  // EXISTS, plus the `as: 'tile'`→`as: 'u'` instance rename the composer's plain-text
+  // `u.<lane>` requires and the VS's fill_translate_x/y reads that replace the old `.zw`
+  // index. Structural (+4) — a lane cannot be extracted elsewhere; the rest is the two
+  // rationale comments for a rename whose reason is invisible from the token.
+  'map/src/shaders/dsl/line.ts': 1542,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1194,7 +1200,11 @@ const CEILINGS: Record<string, number> = {
   // at all (browser-probed). Most of the delta is the two rationale comments.
   // 1209→1208 (#1666): the two `fillHex`/`strokeHex` temporaries existed only to feed a
   // `hex ? parse(hex) : null` ternary the null-returning `hexToRgba` makes redundant.
-  'map/src/render/point-renderer.ts': 1208,
+  // 1208→1213 (#1635): `writePointFrameUniform` packs the new `zoom` lane (point's Uniforms
+  // had none, so a composed `u.zoom` addressed a field that did not exist). One packed field
+  // + its rationale; the lane's full doc lives on the struct in shaders/dsl/point.ts, and the
+  // write is single-authority here by construction (`write()` has no optional fields).
+  'map/src/render/point-renderer.ts': 1213,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

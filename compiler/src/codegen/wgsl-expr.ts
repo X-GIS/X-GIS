@@ -33,6 +33,7 @@ import {
   vecComponent,
   refF32,
   varRefVec4,
+  zoomRef,
 } from './_util/node-builders'
 import { inferVecArity, isVecComponent } from '../ir/expr-type'
 
@@ -95,12 +96,21 @@ export function astToNode(expr: AST.Expr, fieldMap: Map<string, number>): NodeLi
       return f32Lit(expr.value ? 1 : 0)
 
     case 'Identifier':
+      // `zoom` is the camera builtin, NOT a feature property — it is excluded
+      // from the collected field set below (walkExpr/walkStrict), so it can
+      // never be in `fieldMap` and the lookup below would always miss. Before
+      // #1635 it therefore fell through to `?? f32Lit(0)` and a stage block's
+      // `zoom` silently rendered as the literal 0.0 on every backend. It is a
+      // real per-frame uniform lane on all three composer hosts now (polygon /
+      // line / point `Uniforms.zoom`), read here through the SAME `u.zoom`
+      // spelling the zoom-interpolated palette path already emits.
+      if (expr.name === 'zoom') return zoomRef()
       return featDataField(expr.name, fieldMap) ?? f32Lit(0)
 
     case 'InputRef':
       // A declared `input` (#1539) — a real uniform read, never the
-      // Identifier arm's `?? f32Lit(0)` fallback (the same fallback that
-      // makes a bare `zoom` silently compile to 0.0 today; InputRef exists
+      // Identifier arm's `?? f32Lit(0)` fallback (the fallback that used to
+      // make a bare `zoom` silently compile to 0.0; InputRef exists
       // specifically so this class of trap can't recur for `input`). A
       // `color`-typed input reaching a scalar (f32) position is rejected
       // upstream at lower time (X-GIS0018, via inferVecArity) — this
@@ -268,6 +278,10 @@ export function collectFields(expr: AST.Expr): Set<string> {
 function walkExpr(expr: AST.Expr, fields: Set<string>): void {
   switch (expr.kind) {
     case 'Identifier':
+      // `zoom` is the camera builtin, not a feature property — it must NOT
+      // claim a feature-buffer slot. astToNode lowers it to the `u.zoom`
+      // uniform read (#1635), so excluding it here is the correct half of
+      // that pair, not the cause of the old 0.0 miscompile.
       if (expr.name !== 'zoom') fields.add(expr.name)
       break
     case 'FieldAccess':

@@ -20,10 +20,13 @@
 // lanes must be plain scalar/vec fields.
 //
 // WHY ONLY POLYGON CARRIES IT. The compiler's variant codegen hardcodes the
-// `u.` prefix (`u.fill_color`, `u.zoom`) — that is polygonU's `as: 'u'` binding
-// — and `fillExpr`/`strokeExpr` are consumed only by polygon-shader-cache.ts /
-// pipeline-factory.ts. Line (`as: 'tile'`/`'layer'`) and point never receive a
-// generated expression, so a pool there would be dead bytes on every draw.
+// `u.` prefix (`u.fill_color`, `u.zoom`) — that is polygonU's `as: 'u'` binding.
+// Line and point DO receive generated expressions now (#1605 made both composer
+// hosts, and #1635 put line's group(0) block on the same `as: 'u'` contract), so
+// the prefix is no longer the reason — the reason is bytes: neither shader has a
+// declared `input` reaching it today, and 96 B of lanes nothing reads is dead
+// weight on every draw. Extending the pool to them is a per-shader decision, not
+// a blocked one.
 //
 // WHY THE NAMES LIVE HERE. Four writers need these 12 lanes — VTR's four
 // frameBlock sites plus the three `write({…})` packers — and all four files sit
