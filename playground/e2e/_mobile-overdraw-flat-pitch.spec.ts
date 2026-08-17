@@ -213,7 +213,6 @@ test.describe('Mobile flat-pitch over-draw', () => {
       if (!map) return null
 
       const m = map as any
-      const _ctx = m.ctx
       // The runtime exports we need: visibleTilesFrustum +
       // mercator. Reach into the bundled module via the live
       // gpu/map references — the test harness already exposed them.

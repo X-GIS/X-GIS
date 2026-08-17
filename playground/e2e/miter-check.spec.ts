@@ -1,4 +1,4 @@
-import { test } from '@playwright/test'
+import { test, type Page } from '@playwright/test'
 import { captureCanvas } from './helpers/visual'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -10,7 +10,7 @@ mkdirSync(ART_DIR, { recursive: true })
 
 const VIEW = { width: 1400, height: 1000 }
 
-async function loadCapture(page: Parameters<Parameters<typeof test>[1]>[0]['page'], id: string) {
+async function loadCapture(page: Page, id: string) {
   await page.goto(`/demo.html?id=${id}&e2e=1`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
@@ -20,10 +20,7 @@ async function loadCapture(page: Parameters<Parameters<typeof test>[1]>[0]['page
   return await captureCanvas(page)
 }
 
-async function findApexInPng(
-  page: Parameters<Parameters<typeof test>[1]>[0]['page'],
-  png: Buffer,
-): Promise<{ x: number; y: number } | null> {
+async function findApexInPng(page: Page, png: Buffer): Promise<{ x: number; y: number } | null> {
   return await page.evaluate(async (b64) => {
     const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
     const bmp = await createImageBitmap(blob)
@@ -53,12 +50,7 @@ async function findApexInPng(
   }, png.toString('base64'))
 }
 
-async function dumpColumn(
-  page: Parameters<Parameters<typeof test>[1]>[0]['page'],
-  png: Buffer,
-  ax: number,
-  ay: number,
-): Promise<string[]> {
+async function dumpColumn(page: Page, png: Buffer, ax: number, ay: number): Promise<string[]> {
   return await page.evaluate(
     async ({ b64, ax, ay }) => {
       const blob = await fetch(`data:image/png;base64,${b64}`).then((r) => r.blob())
@@ -80,7 +72,7 @@ async function dumpColumn(
 }
 
 async function cropTo(
-  page: Parameters<Parameters<typeof test>[1]>[0]['page'],
+  page: Page,
   png: Buffer,
   cx: number,
   cy: number,

@@ -29,6 +29,8 @@ interface XgisVtRenderer {
   _hysteresisZ?: number
   _frameDrawnByZoom?: Map<number, number>
   _frameTileCache?: { tiles?: { z: number; x: number; y: number }[] }
+  /** Globe vector-drape baked-fill cache (#599 I3). */
+  _drape?: { baked?: { size?: number } } | null
   gpuCache?: Map<string, Map<number, any>>
   stagingPool?: any
   doUploadTile?: any
@@ -105,4 +107,16 @@ declare module '/e2e/*' {
 declare module '/src/*' {
   const mod: any
   export = mod
+}
+
+// data/src's worker pools (dragged in transitively by specs that import
+// data/src/geojson.ts and friends) import their compile workers with Vite's
+// `?worker` query suffix — a bundled Worker constructor at build time, opaque
+// to tsc. data/src/worker-shims.d.ts already declares this for data/tsconfig's
+// own program, but that file sits outside playground/e2e/'s `include` glob and
+// ambient .d.ts files are never pulled in by the import graph, only by
+// `include` — so the e2e program needs its own copy of the same shim.
+declare module '*?worker' {
+  const workerConstructor: new (options?: { name?: string }) => Worker
+  export default workerConstructor
 }
