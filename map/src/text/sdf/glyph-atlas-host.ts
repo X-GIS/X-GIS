@@ -525,6 +525,31 @@ export class GlyphAtlasHost {
     for (const cp of codepoints) this.ensure(fontKey, cp)
   }
 
+  /** #1404 — release every cache this host retains. `TextStage.destroy()`
+   *  was symmetric for `renderer`/`gpu` but reached the host only by
+   *  reachability (the whole TextStage subtree going unreachable at once);
+   *  this makes the teardown explicit so a future caller that stashes
+   *  `textStage.host` elsewhere doesn't silently turn a session-bounded
+   *  cache into a cross-mount one. Terminal, like the sibling
+   *  `TextRenderer.destroy()` / `GlyphAtlasGPU.destroy()`: not meant to be
+   *  followed by re-use of a glyph this host had already cached. `state`
+   *  (AtlasState) is deliberately left alone — its `entries`/`freeSlots`
+   *  are capacity-bounded by the single-page slot count (#1580), not the
+   *  unbounded-by-distinct-label growth #1368 measured on the caches
+   *  below, and it owns no destroy of its own; a brand-new glyph ensured
+   *  after this call still rasterises correctly. */
+  destroy(): void {
+    this.metrics.clear()
+    this.infoCache.clear()
+    this.stringInfoCache.clear()
+    this.preloadedAtGen.clear()
+    this.hasAllGlyphsAtGen.clear()
+    this.dirty = []
+    this.evictions = []
+    this.stale.clear()
+    this.fontKeyId.clear()
+  }
+
   // ─── internals ────────────────────────────────────────────────
 
   /** Local-ideograph routing (#421): when a CJK display-size bucket is
