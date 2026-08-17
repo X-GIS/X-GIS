@@ -54,6 +54,20 @@ export interface PMTilesSourceOptions {
   prewarmSkeletonDepth?: number
   /** Skeleton prewarm byte budget (#1045) — see TileCatalog.prewarmSkeleton. */
   prewarmSkeletonByteBudget?: number
+  /** Called when resolving this source fails (#1364).
+   *
+   *  The attach is a deliberate SOFT-FAIL: a manifest that will not load leaves
+   *  the catalog empty and the rest of the map running, rather than taking the
+   *  whole boot down. That is the right default, but it was also *silent* —
+   *  the failure reached `console.error` and nowhere else, so an embedding app
+   *  saw a map reporting itself healthy (`loaded() === true`, `missedTiles: 0`,
+   *  because nothing was requested so nothing was missed) with its only data
+   *  source dead.
+   *
+   *  This callback is the reporting seam and nothing more: it does not change
+   *  the soft-fail, and `data` stays free of any dependency on the host's event
+   *  machinery. `map` passes one that fires the typed `error` event. */
+  onResolveError?: (error: unknown) => void
 }
 
 /** Unified shape returned by `VectorTileSource.resolve()` for sources

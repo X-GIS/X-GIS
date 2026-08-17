@@ -68,6 +68,7 @@ function makeManager() {
       order.push('teardown')
       teardownSource(id)
     },
+    fireError: () => {},
     getVtSource: () => null,
     deleteFeatureIndex,
     beginCoverageLoad: () => Promise.resolve(),
