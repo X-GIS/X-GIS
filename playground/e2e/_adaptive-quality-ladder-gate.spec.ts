@@ -178,6 +178,16 @@ async function run(
   await page.waitForFunction(() => (window as unknown as { __xgisReady?: boolean }).__xgisReady, {
     timeout: 60_000,
   })
+  // Pin the backend BOTH arms ran on (#1444, CLAUDE.md §5). `?forcegl2=1` is a request; a
+  // silent fall back to another chain would still reach every assertion below and green
+  // them, and the two arms would then be comparing different renderers rather than
+  // different notches. Asserted per arm, not once, because each is its own `page.goto`.
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend,
+    ),
+    `?forcegl2=1 did not take on the adaptive=${adaptive ? 1 : 0} arm`,
+  ).toBe('webgl2')
   await page.waitForTimeout(12_000)
   expect(await seed(page)).toBe(SEED_GRID * SEED_GRID)
   await page.waitForTimeout(12_000)
@@ -273,6 +283,27 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
       `over budget here.`,
   ).toBeGreaterThan(0)
 
+  // THE LEVER, asserted BEFORE any of its consequences (#1444). The wire this gate watches
+  // has two halves that fail for different reasons — the controller's lever going dead
+  // (`adaptiveFarLodBoost()`), and the selector ignoring a live one — and a gate is only
+  // worth its run time if a red run says WHICH (§12, the 2026-07-28 autopsy).
+  //
+  // Order is what makes that true, and it is the whole point of this line's position.
+  // Measured with `adaptiveFarLodBoost()` cut to a constant 1: with this assertion sitting
+  // BELOW the coarsest-zoom one (where #1482 first put it), the run died on `the selector
+  // never coarsened the horizon … the notch reached no tile` — accusing the half that was
+  // still intact, because a dead lever and an ignored one produce the SAME tile histogram
+  // and the first assertion to run is the one that reports. The comment that shipped with
+  // it claimed a lever cut "fails HERE, naming the wire"; it could not, because control
+  // never got here. Intent in a comment is not wiring — assert the CAUSE before the EFFECT.
+  expect(
+    on.farLodBoost,
+    `the ladder stepped to notch ${on.step} but its far-field lever never engaged ` +
+      `(farLodBoost ${on.farLodBoost}) — the controller's own multiplier never reached the ` +
+      `map, so nothing downstream could have honoured it. This is the CONTROLLER half of the ` +
+      `wire; the selector half is asserted below and is not implicated by this failure.`,
+  ).toBeGreaterThan(1)
+
   // THE CLAIM: it acted, and the selector HONOURED it. A step counter can tick while the
   // selection ignores it — the wire this gate exists for (#1402 showed that seam go nowhere).
   //
@@ -292,12 +323,16 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   // The mean drawn zoom was rejected: it is dominated by the unchanged foreground (13.667 ->
   // 13.600 on the same run, a 0.5% signal), so a real one-level coarsening would sit inside
   // any tolerance wide enough to be safe.
+  //
+  // Reaching this line means the lever assertion above already passed, so `farLodBoost` is
+  // live and this failure can only be the SELECTOR half — which is what its message says.
   expect(
     on.after.coarsest,
-    `the controller stepped to notch ${on.step} but the selector never coarsened the horizon ` +
-      `(control drew ${off.after.byZoom}, adaptive drew ${on.after.byZoom}) — the notch reached ` +
-      `no tile. Triangles are NOT the signal here (${off.after.tris} -> ${on.after.tris}); see ` +
-      `the comment above.`,
+    `the controller stepped to notch ${on.step} and its lever reached the map (farLodBoost ` +
+      `${on.farLodBoost}), but the selector never coarsened the horizon (control drew ` +
+      `${off.after.byZoom}, adaptive drew ${on.after.byZoom}) — the notch reached no tile. ` +
+      `This is the SELECTOR half of the wire. Triangles are NOT the signal here ` +
+      `(${off.after.tris} -> ${on.after.tris}); see the comment above.`,
   ).toBeLessThan(off.after.coarsest)
 
   // Fewer TILES corroborates it (#1482). A shallower coarsest zoom with the SAME tile count
@@ -308,15 +343,6 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
     `the controller stepped to notch ${on.step} (farLodBoost ${on.farLodBoost}) but the ` +
       `selector kept the same horizon (control ${off.after.tiles} tiles, adaptive ${on.after.tiles})`,
   ).toBeLessThan(off.after.tiles)
-
-  // The lever must have actually reached the selector, not merely been computed (#1482).
-  // Asserted separately from `step` so a failure says WHICH half broke: cutting
-  // `adaptiveFarLodBoost()` to a constant 1 fails HERE, naming the wire, rather than looking
-  // like a controller that never stepped.
-  expect(
-    on.farLodBoost,
-    'the ladder stepped but its far-field lever never engaged',
-  ).toBeGreaterThan(1)
 
   // …and what it took must be the FAR field: the foreground guarantee #1374 restored has to
   // survive every notch. Pinned exhaustively over the ladder's own values in
