@@ -34,6 +34,7 @@ import { isOverdrawActive, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
+import { GpuFaultDrain } from './render-loop-gpu-fault'
 import { keepLoopWarm } from './render-loop-keep-warm'
 import { pumpFramePrefetch } from './render-loop-prefetch'
 import {
@@ -85,6 +86,17 @@ export class RenderLoop {
    *  the owning map through a `PassHost`. Registered once by content
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
+
+  /** #1599 — per-frame drain of `ctx._validationErrors` onto the typed map
+   *  `'error'` channel. Holds the last-surfaced entry + the rate-limit counter
+   *  for this loop's lifetime. */
+  private readonly _gpuFaults = new GpuFaultDrain()
+
+  /** The ONE capped-writer call site in this file (#1046 Inc-E1 seam,
+   *  gl-error-sink-seam.test.ts pins it): the GL-error chain drain and both
+   *  popped-scope sinks all funnel through this bound writer, so the queue
+   *  keeps a single authority and no per-frame closure is allocated. */
+  private readonly _queueValidation = (msg: string): void => pushValidationError(this.host.ctx, msg)
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
@@ -321,8 +333,11 @@ export class RenderLoop {
         fn()
       } finally {
         // Report BOTH a resolved validation error AND a rejected pop —
-        // the rejection was previously swallowed (Audit ⑧ B2).
-        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`)
+        // the rejection was previously swallowed (Audit ⑧ B2). #1599: the
+        // resolved message also goes into the shared capped queue the GPU-fault
+        // drain below reads. The sink is injected so render-loop-helpers.ts
+        // stays free of the concrete-backend import (#991 ratchet).
+        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this._queueValidation)
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -536,8 +551,13 @@ export class RenderLoop {
     // Inc-E1 (flip precondition MINOR-5): drain the WebGL2 frame-encoder GL-error
     // queue into the capped writer (#1153 P2 R6) — the twin's consumer mirrored.
     for (const message of rhiFrame.takeGlErrors?.() ?? []) {
-      pushValidationError(this.host.ctx, message)
+      this._queueValidation(message)
     }
+    // #1599 — re-emit the queue's NEW entries (this frame's GL drain, the WebGPU
+    // uncapturederror listener, last frame's popped scopes) on the typed map
+    // 'error' channel. Async GPU faults never throw out of render(), so the
+    // 3-strike halt cannot see them; this is their only typed channel.
+    this._gpuFaults.drain(this.host.ctx, this.host._eventBus)
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
 
@@ -572,7 +592,7 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation')
+    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this._queueValidation)
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom
