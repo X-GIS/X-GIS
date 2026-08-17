@@ -46,7 +46,11 @@ import { IconStage } from '../../sprite/icon-stage'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { resolveIconRotateRad } from './icon-keep-upright-rotate'
-import { dispatchCoverageSoundings, soundingUnprojector } from './dispatch-coverage-soundings'
+import {
+  dispatchCoverageSoundings,
+  soundingStrideInvalidates,
+  soundingUnprojector,
+} from './dispatch-coverage-soundings'
 import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
@@ -152,13 +156,12 @@ export function dispatchCenterKey(centerX: number, centerY: number, mpp: number)
   return `${(centerX / mpp) | 0},${(centerY / mpp) | 0}`
 }
 
-/** #778 P3 — the numeric fields of the former label-dispatch signature STRING,
- *  held per host for the S16 skip pre-check. Every field is the exact integer the
- *  old sig embedded (`(x*100)|0`, the dispatchCenterKey pixel ints, the canvas ints,
- *  labelShows.length); `vtrSig` is the one variable-length sub-signature (per-source
- *  name + getCacheSize) that stays a string. Field-wise equality is byte-identical to
- *  the old full-string equality: no field's decimal form contains the `|` / `x` / `,`
- *  delimiters, so a per-field diff can never alias the concatenated form. */
+/** #778 P3 — the numeric fields of the former label-dispatch signature STRING, held per host for
+ *  the S16 skip pre-check. Every field is the exact integer the old sig embedded (`(x*100)|0`,
+ *  the dispatchCenterKey pixel ints, the canvas ints, labelShows.length); `vtrSig` is the one
+ *  variable-length sub-signature (per-source name + getCacheSize) that stays a string. Field-wise
+ *  equality is byte-identical to the old full-string equality: no field's decimal form contains
+ *  the `|` / `x` / `,` delimiters, so a per-field diff can never alias the concatenated form. */
 interface LabelDispatchSkipState {
   zoomKey: number
   /** Un-quantised zoom at the last actual PREPARE (#1177 Option B) — the
@@ -167,16 +170,14 @@ interface LabelDispatchSkipState {
   /** Exact zoom key of the PREVIOUS FRAME (updated every frame, hit or
    *  miss) — `prevFrameZoomKey !== current` detects an ACTIVE zoom. */
   prevFrameZoomKey: number
-  /** Raw mercator-metre centre at the last PREPARE — the active-zoom centre
-   *  tolerance divides its drift by the CURRENT mpp (screen px), because the
-   *  quantised ckx/cky churn under pure zoom (mpp shrinks ⇒ centre/mpp
-   *  grows) even when the geographic centre never moved. */
+  /** Raw mercator-metre centre at the last PREPARE — the active-zoom centre tolerance divides its
+   *  drift by the CURRENT mpp (screen px), because the quantised ckx/cky churn under pure zoom
+   *  (mpp shrinks ⇒ centre/mpp grows) even when the geographic centre never moved. */
   preparedCenterX: number
   preparedCenterY: number
-  /** TRUE centre latitude at the last PREPARE — compared EXACTLY in the
-   *  settled branch. Beyond the Mercator clamp (sphere-family polar orbit)
-   *  centerY saturates while centerLatDeg keeps moving, so ckx/cky alone
-   *  would replay stale labels across a polar setCenter/drag. */
+  /** TRUE centre latitude at the last PREPARE — compared EXACTLY in the settled branch. Beyond
+   *  the Mercator clamp (sphere-family polar orbit) centerY saturates while centerLatDeg keeps
+   *  moving, so ckx/cky alone would replay stale labels across a polar setCenter/drag. */
   centerLatDeg: number
   ckx: number
   cky: number
@@ -186,10 +187,12 @@ interface LabelDispatchSkipState {
   canvasH: number
   showsLen: number
   vtrSig: string
-  /** #1177 replay correction — [mercX,mercY,px,py] × 3 reference samples from
-   *  the last PREPARE frame's projectors (label-replay-transform.ts). Hit
-   *  (replay) frames solve prepared→current against these so the baked
-   *  screen-px quads track the camera instead of freezing mid-zoom. */
+  /** #1434 — raw stride-want ratio (`spacingPx/pxPerCell`) at the last PREPARE (NaN = none);
+   *  soundingStrideInvalidates predicts today's ratio from this + dzoom to catch a boundary. */
+  preparedStrideWant: number
+  /** #1177 replay correction — [mercX,mercY,px,py] × 3 reference samples from the last PREPARE
+   *  frame's projectors (label-replay-transform.ts). Hit (replay) frames solve prepared→current
+   *  against these so the baked screen-px quads track the camera instead of freezing mid-zoom. */
   replayRefs: Float64Array
   replayRefsValid: boolean
   /** Caller-owned solve output — reused across frames, no per-frame alloc. */
@@ -710,56 +713,50 @@ class LabelPass implements RenderPass {
       for (const [name, e] of host.vtSources) {
         _vtrSig += `${name}:${e.renderer.getCacheSize()};`
       }
-      // S16 — first consumer skip. Read-and-clear the LABEL dirty domain
-      // (overlay add/remove, scene rebuild, any invalidate() all re-tag it),
-      // and combine it with the dispatch signature: when neither the sig nor
-      // the LABEL domain changed, the prepared collision result from the prior
-      // frame is still valid, so we skip stage.prepare() / iStage.prepare()
-      // (the O(N²) greedy collision + shaping + GPU upload) and let
-      // stage.render() replay the renderer's persistent draws unchanged. The
-      // dispatch loop still runs (kept simple + leak-free; its `pending` is
-      // dropped via stage.reset()/iStage.reset()); a future increment can
-      // skip it too. Correctness gate: any camera/canvas/tile change moves the
-      // sig; any label-content change tags LABEL — so a needed re-collision is
-      // never skipped. frame_stability (replay == original) + post_change
-      // (move ⇒ rebuild) on the label matrix cell are the regression net.
+      // S16 — first consumer skip. Read-and-clear the LABEL dirty domain (overlay add/remove,
+      // scene rebuild, any invalidate() all re-tag it), and combine it with the dispatch
+      // signature: when neither the sig nor the LABEL domain changed, the prepared collision
+      // result from the prior frame is still valid, so we skip stage.prepare() / iStage.prepare()
+      // (the O(N²) greedy collision + shaping + GPU upload) and let stage.render() replay the
+      // renderer's persistent draws unchanged. The dispatch loop still runs (kept simple +
+      // leak-free; its `pending` is dropped via stage.reset()/iStage.reset()); a future increment
+      // can skip it too. Correctness gate: any camera/canvas/tile change moves the sig; any
+      // label-content change tags LABEL — so a needed re-collision is never skipped.
+      // frame_stability (replay == original) + post_change (move ⇒ rebuild) on the label matrix
+      // cell are the regression net.
       const labelDirty = host.consumeLabelDirty()
-      // The skip is only safe when the dispatch signature captures EVERYTHING
-      // that can change the labels. Two things it can't: (a) an async label
-      // resource (glyph range / sprite atlas) landing after the sig settled —
-      // `wasLastPrepareFullyResolved()` is false while glyphs are still in
-      // flight, and `isAtlasTerminal()` is false while the atlas is loading,
-      // so we keep preparing until both resolve; (b) a time-driven label shape
-      // (the sig omits the animation clock) — `_labelsHaveTimeAnimation`. While
-      // any of these hold, force a re-collation so a late glyph/icon or an
-      // animated text-size isn't frozen until the camera moves.
+      // The skip is only safe when the dispatch signature captures EVERYTHING that can change the
+      // labels. Two things it can't: (a) an async label resource (glyph range / sprite atlas)
+      // landing after the sig settled — `wasLastPrepareFullyResolved()` is false while glyphs are
+      // still in flight, and `isAtlasTerminal()` is false while the atlas is loading, so we keep
+      // preparing until both resolve; (b) a time-driven label shape (the sig omits the animation
+      // clock) — `_labelsHaveTimeAnimation`. While any of these hold, force a re-collation so a
+      // late glyph/icon or an animated text-size isn't frozen until the camera moves.
       const labelResourcesPending =
         !stage.wasLastPrepareFullyResolved() || (iStage !== null && !iStage.isAtlasTerminal())
-      // #778 P3 — numeric-field diff against the per-host last-frame scalars,
-      // byte-identical to the old `host._prevLabelDispatchSig === _dispatchSig`
-      // string compare (an undefined prev record ⇒ first frame ⇒ definite miss,
-      // matching the old `null` sentinel). Stored ONLY on a miss, mirroring the old
-      // `_prevLabelDispatchSig = _dispatchSig`; since the hit precondition already
-      // implies equality, that keeps stored == current after every frame.
+      // #778 P3 — numeric-field diff against the per-host last-frame scalars, byte-identical to
+      // the old `host._prevLabelDispatchSig === _dispatchSig` string compare (an undefined prev
+      // record ⇒ first frame ⇒ definite miss, matching the old `null` sentinel). Stored ONLY on a
+      // miss, mirroring the old `_prevLabelDispatchSig = _dispatchSig`; since the hit
+      // precondition already implies equality, that keeps stored == current after every frame.
       const _prevSkip = this._skipState.get(host)
-      // #1177 Option B — zoom-tolerant skip. The exact `(zoom*100)|0` key made
-      // EVERY continuous-zoom frame a guaranteed miss, so the whole
-      // prepare cost sat on the wheel-zoom hot path (the confirmed jank root
-      // cause). During an ACTIVE zoom (this frame's exact key differs from the
-      // previous FRAME's) the camera cluster is compared with tolerance
-      // instead: |zoom - preparedZoom| <= 0.15 and centre drift <= 48 px —
-      // prior placement replays, MapLibre placement-throttle style (mid-zoom
-      // staleness bounded by those budgets). The moment motion STOPS the exact
-      // comparison returns, forcing one final prepare so idle is snap-correct.
-      // Bearing/pitch/canvas/shows/tiles stay exact — a tile landing mid-zoom
-      // still re-prepares (new labels must appear).
+      // #1177 Option B — zoom-tolerant skip, narrowed by #1434. The exact `(zoom*100)|0` key made
+      // every continuous-zoom frame a miss, putting the whole prepare cost on the wheel-zoom hot
+      // path. During an ACTIVE zoom (this frame's key differs from the previous FRAME's) the
+      // camera is compared with tolerance instead: |zoom - preparedZoom| <= 0.15, centre drift <=
+      // 48 px, and (#1434) the predicted coverage-sounding stride must still quantise to the
+      // PREPARED one — never replaying across a stride-doubling boundary. Motion STOPPING
+      // restores the exact comparison, forcing one final prepare so idle is snap-correct;
+      // bearing/pitch/canvas/shows/tiles stay exact throughout.
       const zoomActive = _prevSkip !== undefined && _prevSkip.prevFrameZoomKey !== _zoomKey
+      const _dzoom = _prevSkip !== undefined ? c.zoom - _prevSkip.preparedZoom : 0
       const _camSame =
         _prevSkip !== undefined &&
         (zoomActive
-          ? Math.abs(c.zoom - _prevSkip.preparedZoom) <= 0.15 &&
+          ? Math.abs(_dzoom) <= 0.15 &&
             Math.abs(c.centerX - _prevSkip.preparedCenterX) / _mpp <= 48 &&
-            Math.abs(c.centerY - _prevSkip.preparedCenterY) / _mpp <= 48
+            Math.abs(c.centerY - _prevSkip.preparedCenterY) / _mpp <= 48 &&
+            !soundingStrideInvalidates(_prevSkip.preparedStrideWant, _dzoom)
           : _prevSkip.zoomKey === _zoomKey &&
             _prevSkip.ckx === _ckx &&
             _prevSkip.cky === _cky &&
@@ -775,13 +772,12 @@ class LabelPass implements RenderPass {
         _prevSkip.vtrSig === _vtrSig
       const canSkipLabelPrepare =
         _sigSame && !labelDirty && !labelResourcesPending && !host._labelsHaveTimeAnimation
-      // Symbol fade — holdover admissibility for THIS frame's (potential)
-      // prepare, computed BEFORE the skip-state mutation below overwrites
-      // the prepared-camera fields. The camera/canvas cluster must match the
-      // previous PREPARED frame EXACTLY (the #1177 tolerant-zoom window is
-      // not enough — a held-over draw replays baked screen px). Tile-set /
-      // show-set churn (vtrSig, showsLen) intentionally does NOT block
-      // holdover: tile loads are exactly the placement changes fades smooth.
+      // Symbol fade — holdover admissibility for THIS frame's (potential) prepare, computed
+      // BEFORE the skip-state mutation below overwrites the prepared-camera fields. The
+      // camera/canvas cluster must match the previous PREPARED frame EXACTLY (the #1177
+      // tolerant-zoom window is not enough — a held-over draw replays baked screen px). Tile-set
+      // / show-set churn (vtrSig, showsLen) intentionally does NOT block holdover: tile loads are
+      // exactly the placement changes fades smooth.
       const holdoverOk =
         _prevSkip !== undefined &&
         !zoomActive &&
@@ -813,6 +809,8 @@ class LabelPass implements RenderPass {
             canvasH: _canvasH,
             showsLen: _showsLen,
             vtrSig: _vtrSig,
+            // #1434 — the coverage dispatch loop below overwrites this on an actual sounding.
+            preparedStrideWant: NaN,
             replayRefs: new Float64Array(REPLAY_REFS_LEN),
             replayRefsValid: false,
             replayOut: { scale: 1, dx: 0, dy: 0 },
@@ -831,6 +829,7 @@ class LabelPass implements RenderPass {
           _prevSkip.canvasH = _canvasH
           _prevSkip.showsLen = _showsLen
           _prevSkip.vtrSig = _vtrSig
+          _prevSkip.preparedStrideWant = NaN
         }
         // #1177 — refresh the replay-correction refs from THIS (about-to-
         // prepare) frame's projector family, the same one placing the labels
@@ -849,14 +848,13 @@ class LabelPass implements RenderPass {
       // frame can classify itself active vs settled.
       const _postSkip = this._skipState.get(host)
       if (_postSkip) _postSkip.prevFrameZoomKey = _zoomKey
-      // #1177 — replay correction: on a skip (replay) frame, derive the
-      // prepared→current screen-space similarity and hand it to stage/iStage
-      // render as a shader uniform, so the baked screen-px quads track the
-      // camera instead of freezing until the next re-prepare (the reported
-      // wheel-zoom label lag). Any solve failure (culled ref, world-copy
-      // flip, degenerate camera) ⇒ undefined ⇒ identity — the pre-fix
-      // behaviour for that frame only. Exact at pitch 0 on flat projections;
-      // first-order at the view centre otherwise (label-replay-transform.ts).
+      // #1177 — replay correction: on a skip (replay) frame, derive the prepared→current
+      // screen-space similarity and hand it to stage/iStage render as a shader uniform, so the
+      // baked screen-px quads track the camera instead of freezing until the next re-prepare (the
+      // reported wheel-zoom label lag). Any solve failure (culled ref, world-copy flip,
+      // degenerate camera) ⇒ undefined ⇒ identity — the pre-fix behaviour for that frame only.
+      // Exact at pitch 0 on flat projections; first-order at the view centre otherwise
+      // (label-replay-transform.ts).
       let labelReplay: LabelReplayTransform | undefined
       if (
         canSkipLabelPrepare &&
@@ -1094,7 +1092,7 @@ class LabelPass implements RenderPass {
           // other out — while the LAYER name stays the layer's, which is what the collision
           // pass buckets precedence by.
           for (const [region, entry] of data._coverage) {
-            dispatchCoverageSoundings(
+            const _strideWant = dispatchCoverageSoundings(
               entry.handle,
               soundingUnprojector(host.camera, _canvasW, _canvasH, dpr),
               { width: _canvasW, height: _canvasH, dpr },
@@ -1104,6 +1102,8 @@ class LabelPass implements RenderPass {
                 stage.addLabel(v, p, x, y, d, f, ln, pk, cid, ps),
               { layerName: labelLayerName, region, filter: show.filterExpr, cameraZoom },
             )
+            // #1434 — only a real PREPARE updates the tolerant-zoom skip's reference.
+            if (!canSkipLabelPrepare && _postSkip) _postSkip.preparedStrideWant = _strideWant
           }
           perfMarkEnd('encoder.label-dispatch.show')
           continue
