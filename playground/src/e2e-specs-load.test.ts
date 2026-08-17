@@ -168,4 +168,61 @@ describe('a gate-named spec is either run by CI or knowingly dark (#1715)', () =
     const missing = KNOWN_DARK_GATES.filter((f) => !specFiles.includes(f))
     expect(missing, `no such spec — delete these rows:\n  ${missing.join('\n  ')}`).toEqual([])
   })
+
+  // ── Registered is not the same as RUN ────────────────────────────────────────────────
+  //
+  // Every arm above reasons about the NAME being in test.yml. None of them notices a spec
+  // that is registered and then skips itself at runtime, which reports the leg green while
+  // executing nothing — the same vacuity the whole list exists to prevent, arriving through
+  // the door the list does not watch.
+  //
+  // Not hypothetical: `_matrix-gate` is `test.skip(!MATRIX_ON)` where
+  // `MATRIX_ON = process.env.XGIS_MATRIX === '1'`, and no workflow sets that variable.
+  // Registering it was measured to collect 46 cells and skip all 46 — green, proving nothing
+  // (#1743 records why it is correctly dark instead). This arm makes that mistake loud rather
+  // than leaving it to whoever next tidies the list.
+  //
+  // Deliberately STATIC. Detecting it by execution would mean running the render-gate leg,
+  // which is 40 minutes; the guard has to be cheap enough to live in a unit suite. So it reads
+  // the two facts that decide it — which env var a skip guard depends on, and whether any
+  // workflow sets that var — and never tries to evaluate the condition itself.
+  it('a registered gate is not skipped away by an env flag CI never sets', () => {
+    const WORKFLOW_DIR = resolve(PLAYGROUND, '../.github/workflows')
+    const allWorkflows = readdirSync(WORKFLOW_DIR)
+      .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
+      .map((f) => readFileSync(join(WORKFLOW_DIR, f), 'utf8'))
+      .join('\n')
+
+    const offenders: string[] = []
+    for (const spec of gateNamed.filter((f) => registered.has(f))) {
+      const src = readFileSync(join(E2E_DIR, spec), 'utf8')
+      // `const NAME = process.env.VAR …` — the indirection every such guard uses, because a
+      // skip condition is a boolean the module computes once.
+      const envConsts = new Map<string, string>()
+      for (const m of src.matchAll(/const\s+(\w+)\s*=\s*[^\n]*process\.env\.(\w+)/g))
+        envConsts.set(m[1]!, m[2]!)
+
+      for (const skip of src.matchAll(/\btest\.skip\(([^,)]*)/g)) {
+        const cond = skip[1]!
+        const direct = /process\.env\.(\w+)/.exec(cond)?.[1]
+        const viaConst = [...envConsts].find(([name]) =>
+          new RegExp(`\\b${name}\\b`).test(cond),
+        )?.[1]
+        const envVar = direct ?? viaConst
+        if (!envVar) continue // a skip on a runtime capability probe, not an env flag — fine
+        // Set anywhere in any workflow: `VAR: 1`, `VAR=1`, `env.VAR`. Deliberately loose —
+        // a false NEGATIVE here just restores today's behaviour, a false positive blocks a PR.
+        if (new RegExp(`\\b${envVar}\\s*[:=]|env\\.${envVar}\\b`).test(allWorkflows)) continue
+        offenders.push(`${spec} — skips on ${envVar}, which no workflow sets`)
+      }
+    }
+
+    expect(
+      offenders,
+      'these specs are registered in CI but skip themselves there, so the leg reports green ' +
+        `while running nothing:\n  ${offenders.join('\n  ')}\n` +
+        'Either set the variable in the workflow that runs it, or un-register it and give it a ' +
+        'KNOWN_DARK_GATES row — a gate that skips is not a gate that ran.',
+    ).toEqual([])
+  })
 })
