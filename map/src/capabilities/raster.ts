@@ -20,4 +20,12 @@ export const rasterCapabilities: readonly RuntimeCapability[] = [
   { property: 'raster-contrast', layerType: 'raster', variant: 'constant', supported: true },
   { property: 'raster-resampling', layerType: 'raster', variant: 'constant', supported: true },
   { property: 'resampling', layerType: 'raster', variant: 'constant', supported: true },
+  // raster-fade-duration (#1257): constant-only per-tile cross-fade override.
+  // zoom/data-driven forms warn + drop at convert time (paint-raster.ts).
+  {
+    property: 'raster-fade-duration',
+    layerType: 'raster',
+    variant: 'constant',
+    supported: true,
+  },
 ]

@@ -647,7 +647,10 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1756 <- main): main's +3 (#1599 _eventBus visibility, above) and the
   // adoption's -7 (#1364 outcome-policy extraction, above) compose. MEASURED post-merge,
   // post-prettier.
-  'map/src/map.ts': 5437,
+  // 5437→5446 (#1257): style-authored `raster-fade-duration` resolved once in the
+  // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
+  // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
+  'map/src/map.ts': 5446,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1583,7 +1586,9 @@ const CEILINGS: Record<string, number> = {
   // `inlineUserFns` through `lower()` (+4) concurrently with #1550's extraction (−29); each fit
   // its own base, and the union is 1448 — measured, per the merge playbook (stacked
   // non-overlapping edits SUM; never pick a side).
-  'compiler/src/ir/lower.ts': 1448,
+  // 1448→1452 (#1257): the raster-fade-duration accumulator field threaded through the
+  // 4 existing raster-* sites (declare / acc-build / acc-extract / RenderNode-build).
+  'compiler/src/ir/lower.ts': 1452,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1624,7 +1629,8 @@ const CEILINGS: Record<string, number> = {
   // past it is a guaranteed 404, not a slow tile — terrarium stops at z15 while
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +11: the two SourceDef fields and the doc that says why a tile outside them cannot exist.
-  'compiler/src/ir/render-node.ts': 980,
+  // 980→982 (#1257): rasterFadeDurationMs? field + doc comment on RenderNodeRasterPaint.
+  'compiler/src/ir/render-node.ts': 982,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
 }

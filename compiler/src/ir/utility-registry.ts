@@ -157,6 +157,7 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('raster-saturation-', 'prefix', 'number', null, false, 'paint'),
   def('raster-contrast-', 'prefix', 'number', null, false, 'paint'),
   def('raster-resampling-nearest', 'exact', 'boolean', null, false, 'paint'),
+  def('raster-fade-duration-', 'prefix', 'number', null, false, 'paint'),
 
   // ── hillshade (#777 Phase II). Longest-match keeps the illumination-anchor
   //    flag + resampling flag disjoint from the direction/altitude prefixes. ──
