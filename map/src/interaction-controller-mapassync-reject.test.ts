@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
+import { wrapWebGpuTexture } from '@xgis/rhi-webgpu'
 
 // GPUMapMode is a WebGPU browser global absent in vitest — stub it.
 
@@ -60,8 +61,8 @@ function makeRejectController() {
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    // RHI-shaped ({native}) so the readback's adapter unwrap resolves.
-    getPickTexture: () => ({ native: {} }) as never,
+    // RHI-shaped so the readback's adapter unwrap resolves.
+    getPickTexture: () => wrapWebGpuTexture({} as GPUTexture),
     getPickTextureDevice: () => mockDevice as never,
     getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',

@@ -12,6 +12,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { InteractionController, type InteractionControllerDeps } from './interaction-controller'
 import type { LayerIdRegistry } from './layer'
+import { wrapWebGpuTexture } from '@xgis/rhi-webgpu'
 
 // WebGPU browser globals absent under vitest — stub what pickAt touches.
 
@@ -45,8 +46,8 @@ function makeController(
     rawDatasets: new Map(),
     featureIndex: new Map(),
     getCtx: () => mockCtx as never,
-    // RHI-shaped ({native}) so the steady-state readback's unwrap resolves.
-    getPickTexture: () => ({ native: {} }) as never,
+    // RHI-shaped so the steady-state readback's unwrap resolves.
+    getPickTexture: () => wrapWebGpuTexture({} as GPUTexture),
     getPickTextureDevice: () => pickDevice as never,
     getPickTextureSize: () => ({ width: 100, height: 100 }),
     getProjectionName: () => 'mercator',
