@@ -642,7 +642,7 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     name: 'Fixture: user-symbol anchor + rect/circle elements (#1557)',
     tag: 'fixture',
     description:
-      'Inline `data:` source (#481), one point at (0,0), drawn by two single-element symbol blocks — a default-anchor `circle` (red) and a `rect` with `anchor: left` (#1550, blue) — so the glyphs render offset. Render-gate: _symbol-anchor-inline-gate.spec.ts.',
+      'Inline `data:` source (#481), one point at (0,0), drawn by two single-element symbol blocks — a default-anchor `circle` (red) and a `rect` with `anchor: left` (#1550, blue) — so the glyphs render offset, plus a multi-element `rect`+`circle` block at lon -30 (#1766, green) whose elements must BOTH paint. Render-gate: _symbol-anchor-inline-gate.spec.ts.',
     source: load('fixture-symbol-anchor-inline.xgis'),
   },
 }

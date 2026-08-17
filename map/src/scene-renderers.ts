@@ -68,11 +68,12 @@ export function buildSceneRenderers(
     shapeRegistry = new ShapeRegistry(ctx.rhi)
     // Register user-defined symbols from DSL under the `user:` namespace
     // so they shadow built-ins of the same name instead of being silently
-    // dropped by the duplicate-name guard in `addShape`.
+    // dropped by the duplicate-name guard in `addShape`. ONE registration per
+    // BLOCK, not per element (#1766): a per-element loop here hit that same
+    // name-keyed guard and kept only the first element of a multi-element
+    // symbol — `addUserSymbol` joins them into the block's single glyph.
     for (const sym of opts.symbols ?? []) {
-      for (const path of sym.paths) {
-        shapeRegistry.addUserShape(sym.name, path, sym.anchor)
-      }
+      shapeRegistry.addUserSymbol(sym.name, sym.paths, sym.anchor)
     }
     shapeRegistry.uploadToGPU()
     pointRenderer.setShapeRegistry(shapeRegistry)

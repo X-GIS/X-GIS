@@ -1,10 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// ═══ Render-gate for user-symbol coverage of `fixture_symbol_anchor_inline` (#1557) ═══
+// ═══ Render-gate for user-symbol coverage of `fixture_symbol_anchor_inline` (#1557, #1766) ═══
 //
 // #1557's inline-data grammar (`source { type: geojson, data: {...} }`) has been render-gated
 // since #481 (see inline-data.xgis + its parity gates) — this spec is the narrowed remainder:
-// USER-SYMBOL render coverage. Two things that were parse-tested only
+// USER-SYMBOL render coverage. Three things that were parse-tested only
 // (compiler/src/__tests__/conformance/valid/symbol.xgis — `@case valid`, no rendering) get an
 // actual pixel gate here:
 //
@@ -13,14 +13,18 @@ import { test, expect, type Page } from '@playwright/test'
 //   2. A non-`center` `SymbolDef.anchor` (#1550, map/src/text/sdf-shape.ts `anchorGeometry`)
 //      actually shifts the rendered glyph relative to the point it marks, not just the stored
 //      shape descriptor.
+//   3. A MULTI-element symbol block registers ALL of its elements (#1766) — the defect noticed
+//      while reading `scene-renderers.ts` for #1557 and deferred then: `ShapeRegistry.addShape`
+//      is keyed by NAME and returns early on a hit, so a per-element registration loop kept only
+//      the FIRST element of `symbol X { rect … circle … }`. Fixed by joining a block's element
+//      paths into one `d` string before registration (`ShapeRegistry.addUserSymbol`).
 //
 // The fixture (playground/src/examples/fixture-symbol-anchor-inline.xgis) draws ONE inline point
 // at (0,0) twice: `sym_dot` is a bare `circle` (default/center anchor, fill-red-500), `sym_tab`
-// is a bare `rect` with `anchor: left` (fill-blue-500). Each symbol has exactly one geometry
-// element, so this sidesteps a separate defect noticed while reading `scene-renderers.ts`
-// (`ShapeRegistry.addShape`'s name-keyed dedup means a symbol block that mixes MULTIPLE
-// elements — e.g. the conformance fixture's `path` + `rect` + `circle` all in one block — only
-// ever registers the FIRST one; not this issue's scope, noted for a follow-up).
+// is a bare `rect` with `anchor: left` (fill-blue-500). A third symbol, `sym_pair`
+// (fill-green-500, size-140), holds a `rect` AND a `circle` side by side and marks a second
+// point at lon -30, ~171 px west of the others at the default zoom-2 mercator camera — far
+// enough that its 140 px-wide glyph cannot overlap (and so cannot occlude) the red/blue pair.
 //
 // FAIL-BEFORE property (what a regression on either axis looks like here):
 //   - `rect`/`circle` stop lowering to path geometry (`lowerSymbol` regresses) → the
@@ -31,6 +35,9 @@ import { test, expect, type Page } from '@playwright/test'
 //   - The anchor's sign flips → the shift assertion (which requires dx > 0, i.e. `left` moves
 //     the glyph screen-RIGHT — see `sdf-shape.ts`'s `ANCHOR_SHIFT` comment, X is not the axis the
 //     fragment shader flips) fails on direction instead of magnitude.
+//   - A multi-element block regresses to registering its first element only → the green glyph
+//     loses its circle; its area collapses to the rect's and its footprint stops being wide
+//     (see the #1766 test's arithmetic).
 //
 // Geometry, so the shift-vs-dot-radius ratio isn't arbitrary: both symbols are built from a
 // unit-ish path (circle r:0.5 / rect w:1 h:1) at the SAME normalization (`pathToSegments`
@@ -56,8 +63,8 @@ type MapWin = {
 const invalidate = (page: Page) =>
   page.evaluate(() => (window as unknown as MapWin).__xgisMap?.invalidate?.())
 
-/** Settle ON THE TARGET METRIC, not on frame stability: poll until BOTH glyphs' colour
- *  counts clear the assertion floor for two consecutive reads. A hash-stability settle
+/** Settle ON THE TARGET METRIC, not on frame stability: poll until EVERY glyph's colour
+ *  count clears the assertion floor for two consecutive reads. A hash-stability settle
  *  (this file's first draft) is satisfiable by a stable EMPTY buffer — an all-zeros
  *  readback hashes identically frame after frame, so it exited before the SDF shape
  *  pipeline had painted and the counts read 0 while the compositor screenshot showed
@@ -72,7 +79,7 @@ async function settleUntilPainted(page: Page, floor = 200, timeoutMs = 60_000): 
     await invalidate(page)
     await page.waitForTimeout(150)
     const c = await measureCentroids(page)
-    if (c && c.red.n > floor && c.blue.n > floor) {
+    if (c && c.red.n > floor && c.blue.n > floor && c.green.n > floor) {
       if (++stable >= 2) return c
     } else {
       stable = 0
@@ -80,10 +87,11 @@ async function settleUntilPainted(page: Page, floor = 200, timeoutMs = 60_000): 
     last = c ?? last
   }
   throw new Error(
-    `fixture_symbol_anchor_inline never painted both glyphs within ${timeoutMs}ms — ` +
-      `last read: red ${last?.red.n ?? 'n/a'} px, blue ${last?.blue.n ?? 'n/a'} px ` +
-      `(floor ${floor}). A regression in lowerSymbol's rect/circle branches or in the ` +
-      `shape- reference resolution reads as one or both sides never clearing the floor.`,
+    `fixture_symbol_anchor_inline never painted all glyphs within ${timeoutMs}ms — ` +
+      `last read: red ${last?.red.n ?? 'n/a'} px, blue ${last?.blue.n ?? 'n/a'} px, ` +
+      `green ${last?.green.n ?? 'n/a'} px (floor ${floor}). A regression in lowerSymbol's ` +
+      `rect/circle branches or in the shape- reference resolution reads as one or more sides ` +
+      `never clearing the floor.`,
   )
 }
 
@@ -91,16 +99,22 @@ interface ColorStats {
   n: number
   cx: number
   cy: number
+  /** Colour-mask extent, inclusive-count (`max − min + 1`); 0 when the colour never painted.
+   *  The #1766 case reads the green mask's HEIGHT as its own px-per-symbol-unit yardstick. */
+  w: number
+  h: number
 }
 
 interface Centroids {
   red: ColorStats
   blue: ColorStats
+  green: ColorStats
 }
 
-/** Per-colour pixel count + centroid, computed IN-PAGE so only the aggregates (not the raw
- *  buffer) cross the CDP bridge. red-500 = #ef4444 (239,68,68); blue-500 = #3b82f6 (59,130,246)
- *  — tolerant "dominant channel" predicates (AA-robust), same style as `_1246`'s rose/amber. */
+/** Per-colour pixel count + centroid + mask extent, computed IN-PAGE so only the aggregates (not
+ *  the raw buffer) cross the CDP bridge. red-500 = #ef4444 (239,68,68); blue-500 = #3b82f6
+ *  (59,130,246); green-500 = #22c55e (34,197,94) — tolerant "dominant channel" predicates
+ *  (AA-robust), same style as `_1246`'s rose/amber, and mutually exclusive on all three fills. */
 const measureCentroids = (page: Page): Promise<Centroids | null> =>
   page.evaluate(() => {
     const w = window as unknown as MapWin
@@ -112,9 +126,19 @@ const measureCentroids = (page: Page): Promise<Centroids | null> =>
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
     const isRed = (r: number, g: number, b: number) => r > 170 && r - g > 90 && r - b > 90
     const isBlue = (r: number, g: number, b: number) => b > 170 && b - r > 90 && b - g > 60
-    const mk = () => ({ n: 0, sx: 0, sy: 0 })
+    const isGreen = (r: number, g: number, b: number) => g > 150 && g - r > 90 && g - b > 60
+    const mk = () => ({
+      n: 0,
+      sx: 0,
+      sy: 0,
+      x0: Infinity,
+      x1: -Infinity,
+      y0: Infinity,
+      y1: -Infinity,
+    })
     const red = mk()
     const blue = mk()
+    const green = mk()
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = (y * W + x) * 4
@@ -124,25 +148,31 @@ const measureCentroids = (page: Page): Promise<Centroids | null> =>
         let s: typeof red | null = null
         if (isRed(r, g, b)) s = red
         else if (isBlue(r, g, b)) s = blue
+        else if (isGreen(r, g, b)) s = green
         if (!s) continue
         s.n++
         s.sx += x
         s.sy += y
+        if (x < s.x0) s.x0 = x
+        if (x > s.x1) s.x1 = x
+        if (y < s.y0) s.y0 = y
+        if (y > s.y1) s.y1 = y
       }
     }
     const finish = (s: typeof red): ColorStats => ({
       n: s.n,
       cx: s.n ? s.sx / s.n : 0,
       cy: s.n ? s.sy / s.n : 0,
+      w: s.n ? s.x1 - s.x0 + 1 : 0,
+      h: s.n ? s.y1 - s.y0 + 1 : 0,
     })
-    return { red: finish(red), blue: finish(blue) }
+    return { red: finish(red), blue: finish(blue), green: finish(green) }
   })
 
-test.describe.configure({ timeout: 90_000 })
-
-test('#1557 user-symbol render coverage: rect/circle glyphs render, `anchor: left` shifts the rect glyph off the point', async ({
-  page,
-}, testInfo) => {
+/** Boot the fixture on the PINNED backend, collecting page errors. Shared by both cases so the
+ *  boot contract (viewport, `?forcegl2=1`, the backend assertion) has ONE authority — a second
+ *  case that booted differently would not be measuring the same frame. */
+async function openFixture(page: Page): Promise<string[]> {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
 
@@ -161,6 +191,15 @@ test('#1557 user-symbol render coverage: rect/circle glyphs render, `anchor: lef
   expect(await page.evaluate(() => (window as unknown as MapWin).__xgisActiveBackend)).toBe(
     'webgl2',
   )
+  return errors
+}
+
+test.describe.configure({ timeout: 90_000 })
+
+test('#1557 user-symbol render coverage: rect/circle glyphs render, `anchor: left` shifts the rect glyph off the point', async ({
+  page,
+}, testInfo) => {
+  const errors = await openFixture(page)
 
   const c = await settleUntilPainted(page)
 
@@ -212,6 +251,74 @@ test('#1557 user-symbol render coverage: rect/circle glyphs render, `anchor: lef
     Math.abs(dy),
     `rect glyph drifted vertically (dy=${dy.toFixed(1)}px) — anchor: left should be X-only`,
   ).toBeLessThan(Math.max(0.6 * dotRadius, 8))
+
+  expect(errors, 'no page errors').toEqual([])
+})
+
+test('#1766 a multi-element `symbol` block renders every element, not just the first', async ({
+  page,
+}, testInfo) => {
+  const errors = await openFixture(page)
+
+  const c = await settleUntilPainted(page)
+  const g = c.green
+
+  // §5 — persist the settled frame so the verdict below can be image-inspected at full
+  // resolution, not judged from a scalar.
+  await page
+    .locator('#xg-canv, canvas')
+    .first()
+    .screenshot({ path: testInfo.outputPath('settled-multi-element.png') })
+
+  // ARITHMETIC, in `sym_pair`'s own coordinate frame (fixture-symbol-anchor-inline.xgis):
+  //     rect    x ∈ [-2, -1], y ∈ [-0.5, 0.5]
+  //     circle  centre (1.5, 0), r 0.5 → x ∈ [1, 2], y ∈ [-0.5, 0.5]
+  // Both the whole block and the rect ALONE normalize by the same factor — `pathToSegments`
+  // divides by max|coord|, which is 2 in either case (the rect by itself already reaches
+  // x = -2). So writing S for px-per-normalized-unit:
+  //     HEIGHT       = 0.5 units in BOTH states (both elements are 1 raw unit tall)
+  //                    → h = 0.5·S, i.e. S = 2·h. A yardstick the defect cannot move, which
+  //                    is why the ratios below need no absolute pixel constant and no golden.
+  //     area(both)   = 0.5·0.5 (rect) + π·0.25² (circle) = 0.4463 units² = 1.785·h²
+  //     area(rect)   = 0.25 units²                                      = 1.000·h²
+  //     width(both)  = 2.0 units = 4.00·h        width(rect) = 0.5 units = 1.00·h
+  // Dropping the circle therefore lands the count at ~1.00·h² and the aspect at ~1.0 — the
+  // fail-before state, and both are far outside the bands asserted here. The colour mask's AA
+  // erosion shrinks n and h together, so it moves these ratios by well under the margin.
+  const areaRatio = g.n / (g.h * g.h)
+  const aspect = g.w / g.h
+
+  console.log(
+    `[symbol-multi-element] green n=${g.n} w=${g.w} h=${g.h} ` +
+      `centroid=(${g.cx.toFixed(1)},${g.cy.toFixed(1)}) ` +
+      `areaRatio=${areaRatio.toFixed(2)} aspect=${aspect.toFixed(2)}`,
+  )
+
+  // The glyph must be the WEST one, clear of the red/blue pair — an overlap would let the
+  // other layers occlude green pixels and quietly corrupt every ratio above.
+  expect(
+    c.red.cx - g.cx,
+    `green glyph is not clear of the (0,0) pair (green cx=${g.cx.toFixed(1)}, ` +
+      `red cx=${c.red.cx.toFixed(1)}, green width=${g.w})`,
+  ).toBeGreaterThan(0.5 * g.w)
+
+  // Threshold at 1.35, just under the 1.39 midpoint of the two states.
+  const areaMsg =
+    `green footprint is ${areaRatio.toFixed(2)}·h² (n=${g.n}, h=${g.h}) — a block carrying ` +
+    `BOTH elements is ~1.79·h²; ~1.00·h² is the rect alone, i.e. the circle never registered`
+  expect(areaRatio, areaMsg).toBeGreaterThan(1.35)
+  // Upper guard: nothing plausible exceeds the 1.79 target by this much, so a breach means the
+  // mask picked up something other than this glyph rather than "even more elements painted".
+  expect(areaRatio, `green footprint implausibly large (${areaRatio.toFixed(2)}·h²)`).toBeLessThan(
+    2.4,
+  )
+
+  // Same fact read structurally: the pair spans 4 heights across, the rect alone exactly 1.
+  const aspectMsg =
+    `green glyph aspect is ${aspect.toFixed(2)} (w=${g.w}, h=${g.h}) — both elements span ` +
+    `~4.0 heights, the rect alone ~1.0`
+  expect(aspect, aspectMsg).toBeGreaterThan(2.5)
+  expect(aspect, aspectMsg).toBeLessThan(5.5)
 
   expect(errors, 'no page errors').toEqual([])
 })

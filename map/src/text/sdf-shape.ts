@@ -380,6 +380,27 @@ export class ShapeRegistry {
     return this.addShape(USER_SHAPE_PREFIX + name, svgPath, anchor)
   }
 
+  /** Register a whole `symbol` block — every element of it — as ONE shape (#1766).
+   *
+   *  A block's elements arrive as one SVG path string each (`SymbolDef.paths`: one per `path` /
+   *  `rect` / `circle`, lowered by compiler/src/ir/symbol-elements.ts). Registering them one at a
+   *  time is what broke: `addShape` is keyed by NAME and returns early on a hit, so elements 2..N
+   *  of `symbol arrow { path … rect … circle … }` were silently dropped.
+   *
+   *  Concatenation is the whole fix, and it is exact rather than an approximation: an SVG `d`
+   *  string is a SEQUENCE of subpaths, so `M…Z M…Z` already IS the multi-element glyph — the
+   *  parser reads the second `M` as a new subpath and the SDF's nonzero-winding test fills each
+   *  one independently. Joining BEFORE parsing is also what makes the rest right: max-extent
+   *  normalization and `anchorGeometry` then see the COMBINED bbox, which is the correct #1550
+   *  semantics — the anchor moves the symbol's origin inside its OWN whole bbox, not inside its
+   *  first element's.
+   *
+   *  Segment budget: the shader walks at most 32 segments per shape (`sdfShape` in
+   *  shaders/dsl/point.ts), and a combined block spends that budget across all its elements. */
+  addUserSymbol(name: string, paths: readonly string[], anchor?: string): number {
+    return this.addUserShape(name, paths.join(' '), anchor)
+  }
+
   /** Register a shape from SVG path string. Returns shape_id (1-based, 0=circle). */
   addShape(name: string, svgPath: string, anchor?: string): number {
     if (this.shapes.has(name)) return this.shapes.get(name)!.id
