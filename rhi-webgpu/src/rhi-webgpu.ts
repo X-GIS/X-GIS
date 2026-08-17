@@ -262,6 +262,13 @@ export function unwrapWebGpuTexture(texture: RhiTexture): GPUTexture {
   return u<GPUTexture>(texture)
 }
 
+/** Adopt a native `GPUTexture` as an RHI texture — the inverse of
+ *  `unwrapWebGpuTexture`, mirroring `wrapWebGpuBuffer`. Test-support bridge so
+ *  callers don't hand-copy the hidden `{ native }` field. */
+export function wrapWebGpuTexture(texture: GPUTexture): RhiTexture {
+  return wrap(texture) as unknown as RhiTexture
+}
+
 /** Adopt an externally-created bind-group layout (line reuses the VTR tile layout
  *  so its pipeline is layout-compatible with VTR-built tile bind groups). */
 export function wrapWebGpuBindGroupLayout(layout: GPUBindGroupLayout): RhiBindGroupLayout {
