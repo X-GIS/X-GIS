@@ -140,14 +140,14 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
     renderer as unknown as {
       tileCache: Map<
         string,
-        { texture: unknown; lastUsedFrame: number; firstShownFrame: number; globalBG?: unknown }
+        { texture: unknown; lastUsedFrame: number; firstShownMs: number; globalBG?: unknown }
       >
     }
   ).tileCache
   const fakeTexture = { createView: () => ({}), destroy: () => undefined }
   for (const t of tiles) {
     const key = `${t.z}/${t.x}/${t.y}`
-    cache.set(key, { texture: fakeTexture, lastUsedFrame: 0, firstShownFrame: 0 })
+    cache.set(key, { texture: fakeTexture, lastUsedFrame: 0, firstShownMs: 0 })
   }
 
   // Identify the per-draw pooled tile-uniform buffers (size 48) vs the global
@@ -183,7 +183,7 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
   ).createCommandEncoder()
   const pass = encoder.beginRenderPass()
 
-  renderer.render(wrapWebGpuPass(pass), camera, PROJ_TYPE, 0, 0, W, H, DPR)
+  renderer.render(wrapWebGpuPass(pass), camera, PROJ_TYPE, 0, 0, W, H, 0, DPR)
 
   return drawPositions
 }
