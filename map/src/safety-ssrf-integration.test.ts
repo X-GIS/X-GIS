@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { SpriteAtlasHost } from '@xgis/map'
 import { GlyphPbfCache } from '@xgis/map'
-import { loadImageTexture } from '@xgis/data'
+import { loadImageBitmap } from '@xgis/data'
 import { VectorTileLoader } from '@xgis/data'
 
 // Integration: the SSRF guard must DEGRADE gracefully (state 'failed',
@@ -51,7 +51,7 @@ function redirectingFetch(redirectTo: string): {
   return { fn, urls }
 }
 
-// Some wired sites (loadImageTexture, the vector-tile loader, the PMTiles
+// Some wired sites (loadImageBitmap, the vector-tile loader, the PMTiles
 // lib) call the GLOBAL fetch — patch it so an SSRF-blocked URL provably
 // never reaches the network.
 function patchGlobalFetch(): { calls: () => number; restore: () => void } {
@@ -150,34 +150,30 @@ describe('SSRF guard — glyph cache', () => {
   })
 })
 
-describe('SSRF guard — raster image tile (loadImageTexture)', () => {
+describe('SSRF guard — raster/hillshade image tile (loadImageBitmap)', () => {
   let patch: ReturnType<typeof patchGlobalFetch>
   afterEach(() => patch?.restore())
 
-  // A dummy device — the guard returns null BEFORE the device is touched,
-  // so the cast never gets exercised on the blocked path.
-  const fakeDevice = {} as unknown as GPUDevice
-
   it('returns null for a cloud-metadata raster URL without fetching', async () => {
     patch = patchGlobalFetch()
-    const tex = await loadImageTexture(fakeDevice, 'http://169.254.169.254/latest/meta-data')
-    expect(tex).toBeNull()
+    const bmp = await loadImageBitmap('http://169.254.169.254/latest/meta-data')
+    expect(bmp).toBeNull()
     expect(patch.calls()).toBe(0)
   })
 
   it('returns null for a file: raster URL without fetching', async () => {
     patch = patchGlobalFetch()
-    const tex = await loadImageTexture(fakeDevice, 'file:///etc/passwd')
-    expect(tex).toBeNull()
+    const bmp = await loadImageBitmap('file:///etc/passwd')
+    expect(bmp).toBeNull()
     expect(patch.calls()).toBe(0)
   })
 
   it('attempts a fetch for a normal https raster URL (guard does not over-block)', async () => {
     patch = patchGlobalFetch()
-    // The stub fetch returns an empty 200; createImageBitmap then fails and
-    // the fn returns null — but the fetch HAVING been issued proves the
-    // public URL passed the guard.
-    await loadImageTexture(fakeDevice, 'https://tiles.example.com/0/0/0.png').catch(() => null)
+    // The stub fetch returns an empty 200; createImageBitmap then fails (no
+    // browser decoder in this env) and the fn returns null — but the fetch
+    // HAVING been issued proves the public URL passed the guard.
+    await loadImageBitmap('https://tiles.example.com/0/0/0.png')
     expect(patch.calls()).toBeGreaterThan(0)
   })
 })

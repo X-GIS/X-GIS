@@ -1243,7 +1243,14 @@ const CEILINGS: Record<string, number> = {
   // 847→846 (#1575): the failed-tile Map + its four call sites became one owned
   // FailedTileLedger in tile-retry.ts — the policy had drifted into three separate
   // copies across the repo and only the vector one was bounded.
-  'map/src/render/hillshade-renderer.ts': 846,
+  // 846→844 (#1623): the WebGPU raw-device `loadImageTexture` fork in loadTileTexture
+  // deleted (both backends now load through the RHI) — the `if` wrapper and the
+  // `device: GPUDevice` field/assignment it was the only reader of are gone.
+  // 844→850 (#1623 gate round): +6 comment lines on the DEM texture's explicit
+  // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
+  // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
+  // went red without it, and the why must live at the descriptor it constrains.
+  'map/src/render/hillshade-renderer.ts': 850,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
