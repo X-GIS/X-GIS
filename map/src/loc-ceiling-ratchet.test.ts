@@ -1176,7 +1176,10 @@ const CEILINGS: Record<string, number> = {
   // at all (browser-probed). Most of the delta is the two rationale comments.
   // 1209→1208 (#1666): the two `fillHex`/`strokeHex` temporaries existed only to feed a
   // `hex ? parse(hex) : null` ternary the null-returning `hexToRgba` makes redundant.
-  'map/src/render/point-renderer.ts': 1208,
+  // 1208→1206 (#1632): the tile-point pack scalar cache + retire queue moved out to
+  // tile-point-cache.ts (TilePointCache), keyed per show — a genuine shrink, ratchet
+  // follows.
+  'map/src/render/point-renderer.ts': 1206,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's

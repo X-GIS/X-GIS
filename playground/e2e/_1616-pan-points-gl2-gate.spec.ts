@@ -17,9 +17,9 @@
 //
 // ── Two things had to be measured before this gate could discriminate ──
 //
-// 1. WHY A PURPOSE-BUILT FIXTURE. `PointRenderer` holds ONE pack-key slot for the
-//    whole scene (`_lastTilePointPackKey`; `scene-renderers.ts` builds one
-//    PointRenderer per map), so a style with two point layers thrashes it and the
+// 1. WHY A PURPOSE-BUILT FIXTURE. Pre-#1632, `PointRenderer` held ONE pack-key
+//    slot for the whole scene (`_lastTilePointPackKey`; `scene-renderers.ts` builds
+//    one PointRenderer per map), so a style with two point layers thrashes it and the
 //    memo NEVER HITS. Every shipped point demo is exactly that shape — a halo
 //    layer plus a pin layer — so none of them can exhibit a stale-pack bug at
 //    all. Two attempts on `megacities` failed here before that was understood:

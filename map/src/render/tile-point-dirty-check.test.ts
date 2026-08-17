@@ -24,10 +24,11 @@ import {
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { PointRenderer } from '@xgis/map'
-import { WebGpuDevice, wrapWebGpuPass } from '@xgis/rhi-webgpu'
+import { WebGpuDevice, wrapWebGpuPass, unwrapWebGpuBuffer } from '@xgis/rhi-webgpu'
 import { Camera } from '@xgis/map'
 import { lonLatToECEF } from '@xgis/shared'
 import { buildTilePointPackKey, hashStableKeys } from './tile-point-pack-key'
+import type { TilePointCache } from './tile-point-cache'
 import { tileKey } from '@xgis/compiler'
 
 let stub: StubInstallation
@@ -107,6 +108,26 @@ function countTilePointBuffers(device: GPUDevice): { created(): number; destroye
     return buf
   }
   return { created: () => created, destroyed: () => destroyed }
+}
+
+/** Like `countTilePointBufferCreates`, but keeps the created buffer OBJECTS
+ *  (labelled) instead of just their count — lets a test recover the exact
+ *  vertex/index/feat trio a given flush produced, to check per-show IDENTITY
+ *  rather than a shared aggregate number (#1632). */
+function captureTilePointBuffers(device: GPUDevice): {
+  made(): { label: string; buf: GPUBuffer }[]
+} {
+  const made: { label: string; buf: GPUBuffer }[] = []
+  const real = device.createBuffer.bind(device)
+  ;(device as { createBuffer: typeof device.createBuffer }).createBuffer = (
+    desc: GPUBufferDescriptor,
+  ) => {
+    const buf = real(desc)
+    if (typeof desc.label === 'string' && desc.label.startsWith('tile-point-'))
+      made.push({ label: desc.label, buf })
+    return buf
+  }
+  return { made: () => made }
 }
 
 describe('tile-point dirty-check gate (#1581 leg B, GPU-free)', () => {
@@ -305,6 +326,7 @@ describe('per-show tile-point pack slots (#1632)', () => {
     const camera = new Camera(0, 0, 4)
     camera.projType = 0
     const creates = countTilePointBufferCreates(ctx.device as unknown as GPUDevice)
+    const madeBuffers = captureTilePointBuffers(ctx.device as unknown as GPUDevice)
     const encoder = (
       ctx.device as unknown as {
         createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
@@ -342,6 +364,23 @@ describe('per-show tile-point pack slots (#1632)', () => {
     flush(ID_B, SHOW_B, keyB)
     expect(creates.count(), 'frame 1 builds three buffers per show').toBe(6)
 
+    // IDENTITY — each show's flush must have built its OWN buffer trio, not one
+    // shared with (or aliased to) the other show's. This is the object-identity
+    // half of #1632: the create COUNT above is satisfied even if both flushes
+    // happened to hand back the same six buffers in some broken pooling scheme,
+    // so distinctness has to be asserted directly.
+    const made = madeBuffers.made()
+    expect(made).toHaveLength(6)
+    const trioA = made.slice(0, 3)
+    const trioB = made.slice(3, 6)
+    for (const a of trioA)
+      for (const b of trioB)
+        expect(a.buf, `show A's ${a.label} must not be show B's ${b.label}`).not.toBe(b.buf)
+
+    const cache = (renderer as unknown as { _tilePointCache: TilePointCache })._tilePointCache
+    const bufOf = (trio: typeof trioA, label: string): GPUBuffer =>
+      trio.find((b) => b.label === label)!.buf
+
     // Frames 2..11 — dead-still camera, unchanged tile set, unchanged styles.
     // BOTH shows must skip, every frame; the pre-#1632 single slot missed both.
     for (let frame = 2; frame <= 11; frame++) {
@@ -351,11 +390,45 @@ describe('per-show tile-point pack slots (#1632)', () => {
         `show A repacked on frame ${frame} — its slot was clobbered by the other show`,
       ).toBe(true)
       renderer.redrawTilePointsCached(ID_A, argsFor(SHOW_A))
+      // IDENTITY — the cached redraw path resolves its GPU buffers from
+      // `_tilePointCache.get(showId)` (mirrors `_tilePointDrawDeps`, which builds
+      // the real draw's deps the same way). A slot mixup would draw show A with
+      // show B's feature/shape data — invisible to a create-count or a boolean
+      // canSkipTilePointRepack, since neither one is sensitive to WHICH trio is
+      // bound, only whether a repack happened. Slots hold RhiBuffer wrappers
+      // (a fresh `{native}` box per read), so identity is checked on the
+      // unwrapped native GPUBuffer, not the wrapper.
+      const slotA = cache.get(ID_A)!
+      expect(
+        unwrapWebGpuBuffer(slotA.buffer),
+        `show A bound the wrong vertex buffer on frame ${frame}`,
+      ).toBe(bufOf(trioA, 'tile-point-vertices'))
+      expect(
+        unwrapWebGpuBuffer(slotA.indexBuffer),
+        `show A bound the wrong index buffer on frame ${frame}`,
+      ).toBe(bufOf(trioA, 'tile-point-indices'))
+      expect(
+        unwrapWebGpuBuffer(slotA.featBuffer),
+        `show A bound the wrong feature buffer on frame ${frame}`,
+      ).toBe(bufOf(trioA, 'tile-point-features'))
       expect(
         renderer.canSkipTilePointRepack(ID_B, keyB),
         `show B repacked on frame ${frame} — its slot was clobbered by the other show`,
       ).toBe(true)
       renderer.redrawTilePointsCached(ID_B, argsFor(SHOW_B))
+      const slotB = cache.get(ID_B)!
+      expect(
+        unwrapWebGpuBuffer(slotB.buffer),
+        `show B bound the wrong vertex buffer on frame ${frame}`,
+      ).toBe(bufOf(trioB, 'tile-point-vertices'))
+      expect(
+        unwrapWebGpuBuffer(slotB.indexBuffer),
+        `show B bound the wrong index buffer on frame ${frame}`,
+      ).toBe(bufOf(trioB, 'tile-point-indices'))
+      expect(
+        unwrapWebGpuBuffer(slotB.featBuffer),
+        `show B bound the wrong feature buffer on frame ${frame}`,
+      ).toBe(bufOf(trioB, 'tile-point-features'))
     }
     expect(creates.count(), 'ten static frames must build nothing').toBe(6)
 
