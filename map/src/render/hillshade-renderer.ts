@@ -14,7 +14,7 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageTexture, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
 import {
   admitTile,
   type EvictableTile,
@@ -315,7 +315,6 @@ const DEFAULT_PARAMS: HillshadeParams = {
 }
 
 export class HillshadeRenderer {
-  private device: GPUDevice
   private readonly rhi: RhiDevice
   private format: GPUTextureFormat = 'bgra8unorm'
 
@@ -388,7 +387,6 @@ export class HillshadeRenderer {
   }
 
   constructor(ctx: GPUContext) {
-    this.device = ctx.device
     this.rhi = ctx.rhi
     this.format = ctx.format
   }
@@ -453,13 +451,13 @@ export class HillshadeRenderer {
     return this.loadingTiles.size
   }
 
-  /** Backend-appropriate DEM tile load — verbatim raster loadTileTexture (a DEM
-   *  is an RGBA8 PNG; the NEAREST decode is a sampler concern, in the draper). */
+  /** Tile load, through the RHI on BOTH backends (#1623 — WebGPU used to bypass the RHI
+   *  entirely via the raw-device `loadImageTexture`, the last such arm in the raster
+   *  family; raster's twin was closed in #1579). Verbatim raster `loadTileTexture` minus
+   *  the mip chain: a DEM is DATA, not appearance, and `mip-scope-invariant.test.ts` pins
+   *  it un-mipped (averaging elevation levels fabricates slope-derivatives never sampled) —
+   *  the NEAREST decode this feeds is a sampler concern, in the draper. */
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
-    if (this.rhi.backend !== 'webgl2') {
-      const t = await loadImageTexture(this.device, url, signal)
-      return t ? { texture: t, bytes: textureBytesOf(t.width, t.height, false) } : null // #1579 — never mipped
-    }
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
     // #1153 P2 R4 (ported from raster — hillshade was the pre-fix copy):
@@ -474,7 +472,13 @@ export class HillshadeRenderer {
         width: bitmap.width,
         height: bitmap.height,
         format: 'rgba8unorm',
-        usage: ['sample', 'copy-dst'],
+        // 'render' is NOT for drawing into the tile: WebGPU's
+        // copyExternalImageToTexture requires COPY_DST | RENDER_ATTACHMENT on
+        // the destination, and unlike raster's tiles (whose mip chain makes
+        // createTexture auto-widen the usage, rhi-webgpu.ts #1436) this DEM
+        // texture is single-level by contract, so the flag must be explicit.
+        // Caught by _hillshade-chain-gate on WebGPU (10 validation errors).
+        usage: ['sample', 'copy-dst', 'render'],
         label: 'hillshade-dem-tile',
       })
       this.rhi.copyExternalImage(tex, bitmap, bitmap.width, bitmap.height)

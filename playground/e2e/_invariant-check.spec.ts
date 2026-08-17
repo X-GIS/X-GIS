@@ -12,18 +12,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisMap {
-  vtSources?: Map<string, { renderer: { _hysteresisZ?: number } }>
-  camera?: { zoom: number; pitch?: number; bearing?: number; centerX: number; centerY: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-    __XGIS_INVARIANTS?: boolean
-  }
-}
-
 test.describe('Production invariant — visibility / fallback consistency', () => {
   test.use({ viewport: { width: 1500, height: 907 } })
 

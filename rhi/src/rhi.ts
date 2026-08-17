@@ -158,6 +158,21 @@ export interface RhiBindLayoutEntry {
    *  stage has its own texture units (32 measured on this environment's
    *  SwiftShader device, spec floor 16). */
   vertexVisible?: boolean
+  /** Mark a `texture` slot as `unfilterable-float` rather than the default
+   *  `float` sampleType. Default false, which is the historical behaviour and
+   *  byte-identical for every existing layout.
+   *
+   *  Opt-IN because WebGPU validation REJECTS binding a texture whose format
+   *  cannot be linearly filtered (e.g. `r32float`, `rg32float`) to a layout
+   *  entry whose sampleType defaults to `'float'` — the adapter has to
+   *  advertise `float32-filterable` for that default to be legal at all.
+   *  Setting the flag maps to `sampleType: 'unfilterable-float'`, which is
+   *  what such a texture must be read with (`textureLoad`, not
+   *  `textureSample`) and pairs with a non-filtering sampler. WebGL2 needs
+   *  nothing here — it has no sampleType concept; a `texelFetch` read is
+   *  just how the shader is written, not something the bind layout declares
+   *  (#1384). */
+  unfilterableFloat?: boolean
 }
 
 /** A backend-neutral routing handle for a render pipeline (#834 M-B3). Some

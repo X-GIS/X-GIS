@@ -18,17 +18,6 @@
 
 import { test, expect } from '@playwright/test'
 
-const _PROJECTIONS = [
-  'mercator',
-  'globe',
-  'equirectangular',
-  'natural_earth',
-  'orthographic',
-  'stereographic',
-  'azimuthal_equidistant',
-  'oblique_mercator',
-]
-
 test('camera/globe tilt continuity — fixed point moves smoothly under pitch/bearing', async ({
   page,
 }) => {

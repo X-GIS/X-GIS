@@ -1,0 +1,43 @@
+xgis 1
+
+/* User-symbol render coverage (#1557 narrowed scope).
+ *
+ * Inline `data:` GeoJSON (gated since #481 — see inline-data.xgis) feeds ONE
+ * point feature at (0, 0) drawn twice, through two single-element `symbol`
+ * blocks:
+ *   - sym_dot: a `circle` element, default (center) anchor.
+ *   - sym_tab: a `rect` element with `anchor: left` (#1550's SymbolDef.anchor
+ *     — the symbol's own bbox origin shifts inside the glyph, not the point
+ *     coordinate), so its glyph renders offset from the point.
+ * `rect`/`circle` symbol elements were parsed since #1550 but exercised only
+ * by the compiler's conformance corpus (compiler/src/__tests__/conformance/
+ * valid/symbol.xgis) — never actually rendered by an e2e gate. Distinct
+ * saturated fill colours (red-500 / blue-500) let the gate isolate each
+ * glyph's pixels by colour and compare centroids.
+ */
+
+symbol sym_dot {
+  circle r: 0.5
+}
+
+symbol sym_tab {
+  rect w: 1 h: 1
+  anchor: left
+}
+
+source pt {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [0, 0] }, "properties": { "n": "origin" } }
+  ] }
+}
+
+layer center_dot {
+  source: pt
+  | shape-sym_dot fill-red-500 size-70
+}
+
+layer shifted_tab {
+  source: pt
+  | shape-sym_tab fill-blue-500 size-70
+}

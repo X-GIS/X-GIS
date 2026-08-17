@@ -18,21 +18,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface VTRDiag {
-  _hysteresisZ?: number
-  _frameTileCache?: { tiles?: { z: number; x: number; y: number }[] }
-}
-interface XGISMap {
-  vtSources?: Map<string, { renderer: VTRDiag & { source: unknown } }>
-  camera?: { zoom: number; centerX: number; centerY: number; pitch?: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XGISMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Mobile detail uniformity', () => {
   test.use({ viewport: { width: 430, height: 715 } })
 

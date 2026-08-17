@@ -7,6 +7,11 @@
   // `tsc -p tsconfig.tests.json` noEmit pass; this project mirrors its options.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    // #1683 — same inherited-rootDir bug as playground/e2e/tsconfig.json: the base
+    // pins `rootDir: "./src"`, so every examples/ file is outside it and reports
+    // TS6059 before any real checking happens. `..` = the package root, matching
+    // tsconfig.tests.json's `"rootDir": "."` (the canonical gate for this directory).
+    "rootDir": "..",
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "declaration": false,

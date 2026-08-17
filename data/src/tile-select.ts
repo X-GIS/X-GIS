@@ -667,11 +667,11 @@ export function visibleTilesFrustumSampled(
   return result
 }
 
-/** Load an image as a GPU texture (supports AbortSignal for cancellation) */
 /** Fetch + decode a raster tile image — the SSRF-guarded fetch/decode half of
- *  loadImageTexture, extracted (#834 M5 slice 2) so backend-specific texture
- *  upload lives at the caller (WebGPU copyExternalImageToTexture / RHI
- *  copyExternalImage). The caller owns bitmap.close(). */
+ *  the raster/hillshade tile loaders (#834 M5 slice 2), which upload it through
+ *  the RHI at the caller (`rhi.createTexture` + `rhi.copyExternalImage` —
+ *  #1579/#1623 closed both backends' raw-device texture-creation arms). The
+ *  caller owns bitmap.close(). */
 export async function loadImageBitmap(
   url: string,
   signal?: AbortSignal,
@@ -693,41 +693,6 @@ export async function loadImageBitmap(
     if (signal?.aborted) return null
     return await createImageBitmap(blob)
   } catch {
-    return null
-  }
-}
-
-export async function loadImageTexture(
-  device: GPUDevice,
-  url: string,
-  signal?: AbortSignal,
-): Promise<GPUTexture | null> {
-  const bitmap = await loadImageBitmap(url, signal)
-  if (!bitmap) return null
-  try {
-    const texture = device.createTexture({
-      size: { width: bitmap.width, height: bitmap.height },
-      format: 'rgba8unorm',
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.RENDER_ATTACHMENT,
-    })
-
-    device.queue.copyExternalImageToTexture(
-      { source: bitmap },
-      { texture },
-      { width: bitmap.width, height: bitmap.height },
-    )
-
-    bitmap.close()
-    return texture
-  } catch {
-    // #1153 P2 R4 — the catch used to return null while LEAKING the decoded
-    // bitmap; close it. The half-created texture is not freed here: createTexture
-    // throws only on device-loss/OOM, where device teardown reclaims it — and a
-    // raw texture.destroy() would grow @xgis/data's GPU footprint (#997 ratchet).
-    bitmap.close()
     return null
   }
 }

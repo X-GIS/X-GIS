@@ -258,6 +258,12 @@ them. In particular, `bun run build` is the typecheck authority (vitest does not
 and watch for **TS6133 orphaned-import** errors that a plain `vite build` silently ignores.
 Merge only when the full local gate AND CI are green.
 
+**Standing owner authorization (2026-08-17):** once a PR that resolves an issue has passed
+the full gate above (plus §5 render verification where the diff touches rendering),
+merging it to main is pre-approved by default — execute the merge (pr-merge-gauntlet)
+without asking per-PR. This waives no gate and no verification; it removes only the
+per-merge confirmation.
+
 ## 12. Lessons Ledger — consult BEFORE acting (hard-won, session-verified)
 
 Every rule below was paid for with a real incident; the cited post under

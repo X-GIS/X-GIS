@@ -18,13 +18,6 @@ import fs from 'node:fs'
 const OUT = 'e2e/__label-occlusion__'
 const HASH = '#2.90/42.29894/119.09100/30.0/81.4'
 
-interface DumpLabel {
-  text: string
-  anchorX: number
-  anchorY: number
-  curved: boolean
-}
-
 test('dump placed labels at the reported pitched camera', async ({ page }) => {
   test.setTimeout(120_000)
   fs.mkdirSync(OUT, { recursive: true })
