@@ -8,20 +8,6 @@ import * as path from 'node:path'
 
 const OUT_DIR = 'test-results/osm-style-capture'
 
-interface XgisMap {
-  vtSources?: Map<
-    string,
-    { renderer: { _hysteresisZ?: number; getDrawStats?: () => { tilesVisible: number } } }
-  >
-  camera?: { zoom: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('OSM-style demo capture', () => {
   test.use({ viewport: { width: 1500, height: 907 } })
 

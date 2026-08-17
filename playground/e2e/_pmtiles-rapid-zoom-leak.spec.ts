@@ -26,16 +26,6 @@ interface BackendDiag {
   prefetchKeys: number
   heapMB: number | null
 }
-interface XgisMap {
-  vtSources: Map<string, { renderer: { source: unknown } }>
-  camera: { zoom: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
 
 test.describe('PMTiles live: fast zoom should not leak backend state', () => {
   test.use({ viewport: { width: 1280, height: 720 } })

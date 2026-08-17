@@ -20,27 +20,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisCamera {
-  zoom: number
-  centerX: number
-  centerY: number
-  pitch?: number
-  bearing?: number
-}
-interface XgisMap {
-  vtSources: Map<
-    string,
-    { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }
-  >
-  camera: XgisCamera
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Realistic mobile pinch gesture', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 

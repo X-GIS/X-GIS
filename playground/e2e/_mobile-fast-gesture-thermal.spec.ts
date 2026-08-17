@@ -20,34 +20,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface VTRDiag {
-  getDrawStats?: () => {
-    tilesVisible: number
-    drawCalls: number
-    triangles?: number
-    lines?: number
-  }
-  _frameDrawnByZoom?: Map<number, number>
-  _hysteresisZ?: number
-  _frameTileCache?: { tiles?: { z: number; x: number; y: number }[] }
-}
-interface XgisMap {
-  vtSources?: Map<string, { renderer: VTRDiag }>
-  camera?: {
-    zoom: number
-    centerX: number
-    centerY: number
-    pitch?: number
-    bearing?: number
-  }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Mobile fast-gesture thermal load', () => {
   test.use({ viewport: { width: 430, height: 715 } })
 
