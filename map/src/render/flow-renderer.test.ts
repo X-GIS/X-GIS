@@ -122,6 +122,10 @@ const frameAt = (ms: number, encoder: RhiCommandEncoder | null = null) => ({
   encoder,
 })
 
+/** One region's key. Every property below is about ONE trail, so a single key is enough here;
+ *  the per-region properties live in `trail-per-region.test.ts` (#1499). */
+const REGION = 'cbofs'
+
 describe('FlowRenderer — the advection arm (#1333)', () => {
   it('THE CLEAR OBLIGATION: both sides are wiped before the FIRST advect, and never again', () => {
     // A fresh texture's contents are undefined, and a recursive filter feeds on them rather
@@ -130,7 +134,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
-    fr.step(frameAt(0), field)
+    fr.step(frameAt(0), REGION, field)
     expect(t.passes.map((p) => `${p.desc.label}:${p.desc.loadOp}`)).toEqual([
       'flow-clear:clear',
       'flow-clear:clear',
@@ -141,8 +145,8 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     expect(t.passes[0]!.desc.view).not.toEqual(t.passes[1]!.desc.view)
 
     t.passes.length = 0
-    fr.step(frameAt(16), field)
-    fr.step(frameAt(32), field)
+    fr.step(frameAt(16), REGION, field)
+    fr.step(frameAt(32), REGION, field)
     expect(t.passes.map((p) => p.desc.label)).toEqual(['flow-advect', 'flow-advect'])
   })
 
@@ -151,8 +155,8 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
-    fr.step(frameAt(0), field)
-    fr.step(frameAt(16), field)
+    fr.step(frameAt(0), REGION, field)
+    fr.step(frameAt(16), REGION, field)
     const advect = t.passes.filter((p) => p.desc.label === 'flow-advect')
     for (const p of advect) {
       const bg = p.bindGroups[0] as { entries: { binding: number; resource: { view?: unknown } }[] }
@@ -172,7 +176,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
       [false, 'rgba8unorm'],
     ] as const) {
       const t = makeCtx({ backend: 'webgl2', floatBlendTargets })
-      new FlowRenderer(t.dev).step(frameAt(0), makeField())
+      new FlowRenderer(t.dev).step(frameAt(0), REGION, makeField())
       expect(t.pipelines.map((p) => p.format)).toEqual([want])
     }
   })
@@ -183,7 +187,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const field = makeField()
-    for (let i = 0; i < 10; i++) fr.step(frameAt(i * 16), field)
+    for (let i = 0; i < 10; i++) fr.step(frameAt(i * 16), REGION, field)
     expect(t.bindGroups).toHaveLength(2)
   })
 
@@ -193,11 +197,11 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
     const first = makeField()
-    fr.step(frameAt(0), first)
-    fr.step(frameAt(16), first)
+    fr.step(frameAt(0), REGION, first)
+    fr.step(frameAt(16), REGION, first)
     expect(t.bindGroups).toHaveLength(2)
     const next = makeField() // new upload → new views
-    fr.step(frameAt(32), next)
+    fr.step(frameAt(32), REGION, next)
     expect(t.bindGroups).toHaveLength(3)
     const bg = t.bindGroups[2]!.entries as { binding: number; resource: { view?: unknown } }[]
     expect(bg.find((e) => e.binding === 1)!.resource.view).toEqual(next.u)
@@ -206,7 +210,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
 
   it('THE FORK, WebGL2 arm: nests an offscreen pass off the DEVICE, touching no encoder', () => {
     const t = makeCtx({ backend: 'webgl2' })
-    new FlowRenderer(t.dev).step(frameAt(0, null), makeField())
+    new FlowRenderer(t.dev).step(frameAt(0, null), REGION, makeField())
     expect(t.passes.length).toBeGreaterThan(0)
     expect(t.passes.every((p) => p.ended)).toBe(true)
   })
@@ -216,14 +220,14 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // native encoder per call, so reaching for it mid-frame would strand these commands outside
     // the frame's single submit.
     const t = makeCtx({ backend: 'webgpu' })
-    new FlowRenderer(t.dev).step(frameAt(0, t.encoder), makeField())
+    new FlowRenderer(t.dev).step(frameAt(0, t.encoder), REGION, makeField())
     expect(t.passes.map((p) => p.desc.label)).toEqual(['flow-clear', 'flow-clear', 'flow-advect'])
   })
 
   it('no encoder at all draws NOTHING rather than throwing into the render loop', () => {
     // The twin frame carries no RHI encoder.
     const t = makeCtx({ backend: 'webgpu' })
-    expect(() => new FlowRenderer(t.dev).step(frameAt(0, null), makeField())).not.toThrow()
+    expect(() => new FlowRenderer(t.dev).step(frameAt(0, null), REGION, makeField())).not.toThrow()
     expect(t.passes).toHaveLength(0)
   })
 
@@ -239,8 +243,8 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     ;(
       t.rhi as unknown as { writeBuffer: (b: unknown, o: number, d: Float32Array) => void }
     ).writeBuffer = (_b, _o, d) => void uni.push([...d])
-    fr.step(frameAt(1000), field)
-    fr.step(frameAt(1016), field)
+    fr.step(frameAt(1000), REGION, field)
+    fr.step(frameAt(1016), REGION, field)
     expect(uni[0]![0]).toBe(0) // stepX on frame 1
     expect(uni[0]![1]).toBe(0) // stepY on frame 1
     expect(uni[1]![0]).toBeGreaterThan(0)
@@ -266,7 +270,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
     // CORRECT because the opaque pass does carry depth — silently adds one. This asserts the
     // property the GPU validates, through the same Material path production uses.
     const t = makeCtx({ backend: 'webgl2' })
-    new FlowRenderer(t.dev).step(frameAt(0), makeField())
+    new FlowRenderer(t.dev).step(frameAt(0), REGION, makeField())
     expect(t.pipelines).toHaveLength(1)
     expect(
       t.pipelines[0]!.depthStencil,
@@ -279,10 +283,10 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
   it('dispose() frees the pair and the sampler', () => {
     const t = makeCtx({ backend: 'webgl2' })
     const fr = new FlowRenderer(t.dev)
-    fr.step(frameAt(0), makeField())
-    expect(fr.currentView).not.toBeNull()
+    fr.step(frameAt(0), REGION, makeField())
+    expect(fr.trailViewFor(REGION)).not.toBeNull()
     fr.dispose()
-    expect(fr.currentView).toBeNull()
+    expect(fr.trailViewFor(REGION)).toBeNull()
     expect(t.destroyed).toEqual(expect.arrayContaining(t.samplers))
     // Two ping-pong textures + the sampler.
     expect(t.destroyed).toHaveLength(3)
@@ -290,7 +294,7 @@ describe('FlowRenderer — the advection arm (#1333)', () => {
 
   it('a degenerate grid renders nothing at all', () => {
     const t = makeCtx({ backend: 'webgl2' })
-    new FlowRenderer(t.dev).step(frameAt(0), makeField({ width: 0 }))
+    new FlowRenderer(t.dev).step(frameAt(0), REGION, makeField({ width: 0 }))
     expect(t.passes).toHaveLength(0)
     expect(t.pipelines).toHaveLength(0)
   })

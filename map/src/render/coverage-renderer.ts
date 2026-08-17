@@ -117,7 +117,10 @@ interface CoverageState {
 /** What the drape needs to show the motion layer: the advected image for THIS frame and how
  *  deeply it modulates the ramp colour. `mix` 0 makes the shader's gain an exact 1.0. */
 export interface FlowDrape {
-  view: RhiTextureView
+  /** THIS region's advected image, or null when it has none yet (#1499) — an accessor, not one
+   *  view: the trail is a recursive filter over the region's OWN grid, so a mosaic's domains each
+   *  hold their own history and one image handed to all of them paints one domain's water. */
+  viewFor(region: string): RhiTextureView | null
   mix: number
 }
 
@@ -450,28 +453,12 @@ export class CoverageRenderer {
     }
   }
 
-  /** The field the flow layer animates: the FIRST resident region carrying one, in
-   *  least-recently-armed order.
-   *
-   *  ONE region, not all of them. Advection is a RECURSIVE filter over its own grid, so each
-   *  region would need its own history pair and its own step — real scope, not a loop here
-   *  (#1333 follow-up). Stated rather than left implicit, because the alternative failure is
-   *  silent: a mosaic would otherwise animate whichever region happened to be armed last. */
-  activeFlowField(): FlowFieldRegion | null {
-    for (const region of this.states.keys()) {
-      const f = this.flowField(region)
-      if (f) return f
-    }
-    return null
-  }
-
   /** EVERY resident region's velocity field, keyed by region — what the ARROW portrayal binds.
    *
-   *  The trail above genuinely is one region (a recursive filter over one grid, one full-screen
-   *  image), and `activeFlowField` still serves it. The arrows are not: each domain gets its own
-   *  advected batch, and an arrow is coloured, turned and scaled every frame by the water it is
-   *  standing in. Handing them all the FIRST region's field made a sibling domain report another
-   *  domain's current — from frame zero, invisible to any coverage metric (#1458). */
+   *  Each domain gets its own advected batch, and an arrow is coloured, turned and scaled every
+   *  frame by the water it is standing in. Handing them all the FIRST region's field made a
+   *  sibling domain report another domain's current — from frame zero, invisible to any coverage
+   *  metric (#1458). */
   flowFields(): ReadonlyMap<string, FlowFieldRegion> {
     // The flow pass declares EVERY frame now, including on maps that will never
     // have a coverage (#1046 Inc-F2c) — so the empty answer must not mint a Map
@@ -486,23 +473,31 @@ export class CoverageRenderer {
     return out
   }
 
-  /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate and the
-   *  render-loop keep-warm, so a map with only scalar coverages never runs the advection pass.
-   *  Quantifies over the SAME predicate `activeFlowField` does (asserted by the upload test):
-   *  a true here with a null there would spin the on-demand loop on a pass that does nothing. */
-  hasFlowField(): boolean {
-    for (const st of this.states.values()) if (st.flowUView && st.flowVView) return true
-    return false
+  /** EVERY VISIBLE region's velocity field — what the IBFV TRAIL steps, one stepper per entry
+   *  (#1499). The trail is a recursive filter over the region's OWN grid, so a mosaic needs one
+   *  history per domain; one pair fed from the first resident region left every other domain's
+   *  drape sampling that domain's image, which is #1499's report.
+   *
+   *  VISIBLE, unlike `flowFields` above: under the `arrows` portrayal every flow region is
+   *  resident-but-hidden, so its trail would be advected each frame and drawn by nobody (#1419).
+   *  Empty is therefore also the answer that retires every stepper, declared each frame. */
+  drapedFlowFields(): ReadonlyMap<string, FlowFieldRegion> {
+    // Same no-allocation floor as `flowFields` — the pass declares EVERY frame.
+    if (this.states.size === 0) return NO_FLOW_FIELDS
+    const out = new Map<string, FlowFieldRegion>()
+    for (const [region, st] of this.states) {
+      const f = st.hidden ? null : this.flowField(region)
+      if (f) out.set(region, f)
+    }
+    return out
   }
 
-  /** True when a VISIBLE region carries a velocity field — i.e. when the IBFV trail this
-   *  renderer's drape samples has a consumer at all (#1419). Under the `arrows` portrayal every
-   *  flow region is resident-but-hidden, so the trail image would be advected each frame and
-   *  then drawn by nobody: a full-screen pass per frame for a picture no one looks at. */
-  hasDrapedFlowField(): boolean {
-    for (const st of this.states.values()) {
-      if (st.flowUView && st.flowVView && !st.hidden) return true
-    }
+  /** True when ANY resident region carries a velocity field — the `scene.hasFlow` gate and the
+   *  render-loop keep-warm, so a map with only scalar coverages never runs the advection pass.
+   *  Quantifies over the SAME predicate `flowFields` does (asserted by the upload test): a true
+   *  here with an empty map there would spin the on-demand loop on a pass that does nothing. */
+  hasFlowField(): boolean {
+    for (const st of this.states.values()) if (st.flowUView && st.flowVView) return true
     return false
   }
 
@@ -567,14 +562,17 @@ export class CoverageRenderer {
   /** The resident regions in DRAW order: least relevant first, so the most relevant paints last
    *  and therefore on top of any overlap (#1602). STATED POLICY: docs/adr/0011.
    *
+   *  Entries, not bare states: the drape binds THAT region's own trail (#1499), and the Map key
+   *  stays the one authority for the region name — a `region` field would be a second one.
+   *
    *  A stable sort on `priority` descending. Stable matters — regions that share a priority (every
    *  single-region caller leaves it at 0) keep their arm order, so nothing about the
    *  one-region case changes. Allocates one array per frame over a handful of regions, which is
    *  the same shape `residentRegions()` already has; the alternative (keeping a second sorted Map
    *  in step with `states` through arm, re-arm and evict) is a second authority to drift. */
-  private drawOrder(): CoverageState[] {
-    if (this.states.size < 2) return [...this.states.values()]
-    return [...this.states.values()].sort((a, b) => b.priority - a.priority)
+  private drawOrder(): [string, CoverageState][] {
+    if (this.states.size < 2) return [...this.states]
+    return [...this.states].sort((a, b) => b[1].priority - a[1].priority)
   }
 
   private evictOverBudget(keep: string): void {
@@ -622,22 +620,23 @@ export class CoverageRenderer {
     //
     // `states` keeps its LRU untouched — that order is still correct for EVICTION, which wants
     // least-recently-used. One Map served both until the two started wanting opposite directions.
-    for (const s of this.drawOrder()) {
+    for (const [region, s] of this.drawOrder()) {
       // Resident for its data, not for its paint (#1419) — the velocity pair is uploaded and
       // the arrow field is built from it, while the drape itself stays out of the frame.
       if (s.hidden) continue
-      // The motion layer rides ONLY on a region that actually carries a velocity field. A
-      // scalar region in the same mosaic binds its own value texture as the inert stand-in
-      // and gets mix 0, so it draws byte-identically beside an animated neighbour.
-      const animated = flow != null && s.flowUView !== null
-      const flowView = animated ? flow.view : s.views.value
+      // The motion layer rides ONLY on a region that carries a velocity field AND has advected
+      // an image of its OWN (#1499) — a sibling's trail is never a stand-in. A scalar region (or
+      // one whose first step has not run) binds its own value texture as the inert stand-in and
+      // gets mix 0, so it draws byte-identically beside an animated neighbour.
+      const trail = flow != null && s.flowUView !== null ? flow.viewFor(region) : null
+      const flowView = trail ?? s.views.value
       const bytes = packCoverageUniforms({
         mvp,
         projParams,
         camCenter,
         ramp: s.ramp,
         opacity: s.opacity,
-        flowMix: animated ? flow.mix : 0,
+        flowMix: trail !== null && flow != null ? flow.mix : 0,
         flowOnly: s.flowOnly,
         data: s.data,
         cameraZoom,
