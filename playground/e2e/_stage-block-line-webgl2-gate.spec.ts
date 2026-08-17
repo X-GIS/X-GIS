@@ -32,8 +32,10 @@
 //   · zoom = 0.0      → R ≈ 0 at BOTH zooms (the pre-#1635 miscompile)
 //   · zoom frozen     → R equal at both zooms but non-zero (a uniform lane written ONCE at
 //                       boot rather than per frame — the failure a single sample cannot see)
-// The third arm is why both an absolute value AND the delta are asserted; either alone is
-// satisfiable by a bug.
+// The third arm is why the delta is asserted too — though with the absolute ±5/255
+// (`toBeCloseTo(_, -1)`) arms at both zooms already 92 counts apart (35 vs 128), the delta
+// check is a redundant, better-messaged restatement of what those two already rule out,
+// not an independently necessary third assertion.
 //
 // Backend PINNED to WebGL2 and asserted via the live #backend-tag; `&adaptive=0` pins the
 // adaptive quality controller off (same settle-race rationale as the sibling gates).
@@ -104,11 +106,18 @@ async function sampleStroke(
 
 /** Park the camera at (0, 0) on `z` and let the on-demand renderer settle. Same shape as
  *  `_1248-composite-size-zoom.spec.ts`'s helper — the engine renders on demand, so a fixed
- *  wait is not a settle criterion; poll until the sampled colour stops changing. */
+ *  wait is not a settle criterion; poll until the sampled colour stops changing.
+ *
+ *  Before that stability loop, first poll until the sample is a REPAINTED frame: right after
+ *  the camera jump, two early samples of the STALE pre-jump frame trivially satisfy "two
+ *  consecutive equal samples", so the gate would read the OLD zoom's pixel. `prevRgba` (the
+ *  previous zoom's settled sample) is the freshness reference; for the first call there is
+ *  none, so freshness instead means "actually populated" (opaque). */
 async function settleAtZoom(
   page: import('@playwright/test').Page,
   z: number,
   tag: string,
+  prevRgba?: [number, number, number, number],
 ): Promise<[number, number, number, number]> {
   await page.evaluate((zoom) => {
     const m = (window as unknown as Win).__xgisMap!
@@ -121,6 +130,13 @@ async function settleAtZoom(
   }, z)
   let png = await page.locator('#map').screenshot()
   let rgba = await sampleStroke(page, png)
+  const isFresh = (v: [number, number, number, number]): boolean =>
+    prevRgba ? v.some((c, k) => Math.abs(c - prevRgba[k]!) >= 1) : v[3] > 250
+  for (let i = 0; i < 15 && !isFresh(rgba); i++) {
+    await page.waitForTimeout(500)
+    png = await page.locator('#map').screenshot()
+    rgba = await sampleStroke(page, png)
+  }
   for (let i = 0; i < 15; i++) {
     await page.waitForTimeout(500)
     const next = await page.locator('#map').screenshot()
@@ -156,7 +172,7 @@ test('a non-foldable @stroke body paints its authored colour, and its `zoom` rea
   const Z_LOW = 3
   const Z_HIGH = 11
   const low = await settleAtZoom(page, Z_LOW, `z${Z_LOW}`)
-  const high = await settleAtZoom(page, Z_HIGH, `z${Z_HIGH}`)
+  const high = await settleAtZoom(page, Z_HIGH, `z${Z_HIGH}`, low)
 
   expect(errors, `page errors:\n${errors.join('\n')}`).toEqual([])
 

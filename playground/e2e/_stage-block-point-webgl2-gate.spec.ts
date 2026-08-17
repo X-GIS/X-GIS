@@ -139,10 +139,17 @@ async function scanRow(
   )
 }
 
-/** Park the camera at (0, 0) on `z`, settle the on-demand renderer, and return the frame. */
+/** Park the camera at (0, 0) on `z`, settle the on-demand renderer, and return the frame.
+ *
+ *  Before the stability loop, first poll until the scan is a REPAINTED frame: right after the
+ *  camera jump, two early scans of the STALE pre-jump frame trivially satisfy "two consecutive
+ *  equal scans", so the gate would read the OLD zoom's pixels. `prevScan` (the previous zoom's
+ *  settled scan) is the freshness reference; for the first call there is none, so freshness
+ *  instead means "actually populated" (opaquePx > 0). */
 async function settleAtZoom(
   page: import('@playwright/test').Page,
   z: number,
+  prevScan?: RowScan,
 ): Promise<{ png: Buffer; scan: RowScan }> {
   await page.evaluate((zoom) => {
     const m = (window as unknown as Win).__xgisMap!
@@ -152,9 +159,23 @@ async function settleAtZoom(
     c.centerY = 0
     m.markCameraPositioned?.()
     m.invalidate?.()
+    if (c.zoom !== zoom) {
+      throw new Error(`camera.zoom clamped to ${c.zoom}, expected ${zoom} (maxZoom=${c.maxZoom})`)
+    }
   }, z)
   let png = await page.locator('#map').screenshot()
   let scan = await scanRow(page, png, expectFill(z), expectStroke(z))
+  const isFresh = (s: RowScan): boolean =>
+    prevScan
+      ? s.fillPx !== prevScan.fillPx ||
+        s.strokePx !== prevScan.strokePx ||
+        s.opaquePx !== prevScan.opaquePx
+      : s.opaquePx > 0
+  for (let i = 0; i < 15 && !isFresh(scan); i++) {
+    await page.waitForTimeout(500)
+    png = await page.locator('#map').screenshot()
+    scan = await scanRow(page, png, expectFill(z), expectStroke(z))
+  }
   for (let i = 0; i < 15; i++) {
     await page.waitForTimeout(500)
     const next = await page.locator('#map').screenshot()
@@ -194,7 +215,7 @@ test('a point layer composes @color AND @stroke independently, and both track th
   })
 
   const low = await settleAtZoom(page, Z_LOW)
-  const high = await settleAtZoom(page, Z_HIGH)
+  const high = await settleAtZoom(page, Z_HIGH, low.scan)
 
   expect(errors, `page errors:\n${errors.join('\n')}`).toEqual([])
 

@@ -739,8 +739,8 @@ export const emitPointWgsl = (variant: PointVariantSpec | null = null): string =
  *  segments buffers into R32F samplers (WebGl2Device's storage emulation). GLSL ES has one
  *  `main` per stage, so the non-kept stage entry is filtered out. Consumed by PointDraper
  *  behind a live `rhi.backend === 'webgl2'` guard, so the WebGPU boot never pays this emit
- *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). `variant` is always null on WebGL2 this
- *  slice (#1605 Phase 2 is WebGPU-only) — the param exists for signature symmetry. */
+ *  (mirrors emitCircleRetainedGlsl / emitLineGlsl). `variant` carries a real composer variant
+ *  on WebGL2 as of #1605 Phase 3 (point-material.ts passes `this.shaderVariant` through). */
 export const emitPointGlsl = (
   variant: PointVariantSpec | null,
   stage: 'vertex' | 'fragment',
