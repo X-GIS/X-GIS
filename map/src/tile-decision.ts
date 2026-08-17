@@ -83,8 +83,13 @@ export type TileDecision =
 
   /** Fetch needs to start (or continue) — visible tile not yet in
    *  catalog, no usable fallback. `requestKey` is what to fetch
-   *  (visible if in archive, else the closest archive ancestor). */
-  | { kind: 'pending'; requestKey: number | null }
+   *  (visible if in archive, else the closest archive ancestor).
+   *  `terminal` is true when `requestKey` is in the source's bounded,
+   *  self-expiring negative cache (`isFailed`) — the request is not a
+   *  transient cold-start miss but a tile the source has already given
+   *  up on for now. Optional/back-compat: call sites that don't supply
+   *  `isFailed` never see it set. See #1596 / #1269. */
+  | { kind: 'pending'; requestKey: number | null; terminal?: boolean }
 
 export interface ClassifyTileInputs {
   visible: TileCoord
@@ -114,6 +119,15 @@ export interface ClassifyTileInputs {
   hasAnySliceInCatalog: (key: number) => boolean
   /** True iff `key` exists in the source's archive index. */
   hasEntryInIndex: (key: number) => boolean
+  /** True iff `key` is in the source's bounded, self-expiring negative
+   *  cache (e.g. `PMTilesBackend.isFailed` via `TileCatalog.getTileState
+   *  === 'failed'`). Used only to mark a `pending` decision `terminal` —
+   *  the request keeps being pushed to the fetch queue (retry timing is
+   *  unchanged), but the caller can skip counting it as a "missed tile"
+   *  since it is a known, already-failing fetch rather than a transient
+   *  cold-start miss. Optional/back-compat: omitted call sites never
+   *  set `terminal`. See #1596. */
+  isFailed?: (key: number) => boolean
   sliceLayer: string
   /** True iff some slice for `visibleKey` is still in the renderer's
    *  deferred-upload queue. When set, even if THIS layer's slice is
@@ -404,7 +418,8 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
         ? archiveAncestor
         : null
   }
-  return { kind: 'pending', requestKey }
+  const terminal = requestKey !== null && (input.isFailed?.(requestKey) ?? false)
+  return { kind: 'pending', requestKey, terminal }
 }
 
 // ═══ Anticipatory prefetch decisions ═══════════════════════════════

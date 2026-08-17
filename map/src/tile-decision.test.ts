@@ -192,6 +192,63 @@ describe('classifyTile', () => {
     if (d.kind === 'pending') expect(d.requestKey).toBe(tileKey(0, 0, 0))
   })
 
+  // #1596 — the negative-cache signal (PMTilesBackend.isFailed /
+  // TileCatalog.getTileState==='failed') existed but was never wired
+  // into classifyFallback, so a permanently-failing key kept classifying
+  // as an ordinary 'pending' miss forever and render-loop-keep-warm never
+  // idled (totalMissed>0 uncapped). `terminal` lets the caller distinguish
+  // "known already-failing" from a transient cold-start miss without
+  // changing retry timing (requestKey is still returned/pushed to load).
+  it('pending decision is terminal when requestKey is in the isFailed negative cache', () => {
+    const visibleKey = tileKey(8, 100, 50)
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasEntryInIndex: () => true,
+        // Same scenario as the SHALLOWEST-ancestor test above: requestKey
+        // resolves to the z=0 root key.
+        isFailed: (k) => k === tileKey(0, 0, 0),
+      }),
+    )
+    expect(d.kind).toBe('pending')
+    if (d.kind === 'pending') {
+      expect(d.requestKey).toBe(tileKey(0, 0, 0))
+      expect(d.terminal).toBe(true)
+    }
+  })
+
+  it('pending decision is NOT terminal for a genuinely cold-start miss (isFailed omitted)', () => {
+    const visibleKey = tileKey(8, 100, 50)
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasEntryInIndex: () => true,
+      }),
+    )
+    expect(d.kind).toBe('pending')
+    if (d.kind === 'pending') expect(d.terminal).toBeFalsy()
+  })
+
+  it('terminal is keyed on the actual requestKey, not merely on isFailed being supplied', () => {
+    // Decoy: isFailed reports a DIFFERENT key as failed. Pins the
+    // `input.isFailed?.(requestKey)` call against a mutant that ORs in
+    // "isFailed !== undefined" instead of actually checking the key.
+    const visibleKey = tileKey(8, 100, 50)
+    const decoyKey = tileKey(3, 1, 1)
+    const d = classifyTile(
+      baseInputs({
+        visibleKey,
+        hasEntryInIndex: () => true,
+        isFailed: (k) => k === decoyKey,
+      }),
+    )
+    expect(d.kind).toBe('pending')
+    if (d.kind === 'pending') {
+      expect(d.requestKey).toBe(tileKey(0, 0, 0))
+      expect(d.terminal).toBeFalsy()
+    }
+  })
+
   it('pending walks down to the first uncached ancestor when shallower ancestors are loaded', () => {
     // Cesium replace refinement, mid-load: z=0..z=4 already in
     // catalog (skeleton + a few children). Walk should skip them and

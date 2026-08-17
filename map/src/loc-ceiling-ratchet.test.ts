@@ -191,7 +191,13 @@ const CEILINGS: Record<string, number> = {
   // 4913 -> 4911 (#1679 inc 6): the four polygon call sites moved their emit+key pairing
   // into material/polygon-baked.ts, which is the 'extract, don't grow' this ratchet asks
   // for — the id wiring landed OUTSIDE the god-file and took two lines of imports with it.
-  'map/src/render/vector-tile-renderer.ts': 4911,
+  // 4911 -> 4920 (#1596): wires the classifyTile call site's new `isFailed` predicate
+  // (+4, one-line lambda + its doc comment) and gates the `pending` consumer's
+  // recordMissedTile() on the new `terminal` flag (+5, one-line condition + its doc
+  // comment) — the fix itself is a bounded, self-expiring negative-cache lookup already
+  // owned by TileCatalog/PMTilesBackend; nothing extract-worthy, both additions are at
+  // their sole existing call/consumer site.
+  'map/src/render/vector-tile-renderer.ts': 4920,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

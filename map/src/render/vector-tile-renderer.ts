@@ -3149,6 +3149,10 @@ export class VectorTileRenderer {
           },
           hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
           hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
+          // Marks a `pending` decision `terminal` when the request key is
+          // in the source's bounded negative-cache — lets the consumer
+          // below skip counting a known-failing fetch as a missed tile.
+          isFailed: (k) => this.source!.getTileState(k) === 'failed',
           sliceLayer,
           // Coherence: any peer slice for this tile still queued blocks
           // primary in this layer too, so all consumers transition
@@ -3240,7 +3244,12 @@ export class VectorTileRenderer {
         }
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        this._drawStats.recordMissedTile()
+        // A terminal decision's requestKey is already in the source's
+        // negative-cache (isFailed) — keep retrying (retry timing is
+        // unchanged, loadTile no-ops while isFailed) but don't count it
+        // as a missed tile, otherwise a permanently-failing key keeps
+        // render-loop-keep-warm hot-looping forever (totalMissed>0). #1596
+        if (!inner.terminal) this._drawStats.recordMissedTile()
       }
     }
 
