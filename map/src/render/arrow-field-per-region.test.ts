@@ -3,8 +3,8 @@
 // #1459 gave each region its own texel RANGE in the shared arrow state. That was necessary and
 // not sufficient: the VELOCITY PAIR was still a single pair for the whole map. `FlowRenderer`
 // held one `arrowFieldU`/`arrowFieldV`, fed from `CoverageRenderer.activeFlowField()` — which
-// returns the FIRST resident region's field and says so in its own doc comment — and handed
-// that one pair to every advected batch, whatever domain it belonged to.
+// returned the FIRST resident region's field and said so in its own doc comment (deleted by
+// #1499) — and handed that one pair to every advected batch, whatever domain it belonged to.
 //
 // The consequence is NOT a position error. The VS reads `pos` and `origin` from the same texel,
 // so `pos − origin` stays inside the leash and screen position is dominated by the CPU-packed

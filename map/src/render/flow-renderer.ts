@@ -1,8 +1,9 @@
 // ═══ FlowRenderer — the IBFV advection arm (#1333) ═══
 //
-// Owns everything the flow layer needs on the GPU: the ping-pong pair (via FlowStepper), the
-// advect pipeline, and the sampler — the same ownership shape CoverageRenderer has, so the map
-// gains ONE member rather than four and the render pass stays a scheduling decision.
+// Owns everything the flow layer needs on the GPU: the ping-pong pair PER RESIDENT REGION (via
+// FlowStepper — #1499), the advect pipeline, and the sampler — the same ownership shape
+// CoverageRenderer has, so the map gains ONE member rather than four and the render pass stays a
+// scheduling decision.
 //
 // TWO THINGS THIS OWNS THAT NOTHING ELSE CAN:
 //
@@ -53,18 +54,30 @@ export interface FlowFrame {
   encoder: RhiCommandEncoder | null
 }
 
+/** ONE region's trail: its ping-pong pair (with its own dt clock), and the bind groups built
+ *  against the velocity pair THAT region carries.
+ *
+ *  Both halves have to be per region, and the second one is the easy half to forget: the groups
+ *  are memoized per read side and dropped when the field views change, so a single map shared by
+ *  a mosaic would see a different field on every region's step and clear itself each time —
+ *  minting a GPU object per region per frame, which is exactly what the memo exists to prevent. */
+interface RegionTrail {
+  stepper: FlowStepper
+  /** Bind groups keyed by the READ side. The pair alternates between exactly two, so this
+   *  settles at two entries per region and the 60 Hz path stops minting a GPU object per frame.
+   *  Dropped whenever this region's field views or the pipeline layout change. */
+  groups: Map<RhiTextureView, RhiBindGroup>
+  fieldU: RhiTextureView | null
+  fieldV: RhiTextureView | null
+}
+
 export class FlowRenderer {
-  private readonly stepper = new FlowStepper()
+  /** ONE trail PER REGION (#1499) — see `step` and `setTrailRegions`. */
+  private readonly trails = new Map<string, RegionTrail>()
   private draper: FlowAdvectDraper | null = null
   /** The format `draper` was built for — the pipeline/attachment agreement (see the header). */
   private draperFormat: RhiTextureFormat | null = null
   private sampler: RhiSampler | null = null
-  /** Bind groups keyed by the READ side. The pair alternates between exactly two, so this
-   *  settles at two entries and the 60 Hz path stops minting a GPU object per frame. Dropped
-   *  whenever the field views or the pipeline layout change (see `bindGroupFor`). */
-  private readonly bindGroups = new Map<RhiTextureView, RhiBindGroup>()
-  private bgFieldU: RhiTextureView | null = null
-  private bgFieldV: RhiTextureView | null = null
 
   /** The arrow ping-pong + its step (#1419) — see the section below. */
   private nearest: RhiSampler | null = null
@@ -77,12 +90,25 @@ export class FlowRenderer {
 
   constructor(private readonly rhi: RhiDevice) {}
 
-  /** Run one advection step for `field`. No-op when the grid is degenerate. */
-  step(frame: FlowFrame, field: FlowFieldRegion, opts: FlowStepOptions = FLOW_STEP_DEFAULTS): void {
+  /** Run one advection step for `region`'s `field`. No-op when the grid is degenerate.
+   *
+   *  PER REGION (#1499). The trail is a RECURSIVE filter over one grid, so a mosaic's domains
+   *  cannot share a history: with one pair the map advected the first resident region's field and
+   *  every other domain's drape sampled that same image, so a sibling's water stood still —
+   *  or rather, moved with another domain's current. Each region therefore owns its pair AND its
+   *  dt clock, which is why `consumeDt` is read off THIS region's stepper: a shared clock would
+   *  hand the first region of a frame the whole delta and every sibling a zero. */
+  step(
+    frame: FlowFrame,
+    region: string,
+    field: FlowFieldRegion,
+    opts: FlowStepOptions = FLOW_STEP_DEFAULTS,
+  ): void {
     // `floatBlendTargets` is the closest cap the RHI exposes; flow-targets.ts records why that
     // is conservative in the safe direction (an 8-bit history, never a broken framebuffer).
     const floatTargets = this.rhi.caps.floatBlendTargets
-    const draw = this.stepper.step(
+    const trail = this.trailFor(region)
+    const draw = trail.stepper.step(
       this.rhi,
       {
         width: field.width,
@@ -90,7 +116,7 @@ export class FlowRenderer {
         spanDeg: field.spanDeg,
         midLatDeg: field.midLatDeg,
       },
-      this.stepper.consumeDt(frame.elapsedMs),
+      trail.stepper.consumeDt(frame.elapsedMs),
       floatTargets,
       opts,
     )
@@ -104,7 +130,7 @@ export class FlowRenderer {
       this.clearView(frame, draw.write)
     }
 
-    const draper = this.ensureDraper()
+    const draper = this.ensureDraper(trail.stepper.targets.storageFormat)
     const sampler = (this.sampler ??= this.rhi.createSampler({ mag: 'linear', min: 'linear' }))
     const pass = this.begin(frame, {
       label: 'flow-advect',
@@ -113,7 +139,7 @@ export class FlowRenderer {
       colorAttachments: [{ view: draw.write, loadOp: 'load', storeOp: 'store' }],
     })
     if (!pass) return
-    const bg = this.bindGroupFor(draper, draw.read, field, sampler)
+    const bg = this.bindGroupFor(draper, trail, draw.read, field, sampler)
     draper.draw(
       pass,
       packFlowAdvectUniform(
@@ -128,9 +154,26 @@ export class FlowRenderer {
     pass.end()
   }
 
-  /** The most recently advected image — what the drape samples. Null before the first step. */
-  get currentView(): RhiTextureView | null {
-    return this.stepper.currentView
+  /** The most recently advected image FOR ONE REGION — what that region's drape samples (#1499).
+   *  Null before this region's first step, and for a region carrying no trail at all, which the
+   *  drape reads as "no motion layer this frame" and multiplies by an exact 1.0. */
+  trailViewFor(region: string): RhiTextureView | null {
+    return this.trails.get(region)?.stepper.currentView ?? null
+  }
+
+  /** Declare which regions have a trail THIS frame — the same every-frame declaration
+   *  `setArrowFields` carries, and for the same lifetime reason (#1419/#1458): a region the
+   *  mosaic has evicted must not keep a ping-pong pair alive for the rest of the session. The
+   *  pair is destroyed here; a sibling's is untouched, which is the whole point of keying it. */
+  setTrailRegions(fields: ReadonlyMap<string, FlowFieldRegion>): void {
+    // Nothing stepped yet ⇒ nothing to retire, and no snapshot array to mint. The pass calls
+    // this EVERY frame, including on maps that will never carry a coverage.
+    if (this.trails.size === 0) return
+    for (const region of [...this.trails.keys()]) {
+      if (fields.has(region)) continue
+      this.trails.get(region)?.stepper.destroy()
+      this.trails.delete(region)
+    }
   }
 
   // ── The arrow ping-pong (#1419) ─────────────────────────────────────────────────────────
@@ -161,14 +204,14 @@ export class FlowRenderer {
    *  map when no region carries one any more.
    *
    *  ONE PAIR PER REGION, and that is the whole of #1458's second half. This used to be a single
-   *  pair, fed from `CoverageRenderer.activeFlowField()` — the FIRST resident region's field —
-   *  and handed to every advected batch whatever domain it belonged to. The arrows still landed
-   *  in roughly the right places (screen position comes from the CPU-packed per-instance
-   *  lon/lat, and `pos`/`origin` are read from the same texel so the leash held), which is why
-   *  a coverage metric could not see it. What was wrong is everything DERIVED from the field: a
-   *  sibling domain's arrows took their band colour, heading and scale from another domain's
-   *  water, and were advected through its degree span and centre latitude as well — from frame
-   *  zero, not as accumulated drift.
+   *  pair, fed from the FIRST resident region's field (`CoverageRenderer.activeFlowField()`, since
+   *  deleted by #1499), and handed to every advected batch whatever domain it belonged to. The
+   *  arrows still landed in roughly the right places (screen position comes from the CPU-packed
+   *  per-instance lon/lat, and `pos`/`origin` are read from the same texel so the leash held),
+   *  which is why a coverage metric could not see it. What was wrong is everything DERIVED from
+   *  the field: a sibling domain's arrows took their band colour, heading and scale from another
+   *  domain's water, and were advected through its degree span and centre latitude as well — from
+   *  frame zero, not as accumulated drift.
    *
    *  Called by the flow pass EVERY frame. That is a LIFETIME requirement, not a freshness one —
    *  the mosaic evicts a region and DESTROYS its flow textures,
@@ -198,7 +241,8 @@ export class FlowRenderer {
   }
 
   dispose(): void {
-    this.stepper.destroy()
+    for (const trail of this.trails.values()) trail.stepper.destroy()
+    this.trails.clear()
     if (this.sampler) this.rhi.destroySampler(this.sampler)
     if (this.nearest) this.rhi.destroySampler(this.nearest)
     this.sampler = null
@@ -206,42 +250,53 @@ export class FlowRenderer {
     this.arrowFields.clear()
     this.draper = null
     this.draperFormat = null
-    this.bindGroups.clear()
-    this.bgFieldU = this.bgFieldV = null
+  }
+
+  /** This region's trail, minted on its first step. */
+  private trailFor(region: string): RegionTrail {
+    let trail = this.trails.get(region)
+    if (!trail) {
+      trail = { stepper: new FlowStepper(), groups: new Map(), fieldU: null, fieldV: null }
+      this.trails.set(region, trail)
+    }
+    return trail
   }
 
   /** Build (or rebuild) the advect pipeline for the pair's CURRENT storage format. Rebuilding on
    *  a format change is not defensive: a device swap can move the pair between r16float and the
-   *  rgba8unorm floor, and a pipeline still compiled for the old one mismatches its attachment. */
-  private ensureDraper(): FlowAdvectDraper {
-    const fmt = this.stepper.targets.storageFormat
+   *  rgba8unorm floor, and a pipeline still compiled for the old one mismatches its attachment.
+   *
+   *  ONE pipeline for every region: the format comes from a DEVICE capability, so every region's
+   *  pair is allocated in the same one and a second pipeline would be the same pipeline twice. */
+  private ensureDraper(fmt: RhiTextureFormat): FlowAdvectDraper {
     if (!this.draper || this.draperFormat !== fmt) {
       this.draper = new FlowAdvectDraper(this.rhi, fmt)
       this.draperFormat = fmt
-      // The cached groups were built against the OLD pipeline's layout.
-      this.bindGroups.clear()
+      // The cached groups were built against the OLD pipeline's layout — every region's.
+      for (const trail of this.trails.values()) trail.groups.clear()
     }
     return this.draper
   }
 
-  /** The step's bind group, memoized per read side. Invalidated when the coverage re-arms (new
-   *  field views — stepping the forecast hour does this every time), so a stale group can never
-   *  keep the previous hour's velocities bound. */
+  /** The step's bind group, memoized per region and then per read side. Invalidated when that
+   *  region re-arms (new field views — stepping the forecast hour does this every time), so a
+   *  stale group can never keep the previous hour's velocities bound. */
   private bindGroupFor(
     draper: FlowAdvectDraper,
+    trail: RegionTrail,
     read: RhiTextureView,
     field: FlowFieldRegion,
     sampler: RhiSampler,
   ): RhiBindGroup {
-    if (field.u !== this.bgFieldU || field.v !== this.bgFieldV) {
-      this.bindGroups.clear()
-      this.bgFieldU = field.u
-      this.bgFieldV = field.v
+    if (field.u !== trail.fieldU || field.v !== trail.fieldV) {
+      trail.groups.clear()
+      trail.fieldU = field.u
+      trail.fieldV = field.v
     }
-    let bg = this.bindGroups.get(read)
+    let bg = trail.groups.get(read)
     if (!bg) {
       bg = draper.bindGroup(read, field.u, field.v, sampler)
-      this.bindGroups.set(read, bg)
+      trail.groups.set(read, bg)
     }
     return bg
   }
