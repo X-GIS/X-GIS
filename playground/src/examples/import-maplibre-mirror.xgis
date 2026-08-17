@@ -1,0 +1,47 @@
+xgis 1
+
+/* The MapLibre demo style, served from a COMMITTED offline mirror (#1495).
+ *
+ * Byte-identical to `import-maplibre-demo.xgis` except for the URL: the
+ * style, its TileJSON, its z0-z2 MVT tiles and one glyph range live under
+ * `playground/public/vendor/demotiles-mirror/` instead of
+ * demotiles.maplibre.org.
+ *
+ * WHY A MIRROR EXISTS AT ALL. #1495 is three independent defects that only
+ * appear on THIS style — MVT line layers shattering into disconnected dots,
+ * the synthetic earth-surface show missing, and `submitted 4 / drawn 0` on
+ * orthographic. None of them reproduce on the local `long_chords` stand-in
+ * (#1521), so the style itself is the discriminator and a repro needs its
+ * real bytes. Headless Chromium in the cloud dev container cannot reach
+ * demotiles.maplibre.org (`ERR_CONNECTION_RESET` on every TLS-flag
+ * combination tried; `curl` reaches it fine), and CI's render-gate leg runs
+ * no azimuthal spec. Committing the bytes is what makes the repro runnable
+ * in both places, and deterministic in both.
+ *
+ * PROVENANCE — regenerate by re-fetching these and re-applying the rewrites:
+ *   style.json           https://demotiles.maplibre.org/style.json
+ *   tiles/tiles.json     https://demotiles.maplibre.org/tiles/tiles.json
+ *   tiles/{z}/{x}/{y}    https://demotiles.maplibre.org/tiles/{z}/{x}/{y}.pbf   z=0..2
+ *   font/…/0-255.pbf     https://demotiles.maplibre.org/font/Open%20Sans%20Semibold/0-255.pbf
+ *
+ * REWRITES applied to the fetched bytes (nothing else is touched — the
+ * style.json diff against upstream is exactly two lines):
+ *   style.json  `glyphs`             → /vendor/demotiles-mirror/font/{fontstack}/{range}.pbf
+ *   style.json  sources.maplibre.url → /vendor/demotiles-mirror/tiles/tiles.json
+ *   tiles.json  tiles[0]             → /vendor/demotiles-mirror/tiles/{z}/{x}/{y}.pbf
+ *   tiles.json  maxzoom  6 → 2
+ *
+ * The maxzoom clamp is load-bearing, not a size trim. `runSource` fits the
+ * camera to the source bounds BEFORE applying the URL hash, and that fit
+ * lands at z≈7.18 — with maxzoom 6 the selector would fire a burst of z6
+ * requests the mirror cannot answer, and the repro would open on a wall of
+ * 404s. Declaring the mirrored depth in the manifest makes the selector
+ * clamp instead (`floor(cameraZoom)` capped at `source.maxLevel`), so every
+ * request the page makes resolves. z0-z2 is 22 tiles; z0-z6 is 5461.
+ *
+ * Use at the camera the issue measured: #1.5/20/140. That is where the
+ * style draws ONLY line-placed labels (`geolines-label` minzoom 1,
+ * `countries-label` minzoom 2) and where the sweep was taken.
+ */
+
+import "/vendor/demotiles-mirror/style.json"
