@@ -254,14 +254,16 @@ describe('GpuFaultDrain is WIRED into the render loop (#1599)', () => {
   it('both popped validation scopes route their message into the shared ctx queue', () => {
     // reportErrorScope's third argument is the INJECTED sink — it is what puts a
     // scope-resolved validation error into the SAME queue the drain reads
-    // (render-loop-helpers.ts, #1599). Both call sites close over the real writer.
+    // (render-loop-helpers.ts, #1599). Both call sites pass the ONE bound writer
+    // (`_queueValidation`), which is also the file's single capped-writer call
+    // site — gl-error-sink-seam.test.ts pins that count at exactly 1 (#1046).
     expect(src).toContain(
-      'reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, (msg) =>',
+      'reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this._queueValidation)',
     )
     expect(src).toContain(
-      "reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', (msg) =>",
+      "reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this._queueValidation)",
     )
-    expect(src.match(/pushValidationError\(this\.host\.ctx, msg\)/g)).toHaveLength(2)
+    expect(src.match(/pushValidationError\(this\.host\.ctx, /g)).toHaveLength(1)
   })
 
   it('the popped-scope helper stays backend-NEUTRAL — the sink is injected (#991)', () => {

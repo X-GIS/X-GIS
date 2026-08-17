@@ -1118,16 +1118,17 @@ const CEILINGS: Record<string, number> = {
   // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
   // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
   // took the inline prefetch block out of the chain path too.
-  // 937→955 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
+  // 937→957 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
   // GpuFaultDrain field, and the call after the GL-error drain. The drain itself lives in
   // render-loop-gpu-fault.ts (a new ~94-LOC file) precisely so this god-file does not
   // absorb it; the wiring plus the prose naming why an async validation fault cannot
-  // reach the 3-strike halt is +11 of it. The remaining +7 is the #1599 fix-up (review
-  // finding 1): both reportErrorScope call sites now build the validation sink HERE —
-  // `(msg) => pushValidationError(this.host.ctx, msg)`, which prettier wraps over 3
-  // lines each — because this file is the one that already holds the baselined
-  // backend-adapter import, and render-loop-helpers.ts must not take one.
-  'map/src/render-loop.ts': 955,
+  // reach the 3-strike halt is +11 of it. The rest is the #1599 fix-up (review finding 1)
+  // + the #1046 seam: the validation sink is built HERE as the single bound
+  // `_queueValidation` field — this file is the one that already holds the baselined
+  // backend-adapter import (render-loop-helpers.ts must not take one), and
+  // gl-error-sink-seam.test.ts pins `pushValidationError(this.host.ctx, ` to exactly
+  // one call site, which that field is.
+  'map/src/render-loop.ts': 957,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

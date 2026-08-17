@@ -92,6 +92,12 @@ export class RenderLoop {
    *  for this loop's lifetime. */
   private readonly _gpuFaults = new GpuFaultDrain()
 
+  /** The ONE capped-writer call site in this file (#1046 Inc-E1 seam,
+   *  gl-error-sink-seam.test.ts pins it): the GL-error chain drain and both
+   *  popped-scope sinks all funnel through this bound writer, so the queue
+   *  keeps a single authority and no per-frame closure is allocated. */
+  private readonly _queueValidation = (msg: string): void => pushValidationError(this.host.ctx, msg)
+
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
     this._nodes.length = 0
@@ -331,9 +337,7 @@ export class RenderLoop {
         // resolved message also goes into the shared capped queue the GPU-fault
         // drain below reads. The sink is injected so render-loop-helpers.ts
         // stays free of the concrete-backend import (#991 ratchet).
-        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, (msg) =>
-          pushValidationError(this.host.ctx, msg),
-        )
+        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this._queueValidation)
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -547,7 +551,7 @@ export class RenderLoop {
     // Inc-E1 (flip precondition MINOR-5): drain the WebGL2 frame-encoder GL-error
     // queue into the capped writer (#1153 P2 R6) — the twin's consumer mirrored.
     for (const message of rhiFrame.takeGlErrors?.() ?? []) {
-      pushValidationError(this.host.ctx, message)
+      this._queueValidation(message)
     }
     // #1599 — re-emit the queue's NEW entries (this frame's GL drain, the WebGPU
     // uncapturederror listener, last frame's popped scopes) on the typed map
@@ -588,9 +592,7 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', (msg) =>
-      pushValidationError(this.host.ctx, msg),
-    )
+    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this._queueValidation)
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom
