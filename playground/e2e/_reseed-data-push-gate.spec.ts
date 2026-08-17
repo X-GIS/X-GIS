@@ -131,7 +131,7 @@ test('a host data push reaches the GPU, and a second push replaces the first (#1
   })
   // Let the demo's own tiles finish loading, so the push lands on a settled source rather than
   // racing the initial load (both paths must work; a settled source is the reproducible one).
-  await page.waitForTimeout(12_000)
+  await settle(page)
 
   const before = await sourceTris(page, SOURCE)
   // Liveness, not just a number: a dead source reports 0 and would make any "it grew" assertion
@@ -140,8 +140,7 @@ test('a host data push reaches the GPU, and a second push replaces the first (#1
 
   const pushedA = await push(page, 90)
   expect(pushedA).toBe(8100)
-  await page.waitForTimeout(8000)
-  const afterA = await sourceTris(page, SOURCE)
+  const afterA = await settle(page)
 
   // The bug's signature is `afterA === before` — byte-identical, forever. A dense grid of 8100
   // 25-vertex polygons over the viewport is orders of magnitude more geometry than the stock
@@ -161,8 +160,7 @@ test('a host data push reaches the GPU, and a second push replaces the first (#1
   // gate: the defect's signature is a byte-identical frame, forever.
   const pushedB = await push(page, 30)
   expect(pushedB).toBe(900)
-  await page.waitForTimeout(8000)
-  const afterB = await sourceTris(page, SOURCE)
+  const afterB = await settle(page)
   const delta = Math.abs(afterB - afterA) / afterA
   expect(delta, `a second push must replace the first (${afterA} → ${afterB})`).toBeGreaterThan(0.2)
   expect(afterB, 'and must not blank the layer').toBeGreaterThan(0)
