@@ -378,6 +378,17 @@ export class PMTilesBackend implements TileSource {
     return Date.now() < failed.expiresAt
   }
 
+  /** TileSource.failureCount — consecutive `'failed'` fetches for `key`,
+   *  the same `count` that drives {@link failedKeyTtlMs}'s escalation.
+   *  Deliberately NOT gated on the TTL still running: the entry survives
+   *  expiry (rewritten to `expiresAt: 0`) precisely to keep this number,
+   *  and a successful fetch deletes the entry outright — so 0 means "no
+   *  failure on record" under either path. Read by the render loop to
+   *  bound how long a failing tile keeps it awake (#1596). */
+  failureCount(key: number): number {
+    return this.failedKeys.get(key)?.count ?? 0
+  }
+
   /** Cancel in-flight fetches for keys NOT in `activeKeys`. Called by
    *  the catalog (driven by VTR per-frame) when the camera moves
    *  and previously-requested tiles become irrelevant. The fetcher

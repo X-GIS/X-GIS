@@ -311,4 +311,13 @@ export interface TileSource {
    *  Backends without retry logic (in-memory GeoJSON, XGVT-binary
    *  range fetches) can omit. Default: never failed. */
   isFailed?(key: number): boolean
+
+  /** OPTIONAL: how many CONSECUTIVE fetch failures the backend has on
+   *  record for `key`; 0 when it never failed or a later fetch succeeded.
+   *  The count BEHIND `isFailed` — it outlives the TTL that makes that
+   *  boolean go false, so a caller can tell a first blip (recovery still
+   *  plausible: keep the render loop awake for the retry) from a key the
+   *  backend keeps failing (stop expecting one). See #1596. Backends
+   *  without retry logic can omit. Default: never failed. */
+  failureCount?(key: number): number
 }

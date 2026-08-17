@@ -608,6 +608,19 @@ export class TileCatalog {
     return 'unloaded'
   }
 
+  /** Consecutive fetch failures any backend has on record for `key` — the
+   *  count behind `getTileState`'s `'failed'`, which unlike that state
+   *  survives the negative-cache TTL. MAX across backends: the one that has
+   *  failed most is the one that decides whether a retry is still worth
+   *  keeping the render loop awake for (`map/src/tile-decision.ts`, #1596). */
+  getTileFailureCount(key: number): number {
+    let n = 0
+    for (const b of this.backends) {
+      n = Math.max(n, b.failureCount?.(key) ?? 0)
+    }
+    return n
+  }
+
   /** Diagnostic — total tile-key count partitioned by state. Cheap;
    *  no per-key iteration of backends. Useful for FLICKER / load-curve
    *  inspection in inspectPipeline. The `failed` count is omitted

@@ -198,7 +198,12 @@ const CEILINGS: Record<string, number> = {
   // per-instance show-id prefix, the showId derivation at the emit site, the
   // PointRenderer back-reference destroy() needs, and the eviction call itself
   // (without which a setSourceData swap leaks three GPU buffers per point show).
-  'map/src/render/vector-tile-renderer.ts': 4932,
+  // MERGE UNION (#1596 <- main): main's +21 (#1632, above) and this branch's +12 (the
+  // classifyTile failureCount predicate wiring and the terminal-flag gate on the
+  // `pending` consumer's recordMissedTile(); retry ladder stays in PMTilesBackend,
+  // bound in tile-decision.ts) are non-overlapping and compose. Value is the MEASURED
+  // post-merge, post-prettier count (4911 + 21 + 12 = 4944, arithmetic agrees).
+  'map/src/render/vector-tile-renderer.ts': 4944,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -985,7 +990,13 @@ const CEILINGS: Record<string, number> = {
   // branch, which changes content with no write for `setSlice` to see. +4 more for the
   // review correction: the doc had claimed it fires "whenever content changes", which is
   // false — eviction deletes bypass this class entirely. Measured post-hook.
-  'data/src/tile-catalog.ts': 1399,
+  // 1399→1412 (#1596): `getTileFailureCount()` — the count BEHIND `getTileState`'s
+  // `'failed'`, which the render loop needs to bound how long a failing VT tile keeps it
+  // awake. RAISED, same shape as the #1448/#1616 entries above: a 6-line accessor that
+  // folds the backends exactly as `getTileState` (its immediate neighbour) already does
+  // has nowhere cohesive to extract to, and splitting the pair would put two readings of
+  // one backend's failure cache in two files. Measured 1412 post-commit, no hook.
+  'data/src/tile-catalog.ts': 1412,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
