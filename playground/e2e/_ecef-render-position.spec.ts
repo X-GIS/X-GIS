@@ -40,7 +40,7 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
     cam.bearing = 0
     cam.pitch = 0
     const frame = cam.getECEFFrameView(512, 512, 1)
-    return { mvp: Array.from(frame.matrix) }
+    return { mvp: Array.from(frame.matrix) as number[] }
   })
 
   // Polygon: a small quad around lon=10°, lat=0°. Tile center = its own corner
@@ -132,9 +132,7 @@ test('ECEF polygon fill lands at its true screen position (camera-relative)', as
         const info = await mod.getCompilationInfo()
         const err = info.messages.filter((m: { type: string }) => m.type === 'error')
         if (err.length)
-          throw new Error(
-            'compile: ' + err.map((m: { message: string }) => m.message).join('|'),
-          )
+          throw new Error('compile: ' + err.map((m: { message: string }) => m.message).join('|'))
         const pipe = device.createRenderPipeline({
           layout: 'auto',
           vertex: {

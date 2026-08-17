@@ -350,6 +350,10 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
+      # The e2e specs are OUTSIDE the build graph (playground/e2e/tsconfig.json
+      # is a standalone program), so `bun run build` never sees them — typecheck
+      # them explicitly or spec-only type rot lands silently (#1683).
+      - run: ./node_modules/.bin/tsc -p playground/e2e/tsconfig.json --noEmit
 
   # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
   # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any
