@@ -24,6 +24,8 @@ import { isGlobeProj } from '@xgis/geo'
 import type { Camera } from './camera'
 import { WORLD_MERC } from '@xgis/geo'
 import { xlog } from '@xgis/shared'
+import type { RenderContext } from '@xgis/engine'
+import { pushValidationError } from '@xgis/rhi-webgpu'
 
 // Projected-x world circumference for the x-periodic flat NON-Mercator set
 // (equirect 1 / natural_earth 2 / oblique_mercator 6). This is the SAME
@@ -43,11 +45,31 @@ const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
  *  silently dropped a real fault signal (a stack mismatch means an earlier
  *  push/pop is unbalanced; a device-lost reject is the first sign of a GPU
  *  fault). This is the side-effecting exception to this file's pure-helper
- *  rule — it owns only the `xlog` logger, no map state. */
-export function reportErrorScope(popPromise: Promise<string | null>, tag: string): void {
+ *  rule — it owns only the `xlog` logger and the ctx validation queue, no map
+ *  state.
+ *
+ *  #1599 — a RESOLVED message is ALSO queued on `ctx._validationErrors`, the
+ *  capped sink the WebGPU `uncapturederror` listener (rhi-webgpu/src/gpu.ts)
+ *  and the WebGL2 `takeGlErrors` drain (render-loop.ts) already write. Routing
+ *  all three origins through the one queue is what lets the render loop surface
+ *  them on the typed map `'error'` channel ({ phase: 'gpufault' }) from a single
+ *  drain. No double-count: WebGPU does not also raise `uncapturederror` for an
+ *  error a scope captured, and on WebGL2 `popValidationScope` resolves null.
+ *  The queued text carries `tag` so the event keeps the pass locality the
+ *  console line has. The REJECTED branch stays log-only — a rejected pop is a
+ *  scope-stack / device condition, not a validation message, and device loss
+ *  already owns the `'devicelost'` phase. */
+export function reportErrorScope(
+  popPromise: Promise<string | null>,
+  tag: string,
+  ctx: RenderContext,
+): void {
   popPromise
     .then((msg) => {
-      if (msg) xlog.error(`[X-GIS ${tag}]`, msg)
+      if (msg) {
+        xlog.error(`[X-GIS ${tag}]`, msg)
+        pushValidationError(ctx, `${tag}: ${msg}`)
+      }
     })
     .catch((e) => {
       xlog.error(

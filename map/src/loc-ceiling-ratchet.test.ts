@@ -609,7 +609,10 @@ const CEILINGS: Record<string, number> = {
   // right one, the one failure mode the warning above cannot see. +3 = the token/CSS
   // resolver ahead of the NULLABLE parse (one line, replacing two) plus the four lines
   // naming why, mirroring what render/passes/label-pass.ts has always done. MEASURED.
-  'map/src/map.ts': 5439,
+  // 5439→5442 (#1599): `_eventBus` drops `private` so `FrameLoopHost` can Pick it —
+  // the render loop's GPU-fault drain fires the typed `'error'` event through it. +3
+  // is the doc lines naming why it is package-internal, not a new member. MEASURED.
+  'map/src/map.ts': 5442,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -622,7 +625,10 @@ const CEILINGS: Record<string, number> = {
   // hex regex, existing only to turn the total parser's opaque black back into the null the
   // setters gate on. feature-helpers' `hexToRgba` now IS that contract, so the setters call
   // it directly. Deleting a duplicate authority, not moving lines elsewhere.
-  'map/src/layer.ts': 817,
+  // 817→819 (#1599): `XGISMapErrorPhase` gains a fourth member, `'gpufault'` — an async
+  // GPU validation/OOM fault now reaches the typed map `'error'` channel instead of only
+  // the console. +2 = the two prose lines documenting the phase; the union edits in place.
+  'map/src/layer.ts': 819,
   // Baselined at #1235 (measured 846): SourceManager crossed NEW_FILE_CAP with
   // the gap-1/gap-2 seams — the setSourceData virtual re-seed branch (the
   // legacy worker-compile path renders fills/points but no line segments) +
@@ -854,7 +860,13 @@ const CEILINGS: Record<string, number> = {
   // unrelated to #1575. Auto-merge silently took main's ceiling edit without the paired
   // file edit that justified it on main's side; restored to the branch's own measured
   // reality.
-  'map/src/render-loop-helpers.ts': 818,
+  // 818→840 (#1599): `reportErrorScope` takes the RenderContext and queues a RESOLVED
+  // validation message on `ctx._validationErrors` — the shared capped sink the WebGPU
+  // uncapturederror listener and the WebGL2 takeGlErrors drain already write, so all
+  // three fault origins have ONE consumer. +22 = the 2 imports, the signature prettier
+  // now wraps over 4 lines, the 3-line body block, and the contract prose naming why the
+  // rejected arm stays log-only and why nothing double-counts.
+  'map/src/render-loop-helpers.ts': 840,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -1103,7 +1115,13 @@ const CEILINGS: Record<string, number> = {
   // Ceiling re-measured on the MERGED file below: 945→937, a real shrink — the four
   // twin-only imports went with the body, and #1587's pumpFramePrefetch extraction
   // took the inline prefetch block out of the chain path too.
-  'map/src/render-loop.ts': 937,
+  // 937→948 (#1599): the per-frame GPU-fault drain is WIRED here — one import, the
+  // GpuFaultDrain field, and the call after the GL-error drain. The drain itself lives in
+  // render-loop-gpu-fault.ts (a new ~88-LOC file) precisely so this god-file does not
+  // absorb it; +11 is the wiring plus the prose naming why an async validation fault
+  // cannot reach the 3-strike halt. The two reportErrorScope call sites gained an
+  // argument in place.
+  'map/src/render-loop.ts': 948,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

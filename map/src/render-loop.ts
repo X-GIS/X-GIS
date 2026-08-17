@@ -34,6 +34,7 @@ import { isOverdrawActive, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
+import { GpuFaultDrain } from './render-loop-gpu-fault'
 import { keepLoopWarm } from './render-loop-keep-warm'
 import { pumpFramePrefetch } from './render-loop-prefetch'
 import {
@@ -85,6 +86,11 @@ export class RenderLoop {
    *  the owning map through a `PassHost`. Registered once by content
    *  (map.ts → render/passes/pass-chain.ts) right after construction. */
   private readonly _nodes: RenderNode[] = []
+
+  /** #1599 — per-frame drain of `ctx._validationErrors` onto the typed map
+   *  `'error'` channel. Holds the last-surfaced entry + the rate-limit counter
+   *  for this loop's lifetime. */
+  private readonly _gpuFaults = new GpuFaultDrain()
 
   /** Content (map.ts) hands the engine its ordered RenderNode chain. */
   registerNodes(nodes: readonly RenderNode[]): void {
@@ -322,7 +328,7 @@ export class RenderLoop {
       } finally {
         // Report BOTH a resolved validation error AND a rejected pop —
         // the rejection was previously swallowed (Audit ⑧ B2).
-        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`)
+        reportErrorScope(rhiFrame.popValidationScope(), `pass:${label}`, this.host.ctx)
       }
       perfMarkEnd(`encoder.pass.${label}`)
     }
@@ -538,6 +544,11 @@ export class RenderLoop {
     for (const message of rhiFrame.takeGlErrors?.() ?? []) {
       pushValidationError(this.host.ctx, message)
     }
+    // #1599 — re-emit the queue's NEW entries (this frame's GL drain, the WebGPU
+    // uncapturederror listener, last frame's popped scopes) on the typed map
+    // 'error' channel. Async GPU faults never throw out of render(), so the
+    // 3-strike halt cannot see them; this is their only typed channel.
+    this._gpuFaults.drain(this.host.ctx, this.host._eventBus)
     perfMarkEnd('frame.total')
     flushPerFrameMarks()
 
@@ -572,7 +583,7 @@ export class RenderLoop {
     // Drain any readbacks that finished mapping last frame, kick mapAsync
     // on freshly-submitted ones. Cheap when disabled (no-op).
     this.host.gpuTimer?.pollReadbacks()
-    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation')
+    reportErrorScope(rhiFrame.popValidationScope(), 'frame-validation', this.host.ctx)
 
     // Collect stats from renderers
     this.host._stats.zoom = this.host.camera.zoom
