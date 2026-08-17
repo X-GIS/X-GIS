@@ -919,3 +919,76 @@ describe('Camera — effectiveMpp globe/ECEF cos-lat cap (#964p2)', () => {
     expect(naive / frame).toBeGreaterThan(4) // reverted path is way off → (a) fails
   })
 })
+
+// ── Camera.setProjection — the single authority for the projection kind (#1506) ──
+//
+// Before this method the promotion lived open-coded in render-loop.render and was
+// pushed into the camera field-by-field (azimuthalProjType, then a local `if
+// (azimuthalTilted) projType = 7`, then globeMode, then projType), so the camera
+// could not resolve — or even state — its own projection. These tests pin the
+// promotion RULE at its new owner: same condition, same three fields, one writer.
+// Fail-before: on origin/main `Camera` has no `setProjection`, so every case here
+// dies with "cam.setProjection is not a function" (and tsc rejects the call).
+describe('Camera.setProjection — projection-kind single authority (#1506)', () => {
+  it('azimuthal (3) + pitch>0 promotes to the globe path, keeping the source kind', () => {
+    const cam = new Camera(0, 0, 2)
+    cam.pitch = 45
+    const resolved = cam.setProjection(3)
+    expect(resolved).toBe(7)
+    expect(cam.projType).toBe(7)
+    expect(cam.azimuthalProjType).toBe(3) // survives the promotion (flatViewHeightCapM)
+    expect(cam.globeMode).toBe(true)
+  })
+
+  it('azimuthal (3) at pitch=0 stays the exact 2D disc', () => {
+    const cam = new Camera(0, 0, 2)
+    const resolved = cam.setProjection(3)
+    expect(resolved).toBe(3)
+    expect(cam.projType).toBe(3)
+    expect(cam.azimuthalProjType).toBe(3)
+    expect(cam.globeMode).toBe(false)
+  })
+
+  it('mercator (0) never promotes, at any pitch', () => {
+    for (const pitch of [0, 1, 45, 85]) {
+      const cam = new Camera(0, 0, 2)
+      cam.pitch = pitch
+      expect(cam.setProjection(0)).toBe(0)
+      expect(cam.projType).toBe(0)
+      expect(cam.globeMode).toBe(false)
+    }
+  })
+
+  it('globe (7) is globeMode at any pitch (no promotion needed)', () => {
+    for (const pitch of [0, 60]) {
+      const cam = new Camera(0, 0, 2)
+      cam.pitch = pitch
+      expect(cam.setProjection(7)).toBe(7)
+      expect(cam.projType).toBe(7)
+      expect(cam.globeMode).toBe(true)
+    }
+  })
+
+  it('reads the pitch ACCESSOR: a pitchLocked camera does not promote', () => {
+    // The moved condition is `this.pitch > 0`, and `pitch` reads 0 while locked.
+    // Testing `_pitch` instead would promote here — a real behaviour change.
+    const cam = new Camera(0, 0, 2)
+    cam.pitch = 60
+    cam.pitchLocked = true
+    expect(cam.setProjection(3)).toBe(3)
+    expect(cam.globeMode).toBe(false)
+  })
+
+  it('the returned kind IS the field the frame reads (no second authority)', () => {
+    const cam = new Camera(0, 0, 2)
+    for (const pitch of [0, 30]) {
+      cam.pitch = pitch
+      for (const src of [0, 1, 2, 3, 4, 5, 6, 7]) {
+        const resolved = cam.setProjection(src)
+        expect(resolved).toBe(cam.projType)
+        expect(cam.globeMode).toBe(isGlobeProj(resolved))
+        expect(cam.azimuthalProjType).toBe(src)
+      }
+    }
+  })
+})

@@ -10,6 +10,7 @@ import {
   WORLD_MERC,
   TILE_PX,
   EARTH_R,
+  GLOBE_PROJ_TYPE,
   isGlobeProj,
   flatViewHeightCapM,
   poleLimit,
@@ -95,7 +96,7 @@ export class Camera {
    *  leaves this false (keeps its perspective orbit camera). */
   globeOrtho = false
   /** Resolved projection kind (0=mercator … 3=orthographic … 7=globe),
-   *  pushed by the Map each frame. zoomAt reads it to choose a
+   *  resolved by `setProjection` (its only writer). zoomAt reads it to choose a
    *  projection-correct cursor anchor — the flat-plane Mercator
    *  unproject is only valid for the cylindrical/pseudocylindrical set;
    *  orthographic needs the spherical inverse so the geographic point
@@ -106,8 +107,8 @@ export class Camera {
    *  above is overwritten to 7 when an azimuthal disc tilts, so it can no
    *  longer tell ortho from azi/stereo — but the globeOrtho framing needs the
    *  per-projType flat view-height cap (flatViewHeightCapM) to keep the disc
-   *  the SAME on-screen scale across the pitch=0 boundary. Set by the render
-   *  loop each frame; read ONLY by `_globeFrame` in the globeOrtho branch, so
+   *  the SAME on-screen scale across the pitch=0 boundary. Set by
+   *  `setProjection`; read ONLY by `_globeFrame` in the globeOrtho branch, so
    *  the true perspective globe (projType 7, globeOrtho=false) is unaffected. */
   azimuthalProjType = 0
   private _globeMatrix = new Float32Array(16)
@@ -137,6 +138,31 @@ export class Camera {
     this.centerY = my
     this.centerLatDeg = mercatorYToLat(my)
     this.zoom = zoom
+  }
+
+  /** SINGLE AUTHORITY for the projection kind this camera draws with (#1506):
+   *  the only writer of `projType` / `azimuthalProjType` / `globeMode`. Takes
+   *  the SOURCE kind (`PROJECTION_NAME_TO_TYPE[projectionName]`), resolves the
+   *  promotion below, and RETURNS the projType the frame renders with — the
+   *  render loop used to open-code this and push the three fields itself, so
+   *  the camera was a per-frame write target instead of the authority.
+   *
+   *  Azimuthal-when-tilted: ortho/azimuthal_eq/stereographic are exact
+   *  2D discs at pitch=0 but promote to the true 3D sphere once the
+   *  user tilts. At pitch>0 we drive the globe vertex path (projType 7
+   *  → proj_globe) with the camera's ORTHOGRAPHIC orbit matrix
+   *  (globeOrtho was set in Map.setProjection). At pitch=0 they stay on
+   *  their exact 2D projection so the CPU/GPU consistency contract and
+   *  each projection's identity (stereographic ≠ ortho) are preserved.
+   *  The SOURCE kind survives the promotion in `azimuthalProjType` — see that
+   *  field for why the globeOrtho framing needs it (flatViewHeightCapM). */
+  setProjection(sourceProjType: number): number {
+    this.azimuthalProjType = sourceProjType
+    const azimuthalTilted = promotesToGlobeWhenTilted(sourceProjType) && this.pitch > 0
+    const resolved = azimuthalTilted ? GLOBE_PROJ_TYPE : sourceProjType
+    this.globeMode = isGlobeProj(resolved)
+    this.projType = resolved
+    return resolved
   }
 
   /** Resync centerLatDeg from the Mercator centerY. Call after any centerY

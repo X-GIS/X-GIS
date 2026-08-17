@@ -945,7 +945,15 @@ const CEILINGS: Record<string, number> = {
   // 1568→1496 (#1568): the ShaderVariantInfo→WGSL choke point + its memo moved to
   // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
   'map/src/render/pipeline-factory.ts': 1496,
-  'map/src/camera/camera.ts': 1419,
+  // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
+  // projection kind (azimuthal-when-tilted promotion → projType /
+  // azimuthalProjType / globeMode) instead of being a per-frame write target for
+  // three fields the render loop derived. This is a net repo SHRINK, not growth:
+  // render-loop.ts loses the same block (955→934 below, −21) and gains one call.
+  // Nothing to extract — the rule reads `this.pitch` and writes this class's own
+  // fields, so it IS camera state; a separate file would re-create the split the
+  // change exists to close. Most of the +23 is the moved rationale.
+  'map/src/camera/camera.ts': 1442,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
@@ -1203,7 +1211,12 @@ const CEILINGS: Record<string, number> = {
   // number is re-MEASURED here, never carried.
   // MERGE UNION (#1756 <- main): main's +20 (#1599 GPU-fault drain wiring, above) and
   // the adoption's -2 (#1355 locals dropped) compose. MEASURED post-merge, post-prettier.
-  'map/src/render-loop.ts': 955,
+  // 955→934 (#1506): the open-coded projection resolution (the promotion, its
+  // three camera field writes and their rationale) moved to Camera.setProjection,
+  // where the fields live; this file keeps one call reading the resolved kind.
+  // Two now-orphaned @xgis/geo imports (isGlobeProj, promotesToGlobeWhenTilted)
+  // went with it. Measured, not arithmetic.
+  'map/src/render-loop.ts': 934,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
