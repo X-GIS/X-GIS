@@ -81,6 +81,43 @@ async function frameGeometry(page: Page): Promise<{
   })
 }
 
+/** Poll `frameGeometry` until the drawn-tile histogram AND the triangle count are identical
+ *  across 3 consecutive samples, then return that reading — a settled geometry read instead
+ *  of a guess at how long convergence takes (#1463).
+ *
+ *  The fixed 12 s / 4 s waits this replaces sampled the tile set mid-convergence: the SAME
+ *  commit read a settled control of 20008 on one host and 28794 on another, because the two
+ *  arms were not sampled at the same point on their load curves — `bought -43.9%`, a number a
+ *  working ladder cannot produce either way. Polling for stability rather than fixed durations
+ *  is what #1779 already did for the reseed gate's `settle()`; this is the same fix applied
+ *  here.
+ *
+ *  Bounded at 90 s: this gate's own frames cost ~1-2 s under SwiftShader (see the file header),
+ *  so 90 s is dozens of samples rather than a hair trigger, and a genuine hang must still fail
+ *  loudly instead of silently reporting a moving target as settled. */
+async function settleGeometry(
+  page: Page,
+  label: string,
+  stableFor = 3,
+  capMs = 90_000,
+): Promise<Awaited<ReturnType<typeof frameGeometry>>> {
+  const t0 = Date.now()
+  let last: Awaited<ReturnType<typeof frameGeometry>> | undefined
+  let stable = 0
+  while (Date.now() - t0 < capMs) {
+    await page.waitForTimeout(500)
+    const g = await frameGeometry(page)
+    stable = last && g.byZoom === last.byZoom && g.tris === last.tris ? stable + 1 : 0
+    last = g
+    if (stable >= stableFor) return g
+  }
+  throw new Error(
+    `${label} arm never converged: last byZoom ${last?.byZoom ?? '(none)'}, tris ${last?.tris ?? -1} ` +
+      `after ${capMs}ms — the tile set was still moving when the cap hit. That is an ENVIRONMENT ` +
+      `result, not a regression: raise capMs or investigate why the loader never settles.`,
+  )
+}
+
 /** How many notches DOWN the controller currently is, straight from the controller (#1433).
  *  This is the premise "the host cannot keep up", read at its source: the ladder steps off
  *  RENDERED-frame intervals, the only signal that includes the GPU work this thread merely
@@ -168,6 +205,10 @@ async function run(
   step: number
   /** The far-field multiplier that reached the selector, not just the one computed. */
   farLodBoost: number
+  /** The controller's own median RENDERED-frame interval (ms), off `stats.ts` — reported
+   *  alongside `medMs` (the rAF-turn median `pump` measures) for diagnosis only; neither is
+   *  asserted on (#1753). */
+  ctrlMedianMs: number
   rounds: number
 }> {
   await page.setViewportSize({ width: 430, height: 715 })
@@ -190,9 +231,8 @@ async function run(
   ).toBe('webgl2')
   await page.waitForTimeout(12_000)
   expect(await seed(page)).toBe(SEED_GRID * SEED_GRID)
-  await page.waitForTimeout(12_000)
 
-  const before = (await frameGeometry(page)).tris
+  const before = (await settleGeometry(page, `adaptive=${adaptive ? 1 : 0} pre-pump`)).tris
   let medMs = await pump(page, frames)
   let rounds = 1
   // Extra rounds ONLY while the ladder is still at notch 0, so a run that steps in round 1 —
@@ -208,18 +248,29 @@ async function run(
     medMs = await pump(page, frames)
     rounds++
   }
-  await page.waitForTimeout(4000)
-  const after = await frameGeometry(page)
+  const after = await settleGeometry(page, `adaptive=${adaptive ? 1 : 0} post-pump`)
   // `step` and `farLodBoost` in ONE evaluate, off ONE inspection — read separately they can
   // straddle a frame and report a notch that never had that boost.
   const ad = await page.evaluate(() => {
     const pipe = (
       window as unknown as { __xgisMap?: { inspectPipeline(): unknown } }
     ).__xgisMap?.inspectPipeline() as
-      { adaptive?: { step: number; farLodBoost: number } } | undefined
-    return { step: pipe?.adaptive?.step ?? 0, farLodBoost: pipe?.adaptive?.farLodBoost ?? 1 }
+      { adaptive?: { step: number; farLodBoost: number; medianFrameMs: number } } | undefined
+    return {
+      step: pipe?.adaptive?.step ?? 0,
+      farLodBoost: pipe?.adaptive?.farLodBoost ?? 1,
+      medianFrameMs: pipe?.adaptive?.medianFrameMs ?? -1,
+    }
   })
-  return { before, after, medMs, step: ad.step, farLodBoost: ad.farLodBoost, rounds }
+  return {
+    before,
+    after,
+    medMs,
+    step: ad.step,
+    farLodBoost: ad.farLodBoost,
+    ctrlMedianMs: ad.medianFrameMs,
+    rounds,
+  }
 }
 
 test.describe.configure({ mode: 'serial' })
@@ -247,7 +298,7 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   console.log(
     `\n  adaptive=0  tris ${off.before} -> ${off.after.tris}, tiles ${off.after.tiles}` +
       ` z${off.after.coarsest}..${off.after.finest} ${off.after.byZoom},` +
-      ` med ${off.medMs.toFixed(1)} ms, notch ${off.step}`,
+      ` med ${off.medMs.toFixed(1)} ms, notch ${off.step}, ctrlMedianMs ${off.ctrlMedianMs.toFixed(1)}`,
   )
   expect(off.after.tris, 'the control must be drawing real geometry').toBeGreaterThan(10_000)
   expect(off.step, '`adaptive=0` must pin the ladder at notch 0').toBe(0)
@@ -256,7 +307,7 @@ test('the ladder trades far-field geometry for frame time under sustained overlo
   console.log(
     `  adaptive=1  tris ${on.before} -> ${on.after.tris}, tiles ${on.after.tiles}` +
       ` z${on.after.coarsest}..${on.after.finest} ${on.after.byZoom},` +
-      ` med ${on.medMs.toFixed(1)} ms, notch ${on.step}` +
+      ` med ${on.medMs.toFixed(1)} ms, notch ${on.step}, ctrlMedianMs ${on.ctrlMedianMs.toFixed(1)}` +
       ` (${on.rounds} pump round${on.rounds === 1 ? '' : 's'})` +
       ` at farLodBoost ${on.farLodBoost}` +
       `\n  ladder coarsened the horizon by ${off.after.coarsest - on.after.coarsest} zoom level(s)` +
