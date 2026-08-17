@@ -116,11 +116,20 @@ type StorePriv = {
 /** Build a store whose two poly arenas hold `liveTiles` cached slots of `slotBytes` each,
  *  interleaved with freed slots of HALF that size.
  *
- *  The half-size is load-bearing, not decoration. `GPUArena`'s free-list is keyed on the EXACT
- *  align4 footprint, so a freed slot of the same size would simply be popped by the next alloc
- *  and no fragmentation would exist — the harness would then measure a packed arena and prove
- *  nothing. Mismatched footprints are precisely what the allocator strands, and stranded bytes
- *  (`highWaterBytes - liveUsedBytes`) are what a same-size repack exists to hand back. */
+ *  TWO things make the fragmentation real, and BOTH are load-bearing — `GPUArena`'s free-list is
+ *  keyed on the EXACT align4 footprint, so a hole is stranded only while no pending alloc matches
+ *  its key:
+ *
+ *   1. The doomed slots are HALF-size, so the live `slotBytes` allocs cannot pop them.
+ *   2. They are freed only AFTER the whole bump walk, never inside it. Freeing one per iteration
+ *      strands nothing: the NEXT iteration's doomed alloc has the identical footprint and pops
+ *      the very same hole straight back. Measured, at liveTiles=20 / slotBytes=1 MiB, every
+ *      doomed alloc returned offset 1 MiB and the bump reached 20.5 MiB rather than 30 MiB —
+ *      one 0.5 MiB hole in total, `reclaimableBytes` BELOW `MIN_RECLAIM_BYTES`, so the futility
+ *      gate correctly dropped every pass and the harness measured an all-but-packed arena.
+ *
+ *  Stranded bytes (`highWaterBytes - liveUsedBytes`) are what a same-size repack exists to hand
+ *  back, so a harness that strands none can only ever prove the gate says "skip". */
 function fragmentedStore(opts: { capacity: number; slotBytes: number; liveTiles: number }): {
   store: GpuTileStore
   inj: StorePriv
@@ -146,13 +155,11 @@ function fragmentedStore(opts: { capacity: number; slotBytes: number; liveTiles:
   inj.gpuCache.set('', inner)
   const keys: number[] = []
   const doomedBytes = opts.slotBytes / 2
+  const doomed: Array<[GPUArena, number]> = []
   for (let i = 0; i < opts.liveTiles; i++) {
     const vOff = vArena.alloc(opts.slotBytes)
     const iOff = iArena.alloc(opts.slotBytes)
-    const vDoomed = vArena.alloc(doomedBytes)
-    const iDoomed = iArena.alloc(doomedBytes)
-    vArena.free(vDoomed, doomedBytes)
-    iArena.free(iDoomed, doomedBytes)
+    doomed.push([vArena, vArena.alloc(doomedBytes)], [iArena, iArena.alloc(doomedBytes)])
     inner.set(i, {
       polyVertexOffset: vOff,
       polyVertexByteLength: opts.slotBytes,
@@ -174,6 +181,8 @@ function fragmentedStore(opts: { capacity: number; slotBytes: number; liveTiles:
     inj._gpuCacheCount++
     keys.push(i)
   }
+  // See (2) above: only now, with the bump walk finished, does freeing strand every hole.
+  for (const [arena, off] of doomed) arena.free(off, doomedBytes)
   return { store, inj, vArena, iArena, copyBytes, keys }
 }
 
