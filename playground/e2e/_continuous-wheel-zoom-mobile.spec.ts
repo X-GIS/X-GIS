@@ -8,20 +8,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisMap {
-  vtSources: Map<
-    string,
-    { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }
-  >
-  camera: { zoom: number; centerX: number; centerY: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Mobile continuous wheel-zoom', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 

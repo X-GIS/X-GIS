@@ -99,14 +99,6 @@ const POINT_DEMOS = new Set([
 
 // ── Helper utilities ──────────────────────────────────────────────
 
-interface _DemoResult {
-  id: string
-  ok: boolean
-  reason?: string
-  errorCount: number
-  durationMs: number
-}
-
 async function waitForReady(page: Page, timeoutMs: number): Promise<number> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {

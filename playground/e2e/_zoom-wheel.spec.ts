@@ -5,12 +5,6 @@
 
 import { test, expect } from '@playwright/test'
 
-declare global {
-  interface Window {
-    __xgisMap?: { camera: { zoom: number; centerX: number; centerY: number } }
-  }
-}
-
 test.describe('wheel zoom — smooth descent', () => {
   test('z=15 → wheel out 5× → zoom decreases gradually, never 0', async ({ page }) => {
     test.setTimeout(60_000)

@@ -84,7 +84,9 @@ function probeFamily() {
         ({ vo }) => {
           // Reading `vo.uv` is what makes `varying` an INTERFACE change rather than an
           // unused output the linker is free to ignore.
-          const uv = varying ? (vo as { uv: ReturnType<typeof vec2> }).uv : vec2(0.5, 0.5)
+          const uv = varying
+            ? (vo as unknown as { uv: ReturnType<typeof vec2> }).uv
+            : vec2(0.5, 0.5)
           return sampled ? textureSample(tex.node, smp.node, uv) : vec4(uv, 0.0, 1.0)
         },
         { stage: 'fragment' },

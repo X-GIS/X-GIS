@@ -20,23 +20,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface VTRDiag {
-  getDrawStats?: () => {
-    tilesVisible: number
-    drawCalls: number
-  }
-  gpuCache?: Map<string, Map<number, unknown>>
-}
-interface XgisMap {
-  vtSources?: Map<string, { renderer: VTRDiag }>
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('OSM-style auto-merge — runtime proof', () => {
   test.use({ viewport: { width: 1500, height: 907 } })
 

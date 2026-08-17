@@ -13,11 +13,9 @@ import type { RhiDevice, RhiTexture } from '@xgis/engine'
 
 /** A loaded tile texture plus its resident GPU cost.
  *
- *  The union is REAL and the two renderers no longer agree on which arm they
- *  produce (#1607): raster builds through `rhi.createTexture` on BOTH backends
- *  since #1579, while hillshade still forks to the raw-device `loadImageTexture`
- *  on WebGPU. Anything consuming this must therefore discriminate on the HANDLE,
- *  never on `rhi.backend` — see `destroyTileTexture`.
+ *  `texture` is always an `RhiTexture` (#1623 closed hillshade's raw-device
+ *  `loadImageTexture` WebGPU arm, the last producer of a raw `GPUTexture` here) —
+ *  both raster-family renderers now build exclusively through `rhi.createTexture`.
  *
  *  The cost has to travel WITH the texture. `RhiTexture` is an opaque handle
  *  (`rhi/src/rhi.ts:20` — just a `__rhi` brand) with no dimensions to read
@@ -25,7 +23,7 @@ import type { RhiDevice, RhiTexture } from '@xgis/engine'
  *  completes, so texture-creation time is the only point at which the size is
  *  knowable at all. */
 export interface LoadedTexture {
-  texture: GPUTexture | RhiTexture
+  texture: RhiTexture
   bytes: number
 }
 
@@ -113,7 +111,7 @@ export function maxCachedEntriesFor(entryBytes: number): number {
 /** The cache-entry shape the shared insert/evict below need. Both renderers'
  *  `CachedTile` is exactly this. */
 export interface EvictableTile {
-  texture: GPUTexture | RhiTexture
+  texture: RhiTexture
   bytes: number
   lastUsedFrame: number
   /** -1 = "never drawn yet"; the draw loop stamps it on the tile's FIRST
@@ -150,7 +148,7 @@ export function overBudget(count: number, bytes: number, maxCount: number): bool
   return count > maxCount || bytes > maxRasterCachedBytes()
 }
 
-/** Free ONE cached tile texture, whichever arm of `LoadedTexture['texture']` it is.
+/** Free ONE cached tile texture.
  *
  *  THE BUG (#1607): the eviction loop used to pick the free by `rhi.backend` —
  *  `webgl2 ? rhi.destroyTexture(t) : (t as GPUTexture).destroy()`. That was correct
@@ -160,22 +158,13 @@ export function overBudget(count: number, bytes: number, maxCount: number): bool
  *  then an opaque `{ native: GPUTexture }` wrapper (rhi-webgpu.ts:33), which has no
  *  `.destroy` — so the first raster eviction on the default backend threw
  *  `texture.destroy is not a function` out of the tile post-load chain, and the
- *  cache never shed a byte again.
- *
- *  The backend is the WRONG discriminant because it does not answer the question
- *  being asked. Which arm a tile is depends on WHICH LOADER built it, and the two
- *  renderers disagree today: raster is RHI on both backends, hillshade still forks
- *  to `loadImageTexture` on WebGPU (hillshade-renderer.ts:459). Ask the handle
- *  instead — only a native `GPUTexture` carries `.destroy`; neither RHI handle does
- *  (`{ native }` on WebGPU, `Gl2Texture` on WebGL2). Same discriminator, for the
- *  same reason, as `RasterDraper.viewOf` (raster-material.ts:145): the `__rhi` brand
- *  is compile-time only, so the runtime shape is all there is to go on.
+ *  cache never shed a byte again. #1623 closed hillshade's own WebGPU arm the same
+ *  way, so `texture` is unconditionally an `RhiTexture` now and the free is a
+ *  single call — no handle-shape discriminant left to get wrong.
  *
  *  Exported so both the free and its gate name one authority. */
-export function destroyTileTexture(rhi: RhiDevice, texture: GPUTexture | RhiTexture): void {
-  if (typeof (texture as { destroy?: unknown }).destroy === 'function')
-    (texture as GPUTexture).destroy()
-  else rhi.destroyTexture(texture as RhiTexture)
+export function destroyTileTexture(rhi: RhiDevice, texture: RhiTexture): void {
+  rhi.destroyTexture(texture)
 }
 
 /** Evict least-recently-used tiles until back under BOTH limits, returning the
@@ -198,7 +187,7 @@ export function evictToBudget<T extends EvictableTile>(
   maxCount: number,
   bytesNow: number,
   rhi: RhiDevice,
-  draper?: { dropTexture(t: GPUTexture | RhiTexture): void },
+  draper?: { dropTexture(t: RhiTexture): void },
 ): number {
   let bytes = bytesNow
   if (!overBudget(cache.size, bytes, maxCount)) return bytes
@@ -207,8 +196,7 @@ export function evictToBudget<T extends EvictableTile>(
     .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
   for (const [key, tile] of entries) {
     if (!overBudget(cache.size, bytes, maxCount)) break
-    // Free by HANDLE SHAPE (#1607), then drop the draper's cached bind group
-    // BEFORE the texture is gone.
+    // Drop the draper's cached bind group BEFORE the texture is gone.
     destroyTileTexture(rhi, tile.texture)
     draper?.dropTexture(tile.texture)
     cache.delete(key)

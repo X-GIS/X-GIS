@@ -23,21 +23,6 @@ interface BackendDiag {
   heapMB: number | null
   cycleMs: number
 }
-interface XgisCamera {
-  centerX: number
-  centerY: number
-  zoom: number
-}
-interface XgisMap {
-  vtSources: Map<string, { renderer: { source: unknown } }>
-  camera: XgisCamera
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
 
 // World cities — well-spread coordinates so each jump triggers
 // directory pages the archive hasn't seen recently.

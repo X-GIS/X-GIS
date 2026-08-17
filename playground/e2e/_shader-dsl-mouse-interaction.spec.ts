@@ -83,7 +83,7 @@ test.describe('shader-dsl mouse controls change the frame', () => {
           }
 
           const u = (
-            reflection as {
+            reflection as unknown as {
               uniforms: Array<{
                 name: string
                 size: number

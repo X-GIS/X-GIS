@@ -154,7 +154,14 @@ export function isSafeMode(): boolean {
   return readURL()?.get('safe') === '1'
 }
 
-function resolveQuality(): QualityConfig {
+/** Resolve the quality config from the URL flags.
+ *
+ *  `overdrawActive` is the DEVICE's answer to "is `?debug=overdraw` actually running",
+ *  which only a caller holding live `RhiCaps` can give (#1615 — see the debug block
+ *  below). Omit it and the resolve is the boot behaviour verbatim: the URL flag alone
+ *  decides. Pass `false` to re-derive the same config with the debug override lifted —
+ *  what the boot WOULD have produced on a device that cannot run the mode. */
+export function resolveQuality(overdrawActive?: boolean): QualityConfig {
   const params = readURL()
   if (!params) return { ...QUALITY_PRESETS.default }
 
@@ -223,8 +230,17 @@ function resolveQuality(): QualityConfig {
   // the source of truth for the flag itself; we re-read the URL
   // here to avoid an import cycle (debug-flags depends on nothing,
   // quality.ts depends on nothing — they meet here at the resolver).
+  //
+  // #1615 — the URL flag ALONE is not the mode. Its compose pass is raw
+  // WebGPU, so an `executionModel: 'immediate'` device (WebGL2) never
+  // runs it (`isOverdrawActive`, map/src/debug-flags.ts). This resolver
+  // is evaluated at MODULE LOAD, before any device exists, so it can ask
+  // only the URL — a deliberate over-clamp for boot, corrected once caps
+  // exist (`reconcileOverdrawQualityClamp`, called from the map's single
+  // GPU-boot authority). `overdrawActive` is that correction's channel
+  // for the answer the URL cannot give.
   const debugParam = params.get('debug')
-  if (debugParam === 'overdraw') {
+  if (overdrawActive ?? debugParam === 'overdraw') {
     base.msaa = 1
     base.picking = false
   }

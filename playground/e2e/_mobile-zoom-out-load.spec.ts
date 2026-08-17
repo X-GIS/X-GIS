@@ -20,20 +20,6 @@
 
 import { test, expect } from '@playwright/test'
 
-interface XgisMap {
-  vtSources: Map<
-    string,
-    { renderer: { getDrawStats?: () => { tilesVisible: number; drawCalls: number } } }
-  >
-  camera: { zoom: number }
-}
-declare global {
-  interface Window {
-    __xgisMap?: XgisMap
-    __xgisReady?: boolean
-  }
-}
-
 test.describe('Mobile zoom-out: tile count stays bounded', () => {
   // iPhone 14-class viewport. Smaller surface = fewer visible
   // tiles in any sane LOD; an explosion here is unambiguously

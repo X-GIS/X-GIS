@@ -15,17 +15,6 @@ const W = 800,
   H = 800
 const MARGIN = 400 // labels just off-edge are legit; >0.5 viewport out = wrong dispatch
 
-const _PROJECTIONS = [
-  'mercator',
-  'globe',
-  'orthographic',
-  'azimuthal_equidistant',
-  'stereographic',
-  'equirectangular',
-  'natural_earth',
-  'oblique_mercator',
-]
-
 test('per-projection labels stay on-screen (no wrong-tile mispositioning)', async ({ page }) => {
   test.setTimeout(200_000)
   const errs: string[] = []
