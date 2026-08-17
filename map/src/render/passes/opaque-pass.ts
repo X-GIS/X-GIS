@@ -325,16 +325,20 @@ class OpaquePass implements RenderPass {
             )
             // The RHI sub-pass goes straight in — CoverageRenderer.render is
             // narrowed to RhiRenderPass (Inc-2d; the old backend fork died).
-            // The advected field this frame's flow pass just produced (#1333). Null before
-            // the first step and for every scalar coverage — the drape then multiplies an
-            // exact 1.0 and renders byte-identically to the pre-flow fill.
-            const flowView = host.flowRenderer?.currentView ?? null
+            // The advected field this frame's flow pass just produced (#1333), asked for PER
+            // REGION (#1499): each resident domain advects its own history, so the drape reads
+            // the trail of the region it is drawing rather than whichever one stepped first.
+            // Null before that region's first step and for every scalar coverage — the drape
+            // then multiplies an exact 1.0 and renders byte-identically to the pre-flow fill.
+            const flowRenderer = host.flowRenderer
             host.coverageRenderer.render(
               subPass,
               frame.matrix,
               [host.camera.centerX, host.camera.centerY],
               [projType, centerLon, centerLat, frame.logDepthFc],
-              flowView ? { view: flowView, mix: FLOW_DRAPE_MIX } : null,
+              flowRenderer
+                ? { viewFor: (r) => flowRenderer.trailViewFor(r), mix: FLOW_DRAPE_MIX }
+                : null,
               // Live zoom, for a `zoom`-dependent `filter:` on the drape (#1437) — the same
               // value the sounding arm already hands its copy of the clause.
               host.camera.zoom,

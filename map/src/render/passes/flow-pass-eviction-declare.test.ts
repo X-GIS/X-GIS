@@ -44,19 +44,20 @@ function runScheduled(host: FlowPassHost, hasFlow: boolean): void {
 
 function makeHost(fields: Map<string, unknown>) {
   const setArrowFields = vi.fn()
+  const setTrailRegions = vi.fn()
   const step = vi.fn()
   const host = {
-    flowRenderer: { setArrowFields, step },
+    flowRenderer: { setArrowFields, setTrailRegions, step },
     coverageRenderer: {
-      // `activeFlowField` and `hasFlowField` agree by construction, as they do
-      // on the real renderer: no regions ⇒ no field.
-      activeFlowField: () => (fields.size > 0 ? { __field: true } : null),
       flowFields: () => fields,
+      // The regions here are HIDDEN (the arrows portrayal), so nothing is draped and the trail
+      // steps nothing — which is what makes the arrow declaration below the only thing keeping
+      // the evicted region's textures out of the next submit.
+      drapedFlowFields: () => new Map(),
       hasFlowField: () => fields.size > 0,
-      hasDrapedFlowField: () => false,
     },
   } as unknown as FlowPassHost
-  return { host, setArrowFields, step }
+  return { host, setArrowFields, setTrailRegions, step }
 }
 
 describe('flow pass — the eviction frame still declares (#1419, #1046 Inc-F2c)', () => {
@@ -72,7 +73,7 @@ describe('flow pass — the eviction frame still declares (#1419, #1046 Inc-F2c)
     // The scheduler's own signal (`hasFlow`) is false on this frame; the
     // declaration must happen anyway, or the arrow draw keeps binding the
     // destroyed region textures.
-    const { host, setArrowFields, step } = makeHost(new Map())
+    const { host, setArrowFields, setTrailRegions, step } = makeHost(new Map())
     runScheduled(host, false)
     expect(
       setArrowFields,
@@ -80,6 +81,15 @@ describe('flow pass — the eviction frame still declares (#1419, #1046 Inc-F2c)
         'evicted region bound and resubmits a DESTROYED texture view (#1419)',
     ).toHaveBeenCalledTimes(1)
     expect((setArrowFields.mock.calls[0]![0] as Map<string, unknown>).size).toBe(0)
+    // The TRAIL's half of the same contract (#1499): the frame that evicts the last domain is
+    // also the frame that must retire its ping-pong pair, and it is declared before the early
+    // return for exactly that reason.
+    expect(
+      setTrailRegions,
+      'setTrailRegions was never called on the eviction frame — the evicted region keeps its ' +
+        'ping-pong pair for the rest of the session (#1499)',
+    ).toHaveBeenCalledTimes(1)
+    expect((setTrailRegions.mock.calls[0]![0] as Map<string, unknown>).size).toBe(0)
     // …and nothing is advected: there is no field to step.
     expect(step).not.toHaveBeenCalled()
   })

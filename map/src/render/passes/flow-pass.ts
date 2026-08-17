@@ -1,9 +1,9 @@
 // ═══ Flow-field advection pass (#1333) ═══
 //
-// One IBFV advection step per rendered frame, into the coverage's own grid-space ping-pong
-// pair. The coverage drape samples the result, so this pass is a PRODUCER and runs BEFORE the
-// consumer — between `background` and `opaque`, where the coverage draws
-// (opaque-pass.ts:283).
+// One IBFV advection step per VISIBLE COVERAGE REGION per rendered frame, into that region's own
+// grid-space ping-pong pair (#1499 — a mosaic's domains do not share a history). The coverage
+// drape samples the result, so this pass is a PRODUCER and runs BEFORE the consumer — between
+// `background` and `opaque`, where the coverage draws (opaque-pass.ts:283).
 //
 // THAT PLACEMENT IS THE DESIGN, not a scheduling detail. The heatmap pass is a COMPOSITOR and
 // therefore runs last; scheduling this one there too would hand the drape LAST frame's
@@ -47,26 +47,29 @@ class FlowPass implements RenderPass {
 
   execute(ctx: FrameContext, _scene: SceneView, host: FlowPassHost): void {
     const flow = host.flowRenderer
-    const field = host.coverageRenderer?.activeFlowField() ?? null
     if (!flow) return
     // BEFORE the early return, not after it: what the arrow draw binds is whatever this last
     // declared, so a frame with no field has to say so or the draw keeps the evicted region's
     // (now destroyed) textures bound. See `FlowRenderer.setArrowFields`.
     //
-    // EVERY region's field, not `activeFlowField`'s first one: the arrows are per region and
-    // read the current they stand in (#1458). The TRAIL below still takes the single field —
-    // it is one recursive filter over one grid, which is a real limitation and not this bug.
+    // EVERY region's field: the arrows are per region and read the current they stand in (#1458).
     flow.setArrowFields(host.coverageRenderer?.flowFields() ?? NO_FLOW_FIELDS)
-    if (!field) return
+    // The TRAIL is per region too (#1499) — one recursive filter per domain's grid, not one for
+    // the map. VISIBLE regions only: under the arrows portrayal they are resident-but-hidden, and
+    // advecting a full-screen image nobody draws is a per-frame cost with no picture attached.
+    // Declared before the early return for the SAME lifetime reason as the arrows above, so the
+    // frame that evicts the last domain retires its ping-pong pair instead of leaking it.
+    const trails = host.coverageRenderer?.drapedFlowFields() ?? NO_FLOW_FIELDS
+    flow.setTrailRegions(trails)
+    if (trails.size === 0) return
     ctx.passScope('flow', () => {
       const frame = { elapsedMs: ctx.elapsedMs, encoder: ctx.rhiEncoder }
       // The arrow field needs NO pass of its own (#1520): an arrow's position is a function of
       // its origin and the frame clock, so there is no state to advance before the graphics pass
       // draws it. What used to run here was a full-texture ping-pong step per resident region.
-      // The trail step only when a VISIBLE drape samples its image: under the arrows portrayal
-      // the regions are resident-but-hidden, and advecting a full-screen image nobody draws is
-      // a per-frame cost with no picture attached.
-      if (host.coverageRenderer?.hasDrapedFlowField() === true) flow.step(frame, field)
+      // ONE step per region per frame, off the SAME declaration `setTrailRegions` just took — so
+      // the set that is stepped and the set that is kept alive cannot disagree.
+      for (const [region, field] of trails) flow.step(frame, region, field)
     })
   }
 }

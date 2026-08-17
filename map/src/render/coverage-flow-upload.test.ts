@@ -175,20 +175,31 @@ describe('CoverageRenderer — vector-field upload (#1333)', () => {
     expect(r.residentRegions()).toEqual(['b'])
   })
 
-  it('activeFlowField() and hasFlowField() answer over the SAME regions', () => {
+  it('flowFields() and hasFlowField() answer over the SAME regions', () => {
     // They are the two halves of one decision: hasFlowField gates the pass (and keeps the
-    // on-demand loop warm), activeFlowField supplies what the pass steps. A true here with a
-    // null there spins the render loop every frame on a pass that does nothing — an animation
-    // that looks merely "slow" while it is actually dead.
+    // on-demand loop warm), flowFields supplies what the pass binds and steps. A true here with
+    // an empty map there spins the render loop every frame on a pass that does nothing — an
+    // animation that looks merely "slow" while it is actually dead.
     const { r } = makeRenderer()
     expect(r.hasFlowField()).toBe(false)
-    expect(r.activeFlowField()).toBeNull()
+    expect(r.flowFields().size).toBe(0)
     // The DEFAULT region is not where the field is: a mosaic keys its regions, so an accessor
-    // hard-wired to DEFAULT_REGION would answer null here while hasFlowField answered true.
+    // hard-wired to DEFAULT_REGION would answer empty here while hasFlowField answered true.
     r.setCoverage(bathymetryHandle(), RAMP, 'bathy')
     r.setCoverage(vectorHandle(), RAMP, 'currents')
     expect(r.hasFlowField()).toBe(true)
-    expect(r.activeFlowField()).not.toBeNull()
+    expect([...r.flowFields().keys()]).toEqual(['currents'])
+  })
+
+  it('drapedFlowFields() drops the HIDDEN regions — the trail set is what a drape samples', () => {
+    // The trail steps one stepper per entry (#1499), so a resident-but-hidden region (every
+    // `| flow` region under the arrows portrayal) must not appear: advecting a full-screen
+    // image nobody draws is a per-frame cost with no picture attached.
+    const { r } = makeRenderer()
+    r.setCoverage(vectorHandle(), { ...RAMP, hidden: true }, 'hidden-domain')
+    r.setCoverage(vectorHandle(), RAMP, 'drawn-domain')
+    expect([...r.flowFields().keys()]).toEqual(['hidden-domain', 'drawn-domain'])
+    expect([...r.drapedFlowFields().keys()]).toEqual(['drawn-domain'])
   })
 
   it('the field carries the grid GEOMETRY the advection needs, from the same region', () => {
@@ -197,7 +208,7 @@ describe('CoverageRenderer — vector-field upload (#1333)', () => {
     // origin (10, 50): span 4°×4°, outer edges 49.5..53.5, so the mid latitude is 51.5.
     const { r } = makeRenderer()
     r.setCoverage(vectorHandle(4, 4), RAMP)
-    const f = r.activeFlowField()!
+    const f = r.flowField()!
     expect([...f.spanDeg]).toEqual([4, 4])
     expect(f.midLatDeg).toBeCloseTo(51.5, 9)
   })

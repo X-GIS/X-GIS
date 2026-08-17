@@ -737,7 +737,14 @@ export class TileSelectionCache {
           const discDetailFloor = Math.log2(Math.max(cssW, cssH) / 128)
           if (camera.zoom < discDetailFloor) {
             selZoom = discDetailFloor
-            selMaxZ = Math.max(currentZ, Math.ceil(discDetailFloor))
+            // #1791 — re-clamp to sourceMaxLevel, the same authority the cz
+            // clamp at line 589 uses. Without this, a source whose maxLevel
+            // is below the boosted ceiling (small canvas-derived maxzoom
+            // archives at low camera zoom) gets ONLY over-zoom tile requests
+            // from globeVisibleTiles, which it cannot serve — zero tiles
+            // selected. The boost may still raise detail, just never past
+            // what the source actually has.
+            selMaxZ = Math.min(sourceMaxLevel, Math.max(currentZ, Math.ceil(discDetailFloor)))
           }
         }
         const globeTiles = globeVisibleTiles(
