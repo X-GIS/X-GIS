@@ -56,43 +56,35 @@ type MapWin = {
 const invalidate = (page: Page) =>
   page.evaluate(() => (window as unknown as MapWin).__xgisMap?.invalidate?.())
 
-/** Cheap frame fingerprint — only a hash + dims cross the CDP bridge. */
-const readHash = (page: Page) =>
-  page.evaluate(() => {
-    const w = window as unknown as MapWin
-    const gl = w.__xgisMap?.ctx?.rhi?.gl
-    if (!gl) return { ok: false as const }
-    const W = gl.drawingBufferWidth
-    const H = gl.drawingBufferHeight
-    const buf = new Uint8Array(W * H * 4)
-    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
-    let h = 0x811c9dc5
-    for (let i = 0; i < buf.length; i++) {
-      h ^= buf[i]!
-      h = Math.imul(h, 0x01000193)
-    }
-    return { ok: true as const, hash: h >>> 0, W, H }
-  })
-
-/** Wait for the frame to stop changing — two consecutive identical hashes after a forced
- *  invalidate. The engine renders on demand (CLAUDE.md §12: a fixed sleep is not a settle
- *  criterion), and this fixture has no external fetch (inline `data:`), so settling is fast. */
-async function settle(page: Page, timeoutMs = 30_000): Promise<void> {
+/** Settle ON THE TARGET METRIC, not on frame stability: poll until BOTH glyphs' colour
+ *  counts clear the assertion floor for two consecutive reads. A hash-stability settle
+ *  (this file's first draft) is satisfiable by a stable EMPTY buffer — an all-zeros
+ *  readback hashes identically frame after frame, so it exited before the SDF shape
+ *  pipeline had painted and the counts read 0 while the compositor screenshot showed
+ *  both glyphs (deterministically red in CI, a coin-flip locally). The passing sibling
+ *  (`_points-gl2-gate`) polls its red-pixel floor for exactly this reason — the metric
+ *  itself is the only settle criterion that cannot be satisfied by not-yet-started. */
+async function settleUntilPainted(page: Page, floor = 200, timeoutMs = 60_000): Promise<Centroids> {
   const deadline = Date.now() + timeoutMs
-  let prevHash: number | null = null
+  let last: Centroids | null = null
   let stable = 0
   while (Date.now() < deadline) {
     await invalidate(page)
-    await page.waitForTimeout(100)
-    const f = await readHash(page)
-    if (f.ok && prevHash !== null && f.hash === prevHash) {
-      if (++stable >= 2) return
+    await page.waitForTimeout(150)
+    const c = await measureCentroids(page)
+    if (c && c.red.n > floor && c.blue.n > floor) {
+      if (++stable >= 2) return c
     } else {
       stable = 0
     }
-    prevHash = f.ok ? f.hash : prevHash
+    last = c ?? last
   }
-  throw new Error(`fixture_symbol_anchor_inline did not settle within ${timeoutMs}ms`)
+  throw new Error(
+    `fixture_symbol_anchor_inline never painted both glyphs within ${timeoutMs}ms — ` +
+      `last read: red ${last?.red.n ?? 'n/a'} px, blue ${last?.blue.n ?? 'n/a'} px ` +
+      `(floor ${floor}). A regression in lowerSymbol's rect/circle branches or in the ` +
+      `shape- reference resolution reads as one or both sides never clearing the floor.`,
+  )
 }
 
 interface ColorStats {
@@ -170,11 +162,7 @@ test('#1557 user-symbol render coverage: rect/circle glyphs render, `anchor: lef
     'webgl2',
   )
 
-  await settle(page)
-
-  const c = await measureCentroids(page)
-  expect(c, 'no WebGL2 context to read back from').not.toBeNull()
-  if (!c) return
+  const c = await settleUntilPainted(page)
 
   // §5 — persist the settled frame so the verdict below can be image-inspected at full
   // resolution, not judged from a scalar.
