@@ -2,7 +2,7 @@
 // Extracted verbatim from tile-select.ts (behaviour-preserving refactor).
 // These are pure tile-math free functions with no module-level mutable
 // state and no side effects.
-import { worldCopiesFor, TILE_PX } from '@xgis/geo'
+import { worldCopiesFor, TILE_PX, lonLatToMercator } from '@xgis/geo'
 import { tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from './tile-select-types'
 
@@ -156,11 +156,25 @@ export function tileUrl(template: string, coord: TileCoord): string {
   //   - `{ratio}` (Mapbox DPR suffix `""` / `"@2x"`) wasn't
   //     substituted, so a raster source using a retina-aware
   //     template fetched the unsubstituted URL and 404'd.
-  return template
+  let url = template
     .replace(/\{z\}/g, String(coord.z))
     .replace(/\{x\}/g, String(coord.x))
     .replace(/\{y\}/g, String(coord.y))
     .replace(/\{ratio\}/g, '')
+  // `{bbox-epsg-3857}` (#1478) — the WMS-interop placeholder MapLibre/Mapbox GL's
+  // raster `tiles:` array documents for the same problem: a WMS GetMap BBOX is a
+  // COMPUTED value (not a token drop), so it can't ride the {z}/{x}/{y} substitution
+  // above. Only computed when present — every existing {z}/{x}/{y} template pays
+  // nothing. Bbox math reuses this file's own `tileBounds` (lon/lat) + `@xgis/geo`'s
+  // `lonLatToMercator` (the CPU single authority for the forward projection) rather
+  // than re-deriving the Web Mercator origin-shift constant a second time.
+  if (url.includes('{bbox-epsg-3857}')) {
+    const { west, south, east, north } = tileBounds(coord)
+    const [minX, minY] = lonLatToMercator(west, south)
+    const [maxX, maxY] = lonLatToMercator(east, north)
+    url = url.replace(/\{bbox-epsg-3857\}/g, `${minX},${minY},${maxX},${maxY}`)
+  }
+  return url
 }
 
 /** Check if a URL is a tile template */
