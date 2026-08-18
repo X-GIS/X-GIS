@@ -578,6 +578,10 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'red on main, adjudicated DEFECT #1836 (2026-08-18): boot bounds-fit reads canvas.width=300 pre-first-frame and under-zooms (z1.08 vs 2.46) -- picking itself verified correct to the pixel; register after #1836',
   '_geojson-tile-dropout.spec.ts':
     'measured 2026-08-18 (#1349): sole test is an unconditional test.skip -- zero runnable tests, not registrable until the skip is resolved',
+  '_hero-map-render.spec.ts':
+    'batch-unstable (2026-08-18, #1349): solo-green after the forcegl2+e2e readback repair, but rendered 0.0% non-bg at position 27/85 of a serial WORKERS=1 batch -- whole-scene draw failure under batch contention, not readback; isolate before registering',
+  '_text-overlay.spec.ts':
+    'batch-flaky (2026-08-18, #1349): green in a 56-spec parallel batch, then full-canvas near-black (0/1024000 white px) at position 82/85 of a serial WORKERS=1 batch -- whole-scene draw failure under long-batch contention; isolate before registering',
   '_import-mapbox-inline-button.spec.ts':
     'red on main, adjudicated DEFECT #1837 (2026-08-18): fill 0.00% -- import-collected inline GeoJSON rides the legacy route whose empty slice key never matches the VTR targetName lookup; register after #1837',
   '_inline-geojson-import.spec.ts':
