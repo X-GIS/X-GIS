@@ -28,7 +28,7 @@ import {
   type ReadonlyNode,
   type ShaderType,
   type UniformStruct,
-} from '../src/index.ts'
+} from '../src/index.js'
 
 /** vertex→fragment IO: clip position (builtin) + the screen uv in [0,1]². */
 export const VsOut = ioStruct('VsOut', {

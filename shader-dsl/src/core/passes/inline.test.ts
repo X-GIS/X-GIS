@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { inlineFn } from './inline'
-import { module, fn, f32T, type ModuleDecl } from '../ir'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+import { inlineFn } from './inline.js'
+import { module, fn, f32T, type ModuleDecl } from '../ir/index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 // P4 — composition primitive: inline a single-return-expression function into its
 // callers by substituting params with the call args. This is the IR-level

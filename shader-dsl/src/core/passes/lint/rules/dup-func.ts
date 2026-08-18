@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** Duplicate function name in the module. */
 export const dupFunc: LintRule = {

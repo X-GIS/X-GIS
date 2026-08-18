@@ -12,10 +12,10 @@ import {
   trunc,
   round,
   inverseSqrt,
-} from './'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
-import { spellIntrinsic } from '../intrinsics'
+} from './index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
+import { spellIntrinsic } from '../intrinsics.js'
 
 // Newly-added standard GLSL/WGSL builtins (normalize / distance / cross / step /
 // exp2 / trunc / round / inverseSqrt). Each must (1) emit its WGSL spelling,

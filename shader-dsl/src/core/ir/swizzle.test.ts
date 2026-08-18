@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { param, vec3fT, vec4fT, vec2fT, module, fn } from './index'
-import { emitExpr } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+import { param, vec3fT, vec4fT, vec2fT, module, fn } from './index.js'
+import { emitExpr } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 // Multi-component swizzle getters (w.zxy etc.) — readability over vec3(w.z, w.x, w.y) or
 // the untyped swizzle<'vec3<f32>'>('zxy'). Each getter is a pure alias of .swizzle(), so the

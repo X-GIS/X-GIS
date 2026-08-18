@@ -14,8 +14,8 @@
 // switch so a future Expr/Stmt op cannot be handled by one consumer's private
 // walker and silently missed by the other's.
 
-import type { Expr, Stmt, FuncDecl } from './nodes'
-import type { ShaderType } from './types'
+import type { Expr, Stmt, FuncDecl } from './nodes.js'
+import type { ShaderType } from './types.js'
 
 export interface RefSet {
   readonly calls: Set<string>

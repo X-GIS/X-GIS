@@ -44,8 +44,8 @@ import type {
   ConstDecl,
   BinOp,
   CmpOp,
-} from '../ir/nodes'
-import { stageOf } from '../ir/nodes'
+} from '../ir/nodes.js'
+import { stageOf } from '../ir/nodes.js'
 import {
   type ShaderType,
   f32T,
@@ -56,8 +56,8 @@ import {
   isMat64,
   structT,
   typeKey,
-} from '../ir/types'
-import { dslError } from '../diagnostics/error'
+} from '../ir/types.js'
+import { dslError } from '../diagnostics/error.js'
 import {
   DF64_FNS,
   DF64_ORDER,
@@ -66,8 +66,8 @@ import {
   FP64_GUARD_NAME,
   FP64_GUARD_TYPE,
   splitF64,
-} from '../fp64/df64-lib'
-import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int'
+} from '../fp64/df64-lib.js'
+import { DF64_FNS_INT, DF64_ORDER_INT } from '../fp64/df64-int.js'
 
 // ── Flavor (which EFT primitive registry backs the df64_* names) ──
 //
@@ -105,7 +105,7 @@ export type Fp64Flavor = 'float' | 'integer'
 export interface Fp64LowerOptions {
   readonly flavor?: Fp64Flavor
 }
-import { isKnownIntrinsic } from '../intrinsics'
+import { isKnownIntrinsic } from '../intrinsics.js'
 
 // ── Type mapping ──
 

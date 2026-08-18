@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** A function with too many parameters is hard to call correctly. options.max (default 6). */
 export const paramCount: LintRule = {

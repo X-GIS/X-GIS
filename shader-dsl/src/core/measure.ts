@@ -17,8 +17,8 @@
 //
 // Both are compile-time-derivable (no GPU); the real-GPU cycle/timing axis is P3.
 
-import type { ModuleDecl, Expr, Stmt, FuncDecl } from './ir'
-import { emitModule, emitModuleAt, lowerWgsl } from './backends/wgsl'
+import type { ModuleDecl, Expr, Stmt, FuncDecl } from './ir/index.js'
+import { emitModule, emitModuleAt, lowerWgsl } from './backends/wgsl.js'
 
 // ── Source size ──
 

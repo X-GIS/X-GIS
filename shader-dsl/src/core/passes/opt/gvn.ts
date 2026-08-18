@@ -29,7 +29,7 @@
 // DEFAULT_PASSES (it would change production WGSL bytes -> the byte-stable
 // shared-prelude golden snapshots would need regenerating, a maintainer call).
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import {
   keyOf,
   isCompound,
@@ -39,7 +39,7 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
-} from './expr-utils'
+} from './expr-utils.js'
 
 // Only number exprs that COMPUTE — a bare member/swizzle/index navigation is as
 // cheap inlined as bound (mirrors cse / cse-local isWorthHoisting).

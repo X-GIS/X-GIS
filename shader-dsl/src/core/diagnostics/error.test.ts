@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { ShaderDslError, dslError, formatLoc } from './error'
-import { ValidationError } from '../passes/validate'
-import { UnsupportedFeatureError } from '../backend'
+import { ShaderDslError, dslError, formatLoc } from './error.js'
+import { ValidationError } from '../passes/validate.js'
+import { UnsupportedFeatureError } from '../backend.js'
 
 describe('dslError / ShaderDslError', () => {
   it('composes a coded message with the catalogue summary', () => {

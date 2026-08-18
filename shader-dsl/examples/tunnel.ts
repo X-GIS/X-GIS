@@ -21,9 +21,9 @@ import {
   smoothstep,
   Let,
   f32T,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ twist: f32T })
 
 const fs = fn(

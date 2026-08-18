@@ -30,7 +30,7 @@
 // Every hoisted expr is input-only, so it is valid anywhere in the fn — placement can
 // only trade WHERE it runs, never WHETHER its value is the same.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import {
   keyOf,
   isCompound,
@@ -42,7 +42,7 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
-} from './expr-utils'
+} from './expr-utils.js'
 
 // Trivial navigation — a member/swizzle/index chain bottoming out at a leaf
 // (`u.proj_params.x`, `fill_color.rgb`) — is as cheap inlined as bound, so a shared

@@ -28,11 +28,11 @@
 // `switch` scrutinees, and inside any block body — is lifted within its own
 // block, so conditional execution is preserved.
 
-import { stageOf } from '../ir'
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir'
-import { mapExpr } from './opt/ir-transform'
-import { bodyHasRaw } from './opt/dce'
-import { inlineFn } from './inline'
+import { stageOf } from '../ir/index.js'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
+import { mapExpr } from './opt/ir-transform.js'
+import { bodyHasRaw } from './opt/dce.js'
+import { inlineFn } from './inline.js'
 
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
 

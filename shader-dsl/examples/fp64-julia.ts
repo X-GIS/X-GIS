@@ -38,9 +38,9 @@ import {
   Let,
   u32,
   uniformStruct,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // Seed of the Julia set; both components are exactly f32-representable, so the
 // f32 half degrades ONLY through the pixel coordinate — the cleanest A/B.

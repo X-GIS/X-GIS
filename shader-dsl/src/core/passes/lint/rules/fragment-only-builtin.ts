@@ -1,6 +1,6 @@
-import type { LintRule } from '../engine'
-import { stageOf } from '../../../ir'
-import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
+import type { LintRule } from '../engine.js'
+import { stageOf } from '../../../ir/index.js'
+import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
 
 /** The derivative builtins (#1654) share ONE fix: unlike the texture rows there is
  *  no drop-in same-shape alternative — a screen-space derivative simply does not

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { constProp } from './index'
-import { module, fn, f32, f32T } from '../../ir'
-import { emitModule, emitFunc } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { constProp } from './index.js'
+import { module, fn, f32, f32T } from '../../ir/index.js'
+import { emitModule, emitFunc } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — constant propagation: substitute a literal-bound, never-reassigned local
 // into its uses. Pure literal movement (no arithmetic) → bit-identical; the dead

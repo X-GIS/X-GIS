@@ -36,9 +36,9 @@
 // `unsafe-eval` host) throws so the caller can fall the whole module back to the
 // interpreter.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp } from './ir'
-import { validate } from './passes/validate'
-import { autoVars } from './passes/opt'
+import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp } from './ir/index.js'
+import { validate } from './passes/validate.js'
+import { autoVars } from './passes/opt/index.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -49,8 +49,8 @@ import {
   GPU_STUBS,
   f32ToU32Sat,
   f32ToI32Sat,
-} from './cpu-runtime'
-import { compileModule, type CpuModule } from './oracle'
+} from './cpu-runtime.js'
+import { compileModule, type CpuModule } from './oracle.js'
 
 /** Sentinel: a per-fn body used an IR construct the codegen can't emit
  *  bit-identically. Caught by compileModuleJs → that fn falls back to the

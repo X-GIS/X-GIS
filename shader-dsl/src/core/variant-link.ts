@@ -26,8 +26,8 @@
 // usually omitted) on a secure origin (`about:blank` has no `navigator.gpu` at all), and
 // `playwright.config.ts` already sets both. `_variant-link-gate.spec.ts`'s WGSL arm drives it.
 
-import type { EmitOptions } from './emit'
-import type { VariantFamily } from './variant-family'
+import type { EmitOptions } from './emit.js'
+import type { VariantFamily } from './variant-family.js'
 
 /** The slice of WebGL2 that compiling and linking a program needs.
  *

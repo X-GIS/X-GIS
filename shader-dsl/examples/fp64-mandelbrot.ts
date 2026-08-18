@@ -45,8 +45,8 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 
 // A filament point on the needle spike — a period-3 minibrot neighbourhood
 // that stays mid-frame at every zoom (centered on the real axis, y = 0). At

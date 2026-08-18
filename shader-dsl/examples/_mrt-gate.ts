@@ -13,8 +13,8 @@
 // playground/e2e/_shader-dsl-mrt-render.spec.ts (real-WebGL2 two-attachment
 // draw + readback).
 
-import { fn, module, ioStruct, vec4, location, vec4fT } from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
+import { fn, module, ioStruct, vec4, location, vec4fT } from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
 
 const FsOut = ioStruct('FsOut', {
   color0: location(0, vec4fT),

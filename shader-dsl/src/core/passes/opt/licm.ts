@@ -10,7 +10,7 @@
 // A fn containing a raw Stmt is skipped (raw WGSL is opaque). Correctness is
 // pinned by oracle value-equality.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import {
   keyOf,
   isCompound,
@@ -20,7 +20,7 @@ import {
   bodyHasRaw,
   collectLocals,
   collectMutatedRoots,
-} from './expr-utils'
+} from './expr-utils.js'
 
 /** Collect the MAXIMAL input-only compound subexpressions of `e` into `out`. */
 function gatherExpr(e: Expr, locals: ReadonlySet<string>, out: Map<string, Expr>): void {

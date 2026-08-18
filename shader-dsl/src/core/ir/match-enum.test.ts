@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { enumU32, matchEnum, matchExpr, fn, module, f32, f32T, u32T } from './index'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+import { enumU32, matchEnum, matchExpr, fn, module, f32, f32T, u32T } from './index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 const Kind = enumU32({ Line: 0, Fill: 1, Stroke: 2 })
 

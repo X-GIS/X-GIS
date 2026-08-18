@@ -1,5 +1,5 @@
-import type { Stmt, Expr } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { Stmt, Expr } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 // Walk every sub-expression of `e`, invoking `onExpr` on each (incl. `e` itself).
 function eachExpr(e: Expr, onExpr: (e: Expr) => void): void {

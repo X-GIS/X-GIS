@@ -6,7 +6,24 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": []
+    "types": [],
+    // #1686 — nodenext is the RATCHET, not a preference. `tsc` does not rewrite import
+    // specifiers, so an extensionless `from './core/ir'` is copied verbatim into
+    // `dist/*.js` and `dist/*.d.ts`, and Node ESM resolves neither an extensionless
+    // path nor a directory: every entry point failed at the first hop with
+    // ERR_UNSUPPORTED_DIR_IMPORT. Every relative specifier in this package now carries
+    // an explicit `.js`, and under nodenext a missing one is TS2835 — a build error, so
+    // the class of bug cannot come back silently.
+    //
+    // WHY HERE AND NOT IN tsconfig.base.json: that file is a pinned COPY of the repo
+    // root's baseline and `src/tsconfig-drift.test.ts` fails on any value that differs
+    // from the root's. The root is `module: ESNext` / `moduleResolution: bundler` for
+    // the bundled packages; only shader-dsl is published as a standalone artifact, so
+    // the override belongs in this package's leaf configs (this file,
+    // tsconfig.tests.json, examples/tsconfig.json) — all three, or the editor project
+    // and the emitting project would disagree about what resolves.
+    "module": "nodenext",
+    "moduleResolution": "nodenext"
   },
   "include": ["src/**/*.ts"],
   // #763 V6 — tests never reach dist/ (compiled *.test.js/.d.ts were riding along

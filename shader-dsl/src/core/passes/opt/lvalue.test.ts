@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { cse, licm } from './index'
-import { member, module, fn, f32, f32T, i32, bindingRef, structT, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
+import { cse, licm } from './index.js'
+import {
+  member,
+  module,
+  fn,
+  f32,
+  f32T,
+  i32,
+  bindingRef,
+  structT,
+  type ModuleDecl,
+} from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
 
 // Regression (architect-found): CSE/LICM must NOT hoist a read of a WRITTEN binding.
 // A read_write storage member read 2x AND stored is NOT invariant; hoisting it

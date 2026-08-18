@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f32T, vec2fT } from './index'
-import { structDecl, ioStruct, location } from '../sot'
-import { emitModule } from '../backends/wgsl'
+import { fn, module, f32T, vec2fT } from './index.js'
+import { structDecl, ioStruct, location } from '../sot.js'
+import { emitModule } from '../backends/wgsl.js'
 
 // ═══ #740 R6 — struct/IO handles as fn param specs ═══
 //

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { dce } from './index'
-import { module, fn, f32, f32T, type Stmt, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { dce } from './index.js'
+import { module, fn, f32, f32T, type Stmt, type ModuleDecl } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — dead-code elimination: drop a local let/var whose name is never read.
 // Scope: function-local bindings only (module bindings/varyings are IO/layout

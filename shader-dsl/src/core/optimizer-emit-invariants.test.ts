@@ -15,15 +15,15 @@ import {
   matchExpr,
   structT,
   arrayT,
-} from './ir'
-import type { FuncDecl, ModuleDecl, Stmt } from './ir'
-import { ioStruct, structDecl, uniformStruct, builtin, location } from './sot'
-import { constFold } from './passes/opt/const-fold'
-import { algebraicSimplify } from './passes/opt/algebraic'
-import { licm } from './passes/opt/licm'
-import { emitModule } from './backends/wgsl'
-import { emitGlslModule } from './backends/glsl'
-import { wgslLayout } from './reflect'
+} from './ir/index.js'
+import type { FuncDecl, ModuleDecl, Stmt } from './ir/index.js'
+import { ioStruct, structDecl, uniformStruct, builtin, location } from './sot.js'
+import { constFold } from './passes/opt/const-fold.js'
+import { algebraicSimplify } from './passes/opt/algebraic.js'
+import { licm } from './passes/opt/licm.js'
+import { emitModule } from './backends/wgsl.js'
+import { emitGlslModule } from './backends/glsl.js'
+import { wgslLayout } from './reflect.js'
 
 // ═══ #763 Phase P — optimizer/emit invariants ═══
 

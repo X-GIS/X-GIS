@@ -38,7 +38,7 @@
 // broke into always-true or always-false cannot carry the two ratchet arms above.
 
 import { describe, it, expect } from 'vitest'
-import * as IR from '../ir'
+import * as IR from '../ir/index.js'
 import {
   module,
   fn,
@@ -51,12 +51,12 @@ import {
   type DeclarableCapability,
   type ModuleDecl,
   type ShaderType,
-} from '../ir'
-import { isKnownIntrinsic } from '../intrinsics'
-import { requiredCaps } from '../passes/required-caps'
-import { reflect } from '../reflect'
-import { emitModule, wgslBackend } from './wgsl'
-import { emitGlslModule, glslEs300Backend } from './glsl'
+} from '../ir/index.js'
+import { isKnownIntrinsic } from '../intrinsics.js'
+import { requiredCaps } from '../passes/required-caps.js'
+import { reflect } from '../reflect.js'
+import { emitModule, wgslBackend } from './wgsl.js'
+import { emitGlslModule, glslEs300Backend } from './glsl.js'
 
 // ── The probe module: the smallest thing that emits on BOTH backends ──
 const fragProbe = (enables?: readonly DeclarableCapability[]): ModuleDecl =>

@@ -1,7 +1,7 @@
 // flavor-select: real-world signal fixtures → the flavor a device NEEDS.
 
 import { describe, it, expect } from 'vitest'
-import { recommendFp64Flavor, isAppleGpu } from './flavor-select'
+import { recommendFp64Flavor, isAppleGpu } from './flavor-select.js'
 
 describe('recommendFp64Flavor', () => {
   it('Apple WebGPU adapter.info → integer', () => {

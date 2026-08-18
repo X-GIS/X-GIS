@@ -19,9 +19,9 @@
 import { describe, it, expect } from 'vitest'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { examples } from './index.ts'
-import { buildRegistry } from '../src/core/registry.ts'
-import { discoverExamples } from './_scan.ts'
+import { examples } from './index.js'
+import { buildRegistry } from '../src/core/registry.js'
+import { discoverExamples } from './_scan.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 

@@ -22,10 +22,10 @@ import {
   f32,
   f32T,
   vec2fT,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
-import type { Node } from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
+import type { Node } from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ sun_az: f32T, exaggeration: f32T })
 
 // normalize() isn't a DSL builtin — it's just v · (1/|v|). The author spells it inline.

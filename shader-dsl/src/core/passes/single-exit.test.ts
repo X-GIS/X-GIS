@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { checkSingleExit } from './single-exit'
-import { fn, If, Return, ReturnIf, select, f32, f32T } from '../ir'
+import { checkSingleExit } from './single-exit.js'
+import { fn, If, Return, ReturnIf, select, f32, f32T } from '../ir/index.js'
 
 describe('checkSingleExit — MISRA-style single point of exit', () => {
   it('passes a single-exit fn (one return, at the end)', () => {

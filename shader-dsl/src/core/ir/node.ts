@@ -37,14 +37,14 @@ import {
   vec4uT,
   vec4iT,
   arrayT,
-} from './types'
-import type { Expr, BinOp, CmpOp } from './nodes'
-import { dslError } from '../diagnostics/error'
+} from './types.js'
+import type { Expr, BinOp, CmpOp } from './nodes.js'
+import { dslError } from '../diagnostics/error.js'
 
 // Re-export ScalarKey so consumers importing the matchExpr signature can refer
 // to its generic bound without a separate types import (mirrors the existing
 // `KeyOf` / `ElemKey` re-export pattern in the barrel).
-export type { ScalarKey } from './types'
+export type { ScalarKey } from './types.js'
 
 /** Anything acceptable where a Node is READ — any node (mutable or read-only), or a
  *  number that is auto-lifted to an f32 literal (the projection math is f32-dominant).

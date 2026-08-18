@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { composeModule } from './compose'
-import { fn, module, f32, f32T, type Stmt } from '../ir'
-import { emitModule } from '../backends/wgsl'
+import { composeModule } from './compose.js'
+import { fn, module, f32, f32T, type Stmt } from '../ir/index.js'
+import { emitModule } from '../backends/wgsl.js'
 
 const ret = (v: number): Stmt => ({ s: 'return', expr: f32(v).expr })
 

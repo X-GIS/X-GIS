@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { algebraicSimplify } from './index'
-import { module, fn, f32T } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { algebraicSimplify } from './index.js'
+import { module, fn, f32T } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — algebraic simplification of IEEE-sound (for finite values) identities:
 // x+0, 0+x, x-0, x*1, 1*x, x/1. x*0 -> 0 is NOT applied by default (unsound for

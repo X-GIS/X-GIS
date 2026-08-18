@@ -11,7 +11,7 @@
 //   • module bindings / varyings are NOT touched — they are IO/layout contracts
 //     (deferred to the resource model, P4).
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 
 function collectExprNames(e: Expr, out: Set<string>): void {
   switch (e.op) {

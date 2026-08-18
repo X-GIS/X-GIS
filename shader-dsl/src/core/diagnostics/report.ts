@@ -10,18 +10,18 @@
 // It composes the existing infra (lint / summarize / requiredCaps) — no re-implementation,
 // and it runs over the AUTHORED module (before lowering), so reported `loc`s resolve.
 
-import type { ModuleDecl } from '../ir'
-import { Capabilities, type Backend } from '../backend'
+import type { ModuleDecl } from '../ir/index.js'
+import { Capabilities, type Backend } from '../backend.js'
 import {
   lint,
   summarize,
   type Diagnostic,
   type LintSummary,
   type LintConfig,
-} from '../passes/lint/engine'
-import { RULES, CORE_RULES } from '../passes/lint/rules'
-import { requiredCaps } from '../passes/required-caps'
-import { formatLoc } from './error'
+} from '../passes/lint/engine.js'
+import { RULES, CORE_RULES } from '../passes/lint/rules/index.js'
+import { requiredCaps } from '../passes/required-caps.js'
+import { formatLoc } from './error.js'
 
 /** Options for {@link diagnose}. Every field is optional; the default is "run the full ruleset
  *  and check no backend".

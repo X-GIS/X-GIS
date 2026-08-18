@@ -1,5 +1,5 @@
-import type { Stmt } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { Stmt } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 /** True iff the last reachable Stmt guarantees an exit. A body with a raw/placeholder
  *  Stmt is treated as may-return (the polygon composer injects returns via a swap). */

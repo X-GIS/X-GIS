@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { autoInline } from './auto-inline'
-import { module, fn, f32T, externFn, type ModuleDecl } from '../ir'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+import { autoInline } from './auto-inline.js'
+import { module, fn, f32T, externFn, type ModuleDecl } from '../ir/index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 // #627 — cost-driven AUTO inlining over inlineFn. Inline a non-entry,
 // non-recursive, single-return helper iff it is single-call (strict win) or its

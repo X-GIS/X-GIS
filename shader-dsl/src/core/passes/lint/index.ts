@@ -14,6 +14,6 @@ export {
   type RuleCategory,
   type LintConfig,
   type LintSummary,
-} from './engine'
-export { RULES } from './rules'
-export { STRICT, LENIENT } from './presets'
+} from './engine.js'
+export { RULES } from './rules/index.js'
+export { STRICT, LENIENT } from './presets.js'

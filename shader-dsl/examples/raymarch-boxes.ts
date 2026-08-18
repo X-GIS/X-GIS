@@ -34,9 +34,9 @@ import {
   f32T,
   vec3fT,
   vec4fT,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ speed: f32T, mouse: vec4fT })
 
 // scene SDF: a rounded box repeated every 2.6 units in all three axes —

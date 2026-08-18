@@ -11,9 +11,9 @@
 // unique per fn (flat map, no block scoping), a mutated source/target is excluded,
 // a fn with a raw Stmt is skipped.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { mapStmt } from './ir-transform'
-import { bodyHasRaw, collectMutatedRoots } from './expr-utils'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { mapStmt } from './ir-transform.js'
+import { bodyHasRaw, collectMutatedRoots } from './expr-utils.js'
 
 /** A "copy" RHS = a leaf reference with no computation: param / varref / constref. */
 function isCopySource(e: Expr): e is Extract<Expr, { op: 'param' | 'varref' | 'constref' }> {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint, applyFixes } from '../engine'
-import { module, fn, f32T, f32 } from '../../../ir'
-import { noSelfAssign } from './no-self-assign'
+import { lint, applyFixes } from '../engine.js'
+import { module, fn, f32T, f32 } from '../../../ir/index.js'
+import { noSelfAssign } from './no-self-assign.js'
 
 const ruleIds = (m: ReturnType<typeof module>) => lint(m, [noSelfAssign]).map((d) => d.ruleId)
 

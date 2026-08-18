@@ -26,11 +26,11 @@ import {
   unpack2x16snorm,
   toU32,
   toI32,
-} from './'
-import { emitModule } from '../backends/wgsl'
-import { emitGlslModule } from '../backends/glsl'
-import { compileModule } from '../oracle'
-import { spellIntrinsic } from '../intrinsics'
+} from './index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { compileModule } from '../oracle.js'
+import { spellIntrinsic } from '../intrinsics.js'
 
 // The 2026-08 builtin batch: the six hyperbolics (portable — WGSL §17.5 and
 // GLSL ES 3.00 §8.1 both spell them natively), saturate (WGSL-native, GLSL

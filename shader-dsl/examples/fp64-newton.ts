@@ -33,9 +33,9 @@ import {
   Let,
   u32,
   uniformStruct,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // A boundary point between the basins of 1 and e^{2πi/3} (CPU bisection to
 // ~1e-19, so the window straddles the boundary at every reachable zoom).

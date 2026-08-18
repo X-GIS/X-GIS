@@ -17,10 +17,10 @@
 // `Backend.absentBuiltins` set.
 
 import { describe, it, expect } from 'vitest'
-import { emitModule } from './wgsl'
-import { emitGlslModule } from './glsl'
-import { UnsupportedFeatureError } from '../backend'
-import { ioStruct, builtin, location } from '../sot'
+import { emitModule } from './wgsl.js'
+import { emitGlslModule } from './glsl.js'
+import { UnsupportedFeatureError } from '../backend.js'
+import { ioStruct, builtin, location } from '../sot.js'
 import {
   module,
   fn,
@@ -34,7 +34,7 @@ import {
   u32T,
   type StructDecl,
   type ModuleDecl,
-} from '../ir'
+} from '../ir/index.js'
 
 // ── an IO-struct FIELD carrying the absent builtin (the sot-authored shape) ──
 // The WgslBuiltinName union now rejects the denylist names at tsc as well; these

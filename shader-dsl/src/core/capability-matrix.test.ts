@@ -7,10 +7,10 @@
 // it must not silently shrink when the vocabulary grows.
 
 import { describe, it, expect } from 'vitest'
-import { capabilityMatrix } from './backend'
-import { ALL_CAPABILITIES } from './ir'
-import { wgslBackend } from './backends/wgsl'
-import { glslEs300Backend } from './backends/glsl'
+import { capabilityMatrix } from './backend.js'
+import { ALL_CAPABILITIES } from './ir/index.js'
+import { wgslBackend } from './backends/wgsl.js'
+import { glslEs300Backend } from './backends/glsl.js'
 
 const BACKENDS = [wgslBackend, glslEs300Backend]
 const matrix = capabilityMatrix(BACKENDS)

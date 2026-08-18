@@ -13,7 +13,11 @@
     // tsconfig.tests.json's `"rootDir": "."` (the canonical gate for this directory).
     "rootDir": "..",
     "noEmit": true,
-    "allowImportingTsExtensions": true,
+    // #1686 — mirrors tsconfig.tests.json: nodenext, and no `allowImportingTsExtensions`.
+    // The editor project must agree with the canonical gate about what resolves, or a
+    // `.ts` specifier looks fine in the editor and fails the build.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "declaration": false,
     "sourceMap": false,
     "types": ["node"]

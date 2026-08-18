@@ -29,10 +29,10 @@
 // binding emitted at the wrong slot, because GLSL has no slot to be wrong about.
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { reflect } from '../src/index.ts'
-import { emitModule } from '../src/core/backends/wgsl.ts'
-import { emitGlslModule } from '../src/core/backends/glsl.ts'
+import { examples } from './index.js'
+import { reflect } from '../src/index.js'
+import { emitModule } from '../src/core/backends/wgsl.js'
+import { emitGlslModule } from '../src/core/backends/glsl.js'
 
 const MIN_EXAMPLES = 10
 

@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { module, fn, f32, f32T, vec3, normalize, Var, type ModuleDecl, type Stmt } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
-import { gvn } from './gvn'
+import {
+  module,
+  fn,
+  f32,
+  f32T,
+  vec3,
+  normalize,
+  Var,
+  type ModuleDecl,
+  type Stmt,
+} from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
+import { gvn } from './gvn.js'
 
 // gvn numbers a compound, local-touching subexpr that repeats ACROSS statements in a
 // straight-line block — the redundancy cse (input-only) and cse-local (within one

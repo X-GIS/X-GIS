@@ -23,7 +23,7 @@
 // GLSL only. WGSL resolves module-scope declarations out of order and has no
 // prototype syntax at all, so there is nothing to prune.
 
-import { lexShader, type Token } from './shader-lex'
+import { lexShader, type Token } from './shader-lex.js'
 
 /** A top-level `type name(params)` header — the part both a prototype and a
  *  definition share. */

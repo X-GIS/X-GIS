@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f32, f32T, NODE_BRAND, isNodeValue, type ReadonlyNode } from './index'
-import { emitModule } from '../backends/wgsl'
+import { fn, module, f32, f32T, NODE_BRAND, isNodeValue, type ReadonlyNode } from './index.js'
+import { emitModule } from '../backends/wgsl.js'
 
 // ═══ #763 Phase D — dual-instance hardening ═══
 //

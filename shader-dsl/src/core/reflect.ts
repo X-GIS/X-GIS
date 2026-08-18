@@ -26,9 +26,9 @@ import {
   typeKey,
   stageOf,
   workgroupSizeOf,
-} from './ir'
-import { requiredCaps } from './passes/required-caps'
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
+} from './ir/index.js'
+import { requiredCaps } from './passes/required-caps.js'
+import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
 

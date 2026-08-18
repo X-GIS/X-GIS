@@ -25,8 +25,8 @@ import {
   type ScalarKey,
   type BindingDecl,
   type AddressSpace,
-} from './ir'
-import { dslError } from './diagnostics/error'
+} from './ir/index.js'
+import { dslError } from './diagnostics/error.js'
 
 /** A module-level constant declared ONCE (#763 X2) — the missing SoT declarator.
  *  `decl` goes into module() (or `uses:`), `node` is the typed reference; the

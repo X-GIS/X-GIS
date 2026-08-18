@@ -5,7 +5,7 @@
 // just the structural types the authoring layer (node.ts/builder.ts) builds and
 // the backends consume. Imports only types.ts.
 
-import type { ShaderType } from './types'
+import type { ShaderType } from './types.js'
 
 // ── Expression nodes ──
 

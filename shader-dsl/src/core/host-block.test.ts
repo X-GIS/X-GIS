@@ -34,13 +34,24 @@
 //                 reads of the block and nothing else.
 
 import { describe, it, expect } from 'vitest'
-import { Let, fn, module, transformMat4, vec4, vec2fT, vec4fT, f32T, mat4x4fT, structT } from './ir'
-import { builtin, hostBlock, hostUniform, ioStruct, uniformStruct } from './sot'
-import { emitGlslModule } from './backends/glsl'
-import { emitModule } from './backends/wgsl'
-import { minify } from '../emit-prod'
-import { mangleModule } from './passes/mangle'
-import { reflect } from './reflect'
+import {
+  Let,
+  fn,
+  module,
+  transformMat4,
+  vec4,
+  vec2fT,
+  vec4fT,
+  f32T,
+  mat4x4fT,
+  structT,
+} from './ir/index.js'
+import { builtin, hostBlock, hostUniform, ioStruct, uniformStruct } from './sot.js'
+import { emitGlslModule } from './backends/glsl.js'
+import { emitModule } from './backends/wgsl.js'
+import { minify } from '../emit-prod.js'
+import { mangleModule } from './passes/mangle.js'
+import { reflect } from './reflect.js'
 
 // GLSL links varyings by name, so a vertex entry returns an ioStruct rather than a bare vec4.
 const VsOut = ioStruct('HostVsOut', { pos: builtin('position', vec4fT) })

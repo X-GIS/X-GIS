@@ -7,7 +7,13 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "allowImportingTsExtensions": true,
+    // #1686 — `allowImportingTsExtensions` is GONE, deliberately. examples/ used to write
+    // `from './_shared.ts'`, which no consumer can compile without setting the same flag
+    // (measured: 100 TS5097 errors without it) and which plain Node cannot load at all.
+    // The whole package writes `.js` now; dropping the flag is what stops a `.ts`
+    // specifier from being reintroduced here. See tsconfig.json for the nodenext ratchet.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "declaration": false,
     "sourceMap": false,
     "rootDir": ".",
