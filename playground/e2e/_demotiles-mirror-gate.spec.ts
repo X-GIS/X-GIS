@@ -1,13 +1,20 @@
-// ═══ #1495 — the demotiles-style defects, made reproducible offline ═══
+// ═══ #1495 — the demotiles-style render gate (offline mirror, 3 projections) ═══
 //
-// This spec is EXPECTED TO FAIL on the arms it names. That is its job: it is the
-// fail-before witness for the symptom #1495 still has after its author
-// retracted the rest, and it is deliberately NOT named `*-gate.spec.ts` and NOT
-// registered in `.github/workflows/test.yml` — a red spec on a shared CI leg is a
-// broken build, and the `-gate` suffix is a ratchet (`e2e-specs-load.test.ts`,
-// #1715: a gate-named spec must be run by CI or listed as knowingly dark).
-// RENAME it to `_demotiles-mirror-gate.spec.ts` and register it in test.yml's
-// render-gate list the moment the arms below go green — the name is the contract.
+// Born as `_demotiles-mirror-probe.spec.ts`, the deliberately-red fail-before
+// witness for what survived of #1495. Its subject arms were red for TWO
+// independent selection defects, either one alone enough to blank them at this
+// camera + canvas:
+//   • #1791 — the azimuthal disc-detail boost raised `selMaxZ` past the source's
+//     own maxLevel, so the maxLevel-0 synthetic earth-surface source was asked
+//     for z2 and every selected tile was over-zoom (fixed in #1795);
+//   • #1792 — the non-Mercator z=0 root split swapped that source's ONLY tile
+//     for four z=1 keys it can never serve (fixed with this rename).
+// With both fixes landed all three arms measured green (earth-surface draws
+// 1/1 per azimuthal arm, every ocean probe reading #D8F2FF), so per the probe's
+// own header contract it was renamed to `-gate` and registered in test.yml's
+// render-gate list — the assertions below are unchanged from the arms' green
+// runs and now hold this permanently. #1793 (curved-label anchor clamp)
+// restored assertion 4's `drawn > 0` along the way.
 //
 // ── What #1495 actually is, after two retractions by its own author ──
 //
@@ -32,13 +39,14 @@
 //     pixel-identical with great-circle densification on and off. The kink half
 //     became #1522 and was closed by #1771.
 //
-// What SURVIVES, and is what this spec measures:
-//   1. the synthetic earth-surface show is absent for this style on the
-//      azimuthal family → assertion 2, and it is the ONLY arm-red criterion.
-//      Measured: `__synthetic_earth_surface__` issues 2 draw calls on the
-//      mercator control and 0 on orthographic / stereographic, so every named
-//      open-ocean coordinate reads the sphere-full clear (0,0,0) instead of
-//      #D8F2FF while the country fills on top of it draw normally.
+// What SURVIVED, and is what this spec guards:
+//   1. the synthetic earth-surface show was absent for this style on the
+//      azimuthal family → assertion 2, and it was the ONLY arm-red criterion.
+//      Measured pre-fix: `__synthetic_earth_surface__` issued 2 draw calls on
+//      the mercator control and 0 on orthographic / stereographic, so every
+//      named open-ocean coordinate read the sphere-full clear (0,0,0) instead
+//      of #D8F2FF while the country fills on top of it drew normally. Fixed by
+//      #1795 + #1792 (see the header); assertion 2 pins it green.
 //   2. "MVT line layers shatter into disconnected dots" → assertion 3. It does
 //      NOT reproduce on the mirror at this camera (see the calibration note on
 //      MIN_CONNECTED_RUN); the assertion stays as the calibrated guard for it.
@@ -106,7 +114,11 @@ import { captureCanvas } from './helpers/visual'
 // (`Test timeout of 60000ms exceeded while setting up "context"`), which is still
 // on the config default. Three WebGL2 pages plus a whole-frame connectivity pass
 // is the heavy shape that warning was written for (CLAUDE.md §12).
-test.describe.configure({ timeout: 180_000 })
+// 300s, not 180s: the orthographic arm measures 1.7–1.9 min ALONE on an idle
+// SwiftShader runner, and one 180s run timed out inside the screenshot settle
+// when it followed a full vitest pass — on CI's shared render-gate leg that
+// margin is the difference between a gate and a flake.
+test.describe.configure({ timeout: 300_000 })
 
 /** The camera the issue swept, and the only camera the mirror carries tiles for.
  *  It is also the window where `geolines-label` (minzoom 1) is live and
