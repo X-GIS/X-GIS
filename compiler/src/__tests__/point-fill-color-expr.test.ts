@@ -271,7 +271,10 @@ describe('#1664 — CPU gradient() is the GPU ramp, term for term', () => {
   // THE GPU SOURCE: compiler/src/codegen/shader-gen.ts:380-388 emits
   //
   //   mix4(vec4fFromRgba(low), vec4fFromRgba(high),
-  //        clampF32(f32Div(f32Sub(val, min), f32Sub(max, min)), f32Lit(0), f32Lit(1)))
+  //        saturateF32(f32Div(f32Sub(val, min), f32Sub(max, min))))
+  //
+  // (saturate(t) ≡ clamp(t, 0.0, 1.0) by WGSL spec definition — #1828; the CPU twin
+  // below keeps computing the [0,1] clamp, values bit-identical)
   //
   // with `low` / `high` decoded by `resolveColorFromAST` (shader-gen-helpers.ts) and
   // `mix(a, b, t)` defined by both WGSL and GLSL as `a * (1 - t) + b * t`, per
