@@ -60,6 +60,11 @@ import { TileDataCache } from './tile-data-cache'
 import { CompileBudget } from './tile-compile-budget'
 import { TileEvictionPolicy } from './tile-eviction-policy'
 import { checkBackendLayoutVersion } from './tile-catalog-layout-check'
+import {
+  applyPointFeaturePatch,
+  planPointFeaturePatch,
+  type PointFeatureMove,
+} from './point-feature-patch'
 
 /** Shared empty result for `consumeReplacedKeys` — the common (nothing replaced) case must not
  *  allocate, it is drained once per frame per renderer. */
@@ -454,6 +459,7 @@ export class TileCatalog {
       lineVertices: result.lineVertices,
       lineIndices: result.lineIndices,
       pointVertices: result.pointVertices,
+      pointFeatureIds: result.pointFeatureIds,
       outlineIndices: result.outlineIndices,
       outlineVertices: result.outlineVertices,
       outlineLineIndices: result.outlineLineIndices,
@@ -585,6 +591,31 @@ export class TileCatalog {
     if (!slot) return false
     if (sourceLayer) return slot.has(sourceLayer)
     return slot.size > 0
+  }
+
+  /** #1375 — move point features IN PLACE inside the tiles already cached,
+   *  with no re-tile, no backend swap and no `requestTiles` (which is only
+   *  reachable from inside `VectorTileRenderer.render()`).
+   *
+   *  All-or-nothing: returns false and mutates NOTHING when any move cannot be
+   *  resolved exactly (see `planPointFeaturePatch` for the rejection list), so
+   *  the caller can fall back to the re-seed path without having to undo a
+   *  half-applied patch.
+   *
+   *  On success the `_contentGeneration` bump is what makes the change visible:
+   *  it is the field `TilePointPackKey` (#1616) carries precisely because a
+   *  re-tile of an already-selected key leaves the tile-key set — and therefore
+   *  every other field of that key — identical. Bumping here keeps that one
+   *  authority: the point repack misses on the very next frame and re-reads the
+   *  patched buffer, and the label path re-reads `pointVertices` unconditionally
+   *  anyway. Byte accounting is untouched by construction — the patch rewrites
+   *  a record in place and changes no buffer's length. */
+  patchPointFeatures(moves: readonly PointFeatureMove[]): boolean {
+    const plan = planPointFeaturePatch(this.cache.slices(), moves)
+    if (!plan) return false
+    applyPointFeaturePatch(plan)
+    this._contentGeneration++
+    return true
   }
 
   isLoading(key: number): boolean {
@@ -1230,6 +1261,7 @@ export class TileCatalog {
       outlineLineIndices:
         d.outlineLineIndices && d.outlineLineIndices.length > 0 ? d.outlineLineIndices : undefined,
       pointVertices: d.pointVertices,
+      pointFeatureIds: d.pointFeatureIds,
       prebuiltLineSegments:
         d.prebuiltLineSegments && d.prebuiltLineSegments.length > 0
           ? d.prebuiltLineSegments

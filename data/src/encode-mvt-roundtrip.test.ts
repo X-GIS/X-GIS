@@ -152,9 +152,12 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     const tile = idx.getTile(0, 0, 0)!
     const bytes = encodeMVT([{ name: 'src', tile }])
     const decoded = decodeMvtTile(bytes, 0, 0, 0)
-    // decodeMvtTile doesn't surface id on its GeoJSONFeature, but
-    // the bytes contain it — sanity-check by re-decoding via raw
-    // @mapbox/vector-tile to confirm round-trip.
+    // #1375 — decodeMvtTile now surfaces the id on its GeoJSONFeature (the
+    // contract GeoJSONFeature.id already documented), which is what carries a
+    // host-pushed feature's identity into the packed point side-car.
+    expect(new Set(decoded.map((f) => f.id))).toEqual(new Set([1, 2]))
+    // The bytes carry it too — re-decode via raw @mapbox/vector-tile so the
+    // encoder half stays gated independently of the decoder half.
     const tileObj = new VectorTile(new Pbf(bytes))
     const layer = tileObj.layers['src']
     const ids = new Set<number>()
@@ -164,7 +167,5 @@ describe('encodeMVT — round-trip via decodeMvtTile', () => {
     }
     expect(ids.has(1)).toBe(true)
     expect(ids.has(2)).toBe(true)
-    // Avoid unused-var lint
-    void decoded
   })
 })

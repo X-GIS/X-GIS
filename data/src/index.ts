@@ -14,6 +14,12 @@ export * from './mvt-decoder'
 // (fnv1a32 / toU32Id / PointPatch / pointPatchToFeatureCollection). Pure data logic
 // that was misplaced under runtime/src/engine; consumed by setSourceData / picking.
 export * from './id-resolver'
+// #1375 — the stable-id side-car for packed tile points (buildPointFeatureIds)
+// and the in-place point patch built on it. Producers: the mvt-worker + the
+// virtual-PMTiles backend's inline fallback. Consumer: TileCatalog's
+// patchPointFeatures, which the feature-update queue reaches through the map's
+// source manager instead of tearing the source down and re-tiling it.
+export * from './point-feature-patch'
 // Tile data-model types cluster: the TileSource contract + backend sink/result, the
 // per-tile TileData (DSFUN strides, cache budget) + VirtualCatalog, and the tile-select
 // coordinate types. The catalog / selection / source backends (still in runtime/src/data)
