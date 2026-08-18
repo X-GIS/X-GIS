@@ -183,7 +183,7 @@ function installStubDom(navigatorPlatform: string | undefined): {
     writable: true,
   })
   Object.defineProperty(globalThis, 'navigator', {
-    value: { platform: navigatorPlatform },
+    value: { userAgentData: { platform: navigatorPlatform }, userAgent: navigatorPlatform },
     configurable: true,
     writable: true,
   })

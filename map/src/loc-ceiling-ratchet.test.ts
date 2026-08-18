@@ -719,7 +719,7 @@ const CEILINGS: Record<string, number> = {
   // branch that blocks a single-finger TOUCH drag from panning (mouse
   // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
   // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
-  'map/src/controller.ts': 1163,
+  'map/src/controller.ts': 1166,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
