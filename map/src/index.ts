@@ -236,6 +236,9 @@ export * from './map-event-bus'
 export * from './interaction-controller'
 export * from './map-geo-helpers'
 export * from './source-manager'
+// Minimal WMS→XYZ raster adapter (#1478) — pure URL-template builder, no map
+// coupling; see wms-xyz-adapter.ts's header for the seam-choice rationale.
+export * from './wms-xyz-adapter'
 // The map.ts 16-file atomic SCC (Step-7 render-loop CUT + Step-8 map.ts move): map + render-loop
 // + diagnostics + render/{render-node,scene-view} + render/passes/** (background / opaque / oit /
 // translucent / points / label / heatmap / overdraw-compose + pass / pass-hosts / pass-chain).
