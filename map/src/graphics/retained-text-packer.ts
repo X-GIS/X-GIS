@@ -15,7 +15,8 @@
 
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { hexToRgba } from '../feature-helpers'
-import { EARTH, lonLatToECEF } from '@xgis/shared'
+import { lonLatToECEF } from '@xgis/shared'
+import { latToMercatorY } from '@xgis/geo'
 import {
   TEXT_RETAINED_FEAT,
   TEXT_RETAINED_TINT_STRIDE,
@@ -24,9 +25,6 @@ import type { TextDrawSpec, IconColor, IconAnchor, Position, Packed } from './gr
 
 const F = TEXT_RETAINED_FEAT.slot
 const STRIDE = TEXT_RETAINED_FEAT.stride
-const DEG2RAD = Math.PI / 180
-const MERC_LAT_LIMIT = 85.051129
-const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the point/icon/circle packers)
 const DEFAULT_FONT_SIZE = 16 // px, when getSize is absent
 const DEFAULT_RASTER = 24 // ONE_EM — the fallback when a glyph omits rasterFontSize (mirrors the renderer)
 const NEWLINE = 10 // codepoint skipped (no instance) — single-line pack (matches TextRenderer)
@@ -129,8 +127,7 @@ function writeAnchorDsfun(feat: Float32Array, o: number, lon: number, lat: numbe
   feat[o + F.abs_lon] = lon
   feat[o + F.abs_lat] = lat
   const mx = worldCopyMercX(lon, 0)
-  const latC = Math.max(-MERC_LAT_LIMIT, Math.min(MERC_LAT_LIMIT, lat))
-  const my = Math.log(Math.tan(Math.PI / 4 + (latC * DEG2RAD) / 2)) * R_MERC
+  const my = latToMercatorY(lat)
   const mxH = Math.fround(mx)
   const myH = Math.fround(my)
   feat[o + F.merc_x_h] = mxH
