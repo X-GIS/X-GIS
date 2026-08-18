@@ -118,6 +118,8 @@ export {
   type SemanticDiff,
   type SemanticDiffOptions,
   type SemanticAspect,
+  type SemanticBucket,
+  type TransformFinding,
 } from './core/semantic-diff'
 
 // The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +

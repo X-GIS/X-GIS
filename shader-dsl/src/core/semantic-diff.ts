@@ -22,6 +22,32 @@
 // latter would hide exactly the regressions this exists to catch. A flag that cannot
 // distinguish the states it claims to control is the §12 "assertion that failed
 // either way" at the API layer, so it is absent rather than accepted-and-ignored.
+//
+// CLASSIFICATION, NOT A BLIND IGNORE (#1806). A consumer's parity gate compares the
+// DEV module against the PRODUCTION one, and the production emit runs semantics-
+// preserving IR transforms (`inline()`, `mangle()`) — so the optimizer's own rewrite
+// lands in `controlFlow`/`constants` and spends the same mismatch budget a real
+// backend regression does. `transforms` answers that BY CONSTRUCTION: declare the
+// plugins that were actually applied and each one is RE-RUN on both modules; whatever
+// difference it removes is reported under `semanticsPreservingTransform` — naming the
+// plugin, the bucket, and the fact lines — and whatever survives stays fail-able.
+//
+// REJECTED — recognising an inline / CSE / temp-var rewrite from the SHAPE of the diff
+// lines. That is a heuristic over the exact evidence a real regression also produces:
+// a genuine control-flow change looks like an inline, so it would launder precisely the
+// mismatches this file exists to catch. Re-running the declared pass cannot, because a
+// difference is excused only when the pass itself reproduces it. The classification is
+// therefore never stronger than the pass's own semantics-preservation contract, which
+// is where it belongs — inline-linear.ts states that contract and its own suite pins it
+// against the CPU oracle.
+//
+// BOTH SIDES are transformed, not just `a`. A parity harness must answer the same for
+// (dev, prod) and (prod, dev), and the passes are fixed points on their own output —
+// `inlineLinearAll` leaves nothing inlinable behind, `mangleModule` re-mangles to the
+// same positional names — so re-running one on an already-transformed side is a no-op.
+// That is also what keeps a PROD-vs-PROD comparison (the cross-backend arm, where both
+// sides already ran the plugins) fully fail-able: neither side moves, so every backend
+// difference stays in the four buckets.
 
 import { typeKey, type ShaderType } from './ir/types'
 import {
@@ -33,6 +59,7 @@ import {
   type Stmt,
 } from './ir/nodes'
 import { reflect } from './reflect'
+import type { EmitPlugin } from './emit'
 
 /** An axis of difference `semanticDiff` can be told to disregard.
  *
@@ -45,16 +72,51 @@ import { reflect } from './reflect'
  *  - `'declOrder'` — the position of a declaration or statement within its list. */
 export type SemanticAspect = 'names' | 'declOrder'
 
+/** The four fail-able buckets, in report order. Single authority: `diffBuckets` builds
+ *  its result by iterating this, so a bucket that is added to {@link SemanticDiff} and
+ *  not to this list fails to typecheck rather than going silently uncompared. */
+const BUCKETS = ['interface', 'resources', 'constants', 'controlFlow'] as const
+
+/** Which fail-able bucket of {@link SemanticDiff} a difference belongs to. */
+export type SemanticBucket = (typeof BUCKETS)[number]
+
 /** Options for {@link semanticDiff}. */
 export interface SemanticDiffOptions {
   /** Axes to disregard. Defaults to `['names', 'declOrder']`. Pass `[]` to compare
    *  identifier spelling and declaration order too. */
   readonly ignore?: readonly SemanticAspect[]
+  /** The semantics-preserving IR transforms the production side was built with — pass
+   *  the SAME `plugins` array the emit call was given (`[inline(), ...obfuscate()]`).
+   *  Each is re-run, in order, on BOTH modules; a difference it removes is reported
+   *  under {@link SemanticDiff.semanticsPreservingTransform} instead of spending the
+   *  mismatch budget of the four fail-able buckets. A plugin with no `transformIR` (a
+   *  text-stage pass such as `minify()`) is skipped — this comparator never reads
+   *  emitted text. Absent or empty ⇒ every difference stays fail-able, unchanged.
+   *
+   *  `transformIR` is run here on the modules you passed in, so it must be PURE
+   *  (module → module) — as every plugin shipped on `/emit-prod` is. */
+  readonly transforms?: readonly EmitPlugin[]
 }
 
-/** The four buckets of difference. Each entry is a fact line prefixed `-` (present in
- *  `a`, absent from `b`) or `+` (the reverse). All four empty ⇒ the modules agree on
- *  everything this comparator inspects — see {@link isSemanticallyEqual}. */
+/** One classified difference: an axis of the diff that a DECLARED transform reproduces,
+ *  and which therefore left the fail-able buckets. This is the provenance a parity
+ *  report keeps so a reviewer can see WHY a difference was excused. */
+export interface TransformFinding {
+  /** The declared plugin's own `name` — `'inline'`, `'mangle'`, whatever it calls
+   *  itself. Attribution is per plugin, not per chain: a later plugin is credited only
+   *  with what it removed on top of the earlier ones. */
+  readonly transform: string
+  /** The bucket these facts were in before this transform ran. */
+  readonly bucket: SemanticBucket
+  /** The fact lines the transform accounts for, verbatim and `-`/`+` prefixed exactly
+   *  as the fail-able buckets spell them, so a report can print them side by side. */
+  readonly facts: readonly string[]
+}
+
+/** The four fail-able buckets of difference, plus the classified ones. Each fail-able
+ *  entry is a fact line prefixed `-` (present in `a`, absent from `b`) or `+` (the
+ *  reverse). All four empty ⇒ the modules agree on everything this comparator inspects
+ *  — see {@link isSemanticallyEqual}. */
 export interface SemanticDiff {
   /** Entry-point signatures and the vertex attribute layout. */
   readonly interface: readonly string[]
@@ -67,9 +129,18 @@ export interface SemanticDiff {
   readonly constants: readonly string[]
   /** Per-statement control-flow skeleton, one line per statement, addressed by path. */
   readonly controlFlow: readonly string[]
+  /** Differences a transform declared in {@link SemanticDiffOptions.transforms}
+   *  reproduces on both sides, and which therefore left the four buckets above. Empty
+   *  unless `transforms` is passed, so a caller that does not opt in sees exactly the
+   *  fail-able set it saw before. {@link isSemanticallyEqual} deliberately does not
+   *  consult it: an optimizer rewriting its own input is not a regression, and the
+   *  point is that it stops spending the budget one does. */
+  readonly semanticsPreservingTransform: readonly TransformFinding[]
 }
 
-/** True when every bucket of `d` is empty. */
+/** True when every FAIL-ABLE bucket of `d` is empty — the modules agree modulo the
+ *  transforms that were declared. `semanticsPreservingTransform` is not consulted, for
+ *  the reason its own doc gives; read it when you want to review what was excused. */
 export const isSemanticallyEqual = (d: SemanticDiff): boolean =>
   d.interface.length === 0 &&
   d.resources.length === 0 &&
@@ -451,6 +522,47 @@ function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: bool
   return out.sort()
 }
 
+/** Every fact line of `m`, per bucket. `canonical` is the `'names'` ignore axis. */
+function factsOf(m: ModuleDecl, canonical: boolean): Record<SemanticBucket, readonly string[]> {
+  const c = canonical ? buildCanon(m) : EMPTY_CANON
+  return {
+    interface: interfaceFacts(m, c),
+    resources: resourceFacts(m, c),
+    constants: constantFacts(m, c),
+    controlFlow: controlFlowFacts(m, c),
+  }
+}
+
+/** The four buckets, diffed. */
+function diffBuckets(
+  a: ModuleDecl,
+  b: ModuleDecl,
+  canonical: boolean,
+  ignoreOrder: boolean,
+): Record<SemanticBucket, string[]> {
+  const fa = factsOf(a, canonical)
+  const fb = factsOf(b, canonical)
+  const out = {} as Record<SemanticBucket, string[]>
+  for (const k of BUCKETS) out[k] = diffFacts(fa[k], fb[k], ignoreOrder)
+  return out
+}
+
+/** Multiset difference `before \ after` — the lines a step ACCOUNTED FOR. A line the
+ *  step introduced (in `after`, not in `before`) is deliberately not credited back:
+ *  it stays in the residual, so a transform that makes a comparison worse is reported
+ *  rather than excused. */
+function accountedFor(before: readonly string[], after: readonly string[]): string[] {
+  const remaining = new Map<string, number>()
+  for (const x of after) remaining.set(x, (remaining.get(x) ?? 0) + 1)
+  const out: string[] = []
+  for (const x of before) {
+    const n = remaining.get(x) ?? 0
+    if (n > 0) remaining.set(x, n - 1)
+    else out.push(x)
+  }
+  return out
+}
+
 /**
  * Compare two modules at the IR + reflection layer, ignoring the noise that makes a
  * textual golden diff unreadable after the optimizer and the production emit plugins
@@ -474,13 +586,25 @@ function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: bool
  *
  * A pass that legitimately changes the program — `inline()`, or const-folding between
  * optimization levels — is NOT expected to be empty here, and that is the point: those
- * rewrite literals and branch structure, which is precisely what this reports.
+ * rewrite literals and branch structure, which is precisely what this reports. DECLARE
+ * such a pass in `transforms` and it is re-run on both modules, so the difference it
+ * reproduces moves to `semanticsPreservingTransform` — classified with the plugin that
+ * caused it, never silently dropped, and never at the cost of a difference the pass does
+ * NOT reproduce, which stays in the four fail-able buckets:
+ *
+ * ```ts
+ * const plugins = [inline(), ...obfuscate()] // the SAME array the prod emit was given
+ * const d = semanticDiff(devModule, prodModule, { transforms: plugins })
+ * isSemanticallyEqual(d) // true — the optimizer's own rewrite is not a mismatch
+ * d.semanticsPreservingTransform // …but it is still reported, per plugin and bucket
+ * ```
  *
  * @param a - the reference module.
  * @param b - the module to compare against it.
- * @param opts - axes to disregard; defaults to ignoring `names` and `declOrder`.
- * @returns the four buckets, each `-`-prefixed for facts only in `a` and `+`-prefixed
- *   for facts only in `b`.
+ * @param opts - axes to disregard, and the production transforms to classify against;
+ *   defaults to ignoring `names` and `declOrder` and declaring no transform.
+ * @returns the four fail-able buckets, each `-`-prefixed for facts only in `a` and
+ *   `+`-prefixed for facts only in `b`, plus whatever a declared transform accounts for.
  */
 export function semanticDiff(
   a: ModuleDecl,
@@ -488,13 +612,29 @@ export function semanticDiff(
   opts?: SemanticDiffOptions,
 ): SemanticDiff {
   const ignore = new Set<SemanticAspect>(opts?.ignore ?? ['names', 'declOrder'])
-  const ca = ignore.has('names') ? buildCanon(a) : EMPTY_CANON
-  const cb = ignore.has('names') ? buildCanon(b) : EMPTY_CANON
+  const canonical = ignore.has('names')
   const order = ignore.has('declOrder')
-  return {
-    interface: diffFacts(interfaceFacts(a, ca), interfaceFacts(b, cb), order),
-    resources: diffFacts(resourceFacts(a, ca), resourceFacts(b, cb), order),
-    constants: diffFacts(constantFacts(a, ca), constantFacts(b, cb), order),
-    controlFlow: diffFacts(controlFlowFacts(a, ca), controlFlowFacts(b, cb), order),
+
+  let ma = a
+  let mb = b
+  let cur = diffBuckets(ma, mb, canonical, order)
+
+  // Re-run each declared transform on BOTH sides and credit it with the difference it
+  // removed. Per step, not per chain: a later plugin is credited only with what it
+  // accounted for on top of the earlier ones, so the report names the transform a
+  // reviewer has to reason about.
+  const classified: TransformFinding[] = []
+  for (const t of opts?.transforms ?? []) {
+    const apply = t.transformIR
+    if (apply === undefined) continue // a text-stage pass moves no IR fact
+    ma = apply(ma)
+    mb = apply(mb)
+    const next = diffBuckets(ma, mb, canonical, order)
+    for (const bucket of BUCKETS) {
+      const facts = accountedFor(cur[bucket], next[bucket])
+      if (facts.length > 0) classified.push({ transform: t.name, bucket, facts })
+    }
+    cur = next
   }
+  return { ...cur, semanticsPreservingTransform: classified }
 }

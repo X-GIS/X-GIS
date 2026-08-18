@@ -15,9 +15,11 @@
 // actually happened the invariant would hold vacuously.
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir'
+import { f32, floor, fn, fract, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir'
 import { builtin, ioStruct, location, uniformStruct } from './sot'
 import { mangleModule } from './passes/mangle'
+import { inlineLinearAll } from './passes/inline-linear'
+import { inline, mangle, minify } from '../emit-prod'
 import { isSemanticallyEqual, semanticDiff } from './semantic-diff'
 import type { ModuleDecl } from './ir'
 
@@ -77,6 +79,7 @@ describe('semanticDiff — reflexivity', () => {
       resources: [],
       constants: [],
       controlFlow: [],
+      semanticsPreservingTransform: [],
     })
   })
 
@@ -101,6 +104,7 @@ describe('semanticDiff — the mangle invariant (#1715B seed)', () => {
       resources: [],
       constants: [],
       controlFlow: [],
+      semanticsPreservingTransform: [],
     })
   })
 
@@ -155,5 +159,158 @@ describe('semanticDiff — declOrder', () => {
     const swapped = fn('shade', { x: f32T }, (p) => sin(p.x).mul(0.5).add(0.5))
     const d = semanticDiff(build(swapped), build(shadeShape))
     expect(isSemanticallyEqual(d)).toBe(false)
+  })
+})
+
+// ═══ #1806 — semantics-preserving transform classification ═══════════════════════════
+//
+// A consumer's cross-backend parity gate compares the DEV module against the PRODUCTION
+// one, and the production emit runs `inline()` — so the optimizer's own rewrite lands in
+// `controlFlow`/`constants` and spends the same mismatch budget a backend or interface
+// regression does. `transforms` re-runs the declared plugins on BOTH sides and reports
+// what they account for separately.
+//
+// The two arms that carry the information are the NEGATIVE ones, and both are cuts of a
+// specific mechanism (§12) rather than "does it go green":
+//
+//   • declaring minify() — a text-stage plugin that moves no IR — must leave the
+//     mismatch fail-able. An implementation that emptied the buckets whenever
+//     `transforms` was non-empty would be indistinguishable from this one otherwise.
+//   • a REAL control-flow change (mul/add swapped) must stay fail-able even with
+//     inline() declared, because inlining both sides does not make the two agree. That
+//     is the whole reason this re-runs the pass instead of pattern-matching the diff:
+//     a genuine regression and an inline produce the same SHAPE of diff line.
+
+// A LINEAR multi-statement helper — the shape inline() rewrites by LIFTING its statements
+// into the caller and binding the call's value to a temporary. `shade` above is
+// single-return and inlines by plain expression substitution, so the temporary-variable
+// rewrite the report names is only reachable through this shape.
+const sdNoise = fn('sdNoise', { p: f32T }, f32T, ({ p }, b) => {
+  const lo = b.let('lo', floor(p))
+  const hi = b.let('hi', fract(p))
+  b.ret(lo.add(hi).mul(2))
+})
+const sdLinearFs = fn(
+  'sdLinearFs',
+  {},
+  vec4fT,
+  (_p, b) => b.ret(vec4(sdNoise({ p: f32(0.5) }), 0.0, 0.0, 1.0)),
+  { stage: 'fragment', retAttr: '@location(0)' },
+)
+const linearDev = module({ funcs: [sdNoise, sdLinearFs] })
+
+describe('semanticDiff — semantics-preserving transform classification (#1806)', () => {
+  // The chain a consumer passes to the emit call, verbatim: two IR-stage plugins and one
+  // text-stage plugin. `prod` is `dev` with inline() applied — the pair a parity gate
+  // actually compares.
+  const PROD_PLUGINS = [inline(), mangle(), minify()]
+  const dev = base
+  const prod = inlineLinearAll(dev)
+
+  it('inline() actually rewrote the module (every arm below is vacuous otherwise)', () => {
+    // Identity is a real inlineLinearAll outcome — nothing inlinable, or a `raw` body —
+    // and it would satisfy the classification arm while proving nothing.
+    expect(dev.funcs.map((f) => f.name)).toContain('shade')
+    expect(prod.funcs.map((f) => f.name)).not.toContain('shade')
+  })
+
+  it('WITHOUT the declaration the rewrite is still an ordinary, fail-able mismatch', () => {
+    // Nothing about the default behaviour moved: this is a classification, not an ignore.
+    const d = semanticDiff(dev, prod)
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.controlFlow.length).toBeGreaterThan(0)
+    expect(d.constants.length).toBeGreaterThan(0)
+    expect(d.semanticsPreservingTransform).toEqual([])
+  })
+
+  it('DECLARED, it is classified instead — and the fail-able buckets go empty', () => {
+    const d = semanticDiff(dev, prod, { transforms: PROD_PLUGINS })
+    expect(d.controlFlow).toEqual([])
+    expect(d.constants).toEqual([])
+    expect(d.interface).toEqual([])
+    expect(d.resources).toEqual([])
+    expect(isSemanticallyEqual(d)).toBe(true)
+  })
+
+  it('…with the provenance a review needs: which plugin, which bucket, which facts', () => {
+    const d = semanticDiff(dev, prod, { transforms: PROD_PLUGINS })
+    // Attribution is PER PLUGIN, not per chain. `mangle` is credited with nothing because
+    // 'names' already canonicalizes exactly what it rewrites, and `minify` has no
+    // transformIR at all — a report that blamed "the chain" would name all three.
+    expect([...new Set(d.semanticsPreservingTransform.map((f) => f.transform))]).toEqual([
+      'inline',
+    ])
+    expect(d.semanticsPreservingTransform.map((f) => f.bucket).sort()).toEqual([
+      'constants',
+      'controlFlow',
+    ])
+    for (const f of d.semanticsPreservingTransform) expect(f.facts.length).toBeGreaterThan(0)
+    // The facts are the ORIGINAL diff lines, so a reviewer reads exactly the text the
+    // fail-able bucket would have carried.
+    const raw = semanticDiff(dev, prod)
+    expect(d.semanticsPreservingTransform.flatMap((f) => f.facts).sort()).toEqual(
+      [...raw.constants, ...raw.controlFlow].sort(),
+    )
+  })
+
+  it('declaring a transform that moves no IR leaves the mismatch fail-able', () => {
+    // minify() is text-stage only, so it accounts for nothing. Cutting exactly this wire
+    // is what distinguishes "the declared pass reproduced the difference" from "the
+    // buckets are emptied whenever `transforms` is non-empty".
+    const d = semanticDiff(dev, prod, { transforms: [minify()] })
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.controlFlow.length).toBeGreaterThan(0)
+    expect(d.semanticsPreservingTransform).toEqual([])
+  })
+
+  it('a REAL control-flow regression is NOT laundered by declaring inline()', () => {
+    // `shadeShape` swaps mul/add, so inlining BOTH sides still leaves them different —
+    // the declared transform does not reproduce this difference, so it stays fail-able.
+    const d = semanticDiff(dev, inlineLinearAll(build(shadeShape)), { transforms: PROD_PLUGINS })
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.controlFlow.length).toBeGreaterThan(0)
+  })
+
+  it('a constant regression stays in `constants`, with control flow still clean', () => {
+    const d = semanticDiff(dev, inlineLinearAll(build(shadeLit)), { transforms: PROD_PLUGINS })
+    expect(d.constants.join('\n')).toContain('lit f32=0.25')
+    expect(d.controlFlow).toEqual([])
+    expect(isSemanticallyEqual(d)).toBe(false)
+  })
+
+  it('an interface regression stays in `interface`', () => {
+    const d = semanticDiff(dev, inlineLinearAll(build(shadeBase, { fsName: 'fs_alt' })), {
+      transforms: PROD_PLUGINS,
+    })
+    expect(d.interface.join('\n')).toContain('fs_alt')
+    expect(isSemanticallyEqual(d)).toBe(false)
+  })
+
+  it('a resource regression stays in `resources`', () => {
+    const d = semanticDiff(dev, inlineLinearAll(build(shadeBase, { extraBinding: true })), {
+      transforms: PROD_PLUGINS,
+    })
+    expect(d.resources.join('\n')).toContain('bind 0:1 extra')
+    expect(isSemanticallyEqual(d)).toBe(false)
+  })
+
+  it('a LIFTED TEMPORARY classifies too — not just expression substitution', () => {
+    const linearProd = inlineLinearAll(linearDev)
+    const entryStmts = (m: ModuleDecl): number =>
+      m.funcs.find((f) => f.name === 'sdLinearFs')!.body.length
+    // Non-vacuity AND the mechanism: the helper is gone and its statements now sit in the
+    // caller's block bound to temps. That statement-count growth IS the temporary-variable
+    // rewrite the report names, and it is invisible to `ignore: ['names']`.
+    expect(linearProd.funcs.length).toBeLessThan(linearDev.funcs.length)
+    expect(entryStmts(linearProd)).toBeGreaterThan(entryStmts(linearDev))
+    expect(semanticDiff(linearDev, linearProd).controlFlow.length).toBeGreaterThan(0)
+
+    const d = semanticDiff(linearDev, linearProd, { transforms: PROD_PLUGINS })
+    expect(isSemanticallyEqual(d)).toBe(true)
+    expect(
+      d.semanticsPreservingTransform.some(
+        (f) => f.transform === 'inline' && f.bucket === 'controlFlow',
+      ),
+    ).toBe(true)
   })
 })

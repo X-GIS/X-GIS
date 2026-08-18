@@ -1166,6 +1166,29 @@ on real Tint + ANGLE by `playground/e2e/_emit-obfuscate-gate.spec.ts`, and
 whole example corpus: the lexed TOKEN STREAM and every literal's VALUE are
 unchanged across minification, and the pass is idempotent.
 
+**Verifying the production module against the dev one (#1806).** `semanticDiff`
+compares two modules at the IR + reflection layer, which is what lets a parity
+gate assert "the production emit is the dev emit, optimized" rather than trust
+it. Hand it the SAME `plugins` array as `transforms`, and every difference those
+plugins reproduce is reported under `semanticsPreservingTransform` — naming the
+plugin, the bucket and the fact lines — while everything they do NOT reproduce
+stays in the four fail-able buckets (`interface`, `resources`, `constants`,
+`controlFlow`):
+
+```ts
+const plugins = [inline(), ...obfuscate()]
+const d = semanticDiff(devModule, prodModule, { transforms: plugins })
+isSemanticallyEqual(d) // true — an optimizer rewriting its own input is not a mismatch
+d.semanticsPreservingTransform // …but it is still reported, per plugin and per bucket
+```
+
+That is a CLASSIFICATION, not an ignore. Each declared plugin is re-run on both
+modules, so a difference is excused only when the plugin itself produces it: a
+call-graph flattening stops spending the same budget an interface or backend
+regression does, and a genuine control-flow change survives, because inlining
+both sides does not make two different programs agree. Omit `transforms` and
+nothing moves — every difference stays fail-able, exactly as before.
+
 ## 9. GLSL float precision — `floatPrecision` (#1673)
 
 The GLSL ES 3.00 backend emits `precision highp float;`. Mobile GPUs pay real
@@ -1432,7 +1455,7 @@ knew to search for. Every row below is a thing that was rebuilt by hand at least
 | `precision highp …` on one declaration             | the `precision` option on `hostUniform`    | n/a (WGSL has no precision qualifiers)  | the stage preamble is the default; this is for a fragment composed into a host program                                                                                                                                                                |
 | `usampler2D` / `isampler2D`                        | `texture2duT` / `texture2diT` (§4)         | `texture_2d<u32>` / `texture_2d<i32>`   | the sampler precision line is emitted for you                                                                                                                                                                                                         |
 | `#extension … : require`                           | `enables` (§10)                            | `enable …;`                             | fails closed (`SD0030`) on a backend whose `capProfile` has no row                                                                                                                                                                                    |
-| comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff                                                                                                                                                                               |
+| comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff; pass the production `plugins` array as `transforms` and what they rewrite lands under `semanticsPreservingTransform` rather than in the mismatch budget (§8)                 |
 
 ### Does it survive on WGSL?
 
