@@ -1,19 +1,31 @@
 // ═══ AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density gate (ortho z=0 pitch=80) ═══
 //
 // Born `_synth-bg-ortho-pitch80.spec.ts`, absent from every test.yml leg and therefore dark
-// (#1785's triage class, same pattern as #1774/#1349). #1785 reproduced its one failing
-// assertion 2/2 on clean main: `drawStats.globeTilesSelected` (assertion 1, formerly line 262)
-// read 0 instead of >=1 at this camera. Root cause: the non-Mercator z=0 root-tile split in
-// `map/src/render/tile-selection-cache.ts` ran unconditionally for every projType outside
-// {mercator, globe} and replaced the synthetic earth-surface source's ONLY z=0 tile with four
-// z=1 children it can never serve — its catalog declares `maxZoom: 0`
-// (`data/src/sources/synthetic-earth-surface-backend.ts`) — so the whole selection turned
-// over-zoom. Exactly the #1792 defect class the demotiles mirror hit on the same split;
-// #1799 fixed both by gating the split on `maxLevel >= 1` (`tile-selection-cache.ts:860`),
-// which now excludes any z=0-only source — this one included — from the split entirely. With
-// the fix landed the spec is renamed to `-gate` and registered in test.yml's render-gate list
-// — the assertions below are unchanged from before the fix and now hold permanently, mirroring
-// how #1799 itself promoted `_demotiles-mirror-gate.spec.ts` for the identical guard.
+// (#1785's triage class, same pattern as #1774/#1349). #1785 found its promotion needed TWO
+// independent fixes, not one:
+//
+//   1. RENDER — pre-#1799, the non-Mercator z=0 root-tile split in
+//      `map/src/render/tile-selection-cache.ts` ran unconditionally for every projType outside
+//      {mercator, globe} and replaced the synthetic earth-surface source's ONLY z=0 tile with
+//      four z=1 children it can never serve — its catalog declares `maxZoom: 0`
+//      (`data/src/sources/synthetic-earth-surface-backend.ts`) — so the whole selection turned
+//      over-zoom. Exactly the #1792 defect class the demotiles mirror hit on the same split;
+//      #1799 fixed both by gating the split on `maxLevel >= 1` (`tile-selection-cache.ts:860`).
+//   2. INSTRUMENTATION — with #1799 landed the render was already correct (assertions 2 and 3
+//      passed), but assertion 1's `drawStats.globeTilesSelected` (formerly line 262) still read
+//      0 instead of >=1. Root cause was a SEPARATE, older gap: #1581 stopped clearing
+//      `TileSelectionCache`'s per-margin LRU every frame (a perf fix, static-camera frames now
+//      serve from cache instead of re-walking), but `setGlobeTilesSelected` was only ever called
+//      from the cache-MISS compute branch. `FrameDrawStats.beginFrame()` still resets the
+//      counter every frame, so once this spec's static camera settled into steady-state cache
+//      HITS (`setupPage`'s 2-RAF + 800ms settle guarantees it), the counter read 0 forever even
+//      though the same, correct selection kept being drawn from cache. Fixed by stashing the
+//      computed count on the cache entry (`FrameTileCache.globeTilesSelected`) and re-affirming
+//      it on a HIT too — pinned by a new fail-before case in `tile-selection-lru.test.ts`.
+//
+// With both fixes landed the spec is renamed to `-gate` and registered in test.yml's render-gate
+// list — the assertions below are unchanged from before the fixes and now hold permanently,
+// mirroring how #1799 itself promoted `_demotiles-mirror-gate.spec.ts` for the identical guard.
 //
 // Verifies the 32×16 earth-surface fill mesh renders smooth at z=0
 // orthographic projection pitch=80:

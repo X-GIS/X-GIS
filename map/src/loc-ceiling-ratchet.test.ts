@@ -1525,7 +1525,14 @@ const CEILINGS: Record<string, number> = {
   // 1018→1036 (#1792): the z=0 root split now requires `maxLevel >= 1` — on a
   // z=0-only archive it swapped the source's ONLY tile for four unresolvable
   // children, so the synthetic earth-surface show drew nothing off mercator/globe.
-  'map/src/render/tile-selection-cache.ts': 1036,
+  // 1036→1059 (#1785): #1581 stopped clearing `_frameTileCacheLru` every frame, but
+  // the `globeTilesSelected` diagnostic on `FrameDrawStats` is still reset every
+  // frame and was only ever re-set on a fresh compute (the cache-MISS branch) — so
+  // a static camera serving every frame from cache after the first left it reading
+  // 0 forever despite a correct sphere selection and a correct draw. +23 = a new
+  // `globeTilesSelected: number | null` field on `FrameTileCache` (stashed at
+  // compute time) + re-setting the diagnostic from it on a cache HIT too.
+  'map/src/render/tile-selection-cache.ts': 1059,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

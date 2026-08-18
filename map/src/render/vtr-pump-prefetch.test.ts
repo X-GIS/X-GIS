@@ -89,6 +89,7 @@ function makeVtr(catalog: unknown, neededKeys: number[], frameId: number): Vecto
     archiveAncestor: [],
     marginPx: 0,
     currentZ: 14,
+    globeTilesSelected: null,
   }
   ;(
     selection as unknown as { _frameTileCacheLru: Map<number, FrameTileCache> }

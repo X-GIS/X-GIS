@@ -112,6 +112,16 @@ export interface FrameTileCache {
    *  derived from this; only `cachedAncestorKey` still needs a
    *  per-layer `sliceCached` walk). */
   archiveAncestor: number[]
+  /** The `globeVisibleTiles()` raw count this entry was computed with, or
+   *  `null` when this entry is the flat/Mercator-SSE route (which never
+   *  touches the diagnostic — see `setGlobeTilesSelected`). #1785: #1581
+   *  stopped clearing this LRU every frame, but `drawStats`'s counter is
+   *  still reset every frame by `beginFrame()` and was only ever RE-SET on
+   *  a fresh compute (the MISS branch) — so a static camera serving every
+   *  frame from cache after the first left the diagnostic reading 0 forever
+   *  despite the sphere selection (and the draw) being correct. Stashing
+   *  the count here lets a cache HIT re-affirm it too. */
+  globeTilesSelected: number | null
 }
 
 /** What `selectForFrame` returns to the render coordinator. Mirrors the
@@ -641,6 +651,10 @@ export class TileSelectionCache {
     let worldOffDeg: number[]
     let parentAtMaxLevel: number[]
     let archiveAncestor: number[]
+    // #1785 — mirrors what gets passed to `drawStats.setGlobeTilesSelected` on a
+    // MISS (null on the flat/Mercator-SSE branch, which never calls it), so a
+    // MISS-computed entry can carry the same value forward for a later HIT.
+    let globeTilesSelectedForEntry: number | null = null
     // Per-margin LRU lookup (#1153 #12), keyed by offsetMarginPx.
     const cached = this._frameTileCacheLru.get(offsetMarginPx)
     if (
@@ -660,6 +674,13 @@ export class TileSelectionCache {
       worldOffDeg = cached.worldOffDeg
       parentAtMaxLevel = cached.parentAtMaxLevel
       archiveAncestor = cached.archiveAncestor
+      // #1785 — re-affirm the diagnostic on a HIT too (see the field doc on
+      // `FrameTileCache.globeTilesSelected`); `null` means this entry is the
+      // flat/Mercator-SSE route, which must not touch the counter, matching
+      // the MISS branch below.
+      if (cached.globeTilesSelected !== null) {
+        drawStats.setGlobeTilesSelected(cached.globeTilesSelected)
+      }
     } else {
       // Cache MISS — the full quadtree walk + derived-array build runs below.
       this._selectionComputeCount++
@@ -761,6 +782,7 @@ export class TileSelectionCache {
         // fan-out / makeTileCoord, so the harness can split
         // selection-empty from selected-but-culled.
         drawStats.setGlobeTilesSelected(globeTiles.length)
+        globeTilesSelectedForEntry = globeTiles.length
         // GlobeTile (z/x/y/ox) matches the TileCoord shape exactly;
         // makeTileCoord wraps with the absolute-x contract.
         //
@@ -1012,6 +1034,7 @@ export class TileSelectionCache {
         indexGeneration: source.indexGeneration(),
         parentAtMaxLevel,
         archiveAncestor,
+        globeTilesSelected: globeTilesSelectedForEntry,
       }
       this._frameTileCacheLru.set(offsetMarginPx, entry)
       // Evict the least-recently-used entry beyond the slot cap.
