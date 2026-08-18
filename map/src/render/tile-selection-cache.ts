@@ -843,7 +843,25 @@ export class TileSelectionCache {
       // Non-Mercator flat projections, via the #996 membership accessors —
       // exactly the set the prior `!== 0 && !== 7` selected (isMercatorProj is
       // cylindrical-and-non-periodic: projType 0 alone).
-      if (!isMercatorProj(projType) && !isGlobeProj(projType) && !camera.globeMode) {
+      //
+      // …and ONLY when the source can SERVE z=1 (#1792). The split REPLACES the
+      // root, so on an archive that stops at z=0 it swaps the source's ONLY tile
+      // for four keys that can never resolve: the whole selection turns
+      // over-zoom and the source draws NOTHING on every projType this branch
+      // covers (1/2/3/4/5/6 — mercator and globe are excluded above, which is
+      // exactly why they kept drawing). Production case: the synthetic
+      // earth-surface mesh (`SyntheticEarthSurfaceBackend`, maxZoom 0 on its own
+      // catalog) left the ocean at the sphere-full black clear on the azimuthal
+      // family; the z=0-only per-source polar cap (#360 F1) is the same shape.
+      // The split's own rationale does not reach those sources: the smear it
+      // kills is an ARCHIVE ring left un-clipped by a missing tile boundary, and
+      // a source with no z=1 level has no clip stage to gain.
+      if (
+        maxLevel >= 1 &&
+        !isMercatorProj(projType) &&
+        !isGlobeProj(projType) &&
+        !camera.globeMode
+      ) {
         // Iter 126: enumerate z=0 → 4 z=1 children PER WORLD COPY.
         // Pre-iter-126 dropped every z=0 entry and pushed 4 z=1 children
         // with hard-coded ox=0 — collapsed world-copy variants into the
