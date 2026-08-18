@@ -693,7 +693,20 @@ const CEILINGS: Record<string, number> = {
   // with no extra branching — into a geo AABB dispatched via the new
   // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
   // from now.
-  'map/src/controller.ts': 997,
+  // 997→1166 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
+  // embedded map from hijacking page scroll. `CooperativeGesturesOptions` +
+  // two new live-read `ControllerState` fields (cooperativeGestures,
+  // prefersReducedMotion — same getState()-closure pattern #1265 established
+  // for doubleClickZoomEnabled/boxZoomEnabled), the module-level hint-overlay
+  // helpers (mirroring the #1265 box-zoom overlay: shared injected
+  // stylesheet + a lazily-created display:none-at-rest div, platform/
+  // reduced-motion-aware text, auto-fade timer), the per-attach `showCoopHint`
+  // closure, the onWheel early-return that cedes a plain wheel to the page
+  // (no preventDefault) while Ctrl/⌘+wheel still zooms, the onPointerDown
+  // branch that blocks a single-finger TOUCH drag from panning (mouse
+  // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
+  // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
+  'map/src/controller.ts': 1166,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
@@ -703,12 +716,22 @@ const CEILINGS: Record<string, number> = {
   // the file's own established pattern. The BODY the render pass actually draws with (the
   // camera-ray extraction, the uniform pack, the shader) lives in atmosphere-uniform.ts /
   // atmosphere-pass.ts / shaders/dsl/atmosphere.ts.
-  // 5546→5552 (#1304, atop the #1258 bump): two one-line calls to `sourceManager.stopAllRefresh()`, in
+  // 5546→5578 (#1264, atop the #1258 bump): `cooperativeGestures` (MapLibre parity) — stop an
+  // embedded map from hijacking page scroll. map.ts's share is again
+  // composition-root wiring only (the gesture logic + hint overlay live in
+  // controller.ts): the `cooperativeGestures` field (default OFF, unlike
+  // doubleClickZoom/boxZoom's default-ON) + its constructor-option read, the
+  // `getState()` closure threading it + `prefersReducedMotion` to the
+  // controller live, and `_setupTouchAction`'s default-branch swap to
+  // `'pan-y'` (vs #1153's `'none'`) so a released single-finger touch drag
+  // actually reaches the OS as a native scroll. MEASURED at the union merge
+  // with #1827's independent 5497→5546 bump (both additive from 5497).
+  // 5578→5584 (#1304, atop the #1264 bump): two one-line calls to `sourceManager.stopAllRefresh()`, in
   // `_teardownForReinit()` and `destroy()` alongside the existing coverage
   // stop-block — the SourceManager half of the same teardown spine, so a
   // `refresh:`-declared polling loop can't outlive a scene swap or ghost-write
   // into a same-named source in the next scene (the #1569 class of bug).
-  'map/src/map.ts': 5552,
+  'map/src/map.ts': 5584,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

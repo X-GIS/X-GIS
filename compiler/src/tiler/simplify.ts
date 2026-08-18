@@ -10,7 +10,7 @@
  *                 Used to preserve tile boundary vertices for seamless adjacency.
  * @returns Simplified coordinate array (always preserves first and last point)
  */
-import { EARTH, mercatorToECEFSphere } from '@xgis/shared'
+import { EARTH } from '@xgis/shared'
 
 export function simplify(
   ring: number[][],
@@ -277,6 +277,21 @@ export function simplifyLine(
  *                  equator, where a Mercator meter IS a ground meter.
  * @param isLocked Predicate to lock tile-boundary vertices from removal
  */
+// #1775 half 2 — `RAD2DEG`/`DEG2RAD` mirror shared/src/ecef.ts's constants
+// bit-for-bit (identical literal expressions), and `scratchKeep`/`scratchEcef`
+// below are grown-not-shrunk buffers reused ACROSS CALLS to simplifyLineSphere.
+// This is what removes the per-vertex allocation `mercatorToECEFSphere` used
+// to cost on every tile-hot-path invocation: that call returned a fresh
+// `[x,y,z]` array per vertex, immediately destructured and discarded (see the
+// per-vertex loop below, which now writes straight into the scratch buffer
+// instead). Safe as module state because tiling calls simplifyLineSphere
+// synchronously to completion, one line at a time, per worker thread — no
+// call ever observes another call's in-flight scratch contents.
+const RAD2DEG = 180 / Math.PI
+const DEG2RAD = Math.PI / 180
+let scratchKeep = new Uint8Array(0)
+let scratchEcef = new Float64Array(0)
+
 export function simplifyLineSphere(
   coords: number[][],
   tolerance: number,
@@ -286,34 +301,53 @@ export function simplifyLineSphere(
   if (tolerance <= 0) return coords
 
   const sqTolerance = tolerance * tolerance
-  const keep = new Uint8Array(coords.length)
+  const n = coords.length
+
+  if (scratchKeep.length < n) scratchKeep = new Uint8Array(n)
+  if (scratchEcef.length < n * 3) scratchEcef = new Float64Array(n * 3)
+  const keep = scratchKeep.subarray(0, n)
+  // Reused buffer may carry stale 1s from a larger prior call — `new
+  // Uint8Array` zero-inits, a reused subarray does not.
+  keep.fill(0)
   keep[0] = 1
-  keep[coords.length - 1] = 1
+  keep[n - 1] = 1
   if (isLocked) {
-    for (let i = 0; i < coords.length; i++) {
+    for (let i = 0; i < n; i++) {
       if (isLocked(coords[i])) keep[i] = 1
     }
   }
 
   // Unproject once per vertex, not once per distance test: Douglas-Peucker
   // evaluates O(n log n) segment distances but only ever needs these n
-  // positions. EARTH is passed explicitly to stay on the same sphere radius
-  // `mercatorToleranceForZoom` calibrates against.
-  const ecef = new Float64Array(coords.length * 3)
-  for (let i = 0; i < coords.length; i++) {
-    const [x, y, z] = mercatorToECEFSphere(coords[i][0], coords[i][1], 0, EARTH)
-    ecef[i * 3] = x
-    ecef[i * 3 + 1] = y
-    ecef[i * 3 + 2] = z
+  // positions. Inlines `mercatorToECEFSphere`/`lonLatToECEFSphere`
+  // (shared/src/ecef.ts) term-for-term against the hardcoded EARTH radius —
+  // the prior call site always passed EARTH explicitly, so this is the same
+  // sphere `mercatorToleranceForZoom` calibrates against, computed the same
+  // way, just written directly into the scratch buffer instead of returned
+  // as a discarded per-vertex array.
+  const ecef = scratchEcef.subarray(0, n * 3)
+  const sphereR = EARTH.sphereR
+  for (let i = 0; i < n; i++) {
+    const mx = coords[i][0]
+    const my = coords[i][1]
+    const lon = (mx / sphereR) * RAD2DEG
+    const lat = (2 * Math.atan(Math.exp(my / sphereR)) - Math.PI / 2) * RAD2DEG
+    const lonRad = lon * DEG2RAD
+    const latRad = lat * DEG2RAD
+    const sinLat = Math.sin(latRad)
+    const cosLat = Math.cos(latRad)
+    ecef[i * 3] = sphereR * cosLat * Math.cos(lonRad)
+    ecef[i * 3 + 1] = sphereR * cosLat * Math.sin(lonRad)
+    ecef[i * 3 + 2] = sphereR * sinLat
   }
 
-  dpStep(0, coords.length - 1, sqTolerance, keep, (i, lo, hi) => {
+  dpStep(0, n - 1, sqTolerance, keep, (i, lo, hi) => {
     const planar = sqDistToSegment(coords[i], coords[lo], coords[hi])
     return Math.max(planar, sqDistToSegment3(ecef, i, lo, hi))
   })
 
   const result: number[][] = []
-  for (let i = 0; i < coords.length; i++) {
+  for (let i = 0; i < n; i++) {
     if (keep[i]) result.push(coords[i])
   }
   return result.length >= 2 ? result : coords // preserve at least 2 points
