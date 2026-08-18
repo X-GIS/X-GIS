@@ -17,6 +17,11 @@
  *  semantics; oit is registered but runtime-dead — shouldRun immutably false). */
 export const PASS_CHAIN_ORDER = [
   'background',
+  // #1258 — the globe limb-glow gradient. Draws immediately after the background clear and
+  // before anything else, so painter's order is space background → limb glow → earth
+  // surface → content. Touches only the colour target `background` already claimed (no
+  // resolve, no depth-stencil); inert off the style flag AND off the 3D globe camera.
+  'atmosphere',
   // #1333 — the IBFV advection step. PRODUCER, so it must precede its consumer: the coverage
   // drape samples the advected field and draws inside `opaque`. Touches no swapchain
   // attachment (it renders only into its own grid-space pair), so it takes no part in the

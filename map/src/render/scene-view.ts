@@ -62,6 +62,14 @@ export interface SceneView {
    *  Kept as a frame fact rather than deleted — it is correct and cheap — but do not
    *  reintroduce it as a pass gate. */
   readonly hasFlow: boolean
+  /** `_atmosphere` is set AND the 3D globe orbit camera is active (#1258). Gates the
+   *  atmosphere pass — false (the default) means the pass never runs, so a map that has
+   *  not opted in, or is not on a globe-class projection, is byte-identical (no pass). Not
+   *  the same test as `worldBandForProjType() === 'sphere-full'` (background-pass.ts's own
+   *  gate) — that ALSO covers the untitled flat-2D azimuthal/ortho/stereographic discs,
+   *  where there is no 3D camera for this pass's ray-sphere math to describe. See
+   *  atmosphere-pass.ts for why `camera.globeMode` is the correct boundary. */
+  readonly hasAtmosphere: boolean
   /** Whether `?debug=overdraw` is ACTIVE this frame — mirrored from
    *  `FrameContext.overdraw`, which is the authority (see its doc). Every
    *  `shouldRun` gate reads THIS, never the raw URL flag: the mode is
@@ -89,6 +97,8 @@ type SceneHost = Pick<
   | 'hillshadeRenderer'
   | 'graphics'
   | 'coverageRenderer'
+  | '_atmosphere'
+  | 'camera'
 >
 
 /** Build the per-frame SceneView from the bucket scheduler. Mirrors the
@@ -109,6 +119,7 @@ export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
   const hasHillshade = host.hillshadeRenderer?.hasSource() ?? false
   const hasGraphics = host.graphics?.hasRetainedBatches() ?? false
   const hasFlow = host.coverageRenderer?.hasFlowField() ?? false
+  const hasAtmosphere = host._atmosphere !== null && host.camera.globeMode
   // Which pass owns the MSAA resolveTarget? deriveResolveOwner is the single
   // priority authority (bucket-scheduler.ts) — the last colour-writing pass
   // in PASS_CHAIN_ORDER. The heatmap pass composites AFTER labels onto the
@@ -130,6 +141,7 @@ export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
     hasHillshade,
     hasGraphics,
     hasFlow,
+    hasAtmosphere,
     overdraw: ctx.overdraw,
     resolveOwner,
     // DERIVED from the frame's two geometries, not remembered — the loop set

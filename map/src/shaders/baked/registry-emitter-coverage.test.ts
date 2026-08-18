@@ -204,6 +204,18 @@ function twinFamilyOf(sym: string, covered: ReadonlyMap<string, string>): string
 // a key with its reason beside it can. The reason IS the value — an entry without one is
 // not reviewable, and this list is the only place a "no" about baking is recorded.
 const ALLOWLIST: Readonly<Record<string, string>> = {
+  // ── Off by default, decorative — not on the first-frame path the bake exists to shorten ──
+  emitAtmosphereWgsl:
+    '#1258 globe limb-glow gradient — off by default (`_atmosphere === null`), and only ever ' +
+    'drawn on a globe-class camera even when enabled. Same reasoning as emitOverdrawFsWgsl ' +
+    'below: baking a decorative, opt-in fullscreen pass would grow the boot artifact every ' +
+    'map downloads for a shader most frames never draw.',
+  emitAtmosphereGlslStages:
+    '#1258 — the GLSL ES 3.00 twin of emitAtmosphereWgsl, same reason: off by default.',
+  atmosphereModule:
+    '#1258 — the module emitAtmosphereWgsl/emitAtmosphereGlslStages are both derived from; ' +
+    'same reason as its emitters.',
+
   // ── The OPEN set: bytes derived from runtime style data ──
   // The coverage ramp takes a `CoverageFilterFn` compiled from the layer's style
   // expression, so its source is a function of data that does not exist at build time.

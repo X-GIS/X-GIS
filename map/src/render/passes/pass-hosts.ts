@@ -25,6 +25,12 @@ export type BackgroundPassHost = Pick<
   '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape'
 >
 
+/** Atmosphere pass (#1258) — the globe limb-glow gradient. Reaches the style flag + the
+ *  camera it both projects through and gates on (`camera.globeMode` — see atmosphere-pass.ts
+ *  for why the projection-type check alone is not enough) + `ctx` for its lazily built
+ *  Material and uniform buffer. */
+export type AtmospherePassHost = Pick<XGISMap, '_atmosphere' | 'camera' | 'ctx'>
+
 /** Opaque bucket: raster + coverage + opaque vector sub-passes. */
 export type OpaquePassHost = Pick<
   XGISMap,
@@ -170,6 +176,7 @@ export type FrameLoopHost = Pick<
  *  the INTERSECTION of every per-concern role. Identical member set to the
  *  flat Pick it replaces; `this.host` resolves exactly the same fields. */
 export type RenderLoopHost = BackgroundPassHost &
+  AtmospherePassHost &
   OpaquePassHost &
   OitPassHost &
   TranslucentPassHost &

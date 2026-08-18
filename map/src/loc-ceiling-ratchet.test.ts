@@ -681,7 +681,6 @@ const CEILINGS: Record<string, number> = {
   // the controller live, the new `onBoxZoom` callback (the eased-fitBounds
   // terminal call — #1256's easeTo infra is what makes "eased" possible now),
   // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
-  'map/src/map.ts': 5497,
   // Baselined at #1265 (measured 997 after the prettier pass): the pointer-gesture state machine crossed
   // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
   // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
@@ -695,7 +694,16 @@ const CEILINGS: Record<string, number> = {
   // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
   // from now.
   'map/src/controller.ts': 997,
-  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
+  // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
+  // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
+  // setter mutates a private class field directly, exactly like every sibling setter here
+  // (setBackgroundFill, setLight, setProjection); pulling just this one out to a free function
+  // would need the field made reachable from outside the class, which is a worse shape than
+  // the file's own established pattern. The BODY the render pass actually draws with (the
+  // camera-ray extraction, the uniform pack, the shader) lives in atmosphere-uniform.ts /
+  // atmosphere-pass.ts / shaders/dsl/atmosphere.ts.
+  'map/src/map.ts': 5546,  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
