@@ -51,6 +51,14 @@ export function decodeMvtTile(
       const clampedGeom = clampGeometryToPlanet(gj.geometry as GeoJSONGeometry)
       out.push({
         type: 'Feature',
+        // #1375 — MVT Feature tag 1 (`id`). `GeoJSONFeature.id` is documented
+        // as "MVT decoders populate this from the feature.id field of the .mvt
+        // protobuf" (compiler/src/tiler/geojson-types.ts) and this decoder was
+        // the one that did not: `["id"]` / `$featureId` read null on every
+        // MVT-backed source, and a host-pushed feature lost its stable
+        // identity the moment it was tiled. Stays `undefined` when the tile
+        // carries no id, so "no id" and "id 0" remain distinguishable.
+        id: (f as unknown as { id?: number }).id,
         geometry: clampedGeom,
         properties: {
           ...(gj.properties ?? {}),

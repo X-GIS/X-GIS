@@ -51,6 +51,10 @@ export class TileDataCache {
     if (td.outlineVertices) n += td.outlineVertices.byteLength
     if (td.outlineLineIndices) n += td.outlineLineIndices.byteLength
     if (td.pointVertices) n += td.pointVertices.byteLength
+    // #1375 — the stable-id side-car is never nulled after upload (nothing
+    // uploads it), so unlike the prebuilt segments below it can be counted
+    // symmetrically by setSlice and deleteCacheEntry.
+    if (td.pointFeatureIds) n += td.pointFeatureIds.byteLength
     // prebuiltLineSegments / prebuiltOutlineSegments INTENTIONALLY
     // omitted: VTR.doUploadTile nulls them out after GPU upload (a
     // 180 MB / 256-tile heap-saving optimisation). Including them
@@ -120,6 +124,17 @@ export class TileDataCache {
   /** Iterate the per-key slot maps. */
   values(): IterableIterator<Map<string, TileData>> {
     return this.dataCache.values()
+  }
+
+  /** #1375 — every cached TileData, flattened across keys AND layer slots. The
+   *  in-place point patch resolves a feature against every RESIDENT slice (a
+   *  point sits in one tile per zoom, and the patch has to move all of them or
+   *  none), so it needs this view; owning the nested walk here keeps the
+   *  cache's shape from leaking into the caller. */
+  *slices(): IterableIterator<TileData> {
+    for (const slot of this.dataCache.values()) {
+      yield* slot.values()
+    }
   }
 
   /** Recompute the actual byte size of every cached TileData and

@@ -675,6 +675,14 @@ export class XGISMap {
     getSeededFC: (id) =>
       this.sourceCRS.has(id) ? null : (this.sourceManager.hostSeededFC.get(id) ?? null),
     reseedSource: (id, fc) => this.setSourceData(id, fc),
+    // #1375 — the in-place point patch the queue prefers over a re-seed. Gated
+    // here on the source having no HEATMAP show: a heatmap layer is built from
+    // `heatmapPointData` inside `rebuildLayers`, which the in-place path
+    // deliberately never calls, so a patched source feeding one would keep
+    // drawing its density field at the old positions.
+    patchFeaturesInPlace: (id, fc, moves) =>
+      !this.showCommands.some((s) => s.isHeatmap && s.targetName === id) &&
+      this.sourceManager.patchFeaturesInPlace(id, fc, moves),
   })
   // Delegating views onto the relocated queue state. The pending-patch
   // queue and flush rAF handle now live in FeatureUpdateQueue; these keep

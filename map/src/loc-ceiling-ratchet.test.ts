@@ -650,7 +650,13 @@ const CEILINGS: Record<string, number> = {
   // 5437→5446 (#1257): style-authored `raster-fade-duration` resolved once in the
   // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
   // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
-  'map/src/map.ts': 5446,
+  // 5446→5454 (#1375): the FeatureUpdateQueue host gains `patchFeaturesInPlace` — the
+  // in-place point patch the flush now prefers over a re-seed. The BODY of it lives in
+  // SourceManager; what map.ts contributes is the one gate only map.ts can answer (a
+  // HEATMAP show on the patched source is built inside `rebuildLayers`, which the
+  // in-place path deliberately never calls) plus its reason. Nothing cohesive to
+  // extract: it is a single predicate over `showCommands`, which this file owns.
+  'map/src/map.ts': 5454,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -726,7 +732,16 @@ const CEILINGS: Record<string, number> = {
   // branch with an empty region map on main, so the import would be orphaned and was DROPPED
   // in adoption — the source-failure payload (`XGISMapErrorInfo`/`fireError`) is the part
   // that lands. MEASURED post-pick.
-  'map/src/source-manager.ts': 898,
+  // 898→939 (#1375): `patchFeaturesInPlace` — the route a host feature update takes
+  // when it does NOT need a re-tile. RAISED rather than extracted because the method is
+  // the sibling of `_reseedInPlace` directly above it: both answer "a push arrived for
+  // an already-attached source", both are the only writers of `hostSeededFC` +
+  // `heatmapPointData` for that source, and splitting them would put the two halves of
+  // one decision in two files — the second-authority shape §12 warns about. +41 is ~14
+  // lines of body and the rest the recorded reasoning (why the catalog's all-or-nothing
+  // false means fall back, why the seeded FC must still be adopted with nothing
+  // re-tiled, and why `detectCapPoles` is deliberately NOT re-run). MEASURED.
+  'map/src/source-manager.ts': 939,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -1046,7 +1061,16 @@ const CEILINGS: Record<string, number> = {
   // folds the backends exactly as `getTileState` (its immediate neighbour) already does
   // has nowhere cohesive to extract to, and splitting the pair would put two readings of
   // one backend's failure cache in two files. Measured 1412 post-commit, no hook.
-  'data/src/tile-catalog.ts': 1412,
+  // 1412→1444 (#1375): `patchPointFeatures()` — rewrite the POINT records already sitting
+  // in cached tiles instead of re-tiling the source. RAISED, same shape as the #1616 /
+  // #1596 entries above: the planning + packing is EXTRACTED (point-feature-patch.ts, a
+  // new 194-LOC leaf) and the flat cache walk belongs to TileDataCache (`slices()`), so
+  // what stays here is 6 lines — the delegation plus the `_contentGeneration` bump, which
+  // MUST stay here because this file is that counter's single write authority and a patch
+  // that forgot to bump would be invisible to the point repack. The other +26 is the
+  // import block, the `pointFeatureIds` passthrough at the two descriptor sites, and the
+  // recorded reasoning. MEASURED.
+  'data/src/tile-catalog.ts': 1444,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

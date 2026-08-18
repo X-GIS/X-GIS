@@ -62,6 +62,11 @@ export interface BackendTileResult {
   lineIndices: Uint32Array
   /** Optional point vertices — DSFUN stride 5. */
   pointVertices?: Float32Array
+  /** #1375 — one stable u32 feature id per packed point in `pointVertices`,
+   *  in the same order. Lets a host feature update rewrite one point's record
+   *  inside the resident tile instead of re-tiling the whole source; see
+   *  `TileData.pointFeatureIds`. */
+  pointFeatureIds?: Uint32Array
   /** Optional polygon outline indices into `vertices` (legacy path). */
   outlineIndices?: Uint32Array
   /** Optional standalone outline vertices in DSFUN stride 10 (modern

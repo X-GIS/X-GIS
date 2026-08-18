@@ -60,6 +60,16 @@ export interface TileData {
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
   pointVertices?: Float32Array // points — ECEF DSFUN stride 9 (PR 2d.2): [ex_h, ey_h, ez_h, ex_l, ey_l, ez_l, fid, abs_lon, abs_lat]
+  /** #1375 — one STABLE u32 feature id per packed point in `pointVertices`
+   *  (same order, so `pointFeatureIds[k]` describes record `k`). The `fid`
+   *  slot INSIDE a packed record is the per-slice feature INDEX that
+   *  `featureProps` / `heights` / `bases` are keyed by, not the host's id, so
+   *  the stable id has to travel beside the geometry — see
+   *  point-feature-patch.ts. `0` marks a point with no usable stable id.
+   *  Present only where the producing pass could resolve one (host-pushed
+   *  GeoJSON and MVT archives carrying feature ids); absent simply makes the
+   *  slice un-patchable and a feature update falls back to the re-seed. */
+  pointFeatureIds?: Uint32Array
   /** Whole-tile background fill (e.g. ocean/land base): the tile is covered by
    *  a single full-extent quad. Set by the decode backends; VTR treats such a
    *  tile as renderable even with no other geometry. */
@@ -126,6 +136,8 @@ export interface CacheTileDataDescriptor {
   lineVertices: Float32Array
   lineIndices: Uint32Array
   pointVertices?: Float32Array
+  /** #1375 — stable-id side-car for `pointVertices`; see `TileData`. */
+  pointFeatureIds?: Uint32Array
   outlineIndices?: Uint32Array
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array

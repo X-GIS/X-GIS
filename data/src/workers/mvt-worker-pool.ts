@@ -22,6 +22,9 @@ export interface MvtCompileSlice {
   lineVertices: Float32Array
   lineIndices: Uint32Array
   pointVertices?: Float32Array
+  /** #1375 — one stable u32 feature id per packed point, in `pointVertices`
+   *  order; see `TileData.pointFeatureIds`. */
+  pointFeatureIds?: Uint32Array
   outlineIndices?: Uint32Array
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
@@ -58,6 +61,7 @@ interface SliceMsg {
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer
   pointVertices?: ArrayBuffer
+  pointFeatureIds?: ArrayBuffer
   outlineIndices?: ArrayBuffer
   outlineVertices?: ArrayBuffer
   outlineLineIndices?: ArrayBuffer
@@ -332,6 +336,7 @@ export class MvtWorkerPool {
         lineVertices: new Float32Array(s.lineVertices),
         lineIndices: new Uint32Array(s.lineIndices),
         pointVertices: s.pointVertices ? new Float32Array(s.pointVertices) : undefined,
+        pointFeatureIds: s.pointFeatureIds ? new Uint32Array(s.pointFeatureIds) : undefined,
         outlineIndices: s.outlineIndices ? new Uint32Array(s.outlineIndices) : undefined,
         outlineVertices: s.outlineVertices ? new Float32Array(s.outlineVertices) : undefined,
         outlineLineIndices: s.outlineLineIndices
