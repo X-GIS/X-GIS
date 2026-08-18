@@ -33,7 +33,7 @@ import {
   vec4,
   toF32,
   toI32,
-  clamp,
+  saturate,
   textureLoad,
   textureSample,
   textureDimensions,
@@ -102,7 +102,7 @@ const fsCompose = fn(
     const intensity = U.field.params.x
     const opacity = U.field.params.y
     // Normalise density → ramp coordinate (0..1) via intensity scale.
-    const t = clamp(density.mul(intensity), 0, 1)
+    const t = saturate(density.mul(intensity))
     // Sample the colour ramp LUT at (t, 0.5). The ramp's own alpha encodes
     // the per-density transparency (Mapbox ramp starts transparent at 0).
     const ramp = textureSample(rampTex.node, rampSampler.node, vec2(t, 0.5))

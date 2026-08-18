@@ -1030,7 +1030,9 @@ const CEILINGS: Record<string, number> = {
   // `u.<lane>` requires and the VS's fill_translate_x/y reads that replace the old `.zw`
   // index. Structural (+4) — a lane cannot be extracted elsewhere; the rest is the two
   // rationale comments for a rename whose reason is invisible from the token.
-  'map/src/shaders/dsl/line.ts': 1542,
+  // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
+  // segment), so the import list carries BOTH names — one structural line, zero logic.
+  'map/src/shaders/dsl/line.ts': 1543,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio

@@ -23,7 +23,7 @@ import {
   u32,
   abs,
   max,
-  clamp,
+  saturate,
   select,
   fwidth,
   length,
@@ -265,8 +265,8 @@ export const fs = fn(
     // covFill instead (the naive, REJECTED formula) would darken every existing arrow's AA
     // edge even with no outline requested (0.5 coverage there, not 0).
     const su = pin.stroke_units
-    const covFill = clamp(f32(0.5).sub(d.div(aa)), 0, 1)
-    const covTotal = clamp(f32(0.5).sub(d.sub(su).div(aa)), 0, 1)
+    const covFill = saturate(f32(0.5).sub(d.div(aa)))
+    const covTotal = saturate(f32(0.5).sub(d.sub(su).div(aa)))
     const strokeCov = max(covTotal.sub(covFill), 0)
     const rgb = mix(pin.tint.swizzle('xyz'), vec3(f32(0), f32(0), f32(0)), strokeCov)
     const out = vec4(rgb, pin.tint.w.mul(covTotal))
