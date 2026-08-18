@@ -152,12 +152,15 @@ const WGSL_CAP_PROFILE = {
 /** `@builtin(<id>)` ids that do NOT exist in WGSL (#1672), each mapped to the message
  *  tail the shared pre-pass prints after `wgsl: @builtin(<id>)`. Every one of them is a
  *  GLSL-ism an author can reach for — `point_size`/`point_coord` are the gl_PointSize /
- *  gl_PointCoord pair, and `frag_coord` is the GLSL spelling this repo's own GLSL writer
- *  accepts (backends/glsl.ts BUILTIN_IN) while WGSL spells it `position` on a fragment
- *  entry. Each used to be emitted VERBATIM into the module string (struct field attr /
- *  param attr) and rejected by naga with no line back to the authoring site. The set is a
- *  DENYLIST, not a WGSL allowlist: a builtin the DSL has not met yet must keep emitting,
- *  so a new WGSL builtin never needs a table edit here to be usable. */
+ *  gl_PointCoord pair, and `frag_coord` is the GLSL spelling of the fragment-input
+ *  `position`. The GLSL writer used to ACCEPT `frag_coord` as an alias, which made a
+ *  module authored against it die only when this writer ran (works-on-WebGL2,
+ *  fails-on-WebGPU); it now fails closed on BOTH writers with the same remedy
+ *  (backends/glsl.ts BUILTIN_IN_REMEDY). Each of these used to be emitted VERBATIM into
+ *  the module string (struct field attr / param attr) and rejected by naga with no line
+ *  back to the authoring site. The set is a DENYLIST, not a WGSL allowlist: a builtin
+ *  the DSL has not met yet must keep emitting, so a new WGSL builtin never needs a
+ *  table edit here to be usable. */
 const WGSL_ABSENT_BUILTINS: ReadonlyMap<string, string> = new Map([
   [
     'point_size',

@@ -236,6 +236,9 @@ export * from './map-event-bus'
 export * from './interaction-controller'
 export * from './map-geo-helpers'
 export * from './source-manager'
+// Built-in JSON field-mapping source loader (#1303) — a `SourceLoader` factory
+// for `XGISMapOptions.sources`; see docs/architecture/source-loader-seam.md §6b.
+export * from './json-field-mapping-loader'
 // Minimal WMS→XYZ raster adapter (#1478) — pure URL-template builder, no map
 // coupling; see wms-xyz-adapter.ts's header for the seam-choice rationale.
 export * from './wms-xyz-adapter'

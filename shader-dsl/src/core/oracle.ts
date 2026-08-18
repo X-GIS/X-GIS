@@ -50,6 +50,8 @@ import {
   zeroOf,
   matVec,
   matMul,
+  f32ToU32Sat,
+  f32ToI32Sat,
 } from './cpu-runtime'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
@@ -178,6 +180,16 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
     }
     case 'call': {
       const args = e.args.map((a) => evalExpr(a, env, ctx))
+      // f32→u32/i32 SATURATES per WGSL (integer sources keep wrapping — see
+      // cpu-runtime's f32To*Sat). The value alone cannot tell the sources apart,
+      // so branch on the ARG's static type; cpu-codegen bakes the same branch at
+      // compile time, keeping the twins bit-identical.
+      if (e.fn === 'u32' || e.fn === 'i32') {
+        const src = e.args[0]!.type
+        if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
+          return e.fn === 'u32' ? f32ToU32Sat(args[0] as number) : f32ToI32Sat(args[0] as number)
+        }
+      }
       const b = BUILTINS[e.fn]
       if (b) return b(...args)
       const stub = GPU_STUBS[e.fn]

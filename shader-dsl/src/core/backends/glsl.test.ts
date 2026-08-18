@@ -890,6 +890,8 @@ describe('glsl-es300 — fail-closed on out-of-scope features', () => {
   it('@builtin(point_size) fails closed here too, with the gl_* mapping message', () => {
     const PointOut = ioStruct('PointOut', {
       clip_pos: builtin('position', vec4fT),
+      // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName);
+      // kept deliberately so the GLSL writer's emit-time rejection stays pinned.
       psize: builtin('point_size', f32T),
     })
     const pointMod = dslModule({

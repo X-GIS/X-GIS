@@ -78,6 +78,54 @@ describe('X-GIS0001: deprecated z<N>: zoom modifier', () => {
   })
 })
 
+describe('X-GIS0028: modifier item with no lowering handler (#1069 slice)', () => {
+  // fail-before: MODIFIER_HANDLERS only wires `fill-*` (modifierFillHandler);
+  // every other utility under a modifier used to be dropped by `dispatch()`
+  // with its verdict discarded — zero diagnostics, so the spec doc's own
+  // `hover:opacity-100` example (§2.12) silently compiled to a no-op.
+  it('`hover:opacity-100` errors — the spec-doc example is not actually wired', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        | fill-red-500
+        | hover:opacity-100
+      }
+    `)
+    const d = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0028')
+    expect(d).toBeDefined()
+    expect(d!.severity).toBe('error')
+    expect(d!.message).toContain('hover:opacity-100')
+  })
+
+  it('`selected:stroke-blue-500` also errors — not just `hover:`', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        | fill-red-500 stroke-2
+        | selected:stroke-blue-500
+      }
+    `)
+    const d = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0028')
+    expect(d).toBeDefined()
+    expect(d!.message).toContain('selected:stroke-blue-500')
+  })
+
+  it('`hover:fill-red-500` is handled by the wired fill-* arm — NO X-GIS0028', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        | fill-gray-400
+        | hover:fill-red-500
+      }
+    `)
+    const d = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0028')
+    expect(d.length).toBe(0)
+  })
+})
+
 describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
   it('warns when layer has no `source:` declaration', () => {
     const scene = lowerSrc(`

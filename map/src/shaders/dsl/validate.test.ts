@@ -128,13 +128,30 @@ describe('validate', () => {
 
   it('throws on a mixed-scalar int/float binop (f32 + u32) — WGSL forbids implicit mixing', () => {
     // WGSL has no implicit int↔float conversion; `a + b` with a:f32, b:u32 is a
-    // compile error there, so validate must reject it at authoring time rather
-    // than emit code the driver rejects. (The typed-lift only fixes the bare-NUMBER
-    // case; a Node-vs-Node scalar mismatch needs the validator.)
+    // compile error there. The kind-matched ArithArg now rejects the Node-vs-Node
+    // mismatch at tsc as well; validate stays the emit-time gate for raw-IR
+    // authoring that bypasses the typed surface — pin BOTH layers.
     const bad = module({
       funcs: [
         fn('mixed', { a: f32T, b: u32T }, f32T, ({ a, b }, bld) => {
+          // @ts-expect-error — a u32 node is not an ArithArg<'f32'>
           bld.ret(a.add(b))
+        }),
+      ],
+    })
+    expect(() => validate(bad)).toThrow(ValidationError)
+  })
+
+  it('throws on a mixed-scalar int/float COMPARE too (u32 > f32) — compares had NO gate', () => {
+    // A mixed compare emitted `(count > 0.0)` and died only at the GPU compiler:
+    // the rule used to walk binops only, and the runtime cmp() gates f64 mixes
+    // alone (caught in the wild by the override-constants example). The
+    // kind-matched CmpArg now rejects it at tsc; this pins the raw-IR backstop.
+    const bad = module({
+      funcs: [
+        fn('mixedCmp', { a: f32T, b: u32T }, ({ a, b }) => {
+          // @ts-expect-error — an f32 node is not a CmpArg<'u32'>
+          return b.gt(a)
         }),
       ],
     })

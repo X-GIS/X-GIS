@@ -1680,7 +1680,11 @@ const CEILINGS: Record<string, number> = {
   // non-overlapping edits SUM; never pick a side).
   // 1448→1452 (#1257): the raster-fade-duration accumulator field threaded through the
   // 4 existing raster-* sites (declare / acc-build / acc-extract / RenderNode-build).
-  'compiler/src/ir/lower.ts': 1452,
+  // 1452→1467 (#1069 smallest-honest-slice): the modifier-dispatch driver checks
+  // dispatch()'s verdict and pushes X-GIS0028 when no MODIFIER_HANDLERS entry
+  // consumed the item (previously a silent drop) — the gate must sit where the
+  // dispatch verdict is known, same rationale as the X-GIS0013 gate a few lines up.
+  'compiler/src/ir/lower.ts': 1467,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

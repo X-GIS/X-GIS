@@ -20,6 +20,12 @@ export interface ParityResult {
   linkLog: string
   fbStatus: string
   note: string
+  /** #1812 — the PORTABLE-declared emit (no emit-site option) is byte-identical to the
+   *  `emulateCompute: true` emit. False means the tier's auto path diverged from the flag
+   *  path, which would make every gate below measure a shader the runtime never emits. */
+  portableIdentical: boolean
+  /** Empty when identical; otherwise the first differing line, both sides, for the report. */
+  portableDiff: string
 }
 
 const FULLSCREEN_VS = `#version 300 es
@@ -53,8 +59,30 @@ export function runComputeParity(): ParityResult {
   for (let f = 0; f < n; f++) cm.fns[kernel.entryPoint]([f, 0, 0])
 
   // ── The shaders the runtime would emit for this kernel ──
-  const glslFs = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
+  // Two spellings of the SAME lowering: the legacy emit-site opt-in, and the #1812 PORTABLE
+  // KERNEL declaration, which asks for it at the authoring site with no option at all. The
+  // declared copy is built here rather than taken from compute-gen so this gate does not
+  // depend on that consumer having been updated yet.
+  const glslFsFlag = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
+  const portableModule = {
+    ...kernel.module,
+    funcs: kernel.module.funcs.map((f) =>
+      f.name === kernel.entryPoint ? { ...f, portable: true } : f,
+    ),
+  }
+  // Everything below runs on the PORTABLE-path source: the execution parity gate must judge
+  // the shader the tier actually emits, not its twin.
+  const glslFs = emitGlslModule(portableModule, 'fragment')
   const wgsl = emitModule(kernel.module)
+
+  const flagLines = glslFsFlag.split('\n')
+  const portLines = glslFs.split('\n')
+  const portableIdentical = glslFs === glslFsFlag
+  let d = 0
+  while (d < Math.max(flagLines.length, portLines.length) && flagLines[d] === portLines[d]) d++
+  const portableDiff = portableIdentical
+    ? ''
+    : `first diff at line ${d + 1}\n  emulateCompute: ${flagLines[d] ?? '<eof>'}\n  portable:       ${portLines[d] ?? '<eof>'}`
 
   const blank: Omit<ParityResult, 'ok' | 'mismatches'> = {
     n,
@@ -65,6 +93,8 @@ export function runComputeParity(): ParityResult {
     linkLog: '',
     fbStatus: '',
     note: '',
+    portableIdentical,
+    portableDiff,
   }
   const fail = (note: string, extra: Partial<ParityResult> = {}): ParityResult => ({
     ...blank,
