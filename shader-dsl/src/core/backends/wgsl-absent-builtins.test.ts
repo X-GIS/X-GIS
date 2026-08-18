@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitModule } from './wgsl'
+import { emitGlslModule } from './glsl'
 import { UnsupportedFeatureError } from '../backend'
 import { ioStruct, builtin, location } from '../sot'
 import {
@@ -36,8 +37,12 @@ import {
 } from '../ir'
 
 // ── an IO-struct FIELD carrying the absent builtin (the sot-authored shape) ──
+// The WgslBuiltinName union now rejects the denylist names at tsc as well; these
+// fixtures keep the deliberate error to prove the EMIT-time gates (the raw-IR
+// backstop) still fire with their remedies — the two-layer pin pattern.
 const PointOut = ioStruct('PointOut', {
   clip_pos: builtin('position', vec4fT),
+  // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName)
   psize: builtin('point_size', f32T),
 })
 const pointSizeMod = (): ModuleDecl =>
@@ -54,6 +59,7 @@ const pointSizeMod = (): ModuleDecl =>
 const pointCoordMod = (): ModuleDecl =>
   module({
     funcs: [
+      // @ts-expect-error — 'point_coord' is not a WGSL builtin (WgslBuiltinName)
       fn('fs_pc', { pc: builtin('point_coord', vec2fT) }, (p) => vec4(p.pc.x, p.pc.y, 0, 1), {
         stage: 'fragment',
         retAttr: '@location(0)',
@@ -64,6 +70,7 @@ const pointCoordMod = (): ModuleDecl =>
 const fragCoordMod = (): ModuleDecl =>
   module({
     funcs: [
+      // @ts-expect-error — 'frag_coord' is not a WGSL builtin (WgslBuiltinName)
       fn('fs_fc', { fc: builtin('frag_coord', vec4fT) }, (p) => p.fc, {
         stage: 'fragment',
         retAttr: '@location(0)',
@@ -101,9 +108,18 @@ describe('wgsl — absent builtins fail closed (#1672)', () => {
     expect(() => emitModule(pointCoordMod())).toThrow(/@builtin\(point_coord\)/)
   })
 
-  it('@builtin(frag_coord) — legal on the GLSL writer, absent in WGSL — throws with the remedy', () => {
+  it('@builtin(frag_coord) — absent in WGSL — throws with the remedy naming position', () => {
     expect(() => emitModule(fragCoordMod())).toThrow(UnsupportedFeatureError)
     expect(() => emitModule(fragCoordMod())).toThrow(/@builtin\(position\)/)
+  })
+
+  // The GLSL writer used to accept frag_coord as a gl_FragCoord ALIAS, so exactly this
+  // module emitted fine on WebGL2 and died only when the WGSL writer ran — the
+  // works-on-one-backend trap. Both writers now reject it with the SAME remedy, so the
+  // error arrives on the FIRST emit, whichever backend that is.
+  it('@builtin(frag_coord) — the GLSL writer rejects the retired alias with the same remedy', () => {
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(/@builtin\(position\)/)
   })
 
   // The pre-pass must add ZERO bytes to a legal module. This is the exact string the
@@ -149,6 +165,7 @@ describe('wgsl — absent builtins fail closed (#1672)', () => {
       funcs: [
         fn('vs_ps_ret', {}, f32T, () => f32(4), {
           stage: 'vertex',
+          // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName)
           retAttr: builtin('point_size', f32T),
         }),
       ],

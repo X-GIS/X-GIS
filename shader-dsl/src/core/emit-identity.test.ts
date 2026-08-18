@@ -14,6 +14,7 @@ import { emitIdentity } from './emit-identity'
 import { buildRegistry } from './registry'
 import { inline, mangle, minify } from '../emit-prod'
 import type { EmitPlugin } from './emit'
+import { voidT, type ModuleDecl } from './ir'
 
 describe('emitIdentity — what it must distinguish', () => {
   it('separates a dev emit from a prod one', () => {
@@ -102,6 +103,43 @@ describe('emitIdentity — the shape of the string', () => {
 
   it('is a single line, because it goes in a banner', () => {
     expect(emitIdentity('glsl-es300', { overrideValues: { A: 1, B: 2 } })).not.toContain('\n')
+  })
+})
+
+describe('emitIdentity — the #1812 portable declaration is a mode too', () => {
+  // Since #1812 the compute→fragment lowering runs on GLSL for a `portable`-declared entry
+  // with NO emit option — so the `emulateCompute` marker means "the lowering RAN", and a
+  // stamp built from the options alone would claim a plain emit for exactly the bytes the
+  // lowering rewrote. The module (third argument) is what closes that gap.
+  const entry = (portable: boolean): ModuleDecl['funcs'][number] => ({
+    name: 'k',
+    params: [],
+    ret: voidT,
+    body: [],
+    stage: 'compute',
+    ...(portable ? { portable: true } : {}),
+  })
+  const mod = (portable: boolean): ModuleDecl => ({
+    consts: [],
+    structs: [],
+    bindings: [],
+    funcs: [entry(portable)],
+  })
+
+  it('a portable module stamps GLSL as the lowering, identically to the option spelling', () => {
+    expect(emitIdentity('glsl-es300', undefined, mod(true))).toBe(
+      emitIdentity('glsl-es300', { emulateCompute: true }),
+    )
+    expect(emitIdentity('glsl-es300', undefined, mod(true))).not.toBe(emitIdentity('glsl-es300'))
+  })
+
+  it('does not mark WGSL (the lowering never runs there) nor an undeclared module', () => {
+    expect(emitIdentity('wgsl', undefined, mod(true))).toBe(emitIdentity('wgsl'))
+    expect(emitIdentity('glsl-es300', undefined, mod(false))).toBe(emitIdentity('glsl-es300'))
+  })
+
+  it('without the module the stamp keeps its option-only meaning (a registry banner)', () => {
+    expect(emitIdentity('glsl-es300')).not.toContain('emulateCompute')
   })
 })
 

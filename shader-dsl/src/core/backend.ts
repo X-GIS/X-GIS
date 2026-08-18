@@ -180,6 +180,15 @@ export interface Backend {
   caseLabel(value: number, scrutType: ShaderType): string
   /** The `switch` head: `switch ${scrut} {` (WGSL) vs `switch (${scrut}) {` (GLSL). */
   switchHead(scrut: string): string
+  /** Spelling for a FLOAT `%` binop, for a target whose native `%` is integer-only.
+   *  GLSL ES 3.00 rejects float `%` outright, so without this the shared walk emitted
+   *  it verbatim — valid WGSL, a GLSL compile error at the driver (the
+   *  works-on-one-backend trap). The operand texts arrive FULLY parenthesized (atoms
+   *  aside), and the returned expression must be self-parenthesized and must
+   *  reproduce WGSL float-`%` semantics: TRUNC-mod, `a - b·trunc(a/b)` — NOT GLSL
+   *  `mod()`, which is floor-mod and disagrees on negative operands. Absent (WGSL):
+   *  the native `%` is emitted, byte-identical to the historical spelling. */
+  readonly floatMod?: (a: string, b: string) => string
   /** A per-case terminator. WGSL switch cases do NOT fall through (each case is
    *  self-contained), so this is absent. C-style GLSL switch DOES fall through, so the
    *  GLSL backend returns `break;` — without it every match() arm leaks into the next

@@ -223,6 +223,9 @@ describe('fail-loud gates', () => {
 
   it('SD0041 — a non-whitelisted builtin on f64 operands', () => {
     // exp is NOT emulated (sin/cos ARE — see the transcendentals block below).
+    // The key-domain bound now rejects this at tsc too; the runtime SD0041 stays
+    // the backstop for raw-IR authoring that bypasses the typed surface.
+    // @ts-expect-error — exp's key domain is FloatKey (no f64)
     const k = fn('k', { a: f64T }, (p) => exp(p.a))
     expect(() => fp64Lower(module({ funcs: [k] }))).toThrow(/SD0041/)
   })
