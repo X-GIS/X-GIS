@@ -22,6 +22,18 @@
 // latter would hide exactly the regressions this exists to catch. A flag that cannot
 // distinguish the states it claims to control is the §12 "assertion that failed
 // either way" at the API layer, so it is absent rather than accepted-and-ignored.
+//
+// `transforms` (#1806) classifies BY CONSTRUCTION, never by pattern. A consumer's
+// dev↔prod comparison is dominated by the transforms its own build declares
+// (`inline()` rewrites call sites and duplicates literals), and #1806's ask is that
+// those stop spending the same regression budget as a backend or interface error —
+// WITHOUT a blind ignore. So the declared plugin list — the same array the production
+// emit call takes — is applied to the reference side step by step, and a diff line is
+// reclassified as `explained` only when the actual pass output accounts for it;
+// whatever survives every declared transform stays in the four fail-able buckets. The
+// rejected alternative was a category matcher ("this difference looks like inlining"):
+// a resemblance test cannot distinguish an intentional inline from a regression that
+// happens to resemble one, which is the 'temporaries' knob above wearing a new name.
 
 import { typeKey, type ShaderType } from './ir/types'
 import {
@@ -33,6 +45,7 @@ import {
   type Stmt,
 } from './ir/nodes'
 import { reflect } from './reflect'
+import type { EmitPlugin } from './emit'
 
 /** An axis of difference `semanticDiff` can be told to disregard.
  *
@@ -50,6 +63,15 @@ export interface SemanticDiffOptions {
   /** Axes to disregard. Defaults to `['names', 'declOrder']`. Pass `[]` to compare
    *  identifier spelling and declaration order too. */
   readonly ignore?: readonly SemanticAspect[]
+  /** Transforms DECLARED as intentionally applied to `b` (#1806) — pass the same
+   *  plugin array your production emit call uses, e.g. `[inline(), ...obfuscate()]`.
+   *  Each plugin's `transformIR` is applied to `a` in order, and every diff line the
+   *  applied transform accounts for moves out of the four buckets into
+   *  {@link ClassifiedSemanticDiff.explained}, attributed to that plugin. Differences
+   *  no declared transform explains stay in the buckets, so a regression cannot hide
+   *  behind a declaration. Text-stage plugins (`minify`, `aliasTypes`, `prune`)
+   *  contribute nothing here — this comparator never sees emitted text. */
+  readonly transforms?: readonly EmitPlugin[]
 }
 
 /** The four buckets of difference. Each entry is a fact line prefixed `-` (present in
@@ -69,7 +91,31 @@ export interface SemanticDiff {
   readonly controlFlow: readonly string[]
 }
 
-/** True when every bucket of `d` is empty. */
+/** One of the four fact buckets of a {@link SemanticDiff}. */
+export type SemanticDiffBucket = keyof SemanticDiff
+
+/** One diff line reclassified as EXPLAINED by a declared transform (#1806): applying
+ *  `transform` to the reference side made `line` disappear from `bucket`. The line
+ *  keeps its `-`/`+` prefix — `-` is a fact of `a` the transform rewrote away, `+` a
+ *  fact of `b` the transformed reference now also has. `transform` is the plugin's
+ *  `identity ?? name`, the same spelling `emitIdentity` stamps. */
+export interface ExplainedDiffEntry {
+  readonly transform: string
+  readonly bucket: SemanticDiffBucket
+  readonly line: string
+}
+
+/** A {@link SemanticDiff} whose differences were classified against a declared
+ *  transform pipeline ({@link SemanticDiffOptions.transforms}). The four buckets hold
+ *  ONLY what no declared transform accounts for — the fail-able residue a parity gate
+ *  budgets — and `explained` holds everything a declared transform proved
+ *  intentional, with enough provenance to review the classification. */
+export interface ClassifiedSemanticDiff extends SemanticDiff {
+  readonly explained: readonly ExplainedDiffEntry[]
+}
+
+/** True when every bucket of `d` is empty. `explained` entries do not count, so on a
+ *  {@link ClassifiedSemanticDiff} this reads "equal modulo the declared transforms". */
 export const isSemanticallyEqual = (d: SemanticDiff): boolean =>
   d.interface.length === 0 &&
   d.resources.length === 0 &&
@@ -451,6 +497,48 @@ function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: bool
   return out.sort()
 }
 
+/** All four fact sets of one module, extracted under one canon build. */
+interface ModuleFacts {
+  readonly interface: readonly string[]
+  readonly resources: readonly string[]
+  readonly constants: readonly string[]
+  readonly controlFlow: readonly string[]
+}
+
+const BUCKETS = ['interface', 'resources', 'constants', 'controlFlow'] as const
+
+function moduleFacts(m: ModuleDecl, canonNames: boolean): ModuleFacts {
+  const c = canonNames ? buildCanon(m) : EMPTY_CANON
+  return {
+    interface: interfaceFacts(m, c),
+    resources: resourceFacts(m, c),
+    constants: constantFacts(m, c),
+    controlFlow: controlFlowFacts(m, c),
+  }
+}
+
+const diffAllFacts = (fa: ModuleFacts, fb: ModuleFacts, order: boolean): SemanticDiff => ({
+  interface: diffFacts(fa.interface, fb.interface, order),
+  resources: diffFacts(fa.resources, fb.resources, order),
+  constants: diffFacts(fa.constants, fb.constants, order),
+  controlFlow: diffFacts(fa.controlFlow, fb.controlFlow, order),
+})
+
+/** Multiset of lines present in `prev` and gone from `next` — the differences one
+ *  transform step resolved. Lines a step INTRODUCES are not attributed to it; they
+ *  flow into later steps and, if never resolved, into the final buckets. */
+function resolvedLines(prev: readonly string[], next: readonly string[]): string[] {
+  const counts = new Map<string, number>()
+  for (const l of prev) counts.set(l, (counts.get(l) ?? 0) + 1)
+  for (const l of next) {
+    const n = counts.get(l)
+    if (n !== undefined) counts.set(l, n - 1)
+  }
+  const out: string[] = []
+  for (const [line, n] of counts) for (let i = 0; i < n; i++) out.push(line)
+  return out
+}
+
 /**
  * Compare two modules at the IR + reflection layer, ignoring the noise that makes a
  * textual golden diff unreadable after the optimizer and the production emit plugins
@@ -473,28 +561,57 @@ function diffFacts(a: readonly string[], b: readonly string[], ignoreOrder: bool
  * optimized" rather than trusting it.
  *
  * A pass that legitimately changes the program — `inline()`, or const-folding between
- * optimization levels — is NOT expected to be empty here, and that is the point: those
- * rewrite literals and branch structure, which is precisely what this reports.
+ * optimization levels — is NOT expected to be empty here: those rewrite literals and
+ * branch structure, which is precisely what this reports. DECLARE such a pass via
+ * `transforms` (#1806) and the differences it provably accounts for are reclassified
+ * into `explained` instead of spending the regression budget:
  *
- * @param a - the reference module.
- * @param b - the module to compare against it.
- * @param opts - axes to disregard; defaults to ignoring `names` and `declOrder`.
+ * ```ts
+ * const d = semanticDiff(dev, prod, { transforms: [inline()] })
+ * isSemanticallyEqual(d) // true ⇔ every difference is explained by the declared pipeline
+ * d.explained            // [{ transform: 'inline', bucket: 'controlFlow', line: '…' }, …]
+ * ```
+ *
+ * Classification is by construction, not by resemblance: a line is explained only
+ * when applying the declared plugin's own `transformIR` to `a` actually removes it
+ * from the diff, so a real regression — even one shaped like an optimizer rewrite —
+ * survives into the buckets.
+ *
+ * @param a - the reference module (the DEV side when `transforms` is declared).
+ * @param b - the module to compare against it (the transformed side).
+ * @param opts - axes to disregard (defaults to ignoring `names` and `declOrder`),
+ *   and optionally the declared transform pipeline.
  * @returns the four buckets, each `-`-prefixed for facts only in `a` and `+`-prefixed
- *   for facts only in `b`.
+ *   for facts only in `b`; with `transforms` declared, also `explained`.
  */
 export function semanticDiff(
   a: ModuleDecl,
   b: ModuleDecl,
+  opts: SemanticDiffOptions & { readonly transforms: readonly EmitPlugin[] },
+): ClassifiedSemanticDiff
+export function semanticDiff(a: ModuleDecl, b: ModuleDecl, opts?: SemanticDiffOptions): SemanticDiff
+export function semanticDiff(
+  a: ModuleDecl,
+  b: ModuleDecl,
   opts?: SemanticDiffOptions,
-): SemanticDiff {
+): SemanticDiff | ClassifiedSemanticDiff {
   const ignore = new Set<SemanticAspect>(opts?.ignore ?? ['names', 'declOrder'])
-  const ca = ignore.has('names') ? buildCanon(a) : EMPTY_CANON
-  const cb = ignore.has('names') ? buildCanon(b) : EMPTY_CANON
+  const names = ignore.has('names')
   const order = ignore.has('declOrder')
-  return {
-    interface: diffFacts(interfaceFacts(a, ca), interfaceFacts(b, cb), order),
-    resources: diffFacts(resourceFacts(a, ca), resourceFacts(b, cb), order),
-    constants: diffFacts(constantFacts(a, ca), constantFacts(b, cb), order),
-    controlFlow: diffFacts(controlFlowFacts(a, ca), controlFlowFacts(b, cb), order),
+  const fb = moduleFacts(b, names)
+  let diff = diffAllFacts(moduleFacts(a, names), fb, order)
+  if (opts?.transforms === undefined) return diff
+  const explained: ExplainedDiffEntry[] = []
+  let current = a
+  for (const p of opts.transforms) {
+    if (p.transformIR === undefined) continue
+    current = p.transformIR(current)
+    const next = diffAllFacts(moduleFacts(current, names), fb, order)
+    const transform = p.identity ?? p.name
+    for (const bucket of BUCKETS)
+      for (const line of resolvedLines(diff[bucket], next[bucket]))
+        explained.push({ transform, bucket, line })
+    diff = next
   }
+  return { ...diff, explained }
 }
