@@ -927,7 +927,7 @@ export class PanZoomController implements Controller {
     }
 
     // #1265 — Escape cancels an in-progress box zoom (MapLibre
-    // BoxZoomHandler.keydown parity: keyCode 27 → reset(), no camera
+    // BoxZoomHandler.keydown parity: Escape → reset(), no camera
     // change). No-ops whenever a box zoom isn't pending, so this never
     // interferes with map.ts's separate a11y keyboard pan/zoom listener
     // (also bound to `canvas`, and both listeners are keyed on the same
@@ -935,7 +935,7 @@ export class PanZoomController implements Controller {
     // dependency between them).
     const onKeyDown = (e: KeyboardEvent) => {
       if (!boxZoomPending) return
-      if (e.key !== 'Escape' && e.keyCode !== 27) return
+      if (e.key !== 'Escape') return
       boxZoomPending = false
       boxZoomArmed = false
       if (boxZoomEl) boxZoomEl.style.display = 'none'
