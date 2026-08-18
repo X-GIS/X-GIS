@@ -474,14 +474,17 @@ optional data **binding**: `-[expr]`, `[expr]`, or — for `fill`/`stroke`/`opac
 a `match(...)`/`categorical(...)`/`gradient(...)` call (with an optional trailing
 `match-block`, §3.13). A trailing unit after `]` is absorbed (`size-[expr]km`). The
 parser records `modifier`, `name`, `binding`, `bindingUnit` verbatim and does **not**
-validate the name against the vocabulary — see §3.11.
+validate the name against the vocabulary — see §3.11. A modifier item still needs a
+*lowering* handler for its utility half, and today only `fill-*` has one
+(`MODIFIER_HANDLERS` in `compiler/src/ir/lower-bindings-registry.ts`) — any other
+utility under a modifier (`hover:opacity-100`) is `X-GIS0028`, not a silent no-op.
 
 ```xgis
 xgis 1
 source w { type: geojson, url: "w.geojson" }
 layer roads {
   source: w
-  | stroke-amber-500 stroke-2 hover:opacity-100
+  | stroke-amber-500 stroke-2 hover:fill-amber-600
   | size-[.lanes * 2]px
   | fill match(.kind) { "hwy" -> #f59e0b, _ -> #9ca3af }
 }
