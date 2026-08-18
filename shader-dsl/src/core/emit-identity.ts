@@ -16,9 +16,9 @@
 // manifest line, a filename — which is exactly where the reported failure happened.
 // `buildRegistry` (#1716) takes it as `stamp` for that reason.
 
-import type { EmitOptions } from './emit'
-import type { ModuleDecl } from './ir'
-import { isPortableComputeEntry } from './passes/portable-kernel'
+import type { EmitOptions } from './emit.js'
+import type { ModuleDecl } from './ir/index.js'
+import { isPortableComputeEntry } from './passes/portable-kernel.js'
 
 /** 32-bit FNV-1a over the canonical form. Zero-dependency on purpose: `node:crypto` is not
  *  reachable from a browser-safe package, and this is a change DETECTOR, not a security

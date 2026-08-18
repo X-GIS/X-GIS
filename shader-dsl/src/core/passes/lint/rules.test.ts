@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from './engine'
-import { RULES } from './rules'
-import { module, fn, externFn, f32T, f32, boolT } from '../../ir'
-import type { LintConfig } from './engine'
+import { lint } from './engine.js'
+import { RULES } from './rules/index.js'
+import { module, fn, externFn, f32T, f32, boolT } from '../../ir/index.js'
+import type { LintConfig } from './engine.js'
 
 const ruleIds = (m: ReturnType<typeof module>, cfg?: LintConfig) =>
   lint(m, RULES, cfg).map((d) => d.ruleId)

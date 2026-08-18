@@ -19,11 +19,11 @@
 // the plain and obfuscated emits on real Tint + ANGLE and compares the pixels.
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { isSemanticallyEqual, semanticDiff } from '../src/index.ts'
-import { mangleModule } from '../src/core/passes/mangle.ts'
-import { inlineLinearAll } from '../src/core/passes/inline-linear.ts'
-import { inline } from '../src/emit-prod.ts'
+import { examples } from './index.js'
+import { isSemanticallyEqual, semanticDiff } from '../src/index.js'
+import { mangleModule } from '../src/core/passes/mangle.js'
+import { inlineLinearAll } from '../src/core/passes/inline-linear.js'
+import { inline } from '../src/emit-prod.js'
 
 // Registry-growth guard, mirroring emit-goldens.test.ts: a shrinking registry must not
 // silently reduce the sweep to nothing.

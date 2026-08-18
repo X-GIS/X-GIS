@@ -1,5 +1,5 @@
-import type { Stmt, Expr } from '../../../ir'
-import { mapStmts, type LintRule } from '../engine'
+import type { Stmt, Expr } from '../../../ir/index.js'
+import { mapStmts, type LintRule } from '../engine.js'
 
 /** Peel member/index access to the root varref name — so `out.pos = x` and `v[i] = x`
  *  both count as mutating `out` / `v` (a struct/vector var with field mutation MUST

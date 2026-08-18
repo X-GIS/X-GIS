@@ -128,13 +128,13 @@ import {
   type Capability,
   type DeclarableCapability,
   type ModuleDecl,
-} from '../ir'
-import { emitModule, wgslBackend } from './wgsl'
-import { emitGlslModule, glslEs300Backend } from './glsl'
-import { UnsupportedFeatureError } from '../backend'
-import { reflect } from '../reflect'
-import { emitModuleWithReflection } from '../emit'
-import { fp64Lower } from '../passes/fp64-lower'
+} from '../ir/index.js'
+import { emitModule, wgslBackend } from './wgsl.js'
+import { emitGlslModule, glslEs300Backend } from './glsl.js'
+import { UnsupportedFeatureError } from '../backend.js'
+import { reflect } from '../reflect.js'
+import { emitModuleWithReflection } from '../emit.js'
+import { fp64Lower } from '../passes/fp64-lower.js'
 
 /** A trivial fragment module — the smallest shape that emits on BOTH backends, so the
  *  `enables` list is the only variable under test. */

@@ -9,8 +9,8 @@
 //
 // (or `bunx tsx …`). Reads the same example MODULES the site/printer use.
 
-import { examples } from './index.ts'
-import { optimizerReport } from '../src/dev.ts'
+import { examples } from './index.js'
+import { optimizerReport } from '../src/dev.js'
 
 const want = process.argv[2]
 const selected = want ? examples.filter((e) => e.id === want) : examples

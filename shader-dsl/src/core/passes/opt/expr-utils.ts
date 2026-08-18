@@ -4,8 +4,8 @@
 // (CSE, LICM, …). Kept in one place so the two passes cannot drift (duplicated
 // traversal logic that must agree is this codebase's #1 bug archetype).
 
-import type { Expr, Stmt } from '../../ir'
-import { typeKey } from '../../ir'
+import type { Expr, Stmt } from '../../ir/index.js'
+import { typeKey } from '../../ir/index.js'
 
 /** A deterministic structural key — two structurally-equal exprs share a key. */
 export function keyOf(e: Expr): string {

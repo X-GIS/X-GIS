@@ -19,10 +19,10 @@ import type {
   ModuleDecl,
   Capability,
   RawStmt,
-} from './ir'
-import { ALL_CAPABILITIES } from './ir/nodes'
-import { ShaderDslError } from './diagnostics/error'
-import type { ParenMode } from './emit'
+} from './ir/index.js'
+import { ALL_CAPABILITIES } from './ir/nodes.js'
+import { ShaderDslError } from './diagnostics/error.js'
+import type { ParenMode } from './emit.js'
 
 // The `Capability` vocabulary lives with the IR data shapes (ir/nodes.ts) — a module
 // DECLARES the caps it needs there (surfaced publicly via the ir barrel). This file is

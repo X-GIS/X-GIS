@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
+import { lint } from '../engine.js'
 import {
   module,
   fn,
@@ -17,13 +17,13 @@ import {
   textureSample,
   textureSampleLevel,
   type FuncDecl,
-} from '../../../ir'
-import { resource, builtin } from '../../../sot'
-import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs'
-import { texture2dfT, texture2dArrayfT, samplerT } from '../../../ir'
-import { emitModule } from '../../../backends/wgsl'
-import { ValidationError } from '../../validate'
-import { fragmentOnlyBuiltin } from './fragment-only-builtin'
+} from '../../../ir/index.js'
+import { resource, builtin } from '../../../sot.js'
+import { collectFnRefs, emptyRefSet } from '../../../ir/collect-refs.js'
+import { texture2dfT, texture2dArrayfT, samplerT } from '../../../ir/index.js'
+import { emitModule } from '../../../backends/wgsl.js'
+import { ValidationError } from '../../validate.js'
+import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 
 const FIX =
   'textureSample is fragment-only in WGSL — use textureSampleLevel(tex, smp, uv, level) — an explicit LOD needs no derivatives'

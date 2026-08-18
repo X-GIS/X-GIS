@@ -14,9 +14,9 @@
 // EVER an assignment target is excluded (its value changes). A fn containing a raw
 // Stmt is skipped — raw WGSL may read a name this pass cannot see.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { mapStmt } from './ir-transform'
-import { bodyHasRaw, collectMutatedRoots } from './expr-utils'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { mapStmt } from './ir-transform.js'
+import { bodyHasRaw, collectMutatedRoots } from './expr-utils.js'
 
 /** Collect every `let name = <lit>` (recursively, incl. nested bodies) whose name
  *  is never mutated. Function-wide collection is safe — names are unique per fn. */

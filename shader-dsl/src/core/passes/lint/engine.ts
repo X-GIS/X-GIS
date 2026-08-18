@@ -8,9 +8,9 @@
 // framework holds up as the ruleset grows to hundreds. Adding a rule is O(1): write a
 // LintRule, push it into the registry (rules.ts).
 
-import type { ModuleDecl, FuncDecl, Stmt, Expr } from '../../ir'
-import type { SourceLoc } from '../../diagnostics/error'
-import { getLoc } from '../../diagnostics/loc'
+import type { ModuleDecl, FuncDecl, Stmt, Expr } from '../../ir/index.js'
+import type { SourceLoc } from '../../diagnostics/error.js'
+import { getLoc } from '../../diagnostics/loc.js'
 
 /** How loudly a lint rule speaks. `'off'` is a CONFIG-only value — it silences the rule in
  *  {@link LintConfig}, and no {@link Diagnostic} ever carries it, which is why that interface

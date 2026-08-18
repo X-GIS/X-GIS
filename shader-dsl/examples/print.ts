@@ -9,8 +9,8 @@
 // (or `bunx tsx …`). This is the node entry; the runnable example MODULES live in their
 // own files (browser-safe), so the site imports the same source this prints.
 
-import { examples } from './index.ts'
-import { emitModule, emitGlslModule, reflect } from '../src/index.ts'
+import { examples } from './index.js'
+import { emitModule, emitGlslModule, reflect } from '../src/index.js'
 
 const want = process.argv[2]
 const selected = want ? examples.filter((e) => e.id === want) : examples

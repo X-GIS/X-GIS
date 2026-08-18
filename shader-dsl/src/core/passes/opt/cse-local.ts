@@ -26,7 +26,7 @@
 // Bit-exact (pure dedup — no float arithmetic is changed), so no f32 differential gate
 // is needed; pinned by oracle value-equality like the sibling fn-top `cse`.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import {
   keyOf,
   isCompound,
@@ -36,7 +36,7 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
-} from './expr-utils'
+} from './expr-utils.js'
 
 // Only hoist exprs that COMPUTE — a bare member/swizzle/index navigation is as cheap
 // inlined as bound (mirrors cse.ts isWorthHoisting).

@@ -25,8 +25,8 @@ import {
   emitGlslModule,
   reflect,
   ShaderDslError,
-} from '../src/index.ts'
-import { overrideQuality } from './override-quality.ts'
+} from '../src/index.js'
+import { overrideQuality } from './override-quality.js'
 
 const m = overrideQuality.module
 

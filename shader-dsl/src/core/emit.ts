@@ -6,17 +6,17 @@
 // in `backend.ts`). Backends provide those fragments; they do NOT re-implement
 // the control-flow walk (no duplicated if/for/switch/return logic that can drift).
 
-import type { Backend } from './backend'
-import type { Expr, Stmt, ModuleDecl } from './ir'
-import { stageOf } from './ir'
-import { fragmentRequires, type EmitFragment } from './fragment'
-import { validate } from './passes/validate'
-import { assertCaps, assertBuiltins } from './passes/required-caps'
-import { lowerModule } from './passes/match-lower'
-import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower'
-import { autoVars, optimizeAt, type OptLevel } from './passes/opt'
-import { mapExpr, mapStmt } from './passes/opt/ir-transform'
-import { reflect, type Reflection } from './reflect'
+import type { Backend } from './backend.js'
+import type { Expr, Stmt, ModuleDecl } from './ir/index.js'
+import { stageOf } from './ir/index.js'
+import { fragmentRequires, type EmitFragment } from './fragment.js'
+import { validate } from './passes/validate.js'
+import { assertCaps, assertBuiltins } from './passes/required-caps.js'
+import { lowerModule } from './passes/match-lower.js'
+import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
+import { autoVars, optimizeAt, type OptLevel } from './passes/opt/index.js'
+import { mapExpr, mapStmt } from './passes/opt/ir-transform.js'
+import { reflect, type Reflection } from './reflect.js'
 
 const pad = (depth: number): string => '  '.repeat(depth)
 

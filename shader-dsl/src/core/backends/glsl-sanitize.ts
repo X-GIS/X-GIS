@@ -13,8 +13,8 @@
 // Split out of glsl.ts (which exceeded the 500-LOC ratchet) — emit is unchanged;
 // emitGlslModule imports sanitizeReservedIdents from here.
 
-import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir'
-import { UnsupportedFeatureError } from '../backend'
+import type { ModuleDecl, FuncDecl, Expr, Stmt } from '../ir/index.js'
+import { UnsupportedFeatureError } from '../backend.js'
 
 const GLSL_RESERVED: ReadonlySet<string> = new Set([
   'input',

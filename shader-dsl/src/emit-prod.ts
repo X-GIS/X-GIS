@@ -24,19 +24,19 @@
 // Every renderable example is compiled AND pixel-compared through obfuscate()
 // on real Tint + ANGLE by playground/e2e/_emit-obfuscate-gate.spec.ts.
 
-import type { EmitPlugin } from './core/emit'
-import { mangleModule } from './core/passes/mangle'
-import { minifyShaderText, type MinifyOptions } from './core/emit-minify'
-import { aliasShaderTypes } from './core/emit-alias'
-import { pruneRedundantPrototypes } from './core/emit-prune'
-import { inlineLinearAll } from './core/passes/inline-linear'
+import type { EmitPlugin } from './core/emit.js'
+import { mangleModule } from './core/passes/mangle.js'
+import { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
+import { aliasShaderTypes } from './core/emit-alias.js'
+import { pruneRedundantPrototypes } from './core/emit-prune.js'
+import { inlineLinearAll } from './core/passes/inline-linear.js'
 
-export type { EmitPlugin, EmitOptions } from './core/emit'
-export { minifyShaderText, type MinifyOptions } from './core/emit-minify'
-export { aliasShaderTypes } from './core/emit-alias'
-export { pruneRedundantPrototypes } from './core/emit-prune'
-export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log'
-export { mangleModule, type MangleResult } from './core/passes/mangle'
+export type { EmitPlugin, EmitOptions } from './core/emit.js'
+export { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
+export { aliasShaderTypes } from './core/emit-alias.js'
+export { pruneRedundantPrototypes } from './core/emit-prune.js'
+export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log.js'
+export { mangleModule, type MangleResult } from './core/passes/mangle.js'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
  *  Renames the authored vocabulary — helper fns, plain structs, module consts

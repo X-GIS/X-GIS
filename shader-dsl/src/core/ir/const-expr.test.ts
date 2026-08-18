@@ -4,12 +4,12 @@
 // path (wgslValue/cpuValue) stays the default for ordinary f32 consts.
 
 import { describe, it, expect } from 'vitest'
-import { module, constExpr, fn } from './builder'
-import { vec4, arrayLit, constRef } from './node'
-import { vec4fT, f32T, arrayT } from './types'
-import { emitModule } from '../backends/wgsl'
-import { emitGlslModule } from '../backends/glsl'
-import { compileModule } from '../oracle'
+import { module, constExpr, fn } from './builder.js'
+import { vec4, arrayLit, constRef } from './node.js'
+import { vec4fT, f32T, arrayT } from './types.js'
+import { emitModule } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { compileModule } from '../oracle.js'
 
 describe('ConstDecl.valueExpr — non-scalar module constants', () => {
   const fillConst = constExpr('FILL', vec4fT, vec4(1, 0, 0, 1))

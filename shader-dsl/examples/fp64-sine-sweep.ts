@@ -35,9 +35,9 @@ import {
   f64T,
   vec2fT,
   Let,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // Sweep window (radians of argument spanned across one half's width). ~4 cycles
 // when the base is small enough to resolve them.

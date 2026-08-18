@@ -7,8 +7,8 @@
 // modules is the sibling Playwright spec (playground/e2e/_shader-dsl-examples-render.spec.ts).
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { emitGlslModule, reflect } from '../src/index.ts'
+import { examples } from './index.js'
+import { emitGlslModule, reflect } from '../src/index.js'
 
 describe('shader-dsl examples', () => {
   it('every example reflects a pipeline', () => {

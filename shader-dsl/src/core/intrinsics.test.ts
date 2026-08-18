@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { spellIntrinsic } from './intrinsics'
+import { spellIntrinsic } from './intrinsics.js'
 
 // #3a — the neutral registry is the spelling SoT; each backend maps the same
 // neutral id to its own spelling (the WGSL string is no longer the canonical id).

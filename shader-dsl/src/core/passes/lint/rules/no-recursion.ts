@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** WGSL has no call stack — a function must not (directly) call itself. */
 export const noRecursion: LintRule = {

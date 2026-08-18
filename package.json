@@ -26,6 +26,7 @@
     "test:perf": "cd playground && bunx playwright test _perf-bright-interactive.spec.ts",
     "test:projection": "cd playground && bunx playwright test _projection-coverage.spec.ts",
     "test:e2e": "cd playground && bunx playwright test",
+    "test:shader-dsl-node": "bun run --filter '@xgis/shader-dsl' build && node scripts/shader-dsl-node-smoke.mjs",
     "bake:goldens": "UPDATE_EMIT_GOLDENS=1 vitest run shader-dsl/examples/emit-goldens.test.ts",
     "fetch:demo-data": "bun scripts/fetch-demo-data.ts",
     "gen:examples": "bun scripts/gen-example-registry.ts > shader-dsl/examples/index.ts && prettier --write shader-dsl/examples/index.ts",

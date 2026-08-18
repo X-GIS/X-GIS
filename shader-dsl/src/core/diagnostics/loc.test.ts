@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { setSourceTracing, isSourceTracing, captureLoc, recordLoc, getLoc } from './loc'
-import { module, fn, f32T, f32 } from '../ir'
+import { setSourceTracing, isSourceTracing, captureLoc, recordLoc, getLoc } from './loc.js'
+import { module, fn, f32T, f32 } from '../ir/index.js'
 
 afterEach(() => setSourceTracing(false))
 

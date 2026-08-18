@@ -7,8 +7,8 @@
 // assertBuiltins is its sibling for the target's BUILTIN VOCABULARY (#1672) — same
 // place, same voice, per-backend sets.
 
-import { stageOf, type ModuleDecl, type Capability } from '../ir'
-import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend'
+import { stageOf, type ModuleDecl, type Capability } from '../ir/index.js'
+import { Capabilities, type Backend, UnsupportedFeatureError } from '../backend.js'
 
 /** Capability DEPENDENCIES (#1670) — declaring the key implies needing the values, so a
  *  host activating off `reflect().requiredFeatures` gets the whole set rather than the

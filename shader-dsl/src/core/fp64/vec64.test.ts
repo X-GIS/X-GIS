@@ -34,14 +34,14 @@ import {
   type Expr,
   type ModuleDecl,
   type ShaderType,
-} from '../ir'
-import { uniformStruct } from '../sot'
-import { compileModule, type CpuValue } from '../oracle'
-import { fp64Lower } from '../passes/fp64-lower'
-import { mapModuleExprs } from '../passes/opt/ir-transform'
-import { emitModule } from '../backends/wgsl'
-import { wgslLayout } from '../reflect'
-import { splitF64, FP64_GUARD_NAME } from './df64-lib'
+} from '../ir/index.js'
+import { uniformStruct } from '../sot.js'
+import { compileModule, type CpuValue } from '../oracle.js'
+import { fp64Lower } from '../passes/fp64-lower.js'
+import { mapModuleExprs } from '../passes/opt/ir-transform.js'
+import { emitModule } from '../backends/wgsl.js'
+import { wgslLayout } from '../reflect.js'
+import { splitF64, FP64_GUARD_NAME } from './df64-lib.js'
 
 // ── Authoring surface ──
 

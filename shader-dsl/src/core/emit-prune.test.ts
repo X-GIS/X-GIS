@@ -1,11 +1,11 @@
 // ═══ pruneRedundantPrototypes / emit-prod prune() — what it drops, and what it must not ═══
 
 import { describe, it, expect } from 'vitest'
-import { pruneRedundantPrototypes, obfuscate } from '../emit-prod'
-import { fn, module, vec2, vec4, f32, f32T, vec2fT, vec4fT } from './ir'
-import { ioStruct, builtin, location } from './sot'
-import { emitGlslModule } from './backends/glsl'
-import { emitModule } from './backends/wgsl'
+import { pruneRedundantPrototypes, obfuscate } from '../emit-prod.js'
+import { fn, module, vec2, vec4, f32, f32T, vec2fT, vec4fT } from './ir/index.js'
+import { ioStruct, builtin, location } from './sot.js'
+import { emitGlslModule } from './backends/glsl.js'
+import { emitModule } from './backends/wgsl.js'
 
 const G = (body: string): string => `#version 300 es\nprecision highp float;\n${body}`
 

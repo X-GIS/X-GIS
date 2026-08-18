@@ -21,11 +21,11 @@ import {
   If,
   type ModuleDecl,
   type FuncDecl,
-} from '../ir'
-import { emitModule } from '../backends/wgsl'
-import { emitGlslModule } from '../backends/glsl'
-import { compileModule } from '../oracle'
-import { inlineLinearAll } from './inline-linear'
+} from '../ir/index.js'
+import { emitModule } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { compileModule } from '../oracle.js'
+import { inlineLinearAll } from './inline-linear.js'
 
 // A linear multi-statement helper: two `let`s then a return (the noise shape).
 const vnoise = fn('vnoise', { p: f32T }, f32T, ({ p }, b) => {

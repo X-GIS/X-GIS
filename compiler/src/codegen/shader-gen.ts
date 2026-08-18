@@ -170,6 +170,11 @@ export function generateShaderVariant(
     preamble,
     fillExpr,
     strokeExpr,
+    // #1808 — the opacity operand `composeColorOpacityNode` folded into
+    // the two expressions above, exposed so a consumer that REPLACES a
+    // composed expression can re-apply the identical factor instead of
+    // silently dropping it.
+    opacityExpr: opacityResult.nodeExpr ?? null,
     needsFeatureBuffer,
     featureFields,
     uniformFields,

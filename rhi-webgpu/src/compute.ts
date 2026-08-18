@@ -8,7 +8,8 @@ import type { ComputeKernelContract, RhiCommandEncoder } from '@xgis/rhi'
 import { unwrapWebGpuCommandEncoder } from './rhi-webgpu'
 // The compiler returns backend-NEUTRAL IR; the RUNTIME emits the shader for the live
 // backend (ruling i). This WebGPU dispatcher emits WGSL via emitModule; the WebGL2 path
-// (a separate dispatcher) emits GLSL via emitGlslModule({emulateCompute}).
+// (a separate dispatcher) emits GLSL option-free — the kernel's `portable` declaration
+// (#1812) routes the compute→fragment lowering there.
 import { emitModule, type ModuleDecl } from '@xgis/shader-dsl'
 
 /** The loop-tail timestamp provider (#1046 F4 Inc-C): the map-side compute

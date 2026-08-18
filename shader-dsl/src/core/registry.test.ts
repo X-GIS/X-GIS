@@ -7,7 +7,7 @@
 // register it, and it is simply absent with nothing to notice.
 
 import { describe, it, expect } from 'vitest'
-import { buildRegistry } from './registry'
+import { buildRegistry } from './registry.js'
 
 const ENTRIES = [
   { id: 'alpha', importPath: './alpha.ts', exportName: 'alpha' },

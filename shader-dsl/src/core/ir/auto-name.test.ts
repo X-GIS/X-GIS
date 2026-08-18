@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, Let, Var, If, Return, f32, f32T } from './index'
-import { emitFunc } from '../backends/wgsl'
+import { fn, Let, Var, If, Return, f32, f32T } from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // Optional binding names (v2 item 2): `let`/`var` accept NO name and synthesize a
 // function-unique `_v{n}`. The motivation is the redundancy in `const lon = Let('lon', e)`

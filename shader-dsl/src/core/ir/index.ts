@@ -5,7 +5,7 @@
 // node ← builder). Import the IR via this barrel (`core/ir`), never the
 // individual files.
 
-export * from './types'
-export * from './nodes'
-export * from './node'
-export * from './builder'
+export * from './types.js'
+export * from './nodes.js'
+export * from './node.js'
+export * from './builder.js'

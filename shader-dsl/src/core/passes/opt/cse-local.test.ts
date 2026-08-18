@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { module, fn, f32, f32T, vec3fT, vec3, normalize, Var } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
-import { cseLocal } from './cse-local'
+import { module, fn, f32, f32T, vec3fT, vec3, normalize, Var } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
+import { cseLocal } from './cse-local.js'
 
 // cse-local hoists a subexpr that repeats WITHIN ONE statement and touches a local/var —
 // the redundancy the fn-top `cse` (input-only, fn-top placement) cannot reach.

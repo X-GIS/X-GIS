@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { module, fn, f32T, f32 } from '../../../ir'
-import { maxFunctionLength } from './max-function-length'
+import { lint } from '../engine.js'
+import { module, fn, f32T, f32 } from '../../../ir/index.js'
+import { maxFunctionLength } from './max-function-length.js'
 
 const ruleIds = (m: ReturnType<typeof module>, max?: number) =>
   lint(

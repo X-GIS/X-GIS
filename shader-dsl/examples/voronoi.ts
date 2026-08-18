@@ -25,9 +25,9 @@ import {
   Let,
   f32T,
   vec2fT,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ cells: f32T })
 
 // Hash a cell coordinate → a stable point in [0,1]² (the per-cell feature seed).

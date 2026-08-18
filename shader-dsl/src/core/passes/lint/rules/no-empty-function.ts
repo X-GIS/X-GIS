@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** A function with an empty body is almost always a stub or an accidental no-op. */
 export const noEmptyFunction: LintRule = {

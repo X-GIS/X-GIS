@@ -1,11 +1,11 @@
 // ═══ aliasShaderTypes / emit-prod aliasTypes() — payback, capture safety, ABI ═══
 
 import { describe, it, expect } from 'vitest'
-import { aliasShaderTypes, mangle, minify, obfuscate } from '../emit-prod'
-import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir'
-import { ioStruct, builtin, location } from './sot'
-import { emitModule } from './backends/wgsl'
-import { emitGlslModule } from './backends/glsl'
+import { aliasShaderTypes, mangle, minify, obfuscate } from '../emit-prod.js'
+import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir/index.js'
+import { ioStruct, builtin, location } from './sot.js'
+import { emitModule } from './backends/wgsl.js'
+import { emitGlslModule } from './backends/glsl.js'
 
 const wgslSrc = (uses: number): string =>
   `fn f(${Array.from({ length: uses }, (_, i) => `p${i}: vec2<f32>`).join(', ')}) -> f32 {\n` +

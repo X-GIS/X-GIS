@@ -15,13 +15,23 @@
 // what the string surgery produced, AND survives `minify()`, which the surgery could not.
 
 import { describe, it, expect } from 'vitest'
-import { externVar, fn, module, transformMat4, vec4, vec2fT, vec4fT, f32T, mat4x4fT } from './ir'
-import { builtin, hostUniform, ioStruct, resource, uniformStruct } from './sot'
-import { emitGlslFragment, emitGlslModule } from './backends/glsl'
-import { emitModule } from './backends/wgsl'
-import { minify } from '../emit-prod'
-import { mangleModule } from './passes/mangle'
-import { reflect } from './reflect'
+import {
+  externVar,
+  fn,
+  module,
+  transformMat4,
+  vec4,
+  vec2fT,
+  vec4fT,
+  f32T,
+  mat4x4fT,
+} from './ir/index.js'
+import { builtin, hostUniform, ioStruct, resource, uniformStruct } from './sot.js'
+import { emitGlslFragment, emitGlslModule } from './backends/glsl.js'
+import { emitModule } from './backends/wgsl.js'
+import { minify } from '../emit-prod.js'
+import { mangleModule } from './passes/mangle.js'
+import { reflect } from './reflect.js'
 
 // ── externVar ────────────────────────────────────────────────────────────────
 

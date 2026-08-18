@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** Duplicate struct name in the module. */
 export const dupStruct: LintRule = {

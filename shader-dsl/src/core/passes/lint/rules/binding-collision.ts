@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 /** Two bindings sharing a (group, binding) slot. */
 export const bindingCollision: LintRule = {

@@ -9,9 +9,9 @@
 // byte gates.
 
 import { describe, it, expect } from 'vitest'
-import { fixpoint, optimize } from './optimize'
-import { module, fn, f32, f32T } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
+import { fixpoint, optimize } from './optimize.js'
+import { module, fn, f32, f32T } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
 
 /** The pre-#1186 semantics `fixpoint` replaced: sweep the WHOLE module to a fixed
  *  point. The reference the per-function `fixpoint` must match byte-for-byte. */

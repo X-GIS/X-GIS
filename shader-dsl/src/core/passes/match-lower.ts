@@ -32,8 +32,8 @@
 //      the ralplan AC2 (linear-scaling lookup for the variant-heavy
 //      land-cover match chains).
 
-import type { Expr, Stmt, FuncDecl, ModuleDecl } from '../ir/nodes'
-import { i32T, type ShaderType } from '../ir/types'
+import type { Expr, Stmt, FuncDecl, ModuleDecl } from '../ir/nodes.js'
+import { i32T, type ShaderType } from '../ir/types.js'
 
 interface Counter {
   n: number

@@ -15,16 +15,16 @@
 // module's oracle bit-equality loop over every proj_* fn
 // (map/src/shaders/dsl/optimize.test.ts), and the examples emit-goldens byte gate.
 
-import type { ModuleDecl, FuncDecl } from '../../ir'
-import { constProp } from './const-prop'
-import { copyProp } from './copy-prop'
-import { constFold } from './const-fold'
-import { algebraicSimplify } from './algebraic'
-import { deadBranch } from './dead-branch'
-import { cse } from './cse'
-import { cseLocal } from './cse-local'
-import { licm } from './licm'
-import { dce } from './dce'
+import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { constProp } from './const-prop.js'
+import { copyProp } from './copy-prop.js'
+import { constFold } from './const-fold.js'
+import { algebraicSimplify } from './algebraic.js'
+import { deadBranch } from './dead-branch.js'
+import { cse } from './cse.js'
+import { cseLocal } from './cse-local.js'
+import { licm } from './licm.js'
+import { dce } from './dce.js'
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl
 

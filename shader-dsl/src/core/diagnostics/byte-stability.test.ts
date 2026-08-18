@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { setSourceTracing } from './loc'
-import { emitModule } from '../backends/wgsl'
-import { module, fn, f32T, u32T, vec2fT, vec4fT, f32, vec2, vec4, If } from '../ir'
-import { ioStruct, builtin, location, uniformStruct } from '../sot'
+import { setSourceTracing } from './loc.js'
+import { emitModule } from '../backends/wgsl.js'
+import { module, fn, f32T, u32T, vec2fT, vec4fT, f32, vec2, vec4, If } from '../ir/index.js'
+import { ioStruct, builtin, location, uniformStruct } from '../sot.js'
 
 afterEach(() => setSourceTracing(false))
 

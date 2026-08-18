@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { callSignature } from './call-signature'
-import { fn, module, externFn, f32, vec2, f32T, vec2fT } from '../../../ir'
+import { lint } from '../engine.js'
+import { callSignature } from './call-signature.js'
+import { fn, module, externFn, f32, vec2, f32T, vec2fT } from '../../../ir/index.js'
 
 // The exact holes this rule exists to close: FnHandle's positional call form is
 // `(...args: NodeLike[])` at the TS level, so wrong arity / wrong types compile —

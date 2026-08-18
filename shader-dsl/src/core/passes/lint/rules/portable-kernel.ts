@@ -1,6 +1,6 @@
-import type { LintRule } from '../engine'
-import { CODES } from '../../../diagnostics/codes'
-import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-kernel'
+import type { LintRule } from '../engine.js'
+import { CODES } from '../../../diagnostics/codes.js'
+import { analyzePortableKernel, isPortableComputeEntry } from '../../portable-kernel.js'
 
 /** A `portable`-declared `@compute` entry must stay inside the gather-only tier (#1812).
  *

@@ -1,9 +1,9 @@
 // ═══ decodeShaderLog / invertRenames — the half that USES the source map ═══
 
 import { describe, it, expect } from 'vitest'
-import { obfuscate, decodeShaderLog, invertRenames } from '../emit-prod'
-import { emitModule } from './backends/wgsl'
-import { fn, module, f32, f32T, Var, If } from './ir'
+import { obfuscate, decodeShaderLog, invertRenames } from '../emit-prod.js'
+import { emitModule } from './backends/wgsl.js'
+import { fn, module, f32, f32T, Var, If } from './ir/index.js'
 
 describe('decodeShaderLog', () => {
   it('replaces a uniquely-invertible name and leaves the prose alone', () => {

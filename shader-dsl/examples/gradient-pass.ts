@@ -21,8 +21,8 @@ import {
   builtin,
   location,
   uniformStruct,
-} from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 
 // Uniform block — std140-laid-out by reflect(). `top`/`bottom` are the two gradient
 // endpoints; `mix_bias` shifts the blend up or down.

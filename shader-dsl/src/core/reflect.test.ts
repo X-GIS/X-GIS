@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { wgslLayout, reflect } from './reflect'
+import { wgslLayout, reflect } from './reflect.js'
 import {
   mat4x4fT,
   vec4fT,
@@ -20,8 +20,8 @@ import {
   toF32,
   type StructDecl,
   type ModuleDecl,
-} from './ir'
-import { uniformStruct } from './sot'
+} from './ir/index.js'
+import { uniformStruct } from './sot.js'
 
 const struct = (
   name: string,

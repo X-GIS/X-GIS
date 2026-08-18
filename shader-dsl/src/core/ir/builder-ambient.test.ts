@@ -1,6 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { fn, Let, Var, If, Loop, Continue, Return, ReturnIf, f32, f32T, i32, bool } from './index'
-import { emitFunc } from '../backends/wgsl'
+import {
+  fn,
+  Let,
+  Var,
+  If,
+  Loop,
+  Continue,
+  Return,
+  ReturnIf,
+  f32,
+  f32T,
+  i32,
+  bool,
+} from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // C2 — the ambient current-builder stack: `If`/`Loop`/`Let`/`assign`/… are free
 // functions over the innermost active scope, so authoring no longer threads a

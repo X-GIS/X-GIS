@@ -19,9 +19,9 @@
 // STRUCTURED DATA in `preamble`, never silently dropped and never left for a regex. A
 // composer merges and de-duplicates those lines across the fragments it assembles.
 
-import { collectFnRefs, emptyRefSet } from './ir/collect-refs'
-import { isKnownIntrinsic } from './intrinsics'
-import type { FuncDecl, ModuleDecl } from './ir/nodes'
+import { collectFnRefs, emptyRefSet } from './ir/collect-refs.js'
+import { isKnownIntrinsic } from './intrinsics.js'
+import type { FuncDecl, ModuleDecl } from './ir/nodes.js'
 
 /** What a fragment brings to the program it is composed into — the manifest a composer
  *  checks its host prelude against. Names are the EMITTED spellings, so they are the ones

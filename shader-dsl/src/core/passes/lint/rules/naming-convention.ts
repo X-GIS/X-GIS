@@ -1,4 +1,4 @@
-import type { LintRule } from '../engine'
+import type { LintRule } from '../engine.js'
 
 const SNAKE = /^[a-z][a-z0-9_]*$/
 const PASCAL = /^[A-Z][A-Za-z0-9]*$/

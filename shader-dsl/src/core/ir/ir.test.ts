@@ -18,9 +18,9 @@ import {
   min,
   dot,
   type ConstDecl,
-} from './index'
-import { emitModule, emitFunc } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+} from './index.js'
+import { emitModule, emitFunc } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 const CONSTS: ConstDecl[] = [
   { name: 'PI', type: f32T, wgslValue: 3.14159265, cpuValue: Math.PI },

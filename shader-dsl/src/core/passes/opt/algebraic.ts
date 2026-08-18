@@ -7,8 +7,8 @@
 // NOT applied: x*0 -> 0 and 0*x -> 0 — unsound for Inf/NaN (Inf*0 = NaN). That
 // rewrite needs an explicit fast-math opt-in (a later flag), not the default.
 
-import type { Expr, ModuleDecl } from '../../ir'
-import { mapModuleExprs } from './ir-transform'
+import type { Expr, ModuleDecl } from '../../ir/index.js'
+import { mapModuleExprs } from './ir-transform.js'
 
 const isLit = (e: Expr, v: number): boolean =>
   e.op === 'lit' && typeof e.value === 'number' && e.value === v

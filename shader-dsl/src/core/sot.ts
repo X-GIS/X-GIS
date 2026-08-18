@@ -25,8 +25,8 @@ import {
   type ScalarKey,
   type BindingDecl,
   type AddressSpace,
-} from './ir'
-import { dslError } from './diagnostics/error'
+} from './ir/index.js'
+import { dslError } from './diagnostics/error.js'
 
 /** A module-level constant declared ONCE (#763 X2) — the missing SoT declarator.
  *  `decl` goes into module() (or `uses:`), `node` is the typed reference; the
@@ -675,8 +675,10 @@ type MutableView<V> = {
  *  A storage binding lowers automatically to a data-texture read (`texelFetch`) at GLSL emit —
  *  no authoring change needed — but that lowering is GATHER-ONLY: it rewrites reads, has no
  *  write form, and throws `UnsupportedFeatureError` on a `read_write` binding rather than
- *  silently dropping the write (a compute kernel's output instead lowers through the separate
- *  `emitGlslModule({ emulateCompute: true })` path). Prefer `'read'` unless the module is
+ *  silently dropping the write (a compute kernel's output instead lowers through the
+ *  compute→fragment path — declare the kernel `portable: true`, #1812; the legacy
+ *  `emitGlslModule({ emulateCompute: true })` opt-in remains for undeclared kernels).
+ *  Prefer `'read'` unless the module is
  *  WGSL-only, or the divergent access mode surfaces only once someone finally emits it for
  *  GLSL.
  *

@@ -22,8 +22,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { examples } from './index.ts'
-import { emitModule, emitGlslModule } from '../src/index.ts'
+import { examples } from './index.js'
+import { emitModule, emitGlslModule } from '../src/index.js'
 
 const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), '__emit-goldens__')
 const UPDATE = process.env.UPDATE_EMIT_GOLDENS === '1'

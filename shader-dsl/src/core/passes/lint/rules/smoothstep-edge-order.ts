@@ -1,5 +1,5 @@
-import type { Expr } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { Expr } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 const litOf = (e: Expr): number | undefined =>
   e.op === 'lit' && typeof e.value === 'number' ? e.value : undefined

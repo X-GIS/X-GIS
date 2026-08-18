@@ -10,11 +10,11 @@
 // that stays put when the mode moved is the original bug with extra steps.
 
 import { describe, it, expect } from 'vitest'
-import { emitIdentity } from './emit-identity'
-import { buildRegistry } from './registry'
-import { inline, mangle, minify } from '../emit-prod'
-import type { EmitPlugin } from './emit'
-import { voidT, type ModuleDecl } from './ir'
+import { emitIdentity } from './emit-identity.js'
+import { buildRegistry } from './registry.js'
+import { inline, mangle, minify } from '../emit-prod.js'
+import type { EmitPlugin } from './emit.js'
+import { voidT, type ModuleDecl } from './ir/index.js'
 
 describe('emitIdentity — what it must distinguish', () => {
   it('separates a dev emit from a prod one', () => {

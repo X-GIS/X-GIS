@@ -8,7 +8,7 @@
 // recovers each field's std140 byte offset from `reflect(module)` — so the same
 // reflection that documents the pipeline also drives the live uniform packing.
 
-import type { ModuleDecl } from '../src/index.ts'
+import type { ModuleDecl } from '../src/index.js'
 
 /** How a host fills one uniform-struct field each frame. */
 export type Control =

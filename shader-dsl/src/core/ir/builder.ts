@@ -4,7 +4,7 @@
 // let/var/assign/if/for/switch/ret/…), the IfChain helper, and the fn /
 // computeFn / entryFn / module assemblers. Imports types + nodes + node.
 
-import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types'
+import { type ShaderType, type KeyOf, type ScalarKey, voidT } from './types.js'
 import {
   type Stmt,
   type Expr,
@@ -19,7 +19,7 @@ import {
   type RawStmt,
   type RawPayload,
   ASSEMBLED_AS,
-} from './nodes'
+} from './nodes.js'
 import {
   Node,
   ReadonlyNode,
@@ -34,9 +34,9 @@ import {
   overrideRef,
   externRef,
   installStmtSink,
-} from './node'
-import { dslError } from '../diagnostics/error'
-import { captureLoc, recordLoc } from '../diagnostics/loc'
+} from './node.js'
+import { dslError } from '../diagnostics/error.js'
+import { captureLoc, recordLoc } from '../diagnostics/loc.js'
 
 /** The signature record for {@link externFn} — a bare name-to-type param map, with no room
  *  for a stage attribute or a struct-handle field (those are {@link FnParamSpec}, `fn()`'s

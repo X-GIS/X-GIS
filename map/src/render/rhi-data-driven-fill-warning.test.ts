@@ -32,6 +32,9 @@ function variant(opts: Partial<ShaderVariant>): ShaderVariant {
     preamble: {},
     fillExpr: varRefVec4('u.fill_color'),
     strokeExpr: varRefVec4('u.stroke_color'),
+    // #1808 — these fixtures exercise runtime wiring, not the paint
+    // expression composition, so no opacity factor is declared.
+    opacityExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: [],

@@ -8,7 +8,7 @@
 // substring-matching tests all still hold.
 
 import { describe, it, expect } from 'vitest'
-import { fn, If, Loop, f32, u32, f32T } from './index'
+import { fn, If, Loop, f32, u32, f32T } from './index.js'
 
 const boom = (): never => {
   throw new ReferenceError('i is not defined')

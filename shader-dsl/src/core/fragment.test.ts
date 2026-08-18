@@ -25,10 +25,10 @@ import {
   f32T,
   texture2duT,
   externFn,
-} from './ir'
-import { resource } from './sot'
-import { emitGlslFragment, emitGlslModule } from './backends/glsl'
-import { emitFragment, emitModule } from './backends/wgsl'
+} from './ir/index.js'
+import { resource } from './sot.js'
+import { emitGlslFragment, emitGlslModule } from './backends/glsl.js'
+import { emitFragment, emitModule } from './backends/wgsl.js'
 
 /** The strip the consumer had to write, reproduced verbatim as the decoy. */
 const LEGACY_STRIP = /^#version[^\n]*\n(?:precision[^\n]*\n)*/

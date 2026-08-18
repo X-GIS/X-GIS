@@ -12,8 +12,8 @@
 //      vec2<f32>, mouse → vec4<f32> (the [x, y, down, used] pointer contract).
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { reflect } from '../src/index.ts'
+import { examples } from './index.js'
+import { reflect } from '../src/index.js'
 
 const AUTO_KIND_TYPE: Record<string, string> = {
   time: 'f32',

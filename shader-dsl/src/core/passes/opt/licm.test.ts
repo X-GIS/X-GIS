@@ -1,8 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { licm } from './index'
-import { module, fn, f32, f32T, i32, sin, toF32, type Stmt, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { licm } from './index.js'
+import {
+  module,
+  fn,
+  f32,
+  f32T,
+  i32,
+  sin,
+  toF32,
+  type Stmt,
+  type ModuleDecl,
+} from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — loop-invariant code motion (a.k.a. uniform hoisting): a compound, input-only
 // (params/consts/bindings, no local) expr computed inside a loop body is recomputed

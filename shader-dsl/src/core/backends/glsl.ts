@@ -36,17 +36,34 @@
 // glsl.test.ts (string-shape: version pragma, std140 block + engine-matched
 // offsets, in/out varyings, main()) + the headless-WebGL2 gate cover the emit.
 
-import type { ShaderType, ModuleDecl, StructDecl, BindingDecl, FuncDecl, Expr, Stmt } from '../ir'
-import { texture2dfT, texture2duT, texture2diT, u32T, i32T, f32T, vec4fT, stageOf } from '../ir'
-import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs'
-import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
-import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
-import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment'
-import { bodyHasRaw } from '../passes/opt/dce'
-import { mapExpr, mapStmt } from '../passes/opt/ir-transform'
-import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel'
-import { dslError } from '../diagnostics/error'
-import { f32Lit } from './wgsl'
+import type {
+  ShaderType,
+  ModuleDecl,
+  StructDecl,
+  BindingDecl,
+  FuncDecl,
+  Expr,
+  Stmt,
+} from '../ir/index.js'
+import {
+  texture2dfT,
+  texture2duT,
+  texture2diT,
+  u32T,
+  i32T,
+  f32T,
+  vec4fT,
+  stageOf,
+} from '../ir/index.js'
+import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
+import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics.js'
+import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
+import { bodyHasRaw } from '../passes/opt/dce.js'
+import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
+import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
+import { dslError } from '../diagnostics/error.js'
+import { f32Lit } from './wgsl.js'
 import {
   emitBody,
   emitExpr as emitExprNeutral,
@@ -55,15 +72,15 @@ import {
   applyTextPlugins,
   type EmitOptions,
   type ParenMode,
-} from '../emit'
-import { autoVars } from '../passes/opt'
-import { wgslLayout } from '../reflect'
-import { sanitizeReservedIdents } from './glsl-sanitize'
-import { fixpoint } from '../passes/opt'
+} from '../emit.js'
+import { autoVars } from '../passes/opt/index.js'
+import { wgslLayout } from '../reflect.js'
+import { sanitizeReservedIdents } from './glsl-sanitize.js'
+import { fixpoint } from '../passes/opt/index.js'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
 // existing importers (`from './glsl'`) keep working.
-export { UnsupportedFeatureError } from '../backend'
+export { UnsupportedFeatureError } from '../backend.js'
 
 function glslType(t: ShaderType): string {
   switch (t.kind) {
@@ -800,7 +817,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
     // read_write output is fine: lowerComputeToFragment strips it before this pass.
     if (b.access === 'read_write')
       throw new UnsupportedFeatureError(
-        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via emitGlslModule({emulateCompute: true}), and WebGL2 has no storage-write form`,
+        `glsl-es300 storage-emul: storage binding '${b.name}' is read_write — the data-texture emulation is read-only (gather); a compute kernel's output lowers via the compute→fragment path instead (declare the kernel { stage: 'compute', portable: true } — #1812 — or pass the legacy emitGlslModule({ emulateCompute: true }) opt-in), and WebGL2 has no storage-write form`,
       )
     if (b.type.kind !== 'array')
       throw new UnsupportedFeatureError(

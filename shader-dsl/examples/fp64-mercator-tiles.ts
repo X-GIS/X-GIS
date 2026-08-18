@@ -39,9 +39,9 @@ import {
   Let,
   uniformStruct,
   splitF64,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // Seoul in normalized Web-Mercator ([0,1)² — x = (lon+180)/360).
 const SEOUL_X = 0.8527166666666667

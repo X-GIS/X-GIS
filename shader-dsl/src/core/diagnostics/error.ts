@@ -10,7 +10,7 @@
 // subclass this so `instanceof` / `.name` checks in consumers keep working, while every
 // thrown error now carries a code the host can branch on.
 
-import { CODES, type ErrorCode, type ErrorCodeDef } from './codes'
+import { CODES, type ErrorCode, type ErrorCodeDef } from './codes.js'
 
 /** A pointer back into the AUTHORED TypeScript — the first stack frame outside this
  *  package, captured (opt-in) when source tracing is on. Never emitted into WGSL/GLSL. */

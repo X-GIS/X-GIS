@@ -36,9 +36,9 @@ import {
   vec2f64,
   Let,
   uniformStruct,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // The observer and both stations are host-supplied df64 uniforms swept out
 // from the origin together via the DISTANCE slider (see controls below), so

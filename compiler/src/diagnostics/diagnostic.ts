@@ -67,6 +67,9 @@
 //                               uniform pool into (label/icon paint)
 //   X-GIS0027  error  lower     `style:` names no declared preset —      (ir/preset-expand.ts — #1606)
 //                               global or namespaced (`ns.name`)
+//   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
+//                               no lowering handler — only `fill-*` is
+//                               wired under MODIFIER_HANDLERS today
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -153,6 +156,13 @@ export const INPUT_UNSUPPORTED_PAINT_TARGET = 'X-GIS0026'
 /** `style: <name>` names no declared preset, global or namespaced (#1606) —
  *  previously a silent no-op that compiled clean into a blank layer. */
 export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
+/** Modifier item with no lowering handler (#1069 smallest-honest-slice) — a
+ *  `<mod>:<utility>` item whose utility half matches no entry in
+ *  `MODIFIER_HANDLERS` (today: only `fill-*`). Previously a silent drop, so
+ *  the spec doc's own `hover:opacity-100` example compiled to a no-op. This
+ *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
+ *  turns the drop into a diagnostic. */
+export const UNHANDLED_MODIFIER = 'X-GIS0028'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

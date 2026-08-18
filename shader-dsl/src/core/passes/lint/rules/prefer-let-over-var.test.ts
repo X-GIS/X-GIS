@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { lint, applyFixes } from '../engine'
-import { module, fn, f32T, f32 } from '../../../ir'
-import { emitFunc } from '../../../backends/wgsl'
-import { preferLetOverVar } from './prefer-let-over-var'
+import { lint, applyFixes } from '../engine.js'
+import { module, fn, f32T, f32 } from '../../../ir/index.js'
+import { emitFunc } from '../../../backends/wgsl.js'
+import { preferLetOverVar } from './prefer-let-over-var.js'
 
 const ids = (m: ReturnType<typeof module>) => lint(m, [preferLetOverVar]).map((d) => d.ruleId)
 

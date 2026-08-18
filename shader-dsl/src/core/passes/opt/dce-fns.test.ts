@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { deadFnElim } from './index'
-import { module, fn, f32, f32T, type Expr, type FuncDecl, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
+import { deadFnElim } from './index.js'
+import { module, fn, f32, f32T, type Expr, type FuncDecl, type ModuleDecl } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
 
 // Whole-FUNCTION tree-shaking: drop functions unreachable from the entry
 // points. Roots = fns with a non-empty `attrs` (@vertex/@fragment/@compute);

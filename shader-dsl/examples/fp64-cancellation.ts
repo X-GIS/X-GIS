@@ -36,9 +36,9 @@ import {
   vec2fT,
   Let,
   uniformStruct,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 const U = uniformStruct(
   'Uniforms',

@@ -39,9 +39,9 @@
 // DEFAULT_PASSES (unrolling changes production WGSL bytes → the byte-stable
 // shared-prelude golden snapshots would need regenerating, a maintainer call).
 
-import type { CmpOp, Expr, Stmt, ModuleDecl, FuncDecl, ShaderType } from '../../ir'
-import { mapExpr, mapStmt } from './ir-transform'
-import { bodyHasRaw, collectLocals, collectMutatedRoots, forEachTopExpr } from './expr-utils'
+import type { CmpOp, Expr, Stmt, ModuleDecl, FuncDecl, ShaderType } from '../../ir/index.js'
+import { mapExpr, mapStmt } from './ir-transform.js'
+import { bodyHasRaw, collectLocals, collectMutatedRoots, forEachTopExpr } from './expr-utils.js'
 
 type ForStmt = Extract<Stmt, { s: 'for' }>
 

@@ -1,6 +1,6 @@
-import type { ShaderType } from '../../../ir'
-import { typeKey } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { ShaderType } from '../../../ir/index.js'
+import { typeKey } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 const SHIFT_OPS = new Set(['<<', '>>'])
 function mixedScalar(a: ShaderType, b: ShaderType): boolean {

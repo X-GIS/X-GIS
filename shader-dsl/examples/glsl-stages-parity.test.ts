@@ -18,8 +18,8 @@
 // `emitGlslModule` produces, not that the shared-lowering path agrees with it.
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { emitGlslModule, emitGlslStages } from '../src/index.ts'
+import { examples } from './index.js'
+import { emitGlslModule, emitGlslStages } from '../src/index.js'
 
 describe('emitGlslStages — shared lowering is byte-identical to per-stage lowering', () => {
   const renderable = examples.filter((e) => e.renderable)
