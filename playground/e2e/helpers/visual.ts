@@ -92,9 +92,7 @@ async function logClipCaptureFailure(
   } catch (evalErr) {
     ancestors = `getComputedStyle probe itself failed: ${String(evalErr)}`
   }
-  console.log(
-    `CAPTURE_CLIP_FAIL box=${JSON.stringify(box)} ancestors=${JSON.stringify(ancestors)}`,
-  )
+  console.log(`CAPTURE_CLIP_FAIL box=${JSON.stringify(box)} ancestors=${JSON.stringify(ancestors)}`)
 }
 
 /**
