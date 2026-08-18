@@ -13,11 +13,19 @@
 // own sanity check — mangleModule returns the module UNCHANGED when there is nothing
 // to rename (and bails to identity on a `raw` body), so without asserting that renames
 // actually happened the invariant would hold vacuously.
+//
+// The #1806 block pins the OTHER half of that claim, for transforms that DO change
+// what this comparator reports (inline): a declared pipeline drains exactly the
+// differences it provably causes into `explained`, and the arm that matters is the
+// regression one — the same declaration must NOT drain a difference the pipeline does
+// not account for.
 
 import { describe, it, expect } from 'vitest'
 import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir'
 import { builtin, ioStruct, location, uniformStruct } from './sot'
 import { mangleModule } from './passes/mangle'
+import { inlineLinearAll } from './passes/inline-linear'
+import { inline, mangle, minify } from '../emit-prod'
 import { isSemanticallyEqual, semanticDiff } from './semantic-diff'
 import type { ModuleDecl } from './ir'
 
@@ -145,6 +153,66 @@ describe('semanticDiff — one axis per bucket', () => {
     expect(d.interface.join('\n')).toContain('fs_main')
     expect(d.interface.join('\n')).toContain('fs_alt')
     expect(d.resources).toEqual([])
+  })
+})
+
+describe('semanticDiff — declared transforms (#1806)', () => {
+  const inlined = inlineLinearAll(base)
+
+  it('inline() actually rewrites this module (the arms below are not vacuous)', () => {
+    expect(inlined).not.toBe(base)
+    const raw = semanticDiff(base, inlined)
+    expect(isSemanticallyEqual(raw)).toBe(false)
+    expect(raw.controlFlow.length).toBeGreaterThan(0)
+  })
+
+  it('without `transforms` the result shape is unchanged — no `explained` key', () => {
+    expect('explained' in semanticDiff(base, inlined)).toBe(false)
+  })
+
+  it('declaring inline() explains the whole dev↔prod diff, with provenance', () => {
+    const d = semanticDiff(base, inlined, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(true)
+    expect(d.explained.length).toBeGreaterThan(0)
+    for (const e of d.explained) expect(e.transform).toBe('inline')
+    // Provenance names the bucket each line left. inline rewrites code, never ABI —
+    // an interface/resources entry here would mean the declared pipeline touched
+    // something a semantics-preserving transform must not.
+    const buckets = new Set(d.explained.map((e) => e.bucket))
+    expect(buckets.has('controlFlow')).toBe(true)
+    expect(buckets.has('interface')).toBe(false)
+    expect(buckets.has('resources')).toBe(false)
+  })
+
+  it('a real regression survives a declared transform — classification cannot swallow it', () => {
+    // b went through the SAME declared pipeline but also changed a literal
+    // (0.5 → 0.25): the inline-shaped half of the diff must drain into `explained`
+    // while the regression stays in its bucket, still fail-able.
+    const regressed = inlineLinearAll(build(shadeLit))
+    const d = semanticDiff(base, regressed, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.constants.join('\n')).toContain('lit f32=0.5')
+    expect(d.constants.join('\n')).toContain('lit f32=0.25')
+    expect(d.controlFlow).toEqual([])
+    expect(d.explained.some((e) => e.bucket === 'controlFlow')).toBe(true)
+  })
+
+  it('a multi-plugin pipeline attributes to the transform that explains, not the last one', () => {
+    // b = mangle(inline(base)) — the standard prod ordering. Under the default
+    // `ignore: ['names']` the canon already cancels mangle's renames, so every
+    // explained line must attribute to inline; mangle explains nothing extra.
+    const prod = mangleModule(inlined).module
+    const d = semanticDiff(base, prod, { transforms: [inline(), mangle()] })
+    expect(isSemanticallyEqual(d)).toBe(true)
+    expect(d.explained.length).toBeGreaterThan(0)
+    for (const e of d.explained) expect(e.transform).toBe('inline')
+  })
+
+  it('a text-stage plugin explains nothing — this comparator never sees text', () => {
+    const d = semanticDiff(base, build(shadeLit), { transforms: [minify()] })
+    expect(d.explained).toEqual([])
+    const { explained: _, ...residue } = d
+    expect(residue).toEqual(semanticDiff(base, build(shadeLit)))
   })
 })
 

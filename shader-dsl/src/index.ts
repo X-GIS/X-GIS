@@ -112,12 +112,18 @@ export {
 // optimizer's temporaries / declaration order / generated names do not drown the
 // diff. Main barrel rather than '/dev': the "prod is dev, optimized" assertion it
 // makes possible is a production claim a consumer ships, not an authoring aid.
+// `transforms` (#1806) classifies the differences a DECLARED production pipeline
+// provably accounts for into `explained`, so a dev↔prod parity gate budgets only
+// the unexplained residue.
 export {
   semanticDiff,
   isSemanticallyEqual,
   type SemanticDiff,
   type SemanticDiffOptions,
   type SemanticAspect,
+  type SemanticDiffBucket,
+  type ExplainedDiffEntry,
+  type ClassifiedSemanticDiff,
 } from './core/semantic-diff'
 
 // The optimization-level TYPE for emitModuleAt(m, level). (The optimizeAt entry +
