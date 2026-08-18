@@ -79,9 +79,10 @@ describe('flow-advect — IBFV step (#1333)', () => {
 
   it('CLAMPS the back-step rather than wrapping (a cell is bounded, not a torus)', () => {
     // Wrapping would advect one edge of a regional cell into the opposite edge — the Atlantic
-    // into the Pacific across the seam.
+    // into the Pacific across the seam. saturate IS the [0,1] clamp (#1828) — the bound the
+    // back-step needs — so its presence is the same evidence the clamp( pin used to carry.
     const wgsl = emitFlowAdvectWgsl()
-    expect(wgsl).toContain('clamp(')
+    expect(wgsl).toContain('saturate(')
     expect(wgsl).not.toContain('fract((in.uv')
     expect(CODE).not.toMatch(/wrap|repeat/i)
   })

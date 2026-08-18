@@ -385,6 +385,16 @@ export function clampF32(
   } as NodeLike<'f32'>
 }
 
+/** saturate(x) for f32 scalars — the [0,1] clamp by its own name (#1828). WGSL spells it
+ *  `saturate(x)` (≡ `clamp(x, 0.0, 1.0)` by spec definition — values bit-identical); the
+ *  GLSL writer's spelling IS `clamp(x, 0.0, 1.0)`, so GLSL bytes cannot differ from the
+ *  clampF32 form this replaces at [0,1] call sites. */
+export function saturateF32(x: NodeLike<'f32'>): NodeLike<'f32'> {
+  return {
+    expr: { op: 'call', type: F32_T, fn: 'saturate', args: [x.expr] },
+  } as NodeLike<'f32'>
+}
+
 // ── Texture sample (palette atlas idiom) ──
 
 const VEC2F_T = { kind: 'vec', n: 2, elem: 'f32' } as const

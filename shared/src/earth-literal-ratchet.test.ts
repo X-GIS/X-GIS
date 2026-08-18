@@ -43,6 +43,13 @@ const ALLOWLIST: readonly string[] = [
   // body-consts.test.ts. Not a migration entry; do not delete.
   'map/src/shaders/dsl/ecef.ts',
   'map/src/shaders/dsl/projections.ts',
+  // #1258 — the atmosphere glow pins the equatorial radius as a PLAIN shader
+  // constant (its header documents why a sphere suffices for a decorative rim).
+  // Known limit, accepted deliberately: unlike ecef/projections this does NOT
+  // route through the body-consts seam, so a non-Earth Body would still get an
+  // Earth-radius glow — off-by-default and cosmetic; threading the ConstDecl
+  // through the atmosphere pass is #1258 Phase-2 work, recorded there.
+  'map/src/shaders/dsl/atmosphere.ts',
   // The committed build-time shader bake (#1678 / #1484). These files are GENERATED
   // shader SOURCE: the emitters fold the two ConstDecl files above into every shader as
   // literals, so an Earth artifact necessarily spells `6378137.0` — that IS the baked

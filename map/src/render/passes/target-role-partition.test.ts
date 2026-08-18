@@ -42,6 +42,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
  *  up here as a missing file (assertion 2) rather than as a rule that quietly stops matching. */
 const PASS_SOURCE: Record<PassLabel, string> = {
   background: 'background-pass.ts',
+  atmosphere: 'atmosphere-pass.ts',
   flow: 'flow-pass.ts',
   opaque: 'opaque-pass.ts',
   oit: 'oit-pass.ts',

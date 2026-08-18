@@ -29,10 +29,8 @@ export const mercator: Projection = {
   name: 'mercator',
 
   forward(lon: number, lat: number): [number, number] {
-    const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
     const x = lon * DEG2RAD * EARTH_RADIUS
-    const y = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * EARTH_RADIUS
-    return [x, y]
+    return [x, latToMercatorY(lat)]
   },
 
   inverse(x: number, y: number): [number, number] {
@@ -40,6 +38,19 @@ export const mercator: Projection = {
     const lat = mercatorYToLatRad(y) * RAD2DEG
     return [lon, lat]
   },
+}
+
+// Forward Web Mercator, Y-only — the CPU single source for the lat→Mercator-Y
+// metre value, clamped to MERCATOR_LAT_LIMIT. Previously hand-inlined (clamp +
+// `Math.log(Math.tan(Math.PI / 4 + (latC * DEG2RAD) / 2)) * R`) in the five
+// graphics retained-*-packers — numerically identical term-for-term (R =
+// EARTH.sphereR, same op order), so routing them here changes no double. NOT
+// shared with lonLatToMercator's body below: that function spells the radian
+// conversion `(lat * Math.PI) / 180 / 2`, a DIFFERENT double sequence, and
+// collapsing the two would move ulps under its callers.
+export function latToMercatorY(lat: number): number {
+  const clampedLat = Math.max(-MERCATOR_LAT_LIMIT, Math.min(MERCATOR_LAT_LIMIT, lat))
+  return Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * EARTH_RADIUS
 }
 
 // Inverse Web Mercator, Y-only — the CPU single source for recovering
