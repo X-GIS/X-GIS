@@ -218,7 +218,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1756 <- main): main's 4944 (#1632 + #1596, above) and the adoption's +9
   // (byte-telemetry read-out, its rationale re-quoted above) compose. MEASURED post-merge,
   // post-prettier (4944 + 9 = 4953, arithmetic agrees).
-  'map/src/render/vector-tile-renderer.ts': 4953,
+  // 4953→4957 (#1253): the 'oit-fill' phase now draws the SHELL through the same
+  // extruded pipeline as the opaque path, so the routing collapses from four
+  // decisions (oit-pipe / oit-skip / extrude-want / extrude-use) to two — the
+  // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
+  // comment that records why the shell phase answers to the extrude skip rule.
+  // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
+  'map/src/render/vector-tile-renderer.ts': 4957,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -650,7 +656,12 @@ const CEILINGS: Record<string, number> = {
   // 5437→5446 (#1257): style-authored `raster-fade-duration` resolved once in the
   // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
   // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
-  'map/src/map.ts': 5446,
+  // 5446→5450 (#1253): the classifier call site gains `extrudeShell` — the one
+  // frame-level fact the pure bucket scheduler cannot see (the device consumes
+  // WGSL AND ?debug=overdraw is off) — plus the `readsWgsl` / `isOverdrawActive`
+  // imports and one line of comment. Composition-root wiring at the existing call
+  // site; the decision it feeds lives in bucket-scheduler.ts (§2). MEASURED.
+  'map/src/map.ts': 5450,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

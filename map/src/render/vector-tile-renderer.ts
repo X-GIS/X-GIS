@@ -558,11 +558,13 @@ export class VectorTileRenderer {
     this._bindGroups.setPatternExtrudedPipelines(main, fallback)
   }
 
-  /** Provide the OIT translucent extrude pipeline. Used when
-   *  render() runs with phase='oit-fill': translucent buildings
-   *  draw their fills into the accum + revealage MRT pair so a
-   *  later compose pass can blend them order-independently onto
-   *  the opaque framebuffer. */
+  /** Provide the weighted-blended OIT translucent extrude pipeline (accum +
+   *  revealage MRT). RETAINED as the opt-in VOLUMETRIC alternative, and no
+   *  longer on the draw path: since #1253 the 'oit-fill' phase draws the SHELL
+   *  (front-most surface across all tiles, one offscreen colour target, one
+   *  composite), which is a different look — weighted blending accumulates
+   *  front AND back fragments, so overlapping translucent walls get MORE
+   *  opaque, the artifact #1253 removes. */
   setOITPipeline(p: RhiPipelineHandle): void {
     this._bindGroups.setOITPipeline(p)
   }
@@ -4255,6 +4257,10 @@ export class VectorTileRenderer {
     cached: GPUTile,
     bindZBuffer: boolean,
     translucentFrontShell = false,
+    /** #1253 — the LAYER-WIDE shell draw (the 'oit-fill' phase): one
+     *  depth-tested, colour-REPLACE draw into the shell pass's offscreen target
+     *  instead of the per-draw front-shell pair. */
+    extrudeShell = false,
   ): void {
     if (this._skipFillDrawForBundle) return
     // DIAGNOSTIC ONLY — `window.__xgisMaxTiles` caps the actual fill DRAWS per
@@ -4282,6 +4288,7 @@ export class VectorTileRenderer {
       cached,
       bindZBuffer,
       translucentFrontShell,
+      extrudeShell,
     )
   }
 
@@ -4735,12 +4742,19 @@ export class VectorTileRenderer {
       // skipped (variant pipeline computes color in shader, cached uniform
       // alpha may be zero even when the draw is meaningful).
       if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // Pipeline selection — three opaque paths + OIT:
-        //  * 'oit-fill' phase: translucent extrude → OIT MRT pipe
-        //  * per-feature extrude (opaque): vs_main_quantized_extruded + zBuffer
-        //  * uniform / ground (opaque): pre-selected `fillPipeline`
-        const useOitPipe =
-          isOitFill && cached.extruded && this._bindGroups.extrudedOITPipeline() !== null
+        // Pipeline selection — two paths, one of them phase-split:
+        //  * per-feature extrude: vs_main_ecef_extruded + the slice zBuffer. In
+        //    the 'oit-fill' phase the SAME pipeline draws into the shell pass's
+        //    offscreen target, through the Material's shell variants (#1253);
+        //    every other phase is the opaque / #1080 front-shell draw.
+        //  * uniform / ground: the pre-selected `fillPipeline`.
+        // 'oit-fill' no longer selects the weighted-blended OIT MRT pipeline —
+        // the shell pass has ONE colour attachment, not the accum/revealage
+        // pair — but `extrudedOITPipeline` stays wired (setOITPipeline) as the
+        // opt-in volumetric alternative.
+        const wantsExtrude =
+          this.currentExtrudeMode === 'per-feature' && fillPipelineExtruded !== null
+        const useExtrudedPipe = wantsExtrude && cached.extruded
         // DIAG: log per-tile drawIndexed for the current trace if armed.
         // Granular enough to verify the cross-tile order claim
         // ("all tiles' 2D before any 3D") rather than just per-show
@@ -4764,15 +4778,16 @@ export class VectorTileRenderer {
           if (trace) {
             // Pipeline route is determined a few lines below — but the
             // logic is mirrored here so we can record it before
-            // dispatch. Skip path: OIT requested but useOitPipe failed.
-            const willSkip = isOitFill && !useOitPipe
+            // dispatch. Skip path: the shell phase reached a tile with no
+            // extruded slice, or a non-extruding show.
+            const willSkip = (isOitFill || wantsExtrude) && !useExtrudedPipe
             const route: 'oit' | 'extrude' | 'fill' | 'skip' = willSkip
               ? 'skip'
-              : useOitPipe
-                ? 'oit'
-                : this.currentExtrudeMode === 'per-feature' && cached.extruded
-                  ? 'extrude'
-                  : 'fill'
+              : useExtrudedPipe
+                ? isOitFill
+                  ? 'oit'
+                  : 'extrude'
+                : 'fill'
             trace.push({
               seq: trace.length,
               slice: this._drawStats.traceSlice() ?? '?',
@@ -4785,28 +4800,9 @@ export class VectorTileRenderer {
             })
           }
         }
-        // CRITICAL: in the OIT pass, the render pass attachments are
-        // the rgba16float / r16float MRT pair, not the main color +
-        // pick attachments. Falling through to `fillPipeline` here
-        // would attach an OPAQUE-targets pipeline to the OIT pass and
-        // trip "Attachment state of RenderPipeline is not compatible
-        // with RenderPassEncoder" at every frame's submit. This used
-        // to fire when (a) cached.extruded was false on a fallback
-        // ancestor tile of an extruded slice or (b) setOITPipeline
-        // hadn't run yet. Either way: skip the draw rather than
-        // emit an incompatible pipeline. Visual cost: a translucent
-        // building's loading frames may show no fallback ancestor
-        // until the primary tile arrives — minor and transient.
-        if (isOitFill && !useOitPipe) {
-          // strokes for this tile still queue below — only the fill
-          // is being skipped here.
-          if (drawStrokes) strokeQueue.push({ cached, slotOffset })
-          continue
-        }
-        // OPAQUE extrude variant of the same skip rule: when the show
-        // declares per-feature extrude but THIS tile's slice was
-        // compiled without a zBuffer (e.g., a fallback parent slice
-        // uploaded before the extrude show wired its per-feature
+        // Extrude skip rule: when the show declares per-feature extrude but
+        // THIS tile's slice was compiled without a zBuffer (e.g., a fallback
+        // parent slice uploaded before the extrude show wired its per-feature
         // heights, or a parent tile whose worker compile predated the
         // per-feature config), falling through to `fillPipeline` would
         // render the polygons FLAT at z=0 — producing the user-visible
@@ -4816,28 +4812,33 @@ export class VectorTileRenderer {
         // loses unpredictably depending on pitch / camera angle. Skip
         // instead: showing no fallback building briefly is far less
         // visually broken than showing a flat one. Strokes still draw.
-        const wantsExtrude =
-          !isOitFill && this.currentExtrudeMode === 'per-feature' && fillPipelineExtruded !== null
-        if (wantsExtrude && !cached.extruded) {
+        //
+        // #1253 — the SHELL phase ('oit-fill') answers to the same rule for a
+        // harder reason: its pass carries the offscreen shell colour target,
+        // which ONLY the extruded Material's shell variants are built for.
+        // Falling through to `fillPipeline` there would attach a main-target
+        // pipeline to the shell pass and trip "Attachment state of
+        // RenderPipeline is not compatible with RenderPassEncoder" at submit,
+        // so a shell-phase tile that cannot take the extruded path is skipped
+        // outright. Visual cost: a translucent building's loading frames may
+        // show no fallback ancestor until the primary tile arrives.
+        if ((isOitFill || wantsExtrude) && !useExtrudedPipe) {
+          // strokes for this tile still queue below (never in the shell phase,
+          // where drawStrokes is false) — only the fill is being skipped here.
           if (drawStrokes) strokeQueue.push({ cached, slotOffset })
           continue
         }
-        const useExtrudedPipe =
-          !isOitFill &&
-          this.currentExtrudeMode === 'per-feature' &&
-          cached.extruded &&
-          fillPipelineExtruded !== null
-        // Debug=overdraw: collapse OIT + extruded paths onto the
+        // Debug=overdraw: collapse the extruded path onto the
         // single overdraw pipeline supplied as `fillPipeline`. The
-        // OIT / extruded variants target their own formats which
-        // don't match the r16float accumulator attached to this pass.
+        // extruded variant targets its own format which
+        // doesn't match the r16float accumulator attached to this pass.
+        // (The shell phase never runs under overdraw — the pass is gated off
+        // and the bucket scheduler keeps those fills in the opaque bucket.)
         const activePipe = isOverdrawActive(this.rhi.caps)
           ? fillPipeline
-          : useOitPipe
-            ? this._bindGroups.extrudedOITPipeline()!
-            : useExtrudedPipe
-              ? fillPipelineExtruded!
-              : fillPipeline
+          : useExtrudedPipe
+            ? fillPipelineExtruded!
+            : fillPipeline
         // Bundle-compatible draw recording extracted to `recordTileFill`.
         // The 6 GPU commands below (setPipeline, setBindGroup,
         // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
@@ -4852,13 +4853,16 @@ export class VectorTileRenderer {
             currentTileBg,
             slotOffset,
             cached,
-            /* bindZBuffer */ useOitPipe || useExtrudedPipe,
+            /* bindZBuffer */ useExtrudedPipe,
             // #1080 — front-shell two-draw only for the solid per-feature extrude
-            // draw (exclude OIT + debug-overdraw; recordFillDraw no-ops otherwise).
+            // draw (exclude the shell phase + debug-overdraw; recordFillDraw
+            // no-ops otherwise). #1253 — in the shell phase the LAYER-WIDE form
+            // replaces it: one shell draw here, one composite in the pass.
             /* translucentFrontShell */ useExtrudedPipe &&
-              !useOitPipe &&
+              !isOitFill &&
               !isOverdrawActive(this.rhi.caps) &&
               this._extrudeTranslucentFrontShell,
+            /* extrudeShell */ isOitFill && useExtrudedPipe,
           )
         }
       }
