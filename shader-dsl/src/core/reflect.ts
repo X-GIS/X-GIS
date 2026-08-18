@@ -373,6 +373,13 @@ export interface EntryInfo {
   readonly workgroupSize?: number
   readonly inputs: readonly string[]
   readonly output: string
+  /** The PORTABLE KERNEL TIER declaration (#1812), present only when the entry declares it —
+   *  never `false`. This is the HOST-CONTRACT signal: on a backend with no compute stage the
+   *  module emits as fragment-GPGPU and must be dispatched as a fullscreen DRAW into an R32UI
+   *  target rather than as a compute dispatch (`rhi-webgl2/src/compute-webgl2.ts` absorbs
+   *  exactly that). Read it to decide which dispatch shape a kernel needs; its absence means
+   *  the kernel is WebGPU-only. */
+  readonly portable?: true
 }
 /** A pipeline SPECIALIZATION CONSTANT (#923) the host must supply per pipeline
  *  variant. Both backends' host shapes derive from this: the WGSL `constants: {}`
@@ -577,6 +584,9 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       ...(stage === 'compute' ? { workgroupSize: workgroupSizeOf(f) ?? 64 } : {}),
       inputs: f.params.map((p) => typeKey(p.type)),
       output: typeKey(f.ret),
+      // Present only when declared (#1812) — an absent field, not `portable: false`, so the
+      // host reads "WebGPU-only" the same way it reads every other absent capability.
+      ...(f.portable === true ? { portable: true as const } : {}),
     })
     if (stage === 'vertex' && !vertex) {
       let cursor = 0

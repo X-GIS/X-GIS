@@ -72,7 +72,11 @@ describe('binResultType f64 rules (unchanged operator syntax)', () => {
   })
 
   it('f64 ∘ int / bool is rejected at author time (SD0004)', () => {
+    // The kind-matched ArithArg now rejects these at tsc too; the runtime
+    // SD0004 stays the backstop for raw-IR authoring, so pin BOTH layers.
+    // @ts-expect-error — a u32 node is not an ArithArg<'f64'>
     expect(() => f64(1).add(u32(1))).toThrow(/SD0004/)
+    // @ts-expect-error — an i32 node is not an ArithArg<'f64'>
     expect(() => f64(1).mul(i32(1))).toThrow(/SD0004/)
   })
 
@@ -98,6 +102,9 @@ describe('f64 comparisons and genType builtins', () => {
   })
 
   it('comparing f64 with an int is rejected (SD0004)', () => {
+    // tsc rejects it since the kind-matched CmpArg; the runtime SD0004 stays
+    // the raw-IR backstop — pin both layers.
+    // @ts-expect-error — a u32 node is not a CmpArg<'f64'>
     expect(() => f64(1).lt(u32(2))).toThrow(/SD0004/)
   })
 

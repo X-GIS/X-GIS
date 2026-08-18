@@ -90,6 +90,9 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
       'mixed-scalar',
       'call-signature',
       'fragment-only-builtin',
+      // #1812 — the portable kernel tier. CORE because `portable: true` claims the kernel
+      // emits on BOTH backends, so the claim is checked at every emit on both writers.
+      'portable-kernel',
     ])
   })
 })

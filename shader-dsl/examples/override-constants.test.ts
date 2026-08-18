@@ -11,6 +11,7 @@ import {
   module,
   fn,
   f32,
+  u32,
   f32T,
   i32T,
   u32T,
@@ -130,7 +131,11 @@ describe('#923 — specialization constants (WGSL override ↔ GLSL #define)', (
       funcs: [
         fn('g', { x: f32T }, ({ x }) => {
           const a = Var(x)
-          If(overrideConst('count', u32T, 1).node.gt(f32(0)), () => {
+          // u32(0), not f32(0): the compare's operand kind must match the u32
+          // override — the old f32 literal emitted `(count > 0.0)`, a mixed
+          // compare NEITHER target accepts (and the mixed-scalar lint only
+          // covers binops, so nothing caught it before the kind-matched CmpArg).
+          If(overrideConst('count', u32T, 1).node.gt(u32(0)), () => {
             a.assign(a.add(f32(1)))
           })
           return a

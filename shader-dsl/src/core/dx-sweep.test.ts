@@ -4,16 +4,38 @@ import {
   module,
   f32,
   u32,
+  i32,
+  f64,
+  bool,
   vec3,
   vec4,
   Var,
   Let,
+  Switch,
   matchExpr,
   lift,
   f32T,
   u32T,
+  i32T,
+  f64T,
+  sin,
+  sinh,
+  tan,
+  saturate,
+  atan2,
+  pow,
+  mix,
+  normalize,
+  floor,
+  sqrt,
+  min,
+  clamp,
+  abs,
+  sign,
+  toI32,
   vec2fT,
   vec3fT,
+  vec3uT,
   vec4fT,
   texture2dfT,
   texture2dMsfT,
@@ -38,7 +60,7 @@ import {
   type ReadonlyNode,
   type ShaderType,
 } from './ir'
-import { structDecl, uniformStruct, arrayOf, resource } from './sot'
+import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot'
 import { emitModule } from './backends/wgsl'
 import type { FuncDecl } from './ir'
 
@@ -351,5 +373,163 @@ describe('#763 X — type-surface sweep', () => {
     )
     const w = emitF(g)
     expect(w).toContain('switch')
+  })
+})
+
+describe('builtin key domains — per-fn WGSL/df64 bounds (the K-extends-string retirement)', () => {
+  it('float-only builtins reject bool / int / texture keys at tsc', () => {
+    const tex = resource('bd_tex', texture2dfT, { group: 0, binding: 0 })
+    fn('bd1', { x: f32T, u: u32T }, ({ x, u }) => {
+      // @ts-expect-error — sin's key domain is FloatKey (a bool key is not a float)
+      void sin(bool(true))
+      // @ts-expect-error — sinh over a u32 key: WGSL/GLSL type the hyperbolics over floats only
+      void sinh(u)
+      // @ts-expect-error — saturate over a texture key used to type-check and die at naga
+      void saturate(tex.node)
+      // @ts-expect-error — atan2 is float-only (u32 operands were never legal on either target)
+      void atan2(u, u)
+      // @ts-expect-error — pow is float-only
+      void pow(u, 2)
+      // @ts-expect-error — smoothstep's scalar overload is f32-only now (was ScalarKey)
+      void smoothstep(0, 1, toI32(x))
+      // @ts-expect-error — mix's interpolant t is f32-only (WGSL types t as a float)
+      void mix(x, x, toI32(x))
+      // @ts-expect-error — normalize is defined over VECTORS only on both targets
+      void normalize(x)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('f64 keys are accepted exactly where the df64 whitelist can lower them', () => {
+    fn('bd2', { a: f64T, x: f32T }, ({ a, x }) => {
+      // Whitelisted (fp64-lower CALL_FN): these must COMPILE.
+      void floor(a)
+      void sin(a)
+      void sqrt(a)
+      void min(a, a)
+      void mix(a, a, x)
+      // @ts-expect-error — tan is NOT df64-whitelisted; what was emit-time SD0041 is now a tsc error
+      void tan(a)
+      // @ts-expect-error — clamp has no df64 twin (floats + ints only)
+      void clamp(a, a, a)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('int keys are accepted on the genuinely integer-domain builtins (and emit)', () => {
+    // The positive probes ride the RETURNED graph — a `void`-ed node never reaches
+    // an expression-bodied fn's emit, so containment below would be vacuous.
+    const g = fn('bd3', { u: u32T, i: i32T, x: f32T }, ({ u, i, x }) => {
+      // @ts-expect-error — sign has NO u32 form on either target (floats + signed ints only)
+      void sign(u)
+      return toF32(min(u, u32(3)))
+        .add(toF32(clamp(i, i32(0), i32(7))))
+        .add(toF32(abs(i)))
+        .add(toF32(sign(i)))
+        .add(x)
+    })
+    const w = emitF(g)
+    for (const s of ['min(u, 3u)', 'clamp(i, ', 'abs(i)', 'sign(i)']) {
+      expect(w).toContain(s)
+    }
+  })
+})
+
+describe('operand kind-matching — ArithArg/CmpArg/bit ops (binResultType made static)', () => {
+  it('mixed scalar kinds reject at tsc across methods, free binaries, and compares', () => {
+    fn('km1', { x: f32T, u: u32T, i: i32T, v: vec3fT }, ({ x, u, i, v }) => {
+      // @ts-expect-error — f32 ∘ u32: neither target has implicit conversions
+      void x.add(u)
+      // @ts-expect-error — i32 ∘ u32 is just as mixed as int ∘ float
+      void i.mul(u)
+      // @ts-expect-error — the free binaries share ArithArg: min(f32, i32) is the same mix
+      void min(x, i)
+      // @ts-expect-error — a vec<f32> broadcasts only its OWN element kind
+      void v.mul(i)
+      // Uncalled thunk — this one ALSO throws SD0004 at author run, which is the
+      // point: the old ArithArg union member ('f64' on the vec branch) existed for
+      // assignability, not semantics, and binResultType always rejected it.
+      // @ts-expect-error — vec<f32> ∘ f64-scalar was never a real promote
+      const vecF64 = () => v.mul(f64(2))
+      void vecF64
+      // @ts-expect-error — comparisons need matching kinds too (and compares sit
+      // OUTSIDE the mixed-scalar lint, so tsc is the only pre-GPU gate here)
+      void x.lt(i)
+      // @ts-expect-error — & | ^ need both sides the same int kind
+      void u.bitAnd(i)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('the blessed forms still compile — kind-matched ops, f64 widen, shifts by u32', () => {
+    const g = fn('km2', { x: f32T, u: u32T, i: i32T, v: vec3fT }, ({ x, u, i, v }) => {
+      void u.add(u32(1)) // same-kind int arithmetic
+      void u.add(1) // number lifts to the RECEIVER's kind (u32)
+      void i.bitAnd(i32(3)) // kind-matched bitwise
+      void u.shl(u32(2)) // shift by u32
+      void i.shl(u32(2)) // WGSL types EVERY shift amount u32 — mixed LHS/RHS kinds are the carve-out
+      void f64(1).add(x) // f64 ∘ f32: the blessed exact widen
+      void x.add(f64(1)) // …and the symmetric f32-LHS overload (result f64)
+      void x.add(v) // scalar × vec broadcast (kind-matched by its own overload)
+      return v.mul(x) // vec × own-element scalar broadcast
+    })
+    expect(emitF(g)).toContain('(v * x)')
+  })
+
+  it('every specific key stays assignable to ReadonlyNode<string> (the bivariance the old superset design protected)', () => {
+    // The kind-matched branches are SUBSETS of the widened-string fallback, which
+    // satisfies method bivariance from the ⊆ direction — the property the previous
+    // ScalarKey-superset design existed to protect. Pin it, or a future narrowing
+    // of the fallback breaks every unparameterised helper param in the repo.
+    const a: ReadonlyNode<string> = f64(1)
+    const b: ReadonlyNode<string> = u32(1)
+    const c: ReadonlyNode<string> = vec3(1, 2, 3)
+    void [a, b, c]
+    expect(true).toBe(true)
+  })
+})
+
+describe('single-target traps — switch scrutinee, boolean connectives, non-finite literals', () => {
+  it('the remaining works-on-neither/one-target forms reject at tsc or construction', () => {
+    fn('km3', { x: f32T }, ({ x }) => {
+      // Uncalled thunk — tsc-only probe.
+      // @ts-expect-error — switch is INTEGER-only on both targets (scrut was ScalarKey)
+      const sw = () => Switch(x)
+      void sw
+      return x
+    })
+    // `&&`/`||` are bool-only on both targets — a non-bool RECEIVER now fails at
+    // AUTHOR-RUN time (SD0004; a `this:` bound was tried and broke cross-package
+    // Node→ReadonlyNode<string> assignability through the d.ts — see node.ts's
+    // NonComposite note). The operand side was always typed.
+    expect(() => f32(1).and(bool(true))).toThrow(/SD0004/)
+    expect(() => f32(1).or(bool(true))).toThrow(/SD0004/)
+    // A non-finite literal has NO spelling on either target — it used to bake
+    // `Infinity`/`NaN` verbatim into the module and die at the GPU compiler.
+    expect(() => f32(Infinity)).toThrow(/finite/)
+    expect(() => vec3(0, NaN, 0)).toThrow(/finite/)
+    expect(() => f32(1).add(Number.POSITIVE_INFINITY)).toThrow(/finite/)
+  })
+})
+
+describe('builtin(name) — the closed WGSL vocabulary (WgslBuiltinName)', () => {
+  it('typos and GLSL-isms reject at tsc; the real vocabulary (incl. feature-gated) compiles', () => {
+    // A typo'd name used to EMIT VERBATIM on WGSL (denylist stance) and die at
+    // naga with no authoring line; a GLSL-ism died only on one backend.
+    // @ts-expect-error — 'vertex_idx' is a typo, not a WGSL builtin
+    const typo = () => builtin('vertex_idx', u32T)
+    // @ts-expect-error — 'frag_coord' is the GLSL spelling; WGSL calls it position
+    const glslism = () => builtin('frag_coord', vec4fT)
+    void [typo, glslism]
+    // Positives: the core ids in production use, plus a feature-gated one —
+    // capability gating stays assertBuiltins'/builtinIn's job at EMIT, not the type's.
+    void builtin('position', vec4fT)
+    void builtin('frag_depth', f32T)
+    void builtin('global_invocation_id', vec3uT)
+    void builtin('subgroup_invocation_id', u32T)
+    expect(true).toBe(true)
   })
 })

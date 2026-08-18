@@ -458,7 +458,7 @@ function buildComputeKernelModule(
       const color = buildColor(fid, featData)
       outColor.at(fid).assign(pack4x8unorm(color))
     },
-    { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE },
+    { stage: 'compute', workgroupSize: COMPUTE_WORKGROUP_SIZE, portable: true },
   )
   return module({
     consts,

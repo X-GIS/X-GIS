@@ -52,31 +52,51 @@ export type { ScalarKey } from './types'
  *  accepted everywhere a value is consumed; only `.assign` needs the mutable subtype. */
 export type NodeLike = ReadonlyNode<any> | number
 
-/** Operand a binary arithmetic op accepts: a matching vector or any scalar
- *  (WGSL vec∘scalar broadcast) for a vector LHS; any scalar for a scalar LHS.
- *  A `vec2`+`vec3` mismatch is therefore a TS error. An f64 LHS accepts f64 /
- *  f32 (implicit exact widen) / number — never int/bool (SD0004 at runtime,
- *  rejected here at tsc). */
-export type ArithArg<K extends string> = K extends `vec${string}`
-  ? ReadonlyNode<K> | ReadonlyNode<ScalarKey | 'f64'> | number
-  : K extends 'f64'
-    ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
-    : ReadonlyNode<ScalarKey> | number
+/** The scalar keys a binary op may pair with element kind `E` — the SAME kind only,
+ *  except f64's blessed exact widen from f32. This is `binResultType`'s law made static:
+ *  WGSL and GLSL ES 3.00 have NO implicit scalar conversions, so a mixed pair
+ *  (f32∘i32, i32∘u32, vec<f32>∘i32-scalar) emits code neither target compiles — and for
+ *  non-f64 pairs `binResultType`'s C-like promotion ranking never rejected it, so the
+ *  first diagnostic used to be the emit-time `mixed-scalar` lint (or the GPU compiler,
+ *  on a raw-IR path). For the WIDENED `K = string` (unparameterised helper params) both
+ *  aliases below fall back to `ReadonlyNode<string>`, which every kind-matched branch is
+ *  a SUBSET of — that ⊆ direction is what keeps `Node<'f64'>` (and every other specific
+ *  key) assignable to `ReadonlyNode<string>` under method bivariance. (The previous
+ *  design got the same assignability from the OPPOSITE direction — every branch a
+ *  SUPERSET of a `ScalarKey` fallback — which is exactly what admitted the mixed-kind
+ *  operands this replaces.) */
+type KindScalar<E extends string> = E extends 'f64' ? 'f64' | 'f32' : E
 
-/** Operand a comparison accepts — the scalar set, plus f64 for an f64 LHS
- *  (compared lexicographically after lowering). NB: like the vec branch above,
- *  the f64 branch must stay a SUPERSET of the generic ScalarKey form so
- *  `Node<'f64'>` remains assignable to `ReadonlyNode<string>` (method
- *  bivariance); mixing f64 with an int therefore rejects at AUTHOR-RUN time
- *  (SD0004 from binResultType), not at tsc. */
-export type CmpArg<K extends string> = K extends 'f64'
-  ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
-  : ReadonlyNode<ScalarKey> | number
+/** Operand a binary arithmetic op accepts: the SAME vector key, or a scalar of the
+ *  vector's own element kind (WGSL vec∘scalar broadcast), for a vector LHS; the same
+ *  scalar kind for a scalar LHS. A `vec2`+`vec3` mismatch, and any int↔float /
+ *  i32↔u32 mix, is therefore a TS error. An f64 LHS (and a vec64's scalar broadcast)
+ *  additionally accepts f32 — the implicit EXACT widen — and `number` lifts to the
+ *  receiver's own scalar kind everywhere. */
+export type ArithArg<K extends string> = K extends `vec${number}<${infer E}>`
+  ? ReadonlyNode<K> | ReadonlyNode<KindScalar<E>> | number
+  : ReadonlyNode<KindScalar<K>> | number
+
+/** Operand a comparison accepts — the LHS's own scalar kind (both targets type
+ *  comparisons over matching operands), plus f32 for an f64 LHS (widened, then
+ *  compared lexicographically after lowering). Mixed kinds (f32 vs i32, f64 vs int)
+ *  now reject at tsc; the emit-time `mixed-scalar` lint stays the raw-IR backstop. */
+export type CmpArg<K extends string> = ReadonlyNode<KindScalar<K>> | number
 
 /** Rejects COMPOSITE keys (vec/mat) as a `this:` bound while keeping scalar AND
  *  widened `ReadonlyNode<string>` receivers usable (#763 X8) — `string` is not a
  *  union, so the conditional does not distribute and passes it through. */
 export type NonComposite<K extends string> = K extends `vec${string}` | `mat${string}` ? never : K
+
+// NB — the `.and`/`.or` RECEIVER is deliberately NOT `this:`-bounded. A
+// `this: ReadonlyNode<K extends 'bool' ? K : never>`-style bound was tried and
+// broke `Node<'vec4<f32>'> → ReadonlyNode<string>` / `Node<'u32'> →
+// ReadonlyNode<ScalarKey>` assignability ACROSS the d.ts boundary (the compiler
+// package went red while shader-dsl's own build stayed green) — the same
+// never-`this` shape the comparisons' NonComposite bound survives, tipped over
+// by one more such member. The receiver is guarded at AUTHOR-RUN time instead
+// (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
+// GPU compiler would.
 
 // Returns ReadonlyNode<string>, not <any> (#763 X12): `<any>` was assignable to
 // EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
@@ -99,7 +119,7 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
  *  ```
  */
 export function lift(x: NodeLike): ReadonlyNode<string> {
-  return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: x }) : x
+  return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: litNum(x, 'lift') }) : x
 }
 
 /** Cross-instance node brand (#763 D1). `Symbol.for` resolves through the GLOBAL
@@ -413,11 +433,21 @@ export class ReadonlyNode<K extends string = string> {
     return this.cmp('!=', o)
   }
 
+  // `&&`/`||` are bool-only on BOTH targets. The receiver check is a runtime
+  // guard (author-run, like the bitwise SD0005) rather than a `this:` bound —
+  // see the note beside NonComposite for why the type-level form is off the
+  // table. The operand side is typed `ReadonlyNode<'bool'>` as before.
+  private logical(lop: '&&' | '||', o: ReadonlyNode<'bool'>): Node<'bool'> {
+    if (this.type.kind !== 'scalar' || this.type.scalar !== 'bool') {
+      throw dslError('SD0004', `logical '${lop}' needs bool operands, got ${typeKey(this.type)}`)
+    }
+    return new Node<'bool'>({ op: 'logical', type: boolT, lop, a: this.expr, b: o.expr })
+  }
   and(o: ReadonlyNode<'bool'>): Node<'bool'> {
-    return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr })
+    return this.logical('&&', o)
   }
   or(o: ReadonlyNode<'bool'>): Node<'bool'> {
-    return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr })
+    return this.logical('||', o)
   }
 
   /** Bitwise ops on u32 / i32. Number literals auto-lift to the LHS's scalar
@@ -431,19 +461,24 @@ export class ReadonlyNode<K extends string = string> {
     const bn: ReadonlyNode = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
     return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr })
   }
-  bitAnd(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  // `& | ^` need BOTH sides the same int kind on both targets, so the node operand
+  // is kind-matched to the receiver (`K & ('i32'|'u32')` is `never` for a float LHS
+  // — the SD0005 author-run throw already owns that case, numbers aside). Shifts are
+  // the deliberate exception, mirroring the mixed-scalar lint's SHIFT_OPS carve-out:
+  // WGSL types EVERY shift amount as u32 regardless of the LHS's kind.
+  bitAnd(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('&', o) as Node<K>
   }
-  bitOr(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  bitOr(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('|', o) as Node<K>
   }
-  bitXor(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  bitXor(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('^', o) as Node<K>
   }
-  shl(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  shl(o: ReadonlyNode<'u32'> | number): Node<K> {
     return this.bitBin('<<', o) as Node<K>
   }
-  shr(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  shr(o: ReadonlyNode<'u32'> | number): Node<K> {
     return this.bitBin('>>', o) as Node<K>
   }
 
@@ -640,6 +675,15 @@ const litNum = (v: number, fn: string): number => {
       `shader-dsl: ${fn}() takes a numeric literal, got ${typeof v} — to CONVERT a Node use a cast (toF32/toI32/toU32), not ${fn}(node)`,
     )
   }
+  // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
+  // (a host-side 1/0, an uninitialised NaN) would bake the JS spelling verbatim
+  // into the module and die at the GPU compiler with no line back to the
+  // authoring site — fail loud at construction instead.
+  if (!Number.isFinite(v)) {
+    throw new TypeError(
+      `shader-dsl: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
+    )
+  }
   return v
 }
 /** An f32 literal node — the type most bare-number operands auto-lift to (`x.add(1)` emits
@@ -761,16 +805,51 @@ export function bindingRef<T extends ShaderType>(name: string, type: T): Node<Ke
 
 // ── Builtins (free functions) ──
 
+// ── Builtin key DOMAINS ──
+//
+// Every builtin's key parameter is bounded to the keys its WGSL/GLSL spec
+// domain (and, for f64, the df64 whitelist) actually admits — `K extends
+// string` used to admit bool/texture/struct keys, so `sinh(someBool)`
+// type-checked and died at naga (#763 X6/X7's key-class discipline, applied
+// to the free-function builtins).
+
+/** The f32-family keys — `'f32'` and the f32 vectors: the argument domain of the
+ *  FLOAT-ONLY component-wise builtins (`sin`, `exp`, `saturate`, the hyperbolics, …).
+ *  WGSL and GLSL ES 3.00 type those builtins over floats only, so an i32/u32/bool-keyed
+ *  node is rejected at `tsc` instead of compiling here and dying at the GPU compiler.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export type FloatKey = 'f32' | `vec${number}<f32>`
+/** The emulated-double keys — `'f64'` and the f64 vectors. Only the df64-WHITELISTED
+ *  builtins accept them (`abs`/`floor`/`fract`/`sin`/`cos`/`min`/`max`/`mix`, vector
+ *  `normalize`, scalar `sqrt` — the set `fp64Lower` can lower); every other builtin
+ *  bounds its key to {@link FloatKey}, turning what used to be the emit-time SD0041
+ *  into a `tsc` error at the authoring site.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export type Float64Key = 'f64' | `vec${number}<f64>`
+/** The integer keys — i32/u32 scalars and vectors — for the builtins whose WGSL/GLSL
+ *  domain genuinely includes integers: `abs`, `min`/`max`, `clamp` (and `sign`, which
+ *  both specs type over floats and SIGNED ints only — no u32).
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ */
+export type IntKey = 'i32' | 'u32' | `vec${number}<i32>` | `vec${number}<u32>`
+
 const elemScalarType = (t: ShaderType): ShaderType =>
   isVec(t) ? { kind: 'scalar', scalar: t.elem } : t
 
 const call = (fn: string, type: ShaderType, ...args: NodeLike[]): Node =>
   new Node({ op: 'call', type, fn, args: args.map((a) => lift(a).expr) })
 
-// genType1: component-wise unary builtin — preserves the operand key.
+// genType1: component-wise unary builtin — preserves the operand key. `A` is the
+// fn's key DOMAIN (see the aliases above): float-only by default, widened per fn
+// where the spec (ints) or the df64 whitelist (f64) admits more.
 const genType1 =
-  (fn: string) =>
-  <K extends string>(x: ReadonlyNode<K>): Node<K> =>
+  <A extends string = FloatKey>(fn: string) =>
+  <K extends A>(x: ReadonlyNode<K>): Node<K> =>
     call(fn, x.type, x) as Node<K>
 
 /** `sin(x)` — sine of `x` (radians), component-wise. Identical spelling on WGSL and GLSL ES 3.00,
@@ -785,7 +864,7 @@ const genType1 =
  *  const wave = fn('wave', { t: f32T }, ({ t }) => sin(t))
  *  ```
  */
-export const sin = genType1('sin')
+export const sin = genType1<FloatKey | Float64Key>('sin')
 /** `cos(x)` — cosine of `x` (radians), component-wise. Identical spelling on WGSL and GLSL ES 3.00.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
@@ -797,7 +876,7 @@ export const sin = genType1('sin')
  *  const wave = fn('wave', { t: f32T }, ({ t }) => cos(t))
  *  ```
  */
-export const cos = genType1('cos')
+export const cos = genType1<FloatKey | Float64Key>('cos')
 /** `tan(x)` — tangent of `x` (radians), component-wise. Identical spelling on WGSL and GLSL ES 3.00.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
@@ -905,7 +984,7 @@ export const log2 = genType1('log2')
  *  const cell = fn('cell', { x: f32T }, ({ x }) => floor(x))
  *  ```
  */
-export const floor = genType1('floor')
+export const floor = genType1<FloatKey | Float64Key>('floor')
 /** `ceil(x)` — round toward +∞, component-wise (the partner of {@link floor}).
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
@@ -929,7 +1008,7 @@ export const ceil = genType1('ceil')
  *  const magnitude = fn('magnitude', { x: f32T }, ({ x }) => abs(x))
  *  ```
  */
-export const abs = genType1('abs')
+export const abs = genType1<FloatKey | Float64Key | IntKey>('abs')
 /** `sqrt(x)` — square root, component-wise. `x < 0` is undefined per spec. Prefer
  *  {@link inverseSqrt} over `f32(1).div(sqrt(x))` when only 1/√x is needed — one call
  *  instead of a sqrt-then-divide.
@@ -943,7 +1022,7 @@ export const abs = genType1('abs')
  *  const dist = fn('dist', { sq: f32T }, ({ sq }) => sqrt(sq))
  *  ```
  */
-export const sqrt = genType1('sqrt')
+export const sqrt = genType1<FloatKey | 'f64'>('sqrt')
 /** `fract(x)` — fractional part, `x − floor(x)`, component-wise. The building block for
  *  domain-repeat (tiling a coordinate into `[0,1)`) and hash-style noise — e.g. `flow-advect.ts`'s
  *  `fract(dot(p3, p3.yzx + 33.33))` pseudo-random field.
@@ -957,7 +1036,7 @@ export const sqrt = genType1('sqrt')
  *  const tile = fn('tile', { x: f32T }, ({ x }) => fract(x))
  *  ```
  */
-export const fract = genType1('fract')
+export const fract = genType1<FloatKey | Float64Key>('fract')
 /** `radians(deg)` / `degrees(rad)` — WGSL built-ins (exact π/180), replacing a `*`/`/` by a rounded
  *  DEG2RAD constant. `x.mul(DEG2RAD)` → `radians(x)`, `x.div(DEG2RAD)` → `degrees(x)`. */
 export const radians = genType1('radians')
@@ -985,17 +1064,77 @@ export const degrees = genType1('degrees')
  *  const dir = fn('dir', { x: f32T }, ({ x }) => sign(x))
  *  ```
  */
-export const sign = genType1('sign')
+export const sign = genType1<FloatKey | 'i32' | `vec${number}<i32>`>('sign')
 /** `exp2(x)` — 2ˣ, component-wise (the base-2 partner of the existing `log2`). */
 export const exp2 = genType1('exp2')
 /** `trunc(x)` — round toward zero, component-wise. */
 export const trunc = genType1('trunc')
-/** `round(x)` — nearest integer, ties to even (WGSL / GLSL-ES `round` semantics —
- *  NOT JS `Math.round`, which rounds halves toward +∞). */
+/** `round(x)` — nearest integer, ties to even on BOTH targets (NOT JS `Math.round`,
+ *  which rounds halves toward +∞). WGSL `round` guarantees ties-to-even; GLSL ES
+ *  3.00's own `round` leaves exact halves implementation-chosen, so the registry
+ *  spells the GLSL side `roundEven` (see core/intrinsics.ts) to pin the same
+ *  semantics there. */
 export const round = genType1('round')
 /** `inverseSqrt(x)` — 1/√x, component-wise. Neutral id: GLSL spells it
  *  `inversesqrt` (see core/intrinsics.ts); WGSL keeps `inverseSqrt`. */
 export const inverseSqrt = genType1('inverseSqrt')
+/** `sinh(x)` — hyperbolic sine, component-wise. Identical spelling on WGSL and GLSL ES 3.00.
+ *  The inverse-Mercator latitude is `atan(sinh(y))` — one transcendental fewer, and better
+ *  conditioned near y = 0, than the `2·atan(exp(y)) − π/2` Gudermannian it replaces.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, atan, sinh, f32T } from '@xgis/shader-dsl'
+ *
+ *  const invMercLat = fn('invMercLat', { y: f32T }, ({ y }) => atan(sinh(y)))
+ *  ```
+ */
+export const sinh = genType1('sinh')
+/** `cosh(x)` — hyperbolic cosine, component-wise; the even partner of {@link sinh}
+ *  (`cosh²x − sinh²x = 1`). Identical spelling on WGSL and GLSL ES 3.00. */
+export const cosh = genType1('cosh')
+/** `tanh(x)` — hyperbolic tangent, component-wise; `sinh(x)/cosh(x)`, saturating to ±1 as
+ *  `x → ±∞` (the classic smooth soft-clamp). Identical spelling on WGSL and GLSL ES 3.00. */
+export const tanh = genType1('tanh')
+/** `asinh(x)` — inverse hyperbolic sine, component-wise; defined over all reals.
+ *  The forward-Mercator latitude term IS this function: `asinh(tan(φ))` is exactly
+ *  `log(tan(π/4 + φ/2))` with one transcendental fewer and no π/4 constant to truncate.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, asinh, tan, f32T } from '@xgis/shader-dsl'
+ *
+ *  const mercY = fn('mercY', { latRad: f32T }, ({ latRad }) => asinh(tan(latRad)))
+ *  ```
+ */
+export const asinh = genType1('asinh')
+/** `acosh(x)` — inverse hyperbolic cosine, component-wise. `x < 1` is undefined per the
+ *  WGSL/GLSL spec (NaN on most drivers) — guard with `max(x, f32(1))` when rounding can
+ *  push an in-domain operand under 1, the same discipline as {@link asin}/{@link acos}. */
+export const acosh = genType1('acosh')
+/** `atanh(x)` — inverse hyperbolic tangent, component-wise. `|x| >= 1` is undefined per
+ *  the WGSL/GLSL spec (±∞/NaN) — clamp strictly inside `(-1, 1)` when the operand can
+ *  reach the boundary by rounding, the same discipline as {@link asin}/{@link acos}. */
+export const atanh = genType1('atanh')
+/** `saturate(x)` — `clamp(x, 0, 1)`, component-wise: the standard normalized-range clamp
+ *  (colour channels, interpolation factors, coverage). WGSL emits its dedicated `saturate`
+ *  builtin; GLSL ES 3.00 has none, so the registry inlines the defining `clamp(x, 0.0, 1.0)`
+ *  there (see core/intrinsics.ts) — identical semantics per both specs.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, saturate, f32T } from '@xgis/shader-dsl'
+ *
+ *  const alpha = fn('alpha', { fade: f32T }, ({ fade }) => saturate(fade))
+ *  ```
+ */
+export const saturate = genType1('saturate')
 
 /** `atan2(y, x)` — two-argument arctangent, resolving the FULL angle `[-π, π]` from a `(y, x)`
  *  pair — the form to reach for over single-argument {@link atan} whenever `x`'s sign carries
@@ -1011,7 +1150,7 @@ export const inverseSqrt = genType1('inverseSqrt')
  *  const heading = fn('heading', { dy: f32T, dx: f32T }, ({ dy, dx }) => atan2(dy, dx))
  *  ```
  */
-export const atan2 = <K extends string>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K> =>
+export const atan2 = <K extends FloatKey>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<K>>): Node<K> =>
   call('atan2', y.type, y, x) as Node<K>
 /** `min(a, b)` — component-wise minimum. `b` may be a scalar broadcast against a vector `a`
  *  (same vec∘scalar rule as the arithmetic methods), so `min(color, 1)` clamps every channel
@@ -1026,8 +1165,10 @@ export const atan2 = <K extends string>(y: ReadonlyNode<K>, x: NoInfer<ArithArg<
  *  const capped = fn('capped', { x: f32T }, ({ x }) => min(x, 1))
  *  ```
  */
-export const min = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
-  call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
+export const min = <K extends FloatKey | Float64Key | IntKey>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ArithArg<K>>,
+): Node<K> => call('min', binResultType(a.type, lift(b).type, 'min'), a, b) as Node<K>
 /** `max(a, b)` — component-wise maximum, the partner of {@link min}. `b` may be a scalar
  *  broadcast against a vector `a`. A common floor-guard idiom: `max(x, f32(1e-6))` to keep a
  *  divisor or `sqrt`/`log` argument off zero without an explicit branch.
@@ -1041,14 +1182,16 @@ export const min = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>
  *  const safe = fn('safe', { x: f32T }, ({ x }) => max(x, f32(1e-6)))
  *  ```
  */
-export const max = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
-  call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
+export const max = <K extends FloatKey | Float64Key | IntKey>(
+  a: ReadonlyNode<K>,
+  b: NoInfer<ArithArg<K>>,
+): Node<K> => call('max', binResultType(a.type, lift(b).type, 'max'), a, b) as Node<K>
 /** `pow(a, b)` — same-type binary; second operand promotes via ArithArg so
  *  `pow(z, 4)` emits `pow(z, 4.0)` for an f32 base. WGSL pow only accepts
  *  matching scalar/vec floats, so a vec*scalar broadcast is structurally
  *  rejected by WGSL even when the type system would allow it — we keep
  *  binResultType for parity with `min` / `max`. */
-export const pow = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
+export const pow = <K extends FloatKey>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>>): Node<K> =>
   call('pow', binResultType(a.type, lift(b).type, 'pow'), a, b) as Node<K>
 /** `mod(x, y)` — FLOOR-mod (x − y·⌊x/y⌋) with identical semantics on both
  *  targets, matching GLSL/TSL `mod()` (#839). Float `%` (the `.mod` METHOD) is
@@ -1057,7 +1200,7 @@ export const pow = <K extends string>(a: ReadonlyNode<K>, b: NoInfer<ArithArg<K>
  *  (domain repetition, angle folds). Deliberately not named `fmod`: C/HLSL
  *  `fmod` is TRUNC-mod, the opposite semantics. Component-wise; `y` may be a
  *  scalar broadcast over a vector `x`. */
-export const mod = <K extends string>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>): Node<K> =>
+export const mod = <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>): Node<K> =>
   call('mod', binResultType(x.type, lift(y).type, 'mod'), x, y) as Node<K>
 /** `clamp(x, lo, hi)` — restricts `x` to `[lo, hi]`, component-wise. `lo`/`hi` may be scalar
  *  broadcasts against a vector `x`. The standard guard before {@link asin}/{@link acos} (whose
@@ -1073,7 +1216,7 @@ export const mod = <K extends string>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>
  *  const norm = fn('norm', { x: f32T }, ({ x }) => clamp(x, 0, 1))
  *  ```
  */
-export const clamp = <K extends string>(
+export const clamp = <K extends FloatKey | IntKey>(
   x: ReadonlyNode<K>,
   lo: NoInfer<ArithArg<K>>,
   hi: NoInfer<ArithArg<K>>,
@@ -1085,7 +1228,7 @@ export const clamp = <K extends string>(
  *  this only where the fused single-rounding is the point — df64 twoProd error
  *  terms (`fma(a, b, -a*b)`) that Apple/Metal folds away when built from split
  *  products. */
-export const fma = <K extends string>(
+export const fma = <K extends FloatKey>(
   a: ReadonlyNode<K>,
   b: NoInfer<ArithArg<K>>,
   c: NoInfer<ArithArg<K>>,
@@ -1103,10 +1246,10 @@ export const fma = <K extends string>(
  *  const blend = fn('blend', { t: f32T }, ({ t }) => mix(vec3(0, 0, 0), vec3(1, 1, 1), t))
  *  ```
  */
-export const mix = <K extends string>(
+export const mix = <K extends FloatKey | Float64Key>(
   a: ReadonlyNode<K>,
   b: NoInfer<ArithArg<K>>,
-  t: ReadonlyNode<ScalarKey> | number,
+  t: ReadonlyNode<'f32'> | number,
 ): Node<K> => call('mix', a.type, a, b, t) as Node<K>
 /** `smoothstep(e0, e1, x)` — WGSL takes MATCHING scalar/vec floats. The vector
  *  overload preserves x's key (#763 X15) — the old scalar-only signature was a
@@ -1118,9 +1261,9 @@ export function smoothstep<K extends `vec${number}<f32>`>(
   x: ReadonlyNode<K>,
 ): Node<K>
 export function smoothstep(
-  e0: ReadonlyNode<ScalarKey> | number,
-  e1: ReadonlyNode<ScalarKey> | number,
-  x: ReadonlyNode<ScalarKey> | number,
+  e0: ReadonlyNode<'f32'> | number,
+  e1: ReadonlyNode<'f32'> | number,
+  x: ReadonlyNode<'f32'> | number,
 ): Node<'f32'>
 export function smoothstep(
   e0: ReadonlyNode<string> | number,
@@ -1132,7 +1275,7 @@ export function smoothstep(
 }
 /** `step(edge, x)` — 0 where x < edge, else 1, component-wise. Result is keyed
  *  by `x` (the genType operand); WGSL needs `edge` and `x` the same type. */
-export const step = <K extends string>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> =>
+export const step = <K extends FloatKey>(edge: NoInfer<ArithArg<K>>, x: ReadonlyNode<K>): Node<K> =>
   call('step', x.type, edge, x) as Node<K>
 // K-constrained like `cross` (#763 X7) — dot(v2, v3) used to COMPILE and die at
 // naga; the shared K pins both operands to one float-vector key.
@@ -1181,8 +1324,9 @@ export function dot<K extends `vec${number}<f32>`>(
 export function dot(a: ReadonlyNode<string>, b: ReadonlyNode<string>): Node<string> {
   return call('dot', isVec64(a.type) ? f64T : f32T, a, b)
 }
-/** `normalize(v)` — v/|v|; preserves the vector key (vec2/3/4). */
-export const normalize = genType1('normalize')
+/** `normalize(v)` — v/|v|; preserves the vector key (vec2/3/4). VECTOR keys only —
+ *  WGSL/GLSL define normalize over vectors, so a scalar operand is a `tsc` error. */
+export const normalize = genType1<`vec${number}<f32>` | `vec${number}<f64>`>('normalize')
 /** `distance(a, b)` — |a − b| (vector → scalar), the built-in spelling of the
  *  hand-rolled `length(a.sub(b))`. */
 export function distance<K extends `vec${number}<f64>`>(
@@ -1211,6 +1355,47 @@ export const pack4x8unorm = (v: ReadonlyNode<'vec4<f32>'>): Node<'u32'> =>
 /** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */
 export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> =>
   call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
+/** Pack a vec2<f32> into a u32 as two IEEE-754 binary16 (half) values — component 0 in the
+ *  16 LOW bits. NATIVE on both targets (WGSL `pack2x16float`, GLSL ES 3.00 `packHalf2x16`);
+ *  values outside binary16's finite range (|x| > 65504) overflow to ±∞ per IEEE conversion.
+ *  The compact carrier for height/offset pairs where 8-bit unorm quantisation is too coarse
+ *  but full f32 lanes are too wide; {@link unpack2x16float} restores the (rounded) pair.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, pack2x16float, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const packed = fn('packed', { hv: vec2fT }, ({ hv }) => pack2x16float(hv))
+ *  ```
+ */
+export const pack2x16float = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16float', u32T, v) as Node<'u32'>
+/** Unpack a u32 into a vec2<f32> of two binary16 (half) values — the exact inverse of
+ *  {@link pack2x16float} (every binary16 value is exactly representable in f32). Component 0
+ *  comes from the 16 LOW bits. Spelled `unpackHalf2x16` on GLSL ES 3.00. */
+export const unpack2x16float = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16float', vec2fT, v) as Node<'vec2<f32>'>
+/** Pack a vec2<f32> (each component in [0,1]) into a u32 as two 16-bit unorm lanes —
+ *  `⌊0.5 + 65535·clamp(x, 0, 1)⌋` per component, component 0 in the 16 LOW bits. The
+ *  16-bit precision step up from {@link pack4x8unorm}'s 8-bit channels (ramp coordinates,
+ *  normalized heights). Spelled `packUnorm2x16` on GLSL ES 3.00. */
+export const pack2x16unorm = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16unorm', u32T, v) as Node<'u32'>
+/** Unpack a u32 of two 16-bit unorm lanes into a vec2<f32> in [0,1] (`v/65535` per lane) —
+ *  the inverse of {@link pack2x16unorm}. Spelled `unpackUnorm2x16` on GLSL ES 3.00. */
+export const unpack2x16unorm = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16unorm', vec2fT, v) as Node<'vec2<f32>'>
+/** Pack a vec2<f32> (each component in [-1,1]) into a u32 as two 16-bit snorm lanes —
+ *  `⌊0.5 + 32767·clamp(x, -1, 1)⌋` per component in two's complement, component 0 in the
+ *  16 LOW bits (signed normals, direction fields). Spelled `packSnorm2x16` on GLSL ES 3.00. */
+export const pack2x16snorm = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16snorm', u32T, v) as Node<'u32'>
+/** Unpack a u32 of two 16-bit snorm lanes into a vec2<f32> in [-1,1] (`max(v/32767, -1)`
+ *  per lane) — the inverse of {@link pack2x16snorm}. Spelled `unpackSnorm2x16` on GLSL ES 3.00. */
+export const unpack2x16snorm = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16snorm', vec2fT, v) as Node<'vec2<f32>'>
 /** Reinterpret an f32's bit pattern as u32. Carries the NEUTRAL intrinsic id
  *  `bitcastU32`; the registry (core/intrinsics.ts) spells it `bitcast<u32>(x)` on
  *  WGSL and `floatBitsToUint(x)` on GLSL — no WGSL generic syntax in the IR. */
@@ -1669,7 +1854,11 @@ export const construct = (type: ShaderType, args: NodeLike[]): Node => {
     op: 'construct',
     type,
     args: args.map(
-      (a) => (typeof a === 'number' ? new Node({ op: 'lit', type: elemT, value: a }) : a).expr,
+      (a) =>
+        (typeof a === 'number'
+          ? new Node({ op: 'lit', type: elemT, value: litNum(a, 'construct') })
+          : a
+        ).expr,
     ),
   })
 }

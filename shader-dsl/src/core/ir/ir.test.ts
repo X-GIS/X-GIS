@@ -47,9 +47,14 @@ describe('shader-dsl IR — type inference', () => {
     expect(() => vec2(f32(1), f32(2)).add(vec3(f32(1), f32(2), f32(3)))).toThrow()
   })
 
-  it('scalar promotion f32 > i32 > u32', () => {
+  it('scalar promotion f32 > i32 > u32 (runtime ranking; the typed surface rejects the mix)', () => {
     const a = param('a', f32T),
       b = param('b', u32T)
+    // The kind-matched ArithArg no longer admits f32∘u32 from the typed surface;
+    // binResultType's ranking still governs raw-IR / widened-string callers
+    // (with the mixed-scalar lint as the emit-time gate), so pin it through the
+    // deliberate type error.
+    // @ts-expect-error — mixed scalar kinds are no longer authorable
     expect(a.add(b).type).toEqual(f32T)
   })
 })
