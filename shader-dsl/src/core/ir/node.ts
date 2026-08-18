@@ -990,12 +990,72 @@ export const sign = genType1('sign')
 export const exp2 = genType1('exp2')
 /** `trunc(x)` — round toward zero, component-wise. */
 export const trunc = genType1('trunc')
-/** `round(x)` — nearest integer, ties to even (WGSL / GLSL-ES `round` semantics —
- *  NOT JS `Math.round`, which rounds halves toward +∞). */
+/** `round(x)` — nearest integer, ties to even on BOTH targets (NOT JS `Math.round`,
+ *  which rounds halves toward +∞). WGSL `round` guarantees ties-to-even; GLSL ES
+ *  3.00's own `round` leaves exact halves implementation-chosen, so the registry
+ *  spells the GLSL side `roundEven` (see core/intrinsics.ts) to pin the same
+ *  semantics there. */
 export const round = genType1('round')
 /** `inverseSqrt(x)` — 1/√x, component-wise. Neutral id: GLSL spells it
  *  `inversesqrt` (see core/intrinsics.ts); WGSL keeps `inverseSqrt`. */
 export const inverseSqrt = genType1('inverseSqrt')
+/** `sinh(x)` — hyperbolic sine, component-wise. Identical spelling on WGSL and GLSL ES 3.00.
+ *  The inverse-Mercator latitude is `atan(sinh(y))` — one transcendental fewer, and better
+ *  conditioned near y = 0, than the `2·atan(exp(y)) − π/2` Gudermannian it replaces.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, atan, sinh, f32T } from '@xgis/shader-dsl'
+ *
+ *  const invMercLat = fn('invMercLat', { y: f32T }, ({ y }) => atan(sinh(y)))
+ *  ```
+ */
+export const sinh = genType1('sinh')
+/** `cosh(x)` — hyperbolic cosine, component-wise; the even partner of {@link sinh}
+ *  (`cosh²x − sinh²x = 1`). Identical spelling on WGSL and GLSL ES 3.00. */
+export const cosh = genType1('cosh')
+/** `tanh(x)` — hyperbolic tangent, component-wise; `sinh(x)/cosh(x)`, saturating to ±1 as
+ *  `x → ±∞` (the classic smooth soft-clamp). Identical spelling on WGSL and GLSL ES 3.00. */
+export const tanh = genType1('tanh')
+/** `asinh(x)` — inverse hyperbolic sine, component-wise; defined over all reals.
+ *  The forward-Mercator latitude term IS this function: `asinh(tan(φ))` is exactly
+ *  `log(tan(π/4 + φ/2))` with one transcendental fewer and no π/4 constant to truncate.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, asinh, tan, f32T } from '@xgis/shader-dsl'
+ *
+ *  const mercY = fn('mercY', { latRad: f32T }, ({ latRad }) => asinh(tan(latRad)))
+ *  ```
+ */
+export const asinh = genType1('asinh')
+/** `acosh(x)` — inverse hyperbolic cosine, component-wise. `x < 1` is undefined per the
+ *  WGSL/GLSL spec (NaN on most drivers) — guard with `max(x, f32(1))` when rounding can
+ *  push an in-domain operand under 1, the same discipline as {@link asin}/{@link acos}. */
+export const acosh = genType1('acosh')
+/** `atanh(x)` — inverse hyperbolic tangent, component-wise. `|x| >= 1` is undefined per
+ *  the WGSL/GLSL spec (±∞/NaN) — clamp strictly inside `(-1, 1)` when the operand can
+ *  reach the boundary by rounding, the same discipline as {@link asin}/{@link acos}. */
+export const atanh = genType1('atanh')
+/** `saturate(x)` — `clamp(x, 0, 1)`, component-wise: the standard normalized-range clamp
+ *  (colour channels, interpolation factors, coverage). WGSL emits its dedicated `saturate`
+ *  builtin; GLSL ES 3.00 has none, so the registry inlines the defining `clamp(x, 0.0, 1.0)`
+ *  there (see core/intrinsics.ts) — identical semantics per both specs.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, saturate, f32T } from '@xgis/shader-dsl'
+ *
+ *  const alpha = fn('alpha', { fade: f32T }, ({ fade }) => saturate(fade))
+ *  ```
+ */
+export const saturate = genType1('saturate')
 
 /** `atan2(y, x)` — two-argument arctangent, resolving the FULL angle `[-π, π]` from a `(y, x)`
  *  pair — the form to reach for over single-argument {@link atan} whenever `x`'s sign carries
@@ -1211,6 +1271,47 @@ export const pack4x8unorm = (v: ReadonlyNode<'vec4<f32>'>): Node<'u32'> =>
 /** Unpack a u32 RGBA8 into a vec4<f32> (each component in [0,1]). */
 export const unpack4x8unorm = (v: ReadonlyNode<'u32'>): Node<'vec4<f32>'> =>
   call('unpack4x8unorm', vec4fT, v) as Node<'vec4<f32>'>
+/** Pack a vec2<f32> into a u32 as two IEEE-754 binary16 (half) values — component 0 in the
+ *  16 LOW bits. NATIVE on both targets (WGSL `pack2x16float`, GLSL ES 3.00 `packHalf2x16`);
+ *  values outside binary16's finite range (|x| > 65504) overflow to ±∞ per IEEE conversion.
+ *  The compact carrier for height/offset pairs where 8-bit unorm quantisation is too coarse
+ *  but full f32 lanes are too wide; {@link unpack2x16float} restores the (rounded) pair.
+ *
+ *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
+ *
+ *  @example
+ *  ```ts
+ *  import { fn, pack2x16float, vec2fT } from '@xgis/shader-dsl'
+ *
+ *  const packed = fn('packed', { hv: vec2fT }, ({ hv }) => pack2x16float(hv))
+ *  ```
+ */
+export const pack2x16float = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16float', u32T, v) as Node<'u32'>
+/** Unpack a u32 into a vec2<f32> of two binary16 (half) values — the exact inverse of
+ *  {@link pack2x16float} (every binary16 value is exactly representable in f32). Component 0
+ *  comes from the 16 LOW bits. Spelled `unpackHalf2x16` on GLSL ES 3.00. */
+export const unpack2x16float = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16float', vec2fT, v) as Node<'vec2<f32>'>
+/** Pack a vec2<f32> (each component in [0,1]) into a u32 as two 16-bit unorm lanes —
+ *  `⌊0.5 + 65535·clamp(x, 0, 1)⌋` per component, component 0 in the 16 LOW bits. The
+ *  16-bit precision step up from {@link pack4x8unorm}'s 8-bit channels (ramp coordinates,
+ *  normalized heights). Spelled `packUnorm2x16` on GLSL ES 3.00. */
+export const pack2x16unorm = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16unorm', u32T, v) as Node<'u32'>
+/** Unpack a u32 of two 16-bit unorm lanes into a vec2<f32> in [0,1] (`v/65535` per lane) —
+ *  the inverse of {@link pack2x16unorm}. Spelled `unpackUnorm2x16` on GLSL ES 3.00. */
+export const unpack2x16unorm = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16unorm', vec2fT, v) as Node<'vec2<f32>'>
+/** Pack a vec2<f32> (each component in [-1,1]) into a u32 as two 16-bit snorm lanes —
+ *  `⌊0.5 + 32767·clamp(x, -1, 1)⌋` per component in two's complement, component 0 in the
+ *  16 LOW bits (signed normals, direction fields). Spelled `packSnorm2x16` on GLSL ES 3.00. */
+export const pack2x16snorm = (v: ReadonlyNode<'vec2<f32>'>): Node<'u32'> =>
+  call('pack2x16snorm', u32T, v) as Node<'u32'>
+/** Unpack a u32 of two 16-bit snorm lanes into a vec2<f32> in [-1,1] (`max(v/32767, -1)`
+ *  per lane) — the inverse of {@link pack2x16snorm}. Spelled `unpackSnorm2x16` on GLSL ES 3.00. */
+export const unpack2x16snorm = (v: ReadonlyNode<'u32'>): Node<'vec2<f32>'> =>
+  call('unpack2x16snorm', vec2fT, v) as Node<'vec2<f32>'>
 /** Reinterpret an f32's bit pattern as u32. Carries the NEUTRAL intrinsic id
  *  `bitcastU32`; the registry (core/intrinsics.ts) spells it `bitcast<u32>(x)` on
  *  WGSL and `floatBitsToUint(x)` on GLSL — no WGSL generic syntax in the IR. */

@@ -105,6 +105,65 @@ const roundTiesToEven = (x: number): number => {
 
 const _bitcastView = new DataView(new ArrayBuffer(4))
 
+// ── f32 ↔ IEEE-754 binary16 (the pack2x16float/unpack2x16float per-component
+// conversion). Hand-rolled: Math.f16round/Float16Array are too new to rely on
+// across the runtimes this package supports. Encode is round-to-nearest-EVEN on
+// the 13 dropped significand bits (the conversion real GPUs implement); decode
+// is exact (every binary16 value is exactly representable in f32/f64). ──
+const f32ToF16Bits = (x: number): number => {
+  _bitcastView.setFloat32(0, Math.fround(x), true)
+  const bits = _bitcastView.getUint32(0, true)
+  const sign = (bits >>> 16) & 0x8000
+  const exp = (bits >>> 23) & 0xff
+  const mant = bits & 0x7fffff
+  if (exp === 0xff) return sign | 0x7c00 | (mant !== 0 ? 0x200 : 0) // ±Inf / NaN (quieted)
+  const e = exp - 127 + 15 // re-bias 127 → 15
+  if (e >= 0x1f) return sign | 0x7c00 // overflow → ±Inf
+  if (e <= 0) {
+    // Too small for a normal f16 → subnormal (or ±0 below 2^-25).
+    if (e < -10) return sign
+    const m = mant | 0x800000 // implicit leading 1
+    const shift = 14 - e // 14..24 — how many low bits fall off
+    const half = m >>> shift
+    const rem = m & ((1 << shift) - 1)
+    const halfway = 1 << (shift - 1)
+    if (rem > halfway || (rem === halfway && (half & 1) !== 0)) return sign | (half + 1)
+    return sign | half
+  }
+  const half = sign | (e << 10) | (mant >>> 13)
+  const rem = mant & 0x1fff
+  // RTE carry may roll the significand into the exponent (…1111.1→10000.0) and,
+  // at the top, into ±Inf — both are the correctly-rounded results.
+  if (rem > 0x1000 || (rem === 0x1000 && (half & 1) !== 0)) return half + 1
+  return half
+}
+const f16BitsToF32 = (h: number): number => {
+  const sign = (h & 0x8000) << 16
+  const exp = (h >>> 10) & 0x1f
+  const mant = h & 0x3ff
+  let bits: number
+  if (exp === 0) {
+    if (mant === 0)
+      bits = sign // ±0
+    else {
+      // Subnormal: normalise the significand into f32's implicit-1 form.
+      let e = 0
+      let m = mant
+      while ((m & 0x400) === 0) {
+        m <<= 1
+        e++
+      }
+      bits = sign | ((127 - 15 - e + 1) << 23) | ((m & 0x3ff) << 13)
+    }
+  } else if (exp === 0x1f) {
+    bits = sign | 0x7f800000 | (mant << 13) // ±Inf / NaN
+  } else {
+    bits = sign | ((exp - 15 + 127) << 23) | (mant << 13)
+  }
+  _bitcastView.setUint32(0, bits >>> 0, true)
+  return _bitcastView.getFloat32(0, true)
+}
+
 export const BUILTINS: Record<string, Builtin> = {
   sin: map1(Math.sin),
   cos: map1(Math.cos),
@@ -112,6 +171,15 @@ export const BUILTINS: Record<string, Builtin> = {
   asin: map1(Math.asin),
   acos: map1(Math.acos),
   atan: map1(Math.atan),
+  // Hyperbolics — native on BOTH targets (WGSL §17.5 / GLSL ES 3.00 §8.1), and
+  // the exact spelling of the Mercator idioms: forward y = asinh(tan φ)
+  // ≡ log(tan(π/4 + φ/2)), inverse φ = atan(sinh y) ≡ 2·atan(exp y) − π/2.
+  sinh: map1(Math.sinh),
+  cosh: map1(Math.cosh),
+  tanh: map1(Math.tanh),
+  asinh: map1(Math.asinh),
+  acosh: map1(Math.acosh),
+  atanh: map1(Math.atanh),
   exp: map1(Math.exp),
   log: map1(Math.log),
   log2: map1(Math.log2),
@@ -126,7 +194,15 @@ export const BUILTINS: Record<string, Builtin> = {
   sign: map1(Math.sign),
   radians: map1((d) => (d * Math.PI) / 180),
   degrees: map1((r) => (r * 180) / Math.PI),
-  atan2: (y, x) => Math.atan2(y as number, x as number),
+  // atan2(y, x) — component-wise over vectors (as WGSL/GLSL compute it); x may
+  // be a scalar broadcast (the ArithArg surface admits it even though WGSL then
+  // rejects the emit — the oracle mirrors the component-wise semantics).
+  atan2: (y, x) =>
+    isArr(y)
+      ? (y as number[]).map((v, i) =>
+          Math.atan2(v as number, isArr(x) ? ((x as number[])[i] as number) : (x as number)),
+        )
+      : Math.atan2(y as number, x as number),
   // mod(x, y) — FLOOR-mod, matching the registry spelling on both targets
   // (WGSL x − y·⌊x/y⌋, GLSL mod()). Deliberately NOT JS `%` (trunc-mod).
   // Component-wise; y may be a scalar broadcast over a vector x.
@@ -144,16 +220,27 @@ export const BUILTINS: Record<string, Builtin> = {
     isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number),
   // clamp ordering mirrors projection-wgsl-mirror.ts: max(lo, min(hi, x)).
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
+  // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
+  // clamp; see the intrinsic registry). Same max(0, min(1, ·)) ordering as clamp.
+  saturate: map1((x) => Math.max(0, Math.min(1, x))),
   mix: (a, b, t) => mixVal(a, b, t),
-  // smoothstep is type-enforced scalar by the builder (node.ts:230 — all args + result
-  // Node<ScalarKey>|number|f32), so no vector path is reachable here.
+  // smoothstep — component-wise; the vector overload (#763 X15) makes the vec
+  // path reachable, and the old scalar-cast body silently returned NaN for it
+  // (JS array arithmetic). e0/e1 may be scalar broadcasts over a vector x.
   smoothstep: (e0, e1, x) => {
-    const t = clampVal(
-      ((x as number) - (e0 as number)) / ((e1 as number) - (e0 as number)),
-      0,
-      1,
-    ) as number
-    return t * t * (3 - 2 * t)
+    const ss = (a: number, b: number, v: number): number => {
+      const t = Math.max(0, Math.min(1, (v - a) / (b - a)))
+      return t * t * (3 - 2 * t)
+    }
+    return isArr(x)
+      ? (x as number[]).map((v, i) =>
+          ss(
+            isArr(e0) ? ((e0 as number[])[i] as number) : (e0 as number),
+            isArr(e1) ? ((e1 as number[])[i] as number) : (e1 as number),
+            v as number,
+          ),
+        )
+      : ss(e0 as number, e1 as number, x as number)
   },
   // step(edge, x) — component-wise; edge may be a scalar broadcast over a vector x.
   step: (edge, x) => {
@@ -222,9 +309,16 @@ export const BUILTINS: Record<string, Builtin> = {
   // fma(a, b, c) = a·b + c with a SINGLE rounding. For f32 operands the product
   // a·b is EXACT in a JS double (24+24 = 48 ≤ 53 significand bits), so
   // fround(a·b + c) is the correctly-rounded f32 fma up to the double-rounding
-  // tail of the f64 add — beyond every tolerance the suites assert. Scalars only
-  // (the DSL surface types fma over scalars; component-wise use maps at the IR).
-  fma: (a, b, c) => Math.fround((a as number) * (b as number) + (c as number)),
+  // tail of the f64 add — beyond every tolerance the suites assert.
+  // Component-wise over vectors (WGSL fma is genType, and the authoring
+  // signature admits vec keys) — the old scalar-cast body silently NaN'd there.
+  fma: (a, b, c) => {
+    const f = (x: number, y: number, z: number): number => Math.fround(x * y + z)
+    const at = (v: CpuValue, i: number): number => (isArr(v) ? (v[i] as number) : (v as number))
+    return isArr(a)
+      ? (a as number[]).map((x, i) => f(x as number, at(b, i), at(c, i)))
+      : f(a as number, b as number, c as number)
+  },
   // unpack u32 RGBA8 → vec4<f32> in [0,1]; low byte → component 0 (pack4x8unorm inverse).
   unpack4x8unorm: (u) => {
     const n = (u as number) >>> 0
@@ -245,6 +339,39 @@ export const BUILTINS: Record<string, Builtin> = {
     const a = v as number[]
     const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255) & 0xff
     return (q(a[0]) | (q(a[1]) << 8) | (q(a[2]) << 16) | (q(a[3]) << 24)) >>> 0
+  },
+  // ── 2×16 pack/unpack — native builtins on BOTH targets (only the names
+  // diverge; see the intrinsic registry). Component 0 → the 16 LOW bits, per
+  // both specs. Quantisation follows WGSL's ⌊0.5 + scale·clamp(e)⌋, which JS
+  // Math.round IS (floor(0.5+x), including the toward-+∞ negative halves). ──
+  pack2x16float: (v) => {
+    const a = v as number[]
+    return (f32ToF16Bits(a[0] as number) | (f32ToF16Bits(a[1] as number) << 16)) >>> 0
+  },
+  unpack2x16float: (u) => {
+    const n = (u as number) >>> 0
+    return [f16BitsToF32(n & 0xffff), f16BitsToF32(n >>> 16)]
+  },
+  pack2x16unorm: (v) => {
+    const a = v as number[]
+    const q = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 65535) & 0xffff
+    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
+  },
+  unpack2x16unorm: (u) => {
+    const n = (u as number) >>> 0
+    return [(n & 0xffff) / 65535, (n >>> 16) / 65535]
+  },
+  pack2x16snorm: (v) => {
+    const a = v as number[]
+    const q = (x: number): number => Math.round(Math.max(-1, Math.min(1, x)) * 32767) & 0xffff
+    return (q(a[0] as number) | (q(a[1] as number) << 16)) >>> 0
+  },
+  unpack2x16snorm: (u) => {
+    const n = (u as number) >>> 0
+    // Sign-extend each 16-bit lane, then v/32767 clamped at −1 (WGSL: max(v/32767, −1);
+    // GLSL's clamp(…, −1, 1) is identical — v ≤ 32767 so the upper clamp never binds).
+    const s = (bits: number): number => Math.max(((bits << 16) >> 16) / 32767, -1)
+    return [s(n & 0xffff), s(n >>> 16)]
   },
 }
 
