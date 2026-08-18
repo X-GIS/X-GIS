@@ -681,7 +681,19 @@ const CEILINGS: Record<string, number> = {
   // the controller live, the new `onBoxZoom` callback (the eased-fitBounds
   // terminal call — #1256's easeTo infra is what makes "eased" possible now),
   // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
-  'map/src/map.ts': 5497,
+  // 5497→5529 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
+  // embedded map from hijacking page scroll. map.ts's share is again
+  // composition-root wiring only (the gesture logic + hint overlay live in
+  // controller.ts): the `cooperativeGestures` field (default OFF, unlike
+  // doubleClickZoom/boxZoom's default-ON) + its constructor-option read, the
+  // `getState()` closure threading it + `prefersReducedMotion` to the
+  // controller live, and `_setupTouchAction`'s default-branch swap to
+  // `'pan-y'` (vs #1153's `'none'`) so a released single-finger touch drag
+  // actually reaches the OS as a native scroll. MEASURED base value — NOTE:
+  // #1827 (open in parallel, also touching this file) independently measured
+  // 5546 from the SAME 5497 base; the two additive deltas union-merge to
+  // whichever lands second, re-measure at merge time.
+  'map/src/map.ts': 5529,
   // Baselined at #1265 (measured 997 after the prettier pass): the pointer-gesture state machine crossed
   // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
   // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
@@ -694,7 +706,20 @@ const CEILINGS: Record<string, number> = {
   // with no extra branching — into a geo AABB dispatched via the new
   // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
   // from now.
-  'map/src/controller.ts': 997,
+  // 997→1163 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
+  // embedded map from hijacking page scroll. `CooperativeGesturesOptions` +
+  // two new live-read `ControllerState` fields (cooperativeGestures,
+  // prefersReducedMotion — same getState()-closure pattern #1265 established
+  // for doubleClickZoomEnabled/boxZoomEnabled), the module-level hint-overlay
+  // helpers (mirroring the #1265 box-zoom overlay: shared injected
+  // stylesheet + a lazily-created display:none-at-rest div, platform/
+  // reduced-motion-aware text, auto-fade timer), the per-attach `showCoopHint`
+  // closure, the onWheel early-return that cedes a plain wheel to the page
+  // (no preventDefault) while Ctrl/⌘+wheel still zooms, the onPointerDown
+  // branch that blocks a single-finger TOUCH drag from panning (mouse
+  // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
+  // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
+  'map/src/controller.ts': 1163,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

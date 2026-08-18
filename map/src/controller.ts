@@ -28,6 +28,16 @@ export interface Controller {
   detach(): void
 }
 
+/** #1264 — `cooperativeGestures` per-platform hint-text overrides (MapLibre
+ *  `MapOptions.cooperativeGestures` object-form parity). Every field is
+ *  optional; an absent field falls back to the built-in English default for
+ *  that platform/input (see `DEFAULT_COOP_HELP` below). */
+export interface CooperativeGesturesOptions {
+  windowsHelpText?: string
+  macHelpText?: string
+  mobileHelpText?: string
+}
+
 export interface ControllerState {
   projectionName: string
   /** #1265 — MapLibre `doubleClickZoom` handler parity. Read live on every
@@ -37,6 +47,17 @@ export interface ControllerState {
   /** #1265 — MapLibre `boxZoom` handler parity. Same live-read, same
    *  enabled-by-default semantics as `doubleClickZoomEnabled`. */
   boxZoomEnabled?: boolean
+  /** #1264 — MapLibre `cooperativeGestures` parity: stop an embedded map
+   *  from hijacking page scroll. Read live on every wheel/pointerdown (not
+   *  just at attach), same live-read pattern as `doubleClickZoomEnabled` /
+   *  `boxZoomEnabled`. `undefined`/`false` ⇒ disabled — the pre-#1264
+   *  default, byte-identical behaviour. `true` ⇒ enabled with the built-in
+   *  default hint text; an object customizes the per-platform hint text. */
+  cooperativeGestures?: boolean | CooperativeGesturesOptions
+  /** #1264 — read live so an OS `prefers-reduced-motion` flip is honoured
+   *  without reattaching (#1260 parity): the cooperative-gesture hint pops
+   *  instead of fading when `true`. */
+  prefersReducedMotion?: boolean
 }
 
 /** Optional event callbacks the map wires into the controller so the
@@ -127,6 +148,80 @@ function updateBoxZoomEl(el: HTMLDivElement, x0: number, y0: number, x1: number,
   el.style.display = 'block'
 }
 
+// ═══ Cooperative-gestures hint overlay (#1264, MapLibre `cooperativeGestures`
+// parity — stop an embedded map from hijacking page scroll) ═══
+// Mirrors the box-zoom overlay above EXACTLY: one shared stylesheet injected
+// once per document targeting a stable class name, display:none by default so
+// a controller with the feature off (the default) — or simply at rest — never
+// paints a stray div into an e2e screenshot. The fade is a CSS opacity
+// transition; `[data-reduced]` zeroes its duration so #1260 (prefers-reduced-
+// motion) gets an instant pop instead of a fade, matching every other
+// animated feature's 0-duration instant path in this codebase.
+let coopHintStyleInjected = false
+function ensureCoopHintStyle(): void {
+  if (coopHintStyleInjected) return
+  if (typeof document === 'undefined' || !document.head) return
+  coopHintStyleInjected = true
+  const style = document.createElement('style')
+  style.setAttribute('data-xgis-coophint-style', '')
+  style.textContent =
+    '.xgis-coophint{position:fixed;transform:translate(-50%,-50%);display:none;' +
+    'opacity:0;padding:8px 16px;border-radius:4px;background:rgba(0,0,0,.75);' +
+    "color:#fff;font:14px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
+    'text-align:center;pointer-events:none;z-index:2147483647;' +
+    'transition:opacity .3s ease;}' +
+    '.xgis-coophint[data-reduced]{transition:none;}'
+  document.head.appendChild(style)
+}
+
+/** Per-controller-instance hint div, appended to `document.body` as
+ *  `position:fixed` — viewport coordinates, centered over the canvas by
+ *  `positionCoopHintEl` on every show (so it tracks a resized/repositioned
+ *  canvas with no dependency on the host page's container layout). `null` in
+ *  non-DOM hosts (unit tests); every caller already guards on that. */
+function createCoopHintEl(): HTMLDivElement | null {
+  if (typeof document === 'undefined' || !document.body) return null
+  ensureCoopHintStyle()
+  const el = document.createElement('div')
+  el.className = 'xgis-coophint'
+  document.body.appendChild(el)
+  return el
+}
+
+function positionCoopHintEl(el: HTMLDivElement, canvas: HTMLCanvasElement): void {
+  const r = canvas.getBoundingClientRect()
+  el.style.left = r.left + r.width / 2 + 'px'
+  el.style.top = r.top + r.height / 2 + 'px'
+}
+
+/** How long the hint stays fully visible before the CSS opacity transition
+ *  fades it out (or, under reduced motion, pops it away instantly). Reset on
+ *  every fresh blocked gesture so a sustained scroll/drag keeps it up. */
+const COOP_HINT_HOLD_MS = 1200
+
+/** MapLibre `CooperativeGesturesHandler` parity: the desktop hint reads
+ *  "Ctrl" on Windows/Linux and "⌘" on macOS. `navigator.userAgentData` is
+ *  the modern (Client Hints) source; `navigator.platform` is the fallback
+ *  for engines that don't implement it. `false` (never "Mac") in non-browser
+ *  hosts (unit tests, SSR). */
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
+  const p = nav.userAgentData?.platform ?? nav.platform ?? ''
+  return /mac/i.test(p)
+}
+
+/** Built-in English default hint text (MapLibre's own default strings —
+ *  parity, not translation). `CooperativeGesturesOptions` overrides one or
+ *  more of these per-instance; product UI copy stays out of CLAUDE.md §0's
+ *  English-only-repository-artifacts rule (that rule covers code/comments,
+ *  not user-visible strings). */
+const DEFAULT_COOP_HELP = {
+  windows: 'Use Ctrl + scroll to zoom the map',
+  mac: 'Use ⌘ + scroll to zoom the map',
+  mobile: 'Use two fingers to move the map',
+}
+
 // ═══ PanZoom Controller — 평면 지도용 (Mercator, Equirectangular, Natural Earth) ═══
 
 export class PanZoomController implements Controller {
@@ -208,6 +303,39 @@ export class PanZoomController implements Controller {
       boxEndY = 0
     let boxZoomEl: HTMLDivElement | null = null
 
+    // Cooperative-gestures hint (#1264). Lazily created on the FIRST blocked
+    // gesture (mirrors boxZoomEl) — never touched at all while the feature is
+    // off, so the default stays byte-identical by construction.
+    let coopHintEl: HTMLDivElement | null = null
+    let coopHintHideTimer: ReturnType<typeof setTimeout> | null = null
+
+    /** Show the cooperative-gestures hint for a just-blocked `wheel` or
+     *  `touch` (single-finger drag) gesture, then auto-fade it after
+     *  `COOP_HINT_HOLD_MS`. Reads `getState().prefersReducedMotion` live
+     *  (not captured at attach) so an OS flip mid-session is honoured. */
+    const showCoopHint = (opt: boolean | CooperativeGesturesOptions, kind: 'wheel' | 'touch') => {
+      if (!coopHintEl) coopHintEl = createCoopHintEl()
+      if (!coopHintEl) return // non-DOM host (unit tests)
+      const custom = typeof opt === 'object' ? opt : undefined
+      const text =
+        kind === 'touch'
+          ? (custom?.mobileHelpText ?? DEFAULT_COOP_HELP.mobile)
+          : isMacPlatform()
+            ? (custom?.macHelpText ?? DEFAULT_COOP_HELP.mac)
+            : (custom?.windowsHelpText ?? DEFAULT_COOP_HELP.windows)
+      coopHintEl.textContent = text
+      positionCoopHintEl(coopHintEl, canvas)
+      if (getState().prefersReducedMotion === true) coopHintEl.setAttribute('data-reduced', '')
+      else coopHintEl.removeAttribute('data-reduced')
+      coopHintEl.style.display = 'block'
+      coopHintEl.style.opacity = '1'
+      if (coopHintHideTimer !== null) clearTimeout(coopHintHideTimer)
+      coopHintHideTimer = setTimeout(() => {
+        if (coopHintEl) coopHintEl.style.opacity = '0'
+        coopHintHideTimer = null
+      }, COOP_HINT_HOLD_MS)
+    }
+
     const onPointerDown = (e: PointerEvent) => {
       // #12: register pointer BEFORE any early-return so every pointerdown
       // has a paired setPointerCapture + activePointers entry, keeping
@@ -261,6 +389,20 @@ export class PanZoomController implements Controller {
           // count. Right-click (rotate) and multi-touch are excluded.
           pressEligible = e.button === 0 && !e.ctrlKey
 
+          // #1264 — cooperativeGestures: a single-finger TOUCH drag must not
+          // pan the map (MapLibre parity). Computed here (not inline below)
+          // so the new branch can skip straight to isDragging=false without
+          // touching the existing rotate/drag setup bodies' indentation.
+          // Mouse drag-pan is UNAFFECTED — only touch hijacks the page. A
+          // second finger still promotes normally to the existing
+          // pinch/rotate/pitch path at activePointers.size===2 below.
+          // map.ts's `_setupTouchAction` is what actually lets the OS scroll
+          // the page for this drag (`touch-action:'pan-y'` when
+          // cooperativeGestures is on) — this only stops the MAP itself from
+          // also panning underneath that native scroll.
+          const coop = getState().cooperativeGestures
+          const coopBlocksTouch = e.pointerType === 'touch' && coop !== undefined && coop !== false
+
           // Right-click or Ctrl+click → prepare rotate mode (activated on move)
           if (e.button === 2 || e.ctrlKey) {
             isRotatePending = true
@@ -269,6 +411,10 @@ export class PanZoomController implements Controller {
             rotateStartX = e.clientX
             rotateStartY = e.clientY
             rotateActivated = false
+          } else if (coopBlocksTouch) {
+            isDragging = false
+            isRotating = false
+            showCoopHint(coop, 'touch')
           } else {
             isDragging = true
             isRotating = false
@@ -858,6 +1004,19 @@ export class PanZoomController implements Controller {
     })
 
     const onWheel = (e: WheelEvent) => {
+      // #1264 — cooperativeGestures: a plain wheel is ceded to the page (no
+      // preventDefault ⇒ the browser scrolls it like any other element,
+      // MapLibre parity); Ctrl/⌘+wheel still zooms via the unchanged path
+      // below. `events?.onWheel` still fires either way — it's an X-GIS-
+      // level hook for layer listeners (never calls preventDefault itself
+      // per its own doc comment), independent of the scroll-capture this
+      // branch is releasing.
+      const coop = getState().cooperativeGestures
+      if (coop !== undefined && coop !== false && !e.ctrlKey && !e.metaKey) {
+        events?.onWheel?.(e.clientX, e.clientY, e)
+        showCoopHint(coop, 'wheel')
+        return
+      }
       e.preventDefault()
       events?.onWheel?.(e.clientX, e.clientY, e)
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
@@ -987,6 +1146,13 @@ export class PanZoomController implements Controller {
       // the removeEventListener calls above only unbind canvas listeners.
       boxZoomEl?.remove()
       boxZoomEl = null
+      // #1264 — same reasoning: the cooperative-gesture hint is also a
+      // document.body-appended fixed-position div, plus its own pending
+      // fade-out timer.
+      if (coopHintHideTimer !== null) clearTimeout(coopHintHideTimer)
+      coopHintHideTimer = null
+      coopHintEl?.remove()
+      coopHintEl = null
     }
   }
 

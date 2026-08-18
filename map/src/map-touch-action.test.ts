@@ -96,4 +96,17 @@ describe('#1153 M1 — canvas touch-action', () => {
     expect(canvas.style.touchAction).toBe('none')
     map.destroy()
   })
+
+  // #1264 — cooperativeGestures releases single-finger touch to the page (a
+  // released touch-action:'none' would otherwise swallow the gesture with no
+  // native scroll to show for it — see the issue's "mobile one-finger scrolls
+  // the page" acceptance line). Same host-respecting default rule as above;
+  // only the DEFAULT value flips (none → pan-y), not the precedence.
+  it('cooperativeGestures:true defaults touch-action to "pan-y" (release single-finger touch to the page)', () => {
+    const canvas = stubCanvas('')
+    const map = new XGISMap(canvas, { cooperativeGestures: true })
+    expect(canvas.style.touchAction).toBe('pan-y')
+    map.destroy()
+    expect(canvas.style.touchAction).toBe('') // prior inline ('') restored
+  })
 })
