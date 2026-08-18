@@ -38,6 +38,19 @@ export interface ShaderVariant {
   fillExpr: NodeLike<'vec4<f32>'> | null
   /** Stroke-color expression — same migration shape as `fillExpr`. */
   strokeExpr: NodeLike<'vec4<f32>'> | null
+  /** The layer's opacity factor as an f32 Node — the SAME operand
+   *  `fillExpr` / `strokeExpr` already carry inside their
+   *  `composeFillVec4(colour, opacity)` composition (a preamble
+   *  `OPACITY` const, `u.opacity`, a data-driven expression, or a
+   *  scalar-atlas sample). Surfaced because a consumer that REPLACES
+   *  the composed expression has to re-apply the same factor:
+   *  `mergeComputeAddendumIntoVariant` swaps the colour half for the
+   *  compute kernel's `unpack4x8unorm(...)` read and would otherwise
+   *  drop opacity, rendering every opacity-bearing fill fully opaque
+   *  on the compute arm (#1808). `null` only when the opacity axis
+   *  produced no Node at all — the same condition that makes
+   *  `fillExpr` null. */
+  opacityExpr: NodeLike<'f32'> | null
   /** Whether a storage buffer is needed for per-feature data */
   needsFeatureBuffer: boolean
   /** Fields needed from feature data (for storage buffer layout) */

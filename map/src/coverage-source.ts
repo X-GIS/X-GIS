@@ -362,16 +362,23 @@ async function probeCoverageUrl(
   }
 }
 
-/** Read one catalogue cell and arm it under its item id. A FIRST arm for that region, so it
- *  goes through `armFromShow` (the layer's declared ramp/range) rather than `armRegion`, which
- *  preserves a live display this region does not have yet — see the deps note on `armFromShow`. */
-async function armCatalogueItem(
+/** The outcome of reading one catalogue cell's bytes — `null` on a caught, isolated failure
+ *  (already logged). Split from arming (below) so the read can start AHEAD of the arm it
+ *  feeds (#1505): the network wait is the part worth overlapping, ordering is not. */
+interface CatalogueReadResult {
+  handle: CoverageHandle
+  token: number
+}
+
+/** Start reading one catalogue cell's bytes. Registers `state.inFlight` synchronously (before
+ *  the first await) so a concurrent resolve — or this same resolve's own read-ahead window —
+ *  never double-fetches the same region; clears it once the read settles, success or not. */
+async function readCatalogueItem(
   deps: CoverageSourceDeps,
   sourceId: string,
   item: CoverageCatalogueItem,
   state: CoverageCatalogueState,
-  isStale?: () => boolean,
-): Promise<void> {
+): Promise<CatalogueReadResult | null> {
   // The STAC item id IS this cell's region key — named so, because every epoch claim and check
   // in this module must be visibly region-scoped (a single global counter let each newly
   // loading region cancel its neighbours' in-flight decodes, collapsing a mosaic to whichever
@@ -380,16 +387,38 @@ async function armCatalogueItem(
   const label = `coverage source "${sourceId}" region "${region}"`
   const token = deps.time.nextEpoch(region)
   state.inFlight.add(region)
-  let handle: CoverageHandle
   try {
-    handle = await fetchCoverageHandle(item.href, label, deps.guardedFetch(label))
+    const handle = await fetchCoverageHandle(item.href, label, deps.guardedFetch(label))
+    return { handle, token }
   } catch (e) {
     // One unreachable cell must not cost the mosaic its neighbours; a later move retries it.
     xlog.error(`[X-GIS] ${label} — ${(e as Error).message}`)
-    return
+    return null
   } finally {
     state.inFlight.delete(region)
   }
+}
+
+/** Commit one catalogue cell's read to the renderer, under its item id. A FIRST arm for that
+ *  region, so it goes through `armFromShow` (the layer's declared ramp/range) rather than
+ *  `armRegion`, which preserves a live display this region does not have yet — see the deps
+ *  note on `armFromShow`.
+ *
+ *  `read`, when given, is a read `syncCoverageResidency`'s window already started — this only
+ *  awaits and commits it, so the ordering the budget rule needs stays on THIS call, never on
+ *  when the bytes land. Omitted, it starts its own (the victim-restore path below). */
+async function armCatalogueItem(
+  deps: CoverageSourceDeps,
+  sourceId: string,
+  item: CoverageCatalogueItem,
+  state: CoverageCatalogueState,
+  isStale?: () => boolean,
+  read?: Promise<CatalogueReadResult | null>,
+): Promise<void> {
+  const region = item.id
+  const result = await (read ?? readCatalogueItem(deps, sourceId, item, state))
+  if (!result) return
+  const { handle, token } = result
   // STILL WANTED? A cell is multi-megabyte, so the camera can easily move a continent away
   // while one streams, and the epoch guard cannot see that: it is per REGION, and this read
   // was never superseded by another read of THIS region — what changed is that nobody wants
@@ -403,13 +432,25 @@ async function armCatalogueItem(
   deps.invalidate()
 }
 
+/** How many catalogue cells `syncCoverageResidency` reads AHEAD of the arm it feeds (#1505).
+ *  4, not `bytes.ts`'s `MAX_IN_FLIGHT` (6): that budget is per-cell (range requests within ONE
+ *  HDF5 read), and a whole-cell read can itself use several of those connections at once —
+ *  stacking 6 whole CELLS on top would oversubscribe the same HTTP/1.1 per-host budget rather
+ *  than overlap it. 4 is what #1505 actually measured: 4 cells concurrent vs. 4 sequential
+ *  over the same link, 1.79×. */
+const READ_AHEAD_WINDOW = 4
+
 /** Bring one catalogue-backed source's resident regions in line with the current viewport.
  *  Called at attach and on every move-end. A no-op for a source whose `url:` named a cell.
  *
- *  Arms SEQUENTIALLY, most-relevant first. That is not a missing concurrency cap: the budget
- *  rule below only means anything if the arms are ordered — with parallel reads, "stop when
- *  the budget speaks" is a race — and the cell actually under the cursor should never queue
- *  behind a neighbour. */
+ *  CONCURRENT READ, SEQUENTIAL ARM (#1505). Reading is the network-bound half and independent
+ *  per cell — up to `READ_AHEAD_WINDOW` cells overlap in flight, sliding forward as each is
+ *  consumed. Arming stays exactly the sequential loop this always was, most-relevant first:
+ *  the budget rule below only means anything if the ARMS are ordered — with parallel commits,
+ *  "stop when the budget speaks" is a race, and the cell actually under the cursor should
+ *  never queue behind a neighbour. A read the window started ahead of a budget stop or a
+ *  mid-pan supersession is bounded waste (at most `READ_AHEAD_WINDOW - 1` cells) — its bytes
+ *  may land, but `armCatalogueItem` never commits them once `state.wanted` has moved on. */
 export async function syncCoverageResidency(
   deps: CoverageSourceDeps,
   sourceId: string,
@@ -431,15 +472,39 @@ export async function syncCoverageResidency(
   for (const region of [...(coverageRegions(deps, sourceId) ?? new Map()).keys()])
     if (!keys.includes(region)) dropCoverageRegion(deps, sourceId, region)
 
+  // Not skippable for a read (not suppressed, not already loading, not already resident) —
+  // the SAME predicate the loop below falls back to for an item the window has not reached.
+  const readable = (id: string): boolean =>
+    !state.suppressed.has(id) &&
+    !state.inFlight.has(id) &&
+    !coverageRegions(deps, sourceId)?.has(id)
+
+  const reads = new Map<string, Promise<CatalogueReadResult | null>>()
+  let nextToRead = 0
+  const fillWindow = (): void => {
+    while (reads.size < READ_AHEAD_WINDOW && nextToRead < wanted.length) {
+      const item = wanted[nextToRead++]!
+      if (readable(item.id)) reads.set(item.id, readCatalogueItem(deps, sourceId, item, state))
+    }
+  }
+  fillWindow()
+
   for (const item of wanted) {
     if (deps.destroyed() || isStale?.()) return
     // A NEWER resolve has replaced `state.wanted` — this loop is walking a list the camera
-    // has moved past, so every remaining fetch would be work for a viewport nobody is looking
-    // at. Stop; the newer resolve is already arming the right cells.
+    // has moved past, so every remaining ARM would commit a viewport nobody is looking at.
+    // Stop; the newer resolve is already arming the right cells. (Its READ may already have
+    // started under the window above — that bytes-on-the-wire cost is the stated tradeoff;
+    // what matters is it is never committed here.)
     if (!state.wanted.includes(item.id)) return
-    if (state.suppressed.has(item.id) || state.inFlight.has(item.id)) continue
-    if (coverageRegions(deps, sourceId)?.has(item.id)) continue
-    await armCatalogueItem(deps, sourceId, item, state, isStale)
+    const read = reads.get(item.id)
+    if (read) {
+      reads.delete(item.id)
+      fillWindow() // keep the window full as this slot frees up
+    } else if (!readable(item.id)) {
+      continue // suppressed, already loading (elsewhere), or already resident
+    }
+    await armCatalogueItem(deps, sourceId, item, state, isStale, read)
     if (state.suppressed.size === 0) continue
 
     // THE BUDGET SPOKE — and it evicted the WRONG cell, so this backs the arm out.

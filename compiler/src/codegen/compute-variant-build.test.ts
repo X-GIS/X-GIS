@@ -25,6 +25,10 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     // fillIsDefault: true is the default-uniform placeholder.
     fillExpr: null,
     strokeExpr: null,
+    // #1808 — `null` = this fixture declares no opacity factor, so the
+    // merge emits the bare compute read. Tests that care about the
+    // opacity composition override it.
+    opacityExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],

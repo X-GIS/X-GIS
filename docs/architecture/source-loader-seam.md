@@ -280,6 +280,40 @@ function krAdminLoader(
 The two are complementary lanes over the **same** encode output. The seam does not replace the pipeline;
 it gives the pipeline a declarative front door.
 
+## 6b. Built-in: `jsonFieldMappingLoader` — a REST-JSON adapter (#1303)
+
+The seam's second producer, shipped in `@xgis/map` itself (`map/src/json-field-mapping-loader.ts`) rather
+than `@xgis/pipeline`, since it needs no join/gazetteer — just field names. It closes the gap #1303 opened:
+a REST endpoint whose response is bespoke JSON, not GeoJSON (e.g. NOAA CO-OPS' `{ "data": [ { "s": "34.5",
+"d": "210" } ] }`), had no declarative on-ramp — a host had to hand-assemble GeoJSON and push it via
+`setSourceData`. Same typed-constructor-params shape as `krAdminLoader` above:
+
+```ts
+import { XGISMap, jsonFieldMappingLoader } from '@xgis/map'
+
+const map = new XGISMap(canvas, {
+  sources: {
+    json: jsonFieldMappingLoader({
+      recordsPath: 'data', // dot-path to the record array; omit if the document root IS the array
+      lon: 'longitude', // or `coordinates: 'loc'` for a single [lon, lat] field
+      lat: 'latitude',
+      properties: { speed: 's', dir: 'd' }, // output name → source field path; omit to pass the record through
+    }),
+  },
+})
+```
+
+```
+source stations {
+  type: "json"
+  url: "https://.../stations.json"
+}
+```
+
+**Single-document only** (the issue's stated scope): a product whose lon/lat live in a SEPARATE table from
+the observation response — the CO-OPS case itself, `playground/src/examples/coops-currents.recipe.ts` — needs
+a multi-URL fan-out + join, which is genuine ETL and stays host-side by design (CLAUDE.md §12).
+
 ---
 
 ## 7. Boundaries (the 5-year bar)
@@ -375,3 +409,66 @@ bug (bare `type: x-kr-admin` silently fell back to `geojson`); custom types are 
   `addSource` stub to call `_attachGeoJSONViaVirtualPMTiles` — zero compiler change); it is smaller but
   loses the declarative `.xgis` custom-type the user explicitly wants. Opens a future custom-tile /
   global-registry question, deferred.
+
+---
+
+## 12. Addendum — WMS→XYZ raster adapter (#1478): why NOT this seam
+
+#1478 asked for a minimal WMS→XYZ raster adapter (nowCOAST and similar WMS-only services), and named
+this registry as the first candidate ("no library change at all"). It does not fit, and §3.2/§9 already
+say so — this addendum makes the reasoning explicit for the next reader who reaches the same fork.
+
+**The registry is FC/points-only, by design, not by oversight.** `SourceLoader` always returns `{ kind:
+'fc' | 'points' }` (§3.2) and the dispatch routes the result through `_attachGeoJSONViaVirtualPMTiles`
+(§3.3) — the SAME path the built-in `geojson` branch uses. A WMS `GetMap` reply is a raster IMAGE tile,
+not a feature collection; there is no branch here for it, and §9 Phase 1 explicitly scopes
+tile-producing loaders OUT ("Tile-producing custom loaders … are explicitly out of Phase 1"), deferred to
+"Phase 3 (only if demanded)."
+
+**The raster path this seam would need to reach has no per-tile hook either.** The built-in raster
+branch (`source-manager.ts:396-401`, the `looksLikeRaster` arm from §2's dispatch table) stores ONE URL
+STRING (`_tileUrl`), later expanded per-tile by `tileUrl()` (`data/src/tile-select-helpers.ts`) via
+`{z}`/`{x}`/`{y}`/`{ratio}` regex token substitution — a static template, not a function a loader could
+be asked to implement. A WMS `BBOX` is a COMPUTED value (linear in tile x/y, exponential in zoom), so it
+cannot ride those tokens: there is no string template that turns literal `{z}`/`{x}`/`{y}` drops into a
+correct Web Mercator bounding box.
+
+**What #1478 actually ships instead** (`map/src/wms-xyz-adapter.ts`): a pure `wmsRasterTemplate(options)`
+that builds a `type: "raster"`-compatible URL template carrying a `{bbox-epsg-3857}` placeholder — the
+same convention MapLibre/Mapbox GL's raster `tiles:` array documents for exactly this WMS-interop case —
+plus `wmsGetMapUrl(z, x, y, options)` for building (or unit-testing) one tile's literal URL directly.
+`tileUrl()` gained a matching `{bbox-epsg-3857}` substitution (one `if` block, reusing this file's own
+`tileBounds()` + `@xgis/geo`'s `lonLatToMercator` — no new Mercator math authority). **Net library
+surface: one new placeholder token in one existing, already-shared substitution function.** No new
+source `type:`, no `source-manager.ts` change, no new render path, and — like the registry this replaces
+— zero coupling into `@xgis/engine`.
+
+**Usage** (no `XGISMapOptions.sources` registration needed — this is a plain URL, not a loader):
+
+```ts
+import { wmsRasterTemplate } from '@xgis/map'
+
+const url = wmsRasterTemplate({
+  baseUrl: 'https://nowcoast.noaa.gov/geoserver/wms',
+  layers: 'mrms:conus_base_reflectivity_mosaic',
+})
+```
+
+```
+source radar {
+  type: "raster"
+  url: "<url from wmsRasterTemplate(...) above>"
+}
+layer radarLayer { source: radar }
+```
+
+EPSG:3857 only (deliberate — matches the raster tile grid the rest of the pipeline already uses); WMS
+1.1.1 and 1.3.0 both supported (`SRS`/`CRS` respectively — EPSG:3857 is a projected CRS, so the 1.3.0
+geographic-CRS axis-order swap that traps EPSG:4326 does not apply). No `GetCapabilities` negotiation, no
+WMTS — `GetMap` only, as scoped. **CORS is unchanged by this adapter**: nowCOAST's GeoServer WMS still
+answers `405` on a browser-direct GET (`docs/api/noaa-coverage-recipes.md` Recipe 4 / the CORS table at
+the top of that doc) — the generated URL still needs to cross a CORS proxy exactly like every other NOAA
+gridded product on this page, via the SAME proxy mechanism §"Handling CORS" describes there. This
+addendum and Recipe 4 are the adapter's only shipped example; no playground demo was added, because a
+live render would need that same network egress and #1478's own Constraints section rules that out for
+any test or gate ("No test or render gate may depend on NOAA uptime").

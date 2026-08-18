@@ -1,12 +1,16 @@
 // ═══ WebGL2 compute dispatch (the per-backend counterpart to ComputeDispatcher) ═══
 //
 // The WebGPU ComputeDispatcher (gpu/compute.ts) runs a per-feature paint kernel as a
-// native compute pass. WebGL2 ES 3.00 has no compute, so the SAME kernel — the M2
-// compute->fragment-GPGPU lowering (emitGlslModule {emulateCompute}) — runs as a
-// FULLSCREEN DRAW into an R32UI offscreen target, one output texel per feature. This is
-// the runtime routing the kernel on WebGL2; the shader is the same neutral IR the
-// compiler emits (ruling i), emitted to GLSL here. Proven byte-correct vs the CPU oracle
-// on a real WebGL2 GPU by playground/e2e/_compute-dispatch-parity.
+// native compute pass. WebGL2 ES 3.00 has no compute, so the SAME kernel — declared
+// `portable: true` at the authoring site (#1812), which routes the M2
+// compute->fragment-GPGPU lowering with no emit option — runs as a FULLSCREEN DRAW into
+// an R32UI offscreen target, one output texel per feature. The declaration is the gate:
+// an undeclared compute kernel fail-closes at emit (missing-capabilities) instead of
+// being silently rewritten into a draw its author did not declare (#1823, pinned by
+// compute-webgl2-portable-contract.test.ts). This is the runtime routing the kernel on
+// WebGL2; the shader is the same neutral IR the compiler emits (ruling i), emitted to
+// GLSL here. Proven byte-correct vs the CPU oracle on a real WebGL2 GPU by
+// playground/e2e/_compute-dispatch-parity.
 
 import {
   emitGlslModule,
@@ -108,7 +112,9 @@ export function dispatchComputeKernelWebGl2(
   const wOut = Math.min(n, 2048)
   const hOut = Math.ceil(n / wOut)
 
-  const fsCode = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
+  // No emit option: the kernel's own `portable` declaration routes the compute→fragment
+  // lowering (#1812/#1823) — an undeclared kernel throws missing-capabilities right here.
+  const fsCode = emitGlslModule(kernel.module, 'fragment')
   let perDevice = _kernelPipelines.get(device)
   if (!perDevice) _kernelPipelines.set(device, (perDevice = new Map()))
   let cached = perDevice.get(fsCode)

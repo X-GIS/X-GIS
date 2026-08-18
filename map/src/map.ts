@@ -836,6 +836,14 @@ export class XGISMap {
    *  `prefers-reduced-motion` media query; `true`/`false` force it (kiosk /
    *  test control). Set via `XGISMapOptions.respectReducedMotion`. */
   private _reducedMotionOverride: boolean | undefined = undefined
+  /** #1265 — MapLibre `doubleClickZoom` handler parity. Read live by the
+   *  controller on every dblclick, so flipping this at runtime takes effect
+   *  without reattaching. Set via `XGISMapOptions.doubleClickZoom`. */
+  doubleClickZoomEnabled = true
+  /** #1265 — MapLibre `boxZoom` handler parity. Same live-read, same
+   *  runtime-settable shape as `doubleClickZoomEnabled`. Set via
+   *  `XGISMapOptions.boxZoom`. */
+  boxZoomEnabled = true
   /** Earth-surface fill color resolved from `background { fill: ... }`.
    *  Pushed into the synthetic earth-surface show + backend after GPU
    *  init. ALSO read by the background pass (render/passes/background-pass.ts)
@@ -1421,6 +1429,10 @@ export class XGISMap {
     // setting (kiosk/demo); `true` forces the media-query consult (the
     // default when the option is absent — stored as `undefined`).
     if (options.respectReducedMotion === false) this._reducedMotionOverride = false
+    // #1265 — gesture-handler enable/disable (MapLibre doubleClickZoom/
+    // boxZoom parity). Both default true; only `false` overrides.
+    if (options.doubleClickZoom === false) this.doubleClickZoomEnabled = false
+    if (options.boxZoom === false) this.boxZoomEnabled = false
     // #1255 — paint-transition duration (MapLibre *-transition parity,
     // default 300 ms). Consumed by the XGISLayer style setters; 0 disables.
     if (options.paintTransitionDuration !== undefined)
@@ -1773,10 +1785,17 @@ export class XGISMap {
   }
 
   /** Mapbox-API parity: fit the camera to a lon/lat bounding box.
-   *  Delegated to CameraController. */
+   *  Delegated to CameraController. `duration`/`easing` (#1265) are
+   *  opt-in — omitted, this stays the original instant jump. */
   fitBounds(
     bounds: [[number, number], [number, number]],
-    opts: { padding?: number; bearing?: number; pitch?: number } = {},
+    opts: {
+      padding?: number
+      bearing?: number
+      pitch?: number
+      duration?: number
+      easing?: (t: number) => number
+    } = {},
   ): void {
     this.cameraController.fitBounds(bounds, opts)
     this._cameraExplicitlyPositioned = true
@@ -2578,7 +2597,11 @@ export class XGISMap {
     this.controller.attach(
       this.canvas,
       this.camera,
-      () => ({ projectionName: this.projectionName }),
+      () => ({
+        projectionName: this.projectionName,
+        doubleClickZoomEnabled: this.doubleClickZoomEnabled,
+        boxZoomEnabled: this.boxZoomEnabled,
+      }),
       {
         onClick: (x, y, e) => {
           dispatcher.handleClick(x, y, e).catch(() => {})
@@ -2621,6 +2644,20 @@ export class XGISMap {
           this._cameraExplicitlyPositioned = true
           this.markInteracting()
           dispatcher.handleWheel(x, y, e) // rAF-coalesced + sync; nothing to catch
+        },
+        // #1265 — Shift+drag box zoom's terminal call: an EASED fitBounds
+        // (the hunt comment's own conclusion, now that #1256's easeTo
+        // infra exists) rather than an instant jump. `cameraAnimationDurationMs`
+        // is the same knob every other unspecified-duration animated move
+        // reads — 0 (screenshot-harness setting) or reduced-motion both
+        // already collapse `fitBounds({duration})` to instant via `easeTo`'s
+        // own resolution, so this needs no separate reduced-motion check
+        // here. `linear` easing mirrors MapLibre's BoxZoomHandler
+        // (`fitScreenCoordinates(..., {linear: true})`).
+        onBoxZoom: (bounds) => {
+          this._cameraExplicitlyPositioned = true
+          this.markInteracting()
+          this.fitBounds(bounds, { duration: this.cameraAnimationDurationMs, easing: (t) => t })
         },
       },
     )

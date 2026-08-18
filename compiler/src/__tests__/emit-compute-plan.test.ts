@@ -21,6 +21,7 @@ import type {
   StrokeValue,
 } from '../ir/render-node'
 import type { PropertyShape, RGBA } from '../ir/property-types'
+import type { ShaderVariant } from '../codegen/shader-gen'
 import { nodeToWgslString } from '../codegen/node-to-wgsl'
 
 const RED: RGBA = [1, 0, 0, 1]
@@ -255,6 +256,51 @@ describe('emitCommands — computePlan emission', () => {
     expect(cmds.shows[0]!.shaderVariant!.computeBindings).toBeUndefined()
     // Show 1 has compute paint → merged variant.
     expect(cmds.shows[1]!.shaderVariant!.computeBindings).toBeDefined()
+  })
+
+  // #1808 — the compute arm rendered every opacity-bearing fill FULLY
+  // OPAQUE: `mergeComputeAddendumIntoVariant` replaced the whole
+  // `vec4(colour.rgb, colour.a * OPACITY)` composition with a bare
+  // `unpack4x8unorm(compute_out_fill[...])`, so the layer opacity factor
+  // the CPU arm applies was dropped. Assert the two arms compose the SAME
+  // opacity operand — an equality between the paths, not a spelling check,
+  // so a future opacity shape (uniform / data-driven / palette) stays in
+  // parity by construction.
+  it('enableComputePath ON: fill/stroke keep the CPU arm’s opacity factor', () => {
+    const scene = makeScene([
+      makeNode({
+        opacity: { kind: 'constant', value: 0.85 },
+        fill: {
+          kind: 'data-driven',
+          expr: matchExpr('class', [
+            { pattern: 'a', hex: '#ff0000' },
+            { pattern: '_', hex: '#000000' },
+          ]),
+        },
+      }),
+    ])
+    const cpu = emitCommands(scene).shows[0]!.shaderVariant!
+    const gpu = emitCommands(scene, { enableComputePath: true }).shows[0]!.shaderVariant!
+
+    // Guard: the compute arm must still READ the kernel output. Without
+    // this an "opacity is applied" pass could be greened by falling back
+    // to the legacy expression entirely.
+    expect(nodeToWgslString(gpu.fillExpr!)).toContain('unpack4x8unorm(compute_out_fill')
+
+    // `composeFillVec4` emits vec4(colour.rgb, colour.a * <opacity>) — the
+    // alpha argument's right operand IS the opacity factor.
+    const opacityOperand = (v: ShaderVariant): unknown => {
+      const e = v.fillExpr!.expr as {
+        op: string
+        args?: readonly { op: string; bop?: string; b?: unknown }[]
+      }
+      expect(e.op).toBe('construct')
+      const alpha = e.args![1]!
+      expect(alpha.op).toBe('binop')
+      expect(alpha.bop).toBe('*')
+      return alpha.b
+    }
+    expect(opacityOperand(gpu)).toEqual(opacityOperand(cpu))
   })
 
   it('computePlan entry kernel.entryPoint matches a fn declared in the wgsl', () => {

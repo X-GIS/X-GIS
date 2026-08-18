@@ -673,7 +673,28 @@ const CEILINGS: Record<string, number> = {
   // only sees it through injected callbacks) plus the import. The BODY (the
   // id/id__N predicate + both fast-path gates) lives in map-teardown.ts /
   // source-manager.ts.
-  // 5460→5509 (#1258): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
+  // 5460→5497 (#1265): double-click zoom + Shift+drag box zoom (standard gesture
+  // parity). map.ts's share is composition-root wiring only — the gesture state
+  // machine itself lives in controller.ts: two runtime-settable enable/disable
+  // fields (doubleClickZoomEnabled/boxZoomEnabled, MapLibre handler parity) +
+  // their constructor-option reads, the `getState()` closure threading them to
+  // the controller live, the new `onBoxZoom` callback (the eased-fitBounds
+  // terminal call — #1256's easeTo infra is what makes "eased" possible now),
+  // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
+  // Baselined at #1265 (measured 997 after the prettier pass): the pointer-gesture state machine crossed
+  // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
+  // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
+  // smooth-zoom rAF loop; the old pointerdown-timing double-tap is now touch/
+  // pen-only so it can't double-fire alongside this) and Shift+drag box zoom
+  // (rubber-band state + the module-level overlay-div/stylesheet helpers,
+  // mirroring map-accessibility.ts's injectFocusStyle pattern; on release,
+  // unprojects all 4 screen corners via the existing `unprojectToLonLat` — which
+  // already scopes to flat projections, so globe/untilted-disc naturally defer
+  // with no extra branching — into a geo AABB dispatched via the new
+  // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
+  // from now.
+  'map/src/controller.ts': 997,
+  // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
   // setter mutates a private class field directly, exactly like every sibling setter here
@@ -682,8 +703,7 @@ const CEILINGS: Record<string, number> = {
   // the file's own established pattern. The BODY the render pass actually draws with (the
   // camera-ray extraction, the uniform pack, the shader) lives in atmosphere-uniform.ts /
   // atmosphere-pass.ts / shaders/dsl/atmosphere.ts.
-  'map/src/map.ts': 5509,
-  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  'map/src/map.ts': 5546,  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
@@ -1534,7 +1554,14 @@ const CEILINGS: Record<string, number> = {
   // 1018→1036 (#1792): the z=0 root split now requires `maxLevel >= 1` — on a
   // z=0-only archive it swapped the source's ONLY tile for four unresolvable
   // children, so the synthetic earth-surface show drew nothing off mercator/globe.
-  'map/src/render/tile-selection-cache.ts': 1036,
+  // 1036→1059 (#1785): #1581 stopped clearing `_frameTileCacheLru` every frame, but
+  // the `globeTilesSelected` diagnostic on `FrameDrawStats` is still reset every
+  // frame and was only ever re-set on a fresh compute (the cache-MISS branch) — so
+  // a static camera serving every frame from cache after the first left it reading
+  // 0 forever despite a correct sphere selection and a correct draw. +23 = a new
+  // `globeTilesSelected: number | null` field on `FrameTileCache` (stashed at
+  // compute time) + re-setting the diagnostic from it on a cache HIT too.
+  'map/src/render/tile-selection-cache.ts': 1059,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -1689,7 +1716,11 @@ const CEILINGS: Record<string, number> = {
   // non-overlapping edits SUM; never pick a side).
   // 1448→1452 (#1257): the raster-fade-duration accumulator field threaded through the
   // 4 existing raster-* sites (declare / acc-build / acc-extract / RenderNode-build).
-  'compiler/src/ir/lower.ts': 1452,
+  // 1452→1467 (#1069 smallest-honest-slice): the modifier-dispatch driver checks
+  // dispatch()'s verdict and pushes X-GIS0028 when no MODIFIER_HANDLERS entry
+  // consumed the item (previously a silent drop) — the gate must sit where the
+  // dispatch verdict is known, same rationale as the X-GIS0013 gate a few lines up.
+  'compiler/src/ir/lower.ts': 1467,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

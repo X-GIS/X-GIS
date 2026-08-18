@@ -59,20 +59,24 @@ export function runComputeParity(): ParityResult {
   for (let f = 0; f < n; f++) cm.fns[kernel.entryPoint]([f, 0, 0])
 
   // ── The shaders the runtime would emit for this kernel ──
-  // Two spellings of the SAME lowering: the legacy emit-site opt-in, and the #1812 PORTABLE
-  // KERNEL declaration, which asks for it at the authoring site with no option at all. The
-  // declared copy is built here rather than taken from compute-gen so this gate does not
-  // depend on that consumer having been updated yet.
-  const glslFsFlag = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
-  const portableModule = {
+  // Two spellings of the SAME lowering, kept DISTINGUISHABLE (#1823): compute-gen now
+  // declares its kernels `portable: true`, so the flag arm STRIPS the declaration — an
+  // undeclared kernel through the legacy emit-site opt-in — while the auto arm emits the
+  // production module verbatim, option-free. Without the strip both arms would be the same
+  // module under the same effective options and the byte pin would distinguish nothing
+  // (the assertion-that-fails-either-way trap).
+  const undeclaredModule = {
     ...kernel.module,
     funcs: kernel.module.funcs.map((f) =>
-      f.name === kernel.entryPoint ? { ...f, portable: true } : f,
+      f.name === kernel.entryPoint ? { ...f, portable: undefined } : f,
     ),
   }
-  // Everything below runs on the PORTABLE-path source: the execution parity gate must judge
-  // the shader the tier actually emits, not its twin.
-  const glslFs = emitGlslModule(portableModule, 'fragment')
+  const glslFsFlag = emitGlslModule(undeclaredModule, 'fragment', { emulateCompute: true })
+  // Everything below runs on the PORTABLE-path source — the production compute-gen module,
+  // whose declaration routes the lowering with no option: the execution parity gate must
+  // judge the shader the tier actually emits, not its twin. (If compute-gen ever drops the
+  // declaration, this emit throws missing-capabilities and the gate goes red naming it.)
+  const glslFs = emitGlslModule(kernel.module, 'fragment')
   const wgsl = emitModule(kernel.module)
 
   const flagLines = glslFsFlag.split('\n')

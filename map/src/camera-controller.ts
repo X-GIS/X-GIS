@@ -270,10 +270,23 @@ export class CameraController {
    *  Picks zoom from the lon-span (matches the internal heuristic in
    *  _fitZoomToLonSpan), centers on the bbox midpoint, and applies
    *  bearing=0 / pitch=0 unless the caller overrides. Honors
-   *  maxBounds (clamp post-fit) and the active zoom bounds. */
+   *  maxBounds (clamp post-fit) and the active zoom bounds.
+   *
+   *  #1265 — `duration`/`easing` are additive and OPT-IN: omitted (the
+   *  default), the fit is the original instant `jumpTo` — byte-identical
+   *  for every existing caller. Passing a `duration` routes the same
+   *  computed target through `easeTo` instead (which already owns the
+   *  reduced-motion / missing-clock collapse-to-instant logic), the eased
+   *  terminal call box-zoom (controller.ts) uses via `onBoxZoom`. */
   fitBounds(
     bounds: [[number, number], [number, number]],
-    opts: { padding?: number; bearing?: number; pitch?: number } = {},
+    opts: {
+      padding?: number
+      bearing?: number
+      pitch?: number
+      duration?: number
+      easing?: (t: number) => number
+    } = {},
   ): void {
     const [[w, s], [e, n]] = bounds
     if (
@@ -319,12 +332,17 @@ export class CameraController {
     const lonFitZoom = this._fitZoomToLonSpan(lonSpan, cssWidthPx)
     const latFitZoom = this._fitZoomToMercYSpan(s, n, cssHeightPx)
     const zoom = Math.min(lonFitZoom, latFitZoom)
-    this.jumpTo({
-      center: [centerLon, centerLat],
+    const target = {
+      center: [centerLon, centerLat] as [number, number],
       zoom,
       bearing: opts.bearing ?? 0,
       pitch: opts.pitch ?? 0,
-    })
+    }
+    if (opts.duration !== undefined) {
+      this.easeTo({ ...target, duration: opts.duration, easing: opts.easing })
+    } else {
+      this.jumpTo(target)
+    }
   }
 
   /** #1256 — current camera as a full CameraTarget (lon/lat, NOT Mercator
