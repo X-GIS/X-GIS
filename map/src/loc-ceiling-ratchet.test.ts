@@ -668,7 +668,12 @@ const CEILINGS: Record<string, number> = {
   // in-place path deliberately never calls) plus its reason. Nothing cohesive to
   // extract: it is a single predicate over `showCommands`, which this file owns.
   // Re-measured after merging both branches (5450 + the #1375 +8).
-  'map/src/map.ts': 5458,
+  // 5458→5460 (#1800): the SourceManagerDeps wiring gains `hasVariantSources` — the
+  // one-line predicate only map.ts can answer (it owns `vtSources`, SourceManager
+  // only sees it through injected callbacks) plus the import. The BODY (the
+  // id/id__N predicate + both fast-path gates) lives in map-teardown.ts /
+  // source-manager.ts.
+  'map/src/map.ts': 5460,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -753,7 +758,18 @@ const CEILINGS: Record<string, number> = {
   // lines of body and the rest the recorded reasoning (why the catalog's all-or-nothing
   // false means fall back, why the seeded FC must still be adopted with nothing
   // re-tiled, and why `detectCapPoles` is deliberately NOT re-run). MEASURED.
-  'map/src/source-manager.ts': 939,
+  // 939→959 (#1800): both in-place fast paths (`_reseedInPlace`'s call site in
+  // setSourceData, `patchFeaturesInPlace`) gain a `hasVariantSources(sourceId)`
+  // guard — neither can reach a filtered-show variant catalog's (`id__N`)
+  // independently-seeded subset, so a positive answer demotes them to the
+  // existing full teardown/rebuild path instead (conservative shape (b); the
+  // filter-membership problem a per-variant patch would need to solve is a
+  // design increment, not a right-sized fix here). +20 = the deps field/doc,
+  // the ctor wire, and the two call-site guards + their reasoning. The id/id__N
+  // predicate itself is NOT duplicated here — it lives once in map-teardown.ts
+  // (`hasVariantCatalogs`, sharing `teardownSources`' own predicate) and is
+  // threaded in as a callback, same shape as `getVtSource`. MEASURED.
+  'map/src/source-manager.ts': 959,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
