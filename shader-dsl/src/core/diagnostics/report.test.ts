@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { diagnose, formatReport } from './report'
-import { module, fn, f32T, f32 } from '../ir'
-import type { Backend, CapProfile } from '../backend'
+import { diagnose, formatReport } from './report.js'
+import { module, fn, f32T, f32 } from '../ir/index.js'
+import type { Backend, CapProfile } from '../backend.js'
 
 // A minimal backend stub that covers everything EXCEPT compute — diagnose() reads only
 // `id` and `capProfile`, so we don't need a full Backend implementation.

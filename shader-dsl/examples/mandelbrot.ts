@@ -30,9 +30,9 @@ import {
   Let,
   f32T,
   vec4fT,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ zoom: f32T, mouse: vec4fT })
 
 // Iridescent cosine palette: 0.5 + 0.5·cos(2π(t + phase)).

@@ -1,5 +1,5 @@
-import type { ShaderType } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { ShaderType } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 const isFloat = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
 

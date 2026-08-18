@@ -20,7 +20,7 @@
 // signal selects the integer flavor. All signals optional — no signals means
 // 'float' (the default, byte-identical lowering).
 
-import type { Fp64Flavor } from '../passes/fp64-lower'
+import type { Fp64Flavor } from '../passes/fp64-lower.js'
 
 /** The device-identification signals `recommendFp64Flavor` (and `isAppleGpu`) use to
  *  pick the df64 lowering flavour a target actually needs — `'integer'` on

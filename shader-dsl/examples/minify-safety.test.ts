@@ -22,10 +22,10 @@
 // compiles the minified output on real Tint + ANGLE.
 
 import { describe, it, expect } from 'vitest'
-import { examples } from './index.ts'
-import { emitModule, emitGlslModule } from '../src/index.ts'
-import { minifyShaderText } from '../src/emit-prod.ts'
-import { shaderTokens } from '../src/core/emit-minify.ts'
+import { examples } from './index.js'
+import { emitModule, emitGlslModule } from '../src/index.js'
+import { minifyShaderText } from '../src/emit-prod.js'
+import { shaderTokens } from '../src/core/emit-minify.js'
 
 interface Corpus {
   readonly name: string

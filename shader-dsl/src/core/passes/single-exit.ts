@@ -1,4 +1,4 @@
-import type { FuncDecl, Stmt } from '../ir/nodes'
+import type { FuncDecl, Stmt } from '../ir/nodes.js'
 
 // MISRA-C Rule 15.5 style — a function has a SINGLE point of exit: exactly one
 // `return`, as the final statement (no early returns nested in control flow). On

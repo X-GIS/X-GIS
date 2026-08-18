@@ -18,13 +18,13 @@ import {
   overrideConst,
   If,
   Var,
-} from '../ir'
-import { ioStruct, builtin, location, uniformStruct } from '../sot'
-import { emitModule } from '../backends/wgsl'
-import { emitGlslModule } from '../backends/glsl'
-import { mangle } from '../../emit-prod'
-import { mangleModule } from './mangle'
-import type { ModuleDecl } from '../ir'
+} from '../ir/index.js'
+import { ioStruct, builtin, location, uniformStruct } from '../sot.js'
+import { emitModule } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { mangle } from '../../emit-prod.js'
+import { mangleModule } from './mangle.js'
+import type { ModuleDecl } from '../ir/index.js'
 
 /** Generated names are base-52 short (`a`, `b`, … `aa`) — not a tagged scheme. */
 const SHORT = /^[a-zA-Z]{1,2}$/

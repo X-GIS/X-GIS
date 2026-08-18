@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { module, fn, f32T } from '../../../ir'
-import { noDeadBinding } from './no-dead-binding'
+import { lint } from '../engine.js'
+import { module, fn, f32T } from '../../../ir/index.js'
+import { noDeadBinding } from './no-dead-binding.js'
 
 const ruleIds = (m: ReturnType<typeof module>) => lint(m, [noDeadBinding]).map((d) => d.ruleId)
 

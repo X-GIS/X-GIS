@@ -60,7 +60,7 @@ import {
   type BindingDecl,
   type FuncDecl,
   type ShaderType,
-} from '../ir'
+} from '../ir/index.js'
 
 // ── Host-side split (the packing twin of the shader emulation) ──
 

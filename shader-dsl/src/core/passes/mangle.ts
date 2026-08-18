@@ -38,12 +38,20 @@
 // Bails to identity when a fn body carries a `raw` Stmt (textual references
 // this walk cannot see).
 
-import { stageOf } from '../ir'
-import type { ModuleDecl, FuncDecl, StructDecl, ConstDecl, BindingDecl, Expr, Stmt } from '../ir'
-import type { ShaderType } from '../ir'
-import { collectFnRefs, emptyRefSet } from '../ir/collect-refs'
-import { mapExpr } from './opt/ir-transform'
-import { bodyHasRaw } from './opt/dce'
+import { stageOf } from '../ir/index.js'
+import type {
+  ModuleDecl,
+  FuncDecl,
+  StructDecl,
+  ConstDecl,
+  BindingDecl,
+  Expr,
+  Stmt,
+} from '../ir/index.js'
+import type { ShaderType } from '../ir/index.js'
+import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js'
+import { mapExpr } from './opt/ir-transform.js'
+import { bodyHasRaw } from './opt/dce.js'
 
 /** What {@link mangleModule} returns: the renamed module, and the map to read it back with.
  *

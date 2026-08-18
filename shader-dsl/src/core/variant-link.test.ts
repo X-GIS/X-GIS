@@ -11,10 +11,10 @@
 // meaningful if the implementation reorders its calls.
 
 import { describe, it, expect } from 'vitest'
-import { builtin, ioStruct, uniformStruct } from './sot'
-import { fn, module, vec4, f32T, vec4fT } from './ir'
-import { variantFamily } from './variant-family'
-import { linkVariants, type GlLinker } from './variant-link'
+import { builtin, ioStruct, uniformStruct } from './sot.js'
+import { fn, module, vec4, f32T, vec4fT } from './ir/index.js'
+import { variantFamily } from './variant-family.js'
+import { linkVariants, type GlLinker } from './variant-link.js'
 
 const VsOut = ioStruct('VOut', { pos: builtin('position', vec4fT) })
 

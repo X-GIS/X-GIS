@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { module, fn, f32T, f32, vec2fT, vec2 } from '../../../ir'
-import { noAssignToLet } from './no-assign-to-let'
+import { lint } from '../engine.js'
+import { module, fn, f32T, f32, vec2fT, vec2 } from '../../../ir/index.js'
+import { noAssignToLet } from './no-assign-to-let.js'
 
 const ruleIds = (m: ReturnType<typeof module>) => lint(m, [noAssignToLet]).map((d) => d.ruleId)
 

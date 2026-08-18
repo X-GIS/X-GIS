@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, f32T } from './index'
-import { emitFunc } from '../backends/wgsl'
+import { fn, f32T } from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // fn()'s name is OPTIONAL (the redundant-with-the-JS-const string): omit it for an auto
 // `_fn{n}`. The name flows through the handle, so the decl AND every call use the same auto

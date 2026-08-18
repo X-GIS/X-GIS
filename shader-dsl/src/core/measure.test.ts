@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { emitSize, countOps, optimizerReport } from './measure'
-import { module, fn, f32, f32T, sin, select } from './ir'
-import { emitModule, emitModuleAt } from './backends/wgsl'
+import { emitSize, countOps, optimizerReport } from './measure.js'
+import { module, fn, f32, f32T, sin, select } from './ir/index.js'
+import { emitModule, emitModuleAt } from './backends/wgsl.js'
 
 // "Measure, don't guess." The optimizer is measured on TWO axes — op count (the GPU-work
 // proxy, which it minimises) and source size (the compile-time proxy, which it does NOT).

@@ -37,9 +37,9 @@ import {
   Let,
   u32,
   uniformStruct,
-} from '../src/index.ts'
-import { VsOut, vs } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 // A spike point with escape structure at every depth (CPU-verified); y = 0
 // keeps the never-escaping real axis mid-frame at every zoom.

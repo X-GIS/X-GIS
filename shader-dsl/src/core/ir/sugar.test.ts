@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { madd, outsideRange, insideRange, param, f32T } from './index'
-import { emitExpr } from '../backends/wgsl'
+import { madd, outsideRange, insideRange, param, f32T } from './index.js'
+import { emitExpr } from '../backends/wgsl.js'
 
 // Readability killer #2 — composite arithmetic helpers. The arithmetic chains C2
 // can't touch (no JS infix) read worst as guards/fma: `arc.lt(lo).or(arc.gt(hi))`,

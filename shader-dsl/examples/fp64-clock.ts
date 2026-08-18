@@ -34,9 +34,9 @@ import {
   f32T,
   f64T,
   Let,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms, screenCoords } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 
 const TAU = 6.283185307179586
 

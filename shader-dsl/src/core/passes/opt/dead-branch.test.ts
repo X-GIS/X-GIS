@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { deadBranch, constFold } from './index'
-import { module, f32T, boolT, type Stmt, type Expr, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { deadBranch, constFold } from './index.js'
+import { module, f32T, boolT, type Stmt, type Expr, type ModuleDecl } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
 const litBool = (value: boolean): Expr => ({ op: 'lit', type: boolT, value })

@@ -1,11 +1,11 @@
 // ═══ minifyShaderText / emit-prod transformText — token safety, directives, idempotence ═══
 
 import { describe, it, expect } from 'vitest'
-import { minifyShaderText, mangle, minify, obfuscate } from '../emit-prod'
-import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir'
-import { ioStruct, builtin, location } from './sot'
-import { emitModule } from './backends/wgsl'
-import { emitGlslModule } from './backends/glsl'
+import { minifyShaderText, mangle, minify, obfuscate } from '../emit-prod.js'
+import { fn, module, vec2, vec4, sin, u32T, vec2fT, vec4fT } from './ir/index.js'
+import { ioStruct, builtin, location } from './sot.js'
+import { emitModule } from './backends/wgsl.js'
+import { emitGlslModule } from './backends/glsl.js'
 
 describe('minifyShaderText — string contracts', () => {
   it('keeps # directive lines verbatim on their own line', () => {

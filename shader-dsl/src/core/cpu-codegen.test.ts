@@ -13,10 +13,10 @@
 // vector fn, interpreter vs codegen.
 
 import { describe, it, expect } from 'vitest'
-import type { Expr, Stmt, ModuleDecl, ShaderType, BinOp, CmpOp } from './ir'
-import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, structT, arrayT } from './ir'
-import { compileModule } from './oracle'
-import { compileModuleJs } from './cpu-codegen'
+import type { Expr, Stmt, ModuleDecl, ShaderType, BinOp, CmpOp } from './ir/index.js'
+import { f32T, i32T, u32T, boolT, vec2fT, vec3fT, vec4fT, structT, arrayT } from './ir/index.js'
+import { compileModule } from './oracle.js'
+import { compileModuleJs } from './cpu-codegen.js'
 
 // ── Hand-built IR constructors (explicit Stmt/Expr shapes) ──
 const lit = (v: number | boolean, type: ShaderType = f32T): Expr => ({ op: 'lit', type, value: v })

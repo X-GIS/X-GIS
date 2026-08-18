@@ -1,5 +1,5 @@
-import type { LintRule } from '../engine'
-import { typeEq, typeKey } from '../../../ir'
+import type { LintRule } from '../engine.js'
+import { typeEq, typeKey } from '../../../ir/index.js'
 
 /** A call to a MODULE fn must match its declared parameter count and types.
  *

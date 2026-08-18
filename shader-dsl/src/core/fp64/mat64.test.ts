@@ -24,12 +24,12 @@ import {
   type Expr,
   type ModuleDecl,
   type ShaderType,
-} from '../ir'
-import { compileModule, type CpuValue } from '../oracle'
-import { fp64Lower } from '../passes/fp64-lower'
-import { mapModuleExprs } from '../passes/opt/ir-transform'
-import { wgslLayout } from '../reflect'
-import { splitF64, FP64_GUARD_NAME, DF64_MAT_STRUCTS, DF64_VEC_STRUCTS } from './df64-lib'
+} from '../ir/index.js'
+import { compileModule, type CpuValue } from '../oracle.js'
+import { fp64Lower } from '../passes/fp64-lower.js'
+import { mapModuleExprs } from '../passes/opt/ir-transform.js'
+import { wgslLayout } from '../reflect.js'
+import { splitF64, FP64_GUARD_NAME, DF64_MAT_STRUCTS, DF64_VEC_STRUCTS } from './df64-lib.js'
 
 // ── Authoring surface ──
 

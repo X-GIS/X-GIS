@@ -14,12 +14,12 @@
 //  11. emitModule defensive throw if matchExpr leaks past the lowerer
 
 import { describe, it, expect } from 'vitest'
-import { matchExpr, f32, i32, u32, vec4, type Node } from './node'
-import type { Expr, Stmt, FuncDecl, ModuleDecl } from './nodes'
-import { f32T, i32T, u32T, vec4fT } from './types'
-import { emitModule } from '../backends/wgsl'
-import { lowerModule } from '../passes/match-lower'
-import { compileModule } from '../oracle'
+import { matchExpr, f32, i32, u32, vec4, type Node } from './node.js'
+import type { Expr, Stmt, FuncDecl, ModuleDecl } from './nodes.js'
+import { f32T, i32T, u32T, vec4fT } from './types.js'
+import { emitModule } from '../backends/wgsl.js'
+import { lowerModule } from '../passes/match-lower.js'
+import { compileModule } from '../oracle.js'
 
 // ── Helpers — build IR fragments without the Builder (so tests stay
 // explicit about the Stmt/Expr shape each one asserts). ────────────────

@@ -21,13 +21,13 @@
 // not account for.
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir'
-import { builtin, ioStruct, location, uniformStruct } from './sot'
-import { mangleModule } from './passes/mangle'
-import { inlineLinearAll } from './passes/inline-linear'
-import { inline, mangle, minify } from '../emit-prod'
-import { isSemanticallyEqual, semanticDiff } from './semantic-diff'
-import type { ModuleDecl } from './ir'
+import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir/index.js'
+import { builtin, ioStruct, location, uniformStruct } from './sot.js'
+import { mangleModule } from './passes/mangle.js'
+import { inlineLinearAll } from './passes/inline-linear.js'
+import { inline, mangle, minify } from '../emit-prod.js'
+import { isSemanticallyEqual, semanticDiff } from './semantic-diff.js'
+import type { ModuleDecl } from './ir/index.js'
 
 const U = uniformStruct(
   'SdParams',

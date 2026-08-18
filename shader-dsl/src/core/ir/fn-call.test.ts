@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, f32, f32T } from './index'
-import { emitExpr } from '../backends/wgsl'
+import { fn, f32, f32T } from './index.js'
+import { emitExpr } from '../backends/wgsl.js'
 
 // fn() returns a callable FnHandle. Inputs can be given two ways: the TYPED object-param
 // `foo({ a, b })` (TS checks names + types + completeness, autocompletes) or the loose

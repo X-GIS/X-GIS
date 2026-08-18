@@ -1,5 +1,5 @@
-import type { LintRule } from '../engine'
-import { checkSingleExit } from '../../single-exit'
+import type { LintRule } from '../engine.js'
+import { checkSingleExit } from '../../single-exit.js'
 
 /** MISRA-C Rule 15.5 — a single point of exit (one return, as the final statement).
  *  The structural check lives in passes/single-exit.ts; this wires it as a rule.

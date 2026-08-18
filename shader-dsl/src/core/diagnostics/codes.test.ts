@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CODES } from './codes'
+import { CODES } from './codes.js'
 
 describe('diagnostic code catalogue', () => {
   const entries = Object.entries(CODES)

@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { emitModule, wgslBackend } from './backends/wgsl'
-import { emitModuleWithReflection } from './emit'
-import { reflect } from './reflect'
-import { mat4x4fT, vec4fT, vec2fT, f32T, i32T, type ModuleDecl, type StructDecl } from './ir'
+import { emitModule, wgslBackend } from './backends/wgsl.js'
+import { emitModuleWithReflection } from './emit.js'
+import { reflect } from './reflect.js'
+import {
+  mat4x4fT,
+  vec4fT,
+  vec2fT,
+  f32T,
+  i32T,
+  type ModuleDecl,
+  type StructDecl,
+} from './ir/index.js'
 
 const struct = (
   name: string,

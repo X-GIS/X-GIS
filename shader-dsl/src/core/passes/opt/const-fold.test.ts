@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { constFold } from './index'
-import { module, fn, f32, f32T, boolT, select } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { constFold } from './index.js'
+import { module, fn, f32, f32T, boolT, select } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — constant folding of literal CONTROL predicates (the numeric +-*/ folding is
 // covered by runtime/.../dsl/optimize.test.ts). A literal compare folds to a bool

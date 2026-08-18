@@ -1,8 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { cse } from './index'
-import { module, fn, f32T, boolT, sin, cos, type Stmt, type Expr, type ModuleDecl } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { cse } from './index.js'
+import {
+  module,
+  fn,
+  f32T,
+  boolT,
+  sin,
+  cos,
+  type Stmt,
+  type Expr,
+  type ModuleDecl,
+} from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — common-subexpression elimination (as a PASS over the IR, not an authoring
 // change). Safe subset: hoist a compound subexpression that (a) occurs >= 2x and

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { module, fn, f32T, smoothstep } from '../../../ir'
-import { smoothstepEdgeOrder } from './smoothstep-edge-order'
+import { lint } from '../engine.js'
+import { module, fn, f32T, smoothstep } from '../../../ir/index.js'
+import { smoothstepEdgeOrder } from './smoothstep-edge-order.js'
 
 const run = (m: ReturnType<typeof module>) => lint(m, [smoothstepEdgeOrder])
 

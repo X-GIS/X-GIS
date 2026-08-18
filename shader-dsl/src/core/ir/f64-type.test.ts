@@ -21,7 +21,7 @@ import {
   toF64,
   toF32,
   type ReadonlyNode,
-} from './index'
+} from './index.js'
 
 describe('f64 type plumbing', () => {
   it('typeKey / isF64 / f64T agree', () => {

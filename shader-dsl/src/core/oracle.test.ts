@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compileModule } from './oracle'
-import { module, fn, f32, f32T, mod, vec3, vec3fT, clamp, mix, type Node } from './ir'
+import { compileModule } from './oracle.js'
+import { module, fn, f32, f32T, mod, vec3, vec3fT, clamp, mix, type Node } from './ir/index.js'
 
 // #13 (remaining half) — the oracle is the CPU half of a two-oracle contract; the
 // GPU computes f32. Its `==` / `!=` must therefore reflect f32 rounding, not exact

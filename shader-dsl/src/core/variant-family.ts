@@ -33,12 +33,12 @@
 // and `map/src/shaders/baked/ids.ts:64-70` records the near-miss it already cost. A key
 // DERIVED from the axes cannot omit one.
 
-import type { ModuleDecl } from './ir'
-import { reflect, type Reflection } from './reflect'
-import { emitGlslFragment, type GlslEmitOptions } from './backends/glsl'
-import { emitModule } from './backends/wgsl'
-import type { EmitOptions } from './emit'
-import type { EmitFragment, FragmentDeclares } from './fragment'
+import type { ModuleDecl } from './ir/index.js'
+import { reflect, type Reflection } from './reflect.js'
+import { emitGlslFragment, type GlslEmitOptions } from './backends/glsl.js'
+import { emitModule } from './backends/wgsl.js'
+import type { EmitOptions } from './emit.js'
+import type { EmitFragment, FragmentDeclares } from './fragment.js'
 
 /** One point in the axis space: each axis name mapped to one of its declared values. */
 export type AxisValues<A extends Record<string, readonly unknown[]>> = {

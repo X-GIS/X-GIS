@@ -80,7 +80,7 @@ const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/
  * const { source } = buildRegistry(scan('./examples'), {
  *   order: CURATED_IDS,               // editorial; the scan cannot derive it
  *   valueType: 'ShaderExample',
- *   imports: ["import type { ShaderExample } from './_shared.ts'"],
+ *   imports: ["import type { ShaderExample } from './_shared.js'"],
  *   regenerateWith: 'bun scripts/gen-registry.ts > examples/registry.generated.ts',
  * })
  * ```

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { copyProp } from './index'
-import { module, fn, f32T } from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
+import { copyProp } from './index.js'
+import { module, fn, f32T } from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
 
 // P2 — copy propagation: substitute a bare copy binding (let y = x, no
 // computation) into its uses when neither side is reassigned. Pure reference

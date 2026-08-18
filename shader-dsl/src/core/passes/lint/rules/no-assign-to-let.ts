@@ -1,5 +1,5 @@
-import type { Expr, Stmt } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { Expr, Stmt } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 // Split a fn body's local bindings into immutable `let` names and mutable `var` names
 // (recursing into if / for / switch blocks; the for-init counter is a `var`). A name that

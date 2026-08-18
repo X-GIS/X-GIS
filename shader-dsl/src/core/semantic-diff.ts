@@ -35,7 +35,7 @@
 // a resemblance test cannot distinguish an intentional inline from a regression that
 // happens to resemble one, which is the 'temporaries' knob above wearing a new name.
 
-import { typeKey, type ShaderType } from './ir/types'
+import { typeKey, type ShaderType } from './ir/types.js'
 import {
   stageOf,
   type ConstDecl,
@@ -43,9 +43,9 @@ import {
   type FuncDecl,
   type ModuleDecl,
   type Stmt,
-} from './ir/nodes'
-import { reflect } from './reflect'
-import type { EmitPlugin } from './emit'
+} from './ir/nodes.js'
+import { reflect } from './reflect.js'
+import type { EmitPlugin } from './emit.js'
 
 /** An axis of difference `semanticDiff` can be told to disregard.
  *

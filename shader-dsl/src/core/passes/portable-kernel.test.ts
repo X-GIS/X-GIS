@@ -49,13 +49,13 @@ import {
   type ModuleDecl,
   type ShaderType,
   type Stmt,
-} from '../ir'
-import { builtin, resource, storageBuffer } from '../sot'
-import { emitModule } from '../backends/wgsl'
-import { emitGlslModule } from '../backends/glsl'
-import { reflect } from '../reflect'
-import { ShaderDslError } from '../diagnostics/error'
-import { ValidationError } from './validate'
+} from '../ir/index.js'
+import { builtin, resource, storageBuffer } from '../sot.js'
+import { emitModule } from '../backends/wgsl.js'
+import { emitGlslModule } from '../backends/glsl.js'
+import { reflect } from '../reflect.js'
+import { ShaderDslError } from '../diagnostics/error.js'
+import { ValidationError } from './validate.js'
 
 const boolT = { kind: 'scalar', scalar: 'bool' } as ShaderType
 const arrF32 = { kind: 'array', elem: f32T } as ShaderType

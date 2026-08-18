@@ -7,8 +7,8 @@
 // playground/e2e/_shader-dsl-mrt-render.spec.ts.
 
 import { describe, it, expect } from 'vitest'
-import { mrtGateModule } from './_mrt-gate.ts'
-import { emitModule, emitGlslModule, reflect } from '../src/index.ts'
+import { mrtGateModule } from './_mrt-gate.js'
+import { emitModule, emitGlslModule, reflect } from '../src/index.js'
 
 describe('MRT (multi-@location fragment output)', () => {
   it('WGSL: the output struct carries both draw-buffer locations', () => {

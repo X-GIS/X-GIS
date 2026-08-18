@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, externFn, callFn, f32, f32T } from './index'
-import { emitModule } from '../backends/wgsl'
+import { fn, module, externFn, callFn, f32, f32T } from './index.js'
+import { emitModule } from '../backends/wgsl.js'
 
 // ═══ #740 R1 — module() transitive collection + key-naming ═══
 //

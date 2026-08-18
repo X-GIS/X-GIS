@@ -19,9 +19,9 @@ import {
   mix,
   f32,
   f32T,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ bands: f32T })
 
 // 5-stop sequential ramp (light yellow → deep red), a classic choropleth legend.

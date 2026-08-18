@@ -10,10 +10,10 @@
 // every broken shader, silently, forever.
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec4, vec4fT, f32T } from './ir'
-import { builtin, ioStruct } from './sot'
-import { variantFamily } from './variant-family'
-import { validateVariantsWgsl, type WgslMessage, type WgslValidator } from './variant-link'
+import { fn, module, vec4, vec4fT, f32T } from './ir/index.js'
+import { builtin, ioStruct } from './sot.js'
+import { variantFamily } from './variant-family.js'
+import { validateVariantsWgsl, type WgslMessage, type WgslValidator } from './variant-link.js'
 
 const VsOut = ioStruct('WgOut', { pos: builtin('position', vec4fT) })
 

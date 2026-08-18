@@ -32,9 +32,9 @@ import {
   type FuncDecl,
   type ModuleDecl,
   type Stmt,
-} from '../ir'
-import { collectFnRefs, emptyRefSet } from '../ir/collect-refs'
-import { bodyHasRaw } from './opt/dce'
+} from '../ir/index.js'
+import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js'
+import { bodyHasRaw } from './opt/dce.js'
 
 /** An entry parameter as the IR spells it — `FuncDecl['params']` has no name of its own. */
 type ParamDecl = FuncDecl['params'][number]

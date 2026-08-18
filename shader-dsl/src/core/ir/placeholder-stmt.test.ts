@@ -17,11 +17,11 @@
 //   13d — wgsl-lower lowerModule: leaf, no matchExpr descent.
 
 import { describe, it, expect } from 'vitest'
-import type { Stmt, FuncDecl, ModuleDecl } from './nodes'
-import { i32T, voidT } from './types'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
-import { lowerModule } from '../passes/match-lower'
+import type { Stmt, FuncDecl, ModuleDecl } from './nodes.js'
+import { i32T, voidT } from './types.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
+import { lowerModule } from '../passes/match-lower.js'
 
 function moduleWithBody(body: Stmt[]): ModuleDecl {
   const fn: FuncDecl = {

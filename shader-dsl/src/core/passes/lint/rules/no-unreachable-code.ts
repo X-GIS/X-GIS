@@ -1,5 +1,5 @@
-import type { Stmt } from '../../../ir'
-import type { LintRule } from '../engine'
+import type { Stmt } from '../../../ir/index.js'
+import type { LintRule } from '../engine.js'
 
 function reportUnreachable(
   body: readonly Stmt[],

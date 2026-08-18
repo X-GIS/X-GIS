@@ -15,8 +15,8 @@ import type {
   BindingDecl,
   FuncDecl,
   ModuleDecl,
-} from '../ir'
-import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend'
+} from '../ir/index.js'
+import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
 import {
   emitExpr as emitExprNeutral,
   emitBody,
@@ -25,13 +25,13 @@ import {
   emitModuleFragment as emitFragmentDriver,
   lowerForBackend,
   type EmitOptions,
-} from '../emit'
-import type { EmitFragment } from '../fragment'
-import { lowerModule } from '../passes/match-lower'
-import { fixpoint, autoVars, type OptLevel } from '../passes/opt'
-import { spellIntrinsic } from '../intrinsics'
-import { fp64Lower } from '../passes/fp64-lower'
-import { dslError } from '../diagnostics/error'
+} from '../emit.js'
+import type { EmitFragment } from '../fragment.js'
+import { lowerModule } from '../passes/match-lower.js'
+import { fixpoint, autoVars, type OptLevel } from '../passes/opt/index.js'
+import { spellIntrinsic } from '../intrinsics.js'
+import { fp64Lower } from '../passes/fp64-lower.js'
+import { dslError } from '../diagnostics/error.js'
 
 /** Spell a {@link ShaderType} as WGSL type syntax (`f32`, `vec2<f32>`, `array<u32, 4>`, …).
  *

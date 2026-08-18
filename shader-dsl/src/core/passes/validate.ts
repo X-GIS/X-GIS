@@ -14,10 +14,10 @@
 // raw WGSL referenced by plain name, so a name rule cannot tell an injected name from a
 // typo (it once broke the polygon VT variant on `OPACITY` at runtime).
 
-import type { ModuleDecl } from '../ir'
-import { lint, type Diagnostic, type LintConfig } from './lint/engine'
-import { RULES, CORE_RULES } from './lint/rules'
-import { ShaderDslError, formatLoc } from '../diagnostics/error'
+import type { ModuleDecl } from '../ir/index.js'
+import { lint, type Diagnostic, type LintConfig } from './lint/engine.js'
+import { RULES, CORE_RULES } from './lint/rules/index.js'
+import { ShaderDslError, formatLoc } from '../diagnostics/error.js'
 
 /** Render every error diagnostic on its own line — `[SD####] (fn X) message @ file:line:col`
  *  — so an aggregated validation failure shows ALL problems, not just the first. */
