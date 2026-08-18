@@ -52,6 +52,18 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
     const r = (y: Expr) => go(y, full ? 0 : 1)
     switch (x.op) {
       case 'binop': {
+        // Float `%` for a target whose native `%` is integer-only (GLSL ES 3.00):
+        // delegate to the backend's trunc-mod spelling. Operands are forced to
+        // ATOM precedence — the composed expression repeats them inside a `/`,
+        // where a minimally-parenthesized `a + b` would re-associate.
+        if (
+          x.bop === '%' &&
+          be.floatMod !== undefined &&
+          ((x.a.type.kind === 'scalar' && x.a.type.scalar === 'f32') ||
+            (x.a.type.kind === 'vec' && x.a.type.elem === 'f32'))
+        ) {
+          return be.floatMod(go(x.a, PREC_ATOM), go(x.b, PREC_ATOM))
+        }
         if (full) return `(${r(x.a)} ${x.bop} ${r(x.b)})`
         const p = precOf(x.bop)
         if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`

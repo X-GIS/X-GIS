@@ -331,7 +331,9 @@ export class Builder {
   }
 
   switch(
-    scrut: ReadonlyNode<ScalarKey>,
+    // Integer keys only: WGSL and GLSL ES 3.00 both type `switch` over i32/u32 — an
+    // f32 scrutinee used to type-check (ScalarKey) and die at BOTH GPU compilers.
+    scrut: ReadonlyNode<'i32' | 'u32'>,
     cases: Array<[number, (b: Builder) => ReadonlyNode | void]>,
     defaultBody?: (b: Builder) => ReadonlyNode | void,
   ): void {
@@ -1516,7 +1518,7 @@ export function condExpr<K extends string>(
  *  (optional) + the terminator. */
 export class SwitchChain {
   private readonly cases: Array<[number, () => void]> = []
-  constructor(private readonly scrut: ReadonlyNode<ScalarKey>) {}
+  constructor(private readonly scrut: ReadonlyNode<'i32' | 'u32'>) {}
   case(value: number, body: () => void): SwitchChain {
     this.cases.push([value, body])
     return this
@@ -1535,6 +1537,6 @@ export class SwitchChain {
 /** Open a `switch (scrut)` chain — `Switch(scrut).case(n, body)….default(body)`.
  *  The scrutinee is a READ position — `ReadonlyNode`, same as the underlying
  *  `Builder.switch` (#763 G4; the two spellings had drifted apart). */
-export function Switch(scrut: ReadonlyNode<ScalarKey>): SwitchChain {
+export function Switch(scrut: ReadonlyNode<'i32' | 'u32'>): SwitchChain {
   return new SwitchChain(scrut)
 }

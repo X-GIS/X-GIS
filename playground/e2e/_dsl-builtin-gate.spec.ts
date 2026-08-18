@@ -54,6 +54,8 @@ import {
   unpack2x16float,
   unpack2x16unorm,
   unpack2x16snorm,
+  toU32,
+  toI32,
   emitModule,
   emitGlslModule,
   compileModule,
@@ -79,6 +81,11 @@ const M = buildModule({
     fn('up_float', { u: u32T }, ({ u }) => unpack2x16float(u)),
     fn('up_unorm', { u: u32T }, ({ u }) => unpack2x16unorm(u)),
     fn('up_snorm', { u: u32T }, ({ u }) => unpack2x16snorm(u)),
+    // Audit batch: float % (WGSL trunc-mod — the GLSL writer now spells it inline)
+    // and the SATURATING f32→u32/i32 conversions (the CPU mirror follows WGSL).
+    fn('f_fmod', { a: f32T, b: f32T }, ({ a, b }) => a.mod(b)),
+    fn('c_u32', { x: f32T }, ({ x }) => toU32(x)),
+    fn('c_i32', { x: f32T }, ({ x }) => toI32(x)),
   ],
 })
 
@@ -99,9 +106,11 @@ const I = [
   -2.25, // 8: pack2x16float c1 (exact in f16); snorm clamp-binding lane (→ −1)
   0.75, // 9: unorm c0 (49151.25 — unambiguous)
   0.25, // 10: unorm/snorm c1 (16383.75 / 8191.75 — unambiguous)
+  4.5e9, // 11: u32-saturation upper lane (f32-rounds above u32-max → 4294967295)
+  -3e9, // 12: i32-saturation lower lane (f32-rounds below i32-min → −2147483648)
 ].map(Math.fround)
 
-const N_OUT = 19
+const N_OUT = 23
 
 const KERNEL_WGSL = `
 ${emitModule(M)}
@@ -132,6 +141,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let us = up_snorm(0x7FFF8001u);
   outp[17] = bitcast<u32>(us.x);
   outp[18] = bitcast<u32>(us.y);
+  outp[19] = bitcast<u32>(f_fmod(inp[8], inp[2]));
+  outp[20] = c_u32(inp[5]);
+  outp[21] = c_u32(inp[11]);
+  outp[22] = bitcast<u32>(c_i32(inp[12]));
 }
 `
 
@@ -274,6 +287,16 @@ test.describe('DSL builtin gate — WGSL (Tint compile + compute execution vs CP
       const lane = 13 + k
       expect(asF32(gpuU32[lane]!), `lane ${lane} (unpack, exact)`).toBe(Math.fround(want))
     })
+
+    // Lanes 19–22: float % (WGSL trunc-mod — exact on these operands) and the
+    // SATURATING f32→u32/i32 conversions (Tint polyfills the WGSL clamp; the CPU
+    // mirror follows the same rules) — all bit-exact.
+    expect(asF32(gpuU32[19]!), 'lane 19 (float % trunc-mod)').toBe(
+      Math.fround(n(cpu.f_fmod(I[8]!, I[2]!))),
+    )
+    expect(gpuU32[20]!, 'lane 20 (u32 saturates below 0)').toBe(n(cpu.c_u32(I[5]!)) >>> 0)
+    expect(gpuU32[21]!, 'lane 21 (u32 saturates above max)').toBe(n(cpu.c_u32(I[11]!)) >>> 0)
+    expect(gpuU32[22]!, 'lane 22 (i32 saturates below min)').toBe(n(cpu.c_i32(I[12]!)) >>> 0)
   })
 })
 
@@ -328,7 +351,11 @@ const fs = fn(
     const ps = b.let('ps', pack2x16snorm(vec2(ux, uy)))
     const s = b.let(
       's',
-      unpack2x16float(pf).x.add(unpack2x16unorm(pu).y).add(unpack2x16snorm(ps).x),
+      unpack2x16float(pf)
+        .x.add(unpack2x16unorm(pu).y)
+        .add(unpack2x16snorm(ps).x)
+        // float % — the GLSL writer must spell this as trunc-mod (native % is int-only).
+        .add(ux.mod(0.3)),
     )
     // The PORTABLE fragment-coordinate read — @builtin(position) on the fragment
     // input, spelled gl_FragCoord by the GLSL writer. This is the form the retired
@@ -367,6 +394,7 @@ test.describe('DSL builtin gate — GLSL ES 3.00 (real WebGL2 compile + link)', 
       'unpackUnorm2x16(',
       'unpackSnorm2x16(',
       'gl_FragCoord', // the fragment-input position read — the portable frag_coord form
+      'trunc(', // float % spelled as trunc-mod (GLSL's native % is integer-only)
     ]) {
       expect(fragment, `fragment GLSL must contain ${s}`).toContain(s)
     }

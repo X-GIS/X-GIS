@@ -363,6 +363,12 @@ export const glslEs300Backend: Backend = {
   caseLabel: (value, scrutType) =>
     scrutType.kind === 'scalar' && scrutType.scalar === 'u32' ? `${value}u` : `${value}`,
   switchHead: (scrut) => `switch (${scrut}) {`,
+  // GLSL ES 3.00's `%` is INTEGER-only — a float `%` (legal WGSL trunc-mod, and what
+  // the `.mod` METHOD emits) used to be spelled verbatim and die at the driver. Spell
+  // WGSL's trunc-mod inline instead: `a - b·trunc(a/b)` — deliberately NOT GLSL
+  // `mod()`, which is FLOOR-mod and disagrees on negative operands. Matches the CPU
+  // oracle's JS `%` (also trunc-mod), so all three backends now agree.
+  floatMod: (a, b) => `(${a} - ${b} * trunc(${a} / ${b}))`,
   // C-style GLSL switch falls through — each case must `break` or it leaks into the next.
   caseBreak: 'break;',
   // #1671 — emit THIS target's payload. A raw carrying only the WGSL spelling

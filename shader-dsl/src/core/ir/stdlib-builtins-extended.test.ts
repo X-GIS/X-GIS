@@ -24,8 +24,11 @@ import {
   unpack2x16unorm,
   pack2x16snorm,
   unpack2x16snorm,
+  toU32,
+  toI32,
 } from './'
 import { emitModule } from '../backends/wgsl'
+import { emitGlslModule } from '../backends/glsl'
 import { compileModule } from '../oracle'
 import { spellIntrinsic } from '../intrinsics'
 
@@ -224,5 +227,55 @@ describe('extended stdlib builtins — the Mercator identities (metamorphic)', (
     for (let y = -3.2; y <= 3.2; y += 0.4) {
       expect(m.viaSinh(y)).toBeCloseTo(m.viaExp(y) as number, 12)
     }
+  })
+})
+
+describe('float→int casts — the CPU mirror follows WGSL saturation', () => {
+  // WGSL float→integer conversion SATURATES (Tint polyfills it on every driver):
+  // u32(-0.75) is 0, u32(4.5e9) is 4294967295, i32(-3e9) is -2147483648, NaN → 0.
+  // The mirror used to wrap (u32(-0.75) → 4294967295 via >>>0) — a plausible-wrong
+  // divergence for any dispatch value that dips below 0 by rounding. Integer-SOURCE
+  // casts keep two's-complement wrapping (u32 of i32(-1) IS 0xFFFFFFFF), which the
+  // value alone cannot distinguish — the twins branch on the arg's static type.
+  it('toU32 of a negative float saturates to 0 (was: wrapped to 4294967295)', () => {
+    const f = compileModule(module({ funcs: [fn('f', { x: f32T }, ({ x }) => toU32(x))] })).fns
+      .f as (x: number) => number
+    expect(f(-0.75)).toBe(0)
+    // 4294967040 = 2^32 − 256, the largest u32 exactly representable in f32 — the bound
+    // Tint's polyfill clamps against (measured by the GPU gate), NOT the mathematical
+    // 2^32 − 1, which no float source can produce.
+    expect(f(4.5e9)).toBe(4294967040)
+    expect(f(7.25)).toBe(7)
+  })
+  it('toI32 of an out-of-range float saturates (was: kept the raw JS value)', () => {
+    const f = compileModule(module({ funcs: [fn('f', { x: f32T }, ({ x }) => toI32(x))] })).fns
+      .f as (x: number) => number
+    expect(f(-3e9)).toBe(-2147483648) // −2^31 IS f32-exact — the lower bound stays mathematical
+    expect(f(3e9)).toBe(2147483520) // 2^31 − 128, the largest i32 exactly representable in f32
+    expect(f(-7.25)).toBe(-7)
+  })
+  it('integer-source casts KEEP wrapping — u32(i32 −1) is 0xFFFFFFFF on every target', () => {
+    const f = compileModule(module({ funcs: [fn('f', { x: f32T }, ({ x }) => toU32(toI32(x)))] }))
+      .fns.f as (x: number) => number
+    expect(f(-1)).toBe(4294967295)
+  })
+})
+
+describe('float % — the .mod METHOD is now portable (GLSL % is integer-only)', () => {
+  it('GLSL spells float % as WGSL trunc-mod; int % stays native; WGSL unchanged', () => {
+    const m = module({
+      funcs: [
+        fn('fm', { a: f32T, b: f32T }, ({ a, b }) => a.mod(b)),
+        fn('im', { p: u32T, q: u32T }, ({ p, q }) => p.mod(q)),
+      ],
+    })
+    const glsl = emitGlslModule(m, 'fragment')
+    // Deliberately NOT GLSL mod() (floor-mod): trunc-mod matches WGSL float-%
+    // AND the CPU oracle's JS `%`, so all three backends agree on negatives.
+    expect(glsl).toContain('(a - b * trunc(a / b))')
+    expect(glsl).toContain('(p % q)')
+    const wgsl = emitModule(m)
+    expect(wgsl).toContain('(a % b)') // WGSL keeps its native float % — bytes unchanged
+    expect(wgsl).toContain('(p % q)')
   })
 })

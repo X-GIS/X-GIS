@@ -142,6 +142,22 @@ describe('validate', () => {
     expect(() => validate(bad)).toThrow(ValidationError)
   })
 
+  it('throws on a mixed-scalar int/float COMPARE too (u32 > f32) — compares had NO gate', () => {
+    // A mixed compare emitted `(count > 0.0)` and died only at the GPU compiler:
+    // the rule used to walk binops only, and the runtime cmp() gates f64 mixes
+    // alone (caught in the wild by the override-constants example). The
+    // kind-matched CmpArg now rejects it at tsc; this pins the raw-IR backstop.
+    const bad = module({
+      funcs: [
+        fn('mixedCmp', { a: f32T, b: u32T }, ({ a, b }) => {
+          // @ts-expect-error — an f32 node is not a CmpArg<'u32'>
+          return b.gt(a)
+        }),
+      ],
+    })
+    expect(() => validate(bad)).toThrow(ValidationError)
+  })
+
   // ── SAFETY REGRESSION (must NOT throw) ──
 
   it('does not throw on a fn with a raw Stmt and no explicit return', () => {

@@ -11,6 +11,7 @@ import {
   vec4,
   Var,
   Let,
+  Switch,
   matchExpr,
   lift,
   f32T,
@@ -487,5 +488,28 @@ describe('operand kind-matching — ArithArg/CmpArg/bit ops (binResultType made 
     const c: ReadonlyNode<string> = vec3(1, 2, 3)
     void [a, b, c]
     expect(true).toBe(true)
+  })
+})
+
+describe('single-target traps — switch scrutinee, boolean connectives, non-finite literals', () => {
+  it('the remaining works-on-neither/one-target forms reject at tsc or construction', () => {
+    fn('km3', { x: f32T }, ({ x }) => {
+      // Uncalled thunk — tsc-only probe.
+      // @ts-expect-error — switch is INTEGER-only on both targets (scrut was ScalarKey)
+      const sw = () => Switch(x)
+      void sw
+      return x
+    })
+    // `&&`/`||` are bool-only on both targets — a non-bool RECEIVER now fails at
+    // AUTHOR-RUN time (SD0004; a `this:` bound was tried and broke cross-package
+    // Node→ReadonlyNode<string> assignability through the d.ts — see node.ts's
+    // NonComposite note). The operand side was always typed.
+    expect(() => f32(1).and(bool(true))).toThrow(/SD0004/)
+    expect(() => f32(1).or(bool(true))).toThrow(/SD0004/)
+    // A non-finite literal has NO spelling on either target — it used to bake
+    // `Infinity`/`NaN` verbatim into the module and die at the GPU compiler.
+    expect(() => f32(Infinity)).toThrow(/finite/)
+    expect(() => vec3(0, NaN, 0)).toThrow(/finite/)
+    expect(() => f32(1).add(Number.POSITIVE_INFINITY)).toThrow(/finite/)
   })
 })

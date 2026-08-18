@@ -396,6 +396,27 @@ export const GPU_STUBS: Record<string, Builtin> = {
   textureNumLayers: () => 1, // 1 layer, not 0 — a modulo/divide by the count stays finite
 }
 
+// ── WGSL's SATURATING float→integer conversions ──
+//
+// f32→u32/i32 conversion CLAMPS to the target range and converts NaN to 0 in WGSL
+// (Tint polyfills it on every driver), while GLSL ES 3.00 leaves out-of-range
+// float→int UNDEFINED — so the defined cross-backend ground is in-range only, and
+// the mirror follows WGSL (the pipeline it exists to mirror). The plain-`Math.trunc`
+// forms the BUILTINS table keeps are the INTEGER-source semantics (two's-complement
+// wrapping: u32 of i32(-1) IS 0xFFFFFFFF); a value alone cannot distinguish
+// f32(-1.0) from i32(-1), so the two CPU backends branch on the ARG's STATIC type
+// at the call site and route float sources here.
+// The clamp BOUNDS are the largest target-range integers exactly representable in
+// f32 — what Tint's saturating-conversion polyfill clamps against (measured on-GPU
+// by the _dsl-builtin-gate saturation lanes: u32 of an above-range float came back
+// 4294967040, not 4294967295). The mathematical 2^32−1 / 2^31−1 are NOT
+// f32-representable, so a float source can never produce them on the GPU; the
+// lower i32 bound −2^31 IS representable and stays exact.
+export const f32ToU32Sat = (v: number): number =>
+  Number.isNaN(v) ? 0 : Math.min(4294967040, Math.max(0, Math.trunc(v)))
+export const f32ToI32Sat = (v: number): number =>
+  Number.isNaN(v) ? 0 : Math.min(2147483520, Math.max(-2147483648, Math.trunc(v)))
+
 /** Test-only surfaces (#763 O5): the oracle's builtin coverage, pinned against the
  *  intrinsic catalogue so a new portable intrinsic cannot ship without a CPU twin. */
 export const ORACLE_BUILTIN_NAMES: ReadonlySet<string> = new Set(Object.keys(BUILTINS))

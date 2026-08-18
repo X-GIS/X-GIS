@@ -88,6 +88,16 @@ export type CmpArg<K extends string> = ReadonlyNode<KindScalar<K>> | number
  *  union, so the conditional does not distribute and passes it through. */
 export type NonComposite<K extends string> = K extends `vec${string}` | `mat${string}` ? never : K
 
+// NB — the `.and`/`.or` RECEIVER is deliberately NOT `this:`-bounded. A
+// `this: ReadonlyNode<K extends 'bool' ? K : never>`-style bound was tried and
+// broke `Node<'vec4<f32>'> → ReadonlyNode<string>` / `Node<'u32'> →
+// ReadonlyNode<ScalarKey>` assignability ACROSS the d.ts boundary (the compiler
+// package went red while shader-dsl's own build stayed green) — the same
+// never-`this` shape the comparisons' NonComposite bound survives, tipped over
+// by one more such member. The receiver is guarded at AUTHOR-RUN time instead
+// (SD0004 below, the bitwise SD0005 precedent), which still fails long before a
+// GPU compiler would.
+
 // Returns ReadonlyNode<string>, not <any> (#763 X12): `<any>` was assignable to
 // EVERY ReadonlyNode<K>, so `const b: ReadonlyNode<'bool'> = lift(3)` type-checked.
 /** Normalizes a `NodeLike` operand to a `ReadonlyNode` — a bare JS number auto-lifts to an f32
@@ -109,7 +119,7 @@ export type NonComposite<K extends string> = K extends `vec${string}` | `mat${st
  *  ```
  */
 export function lift(x: NodeLike): ReadonlyNode<string> {
-  return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: x }) : x
+  return typeof x === 'number' ? new Node({ op: 'lit', type: f32T, value: litNum(x, 'lift') }) : x
 }
 
 /** Cross-instance node brand (#763 D1). `Symbol.for` resolves through the GLOBAL
@@ -423,11 +433,21 @@ export class ReadonlyNode<K extends string = string> {
     return this.cmp('!=', o)
   }
 
+  // `&&`/`||` are bool-only on BOTH targets. The receiver check is a runtime
+  // guard (author-run, like the bitwise SD0005) rather than a `this:` bound —
+  // see the note beside NonComposite for why the type-level form is off the
+  // table. The operand side is typed `ReadonlyNode<'bool'>` as before.
+  private logical(lop: '&&' | '||', o: ReadonlyNode<'bool'>): Node<'bool'> {
+    if (this.type.kind !== 'scalar' || this.type.scalar !== 'bool') {
+      throw dslError('SD0004', `logical '${lop}' needs bool operands, got ${typeKey(this.type)}`)
+    }
+    return new Node<'bool'>({ op: 'logical', type: boolT, lop, a: this.expr, b: o.expr })
+  }
   and(o: ReadonlyNode<'bool'>): Node<'bool'> {
-    return new Node<'bool'>({ op: 'logical', type: boolT, lop: '&&', a: this.expr, b: o.expr })
+    return this.logical('&&', o)
   }
   or(o: ReadonlyNode<'bool'>): Node<'bool'> {
-    return new Node<'bool'>({ op: 'logical', type: boolT, lop: '||', a: this.expr, b: o.expr })
+    return this.logical('||', o)
   }
 
   /** Bitwise ops on u32 / i32. Number literals auto-lift to the LHS's scalar
@@ -653,6 +673,15 @@ const litNum = (v: number, fn: string): number => {
   if (typeof v !== 'number') {
     throw new TypeError(
       `shader-dsl: ${fn}() takes a numeric literal, got ${typeof v} — to CONVERT a Node use a cast (toF32/toI32/toU32), not ${fn}(node)`,
+    )
+  }
+  // Neither WGSL nor GLSL has an Infinity/NaN literal, so a non-finite value here
+  // (a host-side 1/0, an uninitialised NaN) would bake the JS spelling verbatim
+  // into the module and die at the GPU compiler with no line back to the
+  // authoring site — fail loud at construction instead.
+  if (!Number.isFinite(v)) {
+    throw new TypeError(
+      `shader-dsl: ${fn}(${v}) — a shader literal must be finite (no Infinity/NaN spelling exists on either target); clamp or guard the host-side value first`,
     )
   }
   return v
@@ -1825,7 +1854,11 @@ export const construct = (type: ShaderType, args: NodeLike[]): Node => {
     op: 'construct',
     type,
     args: args.map(
-      (a) => (typeof a === 'number' ? new Node({ op: 'lit', type: elemT, value: a }) : a).expr,
+      (a) =>
+        (typeof a === 'number'
+          ? new Node({ op: 'lit', type: elemT, value: litNum(a, 'construct') })
+          : a
+        ).expr,
     ),
   })
 }
