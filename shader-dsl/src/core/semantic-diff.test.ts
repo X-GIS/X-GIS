@@ -237,9 +237,7 @@ describe('semanticDiff — semantics-preserving transform classification (#1806)
     // Attribution is PER PLUGIN, not per chain. `mangle` is credited with nothing because
     // 'names' already canonicalizes exactly what it rewrites, and `minify` has no
     // transformIR at all — a report that blamed "the chain" would name all three.
-    expect([...new Set(d.semanticsPreservingTransform.map((f) => f.transform))]).toEqual([
-      'inline',
-    ])
+    expect([...new Set(d.semanticsPreservingTransform.map((f) => f.transform))]).toEqual(['inline'])
     expect(d.semanticsPreservingTransform.map((f) => f.bucket).sort()).toEqual([
       'constants',
       'controlFlow',
