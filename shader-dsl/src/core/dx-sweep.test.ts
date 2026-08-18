@@ -4,6 +4,8 @@ import {
   module,
   f32,
   u32,
+  i32,
+  bool,
   vec3,
   vec4,
   Var,
@@ -12,6 +14,23 @@ import {
   lift,
   f32T,
   u32T,
+  i32T,
+  f64T,
+  sin,
+  sinh,
+  tan,
+  saturate,
+  atan2,
+  pow,
+  mix,
+  normalize,
+  floor,
+  sqrt,
+  min,
+  clamp,
+  abs,
+  sign,
+  toI32,
   vec2fT,
   vec3fT,
   vec4fT,
@@ -351,5 +370,66 @@ describe('#763 X — type-surface sweep', () => {
     )
     const w = emitF(g)
     expect(w).toContain('switch')
+  })
+})
+
+describe('builtin key domains — per-fn WGSL/df64 bounds (the K-extends-string retirement)', () => {
+  it('float-only builtins reject bool / int / texture keys at tsc', () => {
+    const tex = resource('bd_tex', texture2dfT, { group: 0, binding: 0 })
+    fn('bd1', { x: f32T, u: u32T }, ({ x, u }) => {
+      // @ts-expect-error — sin's key domain is FloatKey (a bool key is not a float)
+      void sin(bool(true))
+      // @ts-expect-error — sinh over a u32 key: WGSL/GLSL type the hyperbolics over floats only
+      void sinh(u)
+      // @ts-expect-error — saturate over a texture key used to type-check and die at naga
+      void saturate(tex.node)
+      // @ts-expect-error — atan2 is float-only (u32 operands were never legal on either target)
+      void atan2(u, u)
+      // @ts-expect-error — pow is float-only
+      void pow(u, 2)
+      // @ts-expect-error — smoothstep's scalar overload is f32-only now (was ScalarKey)
+      void smoothstep(0, 1, toI32(x))
+      // @ts-expect-error — mix's interpolant t is f32-only (WGSL types t as a float)
+      void mix(x, x, toI32(x))
+      // @ts-expect-error — normalize is defined over VECTORS only on both targets
+      void normalize(x)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('f64 keys are accepted exactly where the df64 whitelist can lower them', () => {
+    fn('bd2', { a: f64T, x: f32T }, ({ a, x }) => {
+      // Whitelisted (fp64-lower CALL_FN): these must COMPILE.
+      void floor(a)
+      void sin(a)
+      void sqrt(a)
+      void min(a, a)
+      void mix(a, a, x)
+      // @ts-expect-error — tan is NOT df64-whitelisted; what was emit-time SD0041 is now a tsc error
+      void tan(a)
+      // @ts-expect-error — clamp has no df64 twin (floats + ints only)
+      void clamp(a, a, a)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('int keys are accepted on the genuinely integer-domain builtins (and emit)', () => {
+    // The positive probes ride the RETURNED graph — a `void`-ed node never reaches
+    // an expression-bodied fn's emit, so containment below would be vacuous.
+    const g = fn('bd3', { u: u32T, i: i32T, x: f32T }, ({ u, i, x }) => {
+      // @ts-expect-error — sign has NO u32 form on either target (floats + signed ints only)
+      void sign(u)
+      return toF32(min(u, u32(3)))
+        .add(toF32(clamp(i, i32(0), i32(7))))
+        .add(toF32(abs(i)))
+        .add(toF32(sign(i)))
+        .add(x)
+    })
+    const w = emitF(g)
+    for (const s of ['min(u, 3u)', 'clamp(i, ', 'abs(i)', 'sign(i)']) {
+      expect(w).toContain(s)
+    }
   })
 })
