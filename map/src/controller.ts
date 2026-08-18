@@ -207,8 +207,11 @@ const COOP_HINT_HOLD_MS = 1200
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false
   const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
-  const p = nav.userAgentData?.platform ?? nav.platform ?? ''
-  return /mac/i.test(p)
+  // userAgentData.platform where implemented; the UA string otherwise —
+  // navigator.platform is deprecated (same lint class as the #1265 keyCode fix)
+  // and the UA substring is the compatibility signal MapLibre itself keys on.
+  const p = nav.userAgentData?.platform ?? nav.userAgent ?? ''
+  return /mac|iP(hone|ad|od)/i.test(p)
 }
 
 /** Built-in English default hint text (MapLibre's own default strings —
