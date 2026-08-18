@@ -271,71 +271,81 @@ export class PanZoomController implements Controller {
             rotateActivated = false
           } else {
             isDragging = true
-          isRotating = false
-          lastX = e.clientX
-          lastY = e.clientY
-          lastMoveTime = performance.now()
-          panVelX = 0
-          panVelY = 0
-          inertiaAnimating = false
-          // Capture the ABSOLUTE world point under the cursor at drag
-          // start. panToScreenAnchor uses this to keep that exact world
-          // location under the cursor as it moves — perspective-correct
-          // at any pitch / bearing, idempotent against repeated calls.
-          // `null` = ray missed the ground plane (e.g. cursor above
-          // horizon at high pitch); fall back to delta-based pan in
-          // that case.
-          //
-          // Convert clientX/Y (VIEWPORT-relative) to canvas-local via
-          // bounding rect — the canvas may not sit at viewport (0,0)
-          // (header / editor pane / etc), and unprojectToZ0 expects
-          // coords in [0, canvas.width / canvas.height].
-          const dprNow =
-            typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const r0 = canvas.getBoundingClientRect()
-          const sxA = (e.clientX - r0.left) * dprNow,
-            syA = (e.clientY - r0.top) * dprNow
-          if (camera.globeMode) {
-            // Globe: anchor the GEOGRAPHIC point under the cursor on the
-            // RENDERED SPHERE (ray↔sphere inverse) — panToScreenAnchor's globe
-            // branch rotates the centre so this lon/lat stays under the cursor.
-            // null = pressed off the limb → delta-pan fallback.
-            const gAnchor = unprojectGlobeFromCamera(
-              camera,
-              sxA,
-              syA,
-              canvas.width,
-              canvas.height,
-              dprNow,
-            )
-            dragAnchor = gAnchor ? { kind: 'merc', x: gAnchor[0], y: gAnchor[1] } : null
-          } else if (promotesToGlobeWhenTilted(camera.projType)) {
-            // #2 Disc projections (orthographic/azimuthal-eq/stereographic):
-            // unproject to GEOGRAPHIC lon/lat via the disc inverse so the
-            // grabbed point stays under the cursor through panDiscToScreenAnchor.
-            const geoAnchor = camera.discDragAnchorAt(sxA, syA, canvas.width, canvas.height, dprNow)
-            dragAnchor = geoAnchor ? { kind: 'disc', lon: geoAnchor.lon, lat: geoAnchor.lat } : null
-          } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
-            // Flat non-merc (#8): the drag anchor must be the Mercator metres of
-            // the TRUE geographic point under the cursor, not `mercCentre +
-            // nonMercRel` (which mixes spaces). panToScreenAnchor consumes
-            // Mercator metres and composes the cursor through the same inverse.
-            const mAnchor = camera.unprojectToMercatorAnchor(
-              sxA,
-              syA,
-              canvas.width,
-              canvas.height,
-              dprNow,
-            )
-            dragAnchor = mAnchor ? { kind: 'merc', x: mAnchor[0], y: mAnchor[1] } : null
-          } else {
-            // Mercator (projType 0) and globe (projType 7 when globeMode=false edge cases)
-            const rel = camera.unprojectToZ0(sxA, syA, canvas.width, canvas.height, dprNow)
-            dragAnchor = rel
-              ? { kind: 'merc', x: camera.centerX + rel[0], y: camera.centerY + rel[1] }
-              : null
+            isRotating = false
+            lastX = e.clientX
+            lastY = e.clientY
+            lastMoveTime = performance.now()
+            panVelX = 0
+            panVelY = 0
+            inertiaAnimating = false
+            // Capture the ABSOLUTE world point under the cursor at drag
+            // start. panToScreenAnchor uses this to keep that exact world
+            // location under the cursor as it moves — perspective-correct
+            // at any pitch / bearing, idempotent against repeated calls.
+            // `null` = ray missed the ground plane (e.g. cursor above
+            // horizon at high pitch); fall back to delta-based pan in
+            // that case.
+            //
+            // Convert clientX/Y (VIEWPORT-relative) to canvas-local via
+            // bounding rect — the canvas may not sit at viewport (0,0)
+            // (header / editor pane / etc), and unprojectToZ0 expects
+            // coords in [0, canvas.width / canvas.height].
+            const dprNow =
+              typeof window !== 'undefined'
+                ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
+                : 1
+            const r0 = canvas.getBoundingClientRect()
+            const sxA = (e.clientX - r0.left) * dprNow,
+              syA = (e.clientY - r0.top) * dprNow
+            if (camera.globeMode) {
+              // Globe: anchor the GEOGRAPHIC point under the cursor on the
+              // RENDERED SPHERE (ray↔sphere inverse) — panToScreenAnchor's globe
+              // branch rotates the centre so this lon/lat stays under the cursor.
+              // null = pressed off the limb → delta-pan fallback.
+              const gAnchor = unprojectGlobeFromCamera(
+                camera,
+                sxA,
+                syA,
+                canvas.width,
+                canvas.height,
+                dprNow,
+              )
+              dragAnchor = gAnchor ? { kind: 'merc', x: gAnchor[0], y: gAnchor[1] } : null
+            } else if (promotesToGlobeWhenTilted(camera.projType)) {
+              // #2 Disc projections (orthographic/azimuthal-eq/stereographic):
+              // unproject to GEOGRAPHIC lon/lat via the disc inverse so the
+              // grabbed point stays under the cursor through panDiscToScreenAnchor.
+              const geoAnchor = camera.discDragAnchorAt(
+                sxA,
+                syA,
+                canvas.width,
+                canvas.height,
+                dprNow,
+              )
+              dragAnchor = geoAnchor
+                ? { kind: 'disc', lon: geoAnchor.lon, lat: geoAnchor.lat }
+                : null
+            } else if (camera.projType === 1 || camera.projType === 2 || camera.projType === 6) {
+              // Flat non-merc (#8): the drag anchor must be the Mercator metres of
+              // the TRUE geographic point under the cursor, not `mercCentre +
+              // nonMercRel` (which mixes spaces). panToScreenAnchor consumes
+              // Mercator metres and composes the cursor through the same inverse.
+              const mAnchor = camera.unprojectToMercatorAnchor(
+                sxA,
+                syA,
+                canvas.width,
+                canvas.height,
+                dprNow,
+              )
+              dragAnchor = mAnchor ? { kind: 'merc', x: mAnchor[0], y: mAnchor[1] } : null
+            } else {
+              // Mercator (projType 0) and globe (projType 7 when globeMode=false edge cases)
+              const rel = camera.unprojectToZ0(sxA, syA, canvas.width, canvas.height, dprNow)
+              dragAnchor = rel
+                ? { kind: 'merc', x: camera.centerX + rel[0], y: camera.centerY + rel[1] }
+                : null
+            }
           }
-        }
         } // closes the #1265 shift-drag else branch
       } else if (activePointers.size === 2) {
         // #4: entering two-pointer mode must clear any pending rotate state
@@ -440,7 +450,8 @@ export class PanZoomController implements Controller {
             if (!boxZoomEl) boxZoomEl = createBoxZoomEl()
           }
         }
-        if (boxZoomArmed && boxZoomEl) updateBoxZoomEl(boxZoomEl, boxStartX, boxStartY, boxEndX, boxEndY)
+        if (boxZoomArmed && boxZoomEl)
+          updateBoxZoomEl(boxZoomEl, boxStartX, boxStartY, boxEndX, boxEndY)
         return
       }
 

@@ -251,7 +251,10 @@ describe('#1265 — box zoom (Shift+drag, MapLibre BoxZoomHandler parity)', () =
         [x0, y1],
       ]
       const lonLats = corners.map((c) => cam.unprojectToLonLat(c[0], c[1], W, H, 1))
-      expect(lonLats.every((p) => p !== null), 'oracle corner unprojection was null').toBe(true)
+      expect(
+        lonLats.every((p) => p !== null),
+        'oracle corner unprojection was null',
+      ).toBe(true)
       const lons = lonLats.map((p) => p![0])
       const lats = lonLats.map((p) => p![1])
       const expected: [[number, number], [number, number]] = [
