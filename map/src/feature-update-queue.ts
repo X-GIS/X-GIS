@@ -1,6 +1,6 @@
 import { xlog } from '@xgis/shared'
 import { toU32Id } from '@xgis/data'
-import type { GeoJSONFeature, GeoJSONFeatureCollection } from '@xgis/data'
+import type { GeoJSONFeature, GeoJSONFeatureCollection, PointFeatureMove } from '@xgis/data'
 import type { RawDataset } from './map-types'
 
 /** Host hooks the queue needs to read shared map state and trigger a
@@ -24,6 +24,60 @@ export interface FeatureUpdateQueueHost {
    *  virtual re-seed path), replacing this source's tiling. Optional with
    *  getSeededFC. */
   reseedSource?(sourceId: string, fc: GeoJSONFeatureCollection): void
+  /** #1375 — rewrite `moves` inside the tiles this source ALREADY has, with no
+   *  teardown and no re-tile, and adopt `fc` as the new seeded collection.
+   *  Returns false (having changed nothing) when the source cannot service the
+   *  patch in place, in which case the caller must take the re-seed path.
+   *  Optional so historical mock hosts keep compiling. */
+  patchFeaturesInPlace?(
+    sourceId: string,
+    fc: GeoJSONFeatureCollection,
+    moves: readonly PointFeatureMove[],
+  ): boolean
+}
+
+/** #1375 — the moves an in-place patch can service, or null when this flush
+ *  has to re-tile.
+ *
+ *  The shipped in-place slice is deliberately narrow: a POINT feature that
+ *  moved. Everything else changes what the tiler would emit, not just where a
+ *  packed record sits, so it goes down the re-seed path instead:
+ *
+ *   · a `properties` change can move the feature across a show's `filter:`,
+ *     change a `label-` string, or re-bake a per-feature width / colour /
+ *     extrude height — all of which live in buffers a position patch does not
+ *     touch;
+ *   · a geometry that is not a Point (before AND after) has fill / line /
+ *     outline / segment buffers whose vertex COUNT changes with the edit;
+ *   · a feature the seeded collection does not hold is not ours to move.
+ *
+ *  All-or-nothing per source: one ineligible patch sends the whole flush to
+ *  the re-seed, so a source can never end up half-patched. */
+function collectPointMoves(
+  seededFeatures: readonly GeoJSONFeature[],
+  patchedFeatures: readonly GeoJSONFeature[],
+  patches: ReadonlyMap<
+    number,
+    { geometry?: GeoJSONFeature['geometry']; properties?: Record<string, unknown> }
+  >,
+  index: ReadonlyMap<number, number>,
+): PointFeatureMove[] | null {
+  const moves: PointFeatureMove[] = []
+  for (const [fid, patch] of patches) {
+    const idx = index.get(fid)
+    // Mirrors the patch loop: an id the seeded collection does not carry was
+    // already dropped there, so it is not a reason to re-tile.
+    if (idx === undefined) continue
+    if (patch.properties && Object.keys(patch.properties).length > 0) return null
+    const before = seededFeatures[idx]?.geometry
+    const after = patchedFeatures[idx]?.geometry
+    if (before?.type !== 'Point' || after?.type !== 'Point') return null
+    const lon = after.coordinates[0]
+    const lat = after.coordinates[1]
+    if (typeof lon !== 'number' || typeof lat !== 'number') return null
+    moves.push({ featureId: fid, lon, lat })
+  }
+  return moves.length > 0 ? moves : null
 }
 
 /** External-injection update state + flush pipeline extracted from
@@ -202,7 +256,18 @@ export class FeatureUpdateQueue {
           }
           // The re-seed runs its own teardown + rebuild + invalidate; the
           // shared rebuild tail below is only for legacy-patched sources.
-          if (touched) this.host.reseedSource?.(sourceId, { ...seeded, features: patchedFeatures })
+          if (touched) {
+            const fc = { ...seeded, features: patchedFeatures }
+            // #1375 — try the in-place point patch FIRST. A re-seed re-tiles
+            // the entire source for what is, in the realtime-feed case, a
+            // 13-float rewrite of one already-resident record; the host reports
+            // false (having mutated nothing) whenever it cannot service the
+            // patch exactly, and the re-seed below is then the same path as
+            // before.
+            const moves = collectPointMoves(seeded.features, patchedFeatures, patches, index)
+            if (moves && this.host.patchFeaturesInPlace?.(sourceId, fc, moves)) continue
+            this.host.reseedSource?.(sourceId, fc)
+          }
           continue
         }
         if (!this._tileBackedUpdateWarned.has(sourceId)) {

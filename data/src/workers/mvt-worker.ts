@@ -25,6 +25,7 @@ import {
 import type * as AST from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
 import { buildLineSegments } from '../line-segment-build'
+import { buildPointFeatureIds } from '../point-feature-patch'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
 import { evalFilterExpr } from '../eval/filter-eval'
 
@@ -303,6 +304,9 @@ export interface MvtCompileSlice {
   lineVertices: ArrayBuffer
   lineIndices: ArrayBuffer
   pointVertices?: ArrayBuffer
+  /** #1375 — Uint32Array buffer of one stable feature id per packed point, in
+   *  `pointVertices` order. Absent when no point in the slice resolved one. */
+  pointFeatureIds?: ArrayBuffer
   outlineIndices?: ArrayBuffer
   outlineVertices?: ArrayBuffer
   outlineLineIndices?: ArrayBuffer
@@ -465,6 +469,10 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         )
         prebuiltLineSegments = seg.buffer as ArrayBuffer
       }
+      // #1375 — the stable-id side-car for the packed points, resolved from
+      // the SAME `sourceFeatures` array the packed `fid` slot indexes into, so
+      // an id can never drift away from the geometry it names.
+      const pointFeatureIds = buildPointFeatureIds(sourceFeatures, tile.pointVertices)
       const slice: MvtCompileSlice = {
         layerName: sliceKey,
         vertices: tile.vertices.buffer as ArrayBuffer,
@@ -474,6 +482,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         lineVertices: tile.lineVertices.buffer as ArrayBuffer,
         lineIndices: tile.lineIndices.buffer as ArrayBuffer,
         pointVertices: tile.pointVertices?.buffer as ArrayBuffer | undefined,
+        pointFeatureIds: pointFeatureIds?.buffer as ArrayBuffer | undefined,
         // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
         outlineIndices: tile.outlineIndices?.buffer as ArrayBuffer | undefined,
         outlineVertices: tile.outlineVertices?.buffer as ArrayBuffer | undefined,
@@ -490,6 +499,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
       slices.push(slice)
       transferables.push(slice.vertices, slice.indices, slice.lineVertices, slice.lineIndices)
       if (slice.pointVertices) transferables.push(slice.pointVertices)
+      if (slice.pointFeatureIds) transferables.push(slice.pointFeatureIds)
       if (slice.outlineIndices) transferables.push(slice.outlineIndices)
       if (slice.outlineVertices) transferables.push(slice.outlineVertices)
       if (slice.outlineLineIndices) transferables.push(slice.outlineLineIndices)

@@ -53,6 +53,7 @@ import { detectCapPoles, type CapPoles } from '@xgis/data'
 import * as tilingPool from '@xgis/data'
 import { reprojectFeatureCollection } from '@xgis/data'
 import { pointPatchToFeatureCollection, type PointPatch } from '@xgis/data'
+import type { PointFeatureMove } from '@xgis/data'
 import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 import { normaliseHostPushedData } from './source-data-normalize'
@@ -821,6 +822,46 @@ export class SourceManager {
     live.source.attachBackend(backend)
     this.vtBackends.set(sourceId, backend)
     live.renderer.reseedTiles()
+  }
+
+  /** #1375 — service a feature update by rewriting the POINT records already
+   *  sitting in this source's cached tiles, instead of re-tiling it.
+   *
+   *  Even the #1371 atomic re-seed above still rebuilds the whole geojsonvt
+   *  index, re-requests every drawn key, and re-decodes + re-compiles each one
+   *  — a chain whose every arrow is a frame boundary (measured at 5-7 frames
+   *  per update). For the shape a realtime feed actually has, none of that
+   *  work produces different bytes: one point moved a few metres and stayed in
+   *  its tile. `patchPointFeatures` rewrites exactly that record and bumps the
+   *  catalog's content generation, which is the signal the per-frame point
+   *  repack already watches — so the update lands on the NEXT frame with no
+   *  teardown, no re-tile, and no `requestTiles` hop.
+   *
+   *  Returns false (having mutated nothing) when the catalog cannot resolve
+   *  every move exactly; the caller then takes the re-seed path.
+   *
+   *  Deliberately does NOT re-run `detectCapPoles`: a polar cap is synthesised
+   *  from POLYGON rings that touch the Mercator clamp boundary, so no point
+   *  move can create or remove one. */
+  patchFeaturesInPlace(
+    sourceId: string,
+    fc: GeoJSONFeatureCollection,
+    moves: readonly PointFeatureMove[],
+  ): boolean {
+    const live = this.getVtSource(sourceId)
+    // `vtBackends` is what makes this a VIRTUAL-tiled geojson source — the only
+    // kind whose seeded FC is authoritative and whose tiles carry the stable-id
+    // side-car the patch resolves against.
+    if (!live || !this.vtBackends.has(sourceId)) return false
+    if (!live.source.patchPointFeatures(moves)) return false
+    // The seeded FC is the pre-image the NEXT flush patches, and the collection
+    // a later genuine re-seed re-tiles from — so it has to adopt the new
+    // positions even though nothing was re-tiled. Same for the heatmap point
+    // split, which `rebuildLayers` reads.
+    this.hostSeededFC.set(sourceId, fc)
+    setHeatmapPoints(this.heatmapPointData, sourceId, fc)
+    this.invalidate()
+    return true
   }
 
   /** Full-replace push for a GeoJSON source.
