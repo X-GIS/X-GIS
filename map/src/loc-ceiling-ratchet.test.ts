@@ -1482,7 +1482,10 @@ const CEILINGS: Record<string, number> = {
   // long as the user held still — measured, 0.6% instead of 26%.
   // 1011→1018 (#1791): +7 for re-clamping the azimuthal disc-detail boost's
   // selMaxZ to sourceMaxLevel — the boost was bypassing the general cz clamp.
-  'map/src/render/tile-selection-cache.ts': 1018,
+  // 1018→1036 (#1792): the z=0 root split now requires `maxLevel >= 1` — on a
+  // z=0-only archive it swapped the source's ONLY tile for four unresolvable
+  // children, so the synthetic earth-surface show drew nothing off mercator/globe.
+  'map/src/render/tile-selection-cache.ts': 1036,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
