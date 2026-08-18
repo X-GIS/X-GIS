@@ -16,10 +16,22 @@ import { atmosphereCameraRays } from './atmosphere-uniform'
  *  origin by construction. */
 function perspectiveOnly(near: number, far: number, f: number): Float32Array {
   return new Float32Array([
-    f, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) / (near - far), -1,
-    0, 0, (2 * far * near) / (near - far), 0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    (far + near) / (near - far),
+    -1,
+    0,
+    0,
+    (2 * far * near) / (near - far),
+    0,
     // prettier-ignore
   ])
 }
