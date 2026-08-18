@@ -238,17 +238,16 @@ describe('SourceManager.patchFeaturesInPlace (#1375) — variant staleness (#180
     // patched the base catalog and returned true — leaving VARIANT_KEY (a
     // sibling catalog for the SAME sourceId) serving the stale pre-update
     // position forever. This line alone is red pre-fix (actual: true).
-    expect(
-      ok,
-      '#1800 — must refuse in place once a filtered-show variant catalog exists',
-    ).toBe(false)
+    expect(ok, '#1800 — must refuse in place once a filtered-show variant catalog exists').toBe(
+      false,
+    )
 
     // All-or-nothing: a refusal must not silently patch the base either. This
     // is ALSO red pre-fix (the base WOULD read the patched position here).
     const unchanged = Array.from(packPoints([[10, 10, 0]]))
-    expect(Array.from(registered.get(SOURCE_ID)!.source.getTileData(key, 'pts')!.pointVertices!)).toEqual(
-      unchanged,
-    )
+    expect(
+      Array.from(registered.get(SOURCE_ID)!.source.getTileData(key, 'pts')!.pointVertices!),
+    ).toEqual(unchanged)
     // The variant was never reachable either way — pinned so a future change
     // cannot "fix" this by quietly patching only the base.
     expect(Array.from(variantCatalog.getTileData(key, 'pts')!.pointVertices!)).toEqual(unchanged)
@@ -265,9 +264,9 @@ describe('SourceManager.patchFeaturesInPlace (#1375) — variant staleness (#180
     ])
 
     expect(ok).toBe(true)
-    expect(Array.from(registered.get(SOURCE_ID)!.source.getTileData(key, 'pts')!.pointVertices!)).toEqual(
-      Array.from(packPoints([[20, 30, 0]])),
-    )
+    expect(
+      Array.from(registered.get(SOURCE_ID)!.source.getTileData(key, 'pts')!.pointVertices!),
+    ).toEqual(Array.from(packPoints([[20, 30, 0]])))
   })
 })
 
@@ -275,7 +274,10 @@ describe('SourceManager.setSourceData — _reseedInPlace (#1371) variant stalene
   it('#1800 red-today: demotes to the full teardown/rebuild path once a variant catalog exists', async () => {
     const { mgr, registered, order } = makeManager()
     await attachBase(mgr)
-    registered.set(VARIANT_KEY, { source: new TileCatalog(), renderer: new StubVectorTileRenderer() })
+    registered.set(VARIANT_KEY, {
+      source: new TileCatalog(),
+      renderer: new StubVectorTileRenderer(),
+    })
 
     mgr.setSourceData(SOURCE_ID, PATCHED_FC)
 
@@ -303,7 +305,10 @@ describe('SourceManager.setSourceData — _reseedInPlace (#1371) variant stalene
     // No _vectorTile marker ⇒ setSourceData's fast-path gate is never reached
     // at all — this branch is untouched by the #1800 fix; pinned as the
     // already-correct control the issue asks for.
-    rawDatasets.set(SOURCE_ID, { type: 'FeatureCollection', features: [] } as GeoJSONFeatureCollection)
+    rawDatasets.set(SOURCE_ID, {
+      type: 'FeatureCollection',
+      features: [],
+    } as GeoJSONFeatureCollection)
 
     mgr.setSourceData(SOURCE_ID, PATCHED_FC)
 
