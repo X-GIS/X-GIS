@@ -19,7 +19,7 @@ import {
   type PresetCall,
 } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
-import { UNKNOWN_UTILITY } from '../diagnostics/diagnostic'
+import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -870,7 +870,22 @@ function lowerLayer(
         // (Zoom-driven values used to live behind `zN:opacity-…`
         // modifiers; they're now expressed as `opacity-[interpolate(
         // zoom, …)]` and lowered in the binding handler.)
-        dispatch(MODIFIER_HANDLERS, ctx)
+        // Only `fill-*` has a modifier handler (MODIFIER_HANDLERS in
+        // lower-bindings-registry.ts) — every other utility used to fall
+        // through here silently (zero diagnostics), so a doc example like
+        // `hover:opacity-100` compiled clean into a no-op. Fail loud instead.
+        if (dispatch(MODIFIER_HANDLERS, ctx) === 'none') {
+          diagnostics.push({
+            severity: 'error',
+            code: UNHANDLED_MODIFIER,
+            span: { line: stmt.line, col: 1 },
+            message:
+              `Modifier item "${ctx.mod}:${ctx.name}" has no lowering ` +
+              `handler — only \`fill-*\` is wired under a modifier today. ` +
+              `\`${ctx.mod}:fill-<color>\` still works as a feature-property ` +
+              `predicate; other utilities under a modifier are not lowered.`,
+          })
+        }
         continue
       }
 

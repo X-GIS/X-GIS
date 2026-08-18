@@ -280,6 +280,40 @@ function krAdminLoader(
 The two are complementary lanes over the **same** encode output. The seam does not replace the pipeline;
 it gives the pipeline a declarative front door.
 
+## 6b. Built-in: `jsonFieldMappingLoader` — a REST-JSON adapter (#1303)
+
+The seam's second producer, shipped in `@xgis/map` itself (`map/src/json-field-mapping-loader.ts`) rather
+than `@xgis/pipeline`, since it needs no join/gazetteer — just field names. It closes the gap #1303 opened:
+a REST endpoint whose response is bespoke JSON, not GeoJSON (e.g. NOAA CO-OPS' `{ "data": [ { "s": "34.5",
+"d": "210" } ] }`), had no declarative on-ramp — a host had to hand-assemble GeoJSON and push it via
+`setSourceData`. Same typed-constructor-params shape as `krAdminLoader` above:
+
+```ts
+import { XGISMap, jsonFieldMappingLoader } from '@xgis/map'
+
+const map = new XGISMap(canvas, {
+  sources: {
+    json: jsonFieldMappingLoader({
+      recordsPath: 'data', // dot-path to the record array; omit if the document root IS the array
+      lon: 'longitude', // or `coordinates: 'loc'` for a single [lon, lat] field
+      lat: 'latitude',
+      properties: { speed: 's', dir: 'd' }, // output name → source field path; omit to pass the record through
+    }),
+  },
+})
+```
+
+```
+source stations {
+  type: "json"
+  url: "https://.../stations.json"
+}
+```
+
+**Single-document only** (the issue's stated scope): a product whose lon/lat live in a SEPARATE table from
+the observation response — the CO-OPS case itself, `playground/src/examples/coops-currents.recipe.ts` — needs
+a multi-URL fan-out + join, which is genuine ETL and stays host-side by design (CLAUDE.md §12).
+
 ---
 
 ## 7. Boundaries (the 5-year bar)
