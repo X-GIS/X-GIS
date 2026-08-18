@@ -227,6 +227,69 @@ describe('SourceManager `refresh:` polling — geojson URL', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1) // no further fetches — timer cleared
   })
 
+  it('[#1569-class] a stale refresh tick in flight across a scene re-run must NOT overwrite a same-named source re-attached by the new scene', async () => {
+    // Scene A: source "s" with refresh armed, isStale scoped to scene A's own epoch.
+    let staleA = false
+    const isStaleA = (): boolean => staleA
+
+    // The refresh tick's OWN fetch is held pending (a deferred promise) so we can
+    // resolve it AFTER simulating the teardown + re-run race window.
+    let resolveRefreshFetch!: (r: Response) => void
+    const refreshFetchPromise = new Promise<Response>((res) => {
+      resolveRefreshFetch = res
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(geojsonResponse(fc('A-initial'))) // scene A's initial attach
+      .mockImplementationOnce(() => refreshFetchPromise) // scene A's refresh tick — held
+      .mockResolvedValueOnce(geojsonResponse(fc('B'))) // scene B's re-attach
+    vi.stubGlobal('fetch', fetchMock)
+    const sm = makeSourceManager()
+
+    await sm._attachOneSource(
+      geojsonLoad('s', 'https://example.com/s.geojson', 60),
+      '',
+      emptyMaps(),
+      { fit: true },
+      isStaleA,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // +60s → the refresh tick fires and starts its (held-pending) fetch.
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // Simulate XGISMap._teardownForReinit(): stopAllRefresh() clears the scheduler
+    // (the generation guard stops the tick from RE-ARMING, but the continuation
+    // already parked on the held fetch keeps running — that's the hole), and the
+    // run-epoch bumps, so scene A's captured `isStale` now reads true.
+    sm.stopAllRefresh()
+    staleA = true
+
+    // Scene B re-attaches a source with the SAME NAME "s" (a fresh epoch/isStale
+    // scope — common across iterations of one .xgis document).
+    await sm._attachOneSource(
+      { name: 's', url: 'https://example.com/s.geojson', type: 'geojson' },
+      '',
+      emptyMaps(),
+      { fit: true },
+      () => false,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(sm.hostSeededFC.get('s')).toEqual(fc('B'))
+
+    // NOW scene A's stale refresh fetch resolves.
+    resolveRefreshFetch(geojsonResponse(fc('A-initial')))
+    await vi.advanceTimersByTimeAsync(0)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Scene B's data must survive untouched — the stale scene-A tick's write is
+    // exactly the #1569 ghost-write class (ADJUDICATION FIX). Pre-fix this reads
+    // fc('A-initial') instead.
+    expect(sm.hostSeededFC.get('s')).toEqual(fc('B'))
+  })
+
   it('no `refresh:` declared — no polling loop is armed', async () => {
     const fetchMock = vi.fn().mockResolvedValue(geojsonResponse(fc('v1')))
     vi.stubGlobal('fetch', fetchMock)

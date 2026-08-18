@@ -807,7 +807,15 @@ const CEILINGS: Record<string, number> = {
   // two attach-site call additions (geojson-URL branch + custom-loader branch).
   // Failures keep last-good data and report through the typed `'source'` error
   // event instead of throwing — a live poll must survive one bad response.
-  'map/src/source-manager.ts': 1042,
+  // 1042→1057 (#1304 adjudication): the scheduler's generation guard only stops a
+  // tick from RE-ARMING — it does not abort a continuation already in flight — so
+  // a stale scene-A refresh tick could still resolve AFTER stopAllRefresh() +
+  // scene B's re-attach of a same-named source and overwrite scene B's data (the
+  // #1569 ghost-write class, one layer deeper than the attach-path A7 guards).
+  // Fix: re-check `isStale?.() || !this._sourceRefresh.isRunning(sourceName)`
+  // AFTER the tick's await, BEFORE `setSourceData` — same shape as every other
+  // A7 guard in this file. +15 = the guard line + its reasoning comment.
+  'map/src/source-manager.ts': 1057,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

@@ -642,6 +642,21 @@ export class SourceManager {
         const fc = isCustom
           ? await this._runCustomLoader(declaredType!, sourceName, url, load.options)
           : await this._fetchGeoJSONDoc(sourceName, url)
+        // A7-style re-check AFTER the await, BEFORE the write — same stale-write hole
+        // every attach path guards (:537's `if (isStale?.()) return`), one layer
+        // deeper: the scheduler's generation guard (source-refresh.ts) only stops a
+        // tick from RE-ARMING, it does not abort a continuation already in flight, so
+        // a tick that started under scene A can still resolve after `stopAllRefresh()`
+        // + a scene-B re-attach of a source with the SAME name and write scene A's
+        // data into it. `isStale` (captured at arm time, scene-scoped — it reads the
+        // CURRENT `_runEpoch` live, not a snapshot) catches exactly that re-run race.
+        // `isRunning` alone would NOT be sufficient in general — a restart re-arms a
+        // NEW generation, so `isRunning` goes true again — but the only restart path
+        // is a scene re-run, which `isStale` already catches; `isRunning` here is only
+        // for the destroy()/stopAllRefresh()-with-no-rerun case, where `isStale` stays
+        // false (same epoch, map merely stopped) and the timer's own absence is the
+        // only signal left.
+        if (isStale?.() || !this._sourceRefresh.isRunning(sourceName)) return
         this.setSourceData(sourceName, fc)
       } catch (error) {
         this.fireError({ phase: 'source', source: sourceName, fatal: false, error })
