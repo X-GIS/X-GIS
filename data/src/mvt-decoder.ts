@@ -58,7 +58,7 @@ export function decodeMvtTile(
         // MVT-backed source, and a host-pushed feature lost its stable
         // identity the moment it was tiled. Stays `undefined` when the tile
         // carries no id, so "no id" and "id 0" remain distinguishable.
-        id: (f as unknown as { id?: number }).id,
+        id: f.id,
         geometry: clampedGeom,
         properties: {
           ...(gj.properties ?? {}),
