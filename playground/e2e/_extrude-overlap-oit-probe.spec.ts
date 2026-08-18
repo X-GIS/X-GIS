@@ -170,7 +170,9 @@ async function compare(
       // so it is taken from FA's own top-left corner rather than assumed.
       const bg = [FA.d[0], FA.d[1], FA.d[2]]
       const near = (p: Uint8ClampedArray, i: number, q: number[], t: number): boolean =>
-        Math.abs(p[i] - q[0]) <= t && Math.abs(p[i + 1] - q[1]) <= t && Math.abs(p[i + 2] - q[2]) <= t
+        Math.abs(p[i] - q[0]) <= t &&
+        Math.abs(p[i + 1] - q[1]) <= t &&
+        Math.abs(p[i + 2] - q[2]) <= t
       const sameAt = (p: Uint8ClampedArray, q: Uint8ClampedArray, i: number, t: number): boolean =>
         Math.abs(p[i] - q[i]) <= t &&
         Math.abs(p[i + 1] - q[i + 1]) <= t &&

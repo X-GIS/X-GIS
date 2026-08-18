@@ -118,7 +118,15 @@ describe('extrude-shell pass — RHI seam wiring (#1046 F3b Inc-2d, #1253)', () 
       ...scenePatch,
     } as unknown as SceneView
     const host = { renderer: {}, ctx: { rhi: shellRhi(), format: 'bgra8unorm' } }
-    return { ...f, scene, host, drawn, ensureExtrudeShell, extrudeShellView, extrudeShellSampleView }
+    return {
+      ...f,
+      scene,
+      host,
+      drawn,
+      ensureExtrudeShell,
+      extrudeShellView,
+      extrudeShellSampleView,
+    }
   }
 
   it('shell pass targets the shell RT, LOADs opaque depth, clears its own stencil', () => {
