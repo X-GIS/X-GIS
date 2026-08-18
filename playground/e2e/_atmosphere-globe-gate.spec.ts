@@ -62,9 +62,15 @@ async function screenshotPng(page: Page): Promise<PNG> {
 
 const isCheckerRed = (r: number, g: number, b: number) => r > 150 && g < 100 && b < 100
 const isCheckerBlue = (r: number, b: number) => b > 150 && r < 100
-// The glow's inner colour (set below) is a saturated orange — far from both checker colours
-// and from black, so a tolerant "dominant warm channel" predicate cannot collide with either.
-const isGlow = (r: number, g: number, b: number) => r > 170 && g > 60 && g < 210 && b < 100
+// The glow's inner colour (set below) is a saturated orange, alpha-blended over black: a
+// STRICTLY warm channel ORDER (r > g > b), not an absolute-brightness floor — the falloff
+// band is only a few pixels wide (band-width derivation: atmosphere.ts's own header), so the
+// tail pixels are dim. Checker red keeps g == b (40, 40) and checker blue keeps g < r < b, so
+// neither can satisfy `r > g > b` at any AA blend fraction with black; only the glow can.
+// Calibrated against a real SwiftShader/WebGL2 render of this exact fixture+camera (measured:
+// (134,74,5), (41,22,6), (41,22,6) at the three pixels past the silhouette — see the #1258
+// gate-regression comment in atmosphere.ts's `fsAtmosphere`), not guessed.
+const isGlow = (r: number, g: number, b: number) => r > g && g > b && r > 15
 const isNearBlack = (r: number, g: number, b: number) => r < 14 && g < 14 && b < 14
 
 /** The checker disc's horizontal extent on ONE row — self-referential geometry (CLAUDE.md

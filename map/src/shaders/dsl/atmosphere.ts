@@ -157,7 +157,18 @@ export const fsAtmosphere = fn(
     const visible = Let(t.gt(f32(0)).and(tca.gt(f32(0))))
     const glow = Let(select(visible, falloff, f32(0)))
     const rgb = Let(mix(atm.outer_color.swizzle('xyz'), atm.inner_color.swizzle('xyz'), glow))
-    const a = Let(mix(atm.outer_color.w, atm.inner_color.w, glow).mul(glow))
+    // NOT `.mul(glow)` again. `mix` alone already lands exactly ON `outer_color.w` at glow=0 —
+    // the correct end of the ramp (0 for the default "fade to space", or a caller's chosen
+    // persistent tint if they set a nonzero outer alpha) — so the extra multiply protected
+    // nothing that was not already true. What it DID do is square an already-squared curve
+    // (ATMOSPHERE_GLOW_EXPONENT=2 applied to `falloff`, so alpha collapsed to ∝(1-t)^4 instead
+    // of the intended ∝(1-t)^2), which is the #1258 gate regression: measured on the real
+    // render (SwiftShader/WebGL2, the gate's exact camera), the four pixels past the silhouette
+    // read alpha 0.58/0.25/0.09/0.02 with this line as a bare `mix`, vs. 0.48/0.20/0.06/0.01
+    // (rounding to 0 under 8-bit display a pixel sooner) with the extra `.mul(glow)` in place —
+    // half the exponent's worth of visible screen width, on a band that was already only a
+    // few pixels wide to begin with.
+    const a = Let(mix(atm.outer_color.w, atm.inner_color.w, glow))
     return vec4(rgb, a)
   },
   { stage: 'fragment', retAttr: '@location(0)' },
