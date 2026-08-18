@@ -1434,6 +1434,34 @@ knew to search for. Every row below is a thing that was rebuilt by hand at least
 | `#extension … : require`                           | `enables` (§10)                            | `enable …;`                             | fails closed (`SD0030`) on a backend whose `capProfile` has no row                                                                                                                                                                                    |
 | comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff                                                                                                                                                                               |
 
+### The builtin-value vocabulary — `gl_*` name → WGSL id
+
+`builtin(name, type)`'s vocabulary is WGSL's, typed as `WgslBuiltinName` — a `gl_*`
+spelling or a typo is a `tsc` error naming the union. This lookup exists because the
+reverse direction failed in practice: a GLSL-minded author reached for `frag_coord`
+(accepted by the GLSL writer at the time), and the module died only when the WGSL
+writer ran.
+
+| GLSL global                      | DSL spelling                                       | Notes                                                                                                                                                                                                         |
+| -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gl_Position`                    | `builtin('position', vec4fT)` on the VERTEX output | writes `gl_Position` on GLSL                                                                                                                                                                                  |
+| `gl_FragCoord`                   | `builtin('position', vec4fT)` on a FRAGMENT input  | reads `gl_FragCoord` on GLSL. Mind the y-origin: GL window space is bottom-left, WGSL framebuffer space top-left — flip per target (or derive y-symmetric) before consuming `.y`                              |
+| `gl_VertexID`                    | `builtin('vertex_index', u32T)`                    | GLSL wraps the read as `uint(gl_VertexID)` (the DSL types it u32, GLSL's is int)                                                                                                                              |
+| `gl_InstanceID`                  | `builtin('instance_index', u32T)`                  | same uint() wrap                                                                                                                                                                                              |
+| `gl_FrontFacing`                 | `builtin('front_facing', boolT)`                   |                                                                                                                                                                                                               |
+| `gl_FragDepth`                   | `builtin('frag_depth', f32T)` as the return attr   |                                                                                                                                                                                                               |
+| `gl_PointSize` / `gl_PointCoord` | — unsupported on BOTH writers                      | not a WGSL gap being imposed on GLSL: point sprites have per-vendor size caps, and the map dropped them for instanced quad expansion (`map/src/shaders/dsl/point.ts`) — the emit error's remedy says the same |
+| float `mod(x, y)`                | the free fn `mod()` (floor-mod)                    | `.mod()`/`%` is TRUNC-mod (WGSL semantics) and now spells portably on GLSL too — pick by the semantics you mean on negatives                                                                                  |
+
+**Targeting WebGL2 only?** Nothing above narrows what the GLSL writer can express — the
+neutral names are spellings, not capabilities, and several of this vocabulary's rules
+exist to make WebGL2 output MORE defined (`round` emits `roundEven`; float `%` emits a
+trunc-mod GLSL ES 3.00 actually compiles). For GLSL-only constructs the neutral surface
+does not model, `rawStmt` (§1) accepts a `{ glsl }`-only payload: the GLSL writer splices
+it verbatim, and if the WGSL writer ever runs on that module it fails CLOSED (SD0030)
+naming every site to port — the deliberate shape for a consumer who excludes WebGPU
+today but may not forever.
+
 ### Does it survive on WGSL?
 
 `capabilityMatrix([wgslBackend, glslEs300Backend])` answers that per capability, derived
