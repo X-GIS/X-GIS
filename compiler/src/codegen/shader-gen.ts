@@ -28,10 +28,9 @@ import {
   u32Mod,
   arrayIndex,
   mix4,
-  clampF32,
+  saturateF32,
   f32Sub,
   f32Div,
-  f32Lit,
   vec4f,
   vec4fFromRgba,
   matchVec4,
@@ -385,11 +384,7 @@ function processColorValue(
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
-          clampF32(
-            f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)),
-            f32Lit(0),
-            f32Lit(1),
-          ),
+          saturateF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode))),
         )
         return {
           preamble: [],
@@ -438,11 +433,7 @@ function processColorValue(
         const nodeExpr = mix4(
           vec4fFromRgba(lowColor),
           vec4fFromRgba(highColor),
-          clampF32(
-            f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode)),
-            f32Lit(0),
-            f32Lit(1),
-          ),
+          saturateF32(f32Div(f32Sub(valNode, minNode), f32Sub(maxNode, minNode))),
         )
         return {
           preamble: [],
