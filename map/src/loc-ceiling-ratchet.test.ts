@@ -1403,7 +1403,19 @@ const CEILINGS: Record<string, number> = {
   // have pushed this file over its ceiling; the ratchet's own instruction — extract,
   // don't grow — was the right call, since the data texture is one concern and the
   // device file only allocates, binds and deletes it.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1447,
+  // 1447→1497 (#1796): the vertex-attrib enable/disable discipline fix — a
+  // Gl2AttribState bitmask (context-wide, owned by WebGl2Device, threaded through every
+  // WebGl2RenderPass constructor call) plus bindAttributes()'s reconcile-against-the-
+  // live-mask rewrite, so a pipeline with fewer (or zero, the line pipeline) vertex
+  // attributes than its predecessor no longer leaves stale enabled locations with no
+  // bound buffer at draw time.
+  // 1497→1521 (#1796 follow-up): a fresh mask=0 does not mean the ADOPTED gl context
+  // has no attributes really enabled — gpu.ts hands a remount the SAME pooled context
+  // a prior (destroyed) device left dirty (device-lifecycle.ts). The constructor now
+  // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
+  // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
+  // fall back to 16 and no-op).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
