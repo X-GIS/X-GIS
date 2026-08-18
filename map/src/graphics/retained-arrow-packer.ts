@@ -10,7 +10,8 @@
 
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { hexToRgba } from '../feature-helpers'
-import { EARTH, lonLatToECEF } from '@xgis/shared'
+import { lonLatToECEF } from '@xgis/shared'
+import { latToMercatorY } from '@xgis/geo'
 import {
   ARROW_RETAINED_FEAT,
   ARROW_RETAINED_TINT_STRIDE,
@@ -20,8 +21,6 @@ import type { ArrowDrawSpec, IconColor, Position, Packed } from './graphics-type
 const F = ARROW_RETAINED_FEAT.slot
 const STRIDE = ARROW_RETAINED_FEAT.stride
 const DEG2RAD = Math.PI / 180
-const MERC_LAT_LIMIT = 85.051129
-const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the point/icon packers)
 /** Tip offset from the anchor along the bearing, in degrees — small, so the projected screen
  *  direction is the LOCAL tangent (magnitude is irrelevant; the shader normalises it). */
 const TIP_STEP_DEG = 0.02
@@ -74,8 +73,7 @@ function packGeoPoint(feat: Float32Array, base: number, lon: number, lat: number
   feat[base + 6] = lon
   feat[base + 7] = lat
   const mx = worldCopyMercX(lon, 0)
-  const latC = Math.max(-MERC_LAT_LIMIT, Math.min(MERC_LAT_LIMIT, lat))
-  const my = Math.log(Math.tan(Math.PI / 4 + (latC * DEG2RAD) / 2)) * R_MERC
+  const my = latToMercatorY(lat)
   const mxH = Math.fround(mx)
   const myH = Math.fround(my)
   feat[base + 8] = mxH
