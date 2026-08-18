@@ -16,6 +16,7 @@ import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 import type {
   BackgroundPassHost,
+  AtmospherePassHost,
   OpaquePassHost,
   OitPassHost,
   TranslucentPassHost,
@@ -32,6 +33,7 @@ import type {
 // alongside RenderPass from this one module (single import line per pass).
 export type {
   BackgroundPassHost,
+  AtmospherePassHost,
   OpaquePassHost,
   OitPassHost,
   TranslucentPassHost,
@@ -52,6 +54,7 @@ export type {
  *  the composed PassHost so the RenderLoop can drive any pass uniformly.
  *  Same member set the loop hands in — a pure TYPE re-grouping. */
 export type PassHost = BackgroundPassHost &
+  AtmospherePassHost &
   OpaquePassHost &
   OitPassHost &
   TranslucentPassHost &

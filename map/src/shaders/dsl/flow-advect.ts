@@ -39,7 +39,7 @@ import {
   vec3,
   vec4,
   fract,
-  clamp,
+  saturate,
   textureSample,
   Var,
   If,
@@ -153,7 +153,7 @@ const fsAdvect = fn(
     const back = Let(vec2(uv.x.sub(vu.mul(U.field.step.x)), uv.y.add(vv.mul(U.field.step.y))))
     // Clamp rather than wrap: a coverage cell is a bounded region, and wrapping would advect
     // the Atlantic into the Pacific across the seam.
-    const src = Let(vec2(clamp(back.x, 0, 1), clamp(back.y, 0, 1)))
+    const src = Let(vec2(saturate(back.x), saturate(back.y)))
 
     const history = Let(textureSample(prevTex.node, samp.node, src).x.mul(U.field.step.z))
     const n = hash({ p: uv.mul(f32(NOISE_CELLS)), phase: U.field.phase.x })

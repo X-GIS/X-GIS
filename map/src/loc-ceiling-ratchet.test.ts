@@ -681,19 +681,6 @@ const CEILINGS: Record<string, number> = {
   // the controller live, the new `onBoxZoom` callback (the eased-fitBounds
   // terminal call — #1256's easeTo infra is what makes "eased" possible now),
   // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
-  // 5497→5529 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
-  // embedded map from hijacking page scroll. map.ts's share is again
-  // composition-root wiring only (the gesture logic + hint overlay live in
-  // controller.ts): the `cooperativeGestures` field (default OFF, unlike
-  // doubleClickZoom/boxZoom's default-ON) + its constructor-option read, the
-  // `getState()` closure threading it + `prefersReducedMotion` to the
-  // controller live, and `_setupTouchAction`'s default-branch swap to
-  // `'pan-y'` (vs #1153's `'none'`) so a released single-finger touch drag
-  // actually reaches the OS as a native scroll. MEASURED base value — NOTE:
-  // #1827 (open in parallel, also touching this file) independently measured
-  // 5546 from the SAME 5497 base; the two additive deltas union-merge to
-  // whichever lands second, re-measure at merge time.
-  'map/src/map.ts': 5529,
   // Baselined at #1265 (measured 997 after the prettier pass): the pointer-gesture state machine crossed
   // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
   // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
@@ -706,7 +693,7 @@ const CEILINGS: Record<string, number> = {
   // with no extra branching — into a geo AABB dispatched via the new
   // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
   // from now.
-  // 997→1163 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
+  // 997→1166 (#1264): `cooperativeGestures` (MapLibre parity) — stop an
   // embedded map from hijacking page scroll. `CooperativeGesturesOptions` +
   // two new live-read `ControllerState` fields (cooperativeGestures,
   // prefersReducedMotion — same getState()-closure pattern #1265 established
@@ -720,6 +707,27 @@ const CEILINGS: Record<string, number> = {
   // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
   // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
   'map/src/controller.ts': 1166,
+  // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
+  // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
+  // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
+  // setter mutates a private class field directly, exactly like every sibling setter here
+  // (setBackgroundFill, setLight, setProjection); pulling just this one out to a free function
+  // would need the field made reachable from outside the class, which is a worse shape than
+  // the file's own established pattern. The BODY the render pass actually draws with (the
+  // camera-ray extraction, the uniform pack, the shader) lives in atmosphere-uniform.ts /
+  // atmosphere-pass.ts / shaders/dsl/atmosphere.ts.
+  // 5546→5578 (#1264, atop the #1258 bump): `cooperativeGestures` (MapLibre parity) — stop an
+  // embedded map from hijacking page scroll. map.ts's share is again
+  // composition-root wiring only (the gesture logic + hint overlay live in
+  // controller.ts): the `cooperativeGestures` field (default OFF, unlike
+  // doubleClickZoom/boxZoom's default-ON) + its constructor-option read, the
+  // `getState()` closure threading it + `prefersReducedMotion` to the
+  // controller live, and `_setupTouchAction`'s default-branch swap to
+  // `'pan-y'` (vs #1153's `'none'`) so a released single-finger touch drag
+  // actually reaches the OS as a native scroll. MEASURED at the union merge
+  // with #1827's independent 5497→5546 bump (both additive from 5497).
+  // whichever lands second, re-measure at merge time.
+  'map/src/map.ts': 5578,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1055,7 +1063,9 @@ const CEILINGS: Record<string, number> = {
   // `u.<lane>` requires and the VS's fill_translate_x/y reads that replace the old `.zw`
   // index. Structural (+4) — a lane cannot be extracted elsewhere; the rest is the two
   // rationale comments for a rename whose reason is invisible from the token.
-  'map/src/shaders/dsl/line.ts': 1542,
+  // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
+  // segment), so the import list carries BOTH names — one structural line, zero logic.
+  'map/src/shaders/dsl/line.ts': 1543,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio

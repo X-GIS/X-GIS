@@ -32,6 +32,7 @@ import {
   vec4,
   vec2u,
   clamp,
+  saturate,
   fract,
   sign,
   length,
@@ -677,7 +678,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p
       .elif(capType.eq(3), () => {
         // CAP_ARROW: analytical tapered half-width.
         If(distP0.gt(0), () => {
-          const t = clamp(distP0.div(arrowL), 0, 1)
+          const t = saturate(distP0.div(arrowL))
           const newW = halfWm.mul(f32(1).sub(t))
           dM.assign(max(perpM.sub(newW), distP0.sub(arrowL)))
         })
@@ -729,7 +730,7 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p
       })
       .elif(capType.eq(3), () => {
         If(distP1.gt(0), () => {
-          const t = clamp(distP1.div(arrowL), 0, 1)
+          const t = saturate(distP1.div(arrowL))
           const newW = halfWm.mul(f32(1).sub(t))
           dM.assign(max(perpM.sub(newW), distP1.sub(arrowL)))
         })

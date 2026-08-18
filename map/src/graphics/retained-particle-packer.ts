@@ -22,7 +22,8 @@
 
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { hexToRgba } from '../feature-helpers'
-import { EARTH, lonLatToECEF } from '@xgis/shared'
+import { lonLatToECEF } from '@xgis/shared'
+import { latToMercatorY } from '@xgis/geo'
 import {
   PARTICLE_RETAINED_FEAT,
   PARTICLE_RETAINED_TINT_STRIDE,
@@ -33,8 +34,6 @@ const F = PARTICLE_RETAINED_FEAT.slot
 const STRIDE = PARTICLE_RETAINED_FEAT.stride
 const DEG2RAD = Math.PI / 180
 const TAU = Math.PI * 2
-const MERC_LAT_LIMIT = 85.051129
-const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the point/icon/arrow/circle packers)
 /** Metres per degree of latitude (≈ WGS84 mean) — the jitter/seed radius conversion. */
 const M_PER_DEG = 111320
 /** Tip offset from the origin along the bearing, in degrees — small, so the projected screen
@@ -186,8 +185,7 @@ function packGeoPoint(feat: Float32Array, base: number, lon: number, lat: number
   feat[base + 6] = lon
   feat[base + 7] = lat
   const mx = worldCopyMercX(lon, 0)
-  const latC = Math.max(-MERC_LAT_LIMIT, Math.min(MERC_LAT_LIMIT, lat))
-  const my = Math.log(Math.tan(Math.PI / 4 + (latC * DEG2RAD) / 2)) * R_MERC
+  const my = latToMercatorY(lat)
   const mxH = Math.fround(mx)
   const myH = Math.fround(my)
   feat[base + 8] = mxH

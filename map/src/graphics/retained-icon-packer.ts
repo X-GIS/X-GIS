@@ -9,9 +9,10 @@
 // packer, so the shader's reused geo→clip ladder applies unchanged.
 
 import { lonLatToECEF } from '@xgis/shared'
+import { latToMercatorY } from '@xgis/geo'
 import { worldCopyMercX } from '../render/point-feature-packer'
 import { hexToRgba } from '../feature-helpers'
-import { EARTH, xlog } from '@xgis/shared'
+import { xlog } from '@xgis/shared'
 import type { SpriteInfo } from '../sprite/sprite-atlas-host'
 import {
   ICON_RETAINED_FEAT,
@@ -21,9 +22,6 @@ import type { IconDrawSpec, IconColor, IconAnchor, Position, Packed } from './gr
 
 const F = ICON_RETAINED_FEAT.slot
 const STRIDE = ICON_RETAINED_FEAT.stride
-const DEG2RAD = Math.PI / 180
-const MERC_LAT_LIMIT = 85.051129
-const R_MERC = EARTH.sphereR // web-Mercator sphere radius (matches the point packer)
 
 /** The minimal atlas surface the packer resolves sprite UV rects through. */
 export interface PackerAtlas {
@@ -118,8 +116,7 @@ export function packRetainedIconFeat<D>(
     // Baked at world copy 0 (worldCopyMercX = the shared point-packer authority);
     // the shader adds the per-copy world_offset uniform for the flat-Mercator wrap.
     const mx = worldCopyMercX(lon, 0)
-    const latC = Math.max(-MERC_LAT_LIMIT, Math.min(MERC_LAT_LIMIT, lat))
-    const my = Math.log(Math.tan(Math.PI / 4 + (latC * DEG2RAD) / 2)) * R_MERC
+    const my = latToMercatorY(lat)
     const mxH = Math.fround(mx)
     const myH = Math.fround(my)
     feat[o + F.merc_x_h] = mxH

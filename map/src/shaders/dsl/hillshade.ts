@@ -49,6 +49,7 @@ import {
   select,
   sqrt,
   clamp,
+  saturate,
   dot,
   length,
   mix,
@@ -293,11 +294,11 @@ const buildFs = (pickEnabled: boolean, methodFlag: number) => {
           const accent = cos(scaledSlope)
           const accentColor = HS.field.hs_accent
             .mul(f32(1).sub(accent))
-            .mul(clamp(intensity.mul(2), 0, 1))
+            .mul(saturate(intensity.mul(2)))
           const shade = abs(mod(aspect.add(azimuth).div(PI).add(0.5), 2).sub(1))
           const shadeColor = mix(HS.field.hs_shadow, HS.field.hs_highlight, shade)
             .mul(sin(scaledSlope))
-            .mul(clamp(intensity.mul(2), 0, 1))
+            .mul(saturate(intensity.mul(2)))
           return accentColor.mul(f32(1).sub(shadeColor.a)).add(shadeColor)
         },
         () => {

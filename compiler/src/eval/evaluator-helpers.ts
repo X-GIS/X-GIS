@@ -149,8 +149,9 @@ function buildVec(n: number, args: readonly unknown[]): number[] {
  *  spelling — the 5-arg `scale(…)` (#1664, #1665). ONE function for both callee
  *  names because the GPU has one shape for them: shader-gen.ts:380-388 and its
  *  byte-identical `scale` arm at :417-449 both emit
- *  `mix4(vec4(low), vec4(high), clamp((val - min) / (max - min), 0, 1))`.
- *  Replicated term for term — same clamp bounds, `mix`'s own `a*(1-t) + b*t` per
+ *  `mix4(vec4(low), vec4(high), saturate((val - min) / (max - min)))` (#1828 —
+ *  saturate ≡ the [0,1] clamp by WGSL spec definition, so the twin below stays the
+ *  clamp). Replicated term for term — same [0,1] bounds, `mix`'s own `a*(1-t) + b*t` per
  *  channel with ALPHA included (mix is vec4-wide there), endpoints decoded to
  *  0..1 sRGB exactly as `vec4fFromRgba` decodes them — because the identical
  *  expression paints polygons through the GPU variant (#1655) and points/arrows
