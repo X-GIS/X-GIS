@@ -71,11 +71,7 @@ function validate(options: WmsAdapterOptions): void {
   if (!options.layers || options.layers.trim() === '') {
     throw new Error('[X-GIS] wmsRasterTemplate: options.layers is required')
   }
-  if (
-    options.version !== undefined &&
-    options.version !== '1.1.1' &&
-    options.version !== '1.3.0'
-  ) {
+  if (options.version !== undefined && options.version !== '1.1.1' && options.version !== '1.3.0') {
     throw new Error(
       `[X-GIS] wmsRasterTemplate: unsupported WMS version '${options.version}' — ` +
         `only '1.1.1' and '1.3.0' are supported`,

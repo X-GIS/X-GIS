@@ -61,9 +61,9 @@ describe('wmsRasterTemplate', () => {
     })
 
     it('throws when layers is missing', () => {
-      expect(() =>
-        wmsRasterTemplate({ baseUrl: 'https://example.com/wms', layers: '' }),
-      ).toThrow(/layers is required/)
+      expect(() => wmsRasterTemplate({ baseUrl: 'https://example.com/wms', layers: '' })).toThrow(
+        /layers is required/,
+      )
     })
 
     it('throws on an unsupported WMS version', () => {
