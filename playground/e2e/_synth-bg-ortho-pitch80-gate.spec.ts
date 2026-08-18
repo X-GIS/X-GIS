@@ -230,6 +230,33 @@ async function setupPage(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(800)
 }
 
+// ─── Helper: hide demo chrome before any capture ──────────────────────
+// The `#map` locator composites every absolutely-positioned piece of demo
+// chrome over the canvas — same constraint `_demotiles-mirror-gate.spec.ts`
+// documents, same id list. Here it is not just cosmetic: the fixture hint
+// pill fades, so two runs capture it at different animation phases. Measured
+// cross-run: 1.876% of the frame differing at max amplitude 12/255, ALL of it
+// inside the hint pill's box, canvas byte-stable everywhere else — which is
+// exactly the 0.5% pixel-diff ceiling test 3 exists to arm. Hiding the chrome
+// leaves only the render under the diff.
+async function hideDemoChrome(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => {
+    const ids = [
+      'log-overlay',
+      'status',
+      'status-popover',
+      'hash-badge',
+      'map-tools',
+      'editor-collapse-btn',
+      'demo-actions',
+    ]
+    for (const id of ids) {
+      const el = document.getElementById(id)
+      if (el) el.style.display = 'none'
+    }
+  })
+}
+
 // ════════════════════════════════════════════════════════════════════
 
 // File-scope, not the per-test `test.setTimeout` this spec used before promotion: a
@@ -339,6 +366,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
     await setupPage(page)
+    await hideDemoChrome(page)
 
     const png = await page.locator('#map').screenshot()
     writeFileSync(join(ART, 'ortho-z0-pitch80-32x16.png'), png)
@@ -420,6 +448,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     })
 
     await setupPage(page)
+    await hideDemoChrome(page)
 
     const png = await page.locator('#map').screenshot()
 
