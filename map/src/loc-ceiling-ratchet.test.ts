@@ -673,7 +673,28 @@ const CEILINGS: Record<string, number> = {
   // only sees it through injected callbacks) plus the import. The BODY (the
   // id/id__N predicate + both fast-path gates) lives in map-teardown.ts /
   // source-manager.ts.
-  'map/src/map.ts': 5460,
+  // 5460→5497 (#1265): double-click zoom + Shift+drag box zoom (standard gesture
+  // parity). map.ts's share is composition-root wiring only — the gesture state
+  // machine itself lives in controller.ts: two runtime-settable enable/disable
+  // fields (doubleClickZoomEnabled/boxZoomEnabled, MapLibre handler parity) +
+  // their constructor-option reads, the `getState()` closure threading them to
+  // the controller live, the new `onBoxZoom` callback (the eased-fitBounds
+  // terminal call — #1256's easeTo infra is what makes "eased" possible now),
+  // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
+  'map/src/map.ts': 5497,
+  // Baselined at #1265 (measured 986): the pointer-gesture state machine crossed
+  // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
+  // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
+  // smooth-zoom rAF loop; the old pointerdown-timing double-tap is now touch/
+  // pen-only so it can't double-fire alongside this) and Shift+drag box zoom
+  // (rubber-band state + the module-level overlay-div/stylesheet helpers,
+  // mirroring map-accessibility.ts's injectFocusStyle pattern; on release,
+  // unprojects all 4 screen corners via the existing `unprojectToLonLat` — which
+  // already scopes to flat projections, so globe/untilted-disc naturally defer
+  // with no extra branching — into a geo AABB dispatched via the new
+  // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
+  // from now.
+  'map/src/controller.ts': 986,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

@@ -30,6 +30,13 @@ export interface Controller {
 
 export interface ControllerState {
   projectionName: string
+  /** #1265 — MapLibre `doubleClickZoom` handler parity. Read live on every
+   *  dblclick (not just at attach) so a runtime toggle takes effect without
+   *  reattaching. `undefined`/absent ⇒ enabled (matches MapLibre's default). */
+  doubleClickZoomEnabled?: boolean
+  /** #1265 — MapLibre `boxZoom` handler parity. Same live-read, same
+   *  enabled-by-default semantics as `doubleClickZoomEnabled`. */
+  boxZoomEnabled?: boolean
 }
 
 /** Optional event callbacks the map wires into the controller so the
@@ -63,12 +70,62 @@ export interface ControllerEvents {
    *  with `onPointerUp` for state that must be reset when a gesture ends
    *  without a clean release. */
   onPointerCancel?: (ev: PointerEvent) => void
+  /** #1265 — fires once a Shift+drag box-zoom gesture releases with a
+   *  non-degenerate rectangle whose 4 corners all unproject to geographic
+   *  coordinates. `bounds` is the axis-aligned `[[west,south],[east,north]]`
+   *  lon/lat box the map should fit the camera to (eased — MapLibre
+   *  `BoxZoomHandler` parity). Globe / untilted-disc projections and a
+   *  ray that misses the ground plane return null corners, so the
+   *  gesture silently cancels for those (start with flat projections;
+   *  the issue's own proposed approach defers globe support). */
+  onBoxZoom?: (bounds: [[number, number], [number, number]]) => void
 }
 
 /** Movement distance (CSS px) at which a press-release stops being a
  *  click. 4px matches the threshold most browsers use for the synthetic
  *  `click` event after pointer events. */
 const CLICK_DEADZONE_PX = 4
+
+// ═══ Box-zoom overlay (#1265, Shift+drag rubber-band) ═══
+// Mirrors map-accessibility.ts's injectFocusStyle: one shared stylesheet,
+// injected once per document, targeting a stable class name. display:none
+// by default so an idle controller never paints a stray div into an e2e
+// screenshot (§ tile-crop-review concern named in the issue).
+let boxZoomStyleInjected = false
+function ensureBoxZoomStyle(): void {
+  if (boxZoomStyleInjected) return
+  if (typeof document === 'undefined' || !document.head) return
+  boxZoomStyleInjected = true
+  const style = document.createElement('style')
+  style.setAttribute('data-xgis-boxzoom-style', '')
+  style.textContent =
+    '.xgis-boxzoom{position:fixed;left:0;top:0;width:0;height:0;display:none;' +
+    'pointer-events:none;box-sizing:border-box;border:2px dotted #fff;' +
+    'background:rgba(255,255,255,.15);box-shadow:0 0 0 1px rgba(0,0,0,.55);' +
+    'z-index:2147483647;}'
+  document.head.appendChild(style)
+}
+
+/** Per-controller-instance overlay div, appended to `document.body` as
+ *  `position:fixed` — viewport coordinates, so it tracks `clientX/clientY`
+ *  directly with no dependency on the host page's container layout. `null`
+ *  in non-DOM hosts (unit tests); every caller already guards on that. */
+function createBoxZoomEl(): HTMLDivElement | null {
+  if (typeof document === 'undefined' || !document.body) return null
+  ensureBoxZoomStyle()
+  const el = document.createElement('div')
+  el.className = 'xgis-boxzoom'
+  document.body.appendChild(el)
+  return el
+}
+
+function updateBoxZoomEl(el: HTMLDivElement, x0: number, y0: number, x1: number, y1: number): void {
+  el.style.left = Math.min(x0, x1) + 'px'
+  el.style.top = Math.min(y0, y1) + 'px'
+  el.style.width = Math.abs(x1 - x0) + 'px'
+  el.style.height = Math.abs(y1 - y0) + 'px'
+  el.style.display = 'block'
+}
 
 // ═══ PanZoom Controller — 평면 지도용 (Mercator, Equirectangular, Natural Earth) ═══
 
@@ -79,7 +136,7 @@ export class PanZoomController implements Controller {
   attach(
     canvas: HTMLCanvasElement,
     camera: Camera,
-    _getState: () => ControllerState,
+    getState: () => ControllerState,
     events?: ControllerEvents,
   ): void {
     // Wrap event handlers so any throw inside them surfaces with the real
@@ -135,6 +192,22 @@ export class PanZoomController implements Controller {
     let lastTapX = 0
     let lastTapY = 0
 
+    // Box zoom (#1265, Shift+drag rubber-band — MapLibre BoxZoomHandler
+    // parity). `boxZoomPending` arms on the qualifying pointerdown (like
+    // MapLibre's `_active`); `boxZoomArmed` flips once travel passes the
+    // click deadzone — that's also when the overlay div becomes visible and
+    // release actually fits (a plain shift-click with no real drag cancels,
+    // same as MapLibre's p0===p1 check). `boxZoomPointerId` scopes release/
+    // cancel to the SAME pointer that started the gesture.
+    let boxZoomPending = false
+    let boxZoomArmed = false
+    let boxZoomPointerId = -1
+    let boxStartX = 0,
+      boxStartY = 0
+    let boxEndX = 0,
+      boxEndY = 0
+    let boxZoomEl: HTMLDivElement | null = null
+
     const onPointerDown = (e: PointerEvent) => {
       // #12: register pointer BEFORE any early-return so every pointerdown
       // has a paired setPointerCapture + activePointers entry, keeping
@@ -142,8 +215,13 @@ export class PanZoomController implements Controller {
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
 
-      // Double-tap detection (single finger only)
-      if (activePointers.size === 1) {
+      // Double-tap detection (single finger only). Mouse is excluded
+      // (#1265): a real mouse double-click ALSO satisfies this timing
+      // window (PointerEvent unifies mouse/touch), so without the guard a
+      // mouse double-click would fire this instant zoomAt(1) AND the native
+      // `dblclick` handler below — a double zoom-in. Touch/pen have no
+      // reliable native `dblclick`, so they keep this timing-based path.
+      if (activePointers.size === 1 && e.pointerType !== 'mouse') {
         const now = performance.now()
         const dt = now - lastTapTime
         const dist = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY)
@@ -161,23 +239,38 @@ export class PanZoomController implements Controller {
       events?.onPointerDown?.(e.clientX, e.clientY, e)
 
       if (activePointers.size === 1) {
-        // Click eligibility: only single-pointer left-button presses
-        // count. Right-click (rotate) and multi-touch are excluded.
-        pressEligible = e.button === 0 && !e.ctrlKey
         pressX = e.clientX
         pressY = e.clientY
         pressTravel = 0
 
-        // Right-click or Ctrl+click → prepare rotate mode (activated on move)
-        if (e.button === 2 || e.ctrlKey) {
-          isRotatePending = true
-          isRotating = false
-          isDragging = false
-          rotateStartX = e.clientX
-          rotateStartY = e.clientY
-          rotateActivated = false
+        // #1265 Shift+left-drag → box zoom, MapLibre BoxZoomHandler parity
+        // (`mousedown(e)`: `e.shiftKey && e.button === 0`). Takes priority
+        // over the normal click/drag/rotate branches below — a box-zoom
+        // press must not pan, and (like MapLibre's DOM.suppressClick())
+        // must not fire onClick even if it ends up a zero-travel press.
+        const boxZoomEnabled = getState().boxZoomEnabled !== false
+        if (e.shiftKey && e.button === 0 && !e.ctrlKey && boxZoomEnabled) {
+          pressEligible = false
+          boxZoomPending = true
+          boxZoomArmed = false
+          boxZoomPointerId = e.pointerId
+          boxStartX = boxEndX = e.clientX
+          boxStartY = boxEndY = e.clientY
         } else {
-          isDragging = true
+          // Click eligibility: only single-pointer left-button presses
+          // count. Right-click (rotate) and multi-touch are excluded.
+          pressEligible = e.button === 0 && !e.ctrlKey
+
+          // Right-click or Ctrl+click → prepare rotate mode (activated on move)
+          if (e.button === 2 || e.ctrlKey) {
+            isRotatePending = true
+            isRotating = false
+            isDragging = false
+            rotateStartX = e.clientX
+            rotateStartY = e.clientY
+            rotateActivated = false
+          } else {
+            isDragging = true
           isRotating = false
           lastX = e.clientX
           lastY = e.clientY
@@ -243,6 +336,7 @@ export class PanZoomController implements Controller {
               : null
           }
         }
+        } // closes the #1265 shift-drag else branch
       } else if (activePointers.size === 2) {
         // #4: entering two-pointer mode must clear any pending rotate state
         // so lifting back to one finger does not wrongly activate rotation.
@@ -328,6 +422,26 @@ export class PanZoomController implements Controller {
       // Update press travel so pointerup can decide click vs drag.
       if (pressEligible) {
         pressTravel = Math.max(pressTravel, Math.hypot(e.clientX - pressX, e.clientY - pressY))
+      }
+
+      // #1265 box zoom in progress — owns this pointer until release/cancel/
+      // Escape; skip pan/rotate/pinch below (mirrors MapLibre's
+      // DOM.disableDrag() while the gesture is active). Arms (shows the
+      // overlay) once travel passes the same deadzone plain clicks use —
+      // a near-zero-travel shift-drag stays a no-op box on release, like
+      // MapLibre's `p0 === p1` cancel check.
+      if (boxZoomPending && e.pointerId === boxZoomPointerId && activePointers.size === 1) {
+        boxEndX = e.clientX
+        boxEndY = e.clientY
+        if (!boxZoomArmed) {
+          const travel = Math.hypot(boxEndX - boxStartX, boxEndY - boxStartY)
+          if (travel >= CLICK_DEADZONE_PX) {
+            boxZoomArmed = true
+            if (!boxZoomEl) boxZoomEl = createBoxZoomEl()
+          }
+        }
+        if (boxZoomArmed && boxZoomEl) updateBoxZoomEl(boxZoomEl, boxStartX, boxStartY, boxEndX, boxEndY)
+        return
       }
 
       // Right-click pending → check deadzone to activate
@@ -512,6 +626,56 @@ export class PanZoomController implements Controller {
     const onPointerUp = (e: PointerEvent) => {
       events?.onPointerUp?.(e.clientX, e.clientY, e)
 
+      // #1265 box zoom release: finalize (or, for a near-zero-travel press,
+      // cancel like MapLibre's p0===p1 check) and return WITHOUT falling
+      // into the click/inertia/rotate-snap logic below — this press never
+      // armed drag/rotate, so there is nothing there to reset.
+      if (boxZoomPending && e.pointerId === boxZoomPointerId) {
+        boxZoomPending = false
+        if (boxZoomEl) boxZoomEl.style.display = 'none'
+        if (boxZoomArmed) {
+          boxZoomArmed = false
+          const dprBox =
+            typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const rBox = canvas.getBoundingClientRect()
+          const sx0 = (boxStartX - rBox.left) * dprBox,
+            sy0 = (boxStartY - rBox.top) * dprBox
+          const sx1 = (e.clientX - rBox.left) * dprBox,
+            sy1 = (e.clientY - rBox.top) * dprBox
+          // Unproject all 4 screen corners (not just the 2 diagonal ones) —
+          // under bearing/pitch a screen rect is not a lon/lat rect, so the
+          // geo AABB must bound all 4. unprojectToLonLat is the single CPU
+          // composer that already scopes to flat projections only (mercator
+          // + equirect/natural_earth/oblique_mercator), returning null for
+          // globe(7) and the untilted disc set (3/4/5) — so a null corner
+          // here IS "start with flat projections, follow up on globe" (the
+          // issue's own proposed scope) with no extra projType branching.
+          const corners: Array<[number, number]> = [
+            [sx0, sy0],
+            [sx1, sy0],
+            [sx1, sy1],
+            [sx0, sy1],
+          ]
+          const lonLats: [number, number][] = []
+          for (const [sx, sy] of corners) {
+            const ll = camera.unprojectToLonLat(sx, sy, canvas.width, canvas.height, dprBox)
+            if (!ll) break
+            lonLats.push(ll)
+          }
+          if (lonLats.length === 4) {
+            const lons = lonLats.map((p) => p[0])
+            const lats = lonLats.map((p) => p[1])
+            events?.onBoxZoom?.([
+              [Math.min(...lons), Math.min(...lats)],
+              [Math.max(...lons), Math.max(...lats)],
+            ])
+          }
+        }
+        pressEligible = false
+        activePointers.delete(e.pointerId)
+        return
+      }
+
       // Click dispatch: fires before any rotate snap / inertia logic so
       // listener handlers see the most recent camera state. Eligibility
       // gate filters out drags (travel > deadzone) and rotation gestures.
@@ -631,6 +795,13 @@ export class PanZoomController implements Controller {
 
     const onPointerCancel = (e: PointerEvent) => {
       activePointers.delete(e.pointerId)
+      // #1265 — mirror onPointerUp's box-zoom reset: an OS gesture-steal
+      // cancels the box (no fit), same as Escape.
+      if (boxZoomPending && e.pointerId === boxZoomPointerId) {
+        boxZoomPending = false
+        boxZoomArmed = false
+        if (boxZoomEl) boxZoomEl.style.display = 'none'
+      }
       if (activePointers.size === 0) {
         // #3: mirror onPointerUp's full reset so an OS gesture-steal does not
         // leave rotateActivated=true, which would suppress the next click via
@@ -721,12 +892,52 @@ export class PanZoomController implements Controller {
       events?.onPointerLeave?.(e)
     }
 
+    // #1265 — mouse double-click zoom (MapLibre ClickZoomHandler parity:
+    // +1 zoom, shift ⇒ -1, eased about the cursor). Native `dblclick` (not
+    // the pointerdown-timing double-tap above, which is now touch/pen-only)
+    // so this is timed by the browser's own double-click window, not a
+    // hand-rolled one. Reuses the SAME smooth-zoom rAF loop wheel-zoom
+    // drives (`targetZoom`/`animateZoom`) rather than a fixed-duration
+    // tween — the issue's own proposed approach names this loop as the
+    // vehicle, and it keeps the anchor-under-cursor math single-sourced.
+    const onDblClick = (e: MouseEvent) => {
+      e.preventDefault()
+      if (getState().doubleClickZoomEnabled === false) return
+      const delta = e.shiftKey ? -1 : 1
+      if (!animating) targetZoom = camera.zoom
+      targetZoom = Math.max(camera.minZoom, Math.min(camera.maxZoom, targetZoom + delta))
+      const rDbl = canvas.getBoundingClientRect()
+      zoomScreenX = e.clientX - rDbl.left
+      zoomScreenY = e.clientY - rDbl.top
+      if (!animating) {
+        animating = true
+        animateZoom()
+      }
+    }
+
+    // #1265 — Escape cancels an in-progress box zoom (MapLibre
+    // BoxZoomHandler.keydown parity: keyCode 27 → reset(), no camera
+    // change). No-ops whenever a box zoom isn't pending, so this never
+    // interferes with map.ts's separate a11y keyboard pan/zoom listener
+    // (also bound to `canvas`, and both listeners are keyed on the same
+    // real DOM element in production — independent concerns, no ordering
+    // dependency between them).
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!boxZoomPending) return
+      if (e.key !== 'Escape' && e.keyCode !== 27) return
+      boxZoomPending = false
+      boxZoomArmed = false
+      if (boxZoomEl) boxZoomEl.style.display = 'none'
+    }
+
     const sPointerDown = safe('pointerdown', onPointerDown)
     const sPointerMove = safe('pointermove', onPointerMove)
     const sPointerUp = safe('pointerup', onPointerUp)
     const sPointerCancel = safe('pointercancel', onPointerCancel)
     const sPointerLeave = safe('pointerleave', onPointerLeave)
     const sWheel = safe('wheel', onWheel)
+    const sDblClick = safe('dblclick', onDblClick)
+    const sKeyDown = safe('keydown', onKeyDown)
 
     canvas.addEventListener('pointerdown', sPointerDown)
     canvas.addEventListener('pointermove', sPointerMove)
@@ -734,6 +945,8 @@ export class PanZoomController implements Controller {
     canvas.addEventListener('pointercancel', sPointerCancel)
     canvas.addEventListener('pointerleave', sPointerLeave)
     canvas.addEventListener('wheel', sWheel, { passive: false })
+    canvas.addEventListener('dblclick', sDblClick)
+    canvas.addEventListener('keydown', sKeyDown)
 
     this.cleanup = () => {
       // Stop the self-rescheduling RAF loops: flip the guard (so any frame
@@ -756,6 +969,13 @@ export class PanZoomController implements Controller {
       canvas.removeEventListener('pointercancel', sPointerCancel)
       canvas.removeEventListener('pointerleave', sPointerLeave)
       canvas.removeEventListener('wheel', sWheel)
+      canvas.removeEventListener('dblclick', sDblClick)
+      canvas.removeEventListener('keydown', sKeyDown)
+      // #1265 — the box-zoom overlay is appended to document.body (fixed-
+      // position, not a canvas child), so it needs its own teardown here;
+      // the removeEventListener calls above only unbind canvas listeners.
+      boxZoomEl?.remove()
+      boxZoomEl = null
     }
   }
 

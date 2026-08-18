@@ -268,6 +268,16 @@ export interface XGISMapOptions {
    *  A live OS flip takes effect without reload. Default `true`. Set `false`
    *  to force motion on regardless (kiosk / demo deployments). */
   respectReducedMotion?: boolean
+  /** #1265 — enable/disable the double-click-to-zoom gesture (MapLibre
+   *  `doubleClickZoom` handler parity: +1 zoom about the cursor, Shift ⇒
+   *  -1). Default `true`. Also settable at runtime via
+   *  `map.doubleClickZoomEnabled`. */
+  doubleClickZoom?: boolean
+  /** #1265 — enable/disable the Shift+drag box-zoom gesture (MapLibre
+   *  `boxZoom` handler parity: rubber-band a rectangle, fit the camera to
+   *  it on release). Default `true`. Also settable at runtime via
+   *  `map.boxZoomEnabled`. */
+  boxZoom?: boolean
   /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
    *  parity). `setPaintProperty` / `layer.style` writes on the continuous
    *  paint axes (fill/line colour, the opacity family, line-width) RAMP to
