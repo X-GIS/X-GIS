@@ -102,6 +102,45 @@ function stubServer(opts: { doc?: unknown; unreachable?: Set<string>; hold?: str
   return { spy, calls, release: () => releaseHold() }
 }
 
+/** Like `stubServer`, but blocks the FIRST request to EVERY cell named in `hold`
+ *  INDEPENDENTLY, each released on its own — and records the ORDER those first requests
+ *  actually arrived. That order is the only direct evidence of genuine overlap (#1505): an
+ *  instant stub serialises everything by construction, since nothing is ever truly in flight
+ *  at once, so a test proving concurrency needs a server that can hold more than one cell
+ *  open at a time. */
+function multiHoldServer(
+  opts: { doc?: unknown; hold?: Set<string>; unreachable?: Set<string> } = {},
+) {
+  const doc = opts.doc ?? catalogueDoc()
+  const started: string[] = []
+  const releasers = new Map<string, () => void>()
+  const cellId = (url: string): string | null =>
+    url.endsWith('.h5') ? url.slice(url.lastIndexOf('/') + 1, -3) : null
+  const spy = vi.spyOn(shared, 'safeFetch').mockImplementation(async (u, init) => {
+    const url = String(u)
+    if (url === CATALOGUE_URL)
+      return new Response(new TextEncoder().encode(JSON.stringify(doc)), { status: 200 }) as never
+    const id = cellId(url)
+    if (id && opts.unreachable?.has(id)) return new Response('nope', { status: 404 }) as never
+    if (id && opts.hold?.has(id) && !releasers.has(id)) {
+      started.push(id)
+      await new Promise<void>((r) => releasers.set(id, r))
+    }
+    if (!id) return new Response('nope', { status: 404 }) as never
+    const range = (init?.headers as Record<string, string> | undefined)?.['Range']
+    const m = range ? /bytes=(\d+)-(\d*)/.exec(range) : null
+    if (!m) return new Response(CELL, { status: 200 }) as never
+    const start = Number(m[1])
+    const end = m[2] ? Math.min(Number(m[2]), CELL.length - 1) : CELL.length - 1
+    const slice = CELL.subarray(start, end + 1)
+    return new Response(slice, {
+      status: 206,
+      headers: { 'content-range': `bytes ${start}-${start + slice.length - 1}/${CELL.length}` },
+    }) as never
+  })
+  return { spy, started, release: (id: string) => releasers.get(id)?.() }
+}
+
 function mockCtx(): { rhi: unknown; format: string } {
   const rhi = {
     backend: 'webgl2' as const,
@@ -348,7 +387,7 @@ describe('ONE residency authority: the renderer’s GPU byte budget (#1453)', ()
     expect(calls.some((u) => u.endsWith('wcofs.h5'))).toBe(true)
   })
 
-  it('the driver STOPS arming once the budget evicts something it still wants', async () => {
+  it('the driver STOPS ARMING once the budget evicts something it still wants (#1505: reads may race ahead, arms never do)', async () => {
     const { calls } = stubServer({
       doc: catalogueDoc([
         ['cbofs', [-77.3, 36.0, -74.9, 39.6]], // overlap 3.2 deg² — most relevant
@@ -356,15 +395,19 @@ describe('ONE residency authority: the renderer’s GPU byte budget (#1453)', ()
         ['sliver', [-74.6, 37.5, -74.5, 37.6]], // overlap 0.01 deg² — least relevant
       ]),
     })
-    const { deps } = makeDeps(MID_ATLANTIC, 1)
+    const { deps, cpuRegions } = makeDeps(MID_ATLANTIC, 1)
     await loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
 
-    // cbofs armed, dbofs armed → cbofs evicted → the budget has spoken, so the third and
-    // least relevant cell is never requested. Predicting this with a byte budget up here
-    // would mean counting FILE bytes against the renderer's GPU bytes.
+    // cbofs armed, dbofs armed → cbofs evicted → the budget has spoken, so sliver is never
+    // ARMED. Its bytes may still have been FETCHED — `syncCoverageResidency`'s read-ahead
+    // window (#1505) starts reads for the whole window before any arm outcome is known, so a
+    // bounded amount of speculative waste is the stated cost of overlapping the reads. What
+    // the budget rule actually needs — arms stay strictly ordered — is untouched: sliver is
+    // never resident, and the resident set is still exactly the most-relevant prefix that fits.
     expect(calls.some((u) => u.endsWith('cbofs.h5'))).toBe(true)
     expect(calls.some((u) => u.endsWith('dbofs.h5'))).toBe(true)
-    expect(calls.some((u) => u.endsWith('sliver.h5'))).toBe(false)
+    expect(cpuRegions()).toEqual(['cbofs'])
+    expect(cpuRegions()).not.toContain('sliver')
   })
 
   it('a re-resolve over the SAME cells fetches NOTHING more — no thrash', async () => {
@@ -427,18 +470,24 @@ describe('a resolve whose viewport moved on must not land (#1453)', () => {
     expect(cpuRegions()).toEqual(['sfbofs'])
   })
 
-  it('the stale loop STOPS rather than working through the old wanted list', async () => {
+  it('the stale loop STOPS ARMING rather than working through the old wanted list (#1505)', async () => {
     const { calls, release } = stubServer({ hold: 'cbofs.h5' })
-    const { deps, pan } = makeDeps(MID_ATLANTIC)
+    const { deps, pan, cpuRegions } = makeDeps(MID_ATLANTIC)
     const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
     await vi.waitFor(() => expect(deps.catalogues.get('currents')?.inFlight.size).toBe(1))
     pan(SF_BAY)
     await syncCoverageResidency(deps, 'currents')
     release()
     await inFlight
-    // cbofs' read had already started and cannot be recalled; dbofs' had not, and must never
-    // start — the viewport it was wanted for is gone.
-    expect(calls.some((u) => u.endsWith('dbofs.h5'))).toBe(false)
+    // cbofs' read had already started and cannot be recalled. dbofs' read is now ALSO started
+    // ahead of the arm (the read-ahead window, #1505) — it is not blocked by `hold`, so it
+    // resolves before the pan even lands, and its bytes get fetched for nothing. That is the
+    // stated, bounded waste the window trades for overlap. What must never happen, regardless,
+    // is dbofs being ARMED: the viewport it was wanted for is gone, and the sequential arm loop
+    // checks `state.wanted` immediately before every commit — it stops there, not at the fetch.
+    expect(calls.some((u) => u.endsWith('dbofs.h5'))).toBe(true) // the window's stated waste
+    expect(cpuRegions()).toEqual(['sfbofs'])
+    expect(cpuRegions()).not.toContain('dbofs') // …but never committed
   })
 })
 
@@ -464,5 +513,73 @@ describe('a `url:` that is neither a cell nor a catalogue fails LOUDLY (#1453)',
     )
     expect(cpuRegions()).toEqual([])
     expect(logs.join('\n')).toMatch(/HTTP 404/)
+  })
+})
+
+describe('cross-cell reads OVERLAP while arms stay strictly sequential (#1505)', () => {
+  beforeEach(() => vi.restoreAllMocks())
+
+  it("region B's read STARTS before region A resolves — the reads genuinely overlap", async () => {
+    const { started, release } = multiHoldServer({ hold: new Set(['cbofs', 'dbofs']) })
+    const { deps, cpuRegions } = makeDeps(MID_ATLANTIC)
+    const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+
+    // Both cells' reads must have STARTED — while NEITHER has been released, i.e. neither has
+    // resolved — before this passes. PRE-FIX (sequential read+arm), dbofs' fetch never began
+    // until cbofs' `armCatalogueItem` call had fully settled, so `started` sat at `['cbofs']`
+    // forever and this `waitFor` timed out.
+    await vi.waitFor(() => expect(started).toEqual(['cbofs', 'dbofs']))
+
+    release('cbofs')
+    release('dbofs')
+    await inFlight
+    expect(cpuRegions()).toEqual(['cbofs', 'dbofs'])
+  })
+
+  it('one region FAILING does not reject, or even touch, a neighbour still genuinely in flight', async () => {
+    const { started, release } = multiHoldServer({
+      hold: new Set(['dbofs']),
+      unreachable: new Set(['cbofs']),
+    })
+    const { deps, cpuRegions } = makeDeps(MID_ATLANTIC)
+
+    const { logs } = await withCapturedLog(async () => {
+      const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+      // cbofs 404s immediately (it is not held); dbofs is still genuinely in flight when it
+      // does, so this is isolation under real overlap, not isolation because nothing overlapped.
+      await vi.waitFor(() => expect(started).toEqual(['dbofs']))
+      release('dbofs')
+      await inFlight
+    })
+
+    expect(cpuRegions()).toEqual(['dbofs']) // cbofs' failure cost its neighbour nothing
+    expect(logs.some((l) => l.includes('cbofs'))).toBe(true)
+  })
+
+  it('arms commit in RELEVANCE order regardless of which read settles first', async () => {
+    const { started, release } = multiHoldServer({
+      doc: catalogueDoc([
+        ['cbofs', [-77.3, 36.0, -74.9, 39.6]], // most relevant — overlap 3.2 deg²
+        ['dbofs', [-75.9, 38.0, -74.2, 40.5]], // overlap 2.1 deg²
+        ['sliver', [-74.6, 37.5, -74.5, 37.6]], // least relevant, but resolves FIRST below
+      ]),
+      hold: new Set(['cbofs', 'dbofs', 'sliver']),
+    })
+    const { deps, armed, cpuRegions } = makeDeps(MID_ATLANTIC) // ample budget — nothing evicted
+    const inFlight = loadDeclaredCoverage(deps, 'currents', CATALOGUE_URL)
+    await vi.waitFor(() => expect(started).toEqual(['cbofs', 'dbofs', 'sliver']))
+
+    // Resolve the NETWORK in the opposite order from relevance.
+    release('sliver')
+    release('dbofs')
+    release('cbofs')
+    await inFlight
+
+    // The ARM order is unaffected: it is driven by the loop's own relevance-ordered walk over
+    // `wanted`, never by which promise happened to settle first — completion-order-independent
+    // state updates. The resident set is exactly what the old sequential code would produce
+    // for this same viewport (no budget pressure here, so nothing is backed out).
+    expect(armed).toEqual(['cbofs', 'dbofs', 'sliver'])
+    expect(cpuRegions()).toEqual(['cbofs', 'dbofs', 'sliver'])
   })
 })
