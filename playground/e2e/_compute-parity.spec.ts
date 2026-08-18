@@ -1,15 +1,17 @@
 import { test, expect } from '@playwright/test'
 
 // M5 — cross-backend compute parity on a REAL WebGL2 GPU. The M2 compute->fragment-GPGPU
-// lowering (emitGlslModule {emulateCompute}) must produce, for a real per-feature paint
-// kernel, byte-IDENTICAL out_color to the CPU-f64 oracle when actually drawn into an
-// R32UI offscreen FBO and read back with gl.readPixels. Proves "WebGL2 has no compute"
-// is no excuse: the feature runs, correctly, on real WebGL2.
+// lowering must produce, for a real per-feature paint kernel, byte-IDENTICAL out_color to
+// the CPU-f64 oracle when actually drawn into an R32UI offscreen FBO and read back with
+// gl.readPixels. Proves "WebGL2 has no compute" is no excuse: the feature runs, correctly,
+// on real WebGL2.
 //
-// #1812 — the same run also carries the PORTABLE KERNEL tier's GPU half: the fragment shader
-// is emitted through the DECLARATION path (no emit-site option), pinned byte-identical to the
-// `emulateCompute: true` emit, and it is the portable-path source that is compiled, linked,
-// drawn and compared below. A tier that emits different bytes on a real driver is not a tier.
+// #1812/#1823 — the same run also carries the PORTABLE KERNEL tier's GPU half: the fragment
+// shader is emitted through the DECLARATION path (the production compute-gen module, no
+// emit-site option), pinned byte-identical to the legacy `emulateCompute: true` emit of the
+// UNDECLARED twin (the harness strips the declaration for that arm, so the two arms stay
+// distinguishable), and it is the portable-path source that is compiled, linked, drawn and
+// compared below. A tier that emits different bytes on a real driver is not a tier.
 test('M2 compute->fragment-GPGPU byte-matches the oracle on real WebGL2', async ({ page }) => {
   await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
   const r = await page.evaluate(async () => {

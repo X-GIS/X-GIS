@@ -175,3 +175,14 @@ green after A):
   SENTENCE are the symmetric halves, both from `analyzePortableKernel`. `emitIdentity`'s
   module-derived marker got a durable test in `emit-identity.test.ts` (session-lead audit
   addition). Multi-row H_out>1 GPU coverage stays a recorded follow-up, not claimed here.
+- **Follow-up (#1823)** — `rhi-webgl2/src/compute-webgl2.ts` now emits with NO option: the
+  kernel's `portable` declaration routes the lowering, and an UNDECLARED compute kernel
+  fail-closes at emit before the device is touched (fail-first pin:
+  `compute-webgl2-portable-contract.test.ts`). The "multi-row GPU coverage is CPU-only"
+  premise was stale — `_compute-dispatch-parity` already ran N=4100 (W=2048, H_out=3,
+  over-grid discard) through the production dispatcher on real WebGL2; the flip makes that
+  lane judge the PORTABLE-path source, which closes the recorded follow-up. 2-D `gid.xy`
+  admission and the output-format matrix are deferred WITH reasons in #1823 (WebGPU
+  dispatches 1-D so `gid.y ≡ 0` there — admitting `.y` without a 2-D host dispatch
+  contract creates the exact divergence the tier prevents; no consumer needs a non-u32
+  output).

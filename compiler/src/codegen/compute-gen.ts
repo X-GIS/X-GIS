@@ -123,7 +123,9 @@ export interface ComputeKernel extends ComputeKernelContract {
   /** The backend-NEUTRAL shader-dsl IR for this kernel. The compiler does NOT emit
    *  shader code (the WebGPU-vs-WebGL2 target is a RUNTIME decision, package-
    *  responsibilities.md ruling i) — it returns the module IR and the runtime emits
-   *  WGSL (emitModule) or GLSL (emitGlslModule {emulateCompute}) per the live backend.
+   *  WGSL (emitModule) or GLSL per the live backend; the GLSL side needs no emit
+   *  option, because the entry is declared `portable: true` (#1812), which routes the
+   *  compute→fragment-GPGPU lowering at emit.
    *  Compiler-only: `ModuleDecl` is a shader-dsl type, so it stays off the neutral
    *  `ComputeKernelContract` (which a backend adapter consumes without shader-dsl). */
   module: ModuleDecl
