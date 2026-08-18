@@ -218,7 +218,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1756 <- main): main's 4944 (#1632 + #1596, above) and the adoption's +9
   // (byte-telemetry read-out, its rationale re-quoted above) compose. MEASURED post-merge,
   // post-prettier (4944 + 9 = 4953, arithmetic agrees).
-  'map/src/render/vector-tile-renderer.ts': 4953,
+  // 4953→4957 (#1253): the 'oit-fill' phase now draws the SHELL through the same
+  // extruded pipeline as the opaque path, so the routing collapses from four
+  // decisions (oit-pipe / oit-skip / extrude-want / extrude-use) to two — the
+  // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
+  // comment that records why the shell phase answers to the extrude skip rule.
+  // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
+  'map/src/render/vector-tile-renderer.ts': 4957,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -650,7 +656,24 @@ const CEILINGS: Record<string, number> = {
   // 5437→5446 (#1257): style-authored `raster-fade-duration` resolved once in the
   // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
   // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
-  'map/src/map.ts': 5446,
+  // 5446→5450 (#1253): the classifier call site gains `extrudeShell` — the one
+  // frame-level fact the pure bucket scheduler cannot see (the device consumes
+  // WGSL AND ?debug=overdraw is off) — plus the `readsWgsl` / `isOverdrawActive`
+  // imports and one line of comment. Composition-root wiring at the existing call
+  // site; the decision it feeds lives in bucket-scheduler.ts (§2). MEASURED.
+  // 5450→5458 (#1375): the FeatureUpdateQueue host gains `patchFeaturesInPlace` — the
+  // in-place point patch the flush now prefers over a re-seed. The BODY of it lives in
+  // SourceManager; what map.ts contributes is the one gate only map.ts can answer (a
+  // HEATMAP show on the patched source is built inside `rebuildLayers`, which the
+  // in-place path deliberately never calls) plus its reason. Nothing cohesive to
+  // extract: it is a single predicate over `showCommands`, which this file owns.
+  // Re-measured after merging both branches (5450 + the #1375 +8).
+  // 5458→5460 (#1800): the SourceManagerDeps wiring gains `hasVariantSources` — the
+  // one-line predicate only map.ts can answer (it owns `vtSources`, SourceManager
+  // only sees it through injected callbacks) plus the import. The BODY (the
+  // id/id__N predicate + both fast-path gates) lives in map-teardown.ts /
+  // source-manager.ts.
+  'map/src/map.ts': 5460,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -726,7 +749,27 @@ const CEILINGS: Record<string, number> = {
   // branch with an empty region map on main, so the import would be orphaned and was DROPPED
   // in adoption — the source-failure payload (`XGISMapErrorInfo`/`fireError`) is the part
   // that lands. MEASURED post-pick.
-  'map/src/source-manager.ts': 898,
+  // 898→939 (#1375): `patchFeaturesInPlace` — the route a host feature update takes
+  // when it does NOT need a re-tile. RAISED rather than extracted because the method is
+  // the sibling of `_reseedInPlace` directly above it: both answer "a push arrived for
+  // an already-attached source", both are the only writers of `hostSeededFC` +
+  // `heatmapPointData` for that source, and splitting them would put the two halves of
+  // one decision in two files — the second-authority shape §12 warns about. +41 is ~14
+  // lines of body and the rest the recorded reasoning (why the catalog's all-or-nothing
+  // false means fall back, why the seeded FC must still be adopted with nothing
+  // re-tiled, and why `detectCapPoles` is deliberately NOT re-run). MEASURED.
+  // 939→959 (#1800): both in-place fast paths (`_reseedInPlace`'s call site in
+  // setSourceData, `patchFeaturesInPlace`) gain a `hasVariantSources(sourceId)`
+  // guard — neither can reach a filtered-show variant catalog's (`id__N`)
+  // independently-seeded subset, so a positive answer demotes them to the
+  // existing full teardown/rebuild path instead (conservative shape (b); the
+  // filter-membership problem a per-variant patch would need to solve is a
+  // design increment, not a right-sized fix here). +20 = the deps field/doc,
+  // the ctor wire, and the two call-site guards + their reasoning. The id/id__N
+  // predicate itself is NOT duplicated here — it lives once in map-teardown.ts
+  // (`hasVariantCatalogs`, sharing `teardownSources`' own predicate) and is
+  // threaded in as a callback, same shape as `getVtSource`. MEASURED.
+  'map/src/source-manager.ts': 959,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -1046,7 +1089,16 @@ const CEILINGS: Record<string, number> = {
   // folds the backends exactly as `getTileState` (its immediate neighbour) already does
   // has nowhere cohesive to extract to, and splitting the pair would put two readings of
   // one backend's failure cache in two files. Measured 1412 post-commit, no hook.
-  'data/src/tile-catalog.ts': 1412,
+  // 1412→1444 (#1375): `patchPointFeatures()` — rewrite the POINT records already sitting
+  // in cached tiles instead of re-tiling the source. RAISED, same shape as the #1616 /
+  // #1596 entries above: the planning + packing is EXTRACTED (point-feature-patch.ts, a
+  // new 194-LOC leaf) and the flat cache walk belongs to TileDataCache (`slices()`), so
+  // what stays here is 6 lines — the delegation plus the `_contentGeneration` bump, which
+  // MUST stay here because this file is that counter's single write authority and a patch
+  // that forgot to bump would be invisible to the point repack. The other +26 is the
+  // import block, the `pointFeatureIds` passthrough at the two descriptor sites, and the
+  // recorded reasoning. MEASURED.
+  'data/src/tile-catalog.ts': 1444,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1403,7 +1455,19 @@ const CEILINGS: Record<string, number> = {
   // have pushed this file over its ceiling; the ratchet's own instruction — extract,
   // don't grow — was the right call, since the data texture is one concern and the
   // device file only allocates, binds and deletes it.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1447,
+  // 1447→1497 (#1796): the vertex-attrib enable/disable discipline fix — a
+  // Gl2AttribState bitmask (context-wide, owned by WebGl2Device, threaded through every
+  // WebGl2RenderPass constructor call) plus bindAttributes()'s reconcile-against-the-
+  // live-mask rewrite, so a pipeline with fewer (or zero, the line pipeline) vertex
+  // attributes than its predecessor no longer leaves stale enabled locations with no
+  // bound buffer at draw time.
+  // 1497→1521 (#1796 follow-up): a fresh mask=0 does not mean the ADOPTED gl context
+  // has no attributes really enabled — gpu.ts hands a remount the SAME pooled context
+  // a prior (destroyed) device left dirty (device-lifecycle.ts). The constructor now
+  // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
+  // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
+  // fall back to 16 and no-op).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

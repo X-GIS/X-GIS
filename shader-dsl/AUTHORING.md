@@ -1146,6 +1146,24 @@ array order before the module is assembled, then every plugin's `transformText`
 compose in the order you list them, ahead of `aliasTypes()` and `minify()` (both
 text), which compose in array order with each other.
 
+**Asserting "prod is dev, optimized"** — hand the SAME plugin array to
+`semanticDiff` as `transforms` and the differences your declared pipeline provably
+causes are classified out of the four buckets into `explained`, each entry naming
+the plugin, the bucket, and the fact line (#1806):
+
+```ts
+const d = semanticDiff(devModule, prodModule, { transforms: [inline(), ...obfuscate()] })
+isSemanticallyEqual(d) // true ⇔ prod differs from dev ONLY as the declared pipeline dictates
+d.explained // [{ transform: 'inline', bucket: 'controlFlow', line: '…' }, …]
+```
+
+Classification is by construction, not by resemblance: a line moves to `explained`
+only when applying the declared plugin's own `transformIR` to the dev side actually
+removes it from the diff. A regression that merely LOOKS like an optimizer rewrite
+stays in its bucket, so a dev↔prod parity gate budgets only the unexplained residue.
+Text-stage plugins explain nothing (the comparator never sees emitted text), which is
+why declaring the full production array — text plugins included — is safe.
+
 **The ABI boundary — never renamed:** entry-point names (WebGPU `entryPoint`),
 **entry-point PARAM names**, binding names including the `_fp64` guard (hosts
 resolve by name), binding-struct names (the GLSL UBO block tag), and struct
@@ -1490,7 +1508,7 @@ knew to search for. Every row below is a thing that was rebuilt by hand at least
 | `precision highp …` on one declaration             | the `precision` option on `hostUniform`    | n/a (WGSL has no precision qualifiers)  | the stage preamble is the default; this is for a fragment composed into a host program                                                                                                                                                                |
 | `usampler2D` / `isampler2D`                        | `texture2duT` / `texture2diT` (§4)         | `texture_2d<u32>` / `texture_2d<i32>`   | the sampler precision line is emitted for you                                                                                                                                                                                                         |
 | `#extension … : require`                           | `enables` (§10)                            | `enable …;`                             | fails closed (`SD0030`) on a backend whose `capProfile` has no row                                                                                                                                                                                    |
-| comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff                                                                                                                                                                               |
+| comparing two emits after an optimizer pass        | `semanticDiff`                             | same                                    | compares IR + reflection, so folding and renaming do not drown the diff; declare your prod plugins as `transforms` and their rewrites classify into `explained` instead of the fail-able buckets (§8)                                                 |
 
 ### The builtin-value vocabulary — `gl_*` name → WGSL id
 

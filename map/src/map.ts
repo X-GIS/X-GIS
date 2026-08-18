@@ -25,6 +25,8 @@ import { HeatmapTargets } from './render/heatmap-targets'
 import { warnStageBlockUnsupported } from './render/stage-block-warning'
 import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
+import { isOverdrawActive } from './debug-flags'
+import { readsWgsl } from './render/material/wgsl-for'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
@@ -211,6 +213,7 @@ import {
   CoverageReadCancellation,
   stopCoverageMachinery,
   teardownSources,
+  hasVariantCatalogs,
   disposeOrphanedBoot,
   absoluteBaseUrl,
   type PendingGpuBoot,
@@ -675,6 +678,14 @@ export class XGISMap {
     getSeededFC: (id) =>
       this.sourceCRS.has(id) ? null : (this.sourceManager.hostSeededFC.get(id) ?? null),
     reseedSource: (id, fc) => this.setSourceData(id, fc),
+    // #1375 — the in-place point patch the queue prefers over a re-seed. Gated
+    // here on the source having no HEATMAP show: a heatmap layer is built from
+    // `heatmapPointData` inside `rebuildLayers`, which the in-place path
+    // deliberately never calls, so a patched source feeding one would keep
+    // drawing its density field at the old positions.
+    patchFeaturesInPlace: (id, fc, moves) =>
+      !this.showCommands.some((s) => s.isHeatmap && s.targetName === id) &&
+      this.sourceManager.patchFeaturesInPlace(id, fc, moves),
   })
   // Delegating views onto the relocated queue state. The pending-patch
   // queue and flush rAF handle now live in FeatureUpdateQueue; these keep
@@ -1295,6 +1306,7 @@ export class XGISMap {
       teardownSource: (sourceId) => this.teardownSource(sourceId),
       fireError: (info) => this._eventBus.fireErrorEvent(info),
       getVtSource: (sourceId) => this.vtSources.get(sourceId) ?? null,
+      hasVariantSources: (sourceId) => hasVariantCatalogs(this.vtSources, sourceId),
       deleteFeatureIndex: (sourceId) => {
         this.featureUpdateQueue.featureIndex.delete(sourceId)
       },
@@ -4582,6 +4594,8 @@ export class XGISMap {
         linePipelineOverdraw: this.renderer.linePipelineOverdraw,
       },
       traceRecorder: this._pendingTraceRecorder,
+      // #1253 — see ClassifierInput.extrudeShell for both halves of this gate.
+      extrudeShell: readsWgsl(this.ctx.rhi) && !isOverdrawActive(this.ctx.rhi.caps),
     })
   }
 

@@ -81,10 +81,11 @@ const byLabel = (caps: CapturedPipeline[], needle: string): CapturedPipeline => 
 }
 
 describe('#1080 fill-extrusion front-shell — pipeline descriptors', () => {
-  it('builds SIX variants: opaque write/test + front-shell colour + depth prepass (×2)', () => {
+  it('builds EIGHT variants: opaque + front-shell colour + depth prepass + layer-wide shell', () => {
     const caps = captureExtrudeVariants(true)
-    // 2 (opaque) on origin/main; the front-shell fix adds 4 (colour ×2, prepass ×2).
-    expect(caps.length).toBe(6)
+    // 2 (opaque) on origin/main; the front-shell fix adds 4 (colour ×2, prepass ×2)
+    // and #1253's layer-wide shell adds 2 more (write/test stencil paths).
+    expect(caps.length).toBe(8)
     for (const needle of [
       'fill-extrude-write-rhi',
       'fill-extrude-test-rhi',
@@ -92,6 +93,8 @@ describe('#1080 fill-extrusion front-shell — pipeline descriptors', () => {
       'fill-extrude-frontshell-test-rhi',
       'fill-extrude-depthprepass-write-rhi',
       'fill-extrude-depthprepass-test-rhi',
+      'fill-extrude-shell-write-rhi',
+      'fill-extrude-shell-test-rhi',
     ]) {
       expect(
         caps.some((c) => c.label === needle),

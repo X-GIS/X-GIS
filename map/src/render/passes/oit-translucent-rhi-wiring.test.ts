@@ -1,10 +1,10 @@
-// ═══ OIT + translucent passes → RHI seam wiring (#1046 F3b Inc-2d) ═══
+// ═══ Shell + translucent passes → RHI seam wiring (#1046 F3b Inc-2d) ═══
 //
-// Both buckets originate through the RHI frame shell. OIT: the fill pass
-// targets the RT-side RHI accessors (rt.oitAccumView / rt.oitRevealageView
-// — adapter-owned textures, mirroring rt.pickView; RHI-native since Inc-D) with the opaque depth
-// loaded; the compose pass draws onto the colour bridge with the conditional
-// resolve. Translucent: the offscreen stroke pass comes from the narrowed
+// Both buckets originate through the RHI frame shell. SHELL (#1253, the pass
+// that occupies the `oit` slot): the fill pass targets the RT-side shell
+// accessors with the opaque DEPTH loaded and its own stencil cleared, and the
+// compose pass draws onto the colour bridge with the conditional resolve.
+// Translucent: the offscreen stroke pass comes from the narrowed
 // lineRenderer.beginTranslucentPass(RhiCommandEncoder) and the composite from
 // lineRenderer.composite(RhiRenderPass). Every ShowDrawFn invocation receives
 // the RHI handle BY IDENTITY (the 34d4695 double-wrap class). Raw-shell
@@ -12,7 +12,9 @@
 //
 // Fail-before: on the native bodies every case is RED — passes begin on
 // ctx.encoder, cs.draw receives native handles, and raw-shell encodes
-// instead of throwing.
+// instead of throwing. The shell cases were additionally RED before #1253:
+// the pass attached the accum/revealage MRT pair and composed through
+// `renderer.drawOitCompose`.
 
 import { describe, it, expect, vi } from 'vitest'
 import { oitPass } from './oit-pass'
@@ -27,6 +29,12 @@ function rhiFrame() {
     const p = {
       desc,
       ended: false,
+      // The shell composite runs a real Material through executeItems, so the
+      // captured pass must accept the draw verbs (no-ops — this file gates
+      // TOPOLOGY, not the draw's contents).
+      setPipeline() {},
+      setBindGroup() {},
+      draw() {},
       end() {
         p.ended = true
       },
@@ -55,71 +63,95 @@ function rhiFrame() {
   return { ctx, captured, beginRenderPass, enc, sceneResolveView }
 }
 
-describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
-  function oitHarness() {
+/** A device just deep enough for the shell compositor's Material: it emits real
+ *  WGSL (`caps.shaderLanguage`), creates the two bind-group layouts, one
+ *  pipeline, the pooled uniform buffer and the bind groups. Nothing is
+ *  inspected — the point is that the pass builds a REAL Material through the
+ *  RHI seam rather than a stub, so a descriptor the seam rejects surfaces here. */
+function shellRhi() {
+  return {
+    caps: { shaderLanguage: 'wgsl', executionModel: 'deferred' },
+    backend: 'webgpu',
+    createSampler: () => ({ __sampler: true }),
+    createBindGroupLayout: () => ({ __bgl: true }),
+    createBindGroup: () => ({ __bg: true }),
+    createPipeline: (d: { label?: string }) => ({ native: { label: d.label } }),
+    createBuffer: () => ({ __buf: true }),
+    writeBuffer: () => {},
+    destroyPipeline: () => {},
+    destroyBuffer: () => {},
+    destroySampler: () => {},
+  }
+}
+
+describe('extrude-shell pass — RHI seam wiring (#1046 F3b Inc-2d, #1253)', () => {
+  function oitHarness(scenePatch: Record<string, unknown> = {}) {
     const f = rhiFrame()
-    const oitAccumView = { __oitAccum: true }
-    const oitRevealageView = { __oitReveal: true }
-    // The compose consumes the RT's P6-scoped native twins (Inc-D).
-    const oitAccumViewNative = { __oitAccumNative: true }
-    const oitRevealageViewNative = { __oitRevealNative: true }
+    const extrudeShellView = { __shell: true }
+    const extrudeShellResolveView = { __shellResolve: true }
+    const extrudeShellSampleView = extrudeShellResolveView
+    const ensureExtrudeShell = vi.fn()
     ;(f.ctx as { rt: unknown }).rt = {
-      ensureOit: vi.fn(),
-      oitAccumView,
-      oitRevealageView,
-      oitAccumViewNative,
-      oitRevealageViewNative,
+      ensureExtrudeShell,
+      extrudeShellView,
+      extrudeShellResolveView,
+      extrudeShellSampleView,
+      // Picking off in this harness: the pick attachment is the opaque pass's
+      // shape and has its own gate; keeping it null pins the no-pick topology.
+      pickTexture: null,
+      pickView: null,
     }
-    const drawn: unknown[] = []
+    const drawn: { pass: unknown; phase: unknown; translucentBucket: unknown }[] = []
     const scene = {
       hasOit: true,
       hasTranslucent: false,
       hasPoints: false,
-      resolveOwner: 'composite',
-      oit: [{ draw: (pass: unknown) => drawn.push(pass) }],
+      resolveOwner: 'oit',
+      oit: [
+        {
+          draw: (pass: unknown, _c: unknown, _p: unknown, phase: unknown, tb: unknown) =>
+            drawn.push({ pass, phase, translucentBucket: tb }),
+          show: { shaderVariant: null },
+          resolvedShow: { opacity: 0.6, fill: [1, 0, 0, 1] },
+        },
+      ],
+      ...scenePatch,
     } as unknown as SceneView
-    const composeCalls: { pass: unknown; accum: unknown; reveal: unknown }[] = []
-    const host = {
-      renderer: {
-        // Capture ALL args (verification review finding 3): the native
-        // accum/revealage were previously discarded, so a swap or an
-        // undefined accessor rode through green.
-        drawOitCompose: (pass: unknown, accum: unknown, reveal: unknown) =>
-          composeCalls.push({ pass, accum, reveal }),
-      },
-      ctx: {},
-    }
+    const host = { renderer: {}, ctx: { rhi: shellRhi(), format: 'bgra8unorm' } }
     return {
       ...f,
       scene,
       host,
       drawn,
-      composeCalls,
-      oitAccumView,
-      oitRevealageView,
-      oitAccumViewNative,
-      oitRevealageViewNative,
+      ensureExtrudeShell,
+      extrudeShellView,
+      extrudeShellSampleView,
     }
   }
 
-  it('fill pass targets the RT RHI accessors, loads opaque depth, hands cs.draw the RHI handle', () => {
+  it('shell pass targets the shell RT, LOADs opaque depth, clears its own stencil', () => {
     const h = oitHarness()
     oitPass.execute(h.ctx, h.scene, h.host as never)
+    expect(h.ensureExtrudeShell).toHaveBeenCalledWith(800, 600, 4)
     expect(h.captured.length).toBeGreaterThanOrEqual(2)
     const fill = h.captured[0].desc
     const colors = fill.colorAttachments as {
       view: unknown
+      resolveTarget?: unknown
       loadOp: string
       storeOp: string
       clearValue?: unknown
     }[]
-    expect(colors[0].view).toBe(h.oitAccumView)
-    expect(colors[1].view).toBe(h.oitRevealageView)
+    // ONE colour attachment (picking off): the shell target, cleared to fully
+    // transparent so an uncovered pixel contributes nothing to the composite.
+    expect(colors).toHaveLength(1)
+    expect(colors[0].view).toBe(h.extrudeShellView)
     expect(colors[0].loadOp).toBe('clear')
-    // The McGuire-Bavoil clears: accum to 0, revealage to 1 (review F4 pin).
     expect(colors[0].clearValue).toEqual([0, 0, 0, 0])
-    expect(colors[1].clearValue).toEqual([1, 0, 0, 0])
     expect(colors[0].storeOp).toBe('store')
+    // msaa 4 in this frame ⇒ the shell resolves into its sampleable twin, which
+    // is what the composite then reads (a multisampled view has no RHI layout).
+    expect(colors[0].resolveTarget).toBe(h.extrudeShellSampleView)
     const ds = fill.depthStencilAttachment as {
       view: unknown
       depthLoadOp: string
@@ -127,28 +159,46 @@ describe('oit pass — RHI seam wiring (#1046 F3b Inc-2d)', () => {
       stencilLoadOp: string
       stencilStoreOp: string
     }
+    // The whole point of the shell: it depth-tests against the OPAQUE pass's
+    // depth (so translucent walls stay occluded) and WRITES, which is what
+    // resolves the front-most surface across tiles.
     expect(ds.view).toBe((h.ctx as { rhiStencilView: unknown }).rhiStencilView)
     expect(ds.depthLoadOp).toBe('load')
     expect(ds.depthStoreOp).toBe('discard')
-    expect(ds.stencilLoadOp).toBe('load')
+    expect(ds.stencilLoadOp).toBe('clear')
     expect(ds.stencilStoreOp).toBe('discard')
+    // The draw runs on the shell pass, in the shell phase, with the depth-
+    // bearing (non-translucent-bucket) flag.
     expect(h.drawn).toHaveLength(1)
-    expect(h.drawn[0]).toBe(h.captured[0])
+    expect(h.drawn[0].pass).toBe(h.captured[0])
+    expect(h.drawn[0].phase).toBe('oit-fill')
+    expect(h.drawn[0].translucentBucket).toBe(false)
   })
 
-  it('compose pass draws onto the colour bridge with the conditional resolve, via the renderer entry', () => {
+  it('depth is STORED when a later consumer needs it (the points bucket)', () => {
+    const h = oitHarness({ hasPoints: true, resolveOwner: 'points' })
+    oitPass.execute(h.ctx, h.scene, h.host as never)
+    const ds = h.captured[0].desc.depthStencilAttachment as { depthStoreOp: string }
+    expect(ds.depthStoreOp).toBe('store')
+  })
+
+  it('compose pass draws onto the colour bridge with the conditional resolve', () => {
     const h = oitHarness()
     oitPass.execute(h.ctx, h.scene, h.host as never)
     const comp = h.captured[1].desc
     const colors = comp.colorAttachments as { view: unknown; resolveTarget?: unknown }[]
     expect(colors[0].view).toBe((h.ctx as { rhiColorView: unknown }).rhiColorView)
+    // resolveOwner 'oit' — the shell composite is this frame's LAST colour
+    // writer, so it owns the resolve. Without the owner rung the opaque pass
+    // would have resolved before this draw and the extrusions would vanish.
     expect(colors[0].resolveTarget).toBe(h.sceneResolveView)
-    expect(h.composeCalls).toHaveLength(1)
-    expect(h.composeCalls[0].pass).toBe(h.captured[1])
-    // The recover draw samples the RT's NATIVE twins by identity, in order
-    // (accum, revealage) — a swap or an undefined accessor fails here.
-    expect(h.composeCalls[0].accum).toBe(h.oitAccumViewNative)
-    expect(h.composeCalls[0].reveal).toBe(h.oitRevealageViewNative)
+  })
+
+  it('a frame whose resolve belongs to a LATER pass composites without resolving', () => {
+    const h = oitHarness({ hasPoints: true, resolveOwner: 'points' })
+    oitPass.execute(h.ctx, h.scene, h.host as never)
+    const colors = h.captured[1].desc.colorAttachments as { resolveTarget?: unknown }[]
+    expect(colors[0].resolveTarget).toBeUndefined()
   })
 
   it('twin-frame null bridges ⇒ throws naming the pass', () => {

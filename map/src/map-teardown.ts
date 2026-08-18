@@ -98,6 +98,15 @@ export interface ReleasableSourceEntry {
   readonly source: { destroy(): void }
 }
 
+/** True when `key` is `sourceId` itself or one of its filtered-show variant
+ *  catalogs (`sourceId__N`, #1371/#1375 seeding — see `hasVariantCatalogs`
+ *  below). Single authority for the id/id__N predicate so `teardownSources`
+ *  and `hasVariantCatalogs` can never drift on what "belongs to this source"
+ *  means (#1800). */
+function isSourceOrVariantKey(key: string, sourceId: string): boolean {
+  return key === sourceId || key.startsWith(`${sourceId}__`)
+}
+
 /** Destroy the GPU renderer + tile catalog of every `vtSources` entry belonging to
  *  `sourceId`, INCLUDING its filtered variants (keyed `id__N`), and drop them from the
  *  registry. Reached by both `destroy()` and `_teardownForReinit()`. */
@@ -106,12 +115,30 @@ export function teardownSources(
   sourceId: string,
 ): void {
   for (const [key, entry] of vtSources) {
-    if (key === sourceId || key.startsWith(`${sourceId}__`)) {
+    if (isSourceOrVariantKey(key, sourceId)) {
       entry.renderer.destroy()
       entry.source.destroy()
       vtSources.delete(key)
     }
   }
+}
+
+/** #1800 — true when `vtSources` holds at least one filtered-show variant catalog
+ *  (`sourceId__N`) ALONGSIDE the base `sourceId` entry. `_reseedInPlace` (#1371) and
+ *  `patchFeaturesInPlace` (#1375) both resolve only the base catalog via
+ *  `getVtSource(sourceId)` — neither can reach a variant's independently-filtered
+ *  subset, so a variant patched by the base's fast path would keep serving stale
+ *  data forever. Both fast paths query this first and demote to the full
+ *  teardown/rebuild path (which walks every variant via `rebuildLayers()`) whenever
+ *  this returns true. */
+export function hasVariantCatalogs(
+  vtSources: ReadonlyMap<string, unknown>,
+  sourceId: string,
+): boolean {
+  for (const key of vtSources.keys()) {
+    if (key !== sourceId && isSourceOrVariantKey(key, sourceId)) return true
+  }
+  return false
 }
 
 // ═══ The in-flight GPU boot nobody has claimed yet (#1577) ═══

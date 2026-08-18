@@ -223,6 +223,25 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
     'debug-only fullscreen fragment pass (debug-flags.ts OVERDRAW_FS_SOURCE) — a ~20-line ' +
     'module with no projection graph spliced in, so it is not on the first-frame path the ' +
     'bake exists to shorten and baking it would grow the artifact for no boot win',
+
+  // ── Parameterless, but the closed set has no shape that fits it ──
+  // Its inputs ARE static (a fullscreen composite; the per-layer alpha rides a uniform,
+  // not the source), so the usual answer would be a registry key. It cannot take one:
+  // the ONLY parameterless shape the grammar has is `SimpleFamily`, and `buildKeys`
+  // pushes one WGSL key plus TWO GLSL stage keys per simple family out of
+  // `SIMPLE_FAMILY_EMITTERS`, whose `StageEmitters` type REQUIRES a `glsl` emitter.
+  // This family has no GLSL twin and cannot have a reachable one — the whole extrude
+  // path is absent on the GLSL backend (`PipelineFactory.build()` returns early there,
+  // `renderFillsRhi` skips every `cached.extruded` tile), so the shell pass never runs
+  // and its compositor is never constructed. Authoring a twin to satisfy the row would
+  // bake bytes for a shader no call site can reach INTO the artifact every map
+  // downloads, which is the cost the `boot`/`lazy` split exists to control. A WGSL-only
+  // key shape is a grammar change in ids.ts — the same phase-B (#1679) keying question
+  // `emitOitComposeWgsl` above is deferred on — not a phase-A omission.
+  emitExtrudeShellComposeWgsl:
+    'no GLSL twin by construction (the extrude path does not exist on the GLSL backend), ' +
+    'and SimpleFamily — the only parameterless shape the closed set has — requires one; a ' +
+    'WGSL-only key shape is a phase-B (#1679) grammar question, not a phase-A omission',
 }
 
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {

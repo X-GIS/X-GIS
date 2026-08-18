@@ -493,8 +493,22 @@ export class SubTileGenerator {
     // POIs) vanish at over-zoom because they have no representation in the
     // sub-tile.
     let subPointVertices: Float32Array | undefined
+    // #1375 — the parent's stable-id side-car, clipped in LOCKSTEP with the
+    // points themselves. Without it an over-zoom sub-tile is the one resident
+    // slice an in-place feature update cannot reach, and the same feature then
+    // draws at its new position from the parent and its old one from the child
+    // depending on which tile the selector picked.
+    let subPointFeatureIds: Uint32Array | undefined
     if (parent.pointVertices && parent.pointVertices.length >= 13) {
       const pv = parent.pointVertices
+      // Only a side-car that describes THIS buffer can be clipped alongside it;
+      // a length disagreement means it names something else, so drop it and let
+      // the sub-tile be un-patchable rather than mis-identified.
+      const parentIds =
+        parent.pointFeatureIds?.length === Math.floor(pv.length / 13)
+          ? parent.pointFeatureIds
+          : undefined
+      const survivorIds: number[] = []
       // Stride-3 scratch: [mx, my, fid] absolute Mercator metres for the
       // points that survive the sub-tile bbox clip.
       const survivors: number[] = []
@@ -511,9 +525,11 @@ export class SubTileGenerator {
         const lpy = py - parentMy
         if (lpx < clipW || lpx > clipE || lpy < clipS || lpy > clipN) continue
         survivors.push(px, py, pv[i + 6])
+        if (parentIds) survivorIds.push(parentIds[i / 13])
       }
       if (survivors.length >= 3) {
         subPointVertices = packECEFPointFeatures(survivors)
+        if (parentIds) subPointFeatureIds = Uint32Array.from(survivorIds)
       }
     }
 
@@ -552,6 +568,7 @@ export class SubTileGenerator {
       outlineVertices: outlineVertices.length > 0 ? outlineVertices : undefined,
       outlineLineIndices: outlineLineIndices.length > 0 ? outlineLineIndices : undefined,
       pointVertices: subPointVertices,
+      pointFeatureIds: subPointFeatureIds,
       tileWest: subWest,
       tileSouth: subSouth,
       tileWidth: subEast - subWest,

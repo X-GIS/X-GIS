@@ -70,6 +70,7 @@ function makeManager() {
     },
     fireError: () => {},
     getVtSource: () => null,
+    hasVariantSources: () => false,
     deleteFeatureIndex,
     beginCoverageLoad: () => Promise.resolve(),
   })

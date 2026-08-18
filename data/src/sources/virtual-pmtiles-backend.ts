@@ -24,6 +24,7 @@ import {
   type GeoJSONVTOptions,
 } from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
+import { buildPointFeatureIds } from '../point-feature-patch'
 import * as tilingPool from '../workers/geojson-tiling-pool'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
 import { buildLineSegments } from '../line-segment-build'
@@ -308,6 +309,9 @@ export class VirtualPMTilesBackend implements TileSource {
             lineVertices: tile.lineVertices,
             lineIndices: tile.lineIndices,
             pointVertices: tile.pointVertices,
+            // #1375 — same side-car the worker route emits, so the Worker-less
+            // fallback (vitest / SSR) produces patchable tiles too.
+            pointFeatureIds: buildPointFeatureIds(layerFeatures, tile.pointVertices),
             // eslint-disable-next-line @typescript-eslint/no-deprecated -- ABI passthrough of the retired field (see SerializedTile)
             outlineIndices: tile.outlineIndices,
             outlineVertices: tile.outlineVertices,
@@ -346,6 +350,7 @@ function sliceToBackendResult(slice: {
   lineVertices: Float32Array
   lineIndices: Uint32Array
   pointVertices?: Float32Array
+  pointFeatureIds?: Uint32Array
   outlineIndices?: Uint32Array
   outlineVertices?: Float32Array
   outlineLineIndices?: Uint32Array
@@ -366,6 +371,7 @@ function sliceToBackendResult(slice: {
     lineVertices: slice.lineVertices,
     lineIndices: slice.lineIndices,
     pointVertices: slice.pointVertices,
+    pointFeatureIds: slice.pointFeatureIds,
     outlineIndices: slice.outlineIndices,
     outlineVertices: slice.outlineVertices,
     outlineLineIndices: slice.outlineLineIndices,

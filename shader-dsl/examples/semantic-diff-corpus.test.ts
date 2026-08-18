@@ -10,6 +10,10 @@
 //   • NON-VACUITY — two DIFFERENT examples must differ. Without this arm a comparator
 //     that returned four empty arrays unconditionally would pass the invariant above
 //     on all 36 examples and read as a strong green.
+//   • DECLARED-TRANSFORM CLASSIFICATION (#1806) — for the one prod plugin that DOES
+//     change what the comparator reports (inline), declaring it must explain the whole
+//     dev↔inlined diff on every example, so a consumer's parity gate budgets zero for
+//     an intentional pipeline.
 //
 // The independent authority above this is _emit-obfuscate-gate.spec.ts, which draws
 // the plain and obfuscated emits on real Tint + ANGLE and compares the pixels.
@@ -18,6 +22,8 @@ import { describe, it, expect } from 'vitest'
 import { examples } from './index.ts'
 import { isSemanticallyEqual, semanticDiff } from '../src/index.ts'
 import { mangleModule } from '../src/core/passes/mangle.ts'
+import { inlineLinearAll } from '../src/core/passes/inline-linear.ts'
+import { inline } from '../src/emit-prod.ts'
 
 // Registry-growth guard, mirroring emit-goldens.test.ts: a shrinking registry must not
 // silently reduce the sweep to nothing.
@@ -49,6 +55,24 @@ describe('semanticDiff over the example corpus', () => {
     // to identity on a `raw` body — so the sweep above is only meaningful for the
     // examples it actually renamed. Most of the corpus declares helpers.
     expect(renamed).toBeGreaterThanOrEqual(Math.ceil(examples.length / 2))
+  })
+
+  it('declaring inline() explains the dev↔inlined diff on every example (#1806)', () => {
+    const offenders: string[] = []
+    let rewritten = 0
+    let explained = 0
+    for (const ex of examples) {
+      const prod = inlineLinearAll(ex.module)
+      if (prod !== ex.module) rewritten++
+      const d = semanticDiff(ex.module, prod, { transforms: [inline()] })
+      explained += d.explained.length
+      if (!isSemanticallyEqual(d)) offenders.push(ex.id)
+    }
+    expect(offenders).toEqual([])
+    // inlineLinearAll returns the module UNCHANGED when nothing is inlinable (or a
+    // `raw` body bails it out) — the sweep only carries information where it fired.
+    expect(rewritten).toBeGreaterThan(0)
+    expect(explained).toBeGreaterThan(0)
   })
 
   it('two DIFFERENT examples always differ (the sweep above is not vacuously green)', () => {
