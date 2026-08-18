@@ -12,6 +12,7 @@ import type { BackendChoice } from '@xgis/engine'
 import type { Body } from '@xgis/shared'
 import type { SourceLoader } from './source-loader'
 import type { GeoJSONFeatureCollection, CoverageHandle } from '@xgis/data'
+import type { CooperativeGesturesOptions } from './controller'
 
 export type { BackendChoice }
 
@@ -278,6 +279,18 @@ export interface XGISMapOptions {
    *  it on release). Default `true`. Also settable at runtime via
    *  `map.boxZoomEnabled`. */
   boxZoom?: boolean
+  /** #1264 — stop an embedded map from hijacking page scroll (MapLibre
+   *  `cooperativeGestures` parity). Default `false`/absent — byte-identical
+   *  current behaviour. `true` (or an object customizing the hint text)
+   *  enables it: a plain wheel scrolls the page instead of zooming (a "Use
+   *  Ctrl/⌘ + scroll to zoom" hint fades in), Ctrl/⌘+wheel still zooms, and a
+   *  single-finger touch drag scrolls the page instead of panning the map (a
+   *  "Use two fingers to move the map" hint fades in) — two-finger touch
+   *  pans/zooms/rotates as usual. Also settable at runtime via
+   *  `map.cooperativeGestures`, read live (no reattach). The hint text
+   *  respects `respectReducedMotion` (#1260): fades under normal motion,
+   *  pops instantly when reduced motion is honoured. */
+  cooperativeGestures?: boolean | CooperativeGesturesOptions
   /** #1255 — paint-transition duration in ms (MapLibre `*-transition`
    *  parity). `setPaintProperty` / `layer.style` writes on the continuous
    *  paint axes (fill/line colour, the opacity family, line-width) RAMP to

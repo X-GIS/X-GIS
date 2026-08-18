@@ -126,7 +126,7 @@ import { PointRenderer } from './render/point-renderer'
 import { HeatmapRenderer } from './render/heatmap-renderer'
 import { ShapeRegistry } from './text/sdf-shape'
 import { LineRenderer } from './render/line-renderer'
-import { PanZoomController, type Controller } from './controller'
+import { PanZoomController, type Controller, type CooperativeGesturesOptions } from './controller'
 import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage } from './text/text-stage'
@@ -844,6 +844,18 @@ export class XGISMap {
    *  runtime-settable shape as `doubleClickZoomEnabled`. Set via
    *  `XGISMapOptions.boxZoom`. */
   boxZoomEnabled = true
+  /** #1264 — MapLibre `cooperativeGestures` parity (stop an embedded map
+   *  from hijacking page scroll). Read live by the controller on every
+   *  wheel/pointerdown, so flipping this at runtime takes effect without
+   *  reattaching — same live-read pattern as `doubleClickZoomEnabled` /
+   *  `boxZoomEnabled` above. `false` (default) ⇒ disabled, byte-identical
+   *  pre-#1264 behaviour. Set via `XGISMapOptions.cooperativeGestures`.
+   *  NOTE: unlike the JS-level gesture gating (fully live), the canvas
+   *  `touch-action` CSS `_setupTouchAction` resolves from this value ONCE
+   *  at construction (matching `touchAction`'s own construction-only
+   *  contract) — flipping this field afterwards does not retroactively
+   *  swap `touch-action` between `'none'` and `'pan-y'`. */
+  cooperativeGestures: boolean | CooperativeGesturesOptions = false
   /** Earth-surface fill color resolved from `background { fill: ... }`.
    *  Pushed into the synthetic earth-surface show + backend after GPU
    *  init. ALSO read by the background pass (render/passes/background-pass.ts)
@@ -1433,6 +1445,11 @@ export class XGISMap {
     // boxZoom parity). Both default true; only `false` overrides.
     if (options.doubleClickZoom === false) this.doubleClickZoomEnabled = false
     if (options.boxZoom === false) this.boxZoomEnabled = false
+    // #1264 — cooperativeGestures defaults OFF (unlike doubleClickZoom/
+    // boxZoom above, which default ON so only `false` overrides): any
+    // provided value, `true` or a help-text override object, opts in.
+    if (options.cooperativeGestures !== undefined)
+      this.cooperativeGestures = options.cooperativeGestures
     // #1255 — paint-transition duration (MapLibre *-transition parity,
     // default 300 ms). Consumed by the XGISLayer style setters; 0 disables.
     if (options.paintTransitionDuration !== undefined)
@@ -1617,8 +1634,20 @@ export class XGISMap {
     }
     if (inlineIntent || computedIntent) return
     this._priorInlineTouchAction = style.touchAction // === ''
-    style.touchAction = 'none'
-    this._appliedTouchAction = 'none'
+    // #1264 — cooperativeGestures releases single-finger touch to the page
+    // (MapLibre parity, `touchAction: 'pan-y'` in the issue's own proposed
+    // approach) so the OS actually scrolls, instead of #1153's default
+    // 'none' swallowing the gesture with no native scroll to show for it.
+    // Two-finger gestures are unaffected — 'pan-y' only claims native
+    // handling for a single-finger vertical drag; a second touch point
+    // still reaches the controller's own pointer events untouched.
+    // Resolved from the INITIAL cooperativeGestures value only (this runs
+    // once at construction, like `touchAction` itself) — see the field's
+    // own doc comment for why a later runtime flip doesn't swap this back.
+    const coop = this.cooperativeGestures
+    const auto = coop !== false && coop !== undefined ? 'pan-y' : 'none'
+    style.touchAction = auto
+    this._appliedTouchAction = auto
   }
 
   /** Keyboard pan/zoom (P0-7) — thin delegate to handleMapKeyDown
@@ -2601,6 +2630,9 @@ export class XGISMap {
         projectionName: this.projectionName,
         doubleClickZoomEnabled: this.doubleClickZoomEnabled,
         boxZoomEnabled: this.boxZoomEnabled,
+        // #1264 — live-read, same pattern as the two fields above.
+        cooperativeGestures: this.cooperativeGestures,
+        prefersReducedMotion: this._prefersReducedMotion(),
       }),
       {
         onClick: (x, y, e) => {
