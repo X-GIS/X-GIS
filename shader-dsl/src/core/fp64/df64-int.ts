@@ -62,8 +62,8 @@ import {
   type ReadonlyNode,
   type FuncDecl,
   type ShaderType,
-} from '../ir'
-import { DF64_FNS, DF64_ORDER, DF64_CALLS } from './df64-lib'
+} from '../ir/index.js'
+import { DF64_FNS, DF64_ORDER, DF64_CALLS } from './df64-lib.js'
 
 type UN = ReadonlyNode<'u32'>
 type FN = ReadonlyNode<'f32'>

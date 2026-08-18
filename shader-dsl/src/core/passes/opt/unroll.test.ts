@@ -11,11 +11,11 @@ import {
   toF32,
   type ModuleDecl,
   type Stmt,
-} from '../../ir'
-import { emitModule } from '../../backends/wgsl'
-import { compileModule } from '../../oracle'
-import { constProp } from './const-prop'
-import { unrollLoops } from './unroll'
+} from '../../ir/index.js'
+import { emitModule } from '../../backends/wgsl.js'
+import { compileModule } from '../../oracle.js'
+import { constProp } from './const-prop.js'
+import { unrollLoops } from './unroll.js'
 
 // unrollLoops flattens a SMALL, integer, compile-time fixed-count `for` into its N
 // straight-line iterations — the induction var substituted with its per-iteration

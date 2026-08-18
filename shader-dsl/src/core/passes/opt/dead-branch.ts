@@ -13,8 +13,8 @@
 // unique per fn (flat env, see oracle.ts). A fn with a raw Stmt is skipped.
 // `select(lit cond, …)` is handled at the expr level by const-fold, not here.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { bodyHasRaw } from './expr-utils'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { bodyHasRaw } from './expr-utils.js'
 
 const isLitBool = (e: Expr, v: boolean): boolean => e.op === 'lit' && e.value === v
 

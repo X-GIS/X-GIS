@@ -11,8 +11,8 @@
 // the varref fixes the target AND the read in one pass (`_av = f(_av, …)`, not `_av = f(<init>, …)`).
 // Runs BEFORE lower/cse (which clone exprs and would break identity).
 
-import type { Expr, Stmt, FuncDecl, ModuleDecl, ShaderType } from '../../ir'
-import { eachExpr, mapChildren, mapStmtTop } from './expr-utils'
+import type { Expr, Stmt, FuncDecl, ModuleDecl, ShaderType } from '../../ir/index.js'
+import { eachExpr, mapChildren, mapStmtTop } from './expr-utils.js'
 
 // The ROOT of an assign/assignOp target — peel any `.field` / `[i]` access so a member-assign
 // (`c.a = …` / `m[i] = …`) materialises the underlying value `c` / `m`, not the access expr.

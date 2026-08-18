@@ -13,7 +13,7 @@
 //   3. Capture is OFF by default and genuinely zero-cost when off: captureLoc() returns
 //      before allocating `new Error()`, so no stack string is ever materialised.
 
-import type { SourceLoc } from './error'
+import type { SourceLoc } from './error.js'
 
 // The package declares no ambient node types (tsconfig `types: []`), so reach `process`
 // via globalThis — present under node/bun, absent in the browser build (→ tracing off).

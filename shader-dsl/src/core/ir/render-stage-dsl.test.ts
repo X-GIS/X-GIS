@@ -15,10 +15,10 @@ import {
   vec4fT,
   u32T,
   type StructDecl,
-} from './index'
-import { builtin } from '../sot'
-import { emitModule } from '../backends/wgsl'
-import { compileModule } from '../oracle'
+} from './index.js'
+import { builtin } from '../sot.js'
+import { emitModule } from '../backends/wgsl.js'
+import { compileModule } from '../oracle.js'
 
 // Phase-2 render-stage IR proof: author a minimal render shader exercising the
 // new surface (uniform struct, @vertex/@fragment entries, @builtin params +

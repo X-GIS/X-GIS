@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec2, vec4, f32T, u32T, vec2fT, vec4fT, texture2dfT } from './ir'
+import { fn, module, vec2, vec4, f32T, u32T, vec2fT, vec4fT, texture2dfT } from './ir/index.js'
 import {
   ioStruct,
   structDecl,
@@ -9,9 +9,9 @@ import {
   constDecl,
   builtin,
   location,
-} from './sot'
-import { emitModule } from './backends/wgsl'
-import { compileModule } from './oracle'
+} from './sot.js'
+import { emitModule } from './backends/wgsl.js'
+import { compileModule } from './oracle.js'
 
 // ═══ #763 Phase X part 2 — the API additions, pinned ═══
 

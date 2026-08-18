@@ -1,11 +1,24 @@
 // ═══ fp64Lower pass tests — rewrite shape, fail-loud gates, identity ═══
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, f32T, vec4fT, vec3f64T, toF32, toF64, sqrt, sin, cos, exp } from '../ir'
-import { fp64Guard, FP64_GUARD_NAME } from '../fp64/df64-lib'
-import { ioStruct, location, builtin, uniformStruct, resource } from '../sot'
-import { fp64Lower } from './fp64-lower'
-import { emitModule } from '../backends/wgsl'
+import {
+  fn,
+  module,
+  f64T,
+  f32T,
+  vec4fT,
+  vec3f64T,
+  toF32,
+  toF64,
+  sqrt,
+  sin,
+  cos,
+  exp,
+} from '../ir/index.js'
+import { fp64Guard, FP64_GUARD_NAME } from '../fp64/df64-lib.js'
+import { ioStruct, location, builtin, uniformStruct, resource } from '../sot.js'
+import { fp64Lower } from './fp64-lower.js'
+import { emitModule } from '../backends/wgsl.js'
 
 describe('identity for non-f64 modules', () => {
   it('returns the SAME module object when no f64 appears anywhere', () => {

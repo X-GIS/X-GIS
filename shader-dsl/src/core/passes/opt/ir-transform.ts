@@ -6,8 +6,8 @@
 // const-fold) collapses a whole nested literal tree in a single traversal. The
 // IR is treated as immutable: every helper returns a new node, never mutates.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir'
-import { bodyHasRaw } from './dce'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { bodyHasRaw } from './dce.js'
 
 /** Bottom-up expression rewrite: map children first, then apply `f` to the
  *  rebuilt node. */

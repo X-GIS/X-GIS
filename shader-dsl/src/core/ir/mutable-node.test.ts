@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { Let, Var, param, fn, module, f32, f32T } from './index'
-import { emitModule } from '../backends/wgsl'
+import { Let, Var, param, fn, module, f32, f32T } from './index.js'
+import { emitModule } from '../backends/wgsl.js'
 
 // ── Type-level probes ──
 // Never executed (the function is only referenced, not called) — `tsc -p shader-dsl` validates

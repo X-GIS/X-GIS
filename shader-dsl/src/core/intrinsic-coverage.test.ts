@@ -4,7 +4,7 @@ import {
   PORTABLE_INTRINSICS,
   PRE_EMIT_INTRINSICS,
   isKnownIntrinsic,
-} from './intrinsics'
+} from './intrinsics.js'
 import {
   f32,
   u32,
@@ -82,7 +82,7 @@ import {
   samplerT,
   vec2i,
   type Node,
-} from './ir'
+} from './ir/index.js'
 
 describe('intrinsic registry coverage (the spelling agreement surface)', () => {
   it('no id is BOTH divergent and portable (single classification)', () => {

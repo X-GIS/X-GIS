@@ -19,7 +19,10 @@ import { join } from 'node:path'
 const DECL = /export const (\w+)\s*:\s*ShaderExample\s*=/
 const ID = /\bid:\s*'([^']+)'/
 
-/** One discovered example: its stable id, the module to import, and the binding to import. */
+/** One discovered example: its stable id, the module to import, and the binding to import.
+ *  `importPath` carries the `.js` extension the TypeScript ESM convention asks for (#1686):
+ *  what is written is what is emitted, so the generated registry resolves under plain Node
+ *  as well as under a bundler. */
 export interface DiscoveredExample {
   readonly id: string
   readonly importPath: string
@@ -43,7 +46,9 @@ export function discoverExamples(dir: string): readonly DiscoveredExample[] {
       const src = readFileSync(join(dir, file), 'utf8')
       const decl = DECL.exec(src)
       const id = ID.exec(src)
-      return decl && id ? [{ id: id[1]!, importPath: `./${file}`, exportName: decl[1]! }] : []
+      return decl && id
+        ? [{ id: id[1]!, importPath: `./${file.slice(0, -3)}.js`, exportName: decl[1]! }]
+        : []
     })
     .sort((a, b) => a.id.localeCompare(b.id))
 }

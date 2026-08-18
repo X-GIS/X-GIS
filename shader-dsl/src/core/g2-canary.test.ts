@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { uniformStruct, ioStruct, structDecl, storageBuffer, builtin, location } from './sot'
-import { fn, Var, Let, Switch, matchEnum, enumU32, when, f32, vec2 } from './ir'
-import { f32T, u32T, vec2fT, vec4fT } from './ir'
+import { uniformStruct, ioStruct, structDecl, storageBuffer, builtin, location } from './sot.js'
+import { fn, Var, Let, Switch, matchEnum, enumU32, when, f32, vec2 } from './ir/index.js'
+import { f32T, u32T, vec2fT, vec4fT } from './ir/index.js'
 
 // ═══ #763 Phase G — the readonly invariant, pinned ═══
 //

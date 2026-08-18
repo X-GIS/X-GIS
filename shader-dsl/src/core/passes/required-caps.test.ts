@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { requiredCaps, assertCaps } from './required-caps'
-import { wgslBackend } from '../backends/wgsl'
-import { glslEs300Backend, UnsupportedFeatureError } from '../backends/glsl'
+import { requiredCaps, assertCaps } from './required-caps.js'
+import { wgslBackend } from '../backends/wgsl.js'
+import { glslEs300Backend, UnsupportedFeatureError } from '../backends/glsl.js'
 import {
   module,
   fn,
@@ -17,8 +17,8 @@ import {
   samplerT,
   bindingRef,
   textureNumLayers,
-} from '../ir'
-import { builtin } from '../sot'
+} from '../ir/index.js'
+import { builtin } from '../sot.js'
 
 // #9 — the capability model wired into emit. A module declares the GPU features
 // it needs (requiredCaps); emit asserts the target backend covers them and fails

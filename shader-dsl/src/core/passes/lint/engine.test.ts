@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { lint, formatDiagnostics, summarize, unusedDeviations, type LintRule } from './engine'
-import { RULES } from './rules'
-import { STRICT, LENIENT } from './presets'
-import { module, fn, externFn, f32T, f32 } from '../../ir'
+import { lint, formatDiagnostics, summarize, unusedDeviations, type LintRule } from './engine.js'
+import { RULES } from './rules/index.js'
+import { STRICT, LENIENT } from './presets.js'
+import { module, fn, externFn, f32T, f32 } from '../../ir/index.js'
 
 const wide7 = () =>
   module({

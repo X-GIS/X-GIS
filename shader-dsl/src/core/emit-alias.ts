@@ -29,7 +29,7 @@
 //     in the text, so a `#define` (which is textual and module-wide) cannot
 //     capture an identifier that already exists.
 
-import { lexShader, type Token } from './shader-lex'
+import { lexShader, type Token } from './shader-lex.js'
 
 /** Which target's alias syntax to write. Determined from the text, not guessed:
  *  a GLSL ES 3.00 shader MUST begin with `#version 300 es` (the spec requires

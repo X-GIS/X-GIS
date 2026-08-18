@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { validate, ValidationError } from './validate'
-import { module, fn, f32T, i32T, f32 } from '../ir'
-import { structDecl, uniformStruct } from '../sot'
-import { CORE_RULES } from './lint/rules'
+import { validate, ValidationError } from './validate.js'
+import { module, fn, f32T, i32T, f32 } from '../ir/index.js'
+import { structDecl, uniformStruct } from '../sot.js'
+import { CORE_RULES } from './lint/rules/index.js'
 
 describe('validate — aggregated errors', () => {
   it('throws ONE ValidationError listing ALL CORE errors, not just the first', () => {

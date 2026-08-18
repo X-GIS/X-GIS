@@ -20,8 +20,8 @@
 // the site shows its WGSL + Reflection (the override set). The emit goldens + the
 // dedicated override-constants.test.ts pin the `override` line and the `#define` block.
 
-import { module, fn, f32, f32T, If, Var, overrideConst } from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+import { module, fn, f32, f32T, If, Var, overrideConst } from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 
 // The specialization constant: default 1.0 (the low-quality variant), host-overridable.
 const quality = overrideConst('quality', f32T, 1.0)

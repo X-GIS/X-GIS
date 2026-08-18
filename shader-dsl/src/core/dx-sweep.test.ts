@@ -59,10 +59,10 @@ import {
   type Node,
   type ReadonlyNode,
   type ShaderType,
-} from './ir'
-import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot'
-import { emitModule } from './backends/wgsl'
-import type { FuncDecl } from './ir'
+} from './ir/index.js'
+import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot.js'
+import { emitModule } from './backends/wgsl.js'
+import type { FuncDecl } from './ir/index.js'
 
 // ═══ #763 Phase X (part 1) — the small-surface DX sweep, pinned ═══
 

@@ -12,11 +12,11 @@
 // that throw is what turns AUTHORING.md §11's identity rule from prose into a gate.
 
 import { describe, it, expect } from 'vitest'
-import { externVar, fn, module, vec4, vec4fT, f32T } from './ir'
-import { builtin, ioStruct } from './sot'
-import { emitGlslFragment } from './backends/glsl'
-import { isSemanticallyEqual, semanticDiff } from './semantic-diff'
-import { selectGuardedArm, variantFamily } from './variant-family'
+import { externVar, fn, module, vec4, vec4fT, f32T } from './ir/index.js'
+import { builtin, ioStruct } from './sot.js'
+import { emitGlslFragment } from './backends/glsl.js'
+import { isSemanticallyEqual, semanticDiff } from './semantic-diff.js'
+import { selectGuardedArm, variantFamily } from './variant-family.js'
 
 const FsOut = ioStruct('VfOut', { pos: builtin('position', vec4fT) })
 

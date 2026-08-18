@@ -15,7 +15,7 @@
 // so the projection math matches the f64 mirror, while the WGSL backend emits
 // the truncated shader constants — the two-tolerance reality, structural.
 
-import type { BinOp } from './ir'
+import type { BinOp } from './ir/index.js'
 
 /** The runtime value shape shared by both CPU backends (the tree-walk interpreter in
  *  `oracle.ts` and the compiled `new Function` twin in `cpu-codegen.ts`) — plain JS

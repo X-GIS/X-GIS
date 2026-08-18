@@ -7,11 +7,11 @@
 // emission (no `enables`) is byte-identical: no directive, body unchanged.
 
 import { describe, it, expect } from 'vitest'
-import type { DeclarableCapability } from '../ir'
-import { module, fn, f32T } from '../ir'
-import { emitModule, wgslBackend } from './wgsl'
-import { emitGlslModule, UnsupportedFeatureError } from './glsl'
-import { emitModuleWithReflection } from '../emit'
+import type { DeclarableCapability } from '../ir/index.js'
+import { module, fn, f32T } from '../ir/index.js'
+import { emitModule, wgslBackend } from './wgsl.js'
+import { emitGlslModule, UnsupportedFeatureError } from './glsl.js'
+import { emitModuleWithReflection } from '../emit.js'
 
 // A minimal, backend-neutral helper module (no entry stage) — emits on BOTH backends
 // when it opts into nothing, so the `enables` knob is the only variable under test.

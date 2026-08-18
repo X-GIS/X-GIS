@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, externFn, vec2, f32T, vec2fT } from './index'
-import { emitFunc } from '../backends/wgsl'
+import { fn, externFn, vec2, f32T, vec2fT } from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // externFn is the forward-declaration ("extern") counterpart to fn(): a typed CALL-ONLY
 // handle for a callee whose definition is provided elsewhere (the injection-deferred

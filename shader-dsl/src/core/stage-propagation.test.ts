@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec4, f32, vec4fT, f32T, stageOf, workgroupSizeOf, type FuncDecl } from './ir'
-import { location, builtin } from './sot'
-import { requiredCaps, assertCaps } from './passes/required-caps'
-import { glslEs300Backend } from './backends/glsl'
-import { emitGlslModule } from './backends/glsl'
-import { reflect } from './reflect'
-import { deadFnElim } from './passes/opt/dce-fns'
+import {
+  fn,
+  module,
+  vec4,
+  f32,
+  vec4fT,
+  f32T,
+  stageOf,
+  workgroupSizeOf,
+  type FuncDecl,
+} from './ir/index.js'
+import { location, builtin } from './sot.js'
+import { requiredCaps, assertCaps } from './passes/required-caps.js'
+import { glslEs300Backend } from './backends/glsl.js'
+import { emitGlslModule } from './backends/glsl.js'
+import { reflect } from './reflect.js'
+import { deadFnElim } from './passes/opt/dce-fns.js'
 
 // ═══ #763 Phase S — structured `stage` is the semantic source EVERYWHERE ═══
 //

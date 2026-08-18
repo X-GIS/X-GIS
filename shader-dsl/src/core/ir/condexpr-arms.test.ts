@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, when, f32, f32T } from './index'
-import { emitFunc } from '../backends/wgsl'
+import { fn, when, f32, f32T } from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // Regression gate for the condExpr/ifExpr arm-routing bug (introduced by 6017f125,
 // "infer combinator/Var types"). The combinators capture `const b = currentBuilder()`

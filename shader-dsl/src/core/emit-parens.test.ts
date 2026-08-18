@@ -13,10 +13,10 @@
 // that is wrong in a way this file did not imagine still cannot ship.
 
 import { describe, it, expect } from 'vitest'
-import { emitExpr } from './emit'
-import { wgslBackend } from './backends/wgsl'
-import { f32T, boolT } from './ir'
-import type { Expr } from './ir'
+import { emitExpr } from './emit.js'
+import { wgslBackend } from './backends/wgsl.js'
+import { f32T, boolT } from './ir/index.js'
+import type { Expr } from './ir/index.js'
 
 const v = (name: string): Expr => ({ op: 'varref', type: f32T, name })
 const bin = (a: Expr, bop: string, b: Expr): Expr =>

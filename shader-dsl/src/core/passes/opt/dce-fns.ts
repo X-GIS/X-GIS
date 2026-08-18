@@ -21,10 +21,10 @@
 //   • No entry points → can't compute reachability (a helper-only func list,
 //     e.g. the `emitFuncsCsed` parity-harness path) → no-op, keep everything.
 
-import { stageOf } from '../../ir'
-import type { ModuleDecl, FuncDecl } from '../../ir'
-import { collectFnRefs } from '../../ir/collect-refs'
-import { bodyHasRaw } from './dce'
+import { stageOf } from '../../ir/index.js'
+import type { ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { collectFnRefs } from '../../ir/collect-refs.js'
+import { bodyHasRaw } from './dce.js'
 
 // Roots = pipeline entries via the shared stage predicate (#763 S4) — the old
 // `attrs.length > 0` missed structured-only entries and mistook any attr'd

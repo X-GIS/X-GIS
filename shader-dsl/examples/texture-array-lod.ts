@@ -43,8 +43,8 @@ import {
   textureSample,
   textureSampleLevel,
   textureLoad,
-} from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 
 // One binding for the whole atlas — the layer is an argument, not a bind-group switch.
 const atlas = resource('atlas', texture2dArrayfT, { group: 0, binding: 0 })

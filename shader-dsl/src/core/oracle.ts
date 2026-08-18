@@ -37,9 +37,9 @@
 // Treat this oracle as the ALGEBRA half of a two-oracle contract; the f32 half lives
 // on the GPU.
 
-import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir'
-import { validate } from './passes/validate'
-import { autoVars } from './passes/opt'
+import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir/index.js'
+import { validate } from './passes/validate.js'
+import { autoVars } from './passes/opt/index.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -52,13 +52,13 @@ import {
   matMul,
   f32ToU32Sat,
   f32ToI32Sat,
-} from './cpu-runtime'
+} from './cpu-runtime.js'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
 // types + the builtin/stub name sets moved to cpu-runtime.ts (single authority),
 // re-exported here so existing importers of `./oracle` are unaffected.
-export type { CpuValue, CpuStruct } from './cpu-runtime'
-export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime'
+export type { CpuValue, CpuStruct } from './cpu-runtime.js'
+export { ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './cpu-runtime.js'
 
 interface Ctx {
   consts: Map<string, CpuValue>

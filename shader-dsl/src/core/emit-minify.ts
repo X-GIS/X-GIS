@@ -33,7 +33,7 @@
 // Idempotent; no semantic change — the compile gates run the minified output on
 // real Tint + ANGLE (playground/e2e/_emit-obfuscate-gate.spec.ts).
 
-import { lexShader, needsSpace, type Token } from './shader-lex'
+import { lexShader, needsSpace, type Token } from './shader-lex.js'
 
 // ── Numeric literals ──
 

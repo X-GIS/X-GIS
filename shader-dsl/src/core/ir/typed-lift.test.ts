@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { fn, f32T, u32T, i32T } from './index'
-import { emitFunc } from '../backends/wgsl'
+import { fn, f32T, u32T, i32T } from './index.js'
+import { emitFunc } from '../backends/wgsl.js'
 
 // #6 typed-arith-lift: a bare number against a u32/i32 scalar LHS lifts to that
 // scalar (so `u32node.add(1)` emits `+ 1u`, not naga-invalid `+ 1.0`); every

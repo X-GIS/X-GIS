@@ -11,8 +11,8 @@
 // captured result) is a later step. Pure (module -> module), pinned by oracle
 // value-equality.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir'
-import { mapExpr, mapStmt } from './opt/ir-transform'
+import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
+import { mapExpr, mapStmt } from './opt/ir-transform.js'
 
 /** Substitute param/varref names in `e` with their mapped argument expr. */
 function substParams(e: Expr, subst: ReadonlyMap<string, Expr>): Expr {

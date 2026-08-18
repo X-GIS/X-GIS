@@ -9,7 +9,7 @@
 // is the silent-on-GPU (`// __placeholder`) / throws-on-CPU footgun, and a typo'd swap key
 // silently no-ops — both are now a loud error at compose time instead. Pure: returns a new module.
 
-import type { ModuleDecl, Stmt, FuncDecl } from '../ir'
+import type { ModuleDecl, Stmt, FuncDecl } from '../ir/index.js'
 
 /** Options for `composeModule`. The default — strict — is the one you want: an un-swapped
  *  placeholder and a typo'd swap key are both errors at compose time.

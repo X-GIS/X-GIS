@@ -23,8 +23,8 @@ import {
   storageBuffer,
   resource,
   builtin,
-} from '../src/index.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import type { ShaderExample } from './_shared.js'
 
 // Each invocation sums WINDOW consecutive input elements.
 const WINDOW = u32(8)

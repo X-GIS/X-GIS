@@ -69,11 +69,17 @@ package (#1681 B1), and nothing tracked under `shader-dsl/` names a path outside
 Two things a consumer must know:
 
 - **It ships TypeScript source.** `main`/`exports` name `./src/*.ts`, so the consuming build
-  needs a toolchain that compiles TS (Vite, `tsc`, esbuild, …). Plain Node cannot import it
-  as-is — #1686.
-- **`./examples` additionally needs `allowImportingTsExtensions`.** The example modules import
-  each other with explicit `.ts` extensions; `src/` does not, which is why `tsc -p .` (src
-  only) resolves without the flag.
+  needs a toolchain that compiles TS (Vite, `tsc`, esbuild, …), and importing the package by
+  its bare name under plain Node still resolves to a `.ts` file. What changed with #1686 is
+  the BUILD: every relative specifier in the package now carries an explicit `.js`, so the
+  `dist/` that `tsc -p .` produces `import()`s under Node's own ESM resolver and its `.d.ts`
+  type-checks under `moduleResolution: nodenext`. Whether `exports` should point there is a
+  separate decision (#1686 step 5). The monorepo gate for it is
+  `scripts/shader-dsl-node-smoke.mjs` (outside this package, so the mirror does not carry it).
+- **Nothing in the package needs `allowImportingTsExtensions`.** `src/` and `examples/` both
+  write `./x.js` — the TypeScript ESM convention, where what you write is what tsc emits. The
+  package compiles under `moduleResolution: nodenext`, which is what makes a missing extension
+  a build error instead of a runtime one.
 
 The mirror is **read-only**: fix things here, in X-GIS, and the next merge fast-forwards it.
 `CHANGELOG.md` is generated from git history by the root `bun run changelog`.

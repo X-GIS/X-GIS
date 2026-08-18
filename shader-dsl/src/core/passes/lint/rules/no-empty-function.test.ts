@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { lint } from '../engine'
-import { module, fn, f32T, voidT } from '../../../ir'
-import { noEmptyFunction } from './no-empty-function'
+import { lint } from '../engine.js'
+import { module, fn, f32T, voidT } from '../../../ir/index.js'
+import { noEmptyFunction } from './no-empty-function.js'
 
 const ruleIds = (m: ReturnType<typeof module>) => lint(m, [noEmptyFunction]).map((d) => d.ruleId)
 

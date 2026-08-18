@@ -32,9 +32,9 @@ import {
   Let,
   f32T,
   vec2fT,
-} from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+} from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms({ swell: f32T })
 
 // scalar hash of a lattice point → [0,1)

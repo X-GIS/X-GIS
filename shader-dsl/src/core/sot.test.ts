@@ -8,7 +8,7 @@ import {
   storageBuffer,
   structDecl,
   arrayOf,
-} from './sot'
+} from './sot.js'
 import {
   member,
   param,
@@ -24,8 +24,8 @@ import {
   fn,
   module,
   Var,
-} from './ir'
-import { emitExpr, emitModule } from './backends/wgsl'
+} from './ir/index.js'
+import { emitExpr, emitModule } from './backends/wgsl.js'
 
 // Single-source-of-truth for an IO struct. One declaration derives the StructDecl (with
 // the @builtin/@location/@interpolate attrs), the struct type, and typed field access —

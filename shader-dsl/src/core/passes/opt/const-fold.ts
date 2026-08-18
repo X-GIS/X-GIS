@@ -16,9 +16,9 @@
 // `select` whose cond folded to a bool literal → the chosen branch. These expose
 // the dead branches that dead-branch.ts then removes.
 
-import type { Expr, ModuleDecl } from '../../ir'
-import { boolT } from '../../ir'
-import { mapModuleExprs } from './ir-transform'
+import type { Expr, ModuleDecl } from '../../ir/index.js'
+import { boolT } from '../../ir/index.js'
+import { mapModuleExprs } from './ir-transform.js'
 
 function foldNode(e: Expr): Expr {
   if (

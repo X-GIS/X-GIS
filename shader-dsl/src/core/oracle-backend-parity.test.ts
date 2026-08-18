@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT } from './ir'
-import type { FuncDecl, ShaderType, Stmt } from './ir'
-import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle'
-import { INTRINSICS } from './intrinsics'
-import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir'
+import { fn, module, f32, vec4, u32T, f32T, vec4fT, vec2fT } from './ir/index.js'
+import type { FuncDecl, ShaderType, Stmt } from './ir/index.js'
+import { compileModule, ORACLE_BUILTIN_NAMES, ORACLE_GPU_STUB_NAMES } from './oracle.js'
+import { INTRINSICS } from './intrinsics.js'
+import { pow, fract, round, unpack4x8unorm, pack4x8unorm, bitcastU32 } from './ir/index.js'
 
 // ═══ #763 Phase O — the CPU oracle is a backend too ═══
 //

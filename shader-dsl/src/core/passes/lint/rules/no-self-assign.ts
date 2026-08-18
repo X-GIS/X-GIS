@@ -1,4 +1,4 @@
-import { mapStmts, type LintRule } from '../engine'
+import { mapStmts, type LintRule } from '../engine.js'
 
 const isSelfAssign = (s: { s: string; target?: unknown; expr?: unknown }): boolean =>
   s.s === 'assign' && JSON.stringify(s.target) === JSON.stringify(s.expr)

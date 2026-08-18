@@ -6,9 +6,9 @@
 // (WebGL2) plus its pipeline Reflection — the metadata a host needs to build the
 // bind-group layout + pack the uniform. The /shader-dsl site page renders this live.
 
-import { fn, module, vec3, vec4, sin } from '../src/index.ts'
-import { VsOut, vs, fullscreenUniforms } from './_fullscreen.ts'
-import type { ShaderExample } from './_shared.ts'
+import { fn, module, vec3, vec4, sin } from '../src/index.js'
+import { VsOut, vs, fullscreenUniforms } from './_fullscreen.js'
+import type { ShaderExample } from './_shared.js'
 const U = fullscreenUniforms()
 
 // `vo` (vertex-out), NOT `in`: `in` is a reserved keyword in GLSL, so naming the

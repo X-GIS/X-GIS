@@ -10,6 +10,7 @@ import type { ShaderVariant } from './shader-gen'
 import type { ComputePlanEntry } from './compute-plan'
 import type { ComputeVariantAddendum } from './compute-variant'
 import { nodeToWgslString } from './node-to-wgsl'
+import { refF32 } from './_util/node-builders'
 
 // Phase 2.5 US-004 — fillExpr / strokeExpr migrated to NodeLike|null.
 function fillStr(v: ShaderVariant): string {
@@ -27,6 +28,10 @@ function makeLegacyVariant(overrides: Partial<ShaderVariant> = {}): ShaderVarian
     // fillIsDefault: true is the default-uniform placeholder.
     fillExpr: null,
     strokeExpr: null,
+    // #1808 — `null` = this fixture declares no opacity factor, so the
+    // merge emits the bare compute read. The opacity-composition suite
+    // below overrides it.
+    opacityExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color'],
@@ -165,6 +170,55 @@ describe('mergeComputeAddendumIntoVariant — both axes', () => {
     const merged = mergeComputeAddendumIntoVariant(v, addendum)
     expect(merged.uniformFields).not.toContain('fill_color')
     expect(merged.uniformFields).not.toContain('stroke_color')
+  })
+})
+
+// #1808 — the compute kernel evaluates the COLOUR only. The expression it
+// displaces was `vec4(colour.rgb, colour.a * opacity)`, so a merge that
+// emits the bare read renders every opacity-bearing layer fully opaque on
+// the compute arm while the CPU arm blends it (measured: a ~33% whole-frame
+// divergence on the continent / income fixtures, all three of which carry an
+// `opacity-*` modifier — the three compute fixtures without one matched
+// byte-for-byte).
+describe('mergeComputeAddendumIntoVariant — opacity composition', () => {
+  const OPACITY = refF32('OPACITY')
+
+  it('composes the variant opacity onto the compute fill read', () => {
+    const v = makeLegacyVariant({ opacityExpr: OPACITY })
+    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(fillStr(merged)).toBe(
+      'vec4<f32>(unpack4x8unorm(compute_out_fill[input.feat_id]).rgb, ' +
+        '(unpack4x8unorm(compute_out_fill[input.feat_id]).a * OPACITY))',
+    )
+  })
+
+  it('composes the variant opacity onto the compute stroke read', () => {
+    const v = makeLegacyVariant({ opacityExpr: OPACITY })
+    const addendum = buildComputeVariantAddendum([makeStrokeEntry()], 0, 1)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(strokeStr(merged)).toContain('unpack4x8unorm(compute_out_stroke')
+    expect(strokeStr(merged)).toContain('* OPACITY')
+  })
+
+  it('opacityExpr null → bare read (no synthetic factor invented)', () => {
+    const v = makeLegacyVariant({ opacityExpr: null })
+    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(fillStr(merged)).toBe('unpack4x8unorm(compute_out_fill[input.feat_id])')
+  })
+
+  it('carries a non-const opacity shape through unchanged (u.opacity uniform)', () => {
+    const v = makeLegacyVariant({
+      opacityExpr: refF32('u.opacity'),
+      uniformFields: ['mvp', 'proj_params', 'fill_color', 'stroke_color', 'opacity'],
+    })
+    const addendum = buildComputeVariantAddendum([makeFillEntry()], 0, 1)
+    const merged = mergeComputeAddendumIntoVariant(v, addendum)
+    expect(fillStr(merged)).toContain('* u.opacity')
+    // The uniform is still written per frame — only fill_color/stroke_color
+    // are pruned, so the factor the shader reads stays live.
+    expect(merged.uniformFields).toContain('opacity')
   })
 })
 

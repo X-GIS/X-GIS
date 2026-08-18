@@ -12,12 +12,12 @@
 // true sum/product and rounds once).
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir'
-import type { Expr, ModuleDecl, ShaderType } from '../ir'
-import { compileModule, type CpuValue } from '../oracle'
-import { fp64Lower } from '../passes/fp64-lower'
-import { mapModuleExprs } from '../passes/opt/ir-transform'
-import { splitF64 } from './df64-lib'
+import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js'
+import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
+import { compileModule, type CpuValue } from '../oracle.js'
+import { fp64Lower } from '../passes/fp64-lower.js'
+import { mapModuleExprs } from '../passes/opt/ir-transform.js'
+import { splitF64 } from './df64-lib.js'
 
 // ── The f32-rounding oracle, integer flavor ──
 

@@ -226,6 +226,37 @@ field honestly, discrete arrows do not.
 
 ---
 
+## Recipe 4 — WMS-only raster (nowCOAST) via the WMS→XYZ adapter (#1478)
+
+`nowcoast.noaa.gov`'s GeoServer WMS (the CORS table above) speaks WMS only — no XYZ tile endpoint — so
+it cannot be declared as a `type: raster` source directly. `@xgis/map` ships a minimal, pure adapter that
+turns a `GetMap` layer into a raster-source URL TEMPLATE: `wmsRasterTemplate()` builds the URL (params +
+a `{bbox-epsg-3857}` placeholder in place of `BBOX`, expanded per-tile the same way an ordinary
+`{z}/{x}/{y}` template is); `wmsGetMapUrl(z, x, y, options)` builds one tile's literal URL directly.
+Design rationale + why it is NOT the custom source-loader registry:
+`docs/architecture/source-loader-seam.md` §12.
+
+```ts
+import { wmsRasterTemplate } from '@xgis/map'
+
+const url = wmsRasterTemplate({
+  baseUrl: 'https://nowcoast.noaa.gov/geoserver/wms',
+  layers: 'mrms:conus_base_reflectivity_mosaic',
+})
+```
+
+```
+source radar { type: "raster", url: "<url from wmsRasterTemplate(...) above>" }
+layer radarLayer { source: radar }
+```
+
+**The CORS 405 above is unchanged by this adapter** — it only builds the URL, it does not fetch it. Put
+the SAME proxy this doc's "Handling CORS" section describes in front of the nowCOAST base URL (or mirror
+individual `GetMap` responses through it) before declaring the source; the browser must still never talk
+to `nowcoast.noaa.gov` directly. EPSG:3857 only, `GetMap` only — no `GetCapabilities`, no WMTS.
+
+---
+
 ## Which recipe?
 
 | You have…                                                       | Use                                                         |
@@ -233,6 +264,7 @@ field honestly, discrete arrows do not.
 | A gridded HDF5 product (S-102/S-111) shared across many clients | **Recipe 1** (CORS-proxy the `.h5`, browser reads in place) |
 | A gridded HDF5 copy you mirror, want in-app live refresh        | **Recipe 2** (`setCoverageData` on a timer)                 |
 | A CORS-open JSON point/vector product                           | **Recipe 3** (fetch + `map.graphics`)                       |
+| A WMS-only raster service (nowCOAST) — no XYZ tile endpoint     | **Recipe 4** (the WMS→XYZ adapter, `@xgis/map`)              |
 
 Track status: S-111 surface currents (this PR) exercises Recipes 1–3, and the
 `s111_live` demo runs Recipe 1 against the LIVE NOAA bucket end to end (the vite

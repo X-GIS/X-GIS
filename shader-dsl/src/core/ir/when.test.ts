@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr } from './index'
-import { emitModule } from '../backends/wgsl'
+import { fn, module, f32, f32T, vec2, vec2fT, when, ifExpr, condExpr } from './index.js'
+import { emitModule } from '../backends/wgsl.js'
 
 describe('when — unified condition dispatch', () => {
   it('2-arm: emits an if/else chain (not select) and is byte-identical to the deprecated ifExpr', () => {

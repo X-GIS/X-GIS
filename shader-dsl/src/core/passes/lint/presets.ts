@@ -2,8 +2,8 @@
 // each rule's own severity — that is what validate() runs. These presets are for
 // explicit lint passes that want a different posture.
 
-import type { LintConfig, Severity } from './engine'
-import { RULES } from './rules'
+import type { LintConfig, Severity } from './engine.js'
+import { RULES } from './rules/index.js'
 
 const severityFor = (pick: (category: string | undefined) => Severity): LintConfig['severity'] =>
   Object.fromEntries(RULES.map((r) => [r.id, pick(r.category)]))

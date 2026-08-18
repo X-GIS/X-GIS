@@ -17,6 +17,10 @@
   // you that you did not.
   "compilerOptions": {
     "target": "ES2022",
+    // #1686 — `module`/`moduleResolution` here are the ROOT's values, pinned by the drift
+    // gate, and every leaf config in this package OVERRIDES them with `nodenext`. Nothing
+    // compiles with the two values below; read tsconfig.json for why the override cannot
+    // live in this file.
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],

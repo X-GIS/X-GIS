@@ -82,7 +82,7 @@ import {
   type ModuleDecl,
   type StructDecl,
 } from '@xgis/shader-dsl'
-import type { Stmt } from '../ir'
+import type { Stmt } from '../ir/index.js'
 
 // ── the two payloads: the SAME statement, spelled for each target ──
 const WGSL_PAYLOAD = 'return vec4<f32>(1.0, 0.0, 0.0, 1.0);'

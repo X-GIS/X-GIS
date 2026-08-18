@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { module, fn, vec2fT, vec3fT, smoothstep, fma, atan2 } from './'
-import { compileModule } from '../oracle'
+import { module, fn, vec2fT, vec3fT, smoothstep, fma, atan2 } from './index.js'
+import { compileModule } from '../oracle.js'
 
 // ═══ CPU-oracle VECTOR parity for smoothstep / fma / atan2 ═══
 //
