@@ -20,7 +20,7 @@ import { describe, expect, it } from 'vitest'
 import { Camera } from '../camera'
 import { TileSelectionCache } from './tile-selection-cache'
 import type { TileCatalog } from '@xgis/data'
-import type { FrameDrawStats } from './frame-draw-stats'
+import { FrameDrawStats } from './frame-draw-stats'
 
 // Minimal flat-mercator-path catalog (same surface slice-zoom-range-cull uses):
 // maxLevel + hasEntryInIndex for the ancestor walk. No layer range → no cull.
@@ -179,6 +179,61 @@ describe('TileSelectionCache — per-margin LRU (#1153 #12)', () => {
     // camera never touched.
     for (let f = 2; f <= 61; f++) select(cache, source, f, 2, camera)
     expect(cache.selectionComputeCount()).toBe(1)
+  })
+
+  it('#1785 — globeTilesSelected survives a cache HIT on a static camera (sphere-routed, maxLevel=0)', () => {
+    // The diagnostic's own doc says it is "set only on the globe branch" — that
+    // branch is the cache-MISS quadtree walk. #1581 (the leg-A tests above) made
+    // the LRU survive across frames instead of clearing every frame, but nothing
+    // taught the diagnostic to follow: `drawStats.beginFrame()` resets it to 0
+    // every frame regardless, and pre-fix only a fresh compute set it back. A
+    // STATIC camera over a z0-only source (this test's shape: orthographic,
+    // maxLevel=0 — the synthetic earth-surface backend's own catalog) hits the
+    // cache on every frame after the first, so the diagnostic read 0 forever
+    // despite the selection (and the draw) being correct throughout — the exact
+    // false negative `_synth-bg-ortho-pitch80-gate.spec.ts` measured on main.
+    const stats = new FrameDrawStats()
+    const cache = new TileSelectionCache()
+    const source = fakeCatalog(0) // z0-only archive, matching the synthetic backend
+    const camera = new Camera(0, 0, 0)
+    camera.pitch = 80
+
+    const selectOrtho = (frameId: number) => {
+      stats.beginFrame() // the real per-frame reset selectForFrame's callers do
+      const sel = cache.selectForFrame(
+        camera,
+        3, // projType — orthographic, routes through globeVisibleTiles
+        0,
+        0,
+        1280,
+        720,
+        1,
+        frameId,
+        source,
+        '',
+        0,
+        source.maxLevel,
+        stats,
+      )
+      return { sel, globeTilesSelected: stats.getDrawStats().globeTilesSelected }
+    }
+
+    // Frame 1 — cache MISS, fresh compute. globeVisibleTiles' containsTarget
+    // always keeps the root tile (it covers the whole world), so exactly 1.
+    const f1 = selectOrtho(1)
+    expect(f1.sel).not.toBeNull()
+    expect(cache.selectionComputeCount()).toBe(1)
+    expect(f1.globeTilesSelected).toBe(1)
+
+    // Frames 2..10 — camera untouched, so every one is a cache HIT (mirrors the
+    // "STATIC camera" leg-A test above: selectionComputeCount stays 1). The
+    // diagnostic must stay truthful on every one of them, not just the first.
+    for (let f = 2; f <= 10; f++) {
+      const { sel, globeTilesSelected } = selectOrtho(f)
+      expect(sel, `frame ${f}`).not.toBeNull()
+      expect(globeTilesSelected, `frame ${f}`).toBe(1)
+    }
+    expect(cache.selectionComputeCount()).toBe(1) // still one walk — the LRU held
   })
 
   it('#1581 leg A — a tile landing (indexGeneration bump) invalidates even at a static camera', () => {

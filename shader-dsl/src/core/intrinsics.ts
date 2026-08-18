@@ -87,6 +87,18 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     glsl: (a) => `texelFetch(${a[0]}, ivec3(${a[1]}, int(${a[2]})), int(${a[3]}))`,
   },
   atan2: { wgsl: (a) => `atan2(${join(a)})`, glsl: (a) => `atan(${join(a)})` },
+  // round(x) — ties-to-EVEN on both targets. WGSL's round IS roundEven; GLSL ES
+  // 3.00's own round() leaves the 0.5 case IMPLEMENTATION-CHOSEN (§8.3 "the
+  // fraction 0.5 will round in a direction chosen by the implementation"), so
+  // the identity spelling was a latent cross-backend divergence on exact halves.
+  // roundEven (also ES 3.00 §8.3) is the one GLSL spelling whose semantics are
+  // guaranteed to agree with WGSL — and with the CPU oracle's roundTiesToEven.
+  round: { wgsl: (a) => `round(${join(a)})`, glsl: (a) => `roundEven(${join(a)})` },
+  // saturate(x) — clamp to [0,1], component-wise. WGSL has the dedicated
+  // builtin; GLSL ES 3.00 has none, so it inlines as the clamp both specs
+  // define saturate to be. The scalar 0.0/1.0 bounds broadcast over vector x
+  // (GLSL's clamp(genType, float, float) overload).
+  saturate: { wgsl: (a) => `saturate(${join(a)})`, glsl: (a) => `clamp(${a[0]}, 0.0, 1.0)` },
   // Screen-space partial derivatives (#846) — WGSL dpdx/dpdy, GLSL dFdx/dFdy.
   // (fwidth is spelled identically on both targets and stays portable.)
   dpdx: { wgsl: (a) => `dpdx(${join(a)})`, glsl: (a) => `dFdx(${join(a)})` },
@@ -112,6 +124,35 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // the one form Apple/Metal cannot fold back into a plain f32 product when
   // building df64 twoProd error terms (aHi·bLo etc.). Diagnostic use for now.
   fma: { wgsl: (a) => `fma(${join(a)})`, glsl: (a) => `((${a[0]}) * (${a[1]}) + (${a[2]}))` },
+  // ── 2×16 pack/unpack — NATIVE on both targets, divergent NAME only ──
+  // WGSL pack2x16float/unorm/snorm ↔ GLSL ES 3.00 packHalf2x16 / packUnorm2x16 /
+  // packSnorm2x16 (§8.4): identical bit layout (component 0 in the 16 LOW bits)
+  // and identical quantisation formulas, so unlike the 4×8 pair below (ES 3.10-
+  // only, hand-inlined) these six are straight renames.
+  pack2x16float: {
+    wgsl: (a) => `pack2x16float(${join(a)})`,
+    glsl: (a) => `packHalf2x16(${join(a)})`,
+  },
+  unpack2x16float: {
+    wgsl: (a) => `unpack2x16float(${join(a)})`,
+    glsl: (a) => `unpackHalf2x16(${join(a)})`,
+  },
+  pack2x16unorm: {
+    wgsl: (a) => `pack2x16unorm(${join(a)})`,
+    glsl: (a) => `packUnorm2x16(${join(a)})`,
+  },
+  unpack2x16unorm: {
+    wgsl: (a) => `unpack2x16unorm(${join(a)})`,
+    glsl: (a) => `unpackUnorm2x16(${join(a)})`,
+  },
+  pack2x16snorm: {
+    wgsl: (a) => `pack2x16snorm(${join(a)})`,
+    glsl: (a) => `packSnorm2x16(${join(a)})`,
+  },
+  unpack2x16snorm: {
+    wgsl: (a) => `unpack2x16snorm(${join(a)})`,
+    glsl: (a) => `unpackSnorm2x16(${join(a)})`,
+  },
   // GLSL ES 3.00 (WebGL2) has NO packUnorm4x8/unpackUnorm4x8 — those are GLSL 4.00 /
   // ES 3.10 only. Inline the WGSL semantics by hand (round(clamp(v,0,1)*255), byte 0 in
   // the low bits). Verified against the CPU oracle on a real WebGL2 GPU.
@@ -288,6 +329,13 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   'asin',
   'acos',
   'atan',
+  // Hyperbolics — WGSL §17.5 and GLSL ES 3.00 §8.1 both spell all six natively.
+  'sinh',
+  'cosh',
+  'tanh',
+  'asinh',
+  'acosh',
+  'atanh',
   'exp',
   'log',
   'log2',
@@ -298,7 +346,8 @@ export const PORTABLE_INTRINSICS: ReadonlySet<string> = new Set([
   'sqrt',
   'fract',
   'trunc',
-  'round',
+  // 'round' moved to INTRINSICS: GLSL ES 3.00's round() is implementation-chosen
+  // at exact halves, so it now spells roundEven there (see the registry entry).
   'sign',
   'radians',
   'degrees',

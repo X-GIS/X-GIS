@@ -47,6 +47,8 @@ import {
   matMul,
   BUILTINS,
   GPU_STUBS,
+  f32ToU32Sat,
+  f32ToI32Sat,
 } from './cpu-runtime'
 import { compileModule, type CpuModule } from './oracle'
 
@@ -185,6 +187,16 @@ function emitExpr(e: Expr, S: FnCtx): string {
     }
     case 'call': {
       const args = e.args.map((a) => emitExpr(a, S))
+      // f32→u32/i32 SATURATES per WGSL — the SAME static-type branch the
+      // interpreter takes (oracle.ts 'call'), baked at compile time so the
+      // twins stay bit-identical. Integer sources fall through to the wrapping
+      // BUILTINS forms.
+      if (e.fn === 'u32' || e.fn === 'i32') {
+        const src = e.args[0]!.type
+        if (src.kind === 'f64' || (src.kind === 'scalar' && src.scalar === 'f32')) {
+          return `$.${e.fn === 'u32' ? 'u32Sat' : 'i32Sat'}(${args[0]})`
+        }
+      }
       if (BUILTINS[e.fn]) return `$.B[${q(e.fn)}](${args.join(', ')})`
       if (GPU_STUBS[e.fn]) return `$.gpuStub(${[q(e.fn), ...args].join(', ')})`
       // User fn — dispatched through $.F so a compiled fn can call a fn that fell
@@ -413,6 +425,9 @@ interface CodegenRuntime {
   negVec: (a: number[]) => number[]
   gpuStub: (name: string, ...args: CpuValue[]) => CpuValue
   vecMatThrow: () => never
+  /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
+  u32Sat: typeof f32ToU32Sat
+  i32Sat: typeof f32ToI32Sat
 }
 
 /** The perf-critical twin of `compileModule` — same IR, same `CpuModule` shape, and
@@ -511,6 +526,8 @@ export function compileModuleJs(m: ModuleDecl, opts?: { gpuStubs?: boolean }): C
     splat: (n, v) => new Array(n).fill(v),
     swiz: (a, idx) => idx.map((i) => a[i]!),
     negVec: (a) => a.map((v) => -v),
+    u32Sat: f32ToU32Sat,
+    i32Sat: f32ToI32Sat,
     gpuStub: (name, ...args) => {
       if (!gpuStubs)
         throw new Error(

@@ -447,6 +447,17 @@ export interface FuncDecl {
   readonly stage?: 'vertex' | 'fragment' | 'compute'
   /** Structured workgroup size for a compute stage (#740 R3). */
   readonly workgroupSize?: number
+  /** The PORTABLE KERNEL TIER declaration (#1812) — compute-only. Set by fn()'s
+   *  `opts.portable`, which rejects it on any other stage (SD0110). It promises the entry
+   *  emits on BOTH backends: native `@compute` on WGSL, and the `lowerComputeToFragment`
+   *  fragment-GPGPU rewrite on GLSL ES 3.00 (run there with no emit option), with every
+   *  construct outside the gather-only shape failing validation at EVERY emit on both
+   *  writers (SD0111 — passes/portable-kernel.ts is the shape's single authority).
+   *
+   *  Structured ONLY, with deliberately NO `attrs` spelling (#740 R3): `portable` is not a
+   *  WGSL attribute, so there is nothing for the WGSL writer to emit and declaring it
+   *  cannot change a single emitted byte. */
+  readonly portable?: boolean
   /** Return-value attribute for a bare (non-struct) stage output, e.g. a
    *  fragment `-> @location(0) vec4<f32>`. */
   readonly retAttr?: string

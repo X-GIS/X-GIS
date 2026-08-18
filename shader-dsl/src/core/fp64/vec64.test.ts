@@ -140,6 +140,9 @@ describe('vec64 lowering', () => {
 
   it('unsupported builtins / attributes / assigns fail loud', () => {
     // exp is NOT emulated on vec64 (sin/cos ARE — see the known-answer block).
+    // The key-domain bound now rejects this at tsc too; the runtime SD0041 stays
+    // the backstop for raw-IR authoring that bypasses the typed surface.
+    // @ts-expect-error — exp's key domain is FloatKey (no f64/vec64)
     const s = fn('s', { a: vec3f64T }, (p) => exp(p.a))
     expect(() => fp64Lower(module({ funcs: [s] }))).toThrow(/SD0041/)
     const attr = fn('vs', { pos: { type: vec3f64T, attr: '@location(0)', location: 0 } }, (p) =>

@@ -97,10 +97,25 @@ function runCompute(featData: number[], n: number): number[] {
   return out
 }
 
+// The SAME fixture DECLARED a portable kernel (#1812). `portable` is compute-only and has no
+// attrs spelling, so the declaration also carries the structured stage the tier reads. The
+// lowering routes a declared entry through `analyzePortableKernel` instead of its ad-hoc
+// shape checks — this module is what proves that gate ACCEPTS the fixture (and that the
+// accepted lowering is still the value-faithful one the arms below measure).
+const portableMod: ModuleDecl = {
+  ...computeMod,
+  funcs: [{ ...computeMod.funcs[0]!, stage: 'compute', workgroupSize: 64, portable: true }],
+}
+
 // Run the LOWERED @fragment form per-texel over a W×H grid; collect the returned u32 at
 // fid = x + y*W for fid < n. u_count.y carries the row width W (the GLSL-only contract).
-function runFragment(featData: number[], n: number, w: number): number[] {
-  const fm = compileModule(lowerComputeToFragment(computeMod))
+function runFragment(
+  featData: number[],
+  n: number,
+  w: number,
+  mod: ModuleDecl = computeMod,
+): number[] {
+  const fm = compileModule(lowerComputeToFragment(mod))
   fm.setBinding('feat_data', featData)
   const h = Math.ceil(n / w)
   fm.setBinding('u_count', [n, w, 0, 0])
@@ -132,6 +147,16 @@ describe('M2b — compute→fragment lowering preserves out_color byte-for-byte 
       w = 4 // H = ceil(10/4) = 3 rows; last row partial
     const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)
     expect(runFragment(data, n, w)).toEqual(runCompute(data, n))
+  })
+
+  it('#1812 — the same kernel DECLARED portable lowers through the tier gate, oracle-identical', () => {
+    const n = 10,
+      w = 4 // the multi-row shape: the widest arm, so the tier gate is proven on it
+    const data = Array.from({ length: n }, (_, i) => ((i * 7) % 11) / 11)
+    // Byte-identical to BOTH the undeclared lowering and the original @compute kernel: the
+    // declaration changes which checks run, never what the lowered kernel computes.
+    expect(runFragment(data, n, w, portableMod)).toEqual(runFragment(data, n, w))
+    expect(runFragment(data, n, w, portableMod)).toEqual(runCompute(data, n))
   })
 
   it('boundary fid==count-1 is written; an over-grid texel (fid>=count) writes nothing', () => {

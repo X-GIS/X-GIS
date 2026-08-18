@@ -94,8 +94,42 @@ export interface FieldSpec<T extends ShaderType = ShaderType> {
   readonly interpolate?: string
 }
 
-/** A `@builtin(<name>)` IO field (e.g. builtin('position', vec4fT)). */
-export const builtin = <T extends ShaderType>(name: string, type: T): FieldSpec<T> => ({
+/** Every `@builtin(<name>)` id WGSL defines — the DSL's builtin vocabulary IS WGSL's
+ *  (AUTHORING.md §4; each backend spells the id per target, e.g. fragment-input
+ *  `position` reads as `gl_FragCoord` on GLSL). Typing {@link builtin} over this
+ *  union moves a typo'd or GLSL-ism name (`'vertex_idx'`, `'frag_coord'`,
+ *  `'point_size'`) from a GPU-compiler / emit-time failure to a `tsc` error at the
+ *  authoring site — on WGSL an unknown name used to EMIT VERBATIM (the denylist
+ *  stance in backends/wgsl.ts) and die at naga with no line back. Feature-gated ids
+ *  (`subgroup_*`, `clip_distances`) and ids without a GLSL mapping yet
+ *  (`sample_index`, the compute family on WebGL2) are deliberately INCLUDED:
+ *  capability and per-target support are `assertBuiltins`/`builtinIn`'s job at emit,
+ *  not the type's. A WGSL builtin newer than this union needs a one-line, TYPE-ONLY
+ *  addition here — the emit layer already passes unknown names through by design.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export type WgslBuiltinName =
+  | 'vertex_index'
+  | 'instance_index'
+  | 'position'
+  | 'front_facing'
+  | 'frag_depth'
+  | 'sample_index'
+  | 'sample_mask'
+  | 'local_invocation_id'
+  | 'local_invocation_index'
+  | 'global_invocation_id'
+  | 'workgroup_id'
+  | 'num_workgroups'
+  | 'subgroup_invocation_id'
+  | 'subgroup_size'
+  | 'clip_distances'
+
+/** A `@builtin(<name>)` IO field (e.g. builtin('position', vec4fT)). `name` is bounded
+ *  to {@link WgslBuiltinName} — the closed WGSL vocabulary — so a typo or a GLSL-only
+ *  spelling is a `tsc` error here instead of a naga error with no authoring line. */
+export const builtin = <T extends ShaderType>(name: WgslBuiltinName, type: T): FieldSpec<T> => ({
   type,
   attr: `@builtin(${name})`,
   builtin: name,
@@ -641,8 +675,10 @@ type MutableView<V> = {
  *  A storage binding lowers automatically to a data-texture read (`texelFetch`) at GLSL emit —
  *  no authoring change needed — but that lowering is GATHER-ONLY: it rewrites reads, has no
  *  write form, and throws `UnsupportedFeatureError` on a `read_write` binding rather than
- *  silently dropping the write (a compute kernel's output instead lowers through the separate
- *  `emitGlslModule({ emulateCompute: true })` path). Prefer `'read'` unless the module is
+ *  silently dropping the write (a compute kernel's output instead lowers through the
+ *  compute→fragment path — declare the kernel `portable: true`, #1812; the legacy
+ *  `emitGlslModule({ emulateCompute: true })` opt-in remains for undeclared kernels).
+ *  Prefer `'read'` unless the module is
  *  WGSL-only, or the divergent access mode surfaces only once someone finally emits it for
  *  GLSL.
  *

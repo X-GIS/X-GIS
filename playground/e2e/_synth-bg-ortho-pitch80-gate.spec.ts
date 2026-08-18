@@ -1,4 +1,31 @@
-// AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density verification
+// ═══ AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density gate (ortho z=0 pitch=80) ═══
+//
+// Born `_synth-bg-ortho-pitch80.spec.ts`, absent from every test.yml leg and therefore dark
+// (#1785's triage class, same pattern as #1774/#1349). #1785 found its promotion needed TWO
+// independent fixes, not one:
+//
+//   1. RENDER — pre-#1799, the non-Mercator z=0 root-tile split in
+//      `map/src/render/tile-selection-cache.ts` ran unconditionally for every projType outside
+//      {mercator, globe} and replaced the synthetic earth-surface source's ONLY z=0 tile with
+//      four z=1 children it can never serve — its catalog declares `maxZoom: 0`
+//      (`data/src/sources/synthetic-earth-surface-backend.ts`) — so the whole selection turned
+//      over-zoom. Exactly the #1792 defect class the demotiles mirror hit on the same split;
+//      #1799 fixed both by gating the split on `maxLevel >= 1` (`tile-selection-cache.ts:860`).
+//   2. INSTRUMENTATION — with #1799 landed the render was already correct (assertions 2 and 3
+//      passed), but assertion 1's `drawStats.globeTilesSelected` (formerly line 262) still read
+//      0 instead of >=1. Root cause was a SEPARATE, older gap: #1581 stopped clearing
+//      `TileSelectionCache`'s per-margin LRU every frame (a perf fix, static-camera frames now
+//      serve from cache instead of re-walking), but `setGlobeTilesSelected` was only ever called
+//      from the cache-MISS compute branch. `FrameDrawStats.beginFrame()` still resets the
+//      counter every frame, so once this spec's static camera settled into steady-state cache
+//      HITS (`setupPage`'s 2-RAF + 800ms settle guarantees it), the counter read 0 forever even
+//      though the same, correct selection kept being drawn from cache. Fixed by stashing the
+//      computed count on the cache entry (`FrameTileCache.globeTilesSelected`) and re-affirming
+//      it on a HIT too — pinned by a new fail-before case in `tile-selection-lru.test.ts`.
+//
+// With both fixes landed the spec is renamed to `-gate` and registered in test.yml's render-gate
+// list — the assertions below are unchanged from before the fixes and now hold permanently,
+// mirroring how #1799 itself promoted `_demotiles-mirror-gate.spec.ts` for the identical guard.
 //
 // Verifies the 32×16 earth-surface fill mesh renders smooth at z=0
 // orthographic projection pitch=80:
@@ -203,12 +230,46 @@ async function setupPage(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(800)
 }
 
+// ─── Helper: hide demo chrome before any capture ──────────────────────
+// The `#map` locator composites every absolutely-positioned piece of demo
+// chrome over the canvas — same constraint `_demotiles-mirror-gate.spec.ts`
+// documents, same id list. Here it is not just cosmetic: the fixture hint
+// pill fades, so two runs capture it at different animation phases. Measured
+// cross-run: 1.876% of the frame differing at max amplitude 12/255, ALL of it
+// inside the hint pill's box, canvas byte-stable everywhere else — which is
+// exactly the 0.5% pixel-diff ceiling test 3 exists to arm. Hiding the chrome
+// leaves only the render under the diff.
+async function hideDemoChrome(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(() => {
+    const ids = [
+      'log-overlay',
+      'status',
+      'status-popover',
+      'hash-badge',
+      'map-tools',
+      'editor-collapse-btn',
+      'demo-actions',
+    ]
+    for (const id of ids) {
+      const el = document.getElementById(id)
+      if (el) el.style.display = 'none'
+    }
+  })
+}
+
 // ════════════════════════════════════════════════════════════════════
+
+// File-scope, not the per-test `test.setTimeout` this spec used before promotion: a
+// body-scope budget governs the test body only, and fixture setup (page/context creation)
+// stays on the config default (60s, `playwright.config.ts:23`) regardless — the exact gap
+// CLAUDE.md §12 documents ("Test timeout of 60000ms exceeded while setting up context") on a
+// loaded SwiftShader runner. 90s mirrors `_symbol-anchor-inline-gate.spec.ts`, the closest
+// comparable single-page WebGL2 gate on this leg.
+test.describe.configure({ timeout: 90_000 })
 
 test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)', () => {
   // ── Test 1: Infrastructure wiring assertions (all PASS in WIP) ────
   test('ortho z=0 pitch=80: backend infrastructure wired correctly', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
@@ -296,7 +357,6 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
 
   // ── Test 2: Curvature + facet check ───────────────────────────────
   test('ortho z=0 pitch=80: bg fill curves inside disc', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
@@ -306,6 +366,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
     await setupPage(page)
+    await hideDemoChrome(page)
 
     const png = await page.locator('#map').screenshot()
     writeFileSync(join(ART, 'ortho-z0-pitch80-32x16.png'), png)
@@ -379,7 +440,6 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
 
   // ── Test 3: Pixel-diff gate vs baseline (≤0.5% ceiling) ───────────
   test('ortho z=0 pitch=80: pixel-diff vs baseline ≤0.5%', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
@@ -388,6 +448,7 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
     })
 
     await setupPage(page)
+    await hideDemoChrome(page)
 
     const png = await page.locator('#map').screenshot()
 

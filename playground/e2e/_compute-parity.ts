@@ -20,6 +20,12 @@ export interface ParityResult {
   linkLog: string
   fbStatus: string
   note: string
+  /** #1812 — the PORTABLE-declared emit (no emit-site option) is byte-identical to the
+   *  `emulateCompute: true` emit. False means the tier's auto path diverged from the flag
+   *  path, which would make every gate below measure a shader the runtime never emits. */
+  portableIdentical: boolean
+  /** Empty when identical; otherwise the first differing line, both sides, for the report. */
+  portableDiff: string
 }
 
 const FULLSCREEN_VS = `#version 300 es
@@ -53,8 +59,34 @@ export function runComputeParity(): ParityResult {
   for (let f = 0; f < n; f++) cm.fns[kernel.entryPoint]([f, 0, 0])
 
   // ── The shaders the runtime would emit for this kernel ──
-  const glslFs = emitGlslModule(kernel.module, 'fragment', { emulateCompute: true })
+  // Two spellings of the SAME lowering, kept DISTINGUISHABLE (#1823): compute-gen now
+  // declares its kernels `portable: true`, so the flag arm STRIPS the declaration — an
+  // undeclared kernel through the legacy emit-site opt-in — while the auto arm emits the
+  // production module verbatim, option-free. Without the strip both arms would be the same
+  // module under the same effective options and the byte pin would distinguish nothing
+  // (the assertion-that-fails-either-way trap).
+  const undeclaredModule = {
+    ...kernel.module,
+    funcs: kernel.module.funcs.map((f) =>
+      f.name === kernel.entryPoint ? { ...f, portable: undefined } : f,
+    ),
+  }
+  const glslFsFlag = emitGlslModule(undeclaredModule, 'fragment', { emulateCompute: true })
+  // Everything below runs on the PORTABLE-path source — the production compute-gen module,
+  // whose declaration routes the lowering with no option: the execution parity gate must
+  // judge the shader the tier actually emits, not its twin. (If compute-gen ever drops the
+  // declaration, this emit throws missing-capabilities and the gate goes red naming it.)
+  const glslFs = emitGlslModule(kernel.module, 'fragment')
   const wgsl = emitModule(kernel.module)
+
+  const flagLines = glslFsFlag.split('\n')
+  const portLines = glslFs.split('\n')
+  const portableIdentical = glslFs === glslFsFlag
+  let d = 0
+  while (d < Math.max(flagLines.length, portLines.length) && flagLines[d] === portLines[d]) d++
+  const portableDiff = portableIdentical
+    ? ''
+    : `first diff at line ${d + 1}\n  emulateCompute: ${flagLines[d] ?? '<eof>'}\n  portable:       ${portLines[d] ?? '<eof>'}`
 
   const blank: Omit<ParityResult, 'ok' | 'mismatches'> = {
     n,
@@ -65,6 +97,8 @@ export function runComputeParity(): ParityResult {
     linkLog: '',
     fbStatus: '',
     note: '',
+    portableIdentical,
+    portableDiff,
   }
   const fail = (note: string, extra: Partial<ParityResult> = {}): ParityResult => ({
     ...blank,

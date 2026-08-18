@@ -19,10 +19,11 @@ import { spellIntrinsic } from '../intrinsics'
 
 // Newly-added standard GLSL/WGSL builtins (normalize / distance / cross / step /
 // exp2 / trunc / round / inverseSqrt). Each must (1) emit its WGSL spelling,
-// (2) evaluate on the CPU oracle (the two-oracle contract), and — for the one
-// divergent spelling — (3) map to the GLSL name. WGSL and GLSL spell all of these
-// identically EXCEPT inverseSqrt (GLSL `inversesqrt`), which the intrinsic registry
-// already rewrites; the others fall through `spellIntrinsic` as identity.
+// (2) evaluate on the CPU oracle (the two-oracle contract), and — for the
+// divergent spellings — (3) map to the GLSL name. WGSL and GLSL spell all of these
+// identically EXCEPT inverseSqrt (GLSL `inversesqrt`) and round (GLSL `roundEven`
+// — ES 3.00's own round() is implementation-chosen at halves), which the intrinsic
+// registry rewrites; the others fall through `spellIntrinsic` as identity.
 
 describe('stdlib builtins — WGSL emit', () => {
   it('emits each builtin spelling', () => {
@@ -116,7 +117,10 @@ describe('stdlib builtins — GLSL spelling divergence', () => {
     expect(spellIntrinsic('wgsl', 'inverseSqrt', ['x'])).toBe('inverseSqrt(x)')
   })
   it('the identical-spelling builtins fall through as identity on GLSL', () => {
-    for (const fnName of ['normalize', 'distance', 'cross', 'step', 'exp2', 'trunc', 'round']) {
+    // round is no longer in this list: GLSL ES 3.00's round() is implementation-
+    // chosen at exact halves, so it now spells roundEven on GLSL (pinned in
+    // stdlib-builtins-extended.test.ts).
+    for (const fnName of ['normalize', 'distance', 'cross', 'step', 'exp2', 'trunc']) {
       expect(spellIntrinsic('glsl', fnName, ['a'])).toBe(`${fnName}(a)`)
     }
   })

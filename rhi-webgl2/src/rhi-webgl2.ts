@@ -1458,7 +1458,7 @@ export class WebGl2Device implements RhiDevice {
 
   /** Run a compute-as-draw (the M2 compute→fragment-GPGPU lowering) into an offscreen
    *  R32UI target and read it back. `pipeline`'s fragment shader is the lowered kernel
-   *  (`emitGlslModule {emulateCompute}`); `bindGroup` carries the storage input(s)
+   *  (emitted option-free off its `portable` declaration, #1812); `bindGroup` carries the storage input(s)
    *  (feat_data → data-texture). `u_count` is a BARE `uniform uvec4` set DIRECTLY here
    *  (it is not a UBO, so it bypasses the bind-group reflection). NOT `createCommandEncoder`
    *  — this is the narrow single-attachment integer-output path compute needs (R32UI is
