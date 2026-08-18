@@ -31,6 +31,70 @@ export interface CaptureOptions {
    * so 20s is a safer cap.
    */
   readyTimeoutMs?: number
+  /**
+   * Screenshot strategy for the final capture. Defaults to `'element'`:
+   * `page.locator('#map').screenshot()`, which performs a scroll-into-view
+   * + element-stability wait (bounding box identical across consecutive
+   * animation frames) before capturing. That wait can hang indefinitely
+   * under heavy multi-arm SwiftShader load — a raised timeout is not a fix,
+   * since observed hangs outlive any budget tried (#1802).
+   *
+   * `'clip'` bypasses the stability wait: it reads `#map`'s bounding box
+   * ONCE via `locator.boundingBox()` and captures with
+   * `page.screenshot({ clip, animations: 'disabled' })` instead. This is
+   * opt-in, not the default — ~100 other specs already depend on the
+   * element path's exact behavior and output (CLAUDE.md §3), so only a
+   * spec that has actually hit the hang should switch.
+   */
+  capture?: 'element' | 'clip'
+}
+
+/**
+ * Diagnostic-only: log `#map`'s ancestor chain animation/transition state
+ * plus the bounding box, so a future clip-capture failure names its
+ * mechanism (rAF starvation vs. a running layout animation — #1802's two
+ * candidate mechanisms) instead of just timing out silently. Cheap, and
+ * only ever called on the failure path.
+ */
+async function logClipCaptureFailure(
+  page: Page,
+  box: { x: number; y: number; width: number; height: number } | null,
+): Promise<void> {
+  let ancestors: unknown
+  try {
+    ancestors = await page.evaluate(() => {
+      const chain: Array<{
+        tag: string
+        id: string
+        animationName: string
+        animationPlayState: string
+        transitionProperty: string
+        transitionDuration: string
+        rect: { x: number; y: number; width: number; height: number }
+      }> = []
+      let el: Element | null = document.getElementById('map')
+      while (el) {
+        const cs = getComputedStyle(el)
+        const r = el.getBoundingClientRect()
+        chain.push({
+          tag: el.tagName,
+          id: el.id,
+          animationName: cs.animationName,
+          animationPlayState: cs.animationPlayState,
+          transitionProperty: cs.transitionProperty,
+          transitionDuration: cs.transitionDuration,
+          rect: { x: r.x, y: r.y, width: r.width, height: r.height },
+        })
+        el = el.parentElement
+      }
+      return chain
+    })
+  } catch (evalErr) {
+    ancestors = `getComputedStyle probe itself failed: ${String(evalErr)}`
+  }
+  console.log(
+    `CAPTURE_CLIP_FAIL box=${JSON.stringify(box)} ancestors=${JSON.stringify(ancestors)}`,
+  )
 }
 
 /**
@@ -110,6 +174,19 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
     // One more rAF after the elapsed threshold so the frame at t≈target
     // is actually composed.
     await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())))
+  }
+
+  if (opts.capture === 'clip') {
+    const locator = page.locator('#map')
+    let box: { x: number; y: number; width: number; height: number } | null = null
+    try {
+      box = await locator.boundingBox()
+      if (!box) throw new Error('locator.boundingBox() returned null')
+      return await page.screenshot({ clip: box, animations: 'disabled' })
+    } catch (err) {
+      await logClipCaptureFailure(page, box)
+      throw err
+    }
   }
 
   return await page.locator('#map').screenshot()

@@ -383,7 +383,7 @@ for (const { proj, role } of ARMS) {
       return hidden
     })
 
-    const png = await captureCanvas(page, { readyTimeoutMs: 60_000 })
+    const png = await captureCanvas(page, { readyTimeoutMs: 60_000, capture: 'clip' })
     // On disk for every arm, passing ones included: the frame is the artifact a
     // human reads at full resolution (CLAUDE.md §5), and an attachment alone
     // lives inside the trace zip where a passing arm never writes one.
