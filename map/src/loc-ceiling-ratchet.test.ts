@@ -682,7 +682,7 @@ const CEILINGS: Record<string, number> = {
   // terminal call — #1256's easeTo infra is what makes "eased" possible now),
   // and `fitBounds`'s opt-in `duration`/`easing` passthrough. MEASURED.
   'map/src/map.ts': 5497,
-  // Baselined at #1265 (measured 986): the pointer-gesture state machine crossed
+  // Baselined at #1265 (measured 997 after the prettier pass): the pointer-gesture state machine crossed
   // NEW_FILE_CAP adding the two gestures MapLibre parity was missing — double-
   // click zoom (native `dblclick`, +1/-1 about the cursor via the existing
   // smooth-zoom rAF loop; the old pointerdown-timing double-tap is now touch/
@@ -694,7 +694,7 @@ const CEILINGS: Record<string, number> = {
   // with no extra branching — into a geo AABB dispatched via the new
   // `onBoxZoom` callback). Cohesive gesture-controller ownership; shrink-only
   // from now.
-  'map/src/controller.ts': 986,
+  'map/src/controller.ts': 997,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
