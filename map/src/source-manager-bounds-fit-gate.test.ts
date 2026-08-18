@@ -127,6 +127,7 @@ function makeSourceManager(camera: Camera, positioned: { value: boolean }) {
     teardownSource: () => {},
     fireError: () => {},
     getVtSource: () => null,
+    hasVariantSources: () => false,
     deleteFeatureIndex: () => {},
     beginCoverageLoad: () => Promise.resolve(),
   }

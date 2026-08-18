@@ -213,6 +213,7 @@ import {
   CoverageReadCancellation,
   stopCoverageMachinery,
   teardownSources,
+  hasVariantCatalogs,
   disposeOrphanedBoot,
   absoluteBaseUrl,
   type PendingGpuBoot,
@@ -1305,6 +1306,7 @@ export class XGISMap {
       teardownSource: (sourceId) => this.teardownSource(sourceId),
       fireError: (info) => this._eventBus.fireErrorEvent(info),
       getVtSource: (sourceId) => this.vtSources.get(sourceId) ?? null,
+      hasVariantSources: (sourceId) => hasVariantCatalogs(this.vtSources, sourceId),
       deleteFeatureIndex: (sourceId) => {
         this.featureUpdateQueue.featureIndex.delete(sourceId)
       },

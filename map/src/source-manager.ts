@@ -129,6 +129,13 @@ export interface SourceManagerDeps {
    *  swap the source's BACKEND on the SAME catalog instead of tearing the pair down, so the
    *  tiles already on the GPU keep drawing until their replacements land. */
   getVtSource(sourceId: string): { source: TileCatalog; renderer: VectorTileRenderer } | null
+  /** #1800 — true when `sourceId` has at least one filtered-show variant catalog
+   *  (`id__N`) registered alongside the base entry. Both in-place fast paths
+   *  (`_reseedInPlace`, `patchFeaturesInPlace`) resolve only the base catalog via
+   *  `getVtSource` and cannot reach a variant's independently-filtered subset, so
+   *  they query this first and demote to the full teardown/rebuild path (which
+   *  DOES walk every variant, via `rebuildLayers`) whenever it answers true. */
+  hasVariantSources(sourceId: string): boolean
   /** XGISMap's `_featureIndex.delete(sourceId)`. */
   deleteFeatureIndex(sourceId: string): void
   /** #1426 — start a DECLARED `type: coverage` source's cell read in the BACKGROUND; resolves
@@ -164,6 +171,8 @@ export class SourceManager {
   private readonly getVtSource: (
     sourceId: string,
   ) => { source: TileCatalog; renderer: VectorTileRenderer } | null
+  /** #1800 — see `SourceManagerDeps.hasVariantSources`. */
+  private readonly hasVariantSources: (sourceId: string) => boolean
   /** #1371 — the backend currently attached for each virtual-tiled geojson source, so a
    *  re-seed can DETACH it (the catalog keeps its cached tiles by contract) and attach the
    *  replacement without destroying the catalog. */
@@ -213,6 +222,7 @@ export class SourceManager {
     this.teardownSource = deps.teardownSource
     this.fireError = deps.fireError
     this.getVtSource = deps.getVtSource
+    this.hasVariantSources = deps.hasVariantSources
     this.deleteFeatureIndex = deps.deleteFeatureIndex
     this.beginCoverageLoad = deps.beginCoverageLoad
     this.sourceLoaders = deps.sourceLoaders
@@ -853,6 +863,12 @@ export class SourceManager {
     // kind whose seeded FC is authoritative and whose tiles carry the stable-id
     // side-car the patch resolves against.
     if (!live || !this.vtBackends.has(sourceId)) return false
+    // #1800 — a filtered-show variant catalog (`id__N`) carries its own seeded
+    // subset that this method has no way to reach (only the base catalog resolves
+    // via getVtSource above). Patching the base alone would report success while
+    // leaving the variant stale, so refuse and let the caller fall back to the
+    // full re-seed/teardown path, which rebuilds every variant via rebuildLayers().
+    if (this.hasVariantSources(sourceId)) return false
     if (!live.source.patchPointFeatures(moves)) return false
     // The seeded FC is the pre-image the NEXT flush patches, and the collection
     // a later genuine re-seed re-tiles from — so it has to adopt the new
@@ -903,7 +919,11 @@ export class SourceManager {
       // keeps drawing until the new data is GPU-resident, and no frame shows an empty layer.
       const live = this.getVtSource(sourceId)
       const prevBackend = this.vtBackends.get(sourceId)
-      if (live && prevBackend) {
+      // #1800 — a filtered-show variant catalog (`id__N`) is never touched by
+      // `_reseedInPlace` (it only swaps the BASE catalog's backend), so demote to
+      // the full teardown/rebuild path below whenever one exists: `rebuildLayers()`
+      // is the only path that walks every variant.
+      if (live && prevBackend && !this.hasVariantSources(sourceId)) {
         this._reseedInPlace(sourceId, normalized, live, prevBackend)
         this.invalidate()
         return
