@@ -231,16 +231,60 @@ describe('curved-line label shaping (addCurvedLineLabel → prepare line-loop)',
     expect(captured[0]!.length).toBe(0)
   })
 
-  it('fit/skip: centerOffsetPx pushes the run past the start → no draw (startS < 0)', () => {
-    // 1000-px line, centerOffsetPx 5 → startS = 5 - 12 = -7 < 0 → skip.
+  it('fit/skip: centerOffsetPx pushes the run past the start → CLAMPED to the start, not dropped (#1793)', () => {
+    // 1000-px line, centerOffsetPx 5 → naive startS = 5 - 12 = -7 < 0. The
+    // label fits the line (24 of 1000 px), so #1793 slides it to startS = 0
+    // instead of dropping it — g0 lands at x=0, g1 at x=ADV=12.
     const { stage, captured } = makeStage()
     const px = new Float32Array([0, 1000])
     const py = new Float32Array([100, 100])
     stage.beginFrame()
     stage.addCurvedLineLabel(litValue('AB'), {}, px, py, 5, curvedDef())
     stage.prepare()
-    expect(captured.length).toBe(1)
-    expect(captured[0]!.length).toBe(0)
+    const draw = captured[0]!.find((d) => d.glyphRotations !== undefined)
+    expect(draw, 'a label that fits the line must draw, clamped to the start').toBeDefined()
+    const off = draw!.glyphOffsets!
+    expect(off[0]!).toBeCloseTo(0, 6)
+    expect(off[2]!).toBeCloseTo(ADV, 6)
+  })
+
+  // #1793 — real demotiles-mirror numbers (mercator control, camera 1.5/20/140,
+  // 480×500 canvas). The along-line world lattice (place-labels-along-line.ts)
+  // put a "geolines-label" stop at screen-offset 501.87 on a run whose total
+  // on-screen length is 518.84 (`getLastLabelCounts()` measured 6 submitted /
+  // 0 DRAWN on this exact style+camera — every candidate died here). At
+  // text-size 12 (the style's zoom<2 stop, clamped) the MockRasterizer advance
+  // is ADV12 = 14.4 * 12/24 = 7.2 px/glyph; "Equator" (7 glyphs, no letter-
+  // spacing) needs 50.4 px — comfortably under the run's 518.84, yet the
+  // OLD code dropped it because centering AT 501.87 overhangs the end by
+  // 501.87 + 25.2 − 518.84 = 8.23 px. Fail-before: this asserted 0 draws
+  // pre-fix; post-fix the label survives, clamped 8.23 px inward.
+  it('#1793 real numbers: a fittable label near a truncated run end draws, not drops', () => {
+    const RUN_TOTAL = 518.84
+    const STOP = 501.87
+    const ADV12 = 7.2 // 14.4 * 12/24 — size-12 MockRasterizer glyph advance
+    const { stage, captured } = makeStage()
+    const px = new Float32Array([0, RUN_TOTAL])
+    const py = new Float32Array([100, 100])
+    stage.beginFrame()
+    stage.addCurvedLineLabel(litValue('Equator'), {}, px, py, STOP, curvedDef({ size: 12 }))
+    stage.prepare()
+    const draw = captured[0]!.find((d) => d.glyphRotations !== undefined)
+    expect(
+      draw,
+      'a 50.4px label on a 518.84px run must draw — the run has ample room, ' +
+        'only the lattice-assigned centre (501.87) sits too close to the end',
+    ).toBeDefined()
+    const off = draw!.glyphOffsets!
+    const glyphCount = 'Equator'.length
+    const totalAdvancePx = glyphCount * ADV12
+    const expectedStartS = RUN_TOTAL - totalAdvancePx // clamped, not the naive STOP-centred one
+    expect(off[0]!).toBeCloseTo(expectedStartS, 3)
+    // Every glyph must stay inside [0, RUN_TOTAL] — the whole point of the clamp.
+    for (let i = 0; i < glyphCount; i++) {
+      expect(off[i * 2]!).toBeGreaterThanOrEqual(-1e-6)
+      expect(off[i * 2]!).toBeLessThanOrEqual(RUN_TOTAL + 1e-6)
+    }
   })
 
   it('dump capture: curved===true and per-glyph dump x/y equal the draw glyphOffsets', () => {

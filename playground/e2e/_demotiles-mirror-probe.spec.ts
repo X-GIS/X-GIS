@@ -56,9 +56,16 @@
 //   2. "MVT line layers shatter into disconnected dots" → assertion 3. It does
 //      NOT reproduce on the mirror at this camera (see the calibration note on
 //      MIN_CONNECTED_RUN); the assertion stays as the calibrated guard for it.
-//   3. `orthographic` reports `submitted 4 / drawn 0` → assertion 4, DOWNGRADED
-//      to a dispatch check, see the note there. `drawn` is not projection-
-//      discriminating at this camera and asserting on it would fail the control.
+//   3. `orthographic` reports `submitted 4 / drawn 0` → assertion 4. Was
+//      DOWNGRADED to a dispatch-only check because the mercator CONTROL measured
+//      `submitted 6 / drawn 0` here too — `drawn` wasn't projection-discriminating
+//      and asserting on it failed the control. Root-caused and fixed as #1793 (see
+//      the note at assertion 4): TextStage's curved-line fit check DROPPED every
+//      candidate whose along-line lattice stop landed within a few px of its
+//      (viewport-truncated) run's end, even though the run had hundreds of spare
+//      px elsewhere — a positioning artifact, not a real space shortage. Fixed by
+//      clamping the anchor inward instead of dropping (map/src/text/text-stage.ts);
+//      `drawn > 0` is restored below.
 // They are independent; nothing ties them together now the chord story is dead.
 //
 // ── Why a committed mirror, and not the live style ──
@@ -658,25 +665,34 @@ for (const { proj, role } of ARMS) {
         `measures 344 with this metric, and the same mask thinned to dots measures 10.`,
     ).toBeGreaterThanOrEqual(MIN_CONNECTED_RUN)
 
-    // ── 4. Line labels reach the renderer (#1495 symptom 3) ───────────────
+    // ── 4. Line labels reach the renderer AND survive placement (#1495 symptom 3,
+    //      #1793) ─────────────────────────────────────────────────────────
     //      Same counters `_demotiles-labels-gl2-gate` reads: `submitted` counts
     //      what reached TextStage, `drawn` what survived shaping + collision
     //      into setDraws. The issue measured `submitted 4 / drawn 0` on
     //      orthographic against the LIVE style.
     //
-    //      Asserted on `submitted` only, and this is deliberate. On the mirror
-    //      at this camera the counters are mercator 6 submitted / 0 drawn and
-    //      orthographic 4/1 — the control drops MORE labels than the subject, so
-    //      `drawn > 0` would fail the control while passing the arm it was
-    //      written to catch. An assertion that inverts on the states it tests
-    //      carries no information (CLAUDE.md §12). `drawn` stays in the PROBE
-    //      line as a reported diagnostic and the collision behaviour is filed
-    //      separately rather than smuggled in here as a red arm.
+    //      `drawn > 0` was DOWNGRADED to `submitted > 0` because the mercator
+    //      CONTROL measured `submitted 6 / drawn 0` on this mirror — every
+    //      curved geolines-label candidate (Equator, Tropic of Cancer, …) died
+    //      in TextStage's fit check, which dropped a label whenever the along-
+    //      line lattice's stop landed within a few px of its (viewport-
+    //      truncated) run's end, even though the run had ample spare length.
+    //      Root-caused and fixed as #1793 (map/src/text/text-stage.ts: the fit
+    //      check now CLAMPS the anchor inward instead of dropping the label
+    //      when it fits the run but not centered exactly at the lattice stop).
+    //      `drawn > 0` is the original, restored assertion.
     expect(seen.counts, 'no label counters — TextStage was never built').not.toBeNull()
     expect(
       seen.counts!.submitted,
       `no label reached TextStage at all (drawn=${seen.counts!.drawn}). ` +
         `Dispatched texts: ${(seen.texts ?? []).slice(0, 20).join(', ')}`,
+    ).toBeGreaterThan(0)
+    expect(
+      seen.counts!.drawn,
+      `labels reached TextStage (submitted=${seen.counts!.submitted}) but none survived ` +
+        `shaping + collision (#1793 fit-check regression check). Dispatched texts: ` +
+        `${(seen.texts ?? []).slice(0, 20).join(', ')}`,
     ).toBeGreaterThan(0)
   })
 }
