@@ -1,3 +1,20 @@
+// REQUIRES LIVE NETWORK to tiles.openfreemap.org (#1611 gap). This probe navigates to
+// `/debug-labels.html?style=openfreemap-bright#2/30/127`, which resolves to
+// `https://tiles.openfreemap.org/styles/bright` (`playground/src/debug-labels.ts:14`) and
+// fetches it live — there is no committed mirror for this style, unlike the demotiles style
+// `_demotiles-mirror-gate.spec.ts` reads from `playground/public/vendor/demotiles-mirror/`.
+// On an egress-less runner the `page.waitForFunction(() => !!__xgisMap)` a few lines below
+// times out at 30s because the style fetch itself never resolves and the map never
+// constructs — a HARNESS gap, not an engine defect: #1785 reproduced this 2/2 on clean main
+// while every other test in this file (and the render-gate leg generally) passed in the same
+// run. `playwright.config.ts:107-115` documents the exact mechanism (Chromium ignores
+// HTTPS_PROXY even though curl/node honor it) and the opt-in fix: set `XGIS_BROWSER_PROXY` to
+// route Chromium's egress through the same proxy the shell already uses. Left OUT of
+// test.yml's render-gate list deliberately (stays `-probe`, not promoted to `-gate`) — CI
+// runners have no such proxy configured, so registering it would just move the dark failure
+// into a red leg for a gap this spec cannot close on its own. No logic changes here — see
+// #1785 for the header-only diagnosis.
+//
 // iter-342 — render-path truth probe for the azimuthal pitch-0
 // discontinuity gate E (_camera-tilt-continuity) flagged (NDC 1864× at
 // pitch 0→ε). That gate reads getCameraDebugSnapshot.matrix, which for
