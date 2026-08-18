@@ -22,6 +22,14 @@ interface HostStub {
   pointHasLayers: boolean | null // null → pointRenderer is null
   hillshadeHasSource?: boolean
   coverageHasFlow?: boolean // undefined → coverageRenderer is null
+  // #1258 — undefined → _atmosphere: null (off), globeMode: false (flat camera); every
+  // pre-#1258 case in this file leaves both at their default, so hasAtmosphere reads false
+  // throughout unless a case opts in explicitly.
+  atmosphere?: {
+    innerColor: [number, number, number, number]
+    outerColor: [number, number, number, number]
+  } | null
+  globeMode?: boolean
 }
 
 function makeHost(s: HostStub) {
@@ -34,6 +42,8 @@ function makeHost(s: HostStub) {
       s.hillshadeHasSource === undefined ? null : { hasSource: () => s.hillshadeHasSource },
     coverageRenderer:
       s.coverageHasFlow === undefined ? null : { hasFlowField: () => s.coverageHasFlow },
+    _atmosphere: s.atmosphere ?? null,
+    camera: { globeMode: s.globeMode ?? false },
   } as unknown as Parameters<typeof buildSceneView>[0]
 }
 
@@ -248,6 +258,35 @@ describe('buildSceneView', () => {
       makeCtx(false),
     )
     expect(pointsOverHillshade.resolveOwner).toBe('points')
+  })
+
+  it('hasAtmosphere requires BOTH the style flag AND the 3D globe camera (#1258)', () => {
+    // worldBandForProjType('sphere-full') alone (background-pass.ts's own gate) would ALSO
+    // admit the untitled flat-2D azimuthal/ortho/stereographic discs, which have no 3D
+    // camera for the atmosphere pass's ray-sphere math to describe — see atmosphere-pass.ts.
+    // camera.globeMode is the narrower, correct boundary, and this pins the AND, not an OR.
+    const base: HostStub = {
+      opaque: [],
+      translucent: [],
+      oit: [],
+      lineRenderer: {},
+      pointHasLayers: false,
+    }
+    const atmosphere: NonNullable<HostStub['atmosphere']> = {
+      innerColor: [0.55, 0.75, 1, 0.9],
+      outerColor: [0.02, 0.05, 0.12, 0],
+    }
+    expect(buildSceneView(makeHost({ ...base }), makeCtx(false)).hasAtmosphere).toBe(false)
+    expect(
+      buildSceneView(makeHost({ ...base, globeMode: true }), makeCtx(false)).hasAtmosphere,
+    ).toBe(false)
+    expect(buildSceneView(makeHost({ ...base, atmosphere }), makeCtx(false)).hasAtmosphere).toBe(
+      false,
+    )
+    expect(
+      buildSceneView(makeHost({ ...base, atmosphere, globeMode: true }), makeCtx(false))
+        .hasAtmosphere,
+    ).toBe(true)
   })
 
   it('overdraw MIRRORS the frame context — the passes read this, not the URL flag', () => {

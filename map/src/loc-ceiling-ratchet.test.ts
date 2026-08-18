@@ -673,7 +673,16 @@ const CEILINGS: Record<string, number> = {
   // only sees it through injected callbacks) plus the import. The BODY (the
   // id/id__N predicate + both fast-path gates) lives in map-teardown.ts /
   // source-manager.ts.
-  'map/src/map.ts': 5460,
+  // 5460→5509 (#1258): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
+  // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
+  // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
+  // setter mutates a private class field directly, exactly like every sibling setter here
+  // (setBackgroundFill, setLight, setProjection); pulling just this one out to a free function
+  // would need the field made reachable from outside the class, which is a worse shape than
+  // the file's own established pattern. The BODY the render pass actually draws with (the
+  // camera-ray extraction, the uniform pack, the shader) lives in atmosphere-uniform.ts /
+  // atmosphere-pass.ts / shaders/dsl/atmosphere.ts.
+  'map/src/map.ts': 5509,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor

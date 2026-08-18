@@ -44,6 +44,11 @@ const FROZEN_PRE_1004_ORDER = [
  *  where it says it lands fails. A subset check would have caught none of the three. */
 const DOCUMENTED_INSERTIONS: ReadonlyArray<{ label: PassLabel; before: PassLabel; why: string }> = [
   {
+    label: 'atmosphere',
+    before: 'flow',
+    why: "#1258 — the globe limb-glow gradient draws immediately after the background clear and before any geometry, so painter's order is space background -> limb glow -> earth surface -> content",
+  },
+  {
     label: 'hillshade',
     before: 'points',
     why: '#777 Phase II — relief over fills, under labels (design §4); real-GPU A/B verified (INC-6), and inert on every scene with no raster-dem layer',

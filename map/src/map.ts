@@ -25,6 +25,10 @@ import { HeatmapTargets } from './render/heatmap-targets'
 import { warnStageBlockUnsupported } from './render/stage-block-warning'
 import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
+import {
+  ATMOSPHERE_DEFAULT_INNER_COLOR,
+  ATMOSPHERE_DEFAULT_OUTER_COLOR,
+} from './render/atmosphere-uniform'
 import { isOverdrawActive } from './debug-flags'
 import { readsWgsl } from './render/material/wgsl-for'
 import type * as AST from '@xgis/compiler'
@@ -878,6 +882,17 @@ export class XGISMap {
     intensity: number
     color: [number, number, number]
   } = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
+  /** #1258 — top-level atmosphere/sky (MapLibre-style `sky`), Phase 1: a screen-space
+   *  limb-glow gradient banded around the globe's projected silhouette, drawn by its own
+   *  pass ahead of the earth surface. Colours are straight-alpha RGBA 0..1 floats, like
+   *  `_backgroundColor`. null = OFF (the default) — the atmosphere pass never runs and the
+   *  frame is byte-identical to pre-#1258. Also inert on flat / non-tilted-disc projections
+   *  (`camera.globeMode` false) regardless of this flag — see atmosphere-pass.ts. Non-private
+   *  so the render host reads it, like `_light`. */
+  _atmosphere: {
+    innerColor: [number, number, number, number]
+    outerColor: [number, number, number, number]
+  } | null = null
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
@@ -1050,6 +1065,40 @@ export class XGISMap {
       ) {
         this._light.color = [light.color[0]!, light.color[1]!, light.color[2]!]
       }
+    }
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
+  /** #1258 — set the top-level atmosphere/sky. Mirrors `setLight` / `setBackgroundFill`: a
+   *  top-level style concern threaded straight to the render host, not (yet) a style-spec
+   *  JSON property (Phase 2, per the issue). Pass `null` to turn it off (the frame reverts to
+   *  byte-identical pre-#1258); an options object with either colour omitted keeps the
+   *  MapLibre-ish default for that colour. Only ever visible on globe-class projections — see
+   *  `_atmosphere`'s own doc. */
+  setAtmosphere(
+    atmosphere: {
+      innerColor?: [number, number, number, number]
+      outerColor?: [number, number, number, number]
+    } | null,
+  ): void {
+    if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
+    if (atmosphere === null) {
+      this._atmosphere = null
+    } else {
+      const inner =
+        Array.isArray(atmosphere.innerColor) &&
+        atmosphere.innerColor.length === 4 &&
+        atmosphere.innerColor.every((n) => Number.isFinite(n))
+          ? atmosphere.innerColor
+          : ATMOSPHERE_DEFAULT_INNER_COLOR
+      const outer =
+        Array.isArray(atmosphere.outerColor) &&
+        atmosphere.outerColor.length === 4 &&
+        atmosphere.outerColor.every((n) => Number.isFinite(n))
+          ? atmosphere.outerColor
+          : ATMOSPHERE_DEFAULT_OUTER_COLOR
+      this._atmosphere = { innerColor: [...inner], outerColor: [...outer] }
     }
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
