@@ -52,26 +52,36 @@ export type { ScalarKey } from './types'
  *  accepted everywhere a value is consumed; only `.assign` needs the mutable subtype. */
 export type NodeLike = ReadonlyNode<any> | number
 
-/** Operand a binary arithmetic op accepts: a matching vector or any scalar
- *  (WGSL vec∘scalar broadcast) for a vector LHS; any scalar for a scalar LHS.
- *  A `vec2`+`vec3` mismatch is therefore a TS error. An f64 LHS accepts f64 /
- *  f32 (implicit exact widen) / number — never int/bool (SD0004 at runtime,
- *  rejected here at tsc). */
-export type ArithArg<K extends string> = K extends `vec${string}`
-  ? ReadonlyNode<K> | ReadonlyNode<ScalarKey | 'f64'> | number
-  : K extends 'f64'
-    ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
-    : ReadonlyNode<ScalarKey> | number
+/** The scalar keys a binary op may pair with element kind `E` — the SAME kind only,
+ *  except f64's blessed exact widen from f32. This is `binResultType`'s law made static:
+ *  WGSL and GLSL ES 3.00 have NO implicit scalar conversions, so a mixed pair
+ *  (f32∘i32, i32∘u32, vec<f32>∘i32-scalar) emits code neither target compiles — and for
+ *  non-f64 pairs `binResultType`'s C-like promotion ranking never rejected it, so the
+ *  first diagnostic used to be the emit-time `mixed-scalar` lint (or the GPU compiler,
+ *  on a raw-IR path). For the WIDENED `K = string` (unparameterised helper params) both
+ *  aliases below fall back to `ReadonlyNode<string>`, which every kind-matched branch is
+ *  a SUBSET of — that ⊆ direction is what keeps `Node<'f64'>` (and every other specific
+ *  key) assignable to `ReadonlyNode<string>` under method bivariance. (The previous
+ *  design got the same assignability from the OPPOSITE direction — every branch a
+ *  SUPERSET of a `ScalarKey` fallback — which is exactly what admitted the mixed-kind
+ *  operands this replaces.) */
+type KindScalar<E extends string> = E extends 'f64' ? 'f64' | 'f32' : E
 
-/** Operand a comparison accepts — the scalar set, plus f64 for an f64 LHS
- *  (compared lexicographically after lowering). NB: like the vec branch above,
- *  the f64 branch must stay a SUPERSET of the generic ScalarKey form so
- *  `Node<'f64'>` remains assignable to `ReadonlyNode<string>` (method
- *  bivariance); mixing f64 with an int therefore rejects at AUTHOR-RUN time
- *  (SD0004 from binResultType), not at tsc. */
-export type CmpArg<K extends string> = K extends 'f64'
-  ? ReadonlyNode<'f64'> | ReadonlyNode<ScalarKey> | number
-  : ReadonlyNode<ScalarKey> | number
+/** Operand a binary arithmetic op accepts: the SAME vector key, or a scalar of the
+ *  vector's own element kind (WGSL vec∘scalar broadcast), for a vector LHS; the same
+ *  scalar kind for a scalar LHS. A `vec2`+`vec3` mismatch, and any int↔float /
+ *  i32↔u32 mix, is therefore a TS error. An f64 LHS (and a vec64's scalar broadcast)
+ *  additionally accepts f32 — the implicit EXACT widen — and `number` lifts to the
+ *  receiver's own scalar kind everywhere. */
+export type ArithArg<K extends string> = K extends `vec${number}<${infer E}>`
+  ? ReadonlyNode<K> | ReadonlyNode<KindScalar<E>> | number
+  : ReadonlyNode<KindScalar<K>> | number
+
+/** Operand a comparison accepts — the LHS's own scalar kind (both targets type
+ *  comparisons over matching operands), plus f32 for an f64 LHS (widened, then
+ *  compared lexicographically after lowering). Mixed kinds (f32 vs i32, f64 vs int)
+ *  now reject at tsc; the emit-time `mixed-scalar` lint stays the raw-IR backstop. */
+export type CmpArg<K extends string> = ReadonlyNode<KindScalar<K>> | number
 
 /** Rejects COMPOSITE keys (vec/mat) as a `this:` bound while keeping scalar AND
  *  widened `ReadonlyNode<string>` receivers usable (#763 X8) — `string` is not a
@@ -431,19 +441,24 @@ export class ReadonlyNode<K extends string = string> {
     const bn: ReadonlyNode = typeof o === 'number' ? (t.scalar === 'u32' ? u32(o) : i32(o)) : o
     return new Node({ op: 'binop', type: t, bop, a: this.expr, b: bn.expr })
   }
-  bitAnd(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  // `& | ^` need BOTH sides the same int kind on both targets, so the node operand
+  // is kind-matched to the receiver (`K & ('i32'|'u32')` is `never` for a float LHS
+  // — the SD0005 author-run throw already owns that case, numbers aside). Shifts are
+  // the deliberate exception, mirroring the mixed-scalar lint's SHIFT_OPS carve-out:
+  // WGSL types EVERY shift amount as u32 regardless of the LHS's kind.
+  bitAnd(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('&', o) as Node<K>
   }
-  bitOr(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  bitOr(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('|', o) as Node<K>
   }
-  bitXor(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  bitXor(o: ReadonlyNode<K & ('i32' | 'u32')> | number): Node<K> {
     return this.bitBin('^', o) as Node<K>
   }
-  shl(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  shl(o: ReadonlyNode<'u32'> | number): Node<K> {
     return this.bitBin('<<', o) as Node<K>
   }
-  shr(o: ReadonlyNode<ScalarKey> | number): Node<K> {
+  shr(o: ReadonlyNode<'u32'> | number): Node<K> {
     return this.bitBin('>>', o) as Node<K>
   }
 

@@ -5,6 +5,7 @@ import {
   f32,
   u32,
   i32,
+  f64,
   bool,
   vec3,
   vec4,
@@ -431,5 +432,60 @@ describe('builtin key domains — per-fn WGSL/df64 bounds (the K-extends-string 
     for (const s of ['min(u, 3u)', 'clamp(i, ', 'abs(i)', 'sign(i)']) {
       expect(w).toContain(s)
     }
+  })
+})
+
+describe('operand kind-matching — ArithArg/CmpArg/bit ops (binResultType made static)', () => {
+  it('mixed scalar kinds reject at tsc across methods, free binaries, and compares', () => {
+    fn('km1', { x: f32T, u: u32T, i: i32T, v: vec3fT }, ({ x, u, i, v }) => {
+      // @ts-expect-error — f32 ∘ u32: neither target has implicit conversions
+      void x.add(u)
+      // @ts-expect-error — i32 ∘ u32 is just as mixed as int ∘ float
+      void i.mul(u)
+      // @ts-expect-error — the free binaries share ArithArg: min(f32, i32) is the same mix
+      void min(x, i)
+      // @ts-expect-error — a vec<f32> broadcasts only its OWN element kind
+      void v.mul(i)
+      // Uncalled thunk — this one ALSO throws SD0004 at author run, which is the
+      // point: the old ArithArg union member ('f64' on the vec branch) existed for
+      // assignability, not semantics, and binResultType always rejected it.
+      // @ts-expect-error — vec<f32> ∘ f64-scalar was never a real promote
+      const vecF64 = () => v.mul(f64(2))
+      void vecF64
+      // @ts-expect-error — comparisons need matching kinds too (and compares sit
+      // OUTSIDE the mixed-scalar lint, so tsc is the only pre-GPU gate here)
+      void x.lt(i)
+      // @ts-expect-error — & | ^ need both sides the same int kind
+      void u.bitAnd(i)
+      return x
+    })
+    expect(true).toBe(true)
+  })
+
+  it('the blessed forms still compile — kind-matched ops, f64 widen, shifts by u32', () => {
+    const g = fn('km2', { x: f32T, u: u32T, i: i32T, v: vec3fT }, ({ x, u, i, v }) => {
+      void u.add(u32(1)) // same-kind int arithmetic
+      void u.add(1) // number lifts to the RECEIVER's kind (u32)
+      void i.bitAnd(i32(3)) // kind-matched bitwise
+      void u.shl(u32(2)) // shift by u32
+      void i.shl(u32(2)) // WGSL types EVERY shift amount u32 — mixed LHS/RHS kinds are the carve-out
+      void f64(1).add(x) // f64 ∘ f32: the blessed exact widen
+      void x.add(f64(1)) // …and the symmetric f32-LHS overload (result f64)
+      void x.add(v) // scalar × vec broadcast (kind-matched by its own overload)
+      return v.mul(x) // vec × own-element scalar broadcast
+    })
+    expect(emitF(g)).toContain('(v * x)')
+  })
+
+  it('every specific key stays assignable to ReadonlyNode<string> (the bivariance the old superset design protected)', () => {
+    // The kind-matched branches are SUBSETS of the widened-string fallback, which
+    // satisfies method bivariance from the ⊆ direction — the property the previous
+    // ScalarKey-superset design existed to protect. Pin it, or a future narrowing
+    // of the fallback breaks every unparameterised helper param in the repo.
+    const a: ReadonlyNode<string> = f64(1)
+    const b: ReadonlyNode<string> = u32(1)
+    const c: ReadonlyNode<string> = vec3(1, 2, 3)
+    void [a, b, c]
+    expect(true).toBe(true)
   })
 })
