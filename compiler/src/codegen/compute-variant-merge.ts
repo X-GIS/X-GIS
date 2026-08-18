@@ -52,8 +52,10 @@
 // compute halves and passes them in.
 
 import type { ShaderVariant } from './shader-gen'
+import type { NodeLike } from './node-types'
 import type { ComputeVariantAddendum } from './compute-variant'
 import { emitComputeOutputReadExprNode } from './compute-output-binding'
+import { composeFillVec4 } from './_util/node-builders'
 
 /** Merge a legacy ShaderVariant with the compute-output addendum.
  *  Returns a new ShaderVariant — original is not mutated. */
@@ -97,6 +99,17 @@ export function mergeComputeAddendumIntoVariant(
     .join(',')
   const key = `${variant.key}|c:${computeFingerprint}`
 
+  // #1808 — the compute kernel evaluates the COLOUR half only; the legacy
+  // expression it replaces was `vec4(colour.rgb, colour.a * opacity)`
+  // (shader-gen's `composeColorOpacityNode`). Swapping the whole
+  // composition for the bare `unpack4x8unorm(...)` read dropped the layer
+  // opacity, so every opacity-bearing fill rendered fully opaque on the
+  // compute arm while the CPU arm blended it. Re-apply the variant's own
+  // opacity operand through the SAME `composeFillVec4` helper, so the two
+  // arms cannot drift for any opacity shape.
+  const composeOpacity = (read: NodeLike<'vec4<f32>'>): NodeLike<'vec4<f32>'> =>
+    variant.opacityExpr ? composeFillVec4(read, variant.opacityExpr) : read
+
   return {
     ...variant,
     key,
@@ -108,11 +121,15 @@ export function mergeComputeAddendumIntoVariant(
     // marker substitution site, semantic-equivalent to the legacy
     // string emit under AC6 paren-density allowance.
     fillExpr: hasFill
-      ? emitComputeOutputReadExprNode(addendum.bindings.find((b) => b.paintAxis === 'fill')!)
+      ? composeOpacity(
+          emitComputeOutputReadExprNode(addendum.bindings.find((b) => b.paintAxis === 'fill')!),
+        )
       : variant.fillExpr,
     strokeExpr: hasStroke
-      ? emitComputeOutputReadExprNode(
-          addendum.bindings.find((b) => b.paintAxis === 'stroke-color')!,
+      ? composeOpacity(
+          emitComputeOutputReadExprNode(
+            addendum.bindings.find((b) => b.paintAxis === 'stroke-color')!,
+          ),
         )
       : variant.strokeExpr,
     // Phase 2.5 US-002 — when the compute kernel takes over the axis,
