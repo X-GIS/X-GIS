@@ -45,9 +45,9 @@ describe('jsonFieldMappingLoader (#1303) — construction-time mapping validatio
   })
 
   it('throws when BOTH {lon,lat} and {coordinates} are given', () => {
-    expect(() =>
-      jsonFieldMappingLoader({ lon: 'x', lat: 'y', coordinates: 'loc' }),
-    ).toThrow(/exactly one of/)
+    expect(() => jsonFieldMappingLoader({ lon: 'x', lat: 'y', coordinates: 'loc' })).toThrow(
+      /exactly one of/,
+    )
   })
 
   it('throws when only lon is given (lat missing)', () => {
@@ -71,7 +71,12 @@ describe('jsonFieldMappingLoader — records-path traversal', () => {
   it('resolves a nested recordsPath to the record array (the issue\'s `{ "data": [...] }` shape)', async () => {
     const loader = jsonFieldMappingLoader({ recordsPath: 'data', lon: 'lon', lat: 'lat' })
     const result = await loader(
-      ctx({ data: [{ lon: 1, lat: 2 }, { lon: 3, lat: 4 }] }),
+      ctx({
+        data: [
+          { lon: 1, lat: 2 },
+          { lon: 3, lat: 4 },
+        ],
+      }),
     )
     expect(fc(result).features.length).toBe(2)
   })
@@ -148,7 +153,12 @@ describe('jsonFieldMappingLoader — malformed per-record data is DROPPED, not p
 
   it('drops a record whose lon/lat is a non-numeric string (never emits NaN)', async () => {
     const loader = jsonFieldMappingLoader({ lon: 'lon', lat: 'lat' })
-    const result = await loader(ctx([{ lon: 'not-a-number', lat: 2 }, { lon: 1, lat: 2 }]))
+    const result = await loader(
+      ctx([
+        { lon: 'not-a-number', lat: 2 },
+        { lon: 1, lat: 2 },
+      ]),
+    )
     const out = fc(result)
     expect(out.features.length).toBe(1)
     expect(
@@ -160,13 +170,23 @@ describe('jsonFieldMappingLoader — malformed per-record data is DROPPED, not p
 
   it('drops a record whose lon/lat is the literal string "Infinity"', async () => {
     const loader = jsonFieldMappingLoader({ lon: 'lon', lat: 'lat' })
-    const result = await loader(ctx([{ lon: 'Infinity', lat: 2 }, { lon: 1, lat: 2 }]))
+    const result = await loader(
+      ctx([
+        { lon: 'Infinity', lat: 2 },
+        { lon: 1, lat: 2 },
+      ]),
+    )
     expect(fc(result).features.length).toBe(1)
   })
 
   it('drops a record whose lon/lat is an empty/blank string', async () => {
     const loader = jsonFieldMappingLoader({ lon: 'lon', lat: 'lat' })
-    const result = await loader(ctx([{ lon: '  ', lat: 2 }, { lon: 1, lat: 2 }]))
+    const result = await loader(
+      ctx([
+        { lon: '  ', lat: 2 },
+        { lon: 1, lat: 2 },
+      ]),
+    )
     expect(fc(result).features.length).toBe(1)
   })
 
@@ -202,7 +222,7 @@ describe('jsonFieldMappingLoader — malformed per-record data is DROPPED, not p
 })
 
 describe('jsonFieldMappingLoader — properties mapping', () => {
-  it('maps only the specified output keys, dropping unmapped source fields (the issue\'s `props: { speed: .s, dir: .d }`)', async () => {
+  it("maps only the specified output keys, dropping unmapped source fields (the issue's `props: { speed: .s, dir: .d }`)", async () => {
     const loader = jsonFieldMappingLoader({
       lon: 'lon',
       lat: 'lat',

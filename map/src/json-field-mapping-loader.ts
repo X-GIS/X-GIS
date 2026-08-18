@@ -30,7 +30,12 @@
 // + join, which is genuine ETL and stays host-side by design (CLAUDE.md §12 —
 // read the JSON standard in place, don't invent a transcode step here).
 
-import { assertIngestBudget, assertNotErrorPage, readBodyCapped, XGISInputError } from '@xgis/shared'
+import {
+  assertIngestBudget,
+  assertNotErrorPage,
+  readBodyCapped,
+  XGISInputError,
+} from '@xgis/shared'
 import type { SourceLoader } from './source-loader'
 
 /** Declarative field mapping for `jsonFieldMappingLoader`. Every path is a
@@ -124,7 +129,9 @@ export function jsonFieldMappingLoader(options: JsonFieldMappingOptions): Source
   return async ({ id, url, fetch }) => {
     const response = await fetch(url)
     if (!response.ok) {
-      throw new Error(`[X-GIS] json source "${id}": failed to load ${url} — HTTP ${response.status}.`)
+      throw new Error(
+        `[X-GIS] json source "${id}": failed to load ${url} — HTTP ${response.status}.`,
+      )
     }
     const rawBytes = await readBodyCapped(response, MAX_JSON_BYTES, `json source "${id}"`)
     assertNotErrorPage(response, rawBytes, `json source "${id}" (${url})`)
@@ -176,7 +183,8 @@ export function jsonFieldMappingLoader(options: JsonFieldMappingOptions): Source
       let props: Record<string, unknown>
       if (properties) {
         props = {}
-        for (const outKey of Object.keys(properties)) props[outKey] = getPath(record, properties[outKey])
+        for (const outKey of Object.keys(properties))
+          props[outKey] = getPath(record, properties[outKey])
       } else {
         props = record as Record<string, unknown>
       }
