@@ -16,6 +16,9 @@ function legacyVariant(): ShaderVariant {
     preamble: {},
     fillExpr: varRefVec4('u.fill_color'),
     strokeExpr: varRefVec4('u.stroke_color'),
+    // #1808 — these tests only inspect bind-group layout, not the paint
+    // expressions, so the opacity factor is absent here.
+    opacityExpr: null,
     needsFeatureBuffer: false,
     featureFields: [],
     uniformFields: [],
