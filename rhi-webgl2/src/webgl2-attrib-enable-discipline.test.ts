@@ -9,6 +9,14 @@ import type { RhiPipeline, RhiBuffer } from '@xgis/rhi'
 // drawArrays*/drawElements* on that state raises INVALID_OPERATION and the draw is DROPPED
 // per spec. These are GPU-free shape tests: a fake gl records enable/disable calls so the
 // reconcile-against-the-live-mask discipline is pinned without a real context.
+//
+// Follow-up (adversarial review): a fresh `attribState.mask = 0` only describes what THIS
+// device has tracked — not what the adopted `gl` context really has enabled. gpu.ts's
+// ensure-restored preamble hands a REMOUNT the SAME pooled context a prior (destroyed)
+// device left dirty (rhi-webgl2/src/device-lifecycle.ts), with real attributes still
+// enabled and their buffers already gone. The constructor now does a one-time reconcile
+// (test (d) below); tests (a)-(c) isolate that construction-time noise out of their own
+// `calls` recordings so they keep pinning per-draw behaviour only.
 
 interface Call {
   fn: string
@@ -30,6 +38,7 @@ const GL = {
   SAMPLER_CUBE: 0x8b60,
   SAMPLER_3D: 0x8b5f,
   SAMPLER_2D_ARRAY: 0x8dc1,
+  MAX_VERTEX_ATTRIBS: 0x8869,
 }
 
 function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[] } {
@@ -55,6 +64,23 @@ function fakeGl(): { gl: WebGL2RenderingContext; calls: Call[] } {
     drawArrays: rec('drawArrays'),
   } as unknown as WebGL2RenderingContext
   return { gl, calls }
+}
+
+/** `fakeGl()` above deliberately answers no `gl.getParameter` — every OTHER test in this
+ *  file exercises per-draw reconcile behaviour and must see zero calls from device
+ *  CONSTRUCTION. This fixture is the one exception: it answers
+ *  `gl.getParameter(MAX_VERTEX_ATTRIBS)`, simulating the ONE capability a fresh
+ *  `WebGl2Device` needs to reconcile a context it did not create — a REMOUNT over the
+ *  SAME pooled context a prior (destroyed) device left with real attributes enabled
+ *  (device-lifecycle.ts). `disableVertexAttribArray` is already recorded by the base
+ *  fixture, so this is the only capability that needs adding. */
+function fakeGlPooled(maxVertexAttribs: number): { gl: WebGL2RenderingContext; calls: Call[] } {
+  const { gl, calls } = fakeGl()
+  const pooled = {
+    ...gl,
+    getParameter: (p: number) => (p === GL.MAX_VERTEX_ATTRIBS ? maxVertexAttribs : 0),
+  } as unknown as WebGL2RenderingContext
+  return { gl: pooled, calls }
 }
 
 /** A pipeline whose `vertexBuffers` declares one attribute per given location — mirrors
@@ -92,6 +118,9 @@ describe('WebGl2RenderPass vertex-attrib enable/disable discipline (#1796)', () 
   it('disables every attribute the prior pipeline left enabled when the next pipeline declares none (fail-before: nothing ever disabled)', () => {
     const { gl, calls } = fakeGl()
     const dev = new WebGl2Device(gl)
+    // Isolate away the constructor's own one-time pooled-context reset (test (d) below) —
+    // this test pins PER-DRAW reconcile behaviour only.
+    calls.length = 0
     const pass = wrapWebGl2Pass(dev)
 
     pass.setPipeline(pipelineWithLocations([0, 1]))
@@ -142,6 +171,7 @@ describe('WebGl2RenderPass vertex-attrib enable/disable discipline (#1796)', () 
   it('consecutive draws with the same pipeline issue no enable/disable calls', () => {
     const { gl, calls } = fakeGl()
     const dev = new WebGl2Device(gl)
+    calls.length = 0 // isolate away the constructor's own one-time pooled-context reset
     const pass = wrapWebGl2Pass(dev)
     const pl = pipelineWithLocations([0, 1])
 
@@ -153,5 +183,34 @@ describe('WebGl2RenderPass vertex-attrib enable/disable discipline (#1796)', () 
 
     pass.draw(6) // same pipeline, same buffer — nothing about the enabled set changed
     expect(enableDisableCalls(calls).length).toBe(afterFirst)
+  })
+
+  it('a device adopting a pooled/dirty context disables the real enabled set at construction, before the first draw (#1796 follow-up)', () => {
+    // Simulates gpu.ts's ensure-restored preamble handing a REMOUNT the SAME pooled
+    // context a prior (destroyed) device left dirty (device-lifecycle.ts): this fixture
+    // answers gl.getParameter(MAX_VERTEX_ATTRIBS) — the ONE query the constructor needs to
+    // reconcile a context it did not create, but no test above needed.
+    const { gl, calls } = fakeGlPooled(16)
+
+    const dev = new WebGl2Device(gl)
+
+    // FAIL-BEFORE (commit d50b7909): the constructor never called disableVertexAttribArray
+    // at all — a remount's fresh mask=0 was trusted at face value instead of reconciled
+    // against the adopted context, so this array was always `[]` and the assertion below
+    // failed. It is the constructor call above, not any draw, that must produce these.
+    const disabledAtConstruction = calls
+      .filter((c) => c.fn === 'disableVertexAttribArray')
+      .map((c) => c.args[0])
+    expect(disabledAtConstruction).toEqual(Array.from({ length: 16 }, (_, i) => i))
+
+    // The reconcile already ran — strictly before any draw exists to run one. A
+    // zero-attribute (line-pipeline-shaped) draw right after must find nothing left to
+    // disable: the pooled context is already clean by the time this draw's bindAttributes
+    // runs, so it is exactly the INVALID_OPERATION-triggering gap that no longer exists.
+    calls.length = 0
+    const pass = wrapWebGl2Pass(dev)
+    pass.setPipeline(pipelineWithLocations([]))
+    pass.draw(6)
+    expect(calls.filter((c) => c.fn === 'disableVertexAttribArray')).toHaveLength(0)
   })
 })

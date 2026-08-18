@@ -755,6 +755,30 @@ export class WebGl2Device implements RhiDevice {
       canvas.addEventListener('webglcontextlost', this._onGlContextLost)
       canvas.addEventListener('webglcontextrestored', this._onGlContextRestored)
     }
+
+    // #1796 — `attribState` above starts at mask=0, but the `gl` THIS device just adopted
+    // may not: gpu.ts's ensure-restored preamble hands a REMOUNT the SAME pooled context a
+    // prior (now-destroyed) device left behind (device-lifecycle.ts), with real attributes
+    // still enabled and their buffers already gone. Reconcile the real context to match the
+    // fresh mask ONCE, here, rather than trusting it started clean. gl.getParameter is a
+    // synchronous driver round-trip — fine as a one-time construction cost, never per-draw
+    // (bindAttributes tracks the mask precisely so it never needs to ask again).
+    // Feature-detected on BOTH calls, independently, because the two fake-gl populations
+    // this reaches disagree: every fixture outside this package (rhi-webgpu/map — the
+    // overwhelming majority, building a device for something unrelated to vertex attribs)
+    // defines neither call, so `disableVertexAttribArray` being absent skips the loop
+    // entirely regardless of the `maxAttribs` fallback — fully inert, matching what a fresh
+    // context actually has. This package's OWN attrib-discipline fixture does define
+    // `disableVertexAttribArray` (it asserts per-draw enable/disable calls) without
+    // `getParameter` — for that one the loop DOES run, real calls and all, which is why its
+    // per-draw tests isolate them out (`calls.length = 0` right after construction).
+    const maxAttribs =
+      typeof gl.getParameter === 'function'
+        ? (gl.getParameter(gl.MAX_VERTEX_ATTRIBS) as number)
+        : 16
+    if (typeof gl.disableVertexAttribArray === 'function') {
+      for (let loc = 0; loc < Math.min(32, maxAttribs); loc++) gl.disableVertexAttribArray(loc)
+    }
   }
 
   /** #1153 P2 R3 — subscribe to 'webglcontextlost' (`preventDefault()` already
