@@ -133,6 +133,10 @@ function lowerSource(
   let baseShift: number | undefined
   let srcMaxzoom: number | undefined
   let srcMinzoom: number | undefined
+  /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
+   *  Seconds, positive; 0/absent = off. Undefined for every non-declaring source
+   *  (byte-identical lowering — the source-loader-seam §9 gate). */
+  let refresh: number | undefined
 
   for (const prop of stmt.properties) {
     if (prop.name === 'type') {
@@ -210,6 +214,48 @@ function lowerSource(
       srcMinzoom = prop.value.value
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
+    } else if (prop.name === 'refresh') {
+      // Declarative polling for a live source (#1304, the NOAA CO-OPS motivating
+      // case) — periodic re-fetch/re-load of a URL-backed source, no host timer.
+      // A bare number (`refresh: 300`) or an explicit seconds literal
+      // (`refresh: 300s`, the `s` unit already lexes — tokens.ts:100) both mean
+      // seconds; any OTHER unit is a compile error rather than a silent
+      // misinterpretation (a stray `300ms` would otherwise poll 1000x too fast).
+      let refreshVal = prop.value
+      // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block
+      // properties parse as a full expression (parseBlockProperty), not a
+      // literal-only grammar, same reason `astLiteralToJS` above unwraps `-`
+      // for inline `data:` literals. Unwrap it so a negative value reaches the
+      // non-negative check below with its real number instead of mis-reporting
+      // "not a number".
+      if (
+        refreshVal.kind === 'UnaryExpr' &&
+        refreshVal.op === '-' &&
+        refreshVal.operand.kind === 'NumberLiteral'
+      ) {
+        refreshVal = {
+          kind: 'NumberLiteral',
+          value: -refreshVal.operand.value,
+          unit: refreshVal.operand.unit,
+        }
+      }
+      if (
+        refreshVal.kind !== 'NumberLiteral' ||
+        (refreshVal.unit !== null && refreshVal.unit !== 's')
+      ) {
+        throw new Error(
+          `Source '${stmt.name}' (line ${stmt.line}): 'refresh' must be a number of ` +
+            `seconds (e.g. \`refresh: 300\` or \`refresh: 300s\`).`,
+        )
+      }
+      if (!(refreshVal.value >= 0)) {
+        throw new Error(
+          `Source '${stmt.name}' (line ${stmt.line}): 'refresh' must be a non-negative ` +
+            `number of seconds (0 disables polling); got ${refreshVal.value}.`,
+        )
+      }
+      // 0 means "off", same as not declaring it — SourceDef.refresh stays undefined.
+      if (refreshVal.value > 0) refresh = refreshVal.value
     } else {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
       // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
@@ -277,6 +323,7 @@ function lowerSource(
     baseShift,
     maxzoom: srcMaxzoom,
     minzoom: srcMinzoom,
+    refresh,
   }
 }
 

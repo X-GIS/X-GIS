@@ -58,6 +58,7 @@ import { SOURCE_TYPES } from '@xgis/compiler'
 import type { SourceLoader } from './source-loader'
 import { normaliseHostPushedData } from './source-data-normalize'
 import { setHeatmapPoints } from './heatmap-point-split'
+import { SourceRefreshScheduler } from './source-refresh'
 
 /** The built-in source `type:` values the dispatch handles natively; anything else
  *  routes to the per-map custom source-loader registry (source-loader-seam §4).
@@ -203,6 +204,13 @@ export class SourceManager {
    *  attach/re-seed; read by the feature-update queue to patch + re-seed. */
   readonly hostSeededFC = new Map<string, GeoJSONFeatureCollection>()
 
+  /** #1304 — the `refresh:`-declared polling loop, one per live-refreshing
+   *  source. Self-contained (needs no injected deps), so it lives here rather
+   *  than threading through SourceManagerDeps like the coverage scheduler
+   *  does on XGISMap; `stopAllRefresh()` below is this manager's half of the
+   *  teardown spine XGISMap's `_teardownForReinit()` / `destroy()` call. */
+  private readonly _sourceRefresh = new SourceRefreshScheduler()
+
   constructor(deps: SourceManagerDeps) {
     this.rawDatasets = deps.rawDatasets
     this.registerVtSource = deps.registerVtSource
@@ -326,25 +334,7 @@ export class SourceManager {
     // `_attachGeoJSONViaVirtualPMTiles` path the geojson branch uses; a bare
     // `rawDatasets.set` seed renders a BLANK frame (see the inline-data note above).
     if (declaredType !== undefined && !BUILTIN_SOURCE_TYPES.has(declaredType)) {
-      const loader = this.sourceLoaders?.[declaredType]
-      if (!loader) {
-        const registered = Object.keys(this.sourceLoaders ?? {})
-        throw new Error(
-          `[X-GIS] no loader registered for source type '${declaredType}' ` +
-            `(source "${load.name}"); registered: [${registered.join(', ')}] — ` +
-            `pass it in XGISMapOptions.sources.`,
-        )
-      }
-      const result = await loader({
-        id: load.name,
-        url,
-        options: load.options ?? {},
-        fetch: (u: string) => safeFetch(u, undefined, `custom source "${load.name}"`),
-      })
-      const fc =
-        result.kind === 'points'
-          ? pointPatchToFeatureCollection(result.data as unknown as PointPatch)
-          : (result.data as unknown as GeoJSONFeatureCollection)
+      const fc = await this._runCustomLoader(declaredType, load.name, url, load.options)
       // Route seam marker (mirrors the geojson-URL branch's `__xgisVirtualPMTilesActive`)
       // so a real-GPU gate can assert the CUSTOM branch actually ran for this type —
       // not merely that some pixels appeared.
@@ -353,6 +343,7 @@ export class SourceManager {
           declaredType
       }
       await this._attachGeoJSONViaVirtualPMTiles(load.name, fc, maps, cameraFitState, isStale)
+      this._armRefresh(load, url, declaredType, isStale)
       return
     }
     // S-100 gridded coverage (#1158, re-platformed by ADR-0010) — READ IN PLACE (HDF5, no
@@ -507,36 +498,10 @@ export class SourceManager {
       return
     }
 
-    // GeoJSON URL fetch. SSRF guard first — a style's source `url` is
-    // host-supplied; block private/loopback/non-http(s) targets, and
-    // re-check every redirect hop (safeFetch follows manually) so an
-    // allowlisted host can't 302 to an internal address. Throws
-    // XGISSecurityError. NOTE (#1364): this does NOT fail cleanly — there is no
+    // GeoJSON URL fetch. NOTE (#1364): this does NOT fail cleanly — there is no
     // such boundary here. It propagates to `settleSourceLoads`, which isolates
     // ONLY `xgisReprojectFailure` and re-throws the rest, aborting run().
-    const response = await safeFetch(url, undefined, `GeoJSON source "${load.name}"`)
-    if (!response.ok) {
-      throw new Error(
-        `[X-GIS] Failed to load "${load.name}" from ${url} — HTTP ${response.status}. ` +
-          `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
-          `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
-      )
-    }
-    // DoS guard: bound the RAW body before JSON.parse (a multi-GB body
-    // would OOM response.json() before the feature/vertex cap below runs),
-    // then bound the parsed collection semantically. 256 MB is far above any
-    // interactive dataset; larger sources should be tiled server-side.
-    const rawBytes = await readBodyCapped(
-      response,
-      256 * 1024 * 1024,
-      `GeoJSON source "${load.name}"`,
-    )
-    // The `!response.ok` branch above warns about the HTML-404 body it cannot
-    // see: a MISSING path is 200 + HTML on most hosts, so that branch never
-    // fires and JSON.parse breaks instead. Catch it here, named (#1627).
-    assertNotErrorPage(response, rawBytes, `GeoJSON source "${load.name}" (${url})`)
-    const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
-    assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${load.name}"`)
+    const data = await this._fetchGeoJSONDoc(load.name, url)
 
     // Phase 5f: VirtualPMTilesBackend is now the default route for GeoJSON URL sources. The legacy
     // main-thread compileSync path (GeoJSONRuntimeBackend) is still available for opt-out
@@ -562,6 +527,7 @@ export class SourceManager {
         ).__xgisVirtualPMTilesActive = true
       }
       await this._attachGeoJSONViaVirtualPMTiles(load.name, data, maps, cameraFitState, isStale)
+      this._armRefresh(load, url, declaredType, isStale)
       return
     }
 
@@ -573,6 +539,123 @@ export class SourceManager {
     // this branch, so a plain return suffices (mirrors the guarded default paths).
     if (isStale?.()) return
     this.rawDatasets.set(load.name, this._reprojectIngest(load.name, data))
+  }
+
+  /** Fetch + parse a GeoJSON URL — the shared body of `_attachOneSource`'s geojson
+   *  branch and a `refresh:`-driven re-fetch (#1304). SSRF-guarded (safeFetch),
+   *  DoS-guarded (readBodyCapped + assertIngestBudget), and rejects an HTML-404 body
+   *  masquerading as 200 (assertNotErrorPage, #1627). Does not reproject or attach —
+   *  callers decide what to do with the parsed FC. */
+  private async _fetchGeoJSONDoc(
+    sourceName: string,
+    url: string,
+  ): Promise<GeoJSONFeatureCollection> {
+    // SSRF guard first — a style's source `url` is host-supplied; block
+    // private/loopback/non-http(s) targets, and re-check every redirect hop
+    // (safeFetch follows manually) so an allowlisted host can't 302 to an
+    // internal address. Throws XGISSecurityError.
+    const response = await safeFetch(url, undefined, `GeoJSON source "${sourceName}"`)
+    if (!response.ok) {
+      throw new Error(
+        `[X-GIS] Failed to load "${sourceName}" from ${url} — HTTP ${response.status}. ` +
+          `Check that the file exists at that path (iOS Safari otherwise surfaces this as the opaque ` +
+          `"string did not match the expected pattern" when response.json() runs on an HTML 404 body).`,
+      )
+    }
+    // DoS guard: bound the RAW body before JSON.parse (a multi-GB body would OOM
+    // response.json() before the feature/vertex cap below runs), then bound the
+    // parsed collection semantically. 256 MB is far above any interactive dataset;
+    // larger sources should be tiled server-side.
+    const rawBytes = await readBodyCapped(
+      response,
+      256 * 1024 * 1024,
+      `GeoJSON source "${sourceName}"`,
+    )
+    // The `!response.ok` branch above warns about the HTML-404 body it cannot see:
+    // a MISSING path is 200 + HTML on most hosts, so that branch never fires and
+    // JSON.parse breaks instead. Catch it here, named (#1627).
+    assertNotErrorPage(response, rawBytes, `GeoJSON source "${sourceName}" (${url})`)
+    const data = JSON.parse(new TextDecoder().decode(rawBytes)) as GeoJSONFeatureCollection
+    assertIngestBudget((data as { features?: unknown }).features, `GeoJSON source "${sourceName}"`)
+    return data
+  }
+
+  /** Invoke a registered custom `SourceLoader` for `declaredType` and normalise its
+   *  result to a FeatureCollection (points → FC via `pointPatchToFeatureCollection`,
+   *  the same sugar `map.ts:4047` uses). Shared by the initial attach
+   *  (`_attachOneSource`) and a `refresh:`-driven re-run of the SAME loader (#1304) —
+   *  both need the identical invoke-and-normalise step; only what happens to the FC
+   *  afterward (initial tile + register vs. `setSourceData` swap) differs. */
+  private async _runCustomLoader(
+    declaredType: string,
+    sourceName: string,
+    url: string,
+    options: SceneCommands['loads'][0]['options'],
+  ): Promise<GeoJSONFeatureCollection> {
+    const loader = this.sourceLoaders?.[declaredType]
+    if (!loader) {
+      const registered = Object.keys(this.sourceLoaders ?? {})
+      throw new Error(
+        `[X-GIS] no loader registered for source type '${declaredType}' ` +
+          `(source "${sourceName}"); registered: [${registered.join(', ')}] — ` +
+          `pass it in XGISMapOptions.sources.`,
+      )
+    }
+    const result = await loader({
+      id: sourceName,
+      url,
+      options: options ?? {},
+      fetch: (u: string) => safeFetch(u, undefined, `custom source "${sourceName}"`),
+    })
+    return result.kind === 'points'
+      ? pointPatchToFeatureCollection(result.data as unknown as PointPatch)
+      : (result.data as unknown as GeoJSONFeatureCollection)
+  }
+
+  /** Arm the `refresh:`-declared polling loop for a just-attached source (#1304).
+   *  No-op when `load.refresh` is absent/0 (off) or the attaching run went stale
+   *  (a superseded run must not start a loop the winner never declared). On each
+   *  tick, re-runs the SAME load path the source used at attach time — a geojson
+   *  URL re-fetch (`_fetchGeoJSONDoc`) or the same registered `SourceLoader`
+   *  (`_runCustomLoader`) — and swaps the result through `setSourceData`, the
+   *  established #1235/#1371 atomic re-seed path (a live source renders exactly
+   *  like any other host data push; no second swap mechanism is introduced). A
+   *  failed tick keeps the LAST-GOOD data resident — it simply skips the
+   *  `setSourceData` call — and reports through the typed `'source'` map error
+   *  event instead of throwing: a live poll must survive one bad response.
+   *  Timer lifetime: one per source, restart-safe (`SourceRefreshScheduler`), and
+   *  cleared by `stopAllRefresh()` on a scene re-run / `map.destroy()` (the only
+   *  ways a declared source is currently "removed" — `removeSource` is an
+   *  explicit unsupported stub, map.ts:1794). */
+  private _armRefresh(
+    load: SceneCommands['loads'][0],
+    url: string,
+    declaredType: string | undefined,
+    isStale?: () => boolean,
+  ): void {
+    if (!load.refresh || load.refresh <= 0) return
+    if (isStale?.()) return
+    const sourceName = load.name
+    const isCustom = declaredType !== undefined && !BUILTIN_SOURCE_TYPES.has(declaredType)
+    this._sourceRefresh.start(sourceName, load.refresh * 1000, async () => {
+      try {
+        const fc = isCustom
+          ? await this._runCustomLoader(declaredType!, sourceName, url, load.options)
+          : await this._fetchGeoJSONDoc(sourceName, url)
+        this.setSourceData(sourceName, fc)
+      } catch (error) {
+        this.fireError({ phase: 'source', source: sourceName, fatal: false, error })
+      }
+    })
+  }
+
+  /** Stop every `refresh:`-declared polling loop this manager started (#1304) — the
+   *  SourceManager half of XGISMap's coverage-style teardown spine. Called from
+   *  BOTH `_teardownForReinit()` and `destroy()` so a scene swap cannot leave a
+   *  ghost loop polling the outgoing scene's URL into the incoming one (the exact
+   *  #1569 class of bug `stopCoverageMachinery` exists to prevent). */
+  stopAllRefresh(): void {
+    this._sourceRefresh.stopAll()
   }
 
   /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered,
