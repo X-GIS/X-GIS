@@ -26,6 +26,7 @@ import { warnStageBlockUnsupported } from './render/stage-block-warning'
 import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
 import { isOverdrawActive } from './debug-flags'
+import { readsWgsl } from './render/material/wgsl-for'
 import type * as AST from '@xgis/compiler'
 import { SyntheticEarthSurfaceBackend } from '@xgis/data'
 import { PROJECTION_NAME_TO_TYPE, PROJECTIONS } from '@xgis/geo'
@@ -4584,8 +4585,7 @@ export class XGISMap {
       },
       traceRecorder: this._pendingTraceRecorder,
       // #1253 — see ClassifierInput.extrudeShell for both halves of this gate.
-      extrudeShell:
-        this.ctx.rhi.caps.executionModel !== 'immediate' && !isOverdrawActive(this.ctx.rhi.caps),
+      extrudeShell: readsWgsl(this.ctx.rhi) && !isOverdrawActive(this.ctx.rhi.caps),
     })
   }
 

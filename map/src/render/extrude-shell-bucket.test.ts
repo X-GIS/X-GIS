@@ -410,7 +410,12 @@ describe('#1253 — the map wires the gate', () => {
   it('map.ts passes extrudeShell into the classifier', () => {
     const mapSrc = readFileSync(join(HERE, '..', 'map.ts'), 'utf8')
     expect(mapSrc).toContain('extrudeShell:')
-    expect(mapSrc).toContain("executionModel !== 'immediate'")
+    // The gate asks the CAPABILITY (`readsWgsl` — wgsl-for.ts, the one place in
+    // map/src that asks which language a device consumes), never the backend's
+    // identity and never `executionModel`. The two ratchets that own those
+    // questions pin the counts; this pins that the ONE call site still asks the
+    // right question rather than re-deriving it from a device's name.
+    expect(mapSrc).toContain('readsWgsl(this.ctx.rhi)')
     expect(mapSrc).toContain('isOverdrawActive(this.ctx.rhi.caps)')
   })
 

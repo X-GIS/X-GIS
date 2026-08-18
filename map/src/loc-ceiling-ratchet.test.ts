@@ -657,10 +657,10 @@ const CEILINGS: Record<string, number> = {
   // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
   // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
   // 5446→5450 (#1253): the classifier call site gains `extrudeShell` — the one
-  // frame-level fact the pure bucket scheduler cannot see (a deferred-execution
-  // device AND no ?debug=overdraw) — plus its `isOverdrawActive` import and one
-  // line of comment. Composition-root wiring at the existing call site; the
-  // decision it feeds lives in bucket-scheduler.ts (§2). MEASURED.
+  // frame-level fact the pure bucket scheduler cannot see (the device consumes
+  // WGSL AND ?debug=overdraw is off) — plus the `readsWgsl` / `isOverdrawActive`
+  // imports and one line of comment. Composition-root wiring at the existing call
+  // site; the decision it feeds lives in bucket-scheduler.ts (§2). MEASURED.
   'map/src/map.ts': 5450,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the

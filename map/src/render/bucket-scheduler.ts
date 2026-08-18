@@ -218,12 +218,15 @@ export interface ClassifierInput {
    *  SHELL bucket? Two facts compose into it at the call site (map.ts), and both
    *  are frame-level truths the pure classifier has no way to see:
    *
-   *   * the device must not be immediate-execution. A WebGL2 device renders NO
-   *     extrusions at all — `PipelineFactory.build()` fences on the backend so
-   *     the extrude Material twins are never built, and `renderFillsRhi` skips
-   *     every `cached.extruded` tile — so routing there would move the show's
-   *     fills out of the opaque bucket (losing its tile points with them) in
-   *     exchange for a shell pass whose compositor has no GLSL twin.
+   *   * the device must CONSUME WGSL (`readsWgsl`, the capability — never the
+   *     backend's name). That is the binding precondition, not a proxy for one:
+   *     the shell compositor is a WGSL-only Material (a GLSL twin would be a
+   *     shader nothing could reach, since the whole extrude path is absent on
+   *     the GLSL backend — `PipelineFactory.build()` returns early there so the
+   *     extrude Material twins are never built, and `renderFillsRhi` skips every
+   *     `cached.extruded` tile). Routing a show there anyway would move its
+   *     fills out of the opaque bucket — losing its tile points with them — in
+   *     exchange for a pass whose compositor cannot be constructed.
    *   * `?debug=overdraw` must be off. That mode is whole-frame: the shell pass
    *     is gated off, so its fills must stay in the opaque bucket where the
    *     accumulator can still count them.

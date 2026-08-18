@@ -9,15 +9,16 @@
 // #1715 lesson: a pipeline that is right somewhere else is a validation error
 // here).
 //
-// WGSL-only, deliberately. The whole extrude path is: `PipelineFactory.build()`
-// fences on `backend === 'webgl2'` so the extrude Material twins are never
-// built there, and `VectorTileRenderer.renderFillsRhi` skips every
-// `cached.extruded` tile — an immediate-execution device renders NO extrusions
-// at all, so the bucket that feeds this compositor is empty there by
-// construction (`ClassifierInput.extrudeShell`). A GLSL twin would be a shader
-// nothing can reach; `wgslFor` hands a GLSL device `''`, so a future backend
-// that DOES render extrusions fails loud at Material construction rather than
-// drawing the wrong thing.
+// WGSL-only, deliberately — and gated so that is never a gap. The whole extrude
+// path is absent on the GLSL backend: `PipelineFactory.build()` returns early
+// there, so the extrude Material twins are never built, and
+// `VectorTileRenderer.renderFillsRhi` skips every `cached.extruded` tile. Such a
+// device renders NO extrusions at all, so the bucket that feeds this compositor
+// is empty there by construction — `ClassifierInput.extrudeShell` asks
+// `readsWgsl`, the CAPABILITY (doc §2), never a backend's name. A GLSL twin
+// would therefore be a shader nothing can reach; `wgslFor` hands a
+// GLSL-consuming device `''`, so one that somehow arrived here fails loud at
+// Material construction rather than drawing the wrong thing.
 
 import type { RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
