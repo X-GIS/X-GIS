@@ -87,6 +87,13 @@ export interface SourceDef extends RasterDemSourceFields {
    *  does not declare them. */
   maxzoom?: number
   minzoom?: number
+  /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
+   *  Positive seconds; undefined (0/absent in `.xgis`) = off, the pre-existing
+   *  behaviour for every source. The runtime re-runs the SAME load path the
+   *  source used (geojson URL re-fetch or a registered `SourceLoader`) on this
+   *  cadence and swaps the result through the existing `setSourceData` re-seed
+   *  path — see `map/src/source-manager.ts` `_armRefresh`. */
+  refresh?: number
   /** Non-reserved source-block properties for a CUSTOM (registry-resolved)
    *  `type`. `lowerSource` collects every prop whose name is not a reserved
    *  key (name/type/url/data/layers/crs); undefined for built-in sources, so

@@ -5272,6 +5272,10 @@ export class XGISMap {
     // must not report loaded() === true on a blank corpse. (#1153 C)
     this._loaded = false
     this._stopCoverageMachinery() // #1569 — the same stop-block destroy() runs
+    // #1304 — a scene swap must stop the outgoing scene's `refresh:` polling loops
+    // before the incoming one attaches; otherwise a stale tick could land on a
+    // same-named source in the NEW scene, the exact #1569 ghost-write class.
+    this.sourceManager.stopAllRefresh()
     this._releaseGpuResources()
   }
 
@@ -5376,6 +5380,8 @@ export class XGISMap {
     this.running = false // next requestAnimationFrame tick early-returns
     // #1569 — the coverage stop-block, shared with _teardownForReinit.
     this._stopCoverageMachinery()
+    // #1304 — every `refresh:` polling loop, shared with _teardownForReinit.
+    this.sourceManager.stopAllRefresh()
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {

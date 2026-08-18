@@ -74,6 +74,10 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
+  /** `refresh: <seconds>` — declarative live-source polling interval, threaded
+   *  from `SourceDef.refresh` (#1304). Undefined = off, the pre-existing
+   *  behaviour. See `SourceDef.refresh` for the full contract. */
+  refresh?: number
 }
 
 // ─── Paint sub-bundles (Tier-B B2, rows 3/5) ───────────────────────
@@ -435,6 +439,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     baseShift: src.baseShift,
     maxzoom: src.maxzoom,
     minzoom: src.minzoom,
+    refresh: src.refresh,
   }))
 
   // Walk the IR once to collect every ZOOM-only paint literal /

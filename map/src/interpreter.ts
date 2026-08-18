@@ -96,6 +96,13 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
+  /** `refresh: <seconds>` — declarative live-source polling interval (#1304),
+   *  threaded from the compiler LoadCommand (emit-commands.ts) so
+   *  `source-manager` reads it off `SceneCommands['loads'][0]` regardless of
+   *  which path produced it (two-sibling rule). The legacy `interpret()` path
+   *  never sets it (no `source { refresh: ... }` in the old grammar); it
+   *  exists purely for the type contract. */
+  refresh?: number
 }
 
 export interface SceneCommands {

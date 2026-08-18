@@ -726,8 +726,12 @@ const CEILINGS: Record<string, number> = {
   // `'pan-y'` (vs #1153's `'none'`) so a released single-finger touch drag
   // actually reaches the OS as a native scroll. MEASURED at the union merge
   // with #1827's independent 5497→5546 bump (both additive from 5497).
-  // whichever lands second, re-measure at merge time.
-  'map/src/map.ts': 5578,
+  // 5578→5584 (#1304, atop the #1264 bump): two one-line calls to `sourceManager.stopAllRefresh()`, in
+  // `_teardownForReinit()` and `destroy()` alongside the existing coverage
+  // stop-block — the SourceManager half of the same teardown spine, so a
+  // `refresh:`-declared polling loop can't outlive a scene swap or ghost-write
+  // into a same-named source in the next scene (the #1569 class of bug).
+  'map/src/map.ts': 5584,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -823,7 +827,27 @@ const CEILINGS: Record<string, number> = {
   // predicate itself is NOT duplicated here — it lives once in map-teardown.ts
   // (`hasVariantCatalogs`, sharing `teardownSources`' own predicate) and is
   // threaded in as a callback, same shape as `getVtSource`. MEASURED.
-  'map/src/source-manager.ts': 959,
+  // 959→1042 (#1304): declarative `refresh:` polling for a live source. Two small
+  // helpers extracted so the initial attach and a refresh tick share ONE body
+  // instead of two drifting copies (`_fetchGeoJSONDoc` — the geojson-URL
+  // fetch+parse; `_runCustomLoader` — invoke a registered `SourceLoader` +
+  // normalise its `{fc|points}` result), plus `_armRefresh` (starts the
+  // per-source poll after a successful attach, re-fetches on each tick and
+  // swaps via the EXISTING `setSourceData` re-seed path — no second data-swap
+  // mechanism), `stopAllRefresh()` (this manager's half of the #1569-style
+  // teardown spine, called from map.ts), the `_sourceRefresh` field, and the
+  // two attach-site call additions (geojson-URL branch + custom-loader branch).
+  // Failures keep last-good data and report through the typed `'source'` error
+  // event instead of throwing — a live poll must survive one bad response.
+  // 1042→1057 (#1304 adjudication): the scheduler's generation guard only stops a
+  // tick from RE-ARMING — it does not abort a continuation already in flight — so
+  // a stale scene-A refresh tick could still resolve AFTER stopAllRefresh() +
+  // scene B's re-attach of a same-named source and overwrite scene B's data (the
+  // #1569 ghost-write class, one layer deeper than the attach-path A7 guards).
+  // Fix: re-check `isStale?.() || !this._sourceRefresh.isRunning(sourceName)`
+  // AFTER the tick's await, BEFORE `setSourceData` — same shape as every other
+  // A7 guard in this file. +15 = the guard line + its reasoning comment.
+  'map/src/source-manager.ts': 1057,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -1747,7 +1771,14 @@ const CEILINGS: Record<string, number> = {
   // dispatch()'s verdict and pushes X-GIS0028 when no MODIFIER_HANDLERS entry
   // consumed the item (previously a silent drop) — the gate must sit where the
   // dispatch verdict is known, same rationale as the X-GIS0013 gate a few lines up.
-  'compiler/src/ir/lower.ts': 1467,
+  // 1467→1514 (#1304): a `refresh: <seconds>` reserved source prop — a `refresh`
+  // local, the `lowerSource` validation arm (NumberLiteral with unit null/'s'
+  // only; non-negative; 0 collapses to undefined/"off"; unwraps a UnaryExpr `-`
+  // over a NumberLiteral, mirroring `astLiteralToJS`'s own unwrap a few lines up,
+  // so `refresh: -5` reports "non-negative" instead of a misleading "not a
+  // number"), and the return-object field. Mirrors the existing `maxzoom`/
+  // `minzoom` numeric-prop shape.
+  'compiler/src/ir/lower.ts': 1514,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1789,9 +1820,15 @@ const CEILINGS: Record<string, number> = {
   // rasterCoverZoom adds +1 on a 256-px source, so every visible tile failed from about
   // camera z14.5 (verified: terrarium/16/13651/25075 404, its z15 parent 200). +11: the two SourceDef fields and the doc that says why a tile outside them cannot exist.
   // 980→982 (#1257): rasterFadeDurationMs? field + doc comment on RenderNodeRasterPaint.
-  'compiler/src/ir/render-node.ts': 982,
+  // 982→989 (#1304): `SourceDef.refresh?: number` field + doc comment (the declarative
+  // live-source polling interval).
+  'compiler/src/ir/render-node.ts': 989,
   'compiler/src/convert/paint-helpers.ts': 826,
   'blueprint/src/editor.ts': 1448,
+  // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
+  // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
+  // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP before.
+  'compiler/src/ir/emit-commands.ts': 805,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {
