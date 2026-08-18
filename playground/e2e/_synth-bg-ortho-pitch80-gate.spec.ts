@@ -1,4 +1,19 @@
-// AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density verification
+// ═══ AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density gate (ortho z=0 pitch=80) ═══
+//
+// Born `_synth-bg-ortho-pitch80.spec.ts`, absent from every test.yml leg and therefore dark
+// (#1785's triage class, same pattern as #1774/#1349). #1785 reproduced its one failing
+// assertion 2/2 on clean main: `drawStats.globeTilesSelected` (assertion 1, formerly line 262)
+// read 0 instead of >=1 at this camera. Root cause: the non-Mercator z=0 root-tile split in
+// `map/src/render/tile-selection-cache.ts` ran unconditionally for every projType outside
+// {mercator, globe} and replaced the synthetic earth-surface source's ONLY z=0 tile with four
+// z=1 children it can never serve — its catalog declares `maxZoom: 0`
+// (`data/src/sources/synthetic-earth-surface-backend.ts`) — so the whole selection turned
+// over-zoom. Exactly the #1792 defect class the demotiles mirror hit on the same split;
+// #1799 fixed both by gating the split on `maxLevel >= 1` (`tile-selection-cache.ts:860`),
+// which now excludes any z=0-only source — this one included — from the split entirely. With
+// the fix landed the spec is renamed to `-gate` and registered in test.yml's render-gate list
+// — the assertions below are unchanged from before the fix and now hold permanently, mirroring
+// how #1799 itself promoted `_demotiles-mirror-gate.spec.ts` for the identical guard.
 //
 // Verifies the 32×16 earth-surface fill mesh renders smooth at z=0
 // orthographic projection pitch=80:
@@ -205,10 +220,17 @@ async function setupPage(page: import('@playwright/test').Page): Promise<void> {
 
 // ════════════════════════════════════════════════════════════════════
 
+// File-scope, not the per-test `test.setTimeout` this spec used before promotion: a
+// body-scope budget governs the test body only, and fixture setup (page/context creation)
+// stays on the config default (60s, `playwright.config.ts:23`) regardless — the exact gap
+// CLAUDE.md §12 documents ("Test timeout of 60000ms exceeded while setting up context") on a
+// loaded SwiftShader runner. 90s mirrors `_symbol-anchor-inline-gate.spec.ts`, the closest
+// comparable single-page WebGL2 gate on this leg.
+test.describe.configure({ timeout: 90_000 })
+
 test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)', () => {
   // ── Test 1: Infrastructure wiring assertions (all PASS in WIP) ────
   test('ortho z=0 pitch=80: backend infrastructure wired correctly', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
@@ -296,7 +318,6 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
 
   // ── Test 2: Curvature + facet check ───────────────────────────────
   test('ortho z=0 pitch=80: bg fill curves inside disc', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
@@ -379,7 +400,6 @@ test.describe('AC2c.3.2 — SyntheticEarthSurfaceBackend mesh density (32×16)',
 
   // ── Test 3: Pixel-diff gate vs baseline (≤0.5% ceiling) ───────────
   test('ortho z=0 pitch=80: pixel-diff vs baseline ≤0.5%', async ({ page }) => {
-    test.setTimeout(60_000)
     await page.setViewportSize({ width: W, height: H })
 
     const errors: string[] = []
