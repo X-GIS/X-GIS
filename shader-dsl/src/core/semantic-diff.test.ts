@@ -21,7 +21,7 @@
 // not account for.
 
 import { describe, it, expect } from 'vitest'
-import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT } from './ir'
+import { fn, module, sin, vec2, vec4, f32T, vec2fT, vec4fT, Let } from './ir'
 import { builtin, ioStruct, location, uniformStruct } from './sot'
 import { mangleModule } from './passes/mangle'
 import { inlineLinearAll } from './passes/inline-linear'
@@ -159,6 +159,18 @@ describe('semanticDiff — one axis per bucket', () => {
 describe('semanticDiff — declared transforms (#1806)', () => {
   const inlined = inlineLinearAll(base)
 
+  // A LINEAR multi-statement helper (let, let, return — the noise shape from
+  // inline-linear.test.ts): inlining it goes through inlineLinearFn's STATEMENT
+  // LIFTING, never inlineFn's plain substitution — the shape every fixture above
+  // exercises instead. See the two arms at the bottom of this describe block.
+  const shadeMulti = fn('shade', { x: f32T }, (p) => {
+    const a = Let('a', sin(p.x))
+    const s = Let('s', a.mul(0.5))
+    return s.add(0.5)
+  })
+  const multiBase = build(shadeMulti)
+  const multiInlined = inlineLinearAll(multiBase)
+
   it('inline() actually rewrites this module (the arms below are not vacuous)', () => {
     expect(inlined).not.toBe(base)
     const raw = semanticDiff(base, inlined)
@@ -213,6 +225,43 @@ describe('semanticDiff — declared transforms (#1806)', () => {
     expect(d.explained).toEqual([])
     const { explained: _, ...residue } = d
     expect(residue).toEqual(semanticDiff(base, build(shadeLit)))
+  })
+
+  it('a CONTROL-FLOW regression survives a declared transform, even under `inline()`', () => {
+    // Same shape as the constants-axis regression above, but on `controlFlow`: b
+    // went through the SAME declared pipeline (inline) but the helper itself has a
+    // real regression — `shadeShape`'s mul/add operands swapped, same literal
+    // multiset (see its definition above `build`) — so the raw diff mixes lines
+    // the inlining explains (the `shade` fn vanishing) with lines the swap causes,
+    // in the SAME bucket. A classifier that PATTERN-MATCHES "this diff looks like
+    // inlining" rather than reconstructing it — as semanticDiff does, by actually
+    // running inline()'s own transformIR and diffing the result — could not tell
+    // those apart and would drain the swap too, leaving `d.controlFlow` empty.
+    const regressed = inlineLinearAll(build(shadeShape))
+    const d = semanticDiff(base, regressed, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.controlFlow.length).toBeGreaterThan(0)
+    expect(d.constants).toEqual([])
+    expect(d.explained.some((e) => e.bucket === 'controlFlow')).toBe(true)
+  })
+
+  it('a linear multi-statement helper inlines by LIFTING — the caller body actually grows', () => {
+    expect(multiInlined).not.toBe(multiBase)
+    // The lifted temps (`_inl0_a`, `_inl0_s`, `_inl0_ret`, …) canon to positional ids
+    // like any other local under the default ignore set, so a bigger diff here is
+    // not a naming artifact: statement lifting splices real NEW statements into the
+    // caller, unlike the single-expression substitution above (`base`/`inlined`),
+    // which only rewrites an existing statement's expression tree in place.
+    const rawSingle = semanticDiff(base, inlined)
+    const rawMulti = semanticDiff(multiBase, multiInlined)
+    expect(isSemanticallyEqual(rawMulti)).toBe(false)
+    expect(rawMulti.controlFlow.length).toBeGreaterThan(rawSingle.controlFlow.length)
+  })
+
+  it('…and the LIFTED difference is explained too, not fail-able', () => {
+    const d = semanticDiff(multiBase, multiInlined, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(true)
+    expect(d.explained.some((e) => e.bucket === 'controlFlow')).toBe(true)
   })
 })
 
