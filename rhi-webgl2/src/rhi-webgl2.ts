@@ -169,6 +169,18 @@ interface Gl2Pipeline {
   layouts: ReadonlyArray<Gl2BindGroupLayout>
 }
 
+/** WebGL2's per-attribute ENABLED state lives on the context-wide default VAO (#1796) —
+ *  it is not part of any pipeline or pass object, and it outlives every one of them, so
+ *  tracking it per-pass (like `Gl2Pipeline`) would leave whatever a PRIOR pass last
+ *  enabled still enabled for a pass that never touches those locations. One instance is
+ *  owned by `WebGl2Device` and threaded into every `WebGl2RenderPass` it creates. A
+ *  bitmask (not `Set<number>`): `bindAttributes` runs every draw and must never issue a
+ *  `gl.getVertexAttrib` query (a synchronous driver round-trip) to find out what is live —
+ *  it reconciles against this instead. */
+interface Gl2AttribState {
+  mask: number
+}
+
 import { minFilterEnum, resolveAnisotropy } from './webgl2-texture-sampling'
 import { DeviceLifecycle, loseGl2ContextForTeardown } from './device-lifecycle'
 
@@ -283,6 +295,9 @@ class WebGl2RenderPass implements RhiRenderPass {
   private stencilRef = 0
   constructor(
     private readonly gl: WebGL2RenderingContext,
+    /** The device's single context-wide attrib-enabled bitmask (#1796) — shared across
+     *  every pass/pipeline switch, never owned by this pass. */
+    private readonly attribState: Gl2AttribState,
     /** Offscreen passes restore FBO 0 + the screen viewport here (#834 M5);
      *  absent on the screen pass (finished via endScreenPass instead). */
     private readonly onEnd?: () => void,
@@ -424,16 +439,47 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
+  /** Reconcile the context-wide attrib-enabled set against what THIS draw needs, then
+   *  (re)point the needed locations at the live vertex buffer. Two locals: the pipeline
+   *  with no vertexBuffers (the line pipeline, #1796) or a pass with no bound vertex
+   *  buffer both mean `needed = 0` — the early-out below must still fall through to the
+   *  disable step, or a prior draw's enabled locations leak into this one with no buffer
+   *  bound to them, and the next `drawArrays*` raises `INVALID_OPERATION` and is DROPPED. */
   private bindAttributes(): void {
     const gl = this.gl
     const pl = this.cur
-    if (!pl || !this.vbuf) return
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuf.buf)
-    for (const vb of pl.vertexBuffers) {
+    const hasBuf = !!(pl && this.vbuf)
+    let needed = 0
+    if (hasBuf) {
+      for (const vb of pl!.vertexBuffers) {
+        for (const a of vb.attributes) {
+          // Bitmask width guard (#1796) — WebGL2 guarantees MAX_VERTEX_ATTRIBS ≥ 16 and
+          // every declared vertex format today tops out at location 9 (polygon-vertex-
+          // format.ts); a location this high means the mask below would silently lose it.
+          if (a.location >= 32)
+            throw new Error(
+              `webgl2: vertex attribute location ${a.location} exceeds the 32-bit attrib-enabled bitmask (rhi-webgl2/src/rhi-webgl2.ts bindAttributes)`,
+            )
+          needed |= 1 << a.location
+        }
+      }
+    }
+    const state = this.attribState
+    let stale = state.mask & ~needed
+    for (let loc = 0; stale !== 0; loc++, stale >>>= 1) {
+      if (stale & 1) gl.disableVertexAttribArray(loc)
+    }
+    let fresh = needed & ~state.mask
+    for (let loc = 0; fresh !== 0; loc++, fresh >>>= 1) {
+      if (fresh & 1) gl.enableVertexAttribArray(loc)
+    }
+    state.mask = needed
+    if (!hasBuf) return
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuf!.buf)
+    for (const vb of pl!.vertexBuffers) {
       for (const a of vb.attributes) {
         const fmt = VFMT[a.format]
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
-        gl.enableVertexAttribArray(a.location)
         const glType =
           fmt.type === 'f32'
             ? gl.FLOAT
@@ -606,7 +652,7 @@ class WebGl2FrameEncoder implements RhiCommandEncoder {
  *  (the caller sets viewport / clears / binds the target FBO first), mirroring how
  *  wrapWebGpuPass adopts an externally-created encoder. */
 export function wrapWebGl2Pass(device: WebGl2Device): RhiRenderPass {
-  return new WebGl2RenderPass(device.gl)
+  return new WebGl2RenderPass(device.gl, device.attribState)
 }
 
 /** FBO-0 sentinel screen view (#1046 F2, §2.4) — inert marker returned by
@@ -636,6 +682,10 @@ export class WebGl2Device implements RhiDevice {
    *  absent and asking bought nothing; a caller reads this instead of inferring from the
    *  platform, which is what makes the degrade OBSERVABLE rather than silent. */
   readonly maxAnisotropy: number
+  /** #1796 — the ONE context-wide vertex-attrib-enabled bitmask, shared by every
+   *  `WebGl2RenderPass` this device creates (see `Gl2AttribState`). Public like `gl`:
+   *  `wrapWebGl2Pass` (outside the class) needs to thread it into a pass too. */
+  readonly attribState: Gl2AttribState = { mask: 0 }
   /** GL errors drained at endScreenPass (the WebGPU `_validationErrors` analog —
    *  WebGL2 has no async validation queue, so we poll `gl.getError()` per frame). */
   private _glErrors: string[] = []
@@ -797,7 +847,7 @@ export class WebGl2Device implements RhiDevice {
     // No onEnd: the screen pass is finished by the frame encoder's finish() → finishFrame()
     // (flush + error drain). A nested offscreen pass restores FBO 0 + the screen viewport
     // itself (its own onEnd), so the screen pass stays the active target after it ends.
-    return new WebGl2RenderPass(gl)
+    return new WebGl2RenderPass(gl, this.attribState)
   }
 
   /** Per-frame present for the chain path (the `endScreenPass` analog reached through
@@ -845,7 +895,7 @@ export class WebGl2Device implements RhiDevice {
       gl.depthMask(true)
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT)
     }
-    return new WebGl2RenderPass(gl)
+    return new WebGl2RenderPass(gl, this.attribState)
   }
 
   /** Screen viewport remembered by beginScreenPass; restored when a nested
@@ -929,7 +979,7 @@ export class WebGl2Device implements RhiDevice {
       gl.stencilMask(0xff)
       gl.clearBufferfi(gl.DEPTH_STENCIL, 0, ds.depthClearValue ?? 1, ds.stencilClearValue ?? 0)
     }
-    return new WebGl2RenderPass(gl, () => {
+    return new WebGl2RenderPass(gl, this.attribState, () => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, this._screenW, this._screenH)
     })
@@ -1427,7 +1477,7 @@ export class WebGl2Device implements RhiDevice {
       gl.viewport(0, 0, wOut, hOut)
       gl.disable(gl.BLEND) // blending is illegal on an integer attachment
       gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))
-      const pass = new WebGl2RenderPass(gl)
+      const pass = new WebGl2RenderPass(gl, this.attribState)
       pass.setPipeline(pipeline)
       pass.setBindGroup(0, bindGroup)
       const loc = gl.getUniformLocation(un<Gl2Pipeline>(pipeline).program, 'u_count')
