@@ -122,8 +122,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     "spec's own header: Compute is SwiftShader-viable, so it is a CI gate -- CI-viable, pending registration (#1349)",
   '_cold-start-perf.spec.ts':
     'mixed local+network cases (#1349 census: 2 of the 47 stability/perf specs) -- local + openfreemap/PMTiles cases in one file; needs splitting before any CI use (#1349)',
-  '_compute-path-continent-match.spec.ts':
-    "the #1817/#1808 flagship example -- real defect (32.5% compute-vs-CPU divergence) fixed by #1818; #1808's own verification bar calls for registering this spec in test.yml once fixed, which is #1349/test.yml's separate work (out of scope for this audit-only change) -- pending registration (#1349)",
   '_convert-page-redesign.spec.ts':
     "targets the SITE Astro dev server (port 4321) via a throwaway static server the spec itself spins up -- Playwright's dev-server config here points only at the playground harness registered specs use; needs separate CI wiring before registration (#1349)",
   '_desktop-baseline-z10.spec.ts':
@@ -677,8 +675,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   '_stroke-align-compare.spec.ts':
     'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
   '_stroke-outset-detail.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_synth-bg-ortho-pitch80.spec.ts':
     'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
   '_text-overlay.spec.ts':
     'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
