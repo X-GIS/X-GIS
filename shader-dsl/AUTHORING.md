@@ -1298,6 +1298,64 @@ const device = await adapter.requestDevice({
 })
 ```
 
+### Compute on WebGL2 — the portable kernel tier (#1812)
+
+A `stage: 'compute'` entry declared `portable: true` is guaranteed to emit on **both**
+backends: natively as `@compute` on WGSL (zero byte change — `portable` is not a WGSL
+attribute), and on GLSL ES 3.00 through the compute→fragment-GPGPU lowering
+(`lowerComputeToFragment`) run with **no emit option**. In exchange the kernel must stay
+inside the **gather-only tier**:
+
+```ts
+const kernel = fn(
+  'eval_field',
+  { gid: builtin('global_invocation_id', vec3uT) },
+  ({ gid }) => {
+    const fid = gid.x
+    // … reads only, one write …
+    outColor.at(fid).assign(pack4x8unorm(color))
+  },
+  { stage: 'compute', workgroupSize: 64, portable: true },
+)
+```
+
+- `global_invocation_id` used only as `.x` (1-D linear index).
+- Exactly one `read_write` storage binding, element `array<u32>`, written **exactly once**,
+  at index `gid.x` — any scatter write, a second write, or zero writes fails.
+- A first `uniform` binding of type `vec4<u32>` — the **dispatch uniform**:
+
+  | field | meaning                   |
+  | ----- | ------------------------- |
+  | `.x`  | invocation count          |
+  | `.y`  | output-grid width (W_out) |
+  | `.z`  | unused (reserved)         |
+  | `.w`  | unused (reserved)         |
+
+- No `raw` statements anywhere the entry's call graph can reach (a per-target escape hatch
+  contradicts the portability claim).
+
+Anything outside that shape fails validation at **every** emit, on both writers, with
+`SD0111` and a per-violation remedy — declaring `portable` without `stage: 'compute'` fails
+at build time with `SD0110`. `analyzePortableKernel` (`core/passes/portable-kernel.ts`) is
+the single authority for the shape; the lint rule `portable-kernel` runs it at every
+`validate()`.
+
+**Host contract:** the WebGL2 lowering changes how the kernel is _dispatched_, not just how
+it is _emitted_ — the host must submit a fullscreen **draw** into an R32UI target instead of
+a compute dispatch. `rhi-webgl2/src/compute-webgl2.ts` already absorbs this difference, so a
+kernel author does not choose it per call site; declaring `portable` is what lets the
+WebGL2 RHI recognize the kernel as eligible for that path.
+
+**Outside the tier:** barriers, workgroup memory, atomics, scatter writes, and multi-output
+kernels are not in v1 — none of those are authorable in the DSL today except via the shapes
+`SD0111` already rejects. A kernel that needs one of them stays WebGPU-only (omit
+`portable`), or is restructured into multiple gather-only passes.
+
+**`emulateCompute` is deprecated** in favor of this tier: pass `portable: true` at the
+authoring site instead of `emulateCompute: true` at the emit call site. The flag still works,
+unchanged, as the synonym for undeclared kernels — nothing that passes it today has to
+change.
+
 ## 11. Conditional programs — build-time specialisation, not `#define`
 
 A shader that must differ by feature — elevation present or absent, 3D or flat, an
