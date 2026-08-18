@@ -37,8 +37,12 @@ import {
 } from '../ir'
 
 // ── an IO-struct FIELD carrying the absent builtin (the sot-authored shape) ──
+// The WgslBuiltinName union now rejects the denylist names at tsc as well; these
+// fixtures keep the deliberate error to prove the EMIT-time gates (the raw-IR
+// backstop) still fire with their remedies — the two-layer pin pattern.
 const PointOut = ioStruct('PointOut', {
   clip_pos: builtin('position', vec4fT),
+  // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName)
   psize: builtin('point_size', f32T),
 })
 const pointSizeMod = (): ModuleDecl =>
@@ -55,6 +59,7 @@ const pointSizeMod = (): ModuleDecl =>
 const pointCoordMod = (): ModuleDecl =>
   module({
     funcs: [
+      // @ts-expect-error — 'point_coord' is not a WGSL builtin (WgslBuiltinName)
       fn('fs_pc', { pc: builtin('point_coord', vec2fT) }, (p) => vec4(p.pc.x, p.pc.y, 0, 1), {
         stage: 'fragment',
         retAttr: '@location(0)',
@@ -65,6 +70,7 @@ const pointCoordMod = (): ModuleDecl =>
 const fragCoordMod = (): ModuleDecl =>
   module({
     funcs: [
+      // @ts-expect-error — 'frag_coord' is not a WGSL builtin (WgslBuiltinName)
       fn('fs_fc', { fc: builtin('frag_coord', vec4fT) }, (p) => p.fc, {
         stage: 'fragment',
         retAttr: '@location(0)',
@@ -159,6 +165,7 @@ describe('wgsl — absent builtins fail closed (#1672)', () => {
       funcs: [
         fn('vs_ps_ret', {}, f32T, () => f32(4), {
           stage: 'vertex',
+          // @ts-expect-error — 'point_size' is not a WGSL builtin (WgslBuiltinName)
           retAttr: builtin('point_size', f32T),
         }),
       ],

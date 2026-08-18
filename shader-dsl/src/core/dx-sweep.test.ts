@@ -35,6 +35,7 @@ import {
   toI32,
   vec2fT,
   vec3fT,
+  vec3uT,
   vec4fT,
   texture2dfT,
   texture2dMsfT,
@@ -59,7 +60,7 @@ import {
   type ReadonlyNode,
   type ShaderType,
 } from './ir'
-import { structDecl, uniformStruct, arrayOf, resource } from './sot'
+import { structDecl, uniformStruct, arrayOf, resource, builtin } from './sot'
 import { emitModule } from './backends/wgsl'
 import type { FuncDecl } from './ir'
 
@@ -511,5 +512,24 @@ describe('single-target traps — switch scrutinee, boolean connectives, non-fin
     expect(() => f32(Infinity)).toThrow(/finite/)
     expect(() => vec3(0, NaN, 0)).toThrow(/finite/)
     expect(() => f32(1).add(Number.POSITIVE_INFINITY)).toThrow(/finite/)
+  })
+})
+
+describe('builtin(name) — the closed WGSL vocabulary (WgslBuiltinName)', () => {
+  it('typos and GLSL-isms reject at tsc; the real vocabulary (incl. feature-gated) compiles', () => {
+    // A typo'd name used to EMIT VERBATIM on WGSL (denylist stance) and die at
+    // naga with no authoring line; a GLSL-ism died only on one backend.
+    // @ts-expect-error — 'vertex_idx' is a typo, not a WGSL builtin
+    const typo = () => builtin('vertex_idx', u32T)
+    // @ts-expect-error — 'frag_coord' is the GLSL spelling; WGSL calls it position
+    const glslism = () => builtin('frag_coord', vec4fT)
+    void [typo, glslism]
+    // Positives: the core ids in production use, plus a feature-gated one —
+    // capability gating stays assertBuiltins'/builtinIn's job at EMIT, not the type's.
+    void builtin('position', vec4fT)
+    void builtin('frag_depth', f32T)
+    void builtin('global_invocation_id', vec3uT)
+    void builtin('subgroup_invocation_id', u32T)
+    expect(true).toBe(true)
   })
 })
