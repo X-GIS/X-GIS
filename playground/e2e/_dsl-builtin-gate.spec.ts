@@ -330,8 +330,16 @@ const fs = fn(
       's',
       unpack2x16float(pf).x.add(unpack2x16unorm(pu).y).add(unpack2x16snorm(ps).x),
     )
+    // The PORTABLE fragment-coordinate read — @builtin(position) on the fragment
+    // input, spelled gl_FragCoord by the GLSL writer. This is the form the retired
+    // `frag_coord` alias's remedy points authors at, so the gate proves it compiles
+    // on both real drivers (mind the y-origin difference when consuming .y).
+    const fcx = b.let('fcx', member(inp, 'position', vec4fT).x.mul(0.0001))
     const out = b.var('out', structT('FsOut'))
-    b.assign(member(out, 'color', vec4fT), vec4(saturate(hyp), s, round(uy.mul(4)), f32(1)))
+    b.assign(
+      member(out, 'color', vec4fT),
+      vec4(saturate(hyp).add(fcx), s, round(uy.mul(4)), f32(1)),
+    )
     b.ret(out)
   },
   { stage: 'fragment' },
@@ -358,6 +366,7 @@ test.describe('DSL builtin gate — GLSL ES 3.00 (real WebGL2 compile + link)', 
       'unpackHalf2x16(',
       'unpackUnorm2x16(',
       'unpackSnorm2x16(',
+      'gl_FragCoord', // the fragment-input position read — the portable frag_coord form
     ]) {
       expect(fragment, `fragment GLSL must contain ${s}`).toContain(s)
     }

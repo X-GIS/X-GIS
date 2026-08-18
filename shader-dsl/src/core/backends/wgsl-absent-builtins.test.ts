@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitModule } from './wgsl'
+import { emitGlslModule } from './glsl'
 import { UnsupportedFeatureError } from '../backend'
 import { ioStruct, builtin, location } from '../sot'
 import {
@@ -101,9 +102,18 @@ describe('wgsl — absent builtins fail closed (#1672)', () => {
     expect(() => emitModule(pointCoordMod())).toThrow(/@builtin\(point_coord\)/)
   })
 
-  it('@builtin(frag_coord) — legal on the GLSL writer, absent in WGSL — throws with the remedy', () => {
+  it('@builtin(frag_coord) — absent in WGSL — throws with the remedy naming position', () => {
     expect(() => emitModule(fragCoordMod())).toThrow(UnsupportedFeatureError)
     expect(() => emitModule(fragCoordMod())).toThrow(/@builtin\(position\)/)
+  })
+
+  // The GLSL writer used to accept frag_coord as a gl_FragCoord ALIAS, so exactly this
+  // module emitted fine on WebGL2 and died only when the WGSL writer ran — the
+  // works-on-one-backend trap. Both writers now reject it with the SAME remedy, so the
+  // error arrives on the FIRST emit, whichever backend that is.
+  it('@builtin(frag_coord) — the GLSL writer rejects the retired alias with the same remedy', () => {
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(UnsupportedFeatureError)
+    expect(() => emitGlslModule(fragCoordMod(), 'fragment')).toThrow(/@builtin\(position\)/)
   })
 
   // The pre-pass must add ZERO bytes to a legal module. This is the exact string the

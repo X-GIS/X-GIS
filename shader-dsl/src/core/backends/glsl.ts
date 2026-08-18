@@ -225,12 +225,24 @@ function ioAttr(
 // builtin writes TO one, and `position` differs by direction — a vertex shader WRITES
 // gl_Position, a fragment shader READS clip-space position as gl_FragCoord (gl_Position
 // is write-only in the vertex stage, unreadable in the fragment stage).
+// NB on the fragment-input `position` mapping: gl_FragCoord's window-space origin is
+// BOTTOM-left while WGSL's fragment `position` is TOP-left framebuffer space — a
+// consumer that reads `.y` off this builtin needs a per-target flip (or must derive
+// its quantity y-symmetrically) before the two backends agree pixel-for-pixel.
 const BUILTIN_IN: Readonly<Record<string, string>> = {
   position: 'gl_FragCoord', // a readable @builtin(position) is a fragment input → gl_FragCoord
   vertex_index: 'gl_VertexID',
   instance_index: 'gl_InstanceID',
-  frag_coord: 'gl_FragCoord',
   front_facing: 'gl_FrontFacing',
+}
+// One name per semantic: `frag_coord` was a GLSL-only ALIAS of the fragment-input
+// `position` row above, so a module authored against it emitted fine here and died
+// only when the WGSL writer ran (works-on-WebGL2, fails-on-WebGPU — the asymmetry
+// trap). The builtin vocabulary is WGSL's (`builtin(name, …)` docs); the alias now
+// fails closed HERE too, with the same prescriptive remedy the WGSL denylist prints.
+const BUILTIN_IN_REMEDY: Readonly<Record<string, string>> = {
+  frag_coord:
+    "spell it @builtin(position) on the fragment input — the builtin vocabulary is WGSL's, and this writer reads that as gl_FragCoord",
 }
 const BUILTIN_OUT: Readonly<Record<string, string>> = {
   position: 'gl_Position',
@@ -239,10 +251,14 @@ const BUILTIN_OUT: Readonly<Record<string, string>> = {
 
 function builtinIn(b: string): string {
   const g = BUILTIN_IN[b]
-  if (!g)
+  if (!g) {
+    const remedy = BUILTIN_IN_REMEDY[b]
     throw new UnsupportedFeatureError(
-      `glsl-es300: unsupported input @builtin(${b}) — no readable gl_* mapping`,
+      remedy !== undefined
+        ? `glsl-es300: @builtin(${b}) ${remedy}`
+        : `glsl-es300: unsupported input @builtin(${b}) — no readable gl_* mapping`,
     )
+  }
   return g
 }
 function builtinOut(b: string): string {
