@@ -44,6 +44,7 @@ import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment'
 import { bodyHasRaw } from '../passes/opt/dce'
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform'
+import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel'
 import { dslError } from '../diagnostics/error'
 import { f32Lit } from './wgsl'
 import {
@@ -1073,13 +1074,27 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
  *
  *  @throws {UnsupportedFeatureError} on anything outside the gather-only shape — a scatter
  *  write, more than one output write, or a `global_invocation_id` use other than `.x`. That
- *  is deliberate: the invariant is operationalized, never trusted. */
+ *  is deliberate: the invariant is operationalized, never trusted.
+ *
+ *  @throws {ShaderDslError} `SD0111` instead of the above when the entry is
+ *  `portable`-declared (#1812): the tier's shape has ONE authority
+ *  (`passes/portable-kernel.ts`), so a declared kernel is checked there and reports EVERY
+ *  violation with its remedy, rather than the first ad-hoc throw this pass happens to reach.
+ *  The undeclared / `emulateCompute` path keeps the throws below verbatim. */
 export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   const entry = m.funcs.find(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
   )
   if (!entry)
     throw new UnsupportedFeatureError('glsl-es300 compute-emul: no @compute entry in module')
+  // A portable-declared kernel is gated by the tier analyzer FIRST — the single authority for
+  // the shape, shared with the `portable-kernel` lint rule so both writers report the same
+  // sentences. The ad-hoc throws below stay as they are for the undeclared path (their exact
+  // messages are pinned by the M2a tests).
+  if (isPortableComputeEntry(entry)) {
+    const tier = analyzePortableKernel(m, entry)
+    if (!tier.ok) throw dslError('SD0111', tier.violations.join('; '))
+  }
   const gid = entry.params.find((p) => ioAttr(p).builtin === 'global_invocation_id')
   if (!gid)
     throw new UnsupportedFeatureError(
@@ -1230,6 +1245,17 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
   const rewritten: FuncDecl = {
     ...entry,
     attrs: ['@fragment'],
+    // The STRUCTURED stage must move with the attrs (#740 R3): stageOf reads it first, so a
+    // structured-authored compute entry (every fn()-authored one, hence every portable one)
+    // would otherwise stay stage: 'compute' behind an '@fragment' attr — and assembleGlsl's
+    // stage filter, which goes through stageOf, would find no fragment entry to spell.
+    // Byte-neutral for the attrs-only M2a fixture: stageOf already answered 'fragment' there.
+    stage: 'fragment',
+    workgroupSize: undefined,
+    // The tier declaration is compute-only and this entry is no longer a compute entry, so it
+    // does not survive the rewrite — which is also what keeps the portable-kernel lint rule
+    // (CORE, so it runs again on this lowered module) from analysing a fragment entry.
+    portable: undefined,
     params: [
       { name: 'xgis_frag_pos', type: vec4fT, builtin: 'position' },
       ...entry.params.filter((p) => p !== gid),
@@ -1327,7 +1353,20 @@ export interface GlslEmitOptions extends EmitOptions {
    *  lowerComputeToFragment). OPT-IN, unlike the storage lowering: it rewrites the
    *  compute entry into a fragment entry, so the host must dispatch a fullscreen DRAW
    *  into an R32UI target instead of a compute dispatch — a host contract, not a
-   *  platform fact. Implies the storage lowering for the surviving read bindings. */
+   *  platform fact. Implies the storage lowering for the surviving read bindings.
+   *
+   *  @deprecated SUPERSEDED by the PORTABLE KERNEL TIER (#1812) — declare the kernel
+   *  `fn(…, { stage: 'compute', portable: true })` and this lowering runs with no emit option
+   *  at all. The paragraph above is the recorded reason auto-lowering was rejected, and it is
+   *  kept because it is still correct: the rewrite changes the HOST contract, so it must never
+   *  be a silent platform default. The declaration ANSWERS that objection rather than ignoring
+   *  it — the choice moves from the emit call site (a flag a caller can flip without the
+   *  kernel author's knowledge) to the AUTHORING site, where the kernel's shape is decided and
+   *  where the tier's gather-only contract can be validated at every emit on both writers
+   *  (SD0111); and the RHI layer that owns the host contract already speaks it
+   *  (`rhi-webgl2/src/compute-webgl2.ts` dispatches compute as a fullscreen draw into an R32UI
+   *  target). This flag remains as the synonym for UNDECLARED kernels — same code path, same
+   *  bytes — so nothing that passes it has to change. */
   emulateCompute?: boolean
   /** #923 host specialization — pin `override` values for THIS emit. GLSL ES 3.00
    *  has no driver-side spec constants, so a specialized variant is a re-emit: each
@@ -1384,11 +1423,14 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // carries a storage binding (WebGL2 has no SSBO — a platform fact, not a caller choice),
   // so the rewritten module carries none (assertCaps then passes with the normal
   // empty-caps backend). A module WITHOUT a storage binding takes the untouched path.
-  // Opt-in compute→fragment lowering runs FIRST (strips the @compute attr + the
+  // The compute→fragment lowering runs FIRST (strips the @compute attr + the
   // read_write `out_color` binding, which lowerStorageToDataTexture would throw on),
-  // then storage→data-texture converts the remaining `feat_data` read. emulateCompute
-  // stays OPT-IN because it rewrites a compute entry into a fragment entry — a host
-  // contract (the caller must dispatch a draw, not a dispatch), not a platform fact.
+  // then storage→data-texture converts the remaining `feat_data` read. It is still never a
+  // silent platform default — the rewrite changes the HOST contract (draw, not dispatch) —
+  // but the choice now has TWO spellings: the DECLARATION `portable: true` on the compute
+  // entry (#1812; made at the authoring site, gated by the tier analyzer at every emit on
+  // both writers) and the older `emulateCompute` emit option, which supersedes to it and
+  // stays as the synonym for undeclared kernels. Same code path, same bytes.
   // autoVars must run BEFORE any cloning IR→IR pre-pass: it materialises
   // assigned plain-value bindings by Expr OBJECT IDENTITY (see auto-vars.ts),
   // and the storage/compute lowerings clone expression trees — running them
@@ -1397,12 +1439,15 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // twin returned position = vec4(0) this way). autoVars is a no-op on an
   // already-materialised module, so lowerForBackend's own autoVars stays.
   const hasStorage = m.bindings.some((b) => b.space === 'storage')
-  // A @compute module WITHOUT {emulateCompute} keeps the old fail-close (assertCaps
-  // naming 'compute') — default-lowering its storage first would replace that diagnosis
-  // with a storage-shape error pointing away from the actual fix (the missing opt-in).
+  // An UNDECLARED @compute module without {emulateCompute} keeps the old fail-close
+  // (assertCaps naming 'compute') — default-lowering its storage first would replace that
+  // diagnosis with a storage-shape error pointing away from the actual fix (declare the
+  // kernel portable, or pass the opt-in). A PORTABLE-declared entry takes the lowering with
+  // no option: that is the tier's whole contract (#1812).
   const hasComputeEntry = m.funcs.some(
     (f) => f.stage === 'compute' || f.attrs?.some((a) => a.startsWith('@compute')),
   )
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- this IS the deprecated flag's implementation; reading it here is what keeps it working as the undeclared-kernel synonym.
   const src = opts?.emulateCompute
     ? lowerStorageToDataTexture(lowerComputeToFragment(autoVars(m)))
     : hasStorage && !hasComputeEntry
@@ -1624,6 +1669,7 @@ function assembleGlsl(
     // able to ride on the declaration itself (#1711).
     else if (
       b.space === 'uniform' &&
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- see lowerForGlsl: the deprecated flag's own implementation.
       (b.owner === 'host' || opts?.emulateCompute) &&
       (b.type.kind === 'scalar' || b.type.kind === 'vec' || b.type.kind === 'mat')
     )
@@ -1694,17 +1740,37 @@ interface GlslAssembly {
 const joinGlsl = (a: GlslAssembly, opts?: GlslEmitOptions): string =>
   applyTextPlugins([...a.preamble, '', ...a.sections].join('\n') + '\n', opts)
 
+/** Resolve the PORTABLE KERNEL declaration (#1812) into this emit's options, ONCE, at the
+ *  entry points — a portable-declared compute entry asks for exactly what `emulateCompute`
+ *  asks for, so the tier takes the SAME code path rather than a parallel one.
+ *
+ *  Done as an option normalization rather than as a second condition inside `lowerForGlsl`
+ *  because the compute-GPGPU emit reads the flag in TWO places: the IR half (which lowering
+ *  chain runs) and the SPELLING half (`assembleGlsl`'s bare default-block `u_count: uvec4`,
+ *  which a std140 block would break for the WebGL2 dispatcher). Normalizing makes the auto
+ *  path byte-identical to the flag path by construction, for every combination of the other
+ *  options, instead of by two conditions that must be kept in step. */
+function withPortableLowering<T extends GlslEmitOptions>(m: ModuleDecl, opts?: T): T | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- normalizing INTO the deprecated flag is the point: one code path, not two.
+  if (opts?.emulateCompute === true || !m.funcs.some(isPortableComputeEntry)) return opts
+  // Principled cast: T's own members all ride along through the spread; only the
+  // GlslEmitOptions half is being set, and `emulateCompute` is optional in every T.
+  return { ...opts, emulateCompute: true } as T
+}
+
 /** Emit one stage (or, with `stage` omitted, the whole module) as GLSL ES 3.00. */
 export function emitGlslModule(
   m: ModuleDecl,
   stage?: 'vertex' | 'fragment',
   opts?: GlslEmitOptions,
 ): string {
+  // The portable declaration resolves into the options FIRST (see withPortableLowering).
+  const o = withPortableLowering(m, opts)
   // The `#extension` header comes from the AUTHORED module (#1670) — see assembleGlsl's
   // `extHeader` param.
   return joinGlsl(
-    assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, opts), stage, opts),
-    opts,
+    assembleGlsl(glslEs300Backend.modulePreamble?.(m) ?? '', lowerForGlsl(m, o), stage, o),
+    o,
   )
 }
 
@@ -1731,16 +1797,18 @@ export function emitGlslFragment(
   stage?: 'vertex' | 'fragment',
   opts?: GlslEmitOptions & { entryPoints?: boolean },
 ): EmitFragment {
+  // The portable declaration resolves into the options FIRST (see withPortableLowering).
+  const o = withPortableLowering(m, opts)
   const a = assembleGlsl(
     glslEs300Backend.modulePreamble?.(m) ?? '',
-    lowerForGlsl(m, opts),
+    lowerForGlsl(m, o),
     stage,
-    opts,
+    o,
     undefined,
-    opts?.entryPoints !== true,
+    o?.entryPoints !== true,
   )
   return {
-    source: applyTextPlugins(a.sections.join('\n') + '\n', opts),
+    source: applyTextPlugins(a.sections.join('\n') + '\n', o),
     preamble: a.preamble,
     declares: a.declares,
     requires: a.requires,
@@ -1765,15 +1833,14 @@ export function emitGlslStages(
   m: ModuleDecl,
   opts?: GlslEmitOptions & { vertexEntry?: string; fragmentEntry?: string },
 ): { vertex: string; fragment: string } {
-  const lowered = lowerForGlsl(m, opts)
+  // The portable declaration resolves into the options FIRST (see withPortableLowering).
+  const o = withPortableLowering(m, opts)
+  const lowered = lowerForGlsl(m, o)
   // Computed ONCE from the AUTHORED module, then shared by both stages — the header is a
   // module-level fact, not a per-stage one (#1670).
   const extHeader = glslEs300Backend.modulePreamble?.(m) ?? ''
   return {
-    vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', opts, opts?.vertexEntry), opts),
-    fragment: joinGlsl(
-      assembleGlsl(extHeader, lowered, 'fragment', opts, opts?.fragmentEntry),
-      opts,
-    ),
+    vertex: joinGlsl(assembleGlsl(extHeader, lowered, 'vertex', o, o?.vertexEntry), o),
+    fragment: joinGlsl(assembleGlsl(extHeader, lowered, 'fragment', o, o?.fragmentEntry), o),
   }
 }

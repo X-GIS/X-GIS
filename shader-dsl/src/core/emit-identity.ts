@@ -17,6 +17,8 @@
 // `buildRegistry` (#1716) takes it as `stamp` for that reason.
 
 import type { EmitOptions } from './emit'
+import type { ModuleDecl } from './ir'
+import { isPortableComputeEntry } from './passes/portable-kernel'
 
 /** 32-bit FNV-1a over the canonical form. Zero-dependency on purpose: `node:crypto` is not
  *  reachable from a browser-safe package, and this is a change DETECTOR, not a security
@@ -38,7 +40,12 @@ export type EmitTarget = 'wgsl' | 'glsl-es300'
  *  belongs in the identity — a new byte-changing option silently absent from the stamp is
  *  the exact failure this file exists to prevent. */
 export interface EmitIdentityInput extends EmitOptions {
-  /** GLSL only — `emitGlslModule({ emulateCompute })` rewrites the entry, so it is a mode. */
+  /** GLSL only — `emitGlslModule({ emulateCompute })` rewrites the entry, so it is a mode.
+   *
+   *  The marker means THE COMPUTE→FRAGMENT LOWERING RAN, not "this flag was passed": since
+   *  #1812 a `portable`-declared compute entry runs the same lowering with no option at all,
+   *  so pass the module as {@link emitIdentity}'s third argument and the marker is derived
+   *  from either source. */
   readonly emulateCompute?: boolean
   /** GLSL only — pinned `override` values become hard `#define`s, so they change the bytes. */
   readonly overrideValues?: Readonly<Record<string, number | boolean>>
@@ -68,19 +75,30 @@ export interface EmitIdentityInput extends EmitOptions {
  *
  * @param target - which backend emitted the artifact.
  * @param opts - the same options object handed to the emit call.
+ * @param m - OPTIONAL, and only meaningful when the identity describes ONE module's emit: the
+ * module that was emitted. The `emulateCompute` marker means the compute→fragment lowering
+ * RAN, and since #1812 a `portable`-declared compute entry runs it on GLSL with no emit option
+ * — so without the module a portable module's GLSL stamp would claim a plain emit. A stamp
+ * that covers MANY modules (a registry banner) omits this and keeps its option-only meaning.
  * @returns a one-line identity: a readable summary, then `#` and a 32-bit digest of it.
  */
-export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput): string {
+export function emitIdentity(target: EmitTarget, opts?: EmitIdentityInput, m?: ModuleDecl): string {
   const plugins = (opts?.plugins ?? []).map((p) => p.identity ?? p.name)
   // Sorted keys, so an object literal written in a different order is the same identity.
   const overrides = Object.entries(opts?.overrideValues ?? {})
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k}=${String(v)}`)
+  // The lowering RAN — by the option, or (GLSL only, #1812) because the module declares a
+  // portable compute entry, which takes the same path with no option. WGSL never runs it,
+  // so the target gates the declaration half.
+  const emulateCompute =
+    opts?.emulateCompute === true ||
+    (target === 'glsl-es300' && m !== undefined && m.funcs.some(isPortableComputeEntry))
   const parts = [
     target,
     `parens=${opts?.parens ?? 'full'}`,
     `fp64=${opts?.fp64Flavor ?? 'float'}`,
-    ...(opts?.emulateCompute === true ? ['emulateCompute'] : []),
+    ...(emulateCompute ? ['emulateCompute'] : []),
     ...(overrides.length ? [`overrides=${overrides.join(',')}`] : []),
     `plugins=${plugins.length ? plugins.join('+') : '-'}`,
   ]

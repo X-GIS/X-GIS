@@ -585,6 +585,22 @@ type FnOpts = {
   stage?: 'vertex' | 'fragment' | 'compute'
   /** Workgroup size for a `stage: 'compute'` entry (defaults to 64). */
   workgroupSize?: number
+  /** Declare this compute entry a PORTABLE KERNEL (#1812) — COMPUTE-ONLY (SD0110 otherwise).
+   *
+   *  The declaration is a contract: the kernel emits on BOTH backends — natively as
+   *  `@compute` on WGSL (zero byte change; `portable` is not a WGSL attribute) and, on GLSL
+   *  ES 3.00, through the compute→fragment-GPGPU lowering run with NO emit option, which
+   *  WebGL2 dispatches as a fullscreen draw into an R32UI target. In exchange the kernel
+   *  must stay inside the gather-only tier — `out[gid.x] = f(reads)`: a
+   *  `global_invocation_id` used only as `.x`, exactly one `read_write` storage binding of
+   *  `array<u32>` written exactly once at the invocation index, a first `uniform` binding of
+   *  `vec4<u32>` (the dispatch uniform: .x = invocation count, .y = output-grid width), and
+   *  no `raw` statements anywhere the entry can reach. Anything outside that fails validation
+   *  at EVERY emit on both writers with `SD0111` and a per-violation remedy.
+   *
+   *  See docs/plans/2026-08-18-portable-kernel-tier.md and #1812. Omit it to keep a compute
+   *  kernel WebGPU-only. */
+  portable?: boolean
   /** Return-value attribute for a bare (non-struct) stage output — `-> @location(0) vec4<f32>`.
    *  Accepts the typed `location(0, T)` FieldSpec too (#763 X3 — its `.attr` is used), and
    *  DEFAULTS to `@location(0)` for a bare non-struct fragment return (every observed site
@@ -705,6 +721,14 @@ export function fn(
   const inferred = explicitRet === undefined
   const body = (inferred ? retOrBody : named ? d : c) as FnBody<FnParamSpec, string>
   const opts = (named ? (inferred ? d : e) : inferred ? c : d) as FnOpts | undefined
+  // The portable kernel tier is a COMPUTE declaration (#1812) — the two-layer pattern's
+  // runtime half, checked here (before the body runs) because `FnOpts` is one flat bag and
+  // TS cannot make the pairing unrepresentable without splitting the overload set.
+  if (opts?.portable === true && opts.stage !== 'compute')
+    throw dslError(
+      'SD0110',
+      `fn '${name}' declares portable with ${opts.stage ? `stage: '${opts.stage}'` : 'no stage (an ordinary helper fn)'}`,
+    )
   // A param value is a plain ShaderType, a FieldSpec `{ type, attr }` (builtin/location)
   // for an entry-point param — the `attr` flows straight to the emitted `@builtin(…)`/
   // `@location(…)` — or a structDecl/ioStruct HANDLE (#740 R6), whose param arrives in
@@ -788,6 +812,8 @@ export function fn(
     // Structured stage (#740 R3) — reflect/backends read these; `attrs` stays the emit spelling.
     stage: opts?.stage,
     workgroupSize: opts?.stage === 'compute' ? (opts.workgroupSize ?? 64) : undefined,
+    // Structured-only, no attrs spelling (#740 R3 / #1812) — see FuncDecl.portable.
+    portable: opts?.portable,
     retAttr,
     retBuiltin,
     allowEarlyReturn: opts?.allowEarlyReturn,
@@ -805,6 +831,11 @@ export function fn(
     ret,
     body: decl.body,
     attrs: decl.attrs,
+    // #1812 — `portable` has NO attrs spelling by design, so unlike `stage`/`workgroupSize`
+    // it has no fallback to recover it from: a handle that did not mirror it would drop the
+    // declaration the moment module() put the handle (not the decl) into funcs[], and the
+    // whole tier would be silently dead on the only path that can author it — fn().
+    portable: decl.portable,
     retAttr: decl.retAttr,
     retBuiltin: decl.retBuiltin,
     allowEarlyReturn: decl.allowEarlyReturn,

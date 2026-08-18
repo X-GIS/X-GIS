@@ -27,6 +27,7 @@ import { noDeadBinding } from './no-dead-binding'
 import { callSignature } from './call-signature'
 import { smoothstepEdgeOrder } from './smoothstep-edge-order'
 import { fragmentOnlyBuiltin } from './fragment-only-builtin'
+import { portableKernel } from './portable-kernel'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -53,6 +54,7 @@ export const RULES: readonly LintRule[] = [
   callSignature,
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
+  portableKernel,
 ]
 
 export {
@@ -78,6 +80,7 @@ export {
   callSignature,
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
+  portableKernel,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
@@ -98,4 +101,9 @@ export const CORE_RULES: readonly LintRule[] = [
   // module (no style opinion), and its native failure is an opaque driver error —
   // so it belongs at emit, not lint-only.
   fragmentOnlyBuiltin,
+  // The portable kernel tier (#1812). CORE is the whole point: `portable: true` claims the
+  // kernel emits on BOTH backends, so the claim must be checked at every emit on BOTH
+  // writers — a lint-only gate would let a kernel that cannot lower for WebGL2 sail through
+  // every WGSL path. Silent for any module that declares no portable entry.
+  portableKernel,
 ]

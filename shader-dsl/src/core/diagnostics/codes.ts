@@ -176,6 +176,23 @@ export const CODES = {
     summary: 'a fragment-only builtin is reachable from a vertex or compute entry',
     hint: 'the fix is per-builtin and named in the diagnostic message itself — the fragment-only-builtin rule table (FRAGMENT_ONLY_IDS) is the single fix-authority',
   },
+
+  // ── The portable kernel tier (#1812) — passes/portable-kernel.ts ──
+  // SD0110 is the AUTHOR-RUN guard (fn() rejects the declaration on a non-compute stage);
+  // SD0111 is the SHAPE gate, reported per violation by the portable-kernel rule at every
+  // emit on both writers and thrown by the GLSL lowering. Like SD0109 the per-violation
+  // remedy travels in the diagnostic's own message — the analyzer is its single authority —
+  // so the hint below states the TIER, which is the invariant half.
+  SD0110: {
+    code: 'SD0110',
+    summary: 'portable declared on a non-compute entry',
+    hint: "portable is the compute-tier declaration — it needs stage: 'compute'",
+  },
+  SD0111: {
+    code: 'SD0111',
+    summary: 'portable kernel outside the gather-only tier',
+    hint: 'the portable tier is out[gid.x] = f(reads): 1-D gid, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only',
+  },
 } as const satisfies Record<string, ErrorCodeDef>
 
 /** The union of every diagnostic code the DSL can emit — `'SD0001' | 'SD0002' | …`, derived
