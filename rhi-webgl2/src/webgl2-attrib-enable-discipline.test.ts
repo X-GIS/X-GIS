@@ -131,9 +131,7 @@ describe('WebGl2RenderPass vertex-attrib enable/disable discipline (#1796)', () 
     pass.setPipeline(pipelineWithLocations([]))
     pass.draw(6)
 
-    const disabled = calls
-      .filter((c) => c.fn === 'disableVertexAttribArray')
-      .map((c) => c.args[0])
+    const disabled = calls.filter((c) => c.fn === 'disableVertexAttribArray').map((c) => c.args[0])
     expect(disabled.sort((a, b) => (a as number) - (b as number))).toEqual([0, 1])
 
     // The disables must land before the SECOND drawArrays — a location still enabled at
