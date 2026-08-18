@@ -28,6 +28,7 @@ import type { ShowCommand } from './renderer-types'
 import { resolveNumberShape } from './paint-shape-resolve'
 import type { InputStore } from './input-store'
 import { resolveShow, type ResolvedShow } from './resolved-show'
+import { variantProducesFill } from './renderer-helpers'
 import { isSafeMode } from '@xgis/engine'
 import { isOverdrawActive } from '../debug-flags'
 import type { RenderTraceRecorder, RGBA } from '../diagnostics/render-trace'
@@ -213,6 +214,23 @@ export interface ClassifierInput {
    *  Tests use this to flip translucent-stroke detection on/off
    *  without touching the global. */
   safeMode?: boolean
+  /** #1253 — may this frame route translucent extrusions to the layer-wide
+   *  SHELL bucket? Two facts compose into it at the call site (map.ts), and both
+   *  are frame-level truths the pure classifier has no way to see:
+   *
+   *   * the device must not be immediate-execution. A WebGL2 device renders NO
+   *     extrusions at all — `PipelineFactory.build()` fences on the backend so
+   *     the extrude Material twins are never built, and `renderFillsRhi` skips
+   *     every `cached.extruded` tile — so routing there would move the show's
+   *     fills out of the opaque bucket (losing its tile points with them) in
+   *     exchange for a shell pass whose compositor has no GLSL twin.
+   *   * `?debug=overdraw` must be off. That mode is whole-frame: the shell pass
+   *     is gated off, so its fills must stay in the opaque bucket where the
+   *     accumulator can still count them.
+   *
+   *  DEFAULTS FALSE, which is exactly the pre-#1253 classification — a caller
+   *  that does not opt in is byte-identical. */
+  extrudeShell?: boolean
   /** Optional render-trace recorder. When non-null, the classifier
    *  pushes one `TraceLayer` per visible layer with its fully-
    *  resolved paint state. Production code path leaves this null —
@@ -226,13 +244,38 @@ export interface ClassifierInput {
 export interface ClassifierResult {
   opaque: ClassifiedShow[]
   translucent: ClassifiedShow[]
-  /** Translucent extruded fills routed through Weighted-Blended OIT
-   *  (`fillPipelineExtrudedOIT` + accum/revealage RTs + compose).
-   *  The same show may also appear in `opaque` (for its strokes /
-   *  outlines via the regular line pipeline) and `translucent` (for
-   *  translucent strokes) — the buckets describe rendering phases,
-   *  not show identity. */
+  /** Translucent EXTRUDED fills, routed to the layer-wide front-shell pass
+   *  (#1253): each show's whole tile set draws into an offscreen colour target
+   *  with blending OFF and the opaque pass's depth loaded, so per pixel only
+   *  the front-most extruded surface across ALL tiles survives, and ONE
+   *  fullscreen composite blends it at the layer's fill alpha.
+   *
+   *  Named `oit` because it occupies the pass slot the (still-registered,
+   *  still-unrouted) weighted-blended OIT path was built for — that path stays
+   *  as the opt-in VOLUMETRIC alternative, which is a different look: it
+   *  accumulates every translucent fragment, front and back, so overlapping
+   *  surfaces get MORE opaque, exactly what this bucket exists to stop.
+   *
+   *  The same show may also appear in `opaque` (for its strokes / outlines via
+   *  the regular line pipeline) and `translucent` (for translucent strokes) —
+   *  the buckets describe rendering phases, not show identity. */
   oit: ClassifiedShow[]
+}
+
+/** The alpha a translucent EXTRUSION composites at — SINGLE authority for the
+ *  value the #1080 front shell gates on and the #1253 shell composite
+ *  multiplies its resolved colour by, so the routing decision and the composite
+ *  can never disagree about how transparent a layer is.
+ *
+ *  A data-driven fill computes its colour inside the variant pipeline, so the
+ *  layer opacity is all the CPU knows about it; every other fill folds the
+ *  resolved fill alpha in. Mirrors `VectorTileRenderer`'s own
+ *  `extrudeFillAlpha` (cachedFillColor.a × currentOpacity), which is the same
+ *  two values one resolve step downstream. */
+export function extrudeFillAlpha(show: ShowCommand, resolved: ResolvedShow): number {
+  return variantProducesFill(show.shaderVariant)
+    ? resolved.opacity
+    : (resolved.fill?.[3] ?? 0) * resolved.opacity
 }
 
 /** Classify a frame's vector tile shows into opaque + translucent
@@ -333,24 +376,48 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
     const isPureLine = !entry.show.fill && !!entry.show.stroke
     const isTranslucentStroke =
       !safeMode && composedOpa < 0.999 && !!entry.show.stroke && !isPureLine
-    // Extruded fill stays in the main opaque target — NO offscreen OIT MRT.
-    // (iter-193 reverted iter-192's offscreen accum/revealage path: its compose
-    // never populated the framebuffer on the buildings-only harness, a
-    // bind-group / attachment mismatch under the depth-write change.)
+    // Phase 4c-final: ResolvedShow snapshot is the SOLE per-frame paint-state
+    // carrier. The classifier no longer clones / mutates a ShowCommand; `show`
+    // on ClassifiedShow is the original immutable source. All downstream
+    // consumers read the resolved scalars / RGBA from resolvedShow. Resolved
+    // HERE (above the bucket decision, #1253) because the shell predicate needs
+    // the resolved fill alpha; it is pure, so the position only moves work
+    // earlier for a show that will be classified either way.
+    const resolvedShow = resolveShow(entry.show, {
+      cameraZoom: input.cameraZoom,
+      elapsedMs: input.elapsedMs,
+      inputs: input.inputs,
+    })
+    // #1080 — the translucent EXTRUDED case is not a plain single-pass
+    // alpha-blend + depth-test/write. That two-sided (cullMode 'none') draw
+    // over-blends back + interior walls, so overlapping/see-through buildings
+    // look too opaque and show their far faces. MapLibre draws a FRONT SHELL for
+    // fill-extrusion-opacity < 1 (it back-face culls); X-GIS matched that with a
+    // per-DRAW two-draw (depth prepass, then depth-`less-equal` colour with depth
+    // write off) inside recordFillDraw, keeping cullMode 'none' so concave
+    // interiors keep their nearest visible wall.
     //
-    // #1080 — the translucent case is NOT a plain single-pass alpha-blend +
-    // depth-test/write. That two-sided (cullMode 'none') draw over-blends back +
-    // interior walls, so overlapping/see-through buildings look too opaque and
-    // show their far faces. MapLibre draws a FRONT SHELL for
-    // fill-extrusion-opacity < 1 (it back-face culls). X-GIS matches that in the
-    // DRAW path, not here: the per-feature extrude draw renders the mesh twice —
-    // a DEPTH prepass then a depth-`less-equal` COLOUR pass with depth write OFF
-    // (VectorTileRenderer → recordFillDraw, gated on resolved fill alpha < 1),
-    // so only the front-most surface per pixel blends, once, while cullMode
-    // stays 'none' to keep concave interiors. `isOitExtrude` therefore stays
-    // false: the fix is the front-shell two-draw, not an offscreen composite.
-    const isOitExtrude = false
-    void composedOpa
+    // #1253 — that fix is per-DRAW and therefore per-TILE: two features in
+    // DIFFERENT tiles that overlap on screen each ran their own prepass+colour
+    // pair, so the shared pixel blended TWICE (the seam darkening on
+    // continent-scale extrusions and at the globe limb). The completion is the
+    // LAYER-WIDE form of the same rule: route the show to the shell bucket, draw
+    // its whole tile set into an offscreen colour target with blending OFF and
+    // the opaque depth loaded, then composite once. Replace-on-write is what
+    // makes it exact — it is independent of draw order AND of the coplanar depth
+    // ties two tiles' copies of a polygon produce in their shared buffer band.
+    //
+    // Predicate: a SOLID per-feature extrusion (the only shape with shell
+    // pipeline variants — a fill-PATTERN extrusion has none, so it stays on the
+    // opaque per-tile front shell) whose resolved fill alpha is translucent, on
+    // a frame allowed to run the shell pass at all.
+    const ex = entry.show.extrude
+    const isExtrudeSolid =
+      !!ex && (ex.kind === 'constant' || ex.kind === 'feature') && entry.show.fillPatternUV == null
+    const isOitExtrude =
+      (input.extrudeShell ?? false) &&
+      isExtrudeSolid &&
+      extrudeFillAlpha(entry.show, resolvedShow) < 0.999
     const noPick = entry.show.pointerEvents === 'none'
     const fp = noPick
       ? (entry.pipelines?.fillPipelineNoPick ??
@@ -401,8 +468,11 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
       : (entry.pipelines?.fillPipelineGroundFallback ?? defaults.fillPipelineGroundFallback)
     // Opaque-bucket fillPhase decision:
     //  * isOitExtrude && isTranslucentStroke → SKIP opaque entirely
-    //    (fills handled by OIT, strokes by translucent offscreen)
-    //  * isOitExtrude only → 'strokes' (fills to OIT; outlines, if
+    //    (fills handled by the shell pass, strokes by translucent offscreen).
+    //    Note: a per-feature extrusion draws NO outline at all (MapLibre
+    //    fill-extrusion semantics, enforced in VTR's `drawStrokes`), so this
+    //    arm's translucent-stroke half is a no-op draw either way.
+    //  * isOitExtrude only → 'strokes' (fills to the shell pass; outlines, if
     //    any, go through the regular opaque line pipeline — they're
     //    fully opaque even when the fill is translucent)
     //  * isTranslucentStroke only → 'fills' (fills opaque; strokes
@@ -416,16 +486,6 @@ export function classifyVectorTileShows(input: ClassifierInput): ClassifierResul
         : isTranslucentStroke
           ? 'fills'
           : 'all'
-    // Phase 4c-final: ResolvedShow snapshot is the SOLE per-frame
-    // paint-state carrier. The classifier no longer clones / mutates
-    // a ShowCommand; `show` on ClassifiedShow is the original
-    // immutable source. All downstream consumers read the resolved
-    // scalars / RGBA from resolvedShow.
-    const resolvedShow = resolveShow(entry.show, {
-      cameraZoom: input.cameraZoom,
-      elapsedMs: input.elapsedMs,
-      inputs: input.inputs,
-    })
     // Bake this show's opaque draw closure. It captures the resolved
     // content pipelines + bind-group layout + the source's VTR + the
     // paint snapshot, so the engine passes can iterate SceneView.opaque /
@@ -580,7 +640,7 @@ export interface ScheduleFlags {
 }
 
 /** Which pass owns the MSAA `resolveTarget` this frame. */
-export type ResolveOwner = 'points' | 'hillshade' | 'composite' | 'opaque'
+export type ResolveOwner = 'points' | 'hillshade' | 'composite' | 'oit' | 'opaque'
 
 /** SINGLE authority for the resolve-owner priority: the LAST colour-writing
  *  pass in PASS_CHAIN_ORDER (background → opaque → oit → translucent →
@@ -588,15 +648,24 @@ export type ResolveOwner = 'points' | 'hillshade' | 'composite' | 'opaque'
  *  (SceneView + planFrameSchedule) call THIS — the priority chain used to be
  *  duplicated at each site, which is exactly how the hillshade pass got
  *  left out of one of them (relief drawn after the opaque resolve → black
- *  at msaa>1). Extend HERE when a new colour-writing pass joins the chain. */
+ *  at msaa>1). Extend HERE when a new colour-writing pass joins the chain.
+ *
+ *  #1253 added the `oit` rung — the shell composite writes colour AFTER the
+ *  opaque bucket, so a frame whose only late writer is the shell must not let
+ *  the opaque pass resolve: at msaa > 1 the composite would land in the
+ *  multisample texture after its samples were already resolved to the
+ *  swapchain, and every translucent extrusion would silently vanish. That is
+ *  the hillshade bug this function exists to prevent, one pass over. */
 export function deriveResolveOwner(f: {
   hasPoints: boolean
   hasHillshade: boolean
   hasTranslucent: boolean
+  hasOit?: boolean
 }): ResolveOwner {
   if (f.hasPoints) return 'points'
   if (f.hasHillshade) return 'hillshade'
   if (f.hasTranslucent) return 'composite'
+  if (f.hasOit === true) return 'oit'
   return 'opaque'
 }
 
@@ -611,6 +680,9 @@ export function planFrameSchedule(
     hasPoints: hasDirectLayerPoints,
     hasHillshade,
     hasTranslucent,
+    // #1253 — same content gate SceneView.hasOit uses (the shell targets are
+    // allocated lazily by the pass, so the flag cannot depend on them existing).
+    hasOit: classification.oit.length > 0,
   })
   return { hasTranslucent, hasDirectLayerPoints, resolveOwner }
 }
