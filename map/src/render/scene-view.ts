@@ -25,7 +25,9 @@ export interface SceneView {
   readonly opaque: ClassifiedShow[]
   /** Translucent-stroke shows, rendered offscreen + composited. */
   readonly translucent: ClassifiedShow[]
-  /** Order-independent-transparency shows (translucent extruded fills). */
+  /** Translucent extruded fills, drawn through the layer-wide front-shell
+   *  offscreen + composite (#1253). Keeps the `oit` name of the pass slot it
+   *  occupies — see `ClassifierResult.oit`. */
   readonly oit: ClassifiedShow[]
   /** Opaque shows grouped into same-source sub-passes. */
   readonly opaqueGroups: OpaqueGroup[]
@@ -111,7 +113,11 @@ export function buildSceneView(host: SceneHost, ctx: FrameContext): SceneView {
   // priority authority (bucket-scheduler.ts) — the last colour-writing pass
   // in PASS_CHAIN_ORDER. The heatmap pass composites AFTER labels onto the
   // resolved swapchain, so it does NOT participate.
-  const resolveOwner = deriveResolveOwner({ hasPoints, hasHillshade, hasTranslucent })
+  // #1253 — hasOit joins the chain: the shell composite is a colour writer that
+  // runs AFTER the opaque bucket, so on an msaa > 1 frame whose only late writer
+  // is the shell, the opaque pass must NOT claim the resolve (the composite
+  // would land in already-resolved samples and the extrusions would vanish).
+  const resolveOwner = deriveResolveOwner({ hasPoints, hasHillshade, hasTranslucent, hasOit })
   return {
     opaque,
     translucent,

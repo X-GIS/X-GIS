@@ -288,6 +288,21 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
         { format: 'rg32uint' as const, writeMask: 0 },
       ]
     : [{ format: fmt, blend: 'alpha' as const, writeMask: 0 }]
+  // #1253 — SHELL colour targets: the same attachment set, with blending OFF.
+  // The shell pass draws the WHOLE bucket into an offscreen colour target and a
+  // single fullscreen pass composites it, so the offscreen must hold ONE
+  // surface's colour per pixel. Replace (not blend) is what makes that true
+  // independently of draw order AND of exact depth ties — two tiles' copies of
+  // a polygon in their shared buffer band are coplanar, and a `less-equal`
+  // colour pass would let BOTH through and blend twice, which is the seam
+  // darkening #1253 reports. The pick target keeps its normal write mask so a
+  // translucent extrusion stays pickable from the shell pass.
+  const shellTargets = inp.pickEnabled
+    ? [
+        { format: fmt, blend: 'none' as const },
+        { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf },
+      ]
+    : [{ format: fmt, blend: 'none' as const }]
   return new Material(inp.rhi, {
     shader: inp.shader,
     vsEntry: 'vs_main_ecef_extruded',
@@ -307,6 +322,9 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
     // sided) so concave interiors keep their NEAREST visible wall — the prepass
     // resolves it per pixel, unlike MapLibre's back-face cull (which drops every
     // interior-facing wall). base variant N (0/1) → prepass N+4, colour N+2.
+    // Variants 6/7 = the #1253 LAYER-WIDE shell — the same front-most-surface
+    // rule applied across ALL tiles at once, in an offscreen pass, so a pixel
+    // two tiles both cover blends once instead of twice. base N → shell N+6.
     variants: [
       {
         depthCompare: 'less-equal',
@@ -351,6 +369,29 @@ export function buildExtrudeMaterial(inp: FillMaterialInputs): Material {
         stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
         colorTargets: depthOnlyTargets,
         label: 'fill-extrude-depthprepass-test-rhi',
+      },
+      // 6/7 — #1253 LAYER-WIDE SHELL (write- / test-stencil paths). ONE draw
+      // per tile into the offscreen shell target: depth `less-equal` + depth
+      // WRITE, colour REPLACE. Across the whole bucket that leaves exactly the
+      // front-most extruded surface per pixel, so the fullscreen composite
+      // blends each pixel once no matter how many tiles covered it. Depth/
+      // stencil state mirrors variants 0/1 — the shell pass loads the opaque
+      // pass's own depth-stencil attachment, so this state is DERIVED from the
+      // target pass, not carried over from the pass the front shell drew into.
+      // base variant N (0/1) → shell N+6.
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
+        colorTargets: shellTargets,
+        label: 'fill-extrude-shell-write-rhi',
+      },
+      {
+        depthCompare: 'less-equal',
+        depthWrite: true,
+        stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
+        colorTargets: shellTargets,
+        label: 'fill-extrude-shell-test-rhi',
       },
     ],
   })
@@ -503,6 +544,13 @@ export function recordFillDraw(
    *  Set by the caller only for a translucent extrusion (resolved fill alpha < 1);
    *  opaque extrusions and every non-extrude fill pass false → single-draw. */
   translucentFrontShell = false,
+  /** #1253 — when true AND this is the solid per-feature EXTRUDE draw, emit the
+   *  SINGLE layer-wide SHELL draw (variant+6) instead: depth-tested + depth-
+   *  writing, colour REPLACE, into the shell pass's offscreen target. Set only
+   *  by the shell pass's `'oit-fill'` phase; every other caller passes false.
+   *  Mutually exclusive with `translucentFrontShell` — the shell IS the
+   *  layer-wide form of that two-draw, so running both would blend twice. */
+  extrudeShell = false,
 ): void {
   // #717 — the draw-side VTR instance can have _fillRhi still null (the site's Astro island splits
   // the VTR module: setFillRhi(present) lands on one instance, the draw runs on another). Recover
@@ -636,7 +684,21 @@ export function recordFillDraw(
         indexed: true,
       }
       let draws: number
-      if (translucentFrontShell && extrudeSolid) {
+      if (extrudeShell) {
+        // #1253 — the shell pass's attachment set is the offscreen colour (+ the
+        // pick MRT), which ONLY variants 6/7 target. A non-solid extrude twin
+        // (fill-pattern) has no shell variant, so reaching here with one would
+        // bind an incompatible pipeline and fail at submit with a message about
+        // attachment state, one frame away from the routing bug that caused it.
+        // The bucket scheduler excludes pattern extrusions; this is the
+        // fail-loud that keeps that exclusion honest.
+        if (!extrudeSolid)
+          throw new Error(
+            `recordFillDraw: the extrude-shell pass reached a non-solid extrude twin — the ` +
+              `shell bucket must carry only solid extrusions (#1253). label=${pipeline.label ?? '?'}`,
+          )
+        draws = executeItems(mat, rhiPass, [{ ...item, variant: variant + 6 }])
+      } else if (translucentFrontShell && extrudeSolid) {
         // #1080 — translucent extrusion FRONT-SHELL. Same mesh, twice: variant+4
         // writes DEPTH + STENCIL only (colorWriteMask none) to fix the per-pixel
         // front-most depth; variant+2 then blends COLOUR at depthCompare

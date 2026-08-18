@@ -218,7 +218,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#1756 <- main): main's 4944 (#1632 + #1596, above) and the adoption's +9
   // (byte-telemetry read-out, its rationale re-quoted above) compose. MEASURED post-merge,
   // post-prettier (4944 + 9 = 4953, arithmetic agrees).
-  'map/src/render/vector-tile-renderer.ts': 4953,
+  // 4953→4957 (#1253): the 'oit-fill' phase now draws the SHELL through the same
+  // extruded pipeline as the opaque path, so the routing collapses from four
+  // decisions (oit-pipe / oit-skip / extrude-want / extrude-use) to two — the
+  // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
+  // comment that records why the shell phase answers to the extrude skip rule.
+  // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
+  'map/src/render/vector-tile-renderer.ts': 4957,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -650,13 +656,19 @@ const CEILINGS: Record<string, number> = {
   // 5437→5446 (#1257): style-authored `raster-fade-duration` resolved once in the
   // rebuildLayers raster-source arm, next to setUrlTemplate/setTileSize/setSourceMaxzoom;
   // `?.` guards a hand-built ShowCommand test double whose paintShapes omits raster.
-  // 5446→5454 (#1375): the FeatureUpdateQueue host gains `patchFeaturesInPlace` — the
+  // 5446→5450 (#1253): the classifier call site gains `extrudeShell` — the one
+  // frame-level fact the pure bucket scheduler cannot see (the device consumes
+  // WGSL AND ?debug=overdraw is off) — plus the `readsWgsl` / `isOverdrawActive`
+  // imports and one line of comment. Composition-root wiring at the existing call
+  // site; the decision it feeds lives in bucket-scheduler.ts (§2). MEASURED.
+  // 5450→5458 (#1375): the FeatureUpdateQueue host gains `patchFeaturesInPlace` — the
   // in-place point patch the flush now prefers over a re-seed. The BODY of it lives in
   // SourceManager; what map.ts contributes is the one gate only map.ts can answer (a
   // HEATMAP show on the patched source is built inside `rebuildLayers`, which the
   // in-place path deliberately never calls) plus its reason. Nothing cohesive to
   // extract: it is a single predicate over `showCommands`, which this file owns.
-  'map/src/map.ts': 5454,
+  // Re-measured after merging both branches (5450 + the #1375 +8).
+  'map/src/map.ts': 5458,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1427,7 +1439,19 @@ const CEILINGS: Record<string, number> = {
   // have pushed this file over its ceiling; the ratchet's own instruction — extract,
   // don't grow — was the right call, since the data texture is one concern and the
   // device file only allocates, binds and deletes it.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1447,
+  // 1447→1497 (#1796): the vertex-attrib enable/disable discipline fix — a
+  // Gl2AttribState bitmask (context-wide, owned by WebGl2Device, threaded through every
+  // WebGl2RenderPass constructor call) plus bindAttributes()'s reconcile-against-the-
+  // live-mask rewrite, so a pipeline with fewer (or zero, the line pipeline) vertex
+  // attributes than its predecessor no longer leaves stale enabled locations with no
+  // bound buffer at draw time.
+  // 1497→1521 (#1796 follow-up): a fresh mask=0 does not mean the ADOPTED gl context
+  // has no attributes really enabled — gpu.ts hands a remount the SAME pooled context
+  // a prior (destroyed) device left dirty (device-lifecycle.ts). The constructor now
+  // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
+  // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
+  // fall back to 16 and no-op).
+  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

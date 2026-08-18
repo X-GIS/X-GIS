@@ -77,6 +77,20 @@ export class RenderTargets {
    *  opt-in path; unread on the default path so allocating it eagerly was
    *  pure waste. */
   offscreenExtrudeDepth: RhiTexture | null = null
+  /** #1253 — the translucent-extrude SHELL colour target: where the whole
+   *  bucket's extruded fills resolve to their front-MOST surface per pixel
+   *  (blending OFF, depth-tested against the opaque pass's own depth) before a
+   *  single fullscreen composite blends them onto the scene. Swapchain format
+   *  and the SCENE sample count, because it shares the opaque depth-stencil
+   *  attachment and WebGPU requires the counts to agree. Lazy — allocated by
+   *  `ensureExtrudeShell()` only while a translucent extrusion is visible, so
+   *  the default style (and every opaque-extrusion style) allocates none of it. */
+  extrudeShellTexture: RhiTexture | null = null
+  /** #1253 — the single-sample resolve destination for `extrudeShellTexture`,
+   *  and the view the composite samples. Allocated ONLY when the scene is
+   *  multisampled: at sampleCount 1 the shell target is already sampleable and
+   *  this stays null (the shell pass then sets no `resolveTarget`). */
+  extrudeShellResolveTexture: RhiTexture | null = null
   /** `?debug=overdraw` r16float accumulator. */
   overdrawAccumTexture: RhiTexture | null = null
   /** Pick (GPU hover/click) RG32Uint single-sample colour attachment. */
@@ -139,6 +153,27 @@ export class RenderTargets {
   get oitRevealageView(): RhiTextureView | null {
     return this.oitRevealageTexture ? this.viewOf(this.oitRevealageTexture) : null
   }
+  /** #1253 — the shell pass's colour ATTACHMENT view (multisampled when the
+   *  scene is). Null until `ensureExtrudeShell`. */
+  get extrudeShellView(): RhiTextureView | null {
+    return this.extrudeShellTexture ? this.viewOf(this.extrudeShellTexture) : null
+  }
+  /** #1253 — the shell pass's `resolveTarget`, or null when the scene is
+   *  single-sample (where a resolve target is illegal and unnecessary). */
+  get extrudeShellResolveView(): RhiTextureView | null {
+    return this.extrudeShellResolveTexture ? this.viewOf(this.extrudeShellResolveTexture) : null
+  }
+  /** #1253 — what the shell COMPOSITE samples: the resolved single-sample
+   *  texture when multisampled, else the shell target itself. One accessor so
+   *  the composite cannot bind a multisampled view (which no RHI bind-group
+   *  layout can describe) on an MSAA frame. */
+  get extrudeShellSampleView(): RhiTextureView | null {
+    return this.extrudeShellResolveTexture
+      ? this.viewOf(this.extrudeShellResolveTexture)
+      : this.extrudeShellTexture
+        ? this.viewOf(this.extrudeShellTexture)
+        : null
+  }
   // ── Native residue (P6) ──
   // The overdraw/OIT COMPOSE draws still build their bind groups on the raw
   // device (frame-renderer.drawOitCompose / overdraw-compose-pass) — native
@@ -195,6 +230,12 @@ export class RenderTargets {
   private oitWidth = 0
   private oitHeight = 0
   private oitSampleCount = 0
+  /** #1253 — the shell target's own size + sample-count tracker, separate from
+   *  the OIT one for the same reason that one is separate from the MSAA block:
+   *  the two are allocated by different passes under different gates. */
+  private shellWidth = 0
+  private shellHeight = 0
+  private shellSampleCount = 0
   /** The RhiDevice every currently-cached target was allocated on. `null`
    *  until the first `ensure*`. Drives the device-identity guard below. */
   private _device: RhiDevice | null = null
@@ -251,6 +292,8 @@ export class RenderTargets {
     this.oitAccumTexture = null
     this.oitRevealageTexture = null
     this.offscreenExtrudeDepth = null
+    this.extrudeShellTexture = null
+    this.extrudeShellResolveTexture = null
     this.sceneColorTexture = null
     this.screenMsaaTexture = null
     this.msaaWidth = 0
@@ -265,6 +308,9 @@ export class RenderTargets {
     this.oitWidth = 0
     this.oitHeight = 0
     this.oitSampleCount = 0
+    this.shellWidth = 0
+    this.shellHeight = 0
+    this.shellSampleCount = 0
   }
 
   /** (Re)allocate the render-target textures when missing or resized, then
@@ -505,5 +551,57 @@ export class RenderTargets {
     this.oitWidth = w
     this.oitHeight = h
     this.oitSampleCount = sampleCount
+  }
+
+  /** #1253 — lazily (re)allocate the translucent-extrude SHELL target at scene
+   *  size + the SCENE sample count. Called by the shell pass only when the
+   *  frame has a translucent extrusion, so a style without one never allocates
+   *  a byte here (the lazy discipline `ensureOit` already follows).
+   *
+   *  `sampleCount` is the scene's, not a choice: the shell pass loads the
+   *  opaque pass's depth-stencil attachment so translucent walls stay occluded
+   *  behind opaque foreground geometry (and behind the globe's under-occluder
+   *  sphere on the far hemisphere), and WebGPU requires every attachment of one
+   *  pass to share a sample count. Multisampled ⇒ a single-sample resolve
+   *  destination is allocated alongside, because the composite SAMPLES this
+   *  target and no RHI bind-group layout can describe a multisampled texture.
+   *  Recreates on resize, on a ladder notch, or on a `setQuality` MSAA change
+   *  via the dedicated tracker. */
+  ensureExtrudeShell(w: number, h: number, sampleCount: number): void {
+    const { rhi, format } = this.getCtx()
+    this.syncDevice(rhi)
+    if (
+      this.extrudeShellTexture &&
+      this.shellWidth === w &&
+      this.shellHeight === h &&
+      this.shellSampleCount === sampleCount
+    )
+      return
+    if (this.extrudeShellTexture) rhi.destroyTexture(this.extrudeShellTexture)
+    if (this.extrudeShellResolveTexture) rhi.destroyTexture(this.extrudeShellResolveTexture)
+    const msaa = sampleCount > 1
+    this.extrudeShellTexture = rhi.createTexture({
+      width: w,
+      height: h,
+      format,
+      sampleCount,
+      // Single-sample IS the sampled source, so it needs 'sample' too; the
+      // multisampled one is resolved into its companion and never sampled.
+      usage: msaa ? ['render'] : ['render', 'sample'],
+      label: 'extrude-shell',
+    })
+    this.extrudeShellResolveTexture = msaa
+      ? rhi.createTexture({
+          width: w,
+          height: h,
+          format,
+          sampleCount: 1,
+          usage: ['render', 'sample'],
+          label: 'extrude-shell-resolve',
+        })
+      : null
+    this.shellWidth = w
+    this.shellHeight = h
+    this.shellSampleCount = sampleCount
   }
 }
