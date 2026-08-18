@@ -197,6 +197,62 @@ describe('semanticDiff — declared transforms (#1806)', () => {
     expect(d.explained.some((e) => e.bucket === 'controlFlow')).toBe(true)
   })
 
+  it('a CONTROL-FLOW regression survives too — the other fail-able axis, cut separately', () => {
+    // §12: one cut only ever proves one message, so the constants-axis arm above
+    // gets a controlFlow twin. b went through the same declared inline() but also
+    // swapped mul/add — same literal multiset, different shape. The regression must
+    // land in `controlFlow` alone (a shape change that merely RESEMBLES an inline
+    // rewrite is not excused), while the helper-removal half still drains.
+    const regressed = inlineLinearAll(build(shadeShape))
+    const d = semanticDiff(base, regressed, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(false)
+    expect(d.controlFlow.length).toBeGreaterThan(0)
+    expect(d.constants).toEqual([])
+    expect(d.interface).toEqual([])
+    expect(d.resources).toEqual([])
+    expect(d.explained.some((e) => e.bucket === 'controlFlow')).toBe(true)
+  })
+
+  it('the temp-var LIFTING path is fully explained — not just expression substitution', () => {
+    // `shade` is single-return, so the arms above exercise inlineFn's expression
+    // substitution. A linear multi-statement helper (let-prelude + trailing return)
+    // takes inline-linear's statement-LIFTING path — fresh `let`s spliced into the
+    // caller — which is exactly the "temporary-variable rewrite" #1806 names.
+    const noise = fn('noiseish', { x: f32T }, f32T, ({ x }, b) => {
+      const a = b.let('a', sin(x))
+      const t = b.let('t', a.mul(0.5))
+      b.ret(t.add(a))
+    })
+    const vs = fn(
+      'vs_main',
+      {},
+      () => VsOut.construct({ pos: vec4(0.0, 0.0, 0.0, 1.0), uv: vec2(noise({ x: 1.0 }), 0.0) }),
+      { stage: 'vertex' },
+    )
+    const fs = fn(
+      'fs_main',
+      { vo: VsOut },
+      (p) => {
+        const s = noise({ x: p.vo.uv.x })
+        return vec4(s, s, s, 1.0)
+      },
+      { stage: 'fragment', retAttr: '@location(0)' },
+    )
+    const m = module({ funcs: [vs, fs], uses: [VsOut] })
+    const prod = inlineLinearAll(m)
+    // Non-vacuity: the LIFT actually fired (spliced `_inl…` lets in an entry body),
+    // not the single-return fallback — without this the arm greens on the wrong path.
+    const lifted = prod.funcs.some((f) =>
+      f.body.some((s) => s.s === 'let' && s.name.startsWith('_inl')),
+    )
+    expect(lifted).toBe(true)
+    const d = semanticDiff(m, prod, { transforms: [inline()] })
+    expect(isSemanticallyEqual(d)).toBe(true)
+    expect(d.explained.some((e) => e.transform === 'inline' && e.bucket === 'controlFlow')).toBe(
+      true,
+    )
+  })
+
   it('a multi-plugin pipeline attributes to the transform that explains, not the last one', () => {
     // b = mangle(inline(base)) — the standard prod ordering. Under the default
     // `ignore: ['names']` the canon already cancels mangle's renames, so every
