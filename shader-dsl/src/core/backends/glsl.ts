@@ -60,8 +60,6 @@ import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backe
 import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics.js'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
 import { bodyHasRaw } from '../passes/opt/dce.js'
-import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
-import { singleExitBody } from '../passes/single-exit.js'
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
 import { dslError } from '../diagnostics/error.js'
@@ -197,60 +195,6 @@ function topoSortStructs(structs: readonly StructDecl[]): StructDecl[] {
   }
   for (const s of structs) visit(s)
   return out
-}
-
-/** Define-before-use order for GLSL helper FN decls, the counterpart of
- *  `topoSortStructs`: DFS post-order over the call graph, restricted to the given
- *  set. GLSL ES 3.00 has no hoisting, so a call that PRECEDES its definition needs
- *  a prototype — and that is the only thing a prototype buys. Ordering the section
- *  so every callee is defined first removes the need for all of them except across
- *  a back edge, which `needsProto` names.
- *
- *  `null` when the order cannot be decided: a helper carrying a `raw` Stmt calls
- *  through opaque text the IR walk cannot see, so its edges are incomplete and the
- *  caller must keep the unconditional prototype block. Same guard, same reason, as
- *  `stageScope`'s.
- *
- *  A back edge means RECURSION, which GLSL ES 3.00 forbids outright — it is handled
- *  rather than rejected because rejecting is this emitter's job nowhere else, and a
- *  prototype is what the pre-topo emitter would have spelled anyway. */
-function topoSortFuncs(
-  funcs: readonly FuncDecl[],
-): { ordered: FuncDecl[]; needsProto: Set<string> } | null {
-  if (funcs.some((f) => bodyHasRaw(f.body))) return null
-
-  const byName = new Map(funcs.map((f) => [f.name, f]))
-  const callees = new Map<string, string[]>()
-  for (const f of funcs) {
-    const refs = emptyRefSet()
-    collectFnRefs(f, refs)
-    callees.set(
-      f.name,
-      [...refs.calls].filter((n) => n !== f.name && byName.has(n)),
-    )
-  }
-
-  const ordered: FuncDecl[] = []
-  const needsProto = new Set<string>()
-  const done = new Set<string>()
-  const onStack = new Set<string>()
-  const visit = (f: FuncDecl): void => {
-    if (done.has(f.name)) return
-    if (onStack.has(f.name)) {
-      needsProto.add(f.name) // back edge — recursion; keep its prototype
-      return
-    }
-    onStack.add(f.name)
-    for (const n of callees.get(f.name) ?? []) {
-      const dep = byName.get(n)
-      if (dep) visit(dep)
-    }
-    onStack.delete(f.name)
-    done.add(f.name)
-    ordered.push(f)
-  }
-  for (const f of funcs) visit(f)
-  return { ordered, needsProto }
 }
 
 /** String fallback ONLY (#740 R3): sot-authored fields carry structured
@@ -573,171 +517,6 @@ function emitGlslUbo(
   return `layout(std140) uniform ${struct.name} {\n${fields}\n} ${b.name};`
 }
 
-/** Every name `main()`'s output scatter WRITES for this entry: the `gl_*` builtin
- *  globals and the `out` varyings its return struct (or bare `@location` return)
- *  feeds. Read only to keep an inlined body from shadowing one of them — see the
- *  `direct` guard in emitGlslEntry. */
-function scatterTargets(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): Set<string> {
-  const out = new Set<string>()
-  if (f.ret.kind === 'struct') {
-    for (const sf of structByName(structs, f.ret.name).fields) {
-      const { builtin, location } = ioAttr(sf)
-      if (builtin) out.add(builtinOut(builtin))
-      else if (location !== undefined) out.add(sf.name)
-    }
-  } else if (f.ret.kind !== 'void') {
-    const { builtin } = parseAttrString(f.retAttr)
-    out.add(builtin ? builtinOut(builtin) : '_ret')
-  }
-  return out
-}
-
-/** What the wrapper form would have PASSED for a bare (non-struct) entry param: the
- *  `gl_*` global behind its `@builtin`, or its input varying. Also what the merged form
- *  binds a local to — and when the two names are already equal (a fragment input keeps
- *  its field name) it binds nothing, because `float uv = uv;` would bind the local to
- *  itself: a GLSL declarator is in scope inside its own initializer. */
-function bareParamSource(p: FuncDecl['params'][number], inName: (n: string) => string): string {
-  const bi = ioAttr(p).builtin
-  return bi ? builtinInRead(bi, p.type) : inName(p.name)
-}
-
-/** What the gather would COPY into each field of a struct entry param: the input varying,
- *  or the `gl_*` read behind its `@builtin`. The map an inlined param is substituted from
- *  (#1867) — and the same texts the gather writes, so the two spellings cannot diverge. */
-function structFieldSources(
-  p: FuncDecl['params'][number],
-  structs: ReadonlyMap<string, StructDecl>,
-  inName: (n: string) => string,
-): Map<string, string> {
-  const out = new Map<string, string>()
-  if (p.type.kind !== 'struct') return out
-  for (const sf of structByName(structs, p.type.name).fields) {
-    const { builtin } = ioAttr(sf)
-    out.set(sf.name, builtin ? builtinInRead(builtin, sf.type) : inName(sf.name))
-  }
-  return out
-}
-
-/** Is EVERY use of entry param `name` a read of one of its fields? Then the aggregate is
- *  never needed as a value and the gather can be substituted away (#1867).
- *
- *  `false` for a bare use — `compute_line_color(input_)` hands the whole struct to a
- *  helper, which is both a real case in this repo and the reason the check counts rather
- *  than assumes — and `false` for any mutation, since a substituted field write would
- *  land on an `in` varying. The count is what decides: a bare occurrence raises `refs`
- *  without raising `asBase`, so the two stay equal only when nothing touches the whole. */
-function onlyFieldReads(shape: { prelude: readonly Stmt[]; ret?: Expr }, name: string): boolean {
-  const mutated = new Set<string>()
-  collectMutatedRoots(shape.prelude, mutated)
-  if (mutated.has(name)) return false
-  let refs = 0
-  let asBase = 0
-  const count = (e: Expr): Expr => {
-    if ((e.op === 'param' || e.op === 'varref') && e.name === name) refs++
-    if (
-      e.op === 'member' &&
-      (e.base.op === 'param' || e.base.op === 'varref') &&
-      e.base.name === name
-    )
-      asBase++
-    return e
-  }
-  for (const st of shape.prelude) mapStmt(st, count)
-  if (shape.ret !== undefined) mapExpr(shape.ret, count)
-  return refs > 0 && refs === asBase
-}
-
-/** The entry shape with each inlined param's FIELD READS replaced by the varying / `gl_*`
- *  the gather would have copied in (#1867). A `varref` carries the source TEXT, which the
- *  writer spells verbatim — that covers both shapes `builtinInRead` produces, the bare
- *  `gl_FragCoord` and the widening `uint(gl_VertexID)`, each of which binds tighter than
- *  any operator and is legal as a member/index base. */
-function substituteFields(
-  shape: { prelude: readonly Stmt[]; ret?: Expr },
-  inlined: ReadonlyMap<string, ReadonlyMap<string, string>>,
-): { prelude: readonly Stmt[]; ret?: Expr } {
-  if (inlined.size === 0) return shape
-  const rx = (e: Expr): Expr => {
-    if (e.op !== 'member') return e
-    const base = e.base
-    if (base.op !== 'param' && base.op !== 'varref') return e
-    const src = inlined.get(base.name)?.get(e.field)
-    return src === undefined ? e : { op: 'varref', name: src, type: e.type }
-  }
-  return {
-    prelude: shape.prelude.map((st) => mapStmt(st, rx)),
-    ...(shape.ret !== undefined ? { ret: mapExpr(shape.ret, rx) } : {}),
-  }
-}
-
-/** The exit's constructor arguments when the scatter can read them DIRECTLY — one per
- *  field, in field order, so each is written to its varying exactly once and the struct
- *  is never built (#1867). `undefined` when the exit is not that shape.
- *
- *  The guard is about ORDER: the temp form evaluates every argument before the first
- *  write, the direct form interleaves them, so an argument that READ a scatter target
- *  would see a value the temp form never showed it. Nothing in the DSL can reference an
- *  out varying (they are synthesised here, and have no IR handle), which makes this a
- *  cheap assertion of a property rather than a real branch — assert it anyway. */
-function directCtorArgs(
-  ret: Expr | undefined,
-  retName: string,
-  fields: readonly StructDecl['fields'][number][],
-  outNames: ReadonlySet<string>,
-): readonly Expr[] | undefined {
-  if (ret?.op !== 'construct') return undefined
-  if (ret.type.kind !== 'struct' || ret.type.name !== retName) return undefined
-  if (ret.args.length !== fields.length) return undefined
-  let touchesTarget = false
-  for (const a of ret.args)
-    mapExpr(a, (e) => {
-      if ((e.op === 'param' || e.op === 'varref') && outNames.has(e.name)) touchesTarget = true
-      return e
-    })
-  return touchesTarget ? undefined : ret.args
-}
-
-/** The entry shape with its PARAM references renamed, for the gather locals the merged
- *  `main()` had to mint around a shadowed global. Both node kinds an entry param can be
- *  read through are rewritten — `param` (the authored surface's spelling) and `varref`
- *  (what a lowering pass leaves behind) — and nothing else moves: a `member` field name
- *  is not a name in this scope, so `o.seg_id` survives a `seg_id` rename untouched.
- *
- *  Safe because `singleExitBody` has already refused a body carrying `raw`/`placeholder`
- *  text, which is the one place a reference could hide from this walk. */
-function renameParams(
-  shape: { prelude: readonly Stmt[]; ret?: Expr },
-  renames: ReadonlyMap<string, string>,
-): { prelude: readonly Stmt[]; ret?: Expr } {
-  const active = [...renames].filter(([from, to]) => from !== to)
-  if (active.length === 0) return shape
-  const map = new Map(active)
-  const rx = (e: Expr): Expr =>
-    (e.op === 'param' || e.op === 'varref') && map.has(e.name)
-      ? { ...e, name: map.get(e.name)! }
-      : e
-  return {
-    prelude: shape.prelude.map((st) => mapStmt(st, rx)),
-    ...(shape.ret !== undefined ? { ret: mapExpr(shape.ret, rx) } : {}),
-  }
-}
-
-/** Names a body declares in its OWN top-level scope — the only ones still live where
- *  `main()`'s scatter runs. A nested-block `let` is out of scope by then, and a `for`
- *  init belongs to its loop, so neither can collide. */
-function topLevelLocals(body: readonly Stmt[]): string[] {
-  const out: string[] = []
-  for (const s of body) if (s.s === 'let' || s.s === 'var') out.push(s.name)
-  return out
-}
-
-/** `base`, or the first `base<N>` no name in `taken` owns. */
-function freshLocal(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base
-  for (let i = 0; ; i++) if (!taken.includes(`${base}${i}`)) return `${base}${i}`
-}
-
 /** Lower a `@vertex`/`@fragment` entry to GLSL: flatten its IO struct/params into
  *  `in`/`out` varyings + `gl_*` builtins, emit the authored body as a regular GLSL
  *  function (`<name>_impl`) over its IO structs, then synthesise a `void main()` that
@@ -756,10 +535,6 @@ function emitGlslEntry(
   f: FuncDecl,
   structs: ReadonlyMap<string, StructDecl>,
   parens?: ParenMode,
-  /** Module-scope names (bindings, consts, overrides, helper fns). Only ever read to keep
-   *  a MINTED gather local off one of them — a param that ALREADY shadows a global keeps
-   *  doing so, since that is the authored meaning in both languages. */
-  globals: ReadonlySet<string> = new Set(),
 ): string {
   // Structured-first (#763 S3): a `{ stage: 'fragment' }` decl without attrs used
   // to classify as VERTEX here (wrong varying direction / dropped entry).
@@ -773,9 +548,6 @@ function emitGlslEntry(
 
   // `in` varyings: each entry param that is a struct contributes its @location fields;
   // a bare @location param contributes itself. @builtin fields read from gl_* globals.
-  // Their names are kept: the merged `main()` must not mint a local that shadows one
-  // before the gather has read it (see the merge note below).
-  const inNames = new Set<string>()
   for (const p of f.params) {
     const fields =
       p.type.kind === 'struct'
@@ -801,7 +573,6 @@ function emitGlslEntry(
       const flat =
         stage === 'fragment' && (isIntType(s.type) || s.interpolate === 'flat') ? 'flat ' : ''
       lines.push(`${qual}${flat}in ${glslType(s.type)} ${inName(s.name)};`)
-      inNames.add(inName(s.name))
     }
   }
   // `out` varyings: the return struct's @location fields (or a bare @location return).
@@ -841,163 +612,46 @@ function emitGlslEntry(
     lines.push(`${qual}${flat}out ${glslType(s.type)} ${s.name};`)
   }
 
-  // ── The body: straight into main() where it fits, else the `_impl` wrapper ──
-  //
-  // `main()` is a void shim and the authored entry is a VALUE fn, so the two merge
-  // exactly when the entry's single exit can BE the output scatter: everything ahead
-  // of the one trailing `return` becomes main's prelude and the scatter reads that
-  // return's expression instead of a call (#1858). An early-return body — a documented
-  // `allowEarlyReturn` deviation — keeps the wrapper, because a `return` inside `void
-  // main()` cannot carry a value and rewriting every exit is a different transform.
-  //
-  // WHAT THE MERGE COSTS, and what pays it: `main()` now runs the gather, the body and
-  // the scatter in ONE scope, where the wrapper had two. So a name the merged scope
-  // declares can SHADOW a global the other halves reach for — and `vs_line` is the case
-  // that proves it is not theoretical: its `@builtin(instance_index)` param and its
-  // output varying are both `seg_id`, so `uint seg_id = uint(gl_InstanceID);` would
-  // capture the `flat out uint seg_id` the scatter must write, the varying would keep
-  // whatever it held, and every line in the map would disappear — silently, since the
-  // shader still compiles and links. `renameCollisions` is what forbids that: the
-  // gather's locals are minted around every global the merged scope touches, and the
-  // body is rewritten to read them.
-  const outNames = scatterTargets(f, structs)
-  const shape = singleExitBody(f.body)
-  const usable =
-    shape !== undefined &&
-    // the exit must MATCH the signature, or the scatter has nothing to read
-    (shape.ret !== undefined) === (f.ret.kind !== 'void') &&
-    // A body's OWN top-level local named like a scatter target is not renameable from
-    // here (it is the author's name, used across the body); keep the wrapper for it.
-    !topLevelLocals(f.body).some((n) => outNames.has(n))
-  // The names a gather local may not TAKE OVER: the varyings the gather reads and the
-  // ones the scatter writes, plus the body's own top-level locals. Module-scope globals
-  // are deliberately NOT in this set — a param that already shadows one is authored that
-  // way and shadows it in the wrapper too — but they ARE unavailable to a MINTED name,
-  // which is a name this emitter invents and must not land on anything.
-  const taken = new Set([...outNames, ...inNames, ...topLevelLocals(f.body)])
-  const unavailable = [...taken, ...globals]
-
-  // A struct param read only field-wise needs no aggregate at all (#1867): substitute the
-  // varying / `gl_*` the gather would have copied in, and the gather goes — usually taking
-  // the struct DECL with it, since `stageScope` keeps a struct only while something spells
-  // it. The bail-outs are the two ways that is wrong: a body local of the same name would
-  // capture the substituted read (the #1858 `seg_id` hazard in its second form, and just
-  // as silent), and a param handed to a helper whole is genuinely an aggregate.
-  const bodyLocals = new Set<string>()
-  collectLocals(f.body, bodyLocals)
-  const inlinedFields = new Map<string, ReadonlyMap<string, string>>()
-  if (usable && shape !== undefined)
-    for (const prm of f.params) {
-      if (prm.type.kind !== 'struct') continue
-      const src = structFieldSources(prm, structs, inName)
-      if ([...src.values()].some((t) => bodyLocals.has(t))) continue
-      if (!onlyFieldReads(shape, prm.name)) continue
-      inlinedFields.set(prm.name, src)
-    }
-
-  const gatherLocal = new Map<string, string>()
-  if (usable)
-    for (const prm of f.params) {
-      if (inlinedFields.has(prm.name)) continue // substituted away — no local to mint
-      if (prm.type.kind !== 'struct' && bareParamSource(prm, inName) === prm.name) continue
-      const local = taken.has(prm.name) ? freshLocal(`${prm.name}_in`, unavailable) : prm.name
-      taken.add(local)
-      unavailable.push(local)
-      gatherLocal.set(prm.name, local)
-    }
-  const direct = usable
-    ? substituteFields(renameParams(shape, gatherLocal), inlinedFields)
-    : undefined
-
+  // The authored entry, emitted as a regular GLSL function over its IO structs.
+  const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
+  const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret)
   const impl = `${f.name}_impl`
-  if (direct === undefined) {
-    const params = f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')
-    const retTy = f.ret.kind === 'void' ? 'void' : glslType(f.ret)
-    lines.push('')
-    lines.push(`${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`)
-  }
+  lines.push('')
+  lines.push(`${retTy} ${impl}(${params}) {\n${emitBody(f.body, 1, glslEs300Backend, parens)}\n}`)
 
-  // main(): gather inputs → run the body (or call the wrapper) → scatter outputs.
+  // main(): gather inputs → call → scatter outputs.
   const body: string[] = []
   const args: string[] = []
   for (const p of f.params) {
-    // The name the gather DECLARES — `p.name` unless it would shadow a global the
-    // merged scope needs (see renameCollisions above); the wrapper form never renames.
-    const local = gatherLocal.get(p.name) ?? p.name
-    if (inlinedFields.has(p.name)) continue // #1867 — its fields were substituted in place
     if (p.type.kind === 'struct') {
       const s = structByName(structs, p.type.name)
-      body.push(`  ${glslType(p.type)} ${local};`)
+      body.push(`  ${glslType(p.type)} ${p.name};`)
       for (const sf of s.fields) {
         const { builtin } = ioAttr(sf)
         body.push(
-          `  ${local}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`,
+          `  ${p.name}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`,
         )
       }
-      args.push(local)
+      args.push(p.name)
     } else {
-      const src = bareParamSource(p, inName)
-      args.push(src)
-      // Inlined, the body reads the param BY NAME, so a bare param needs a local bound
-      // to what the wrapper would have been passed — except where that name already IS
-      // the global it would read (a fragment input keeps the field name). `float uv =
-      // uv;` is not a copy: a GLSL declarator is in scope inside its own initializer,
-      // so the local would bind to itself.
-      if (direct !== undefined && src !== p.name)
-        body.push(`  ${glslType(p.type)} ${local} = ${src};`)
+      const bi = ioAttr(p).builtin
+      args.push(bi ? builtinInRead(bi, p.type) : inName(p.name))
     }
   }
-  if (direct !== undefined && direct.prelude.length)
-    body.push(emitBody(direct.prelude, 1, glslEs300Backend, parens))
-
-  // What the scatter reads: the wrapper's return value, or the body's own exit expr.
-  const value =
-    direct === undefined
-      ? `${impl}(${args.join(', ')})`
-      : direct.ret !== undefined
-        ? emitExprNeutral(direct.ret, glslEs300Backend, parens)
-        : undefined
+  const call = `${impl}(${args.join(', ')})`
   if (f.ret.kind === 'struct') {
     const s = structByName(structs, f.ret.name)
-    // A CONSTRUCTOR exit needs no named place at all (#1867): its arguments already stand
-    // one per field, in field order, so each goes straight to its varying and the struct
-    // is never built. A field carrying neither `@builtin` nor `@location` scatters
-    // nowhere, and dropping its argument is safe because shader expressions are pure —
-    // the temp form computed it into a struct nothing then read.
-    const ctor = directCtorArgs(direct?.ret, f.ret.name, s.fields, outNames)
-    if (ctor !== undefined) {
-      s.fields.forEach((sf, i) => {
-        const { builtin, location } = ioAttr(sf)
-        const arg = emitExprNeutral(ctor[i]!, glslEs300Backend, parens)
-        if (builtin) body.push(`  ${builtinOut(builtin)} = ${arg};`)
-        else if (location !== undefined) body.push(`  ${sf.name} = ${arg};`)
-      })
-      lines.push('')
-      lines.push(`void main() {\n${body.join('\n')}\n}`)
-      return lines.join('\n')
-    }
-    // The scatter needs the value in a NAMED place so each field can be read once. When
-    // the exit is already a plain variable — `…; return o;`, what an ioStruct body builds —
-    // that place exists, and `Out _out = o;` would be a copy of a struct nothing else
-    // reads. Take the variable itself, unless it is named like one of the varyings the
-    // scatter is about to overwrite (then the reads would see the written value).
-    const exit = direct?.ret
-    const alias = exit?.op === 'varref' && !outNames.has(exit.name) ? exit.name : undefined
-    // `_out` is what this shim has always spelled, and the merged scope is the only place
-    // a body local could already own the name — so only the merged form looks.
-    const tmp = alias ?? (direct === undefined ? '_out' : freshLocal('_out', unavailable))
-    if (alias === undefined) body.push(`  ${glslType(f.ret)} ${tmp} = ${value};`)
+    body.push(`  ${glslType(f.ret)} _out = ${call};`)
     for (const sf of s.fields) {
       const { builtin, location } = ioAttr(sf)
-      if (builtin) body.push(`  ${builtinOut(builtin)} = ${tmp}.${sf.name};`)
-      else if (location !== undefined) body.push(`  ${sf.name} = ${tmp}.${sf.name};`)
+      if (builtin) body.push(`  ${builtinOut(builtin)} = _out.${sf.name};`)
+      else if (location !== undefined) body.push(`  ${sf.name} = _out.${sf.name};`)
     }
   } else if (f.ret.kind === 'void') {
-    // Inlined, the body IS main's body — there is nothing left to call.
-    if (value !== undefined) body.push(`  ${value};`)
+    body.push(`  ${call};`)
   } else {
     const { builtin } = parseAttrString(f.retAttr)
-    body.push(builtin ? `  ${builtinOut(builtin)} = ${value};` : `  _ret = ${value};`)
+    body.push(builtin ? `  ${builtinOut(builtin)} = ${call};` : `  _ret = ${call};`)
   }
   lines.push('')
   lines.push(`void main() {\n${body.join('\n')}\n}`)
@@ -1995,18 +1649,16 @@ function assembleGlsl(
   if (lowered.consts.length)
     parts.push(lowered.consts.map((c) => glslEs300Backend.emitConst(c)).join('\n'))
 
-  // The struct section is RESERVED here and filled at the end (#1867). Its membership
-  // depends on what the rest of the unit actually spells: since the entry writer can
-  // substitute an IO struct away completely — the gather becomes direct varying reads, a
-  // constructor exit scatters field-wise — "reachable in the stage scope" stopped being
-  // the same thing as "spelled", and a decl nothing spells is dead bytes. Its POSITION is
-  // still here, ahead of the UBO blocks that embed nested structs.
-  const structSlot = parts.length
-  parts.push('')
-
-  const structCandidates = lowered.structs.filter(
-    (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
+  // Topologically sorted (#763 P5): GLSL has no struct forward-declaration, so a
+  // nested struct must be DEFINED before the struct that embeds it. WGSL accepts
+  // any order; helper fns got prototypes in #745 — structs get a topo sort.
+  const plainStructs = topoSortStructs(
+    lowered.structs.filter(
+      (s) => !bindingStructNames.has(s.name) && (scope === null || scope.structs.has(s.name)),
+    ),
   )
+  if (plainStructs.length)
+    parts.push(plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n'))
 
   // Uniform UBO blocks (std140, reflection-fed) + texture/sampler uniforms.
   const bindingLines: string[] = []
@@ -2058,23 +1710,14 @@ function assembleGlsl(
   }
   if (bindingLines.length) parts.push(bindingLines.join('\n\n'))
 
-  // The fn section, in DEFINE-BEFORE-USE order (#1858). GLSL ES 3.00 has no hoisting,
-  // so a call that precedes its definition needs a prototype — and a prototype buys
-  // nothing else. `lowered.funcs` order is not dependency order (module()'s transitive
-  // collection PREPENDS collected callees, which may legitimately land ahead of the
-  // extern-bodied projection fns they call — #740 R1), and the emitter used to pay for
-  // that with a prototype for EVERY helper: 507 of them on the baked map corpus, 6.2%
-  // of its text, of which 20 were load-bearing. Sorting the section is the same fix
-  // structs got in #763 P5, and it leaves prototypes only where the graph forces them.
-  //
-  // `null` = the order is not decidable (a `raw` helper body hides its calls from the
-  // IR walk) → the historical unconditional block, unchanged.
-  const topo = topoSortFuncs(helpers)
-  const ordered = topo?.ordered ?? helpers
-  const protos = helpers.filter((f) => topo === null || topo.needsProto.has(f.name))
-  if (protos.length) {
+  // Forward declarations for every helper. GLSL ES 3.00 has no hoisting, so without
+  // prototypes the DEFINITION order is load-bearing (define-before-use) — an ordering
+  // class module()'s transitive collection (#740 R1) would otherwise re-expose:
+  // collected callees are prepended and may legitimately precede the extern-bodied
+  // projection fns they call. Prototypes make the fn section order-free for good.
+  if (helpers.length) {
     parts.push(
-      protos
+      helpers
         .map(
           (f) =>
             `${glslType(f.ret)} ${f.name}(${f.params.map((p) => `${glslType(p.type)} ${p.name}`).join(', ')});`,
@@ -2082,53 +1725,14 @@ function assembleGlsl(
         .join('\n'),
     )
   }
-  if (ordered.length)
-    parts.push(ordered.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
-  if (entries.length && omitEntries !== true) {
-    // Module-scope names an entry's minted gather local must steer clear of.
-    const globals = new Set<string>([
-      ...lowered.bindings.map((b) => b.name),
-      ...lowered.consts.map((c) => c.name),
-      ...(lowered.overrides ?? []).map((o) => o.name),
-      ...lowered.funcs.map((fn) => fn.name),
-    ])
-    parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens, globals)).join('\n\n'))
-  }
-
-  // Fill the reserved struct slot. A decl is kept when the emitted text spells its name —
-  // exactly GLSL's own requirement — then closed over nested field types, since a struct
-  // reached only as another struct's field is spelled inside that decl rather than here.
-  //
-  // `omitEntries` is the one case that keeps the whole reachable set: the entry text is
-  // withheld from THIS string for a host to splice its own in, so what it would have
-  // spelled must still be declared (and is reported through `declares.structs`).
-  const spelled = parts.join('\n')
-  const wanted = new Set<string>(
-    omitEntries === true
-      ? structCandidates.map((s) => s.name)
-      : structCandidates
-          .filter((s) => new RegExp(`\\b${s.name}\\b`).test(spelled))
-          .map((s) => s.name),
-  )
-  const byName = new Map(structCandidates.map((s) => [s.name, s]))
-  const work = [...wanted]
-  while (work.length > 0) {
-    const st = byName.get(work.pop()!)
-    if (!st) continue
-    const nested = new Set<string>()
-    for (const fld of st.fields) typeStructNames(fld.type, nested)
-    for (const n of nested)
-      if (!wanted.has(n)) {
-        wanted.add(n)
-        work.push(n)
-      }
-  }
-  const plainStructs = topoSortStructs(structCandidates.filter((s) => wanted.has(s.name)))
-  parts[structSlot] = plainStructs.map((s) => glslEs300Backend.emitStruct(s)).join('\n\n')
+  if (helpers.length)
+    parts.push(helpers.map((f) => glslEs300Backend.emitFunc(f, opts?.parens)).join('\n\n'))
+  if (entries.length && omitEntries !== true)
+    parts.push(entries.map((f) => emitGlslEntry(f, structs, opts?.parens)).join('\n\n'))
 
   return {
     preamble,
-    sections: parts.filter((p) => p !== ''),
+    sections: parts,
     declares: {
       functions: helpers.map((f) => f.name),
       structs: [...structs.keys()].filter((n) => !bindingStructNames.has(n)),

@@ -52,6 +52,7 @@ import type { ShaderType } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js'
 import { mapExpr } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
+import { RESERVED_WORDS } from '../reserved-words.js'
 
 /** What {@link mangleModule} returns: the renamed module, and the map to read it back with.
  *
@@ -71,126 +72,6 @@ export interface MangleResult {
    *  since the same spelling is renamed independently in each function. */
   readonly renames: ReadonlyMap<string, string>
 }
-
-/** Spellings a generated name must never take. Language keywords plus the type
- *  and qualifier vocabulary the BACKENDS write textually (`vec2`, `float`,
- *  `layout`, `precision`) — none of it appears in the IR, so the identifier
- *  sweep below cannot see it. Everything that DOES appear in the IR (intrinsic
- *  call targets, binding names, struct fields, overrides) is collected from the
- *  module instead, so this list only has to cover the textual half. */
-const RESERVED: ReadonlySet<string> = new Set([
-  // WGSL
-  'alias',
-  'break',
-  'case',
-  'const',
-  'const_assert',
-  'continue',
-  'continuing',
-  'default',
-  'diagnostic',
-  'discard',
-  'else',
-  'enable',
-  'false',
-  'fn',
-  'for',
-  'if',
-  'let',
-  'loop',
-  'override',
-  'requires',
-  'return',
-  'struct',
-  'switch',
-  'true',
-  'var',
-  'while',
-  // GLSL ES 3.00
-  'attribute',
-  'centroid',
-  'coherent',
-  'do',
-  'flat',
-  'highp',
-  'in',
-  'inout',
-  'invariant',
-  'layout',
-  'lowp',
-  'main',
-  'mediump',
-  'noperspective',
-  'out',
-  'precision',
-  'readonly',
-  'restrict',
-  'smooth',
-  'uniform',
-  'varying',
-  'void',
-  'volatile',
-  'writeonly',
-  // scalar / vector / matrix / opaque types, both languages
-  'bool',
-  'f16',
-  'f32',
-  'float',
-  'i32',
-  'int',
-  'u32',
-  'uint',
-  'half',
-  'double',
-  'atomic',
-  'array',
-  'ptr',
-  'ref',
-  'texture',
-  // sampler types, GLSL ES 3.00 §3.7 — the same completion as glsl-sanitize's set
-  // (#1703): the float 2D/3D/Cube trio was ES-1.00-era and left every array/integer
-  // sampler spelling absent.
-  'sampler',
-  'sampler2D',
-  'sampler3D',
-  'samplerCube',
-  'sampler2DShadow',
-  'samplerCubeShadow',
-  'sampler2DArray',
-  'sampler2DArrayShadow',
-  'isampler2D',
-  'isampler3D',
-  'isamplerCube',
-  'isampler2DArray',
-  'usampler2D',
-  'usampler3D',
-  'usamplerCube',
-  'usampler2DArray',
-  'vec2',
-  'vec3',
-  'vec4',
-  'bvec2',
-  'bvec3',
-  'bvec4',
-  'ivec2',
-  'ivec3',
-  'ivec4',
-  'uvec2',
-  'uvec3',
-  'uvec4',
-  'mat2',
-  'mat3',
-  'mat4',
-  'mat2x2',
-  'mat2x3',
-  'mat2x4',
-  'mat3x2',
-  'mat3x3',
-  'mat3x4',
-  'mat4x2',
-  'mat4x3',
-  'mat4x4',
-])
 
 const ALPHA = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
@@ -273,7 +154,7 @@ export function mangleModule(m: ModuleDecl): MangleResult {
   // names are here because they are ABI (see the header); everything else that
   // is renamed below is deliberately absent, so its old spelling is free to be
   // handed back out as a short name.
-  const survivors = new Set<string>(RESERVED)
+  const survivors = new Set<string>(RESERVED_WORDS)
   const refs = emptyRefSet()
   for (const f of m.funcs) {
     collectFnRefs(f, refs)

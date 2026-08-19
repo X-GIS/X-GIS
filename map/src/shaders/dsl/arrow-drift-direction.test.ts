@@ -24,6 +24,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedAdvectedWgsl } from './arrow-advected'
+import { arithmeticOf } from './_arrow-emit-nav'
 
 /** The two candidate ways to keep a displacement inside a leash box — the rejected one and the
  *  one that replaced it, kept so the measured angles below stay in the record. */
@@ -69,12 +70,6 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
   const all = emitArrowRetainedAdvectedWgsl()
   const vs = all.slice(all.indexOf('fn vs_arrow_retained_advected'))
   const body = vs.slice(0, vs.indexOf('\n}'))
-  const letOf = (name: string): string => {
-    const m = new RegExp(`let ${name} = ([^;]+);`).exec(body)
-    expect(m, `${name} must be bound in the emitted VS`).not.toBeNull()
-    return m![1]!
-  }
-
   it('the glyph is rotated by the SAME basis application the walk steps along', () => {
     // `cos_c`/`ss` are built from `field_uv_to_px(basis, (vu, −vv·aspect))`, which the emitter
     // inlines as the 2×2 product. The walk's own step is `field_uv_step(basis, (vu, −vv·aspect),
@@ -110,7 +105,10 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
       return refs.some((r) => r !== name && reachesFetch(r, depth - 1))
     }
     const fromFlow = cands.filter((m) => {
-      const c = letOf(m[2]!)
+      // arithmeticOf, not letOf: the optimizer may bind the constructed direction to
+      // its own name and leave the candidate reading `_gvN.x` (gvn does, #1865). The
+      // hop adds no arithmetic, so following it cannot step over anything asserted.
+      const c = arithmeticOf(body, m[2]!) ?? ''
       const s = /vec2<f32>\((\w+),/.exec(c)
       return s !== null && reachesFetch(s[1]!)
     })
@@ -126,7 +124,7 @@ describe('…and the VS makes both directions ONE computation (#1520)', () => {
     // …and the rotation's operand is a velocity pair SAMPLED from the textures, not a packed
     // bearing frozen at add time — restated through the same trace the filter used, so the two
     // cannot drift apart about what "sampled" means.
-    const comp = letOf(dir![2]!)
+    const comp = arithmeticOf(body, dir![2]!) ?? '' // the same trace the filter used
     const src = /vec2<f32>\((\w+),/.exec(comp)
     expect(src, 'the component comes from a velocity pair').not.toBeNull()
     expect(reachesFetch(src![1]!), 'the direction is built from the sampled flow').toBe(true)

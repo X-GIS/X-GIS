@@ -1,4 +1,4 @@
-import type { Expr, FuncDecl, Stmt } from '../ir/nodes.js'
+import type { FuncDecl, Stmt } from '../ir/nodes.js'
 
 // MISRA-C Rule 15.5 style — a function has a SINGLE point of exit: exactly one
 // `return`, as the final statement (no early returns nested in control flow). On
@@ -58,32 +58,4 @@ export function checkSingleExit(f: FuncDecl): string[] {
     }
   }
   return errs
-}
-
-/** The single-exit SHAPE of a body, for a consumer that must SPELL it rather than
- *  judge it: the statements ahead of the one trailing `return`, plus that return's
- *  expression (absent when the body never returns a value). `undefined` when the
- *  body is not that shape — more than one return anywhere, a return that is not the
- *  final top-level statement, or a `raw`/`placeholder` Stmt, whose opaque text can
- *  carry a `return` this walk cannot see.
- *
- *  Deliberately NOT `checkSingleExit`, which is the LINT face and which a documented
- *  `allowEarlyReturn` deviation waives: a waiver is a statement about style, and it
- *  does not make an early return spellable somewhere a `return` cannot carry a value.
- *  Both faces read the same `countReturns`/`hasInjection`, so they cannot drift on
- *  what counts as a return.
- *
- *  Consumer: the GLSL backend (#1858), which emits such an entry body directly inside
- *  `void main()` — the single exit becomes main's output scatter — instead of wrapping
- *  it in a `<name>_impl` fn that `main()` then calls exactly once. */
-export function singleExitBody(
-  body: readonly Stmt[],
-): { prelude: readonly Stmt[]; ret?: Expr } | undefined {
-  if (hasInjection(body)) return undefined
-  const total = countReturns(body)
-  if (total === 0) return { prelude: body }
-  if (total > 1) return undefined
-  const last = body[body.length - 1]
-  if (last?.s !== 'return') return undefined
-  return { prelude: body.slice(0, -1), ...(last.expr !== undefined ? { ret: last.expr } : {}) }
 }

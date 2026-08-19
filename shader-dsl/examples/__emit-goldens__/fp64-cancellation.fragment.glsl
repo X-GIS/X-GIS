@@ -2,6 +2,10 @@
 precision highp float;
 precision highp int;
 
+struct VsOut {
+  vec4 pos;
+  vec2 uv;
+};
 layout(std140) uniform Uniforms {
   vec2 resolution;
   float half_width;
@@ -9,6 +13,14 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
+vec2 df64_twoSum(float a, float b);
+vec2 df64_quickTwoSum(float a, float b);
+vec2 df64_split(float a);
+vec2 df64_twoProd(float a, float b);
+vec2 df64_add(vec2 a, vec2 b);
+vec2 df64_sub(vec2 a, vec2 b);
+vec2 df64_mul(vec2 a, vec2 b);
+float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -68,12 +80,13 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-void main() {
+vec4 fs_cancel_impl(VsOut vo) {
   float _v0 = u.half_width;
-  float _v1 = (uv.x * 2.0);
-  bool _cse0 = (uv.x < 0.5);
+  float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
-  float _v3 = ((_v2 - 0.5) * (_v0 * 2.0));
+  float _gv0 = (_v2 - 0.5);
+  float _v3 = (_gv0 * (_v0 * 2.0));
   bool _v4 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(1.0, 0.0);
   vec2 _v5 = df64_add(_cse1, vec2(_v3, 0.0));
@@ -101,7 +114,7 @@ void main() {
   float _v23 = (_v21 / _v22);
   float _v24 = (_v3 * _v3);
   float _v25 = ((((_v24 * _v24) * _v24) * _v3) / _v22);
-  float _v26 = ((uv.y - 0.5) * 2.0);
+  float _v26 = ((vo.uv.y - 0.5) * 2.0);
   float _v27 = (2.0 / u.resolution.y);
   float _v28 = fract((_v2 * 10.0));
   float _v29 = fract(((_v26 + 1.0) * 5.0));
@@ -118,7 +131,14 @@ void main() {
   float _v40 = (1.0 - smoothstep((_v27 * 0.8), (_v27 * 2.2), abs((_v25 - _v26))));
   vec3 _v41 = mix(_v39, vec3(0.8, 0.25, 0.2), (_v40 * 0.65));
   float _lc0 = (_v27 * 1.5);
-  float _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs((_v2 - 0.5)) * 2.0)));
+  float _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs(_gv0) * 2.0)));
   vec3 _v43 = mix(vec3(0.35, 0.33, 0.3), _v41, _v42);
-  _ret = vec4(_v43, 1.0);
+  return vec4(_v43, 1.0);
+}
+
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
+  _ret = fs_cancel_impl(vo);
 }

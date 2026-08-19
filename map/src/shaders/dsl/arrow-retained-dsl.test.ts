@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from './arrow-retained'
 import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
 import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS } from './arrow-drift'
+import { matchArc } from './_arrow-emit-nav'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -107,9 +108,7 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
   })
 
   it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
-    // The fill comes from the `tint` VARYING directly since #1867 — the entry's IO struct
-    // is read field-wise, so it is substituted away rather than gathered into `in_`.
-    expect(fs).toMatch(/mix\(tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
+    expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
   })
 })
 
@@ -352,6 +351,9 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     expect(body, 'the instance splits into seed and glyph by G').toContain(
       `/ ${ARROW_TRAIN_GLYPHS}.0`,
     )
-    expect(body, 'the arc length is (glyph + phase) × spacing').toMatch(/\(\(\w+ \+ \w+\) \* \w+\)/)
+    // By shape, not by spelling — the optimizer may bind the sum to its own name
+    // (gvn does, #1865); arrow-excursion-bound.test.ts is where the operands are
+    // then proven to BE the glyph index, the phase and the spacing.
+    expect(matchArc(body), 'the arc length is (glyph + phase) × spacing').not.toBeUndefined()
   })
 })

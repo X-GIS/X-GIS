@@ -2,6 +2,11 @@
 precision highp float;
 precision highp int;
 
+struct VsOut {
+  vec4 pos;
+  vec2 uv;
+};
+
 struct DF64Vec2 {
   vec2 hi;
   vec2 lo;
@@ -16,6 +21,18 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
+vec2 df64_twoSum(float a, float b);
+vec2 df64_quickTwoSum(float a, float b);
+vec2 df64_split(float a);
+vec2 df64_twoProd(float a, float b);
+vec2 df64_twoSqr(float a);
+vec2 df64_add(vec2 a, vec2 b);
+vec2 df64_sub(vec2 a, vec2 b);
+vec2 df64_mul(vec2 a, vec2 b);
+vec2 df64_sqrt(vec2 a);
+vec2 df64_floor(vec2 a);
+vec2 df64_fract(vec2 a);
+float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -103,13 +120,13 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-void main() {
+vec4 fs_loran_impl(VsOut vo) {
   float _v0 = pow(10.0, (-u.zoom_exp));
-  float _v1 = (uv.x * 2.0);
-  bool _cse0 = (uv.x < 0.5);
+  float _v1 = (vo.uv.x * 2.0);
+  bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
-  float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
@@ -121,15 +138,17 @@ void main() {
   vec2 _cse3 = df64_add(_cse7, _cse8);
   vec2 _cse9 = vec2(u.st_a.hi.y, u.st_a.lo.y);
   vec2 _cse4 = df64_add(_cse9, _cse8);
-  vec2 _lc2 = df64_sub(df64_add(vec2(_v6.hi.x, _v6.lo.x), _cse8), _cse3);
-  vec2 _lc3 = df64_sub(df64_add(vec2(_v6.hi.y, _v6.lo.y), _cse8), _cse4);
+  vec2 _gv0 = df64_add(vec2(_v6.hi.x, _v6.lo.x), _cse8);
+  vec2 _lc2 = df64_sub(_gv0, _cse3);
+  vec2 _gv1 = df64_add(vec2(_v6.hi.y, _v6.lo.y), _cse8);
+  vec2 _lc3 = df64_sub(_gv1, _cse4);
   vec2 _v7 = df64_sqrt(df64_add(df64_mul(_lc2, _lc2), df64_mul(_lc3, _lc3)));
   vec2 _cse10 = vec2(u.st_b.hi.x, u.st_b.lo.x);
   vec2 _cse5 = df64_add(_cse10, _cse8);
   vec2 _cse11 = vec2(u.st_b.hi.y, u.st_b.lo.y);
   vec2 _cse6 = df64_add(_cse11, _cse8);
-  vec2 _lc4 = df64_sub(df64_add(vec2(_v6.hi.x, _v6.lo.x), _cse8), _cse5);
-  vec2 _lc5 = df64_sub(df64_add(vec2(_v6.hi.y, _v6.lo.y), _cse8), _cse6);
+  vec2 _lc4 = df64_sub(_gv0, _cse5);
+  vec2 _lc5 = df64_sub(_gv1, _cse6);
   vec2 _v8 = df64_sqrt(df64_add(df64_mul(_lc4, _lc4), df64_mul(_lc5, _lc5)));
   float _v9 = df64_narrow(df64_fract(df64_mul(df64_sub(df64_add(_v7, _cse8), df64_add(_v8, _cse8)), vec2(0.25, 0.0))));
   float _v10 = df64_narrow(df64_fract(df64_mul(df64_add(_v7, _v8), vec2(0.0625, 0.0))));
@@ -146,6 +165,13 @@ void main() {
   float _v21 = ((fwidth(_v19) * 1.2) + 0.0001);
   float _v22 = (1.0 - smoothstep(0.0, _v20, _v18));
   float _v23 = (1.0 - smoothstep(0.0, _v21, _v19));
-  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), uv.y);
-  _ret = vec4((((_v24 + (vec3(0.0, 0.06, 0.08) * _v16)) + (vec3(0.25, 0.95, 0.95) * (_v22 * 0.9))) + (vec3(0.95, 0.7, 0.25) * (_v23 * 0.35))), 1.0);
+  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), vo.uv.y);
+  return vec4((((_v24 + (vec3(0.0, 0.06, 0.08) * _v16)) + (vec3(0.25, 0.95, 0.95) * (_v22 * 0.9))) + (vec3(0.95, 0.7, 0.25) * (_v23 * 0.35))), 1.0);
+}
+
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
+  _ret = fs_loran_impl(vo);
 }

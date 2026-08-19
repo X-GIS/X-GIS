@@ -176,6 +176,14 @@ describe('arch ratchet: Gate-8 — the CI `render` filter covers every rendering
     // verified: no file under map/, playground/, rhi*/, engine/, compiler/, data/ or site/
     // imports from scripts/, so it is in no bundle and on no render path.
     'scripts/**': 'repo tooling; imported by nothing shipped, so it is on no render path',
+    // Added to `code` by #1842 for the same reason #1700 added scripts/**: measured, 5 of
+    // the 6 tracked workflows were in NO filter, so `scripts/workflow-validity.test.ts` —
+    // the gate that exists because a workflow once shipped unparseable (#1693) — never ran
+    // on a PR that edited one. Four rewrites of changelog.yml landed that way in a day.
+    // Exempt from `render` because a workflow file is CI configuration: it is in no bundle,
+    // nothing imports it, and it cannot alter a rendered pixel. It CAN alter which gates
+    // run, which is precisely why it belongs in `code`.
+    '.github/workflows/**': 'CI configuration; in no bundle and on no render path',
   }
 
   it('every package glob in `code` is in `render` too, or exempt with a reason', () => {

@@ -76,8 +76,12 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *  df64 emulation library, entry points, and recursive fns are all left intact.
  *  NOT a size win (a multi-call helper is duplicated at each site; the point is
  *  removing structure a reader could follow — pair it with mangle() + minify()).
- *  Opt-in only; NOT part of the obfuscate() preset, so no existing output
- *  changes. Runs in the IR stage, so place it before mangle() in the array. */
+ *  Duplicated TEXT, though, is not duplicated WORK: flattening is followed by a
+ *  bit-exact re-hoisting pass (#1860), so a value N inlined copies derive from
+ *  the same argument is still computed ONCE — without it the emitted shader pays
+ *  that arithmetic per call site. Opt-in only; NOT part of the obfuscate()
+ *  preset, so no existing output changes. Runs in the IR stage, so place it
+ *  before mangle() in the array. */
 export function inline(): EmitPlugin {
   return { name: 'inline', transformIR: inlineLinearAll }
 }

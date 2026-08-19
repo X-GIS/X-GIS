@@ -27,11 +27,21 @@
 // Everything else — calls in let/var/assign/return exprs, `if` conditions,
 // `switch` scrutinees, and inside any block body — is lifted within its own
 // block, so conditional execution is preserved.
+//
+// INLINING OWES A CLEANUP (#1860). Copying a body to N call sites RE-CREATES the
+// redundancy the optimizer had already removed: every value the helper derives
+// from a shared argument is now computed once PER SITE, in the caller's own
+// block, where nothing has run since. `transformIR` fires AFTER `lowerForBackend`
+// has run its fixpoint, so without a cleanup that duplicated arithmetic reaches
+// the GPU — measured on the example corpus, raw inlining spends 1859 IR ops where
+// 1676 suffice (kaleidoscope −18%, domain-warp −14%). So `inlineLinearAll` ends by
+// re-running the value-hoisting passes over what it produced (`CLEANUP` below).
 
 import { stageOf } from '../ir/index.js'
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
 import { mapExpr } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
+import { fixpoint, LEVEL_PASSES, type OptPass } from './opt/optimize.js'
 import { inlineFn } from './inline.js'
 
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
@@ -305,9 +315,27 @@ function renameStmt(s: Stmt, localRen: ReadonlyMap<string, string>, rw: (e: Expr
   }
 }
 
+/** The post-inline cleanup: re-hoist the values inlining duplicated (see the
+ *  header). `gvn` inside O1 is the pass this specifically needs — a lifted prelude
+ *  repeats ACROSS statements of one block and reads the caller's LOCALS, which is
+ *  exactly the gap between fn-top `cse` (input-only) and statement-local
+ *  `cse-local`; the rest of the tier propagates the copies gvn exposes and drops
+ *  what that orphans.
+ *
+ *  O1 and not O2, because BIT-EXACTNESS is required here:
+ *  `_emit-obfuscate-gate.spec.ts` asserts a plain emit and an
+ *  `[inline(), ...obfuscate()]` emit draw BYTE-IDENTICAL frames on real Tint +
+ *  ANGLE. `LEVEL_PASSES.O1` is this repo's named tier of value MOVERS — none
+ *  changes which float ops execute — so no result can move by a ULP. The
+ *  float-semantics passes O2 adds (`constFold`, `algebraicSimplify`, `licm`) are
+ *  deliberately out, and cost nothing to omit: including them reaches the SAME op
+ *  count on every example that inlines. */
+const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1
+
 /** Inline EVERY safely-inlinable helper — single-return via the proven inlineFn,
- *  then linear multi-statement via inlineLinearFn — until none remain. Pure
- *  (module -> module); `@xgis/shader-dsl/emit-prod`'s inline() plugin. */
+ *  then linear multi-statement via inlineLinearFn — until none remain, then clean
+ *  up the duplication that created (`CLEANUP`). Pure (module -> module);
+ *  `@xgis/shader-dsl/emit-prod`'s inline() plugin. */
 export function inlineLinearAll(m: ModuleDecl): ModuleDecl {
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
   let cur = m
@@ -326,5 +354,9 @@ export function inlineLinearAll(m: ModuleDecl): ModuleDecl {
     }
     break
   }
-  return cur
+  // Nothing inlined ⇒ nothing to clean up. `cur === m` is exact: both inliners
+  // return the module UNCHANGED when they find no target, so identity holds iff
+  // the loop broke on its first probe. Keeps inline() a true no-op on a module
+  // with no inlinable helper, instead of silently re-optimizing it.
+  return cur === m ? m : fixpoint(cur, CLEANUP)
 }
