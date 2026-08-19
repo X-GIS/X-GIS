@@ -22,7 +22,9 @@ test('landing-page hero map renders the full world', async ({ page }) => {
   // path served by the playground server's /static or hit the deployed
   // demo. For now: navigate to the playground's `id=minimal` demo
   // which uses the SAME GeoJSON-on-MapRenderer path as the hero map.
-  await page.goto('/demo.html?id=minimal#0/0/0/0/0', { waitUntil: 'domcontentloaded' })
+  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1#0/0/0/0/0', {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,

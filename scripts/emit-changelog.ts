@@ -158,7 +158,13 @@ const REVERT_SUBJECT = /^Revert "/
 // merge forever. Excluding it is not dropping history — it is keeping the
 // observer out of the observation; nothing else in the log is filtered.
 // Reserved and exact: a human writing about this feature cannot trip it.
-const REGEN_SUBJECT = /^chore\(changelog\): regenerate from [0-9a-f]{7,40}$/
+//
+// The `(#NNN)` suffix is OPTIONAL because the workflow reaches main through a PR
+// rather than a direct push (#1842 — the direct push was rejected by branch
+// protection on all 90 of its runs), and GitHub's squash appends the PR number to
+// the subject it lands. Anchoring at `$` without it left the landed regen commit
+// unexcluded, which is precisely the never-converging case above.
+const REGEN_SUBJECT = /^chore\(changelog\): regenerate from [0-9a-f]{7,40}(?: \(#\d+\))?$/
 
 /** True for the changelog workflow's own regeneration commits. */
 export const isRegenCommit = (subject: string): boolean => REGEN_SUBJECT.test(subject.trim())

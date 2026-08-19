@@ -148,12 +148,30 @@ describe('isRegenCommit', () => {
     ).toBe(true)
   })
 
+  it('matches the subject AS SQUASHED — the shape that actually lands on main', () => {
+    // The workflow reaches main through a PR (#1842), and GitHub's squash appends
+    // the PR number. This is the only spelling the walk ever meets in practice, so
+    // it is the one convergence depends on: unexcluded, every regen commit becomes
+    // a `chore` entry and the artifact grows one noise line per merge, forever.
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710)')).toBe(true)
+    expect(
+      isRegenCommit(
+        'chore(changelog): regenerate from 4bf461085e22d52de4b3e924dc0371585565ad5e (#1843)',
+      ),
+    ).toBe(true)
+  })
+
   it('does NOT match a human commit that merely talks about regeneration', () => {
     // The exclusion is a reserved subject, not a keyword: a real change to the
-    // generator must still appear in the changelog it generates.
+    // generator must still appear in the changelog it generates. The PR suffix
+    // widened the shape by exactly one GitHub-generated trailer — everything that
+    // made the subject reserved (the literal scope, the verb, a hex hash) still is.
     expect(isRegenCommit('chore(changelog): regenerate from a clean checkout')).toBe(false)
     expect(isRegenCommit('feat(scripts): regenerate from 4bf4610 on every merge')).toBe(false)
-    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710)')).toBe(false)
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710) and fix a typo')).toBe(
+      false,
+    )
+    expect(isRegenCommit('chore(changelog): regenerate from the mirror (#1710)')).toBe(false)
   })
 })
 
@@ -618,6 +636,10 @@ describe('entrypoint', () => {
       (repo, git) => {
         addCommit(repo, git, 'feat(map): a real change')
         addCommit(repo, git, 'chore(changelog): regenerate from 0123456789abcdef0123')
+        // The shape the PR route actually lands (#1842). Both spellings are in the
+        // fixture because the walk meets the suffixed one and the unsuffixed one is
+        // what a local `bun run changelog` + hand commit still produces.
+        addCommit(repo, git, 'chore(changelog): regenerate from 89abcdef0123456789ab (#1843)')
       },
       (_tmp, repo) => {
         const run = spawnSync('bun', [installScript(repo)], { encoding: 'utf8' })
