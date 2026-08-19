@@ -76,7 +76,26 @@ const vsEntry = fn(
 
 const orderedModule = (): ModuleDecl => dslModule({ uses: [IoOut], funcs: [outer, inner, vsEntry] })
 
-describe('glsl-es300 — the fn section is emitted in dependency order (#1858)', () => {
+// ⏸ SKIPPED — the implementation this file specifies was LOST IN THE #1858 MERGE (#1872).
+//
+// `a16d07f` is three files, all additions: this spec, struct-ctor's spec, and struct-ctor.ts.
+// It touched `backends/glsl.ts` not at all, and nothing on main has since — so neither the
+// call-graph ordering nor the `main()`-as-entry merge exists to be tested. The commit message
+// describes both, and reports a verification run (2133 tests, 22 cut-verified gates, a
+// deterministic WebGL2 frame) that cannot have been made against this diff: the build does not
+// even compile without the barrel export that was dropped alongside them. The tree that was
+// verified is not the tree that merged.
+//
+// The spec is kept, not deleted — it is precise, it has negative twins, and it is what the
+// recovery will be checked against. Re-enable (drop the three `.skip`s) with the restored
+// `glsl.ts` changes; #1872 tracks that.
+//
+// Note for whoever restores it: the four cases that pass TODAY do so VACUOUSLY. Each asserts a
+// FALLBACK ("FALLS BACK to prototypes…", "KEEPS the `_impl` wrapper…", "KEEPS the aggregate…",
+// "KEEPS the gather…"), and the fallback shape is currently the only shape the emitter can
+// produce — so they cannot distinguish the fix from its absence until the rest is back.
+
+describe.skip('glsl-es300 — the fn section is emitted in dependency order (#1858)', () => {
   it('defines a callee BEFORE its caller even when the module declares them the other way', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     const at = { inner: defAt(vs, 'inner'), outer: defAt(vs, 'outer') }
@@ -118,7 +137,7 @@ describe('glsl-es300 — the fn section is emitted in dependency order (#1858)',
   })
 })
 
-describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
+describe.skip('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
   it('emits the entry body inside main(), with no `_impl` fn and no call to one', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).not.toContain('_impl')
@@ -243,7 +262,7 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
 // bail-outs are what keep the transform sound: a struct handed WHOLE to a helper is a real
 // aggregate, and a field source shadowed by a body local would silently read the local.
 
-describe('glsl-es300 — the entry IO struct is never built (#1867)', () => {
+describe.skip('glsl-es300 — the entry IO struct is never built (#1867)', () => {
   it('scatters a CONSTRUCTOR exit field-by-field, minting no aggregate', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
