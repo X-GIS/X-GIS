@@ -25,6 +25,7 @@ import { cse } from './cse.js'
 import { cseLocal } from './cse-local.js'
 import { licm } from './licm.js'
 import { dce } from './dce.js'
+import { structCtor } from './struct-ctor.js'
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl
 
@@ -50,6 +51,10 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   constFold,
   algebraicSimplify,
   deadBranch,
+  // …then collapse a write-once struct local into the constructor it is assembling
+  // (#1867), so CSE below sees one value rather than N field writes and BOTH writers
+  // emit the shorter shape.
+  structCtor,
   cse,
   cseLocal,
   licm,

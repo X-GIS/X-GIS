@@ -747,9 +747,13 @@ describe('glsl-legalize — assignment target index expressions', () => {
   it('leaves a plain member-chain target byte-untouched', () => {
     const BoxN = structDecl('BoxN', { c: vec4fT })
     const helperN = discardingHelper('helper_mt')
+    // The second assign READS the field back, which is what keeps this a real `var` —
+    // #1867's structCtor collapses a write-once aggregate into a constructor, and this
+    // gate needs a member-chain LVALUE to exist for the walk to leave alone.
     const mkN = fn('mk_mt', { v: f32T }, BoxN.type, ({ v }) => {
       const o = BoxN.var('o')
       o.c.assign(helperN(v))
+      o.c.w.assign(o.c.w.mul(2))
       return o.$
     })
     const fsN = fn(

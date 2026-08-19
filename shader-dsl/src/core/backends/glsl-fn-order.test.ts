@@ -132,9 +132,11 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
   })
 
   it('scatters straight from the exit VARIABLE, minting no copy of it', () => {
-    // The `VsOut.var()` + field-assign + `return o.$` shape real shaders author
-    // (map/src/shaders/dsl/flow-advect.ts). The scatter needs the value in a named place
-    // and `o` already IS one, so `IoOut _out = o;` would copy a struct nothing else reads.
+    // A struct exit that stays a VARIABLE. The write-once form is collapsed to a
+    // constructor by #1867's structCtor, so reaching this path needs the shape that pass
+    // refuses — a field read back, which is the polygon fragment's real shape
+    // (`out.color.w = out.color.w * rim`). The scatter then needs the value in a named
+    // place, and `o` already IS one: `IoOut _out = o;` would copy a struct nothing reads.
     const vsVar = fn(
       'vs_var',
       { idx: builtin('vertex_index', f32T) },
@@ -143,6 +145,7 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
         const o = IoOut.var()
         o.position.assign(vec4(idx, 0, 0, 1))
         o.uv.assign(vec2(idx, idx))
+        o.uv.x.assign(o.uv.x.mul(2)) // reads the field back — stays a var
         return o.$
       },
       { stage: 'vertex' },

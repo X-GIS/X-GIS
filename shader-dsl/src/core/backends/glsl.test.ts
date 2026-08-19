@@ -203,8 +203,13 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
     // an inter-stage OUT varying must NOT carry layout(location) in ES 3.00 (links by name).
     expect(vs).toMatch(/^out vec2 uv;$/m)
     expect(vs).not.toMatch(/layout\(location = \d+\) out/)
-    // @builtin(position) → gl_Position (vertex output), not a varying.
-    expect(vs).toContain('gl_Position = o.position;')
+    // @builtin(position) → gl_Position (vertex output), not a varying. The body assembles
+    // its output with `var o` + field assigns, which #1867's structCtor collapses to the
+    // constructor the scatter then reads field-by-field — so the builtin is written from
+    // the field's own expression, with no aggregate in between.
+    // …and the input struct is substituted away too, so the whole entry is two lines.
+    expect(vs).toMatch(/^ {2}gl_Position = vec4\(a_pos\.x, a_pos\.y, u\.fade, 1\.0\);$/m)
+    expect(vs).toMatch(/^ {2}uv = a_uv;$/m)
     expect(vs).not.toMatch(/out vec4 position;/)
     // A single-exit entry body is spelled INSIDE main() (#1858) — no `_impl` fn and no
     // call to one, and since this body's exit is a plain variable the scatter reads it
