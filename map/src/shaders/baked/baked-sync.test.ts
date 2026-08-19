@@ -76,7 +76,18 @@ const EVERY_ARTIFACT: ReadonlyArray<{
     artifact: ARTIFACTS[language][group],
   })),
 )
-const REBAKE = 'run `bun run bake:shaders` (from map/) and commit the refreshed artifact'
+// BUILD FIRST, and the order is not a nicety (#1865). `map/tsconfig.json`'s `paths`
+// maps `@xgis/shader-dsl` to `../shader-dsl/dist/index.d.ts` — for tsc's dep-ordered
+// project build — and bun honours tsconfig `paths` at RUNTIME too, so the bake script
+// emits through `dist`, NOT the package's own `exports` (which point at `src`). Skip
+// the build after editing a DSL pass and the bake exits 0, rewrites all six files, and
+// writes byte-identical STALE content: this gate stays red and sends you back to the
+// command you just ran. (`bake:goldens` is unaffected — it runs under vitest, whose
+// aliases resolve to `src`.)
+const REBAKE =
+  'run `bun run build` (from the repo root) THEN `bun run bake:shaders` (from map/) ' +
+  'and commit the refreshed artifact — without the build the bake re-emits from a ' +
+  'stale shader-dsl/dist and changes nothing'
 
 /** Shader sources run to tens of thousands of characters; a raw `toBe` on two of them
  *  prints an unreadable wall. Report the FIRST differing line with both sides instead
