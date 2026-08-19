@@ -348,6 +348,13 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   work" that was actually the fix never being restored. Use ABSOLUTE paths in any
   edit-probe-restore cycle, and assert the restore (`grep -c` the marker) before believing the
   run that follows.
+- A `git checkout <ref> -- <paths>` on the LIVE tree is the same edit-probe-restore trap
+  one level worse: it moves the INDEX as well as the working files, so a later `git merge`
+  can resolve against the probe's state and drop your work with NO conflict reported. Cost
+  PR #1864, whose squash landed 3 new files and zero of the 434 emitter lines it existed
+  for — `glsl.ts` came out byte-identical to main, which had never touched that file. Probe
+  another ref in a `git worktree`, never in the tree you are about to commit; if you already
+  did, `git diff <your-last-commit> HEAD -- <src>` before pushing.
 - Worktrees share the repository's git state — stash, refs, hooks, config; only
   HEAD/index/working-files are per-worktree.
   → `2026-07-11-git-worktrees-share-more-than-you-think.md`
@@ -380,6 +387,11 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 - Build the pre-merge checklist FROM `.github/workflows/test.yml`'s job matrix — a
   remembered checklist can always be missing a leg CI has; the written-down one cannot.
   → `2026-07-14-the-second-ratchet.md`
+- A gate that ran BEFORE the state you commit did not gate it. #1864's `bun run build` and
+  its 2133 green tests both passed on a tree that the commit then did not contain, so the
+  missing export and the missing emitter reached main under a green local run. Re-run the
+  typecheck AFTER the final `git add`, and read `git show --stat HEAD` against the change
+  you think you made — a file count that does not match is the tell.
 
 **Verification**
 
