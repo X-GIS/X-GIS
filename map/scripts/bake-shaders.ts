@@ -1,8 +1,17 @@
 #!/usr/bin/env bun
 // ═══ Closed-set shader bake — the driver (#1678 phase A of #1484) ═══
 //
+//   bun run build                   (from the REPO ROOT — first, see below)
 //   bun run bake:shaders            (from map/)
 //   bun run bake:shaders --report   (…and print the per-file size table)
+//
+// THE BUILD IS NOT OPTIONAL (#1865). `map/tsconfig.json`'s `paths` maps
+// `@xgis/shader-dsl` to `../shader-dsl/dist/index.d.ts` — it exists for tsc's
+// dep-ordered project build — and bun honours tsconfig `paths` at RUNTIME, so this
+// script emits through `dist`, never the package's own `exports` (which point at
+// `src`). Bake without building after a DSL edit and it exits 0, rewrites all six
+// files, and writes byte-identical STALE content; `baked-sync.test.ts` then stays
+// red pointing back at this command.
 //
 // Emits every key in `map/src/shaders/baked/registry.ts` and rewrites the SIX committed
 // artifacts — one per (language, group): `baked-{glsl,wgsl}-{hillshade,boot,lazy}
