@@ -787,12 +787,12 @@ jobs:
       # The `ci-cache` workflow keeps this exact key warm on main, which is the
       # only scope a fresh PR branch can read from.
       #
-      # SHARDING NOTE (#1863): this step now runs on all four shards, so on a WARM
-      # key all four hit exactly and none of them saves — no race (that is the
+      # SHARDING NOTE (#1863): this step now runs on EVERY shard, so on a WARM key
+      # they all hit exactly and none of them saves — no race (that is the
       # `actions/cache` rule #1857 established). The one case that does race is a
-      # playwright VERSION BUMP, where main is not yet warm and the four shards each
-      # try to reserve the new key: three lose and log `Failed to save`, costing three
-      # wasted uploads on exactly one PR and failing nothing. Bounded and once-per-bump,
+      # playwright VERSION BUMP, where main is not yet warm and the shards each try to
+      # reserve the new key: all but one lose and log `Failed to save`, costing a
+      # handful of wasted uploads on exactly one PR and failing nothing. Bounded and once-per-bump,
       # so it is left alone rather than growing this change; the bun cache next door
       # needs no such caveat because #1859 already made it restore-only here.
       - if: needs.changes.outputs.render == 'true'
@@ -819,39 +819,73 @@ jobs:
       # run still needs full Chromium, which is why this flag is on the CI
       # command and not in a config file.
       #
-      # `--with-deps` stays: it is what installs the font packages
-      # (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont, fonts-wqy-zenhei,
-      # xfonts-*) that the glyph-bearing gates rasterise against. It costs ~9 s on
-      # a warm runner and is NOT covered by the cache above, which holds only
-      # ~/.cache/ms-playwright.
-      # apt HAS NO TIMEOUT ON A STALLED CONNECTION, and `--with-deps` below is an apt
-      # transaction. Sharding made that fatal: on run 32233203233 all six shards hit
-      # azure.archive.ubuntu.com within four seconds of each other, two finished the
-      # step in ~2 min and FOUR hung in it for 45+ minutes with the render gates never
-      # starting. It is not bandwidth division — shard 5 started its install BEFORE
-      # shard 4 and hung while shard 4 sailed through — it is one shard drawing a dead
-      # connection and waiting on it forever. The same mirror was already measured
-      # swinging 331 kB/s to 42 MB/s for the identical 21.1 MB of fonts.
+      # NO `--with-deps`. It ran an apt transaction, and sharding turned that from a
+      # ~9 s cost into this job's dominant failure mode: six shards open an apt
+      # transaction against the same regional mirror within four seconds of each
+      # other, and most of them never finish. MEASURED on run 32236609546 — five of
+      # the six burned the whole 8-minute backstop while shard 4 sailed through. The
+      # CONTROL rules out the mirror: an UNSHARDED `render-gate` on another branch,
+      # five minutes earlier in the same window (run 32236161072, job 96016531667),
+      # installed in 54 s. The mirror was up; what changed was the concurrency.
+      # Timeouts and retries only bound the damage — the log shows `Ign:` backing off
+      # 1/2/4/8/16 s and even falling back to archive.ubuntu.com, then seven minutes
+      # of silence — they do not make six simultaneous apt transactions succeed.
       #
-      # So give apt the timeout it does not have by default. Written to apt.conf.d
-      # rather than passed as flags because playwright spawns apt itself and there is
-      # no way to reach through `--with-deps`. A dead connection is now dropped after
-      # 30 s and retried, worst case ~90 s, instead of hanging until the job timeout.
+      # `--with-deps` bought two things, and both are better served without it:
+      #
+      #   (a) SHARED LIBRARIES — now ASSERTED rather than assumed. `ldd` names every
+      #       unresolved DT_NEEDED of the exact binary this job launches, so a runner
+      #       image that drops one fails HERE with the library's name instead of as an
+      #       opaque launch error, and apt runs only in that case. That is strictly
+      #       more information than `--with-deps` gave us, at zero network cost.
+      #
+      #   (b) FONT PACKAGES (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont,
+      #       fonts-wqy-zenhei, xfonts-*) — answered by the render gates themselves,
+      #       which rasterise every glyph this repo draws and diff it. If one of those
+      #       packages moved a gated pixel, the gates below go red and name the spec.
+      #       That is the §5 bar: run the gates, do not reason about the fonts.
       - if: needs.changes.outputs.render == 'true'
+        timeout-minutes: 8
         run: |
-          sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
+          ./playground/node_modules/.bin/playwright install chromium --only-shell
+
+          # Glob into an array, not `ls | head -1`: steps run under `bash -eo
+          # pipefail`, where head closing the pipe early SIGPIPEs ls into a 141.
+          shells=(~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell)
+          shell=${shells[0]}
+          test -x "$shell" || { echo "::error::no headless_shell after install (looked for ${shells[*]})"; exit 1; }
+
+          missing=$(ldd "$shell" | grep 'not found' || true)
+          if [ -n "$missing" ]; then
+            echo "::warning::$shell has unresolved libraries — falling back to apt:"
+            echo "$missing"
+            # apt has NO timeout on a stalled connection, so give it one BEFORE using
+            # it. The policy goes in apt.conf.d because playwright spawns apt itself
+            # and there is no flag to reach through `install-deps`. A heredoc body and
+            # its terminator must sit at the block scalar's own indentation, since
+            # that is column 0 of the script bash actually receives.
+            sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
           Acquire::http::Timeout "30";
           Acquire::https::Timeout "30";
           Acquire::ftp::Timeout "30";
           Acquire::Retries "5";
           CONF
-          echo "apt timeout/retry policy installed:"; cat /etc/apt/apt.conf.d/99-ci-timeouts
-      # `timeout-minutes` is the BACKSTOP, not the fix — the apt policy above is. This
-      # only guarantees that if the install wedges anyway it fails in 8 min with a
-      # readable log, instead of holding a runner for the job's full 120.
-      - if: needs.changes.outputs.render == 'true'
-        timeout-minutes: 8
-        run: ./playground/node_modules/.bin/playwright install chromium --only-shell --with-deps
+            ./playground/node_modules/.bin/playwright install-deps chromium
+            still=$(ldd "$shell" | grep 'not found' || true)
+            test -z "$still" || { echo "::error::still unresolved after install-deps: $still"; exit 1; }
+          fi
+
+          # Fonts are the other half of what `--with-deps` installed, and unlike
+          # libraries they are invisible to ldd — a missing one shows up only as a
+          # changed glyph in a gate below. So record the answer HERE, where a red
+          # gate is already being read, instead of making the next session download
+          # a diff artifact to ask it. No pipes: `grep -q` closing the pipe early
+          # would SIGPIPE fc-list into a 141 under `bash -eo pipefail`.
+          fams=$(fc-list : family 2>/dev/null || true)
+          for f in Liberation IPAGothic WenQuanYi Loma FreeSans Unifont; do
+            case "$fams" in *"$f"*) echo "font $f: present" ;; *) echo "font $f: ABSENT" ;; esac
+          done
+          echo "headless_shell dynamic linkage complete: $shell"
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
@@ -1162,11 +1196,11 @@ jobs:
           r='${{ needs['render-shard'].result }}'
           case "$r" in
             success|skipped)
-              echo "render-shard: $r — all four shards accounted for"; exit 0 ;;
+              echo "render-shard: $r — every shard accounted for"; exit 0 ;;
             cancelled)
               echo "::warning::render-shard was CANCELLED, not failed — most often the concurrency group superseding this run."
               echo "::error::render-gate: render-shard result is '$r'"; exit 1 ;;
             *)
-              echo "::error::render-gate: render-shard result is '$r' — open the render-shard (N/4) legs to see which shard is red."
+              echo "::error::render-gate: render-shard result is '$r' — open the render-shard legs to see which shard is red."
               exit 1 ;;
           esac
