@@ -42,7 +42,6 @@ import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
 import { mapExpr } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
 import { fixpoint, LEVEL_PASSES, type OptPass } from './opt/optimize.js'
-import { gvn } from './opt/gvn.js'
 import { inlineFn } from './inline.js'
 
 const isEntry = (f: FuncDecl): boolean => stageOf(f) !== undefined
@@ -317,21 +316,21 @@ function renameStmt(s: Stmt, localRen: ReadonlyMap<string, string>, rw: (e: Expr
 }
 
 /** The post-inline cleanup: re-hoist the values inlining duplicated (see the
- *  header). `gvn` is the pass this specifically needs — a lifted prelude repeats
- *  ACROSS statements of one block and reads the caller's LOCALS, which is exactly
- *  the gap between fn-top `cse` (input-only) and statement-local `cse-local`; the
- *  O1 tier around it propagates the copies gvn exposes and drops what that
- *  orphans.
+ *  header). `gvn` inside O1 is the pass this specifically needs — a lifted prelude
+ *  repeats ACROSS statements of one block and reads the caller's LOCALS, which is
+ *  exactly the gap between fn-top `cse` (input-only) and statement-local
+ *  `cse-local`; the rest of the tier propagates the copies gvn exposes and drops
+ *  what that orphans.
  *
- *  BIT-EXACT by construction, and it must be: `_emit-obfuscate-gate.spec.ts`
- *  asserts a plain emit and an `[inline(), ...obfuscate()]` emit draw
- *  BYTE-IDENTICAL frames on real Tint + ANGLE. `LEVEL_PASSES.O1` is this repo's
- *  named tier of value MOVERS — none changes which float ops execute — and `gvn`
- *  is pure dedup, so no result can move by a ULP. The float-semantics passes
- *  (`constFold`, `algebraicSimplify`, `licm`) are deliberately absent, and cost
- *  nothing to omit: adding them to this list reaches the SAME op count on every
- *  example that inlines. */
-const CLEANUP: readonly OptPass[] = [...LEVEL_PASSES.O1, gvn]
+ *  O1 and not O2, because BIT-EXACTNESS is required here:
+ *  `_emit-obfuscate-gate.spec.ts` asserts a plain emit and an
+ *  `[inline(), ...obfuscate()]` emit draw BYTE-IDENTICAL frames on real Tint +
+ *  ANGLE. `LEVEL_PASSES.O1` is this repo's named tier of value MOVERS — none
+ *  changes which float ops execute — so no result can move by a ULP. The
+ *  float-semantics passes O2 adds (`constFold`, `algebraicSimplify`, `licm`) are
+ *  deliberately out, and cost nothing to omit: including them reaches the SAME op
+ *  count on every example that inlines. */
+const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1
 
 /** Inline EVERY safely-inlinable helper — single-return via the proven inlineFn,
  *  then linear multi-statement via inlineLinearFn — until none remain, then clean

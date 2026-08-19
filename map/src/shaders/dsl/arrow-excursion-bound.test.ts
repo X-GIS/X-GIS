@@ -27,6 +27,7 @@
 import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedAdvectedWgsl } from './arrow-advected'
 import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_TAPS_PER_SPACING } from './arrow-drift'
+import { matchArc } from './_arrow-emit-nav'
 
 const all = emitArrowRetainedAdvectedWgsl()
 const vs = all.slice(all.indexOf('fn vs_arrow_retained_advected'))
@@ -50,25 +51,27 @@ describe('the excursion is bounded by the inter-glyph spacing, BY CONSTRUCTION (
     // no second length to disagree with δ.
     // The emitter renumbers locals, so the arc is found by its SHAPE and then confirmed by what
     // its operands are made of — a test of the claim rather than of where a line happens to sit.
-    const m = /let (\w+) = \(\((\w+) \+ (\w+)\) \* (\w+)\);/.exec(body)
-    expect(m, 'the arc must be bound as (glyph + phase) · spacing').not.toBeNull()
-    const [, , glyph, phase, spacing] = m!
+    // …and by shape ALONE, not by spelling: the optimizer may bind the sum to its own
+    // name (gvn does, #1865), which is the same arithmetic with one more `let`.
+    const m = matchArc(body)
+    expect(m, 'the arc must be bound as (glyph + phase) · spacing').not.toBeUndefined()
+    const { glyph, phase, spacing } = m!
     // …and the three operands have to BE those things, or the shape above proves nothing. The
     // first is the index WITHIN the train — `instance − seed·G` for `seed = floor(instance/G)` —
     // so it is bounded by G−1 and the arc is bounded by G·δ. An unreduced instance index here
     // would make the arc grow without bound across the draw.
     const g = new RegExp(`^\\((\\w+) - \\((\\w+) \\* ${ARROW_TRAIN_GLYPHS}\\.0\\)\\)$`).exec(
-      letOf(glyph!).trim(),
+      letOf(glyph).trim(),
     )
     expect(
       g,
-      `the first operand must be the within-train index, got: ${letOf(glyph!)}`,
+      `the first operand must be the within-train index, got: ${letOf(glyph)}`,
     ).not.toBeNull()
     expect(letOf(g![2]!), '…reduced by the seed, which is the instance over G').toMatch(
       new RegExp(`floor\\(\\(\\w+ / ${ARROW_TRAIN_GLYPHS}\\.0\\)\\)`),
     )
-    expect(letOf(phase!), 'the second is the wrapped phase').toContain('fract(')
-    expect(letOf(spacing!), 'the third is the inter-glyph spacing from the view block').toContain(
+    expect(letOf(phase), 'the second is the wrapped phase').toContain('fract(')
+    expect(letOf(spacing), 'the third is the inter-glyph spacing from the view block').toContain(
       '.ray_tl.w',
     )
   })
@@ -79,7 +82,7 @@ describe('the excursion is bounded by the inter-glyph spacing, BY CONSTRUCTION (
     // exactly that — so the summed path length is ≤ arc, with the last step shortened to land on it
     // rather than past it. An unshortened final step would put the glyph up to `h` beyond its own
     // arc length, which is where a train starts overlapping the next.
-    const arcName = /let (\w+) = \(\(\w+ \+ \w+\) \* \w+\);/.exec(body)![1]!
+    const arcName = matchArc(body)!.arc
     const budget = new RegExp(`var (\\w+): f32 = ${arcName};`).exec(body)
     expect(budget, 'the budget is a mutable that starts at the arc length').not.toBeNull()
     const rem = budget![1]!

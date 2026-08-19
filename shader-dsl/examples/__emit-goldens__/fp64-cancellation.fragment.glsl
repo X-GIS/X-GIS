@@ -85,7 +85,8 @@ vec4 fs_cancel_impl(VsOut vo) {
   float _v1 = (vo.uv.x * 2.0);
   bool _cse0 = (vo.uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
-  float _v3 = ((_v2 - 0.5) * (_v0 * 2.0));
+  float _gv0 = (_v2 - 0.5);
+  float _v3 = (_gv0 * (_v0 * 2.0));
   bool _v4 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(1.0, 0.0);
   vec2 _v5 = df64_add(_cse1, vec2(_v3, 0.0));
@@ -130,7 +131,7 @@ vec4 fs_cancel_impl(VsOut vo) {
   float _v40 = (1.0 - smoothstep((_v27 * 0.8), (_v27 * 2.2), abs((_v25 - _v26))));
   vec3 _v41 = mix(_v39, vec3(0.8, 0.25, 0.2), (_v40 * 0.65));
   float _lc0 = (_v27 * 1.5);
-  float _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs((_v2 - 0.5)) * 2.0)));
+  float _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs(_gv0) * 2.0)));
   vec3 _v43 = mix(vec3(0.35, 0.33, 0.3), _v41, _v42);
   return vec4(_v43, 1.0);
 }

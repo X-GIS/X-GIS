@@ -30,9 +30,11 @@ vec4 fs_impl(VsOut vo) {
   float _v2 = hash(_v0);
   vec2 _v3 = vec2(mix(_v1.x, (1.0 - _v1.x), step(0.5, _v2)), _v1.y);
   vec2 _cse1 = vec2(1.0, 1.0);
-  float _v4 = min(abs((length(_v3) - 0.5)), abs((length((_v3 - _cse1)) - 0.5)));
+  float _gv0 = abs((length(_v3) - 0.5));
+  float _gv1 = abs((length((_v3 - _cse1)) - 0.5));
+  float _v4 = min(_gv0, _gv1);
   float _v5 = (fwidth(_v4) * 1.4);
-  return vec4(mix(vec3(0.04, 0.05, 0.09), (palette(((hash((_v0 + vec2(7.7, 3.1))) * 0.4) + (U.time * 0.05))) * ((sin(((mix(atan((_v3.y - 1.0), (_v3.x - 1.0)), atan(_v3.y, _v3.x), step(abs((length(_v3) - 0.5)), abs((length((_v3 - _cse1)) - 0.5)))) * 6.0) + (U.time * 2.5))) * 0.35) + 0.65)), (1.0 - smoothstep((0.13 - _v5), (0.13 + _v5), _v4))), 1.0);
+  return vec4(mix(vec3(0.04, 0.05, 0.09), (palette(((hash((_v0 + vec2(7.7, 3.1))) * 0.4) + (U.time * 0.05))) * ((sin(((mix(atan((_v3.y - 1.0), (_v3.x - 1.0)), atan(_v3.y, _v3.x), step(_gv0, _gv1)) * 6.0) + (U.time * 2.5))) * 0.35) + 0.65)), (1.0 - smoothstep((0.13 - _v5), (0.13 + _v5), _v4))), 1.0);
 }
 
 void main() {

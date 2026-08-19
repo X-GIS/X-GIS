@@ -23,8 +23,9 @@ float noise(vec2 p) {
   vec2 _v0 = floor(p);
   vec2 _v1 = fract(p);
   vec2 _cse0 = vec2(3.0);
-  float _lc0 = ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).x;
-  return mix(mix(hash(_v0), hash((_v0 + vec2(1.0, 0.0))), _lc0), mix(hash((_v0 + vec2(0.0, 1.0))), hash((_v0 + vec2(1.0, 1.0))), _lc0), ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).y);
+  vec2 _gv0 = ((_v1 * _v1) * (_cse0 - (_v1 * 2.0)));
+  float _lc0 = _gv0.x;
+  return mix(mix(hash(_v0), hash((_v0 + vec2(1.0, 0.0))), _lc0), mix(hash((_v0 + vec2(0.0, 1.0))), hash((_v0 + vec2(1.0, 1.0))), _lc0), _gv0.y);
 }
 
 float fbm(vec2 p) {

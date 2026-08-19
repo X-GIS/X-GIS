@@ -36,11 +36,11 @@ fn fs(vo: VsOut) -> @location(0) vec4<f32> {
   var _v1: f32 = 0.0;
   var _v2: f32 = 0.0;
   for (var _v3: u32 = 0u; (f32(_v3) < _licm0); _v3 = (_v3 + 1u)) {
-    let _lc0 = f32(_v3);
-    let _v4 = (vec2<f32>((_licm1 * _cse1), _licm2) - mix(vec2<f32>((sin(((_licm3 * ((_lc0 * 0.13) + 0.5)) + (_lc0 * 2.4))) * 0.55), (cos(((_licm3 * ((_lc0 * 0.11) + 0.4)) + (_lc0 * 1.7))) * 0.42)), _v0, ((1.0 - smoothstep(0.4, 0.6, _lc0)) * _licm4)));
+    let _gv0 = f32(_v3);
+    let _v4 = (vec2<f32>((_licm1 * _cse1), _licm2) - mix(vec2<f32>((sin(((_licm3 * ((_gv0 * 0.13) + 0.5)) + (_gv0 * 2.4))) * 0.55), (cos(((_licm3 * ((_gv0 * 0.11) + 0.4)) + (_gv0 * 1.7))) * 0.42)), _v0, ((1.0 - smoothstep(0.4, 0.6, _gv0)) * _licm4)));
     let _v5 = (0.055 / (dot(_v4, _v4) + 0.003));
     _v1 = (_v1 + _v5);
-    _v2 = (_v2 + (_v5 * f32(_v3)));
+    _v2 = (_v2 + (_v5 * _gv0));
   }
   let _cse2 = (_licm3 * 0.03);
   let _lc1 = palette((((_v2 / max(_v1, 0.0001)) * 0.15) + _cse2));

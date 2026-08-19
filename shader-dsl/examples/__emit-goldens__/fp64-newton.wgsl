@@ -87,12 +87,12 @@ fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
   }
   let _lc0 = (_v5 - 1.0);
   let _v32 = ((_lc0 * _lc0) + (_v6 * _v6));
-  let _lc1 = (_v5 + 0.5);
+  let _gv0 = (_v5 + 0.5);
   let _lc2 = (_v6 - 0.8660254037844386);
-  let _v33 = ((_lc1 * _lc1) + (_lc2 * _lc2));
-  let _lc3 = (_v5 + 0.5);
+  let _gv1 = (_gv0 * _gv0);
+  let _v33 = (_gv1 + (_lc2 * _lc2));
   let _lc4 = (_v6 + 0.8660254037844386);
-  let _v34 = ((_lc3 * _lc3) + (_lc4 * _lc4));
+  let _v34 = (_gv1 + (_lc4 * _lc4));
   let _v35 = select(select(vec3<f32>(0.98, 0.78, 0.22), vec3<f32>(0.2, 0.66, 0.88), (_v33 <= _v34)), vec3<f32>(0.91, 0.34, 0.22), ((_v32 <= _v33) && (_v32 <= _v34)));
   let _v36 = (1.0 - (_v7 / 48.0));
   return vec4<f32>((_v35 * mix(0.25, 1.0, _v36)), 1.0);
