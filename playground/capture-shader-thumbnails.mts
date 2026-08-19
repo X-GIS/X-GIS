@@ -92,7 +92,13 @@ const code = `(() => {
   return out;
 })()`
 
-const browser = await chromium.launch()
+// XGIS_CHROMIUM_EXECUTABLE — same escape hatch as playwright.config.ts, for environments
+// whose preinstalled Chromium build differs from this playwright pin (never `playwright install`).
+const browser = await chromium.launch(
+  process.env.XGIS_CHROMIUM_EXECUTABLE
+    ? { executablePath: process.env.XGIS_CHROMIUM_EXECUTABLE }
+    : {},
+)
 const page = await browser.newPage()
 await page.goto('about:blank')
 const results = (await page.evaluate(code)) as { id: string; dataURL: string | null }[]
