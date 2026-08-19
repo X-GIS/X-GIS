@@ -144,8 +144,9 @@ vec4 fs_de_impl(VsOut vo) {
   float _v28 = (((_v27 * log(_v27)) * 0.5) / sqrt(max(_v6, 1e-30)));
   float _v29 = min((_v28 / (_v0 * 0.012)), 40.0);
   float _v30 = ((_v5 > 1000000.0) ? 1.0 : 0.0);
-  float _v31 = (exp(((-_v29) * 1.2)) * _v30);
-  float _v32 = (exp(((-_v29) * 0.25)) * _v30);
+  float _gv0 = (-_v29);
+  float _v31 = (exp((_gv0 * 1.2)) * _v30);
+  float _v32 = (exp((_gv0 * 0.25)) * _v30);
   return vec4(((vec3(0.02, 0.03, 0.08) + (vec3(0.12, 0.2, 0.42) * _v32)) + (vec3(1.0, 0.85, 0.45) * _v31)), 1.0);
 }
 

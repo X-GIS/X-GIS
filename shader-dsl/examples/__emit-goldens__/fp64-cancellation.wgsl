@@ -25,7 +25,8 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v1 = (vo.uv.x * 2.0);
   let _cse0 = (vo.uv.x < 0.5);
   let _v2 = (_v1 - select(1.0, 0.0, _cse0));
-  let _v3 = ((_v2 - 0.5) * (_v0 * 2.0));
+  let _gv0 = (_v2 - 0.5);
+  let _v3 = (_gv0 * (_v0 * 2.0));
   let _v4 = (_cse0 || (u.fp64 < 0.5));
   let _cse1 = vec2<f32>(1.0, 0.0);
   let _v5 = df64_add(_cse1, vec2<f32>(_v3, 0.0));
@@ -70,7 +71,7 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v40 = (1.0 - smoothstep((_v27 * 0.8), (_v27 * 2.2), abs((_v25 - _v26))));
   let _v41 = mix(_v39, vec3<f32>(0.8, 0.25, 0.2), (_v40 * 0.65));
   let _lc0 = (_v27 * 1.5);
-  let _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs((_v2 - 0.5)) * 2.0)));
+  let _v42 = min(smoothstep(0.0, _lc0, abs(_v26)), smoothstep(0.0, _lc0, (abs(_gv0) * 2.0)));
   let _v43 = mix(vec3<f32>(0.35, 0.33, 0.3), _v41, _v42);
   return vec4<f32>(_v43, 1.0);
 }

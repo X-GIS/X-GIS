@@ -28,10 +28,18 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   test('WGSL: every renderable example, obfuscated, compiles with zero errors', async ({
     page,
   }) => {
-    const variants = renderable.map((ex) => ({
-      name: ex.id,
-      wgsl: emitModule(ex.module, { parens: 'minimal', plugins: obfuscate() }),
-    }))
+    // BOTH plugin pipelines: obfuscate() alone, and the one that first flattens
+    // the call graph. inline() rewrites the IR — it lifts helper bodies and then
+    // re-hoists the values that duplicated (#1860) — so its WGSL is a different
+    // string from obfuscate()'s and needs Tint's own verdict. (The GLSL side of
+    // inline() is additionally pixel-verified below.)
+    const variants = renderable.flatMap((ex) => [
+      { name: ex.id, wgsl: emitModule(ex.module, { parens: 'minimal', plugins: obfuscate() }) },
+      {
+        name: `${ex.id} [inline]`,
+        wgsl: emitModule(ex.module, { parens: 'minimal', plugins: [inline(), ...obfuscate()] }),
+      },
+    ])
     expect(variants.length).toBeGreaterThan(10)
     for (const v of variants) {
       // Minified = exactly one line (WGSL has no directives) — a second line
