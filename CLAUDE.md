@@ -171,6 +171,57 @@ calls it, what it calls, its data flow, or how a subsystem is structured — que
 recurring mistake; the graph surfaces the cross-path consumers and call chains a text
 search misses (exactly the blast radius this codebase's bugs hide in).
 
+### 6.1 A fresh VM has NO codebase-memory — INSTALL it, do not fall back to grep
+
+Remote/container sessions start without it every time. That absence is a 2-minute setup
+step, NOT a licence to grep: doing the install once buys the whole session the
+blast-radius sweep. Run this BEFORE the first code-location question.
+
+```bash
+# 1. Install. PIN 0.10.6 — `latest` (0.10.7) is DEPRECATED with a broken postinstall
+#    (it fetches a GitHub release tag that does not exist). Use 0.10.8+ once published.
+npm install -g codebase-memory-mcp@0.10.6        # ~7 s; pulls a ~293 MB native binary
+
+# 2. Index THIS repo. Project name is `D-X-GIS` — every §6 call below assumes it.
+codebase-memory-mcp cli index_repository \
+  --repo-path "$(git rev-parse --show-toplevel)" \
+  --name D-X-GIS --mode moderate                  # ~25 s; ~13.4k nodes / 53.5k edges
+
+# 3. Register the MCP server (see the timing note below for when its tools go live).
+claude mcp add codebase-memory --scope local -- codebase-memory-mcp
+```
+
+**The timing gotcha that makes this look broken:** the `mcp__codebase-memory__*` tools do
+NOT appear in the turn you register them. Right after step 3, `claude mcp list` says
+`Connected` while a tool search finds nothing — which reads as "the install failed" and
+sends the session straight back to grep. It did not fail. **The tools go live on a
+SUBSEQUENT turn** (both observed in one session: absent immediately after `mcp add`,
+callable a turn later, returning real graph rows). So:
+
+- **the turn you install in** — drive the graph through the binary's CLI, same engine, no
+  restart needed;
+- **every turn after** — use the `mcp__codebase-memory__*` tools directly. Do not keep
+  shelling out to the CLI out of habit; check once whether the tools are there.
+
+```bash
+echo '{"project":"D-X-GIS","name_pattern":"rangeKey"}' | codebase-memory-mcp cli search_graph
+codebase-memory-mcp cli <tool> --help          # flags per tool; also accepts --args-file
+```
+
+CLI notes paid for in this session (they do NOT apply to the MCP tools, only to `cli`): it
+prints `level=info` / `hint:` / `warning:` lines to stdout — filter them before parsing.
+`trace_path` takes `function_name` (NOT `qualified_name`) and `direction` is
+`inbound` | `outbound` | `both` (NOT `in`/`out`). Install GLOBALLY, never into the repo —
+the binary is ~293 MB and must never be committed.
+
+**The index can LAG your own edits.** Indexed projects do refresh in the background, but not
+instantly: `rangeLabel` returned 0 results for minutes after it was written and appeared only
+after an explicit re-index (step 2). Before trusting a "no callers" / "nothing references
+this" answer about code YOU just wrote, re-index — that stale negative is exactly the kind
+of wrong the graph is being trusted to prevent.
+
+### 6.2 The queries
+
 **Use first (project="D-X-GIS"):**
 
 - `search_graph` (name_pattern / label / qn_pattern / query) — find definitions & symbols
@@ -179,15 +230,16 @@ search misses (exactly the blast radius this codebase's bugs hide in).
 - `query_graph` (Cypher) — complex relationship queries
 - `search_code` — graph-augmented grep when you must text-match
 - `get_architecture` — package/module structure
-  If the project is not indexed yet, run `index_repository` first.
+  If the project is not indexed yet, run `index_repository` (§6.1 step 2) first.
 
 **Grep / Glob / Read remain correct for:** non-code text, configs, comments, docs; and you
 must ALWAYS `Read` a file before editing it. The rule is graph-first for _finding_ code —
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.
 
-**If the `codebase-memory` MCP is not connected** (remote/container sessions often lack it —
-verify, don't assume): fall back to Grep/Glob/Read and **say so in the reply**, so a
+**If the `codebase-memory` MCP is not connected** (remote/container sessions lack it by
+default — verify, don't assume): **install and index it (§6.1)**. Grep/Glob/Read is the
+fallback only when the install itself fails — and then **say so in the reply**, so a
 graph-less search is never mistaken for a graph-backed one. The rule is unreachable, not
 waived — the blast-radius sweep a text search misses is then the reader's job.
 

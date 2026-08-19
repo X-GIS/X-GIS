@@ -1575,15 +1575,22 @@ function pushImportedInlineGeoJSON(inline: Record<string, unknown> | null | unde
 const b64ToUtf8 = (b64: string): string =>
   new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)))
 
-// Legacy-source migration shim (#1064/#1115 aftermath): sources converted or
-// stored BEFORE the mandatory `xgis 1` version pragma (2026-07-14) hard-fail
-// the parser with X-GIS0008 when re-run from sessionStorage/#src= hand-offs,
-// bookmarks, or a surviving editor buffer. The LIBRARY parser stays strict —
-// the pragma is the deliberate language-versioning gate — but the playground
-// is a dev harness: auto-prepend the v1 pragma for pragma-less sources so
-// pre-#1115 converter outputs keep running, with a console breadcrumb.
-// (Pre-#1138 sources using PRUNED constructs still fail with their own
-// specific errors — that break is intentional, #1072.)
+// Pragma-less source shim (#1064/#1115 aftermath): the mandatory `xgis 1`
+// version pragma (2026-07-14) makes the parser hard-fail with X-GIS0008 on any
+// source that omits it. The LIBRARY parser stays strict — the pragma is the
+// deliberate language-versioning gate — but the playground is a dev harness:
+// auto-prepend the v1 pragma so such sources keep running, with a console
+// breadcrumb. (Pre-#1138 sources using PRUNED constructs still fail with their
+// own specific errors — that break is intentional, #1072.)
+//
+// TWO populations reach here, and #1848 showed the breadcrumb only described one:
+//   a) pre-2026-07-14 conversions replayed from sessionStorage/#src= hand-offs,
+//      bookmarks or a surviving editor buffer — the case that motivated the shim;
+//   b) a source the user just TYPED, e.g. the one-line `import "<style-url>"`.
+// The old text asserted (a) outright — "pre-2026-07-14 conversion; re-convert on
+// /convert for a clean copy" — which for (b) names a provenance the harness cannot
+// know and prescribes a re-conversion of something that was never converted. State
+// the fact (no pragma, one was prepended) and give the fix that is true either way.
 function ensureVersionPragma(source: string): string {
   // Strip leading blank lines, // line comments and /* */ block comments to
   // find the first significant token (comments may legally precede a pragma).
@@ -1605,8 +1612,9 @@ function ensureVersionPragma(source: string): string {
   }
   if (/^xgis\s+\d/.test(rest)) return source
   console.warn(
-    '[X-GIS playground] legacy source without a version pragma — prepending "xgis 1" ' +
-      '(pre-2026-07-14 conversion; re-convert on /convert for a clean copy)',
+    '[X-GIS playground] source has no version pragma — prepended `xgis 1` so it runs. ' +
+      'Add `xgis 1` as the first line to silence this; a source saved before 2026-07-14 ' +
+      'can instead be re-converted on /convert for a clean copy.',
   )
   return 'xgis 1\n\n' + source
 }
