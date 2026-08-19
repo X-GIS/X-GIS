@@ -187,6 +187,7 @@ const RENDER_MUST_COVER: readonly string[] = [
 const DELIBERATELY_UNMATCHED: Readonly<Record<string, readonly string[]>> = {
   render: ['shader-dsl/CHANGELOG.md'],
   code: ['shader-dsl/CHANGELOG.md'],
+  site: [],
 }
 
 /** git's idea of what exists, which is the only one that matters to a path filter. */
@@ -197,36 +198,45 @@ function trackedUnder(prefix: string): readonly string[] {
 }
 
 describe('every filter covers every file of every package it must, exhaustively', () => {
+  // `site` is here because leaving it out was the same hole one level down: the exhaustive arm
+  // witnessed `code` and `render` only, so deleting `site/**` outright left the file 22/22 green
+  // while a site-only PR skipped the `site` build job entirely and `test-result` read the skip
+  // as a pass. Its floor is separate because the package is an order of magnitude smaller than
+  // the engine tree, and a shared floor would be either vacuous for site or unreachable for it.
   const CASES = [
-    ['code', CODE_MUST_COVER],
-    ['render', RENDER_MUST_COVER],
+    ['code', CODE_MUST_COVER, 1000],
+    ['render', RENDER_MUST_COVER, 1000],
+    ['site', ['site'], 100],
   ] as const
 
-  it.each(CASES)('%s: no tracked file of a covered package is silently uncovered', (name, pkgs) => {
-    const match = matcherFor(name)
-    const missed: string[] = []
-    let tracked = 0
-    for (const pkg of pkgs) {
-      const files = trackedUnder(pkg)
-      expect(
-        files.length,
-        `'${pkg}' is required to be covered by '${name}' but git tracks nothing there — either ` +
-          'the package moved (update this list AND the filter) or the reader is broken.',
-      ).toBeGreaterThan(0)
-      tracked += files.length
-      for (const file of files) if (!match(file)) missed.push(file)
-    }
+  it.each(CASES)(
+    '%s: no tracked file of a covered package is silently uncovered',
+    (name, pkgs, floor) => {
+      const match = matcherFor(name)
+      const missed: string[] = []
+      let tracked = 0
+      for (const pkg of pkgs) {
+        const files = trackedUnder(pkg)
+        expect(
+          files.length,
+          `'${pkg}' is required to be covered by '${name}' but git tracks nothing there — either ` +
+            'the package moved (update this list AND the filter) or the reader is broken.',
+        ).toBeGreaterThan(0)
+        tracked += files.length
+        for (const file of files) if (!match(file)) missed.push(file)
+      }
 
-    expect(tracked, `${name}: only ${tracked} files read — the reader is broken`).toBeGreaterThan(
-      1000,
-    )
-    expect(
-      missed.sort(),
-      `${name}: ${missed.length} of ${tracked} tracked files in packages this filter must cover ` +
-        'do not match it. If a pattern was narrowed or removed, that many files just went ' +
-        'CI-dark while every leg still posts green.',
-    ).toEqual([...(DELIBERATELY_UNMATCHED[name] ?? [])].sort())
-  })
+      expect(tracked, `${name}: only ${tracked} files read — the reader is broken`).toBeGreaterThan(
+        floor,
+      )
+      expect(
+        missed.sort(),
+        `${name}: ${missed.length} of ${tracked} tracked files in packages this filter must cover ` +
+          'do not match it. If a pattern was narrowed or removed, that many files just went ' +
+          'CI-dark while every leg still posts green.',
+      ).toEqual([...(DELIBERATELY_UNMATCHED[name] ?? [])].sort())
+    },
+  )
 
   it('names an exemption for every workspace `code` does not cover', () => {
     // Keeps CODE_EXEMPT honest: an exemption is a decision with a reason, not a gap. If a new
@@ -241,7 +251,7 @@ describe('every filter covers every file of every package it must, exhaustively'
     }
   })
 
-  it.each(['code', 'render'] as const)(
+  it.each(['code', 'render', 'site'] as const)(
     '%s: each deliberate exception is real and excluded',
     (name) => {
       // Pins the other direction. A stale row here would quietly re-widen the filter, and an

@@ -5,9 +5,10 @@
 // spawns the script both ways on purpose.
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   groupCommits,
@@ -172,6 +173,44 @@ describe('isRegenCommit', () => {
       false,
     )
     expect(isRegenCommit('chore(changelog): regenerate from the mirror (#1710)')).toBe(false)
+  })
+})
+
+describe('loop guard 3 is actually WIRED to the workflow that depends on it', () => {
+  // The comment in .github/workflows/changelog.yml said "the generator's unit tests pin the
+  // shape". They did not: they pinned the REGEX, and nothing anywhere read the string the
+  // workflow actually commits with. Changing that `-m` argument by a character would have left
+  // every test in this file green while the artifact grew one noise entry per merge forever —
+  // the exact failure guard 3 exists to prevent, with no gate between the two halves (#1842).
+  const WORKFLOW = fileURLToPath(new URL('../.github/workflows/changelog.yml', import.meta.url))
+  const SHA = '4bf461085e22d52de4b3e924dc0371585565ad5e'
+
+  /** The subject the workflow commits with, with its shell variable resolved. */
+  function workflowSubject(): string {
+    const yaml = readFileSync(WORKFLOW, 'utf8')
+    const m = /git commit --no-verify -m "([^"]+)"/.exec(yaml)
+    expect(m, 'no `git commit --no-verify -m "…"` in changelog.yml — did the step move?').not.toBe(
+      null,
+    )
+    const template = m?.[1] ?? ''
+    expect(template, 'the commit subject template is empty').not.toBe('')
+    expect(template, 'the subject no longer interpolates a sha').toContain('${head_sha}')
+    return template.replace('${head_sha}', SHA)
+  }
+
+  it('the subject the workflow commits is one the walk excludes', () => {
+    expect(isRegenCommit(workflowSubject())).toBe(true)
+  })
+
+  it('…and stays excluded after GitHub appends the squash PR number', () => {
+    // The only spelling that ever reaches main, since the regeneration lands through a PR.
+    expect(isRegenCommit(`${workflowSubject()} (#1847)`)).toBe(true)
+  })
+
+  it('the extraction is not vacuous — a mutated template is rejected', () => {
+    // Proves the two arms above would notice. Without this, a workflowSubject() that silently
+    // returned something already reserved would make them pass for the wrong reason.
+    expect(isRegenCommit(workflowSubject().replace('regenerate', 'regenerated'))).toBe(false)
   })
 })
 

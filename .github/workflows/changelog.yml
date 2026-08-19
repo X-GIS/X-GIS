@@ -167,6 +167,22 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # MEASURED BEFORE the generator rewrites the files on disk, because afterwards the marker
+      # trivially equals HEAD and says nothing. This is the input to the only step that decides
+      # whether this workflow is actually working — see the last step.
+      - id: staleness
+        run: |
+          set -euo pipefail
+          marker="$(grep -m1 'Generated from:' CHANGELOG.md | awk '{print $NF}' || true)"
+          if [ -z "${marker}" ] || ! git cat-file -e "${marker}^{commit}" 2>/dev/null; then
+            echo "::notice::no resolvable 'Generated from:' marker in CHANGELOG.md — cannot measure staleness this run."
+            echo 'behind=unknown' >> "$GITHUB_OUTPUT"
+          else
+            behind="$(git rev-list --count --first-parent "${marker}..HEAD")"
+            echo "::notice::CHANGELOG.md was last current at ${marker}; main is ${behind} first-parent commits ahead."
+            echo "behind=${behind}" >> "$GITHUB_OUTPUT"
+          fi
+
       # The job runs `bun run changelog` — the SAME command the header of
       # scripts/emit-changelog.ts tells a human to run — so CI and a local
       # regeneration produce identical bytes by construction rather than by
@@ -316,3 +332,38 @@ jobs:
           else
             echo "::warning::could not arm auto-merge on #${number} — the PR is open and needs one click. Enable Settings → General → Allow auto-merge to make this hands-off."
           fi
+
+      # ── THE JOB'S ACTUAL SUCCESS CONDITION ───────────────────────────────────────────────
+      # Everything above is "I did my part": regenerate, push, open the PR, arm auto-merge. None
+      # of it observes whether the artifact LANDED, and for eight consecutive runs it did not —
+      # runs 93-100 all reported success while main's CHANGELOG.md sat 101 first-parent commits
+      # stale, because the terminal step exits 0 as soon as `gh pr merge --auto` returns and the
+      # auto-merge refusal path downgrades to a warning (#1842).
+      #
+      # That is worse than the 89 loud red runs it replaced: the header above promises "the
+      # artifact LANDS, and when it cannot land the failure is an open PR rather than a red run
+      # nobody watches", and an unbounded run of silent greens keeps neither half of it. So the
+      # job now ends by asking the only question that matters, about the PAST rather than the
+      # future: is the committed changelog current?
+      #
+      # `always()` because this must also fire on the `changed=false` path — "nothing to
+      # regenerate" and "the last twenty regenerations never landed" look identical otherwise.
+      # The bound is generous on purpose: a regeneration PR normally lands within a merge or two,
+      # so 20 tolerates real in-flight lag while 101 screams. It is a LIVENESS bound, not a
+      # freshness one — tightening it to catch small lags would make this red constantly.
+      - name: Fail unless the changelog is actually landing
+        if: always()
+        env:
+          BEHIND: ${{ steps.staleness.outputs.behind }}
+          MAX_BEHIND: '20'
+        run: |
+          set -euo pipefail
+          if [ "${BEHIND}" = 'unknown' ] || [ -z "${BEHIND}" ]; then
+            echo "::warning::staleness was not measured this run; treating as inconclusive."
+            exit 0
+          fi
+          if [ "${BEHIND}" -gt "${MAX_BEHIND}" ]; then
+            echo "::error::CHANGELOG.md is ${BEHIND} first-parent commits stale (bound ${MAX_BEHIND}). Regenerating and arming auto-merge is NOT the same as landing, and this job used to report success either way. Look at the open PR on the 'chore/changelog' branch: if its required checks keep getting cancelled, a merge landed while they ran; if it has no checks at all, the push actor was github-actions[bot] and CHANGELOG_TOKEN is not in effect. See #1842."
+            exit 1
+          fi
+          echo "::notice::CHANGELOG.md is ${BEHIND} first-parent commits behind main, within the ${MAX_BEHIND} bound."
