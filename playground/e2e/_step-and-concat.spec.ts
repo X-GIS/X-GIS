@@ -28,7 +28,7 @@ test('step (N-stop) + concat render city tiers + composite labels', async ({ pag
   })
   page.on('pageerror', (e) => errors.push(`[pageerror] ${e.message}`))
 
-  await page.goto('/demo.html?id=step_and_concat#1.5/0/0/0/0', {
+  await page.goto('/demo.html?id=step_and_concat&forcegl2=1&preserve=1#1.5/0/0/0/0', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
