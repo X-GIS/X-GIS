@@ -76,6 +76,7 @@ import {
 import { autoVars } from '../passes/opt/index.js'
 import { wgslLayout } from '../reflect.js'
 import { sanitizeReservedIdents } from './glsl-sanitize.js'
+import { hoistDiscardingCtorArgs } from './glsl-legalize.js'
 import { fixpoint } from '../passes/opt/index.js'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
@@ -1486,7 +1487,13 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // and its survivor set keeps every host-owned name.
   return applyIRPlugins(
     lowerHostLooseBlocks(
-      sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+      // GLSL-local: bind a struct-ctor argument carrying a (transitively) discarding call to
+      // a named local first — ANGLE/D3D11 miscompiles the inline form silently (#1840).
+      sanitizeReservedIdents(
+        hoistDiscardingCtorArgs(
+          lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor),
+        ),
+      ),
     ),
     opts,
   )
