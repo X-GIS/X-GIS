@@ -57,7 +57,7 @@ import {
 } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
-import { spellIntrinsic, INTRINSIC_BINDING_REFS } from '../intrinsics.js'
+import { spellIntrinsic, INTRINSIC_BINDING_REFS, INTRINSIC_HELPERS } from '../intrinsics.js'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
 import { bodyHasRaw } from '../passes/opt/dce.js'
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
@@ -2057,6 +2057,24 @@ function assembleGlsl(
       )
   }
   if (bindingLines.length) parts.push(bindingLines.join('\n\n'))
+
+  // The definitions the INTRINSIC SPELLINGS call (#1878), ahead of the fn section proper.
+  // A storage read spells `_sfetch(t, i)` rather than expanding the tiled-index math at
+  // every site, so the unit has to define what it calls. Keyed off the calls actually
+  // collected — emitting one nothing calls is exactly the dead weight this replaced — and
+  // every definition is a leaf over builtins, so it needs no prototype and no place in the
+  // dependency sort below. Emitted in TABLE order, so the byte order is a function of the
+  // registry rather than of the order the reference walk happened to reach them in.
+  //
+  // Entry calls count even when `omitEntries` withholds the entry TEXT, for the same reason
+  // the struct slot keeps its whole reachable set there: a host splices its own entry back
+  // in, and that text calls what the entry called.
+  const helperRefs = emptyRefSet()
+  for (const f of [...helpers, ...entries]) collectFnRefs(f, helperRefs)
+  const helperDefs = Object.entries(INTRINSIC_HELPERS)
+    .filter(([id]) => helperRefs.calls.has(id))
+    .map(([, h]) => h.def)
+  if (helperDefs.length) parts.push(helperDefs.join('\n\n'))
 
   // The fn section, in DEFINE-BEFORE-USE order (#1858). GLSL ES 3.00 has no hoisting,
   // so a call that precedes its definition needs a prototype — and a prototype buys
