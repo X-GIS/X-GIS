@@ -40,30 +40,52 @@ name: changelog
 # it cannot land the failure is an open PR in the PR list rather than a red run
 # nobody watches.
 #
-# ── THE ONE REPOSITORY SETTING THIS NEEDS ────────────────────────────────────
-# Settings → Actions → General → Workflow permissions →
-#   ☑ Allow GitHub Actions to create and approve pull requests
+# ── WHY THIS RUNS ON A DEDICATED TOKEN AND NOT GITHUB_TOKEN (#1842) ──────────
+# `secrets.CHANGELOG_TOKEN` is REQUIRED. Not a nicety, not a fallback: with
+# GITHUB_TOKEN this workflow produces a pull request that can never merge, and
+# it does so silently — the job goes green while the PR sits blocked forever.
 #
-# Off by default, and measured on run 92: the branch push succeeds and only the
-# PR creation is refused —
+# Two separate GITHUB_TOKEN limits bite, and they were measured one after the
+# other on this repo:
 #
-#   pull request create failed: GraphQL: GitHub Actions is not permitted to
-#   create or approve pull requests (createPullRequest)
+#   1. `gh pr create` is refused outright unless Settings → Actions → General →
+#      Workflow permissions → "Allow GitHub Actions to create and approve pull
+#      requests" is ticked (run 92):
+#        pull request create failed: GraphQL: GitHub Actions is not permitted
+#        to create or approve pull requests (createPullRequest)
 #
-# so the regenerated files sit on `chore/changelog` with no PR. The step below
-# detects that exact string and says so; it stays RED, because a silent skip is
-# the invisible rot #1842 exists to end.
+#   2. Even with that ticked, a branch push whose ACTOR is `github-actions[bot]`
+#      produces a `pull_request` run that GitHub parks at `action_required`
+#      instead of executing it. Measured on PR #1847, same branch, same
+#      workflow, three heads:
+#        1641d3f7  actor Seungup            → ran normally
+#        e52987b7  actor github-actions[bot] → action_required, 0s
+#        78d998fb  actor github-actions[bot] → action_required, 0s
+#      `test-result` and `render-gate` therefore never post on the head branch
+#      protection evaluates, so auto-merge waits on checks that will never
+#      arrive. The actor is the whole difference.
 #
-# This is not the old prescription in new clothes. The direct-push route asked
-# for a bot allowed to BYPASS required status checks; this asks only for a bot
-# allowed to OPEN a pull request, which then has to pass `test-result` and
-# `render-gate` like anything else. Branch protection is untouched. (The
-# "approve" half of that checkbox is the security-relevant one — this workflow
-# never approves anything, and `permissions:` above grants it no way to.)
+# A repo-scoped token owned by a user or a GitHub App fixes both at once: the
+# push and the PR are attributed to a real actor, so the PR behaves exactly like
+# a human's — CI runs, checks post, auto-merge fires. Branch protection is
+# untouched; this asks for nothing that lets anything BYPASS a required check,
+# which is what the original direct-push prescription wanted and why it was
+# wrong.
 #
-# "Allow auto-merge" (Settings → General) is the second, softer one: with it
-# off the PR just waits for one human click, which is still visible and still
-# lands. Only the checkbox above is load-bearing.
+# SETUP (once): a fine-grained PAT (or GitHub App installation token) scoped to
+# THIS repository with `Contents: read and write` + `Pull requests: read and
+# write`, stored as the repository secret `CHANGELOG_TOKEN`. Nothing else needs
+# it, and the preflight step below fails loudly and by name when it is absent
+# rather than falling back to GITHUB_TOKEN and reintroducing the silent stall.
+#
+# "Allow auto-merge" (Settings → General) is the second, softer requirement:
+# with it off the PR just waits for one human click, which is still visible and
+# still lands.
+#
+# CONSEQUENCE FOR THE LOOP GUARDS: a PAT push DOES raise workflow events, so
+# guard 1 (GitHub's rule that a GITHUB_TOKEN push raises none) is gone
+# completely. Guard 2 — the `paths-ignore` below — is now the ONLY thing
+# stopping this workflow from triggering itself. Do not weaken it.
 
 on:
   push:
@@ -90,10 +112,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  # `contents` pushes the branch; `pull-requests` opens the PR and turns auto-merge
-  # on. Nothing else — no `issues`, and no write scope this job does not spend.
-  contents: write
-  pull-requests: write
+  # This governs GITHUB_TOKEN, and GITHUB_TOKEN no longer does anything here: the
+  # checkout, the push, and every `gh` call run on CHANGELOG_TOKEN instead (see
+  # the header). So it keeps only what a checkout needs to read. Granting it
+  # write would be a scope nothing spends — and would quietly re-enable the
+  # bot-actor path whose PRs cannot merge, if a future edit dropped the explicit
+  # `token:` inputs.
+  contents: read
 
 # SERIALIZE, never cancel — the mirror workflow's R5 reasoning applies verbatim:
 # two merges landing seconds apart must not race to push main, and cancelling an
@@ -117,10 +142,28 @@ jobs:
       # contents — so a blobless clone answers every question it asks while
       # skipping the bulk of a 498 MB history. Blobs for the checked-out tree
       # are fetched on demand, which is all `bun install` needs.
+      # Preflight, BEFORE the checkout that consumes the token. An absent secret
+      # must not degrade into "use GITHUB_TOKEN and hope": that path produces a
+      # green job and a PR that never merges, which is the exact failure mode
+      # this workflow was rewritten twice to stop being.
+      - name: Require the dedicated token
+        env:
+          CHANGELOG_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CHANGELOG_TOKEN}" ]; then
+            echo "::error::secrets.CHANGELOG_TOKEN is not set, so this run would push and open a PR as github-actions[bot] — GitHub parks that PR's checks at 'action_required', so it can never merge and this job would go green over a stalled PR (#1842). Create a fine-grained PAT scoped to this repository with Contents: read and write + Pull requests: read and write, store it as the repository secret CHANGELOG_TOKEN, and re-run."
+            exit 1
+          fi
+
+      # `token:` is what makes the later `git push` authenticate as the PAT's
+      # owner rather than as github-actions[bot]; the actor is the entire reason
+      # this workflow can merge its own PR at all (see the header).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           filter: blob:none
+          token: ${{ secrets.CHANGELOG_TOKEN }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -194,10 +237,11 @@ jobs:
         env:
           BRANCH: chore/changelog
           BASE_SHA: ${{ steps.commit.outputs.base_sha }}
-          # `gh` reads the token from the environment; it is the same repo-scoped
-          # GITHUB_TOKEN the checkout used, with the two write scopes declared at
-          # the top of this file and nothing more.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The SAME dedicated token the checkout used, for the same reason: a
+          # PR opened by github-actions[bot] is refused outright, and one whose
+          # head it pushes gets checks parked at `action_required`. `gh` reads it
+          # from the environment.
+          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -242,11 +286,12 @@ jobs:
             if [ -n "${number}" ]; then
               echo "::notice::opened changelog PR #${number}"
             elif grep -q 'not permitted to create or approve pull requests' "${RUNNER_TEMP}/gh-create.err"; then
-              # MEASURED on run 92, and the reason this branch exists at all: the
-              # push SUCCEEDS and only `createPullRequest` is refused, so the
-              # regenerated changelogs are already on `${BRANCH}` and nothing is
-              # lost — what is missing is one repository checkbox.
-              echo "::error::GitHub Actions may not open pull requests in this repository, so the regenerated changelogs are sitting on the '${BRANCH}' branch with no PR. Fix (one checkbox, once): Settings -> Actions -> General -> Workflow permissions -> 'Allow GitHub Actions to create and approve pull requests'. This does NOT weaken branch protection: the PR it opens still has to pass test-result and render-gate like any other. Until then, open the PR by hand from '${BRANCH}' -- its commit is already the reserved subject, so it squashes correctly."
+              # MEASURED on run 92, when this still ran on GITHUB_TOKEN: the push
+              # SUCCEEDS and only `createPullRequest` is refused, so the files are
+              # already on `${BRANCH}` and nothing is lost. Reaching this branch
+              # now means CHANGELOG_TOKEN was accepted as present but is not what
+              # it needs to be — the preflight only proves it is non-empty.
+              echo "::error::CHANGELOG_TOKEN may not open pull requests in this repository, so the regenerated changelogs are sitting on the '${BRANCH}' branch with no PR. The token needs 'Pull requests: read and write' on THIS repository (a fine-grained PAT scoped elsewhere, or an expired one, fails exactly here). If the token was removed and this fell back to github-actions[bot], the fix is to restore it -- a bot-opened PR is refused, and a bot-pushed head has its checks parked at 'action_required', so it could never merge anyway (#1842). Until then, open the PR by hand from '${BRANCH}' -- its commit is already the reserved subject, so it squashes correctly."
               exit 1
             fi
           fi
