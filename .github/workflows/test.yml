@@ -824,7 +824,33 @@ jobs:
       # xfonts-*) that the glyph-bearing gates rasterise against. It costs ~9 s on
       # a warm runner and is NOT covered by the cache above, which holds only
       # ~/.cache/ms-playwright.
+      # apt HAS NO TIMEOUT ON A STALLED CONNECTION, and `--with-deps` below is an apt
+      # transaction. Sharding made that fatal: on run 32233203233 all six shards hit
+      # azure.archive.ubuntu.com within four seconds of each other, two finished the
+      # step in ~2 min and FOUR hung in it for 45+ minutes with the render gates never
+      # starting. It is not bandwidth division — shard 5 started its install BEFORE
+      # shard 4 and hung while shard 4 sailed through — it is one shard drawing a dead
+      # connection and waiting on it forever. The same mirror was already measured
+      # swinging 331 kB/s to 42 MB/s for the identical 21.1 MB of fonts.
+      #
+      # So give apt the timeout it does not have by default. Written to apt.conf.d
+      # rather than passed as flags because playwright spawns apt itself and there is
+      # no way to reach through `--with-deps`. A dead connection is now dropped after
+      # 30 s and retried, worst case ~90 s, instead of hanging until the job timeout.
       - if: needs.changes.outputs.render == 'true'
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::ftp::Timeout "30";
+          Acquire::Retries "5";
+          CONF
+          echo "apt timeout/retry policy installed:"; cat /etc/apt/apt.conf.d/99-ci-timeouts
+      # `timeout-minutes` is the BACKSTOP, not the fix — the apt policy above is. This
+      # only guarantees that if the install wedges anyway it fails in 8 min with a
+      # readable log, instead of holding a runner for the job's full 120.
+      - if: needs.changes.outputs.render == 'true'
+        timeout-minutes: 8
         run: ./playground/node_modules/.bin/playwright install chromium --only-shell --with-deps
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
