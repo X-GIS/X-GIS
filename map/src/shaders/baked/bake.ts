@@ -139,10 +139,41 @@ export function formatBakedReport(rows: readonly BakedReportRow[]): string {
   return out.join('\n')
 }
 
+/** Entries in KEY order — what `index` wants, since its keys are the registry ids a
+ *  reader looks things up by. */
 const sortedEntries = (o: Readonly<Record<string, string>>): [string, string][] =>
   Object.keys(o)
     .sort()
     .map((k) => [k, o[k] as string])
+
+/** Entries grouped by SOURCE LENGTH, not by key (#1875).
+ *
+ *  Either order makes the bake reproducible, which is the only property this file needs
+ *  from a sort. But the keys are content HASHES, so hash order scatters near-identical
+ *  shaders to pseudo-random distances from each other — and this corpus is mostly
+ *  redundancy: dozens of sources sharing a projection prelude, a df64 library and an
+ *  identical header. gzip's window is 32 KB against a ~370 KB artifact, so it collapses
+ *  that redundancy only where similar sources sit near each other. Length is what puts
+ *  them there: shaders of a family differ by a variant clause, not an order of magnitude.
+ *  Measured over the six committed artifacts, with not one emitted byte changed, gzip
+ *  goes 106_742 -> 83_830 (-21.5%), and no artifact gets worse.
+ *
+ *  Length, not the source text: lexicographic order was tried and is worse (-16.9%) AND
+ *  regresses one artifact (+4.6% on wgsl-hillshade), because two near-identical shaders
+ *  that differ early in the string sort far apart. The hash is the tiebreak, which is
+ *  what keeps this a TOTAL order and so still reproducible.
+ *
+ *  Two things this is NOT. It is not a brotli win — brotli's window spans the file and
+ *  finds those matches wherever they sit (every ordering lands within 0.7%), so the
+ *  transfer saving is for gzip-only clients. And it is not primarily about bytes: hash
+ *  order makes an artifact's compressed size a function of hash luck rather than of its
+ *  content, so ANY emit change reshuffles the file and moves gzip by more than the change
+ *  itself does. That is what made a #1867 measurement read as a "+3.2% gzip regression"
+ *  that did not exist. Ordering on the content makes a size delta mean what it says. */
+const groupedEntries = (o: Readonly<Record<string, string>>): [string, string][] =>
+  Object.entries(o).sort(
+    ([ka, a], [kb, b]) => a.length - b.length || (ka < kb ? -1 : ka > kb ? 1 : 0),
+  )
 
 /** The TypeScript source of a committed artifact module.
  *
@@ -188,7 +219,7 @@ export function renderBakedModule(
     `    projectionFingerprint: ${JSON.stringify(artifact.meta.projectionFingerprint)},`,
     '  },',
     '  contents: {',
-    ...sortedEntries(artifact.contents).map(
+    ...groupedEntries(artifact.contents).map(
       ([hash, src]) => `    ${JSON.stringify(hash)}: ${JSON.stringify(src)},`,
     ),
     '  },',
