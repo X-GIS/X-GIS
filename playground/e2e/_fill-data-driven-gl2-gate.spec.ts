@@ -12,8 +12,8 @@
 // `fixture_categorical` is three features with `match(.kind)` → red / emerald / blue. A painted-
 // fraction check cannot tell that apart from ONE flat colour over all three — and one flat colour
 // is precisely the plausible failure here (the variant silently falling back to the default-uniform
-// shader paints every feature in the last-written `u.fill_color`). Measured whole-frame, the
-// data-driven arm and the constant-fill twin paint the IDENTICAL fraction, 0.3588 each, so the
+// shader paints every feature in the last-written `u.fill_color`). Measured in-crop, the
+// data-driven arm and the constant-fill twin paint the IDENTICAL fraction, 0.8000 each, so the
 // scalar is provably blind to the thing under test. The histogram is not. See §12: "a pixel-COUNT
 // render gate passes on broken images — assert STRUCTURE".
 //
@@ -43,9 +43,10 @@ const ART = 'test-results/fill-data-driven-gl2'
  *  a hash badge, two buttons, a caption, and an ERRORS PANEL that pops open when anything warns.
  *  Measured whole-frame, the data-driven arm read 0.018 painted with a completely black map,
  *  because this gate's own warning had opened that panel. The gate would have been measuring its
- *  subject's side effect. The polygons land dead centre (verified against the twin capture), so
- *  the middle half by width and middle third by height contains all of them and none of the
- *  chrome. */
+ *  subject's side effect. Since #1836 fixed the boot bounds-fit,
+ *  the three polygons span the full canvas width (verified against both captures: red 0-260,
+ *  emerald 304-560, blue 604-848 on the 860px canvas), so the middle half by width catches the
+ *  middle feature whole, a sliver of each side one, and none of the chrome. */
 function measure(png: Buffer): { painted: number; hues: { rgb: string; share: number }[] } {
   const img = PNG.sync.read(png)
   const x0 = Math.floor(img.width * 0.25)
@@ -161,12 +162,12 @@ test.describe('data-driven fill on WebGL2 (#1592)', () => {
       'control: a CONSTANT fill must show exactly one dominant hue — if this also reports 3 the ' +
         'histogram is measuring the raster, not the fill',
     ).toBe(1)
-    // Equal thirds: the three fixture polygons are the same size, so a variant that painted two
-    // features correctly and collapsed the third would still report 3 hues but skew the shares.
+    // Share floors under the CORRECT boot fit (#1836): the crop holds the middle feature whole
+    // and ~45px slivers of the side ones, measured 0.60 / 0.10 / 0.10 of the crop on a fixed
+    // camera. A fully collapsed feature falls below the 5% dominance filter and is caught by the
+    // hue COUNT above; these floors catch the partial collapse the thirds rule used to cover.
     for (const h of dataDriven.hues) {
-      expect(h.share, `hue ${h.rgb} covers roughly a third of the painted area`).toBeGreaterThan(
-        twin.hues[0]!.share / 3 - 0.02,
-      )
+      expect(h.share, `hue ${h.rgb} kept its measured crop share`).toBeGreaterThan(0.07)
     }
 
     // Neither arm may warn now: the treatment is drawn, not skipped, so #1583's gap message must
