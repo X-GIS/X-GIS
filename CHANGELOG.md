@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a63e6e575bb9ec594346e5ea38a40b3dec27682b
+  Generated from: 36bfb12cec67f5869aa607a88ac3199a5a57120d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a63e6e575bb9
+    bun scripts/emit-changelog.ts --since 36bfb12cec67
 -->
 
 # Changelog
@@ -161,6 +161,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **map/baked:** order the artifact `contents` by source length, not by content hash ([#1875](https://github.com/X-GIS/X-GIS/pull/1875)) `a7a615e`
 - **shader-dsl:** stop the emit recomputing hoistable values — post-inline cleanup + gvn wired (#1860, #1861, #1865) ([#1862](https://github.com/X-GIS/X-GIS/pull/1862)) `f005bbe`
 - **ci:** give the bun cache a single saver, so a lockfile change stops 14 jobs racing ([#1859](https://github.com/X-GIS/X-GIS/pull/1859)) `e51ea07`
