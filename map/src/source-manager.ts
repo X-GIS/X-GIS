@@ -68,6 +68,22 @@ import { SourceRefreshScheduler } from './source-refresh'
  *  dispatch must still treat as built-in. */
 const BUILTIN_SOURCE_TYPES = new Set<string>([...SOURCE_TYPES, 'xgvt'])
 
+/** Phase 5f rollout opt-OUT: pin GeoJSON on the legacy main-thread compile path
+ *  (`GeoJSONRuntimeBackend`) instead of `VirtualPMTilesBackend`, via either
+ *  `window.__XGIS_USE_LEGACY_GEOJSON = true` in DevTools or a `?legacy=1` query
+ *  param. Exported because #1837 made the virtual route the default for INLINE
+ *  GeoJSON too: both route decisions (the URL attach below and the inline gate in
+ *  `map.ts`) must read the same flag, or one `?legacy=1` page would run half its
+ *  sources on each backend. */
+export function isLegacyGeoJSONOptOut(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    ((window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON ===
+      true ||
+      /[?&]legacy=1\b/.test(window.location.search))
+  )
+}
+
 /** Dependencies SourceManager needs from the host XGISMap. */
 export interface SourceManagerDeps {
   /** Shared with XGISMap — same Map instance, by reference. */
@@ -505,18 +521,10 @@ export class SourceManager {
 
     // Phase 5f: VirtualPMTilesBackend is now the default route for GeoJSON URL sources. The legacy
     // main-thread compileSync path (GeoJSONRuntimeBackend) is still available for opt-out
-    // diagnostics during the rollout via either:
-    //   - `window.__XGIS_USE_LEGACY_GEOJSON = true` in DevTools
-    //   - `?legacy=1` query param
-    // The opt-out keeps the safety net while we confirm the new path is stable across every demo +
-    // fixture. Once the e2e suite has run green for a stretch, the legacy path comes out entirely
-    // (Phase 5f follow-up).
-    const useLegacy =
-      typeof window !== 'undefined' &&
-      ((window as unknown as { __XGIS_USE_LEGACY_GEOJSON?: boolean }).__XGIS_USE_LEGACY_GEOJSON ===
-        true ||
-        /[?&]legacy=1\b/.test(window.location.search))
-    const useVirtualPMTiles = !useLegacy
+    // diagnostics during the rollout — see `isLegacyGeoJSONOptOut`. The opt-out keeps the safety
+    // net while we confirm the new path is stable across every demo + fixture. Once the e2e suite
+    // has run green for a stretch, the legacy path comes out entirely (Phase 5f follow-up).
+    const useVirtualPMTiles = !isLegacyGeoJSONOptOut()
     if (useVirtualPMTiles) {
       // Diagnostic flag — set on `window` so the Phase 5e regression
       // spec can assert the route taken without parsing console

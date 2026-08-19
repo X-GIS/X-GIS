@@ -731,7 +731,13 @@ const CEILINGS: Record<string, number> = {
   // stop-block — the SourceManager half of the same teardown spine, so a
   // `refresh:`-declared polling loop can't outlive a scene swap or ghost-write
   // into a same-named source in the next scene (the #1569 class of bug).
-  'map/src/map.ts': 5584,
+  // 5584→5601 (#1837): the inline-GeoJSON route gate stops requiring an opt-in flag —
+  // ONE condition line (`|| !isLegacyGeoJSONOptOut()`) plus the comment recording why
+  // 788e2282 orphaned every flag-off legacy inline scene and which two show shapes
+  // (filtered / procedural) deliberately stay behind. Nothing extract-worthy: the gate
+  // is four terms inside the show loop, and the flag it now consults is already a
+  // shared export from source-manager.ts.
+  'map/src/map.ts': 5601,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -847,7 +853,12 @@ const CEILINGS: Record<string, number> = {
   // Fix: re-check `isStale?.() || !this._sourceRefresh.isRunning(sourceName)`
   // AFTER the tick's await, BEFORE `setSourceData` — same shape as every other
   // A7 guard in this file. +15 = the guard line + its reasoning comment.
-  'map/src/source-manager.ts': 1057,
+  // 1057→1065 (#1837): the `?legacy=1` / `__XGIS_USE_LEGACY_GEOJSON` opt-out became a
+  // named export (`isLegacyGeoJSONOptOut`) because map.ts's inline route now reads the
+  // SAME flag — one authority, not a hand-copied predicate that could drift into meaning
+  // two different things on one page. Net +8: the exported function + its doc, minus the
+  // inline `useLegacy` expression and the comment lines it replaced.
+  'map/src/source-manager.ts': 1065,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
