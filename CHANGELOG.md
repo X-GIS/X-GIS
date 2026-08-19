@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 36bfb12cec67f5869aa607a88ac3199a5a57120d
+  Generated from: ea7335370935f312ea26615f84be4a1ef46d19e2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 36bfb12cec67
+    bun scripts/emit-changelog.ts --since ea7335370935
 -->
 
 # Changelog
@@ -86,6 +86,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **ci:** stop a push to main cancelling the post-merge guard run for the commit that changed code (#1872) ([#1883](https://github.com/X-GIS/X-GIS/pull/1883)) `ea73353`
 - **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
 - **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
 - **ci:** stop the generated changelogs firing the engine matrix and render-gate (#1842) ([#1856](https://github.com/X-GIS/X-GIS/pull/1856)) `f8bbec9`
