@@ -29,8 +29,9 @@ on:
   #
   # Cost is bounded by the same `changes` filters the PR run uses — a merge that
   # touches nothing this workflow tests still costs only the sub-5s filter — and
-  # by `concurrency` below, which cancels a superseded main run because only the
-  # tip matters. `render-gate` opts out; see the note on that job.
+  # by `render-gate` opting out; see the note on that job. What does NOT bound it
+  # is cancelling a superseded main run: see `concurrency` below for why that made
+  # this guard cover nothing on the very first merge it ran on.
   push:
     branches: [main]
   # `workflow_dispatch` keeps a manual on-demand run available for any ref.
@@ -41,12 +42,29 @@ on:
 # Keyed on github.ref, so each PR branch cancels only its OWN older run;
 # PRs don't cancel each other. Keys on the whole workflow run, so it covers
 # all 5 `test` matrix legs + render-gate as one cancellable unit.
-# `refs/heads/main` is a group like any other: back-to-back merges cancel the
-# older post-merge guard run, which is what you want — the surviving run tests
-# the tip, and a superseded main run was asking about a state nothing is on.
+#
+# A PUSH RUN IS NEVER CANCELLED (#1872). `main` shipped as a group like any other,
+# on the reasoning that "only the tip matters, so the surviving run tests the tip".
+# That is true of the tip's STATE and false of the run's COVERAGE, because the
+# `changes` filter scopes each run to ITS OWN diff — and the two mechanisms are
+# individually sound and jointly vacuous. It cost the guard its first merge, 96
+# seconds after it went live:
+#
+#   15:29:54  push d32304f8  (workflows + a test file → code=true, render=true)
+#   15:31:11  push ea44139b  (CHANGELOG.md only → code=false) — CANCELS the above
+#   15:32:47  test-result GREEN on main, having run zero tests
+#
+# That interleaving is not a race, it is the NORMAL path: every merge to main is
+# followed by a changelog regeneration (changelog.yml, `push: main` with
+# `paths-ignore: CHANGELOG.md`) landing ~90 s later. So under `true` the guard
+# would have been cancelled on essentially every code merge it exists to check.
+# Conditioned on the event, PR behaviour is untouched — iterative pushes still
+# cancel — and main runs queue instead. They are bounded: `render-gate` opts out
+# of push, so a main run is minutes, well inside the ~22 min mean inter-merge
+# interval (#1842).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # Cheap filter job (sub-5s, no bun/build) that decides which downstream jobs
