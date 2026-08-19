@@ -23,6 +23,7 @@ import { algebraicSimplify } from './algebraic.js'
 import { deadBranch } from './dead-branch.js'
 import { cse } from './cse.js'
 import { cseLocal } from './cse-local.js'
+import { gvn } from './gvn.js'
 import { licm } from './licm.js'
 import { dce } from './dce.js'
 
@@ -34,16 +35,23 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  input-only repeats) + cse-local (statement-local repeats that touch a local/var) /
  *  LICM (loop invariants), then DCE last (clean up everything orphaned).
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns), cross-statement
- *  value numbering (`gvn`, ./gvn — #763 H8), and small fixed-count loop unrolling
- *  (`unrollLoops`, ./unroll — #627) are deliberately NOT in this list — like
- *  `inlineFn` (../inline), they are available-but-unwired passes. The shaders that
- *  share a projection prelude emit it as one module of helper fns + the entry
- *  points, so tree-shaking would per-shader-prune the prelude and break the
- *  deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate); gvn
- *  moves value construction across statements, and unrollLoops duplicates a loop
- *  body — both likewise perturb emitted bytes. Wire any only behind a maintainer
- *  decision to regenerate those snapshots. */
+ *  `gvn` completes the CSE family here (#1865): `cse` owns fn-top input-only repeats
+ *  and `cseLocal` owns repeats inside ONE statement, which leaves the repeat that
+ *  touches a local and spans STATEMENTS — the commonest shape in the real shaders —
+ *  to nobody. It was long left unwired because it perturbs emitted bytes, and the
+ *  snapshots were regenerated when the measurement made the case: on the production
+ *  modules it removes 208 of 6008 IR ops (line 1546 -> 1465, hillshade 657 -> 613,
+ *  both per-fragment hot paths). Pure dedup, so the values are bit-identical — the
+ *  re-bake moved bytes, never pixels.
+ *
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and small fixed-count
+ *  loop unrolling (`unrollLoops`, ./unroll — #627) are still deliberately NOT in
+ *  this list — like `inlineFn` (../inline), they are available-but-unwired passes.
+ *  The shaders that share a projection prelude emit it as one module of helper fns
+ *  + the entry points, so tree-shaking would per-shader-prune the prelude and break
+ *  the deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate);
+ *  unrollLoops duplicates a loop body, likewise perturbing emitted bytes. Wire
+ *  either only behind a maintainer decision to regenerate those snapshots. */
 export const DEFAULT_PASSES: readonly OptPass[] = [
   constProp,
   copyProp,
@@ -52,6 +60,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   deadBranch,
   cse,
   cseLocal,
+  gvn,
   licm,
   dce,
 ]
@@ -126,10 +135,13 @@ function irEqual(a: unknown, b: unknown): boolean {
  *  inside a pass sees a well-formed module).
  *
  *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
- *  CROSS-function pass (inline, gvn, deadFnElim — all deliberately UNWIRED, see
+ *  CROSS-function pass (inline, deadFnElim — both deliberately UNWIRED, see
  *  DEFAULT_PASSES) run on a one-function module would see a different module than
  *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
- *  whole-module on the real projection module so wiring such a pass fails loudly. */
+ *  whole-module on the real projection module so wiring such a pass fails loudly.
+ *  (`gvn` was listed here too until #1865 wired it. It never belonged: `gvn(m)` is
+ *  `m.funcs.map(gvnFn)` and `gvnFn(f: FuncDecl)` reads NOTHING outside the function
+ *  it maps — the same shape as every other pass in the list.) */
 function fnFixpoint(
   fn: FuncDecl,
   m: ModuleDecl,
@@ -191,17 +203,17 @@ export type OptLevel = 'O0' | 'O1' | 'O2'
 
 /** The pass list each level runs to a fixed point.
  *  • O0 — none. Naive lowered emit (debug / the size baseline the optimizer is measured against).
- *  • O1 — the bit-exact value-MOVERS + cleanup only: const/copy-prop, dead-branch, cse, cse-local, dce.
- *    None changes WHICH float ops execute, so O1's RUNTIME VALUES are bit-identical to O0 on every
- *    target. (cse / cse-local may rewrite the SOURCE — hoist a repeat to a `let` — but never the
- *    result; that source-vs-result split is exactly what measure.ts's "bytes ≠ work" surfaces.) It
+ *  • O1 — the bit-exact value-MOVERS + cleanup only: const/copy-prop, dead-branch, cse, cse-local,
+ *    gvn, dce. None changes WHICH float ops execute, so O1's RUNTIME VALUES are bit-identical to O0
+ *    on every target. (the CSE family may rewrite the SOURCE — hoist a repeat to a `let` — but never
+ *    the result; that source-vs-result split is exactly what measure.ts's "bytes ≠ work" surfaces.) It
  *    deliberately omits const-FOLD on floats, algebraic identities, and LICM — the passes that can
  *    change float semantics and so need the real-GPU f32 differential gate (P3).
  *  • O2 — the full DEFAULT_PASSES (adds constFold + algebraicSimplify + licm). The emit default;
  *    `optimizeAt(m,'O2')` is identical to every backend's `optimize: (m) => fixpoint(m)`. */
 export const LEVEL_PASSES: Record<OptLevel, readonly OptPass[]> = {
   O0: [],
-  O1: [constProp, copyProp, deadBranch, cse, cseLocal, dce],
+  O1: [constProp, copyProp, deadBranch, cse, cseLocal, gvn, dce],
   O2: DEFAULT_PASSES,
 }
 

@@ -25,9 +25,12 @@
 // Bit-exact (pure dedup — no float arithmetic changes), so no f32 differential
 // gate is needed; pinned by oracle value-equality like cse / cse-local.
 //
-// Available-but-unwired, like inlineFn / deadFnElim / autoInline: NOT in
-// DEFAULT_PASSES (it would change production WGSL bytes -> the byte-stable
-// shared-prelude golden snapshots would need regenerating, a maintainer call).
+// WIRED into DEFAULT_PASSES and O1 (#1865). It sat available-but-unwired for a
+// long time because turning it on changes production WGSL bytes and every
+// byte-stable snapshot has to be regenerated; the measurement settled it — 208 of
+// 6008 IR ops across the production modules, concentrated in the two per-fragment
+// hot paths (line 1546 -> 1465, hillshade 657 -> 613). Being pure dedup it is in
+// O1 too: the re-bake moved bytes, never pixels.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
 import {
