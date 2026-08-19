@@ -16,6 +16,21 @@ import { FLOW_DRAPE_MIX } from './flow-stepper'
 const WGSL = emitCoverageWgsl()
 const GLSL_FS = emitGlslModule(buildCoverageModule(), 'fragment')
 
+/** The fragment ENTRY's body, helpers above it excluded — they tap the same samplers, so
+ *  the slice is what makes the taps below unambiguous. WGSL keeps the authored entry name;
+ *  GLSL ES has one entry per unit and it IS `main()` (since #1858 the emitter no longer
+ *  wraps the body in an `fs_cov_impl` fn, which is what this used to anchor on). */
+const entryBody = (src: string): string => {
+  const at = src.indexOf('fn fs_cov')
+  return at >= 0 ? src.slice(at) : src.slice(src.indexOf('void main()'))
+}
+
+/** The entry's EXIT expression. WGSL spells it `return <expr>`; GLSL ES `main()` has no
+ *  value to return, so since #1858 the same expression is bound to the temp the output
+ *  scatter reads (`CovFragOut _out = <expr>;`). The return-struct CONSTRUCTOR is the anchor
+ *  both spellings share, so the lanes below are compared on the same expression. */
+const exitExpr = (body: string): string => body.slice(body.lastIndexOf('CovFragOut('))
+
 /** Resolve a CSE temporary by the shape of its right-hand side. */
 function tempFor(body: string, re: RegExp, what: string): string {
   const m = re.exec(body)
@@ -25,7 +40,7 @@ function tempFor(body: string, re: RegExp, what: string): string {
 
 /** The temporary holding the `cov_flow` tap (WGSL and GLSL differ only in the sampler arg). */
 function flowTempOf(src: string, name: string): string {
-  const body = src.slice(src.indexOf('fs_cov'))
+  const body = entryBody(src)
   return tempFor(body, /(\w+) = tex\w*\(cov_flow,[^;]*;/, `${name}: flow tap`)
 }
 
@@ -89,7 +104,7 @@ describe('coverage flow drape (#1333)', () => {
       ['WGSL', WGSL],
       ['GLSL', GLSL_FS],
     ] as const) {
-      const body = src.slice(src.indexOf('fs_cov'))
+      const body = entryBody(src)
       // REPOINTED (#1366 INC-3): uv used to be a TEMPORARY the fragment rebuilt from the
       // `cov_geo` denominators — an inverse that only works if the footprint is a rectangle
       // in lon/lat, which a projected cell is not. It is now a VARYING carried from the
@@ -128,11 +143,11 @@ describe('coverage flow drape (#1333)', () => {
       ['WGSL', WGSL],
       ['GLSL', GLSL_FS],
     ] as const) {
-      const body = src.slice(src.indexOf('fs_cov'))
+      const body = entryBody(src)
       const flow = flowTempOf(src, name)
       const gain = tempFor(body, /(\w+) = \(\(1\.0 - u\.ramp_params\.w\)/, `${name}: gain`)
       const baseA = tempFor(body, /(\w+) = \(\w+ \* u\.ramp_params\.z\)/, `${name}: base alpha`)
-      const ret = body.slice(body.lastIndexOf('return'))
+      const ret = exitExpr(body)
 
       // Three colour lanes, each: mix(lutLane, 1.0, only) * gain.
       for (const lane of ['x', 'y', 'z'] as const) {

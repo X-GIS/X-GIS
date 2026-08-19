@@ -11,8 +11,6 @@ layout(std140) uniform Uniforms {
   vec2 resolution;
   float octaves;
 } U;
-float hash(vec2 p);
-float noise(vec2 p);
 float hash(vec2 p) {
   return fract((sin(dot(p, vec2(127.1, 311.7))) * 43758.5453));
 }
@@ -27,7 +25,10 @@ float noise(vec2 p) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   float _licm0 = U.octaves;
   vec2 _licm1 = vec2((U.time * 0.08), 0.0);
   float _av0 = 0.0;
@@ -38,12 +39,5 @@ vec4 fs_impl(VsOut vo) {
     _av1 = (_av1 * 2.02);
     _av2 = (_av2 * 0.5);
   }
-  return vec4(mix(vec3(0.2, 0.42, 0.72), vec3(0.97, 0.97, 1.0), clamp(_av0, 0.0, 1.0)), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_impl(vo);
+  _ret = vec4(mix(vec3(0.2, 0.42, 0.72), vec3(0.97, 0.97, 1.0), clamp(_av0, 0.0, 1.0)), 1.0);
 }

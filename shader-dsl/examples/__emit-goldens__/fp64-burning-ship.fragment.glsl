@@ -19,16 +19,6 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-bool df64_le(vec2 a, vec2 b);
-vec2 df64_abs(vec2 a);
-float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -96,7 +86,10 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_ship_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   vec2 _licm0 = vec2(16.0, 0.0);
   vec2 _licm1 = vec2(2.0, 0.0);
   float _v0 = pow(10.0, (-u.zoom_exp));
@@ -143,12 +136,5 @@ vec4 fs_ship_impl(VsOut vo) {
   float _v20 = step(127.5, _v5);
   float _v21 = (_v19 / 128.0);
   float _v22 = ((_v21 * _v21) * (3.0 - (_v21 * 2.0)));
-  return vec4((mix(mix(vec3(0.06, 0.02, 0.05), vec3(0.95, 0.45, 0.08), _v22), vec3(1.0, 0.93, 0.75), (_v21 * _v21)) * (1.0 - _v20)), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_ship_impl(vo);
+  _ret = vec4((mix(mix(vec3(0.06, 0.02, 0.05), vec3(0.95, 0.45, 0.08), _v22), vec3(1.0, 0.93, 0.75), (_v21 * _v21)) * (1.0 - _v20)), 1.0);
 }

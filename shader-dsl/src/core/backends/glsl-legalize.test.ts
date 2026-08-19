@@ -91,7 +91,7 @@ describe('glsl-legalize — direct discarding call as a struct ctor arg (#1840 c
   it('hoists the argument into a named local before the return', () => {
     const g = emitGlslModule(modA, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_a(pos.x);')
-    expect(g).toContain('return OutA(_dh0);')
+    expect(g).toContain('OutA _out = OutA(_dh0);')
   })
 
   it('leaves NO struct ctor spelling the discarding call inline', () => {
@@ -122,7 +122,7 @@ describe('glsl-legalize — transitively discarding callee', () => {
   it('hoists the wrapper call out of the ctor', () => {
     const g = emitGlslModule(modB, 'fragment')
     expect(g).toContain('vec4 _dh0 = g_wrap(pos.x);')
-    expect(g).toContain('return OutB(_dh0);')
+    expect(g).toContain('OutB _out = OutB(_dh0);')
   })
 
   // inline() substitutes single-return wrappers at their call sites. It now runs BEFORE
@@ -154,7 +154,7 @@ describe('glsl-legalize — discarding call nested inside the ctor argument', ()
   it('hoists the WHOLE argument, leaving the call inside a legal vector ctor', () => {
     const g = emitGlslModule(modC, 'fragment')
     expect(g).toContain('vec4 _dh0 = vec4((helper_c(pos.x).x * 2.0), 0.0, 0.0, 1.0);')
-    expect(g).toContain('return OutC(_dh0);')
+    expect(g).toContain('OutC _out = OutC(_dh0);')
     expect(ctorSpans(g, ['OutC']).filter((s) => s.includes('helper_c('))).toEqual([])
   })
 })
@@ -205,7 +205,7 @@ describe('glsl-legalize — multi-field struct ctor', () => {
   it('hoists ONLY the argument carrying the discarding call', () => {
     const g = emitGlslModule(modG, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_g(pos.x);')
-    expect(g).toContain('return OutG(_dh0, vec4(1.0, 1.0, 1.0, 1.0));')
+    expect(g).toContain('OutG _out = OutG(_dh0, vec4(1.0, 1.0, 1.0, 1.0));')
     expect(g).not.toContain('_dh1')
   })
 })
@@ -235,7 +235,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
     )
     const g = emitGlslModule(dslModule({ uses: [OutN], funcs: [plain, kill, fsN] }), 'fragment')
     expect(g).toContain('helper_nd(pos.y)') // the pass ran over a discarding module …
-    expect(g).toContain('return OutN(helper_n(') // … and left this ctor exactly as emitted
+    expect(g).toContain('OutN _out = OutN(helper_n(') // … and left this ctor exactly as emitted
     expect(g).not.toContain('_dh')
   })
 
@@ -253,7 +253,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
       { stage: 'fragment', retAttr: location(0, vec4fT) },
     )
     const g = emitGlslModule(dslModule({ funcs: [helperE, fsE] }), 'fragment')
-    expect(g).toContain('return vec4(helper_e(pos.x), 0.0, 0.0, 1.0);')
+    expect(g).toContain('_ret = vec4(helper_e(pos.x), 0.0, 0.0, 1.0);')
     expect(g).not.toContain('_dh')
   })
 
@@ -365,7 +365,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
       'fragment',
     )
     expect(g).toContain('vec4 _dh0 = helper_k(pos.x);')
-    expect(g).toContain('return OutK(take_k(BoxK(_dh0)));')
+    expect(g).toContain('OutK _out = OutK(take_k(BoxK(_dh0)));')
     expect(ctorSpans(g, ['OutK', 'BoxK']).filter((s) => s.includes('helper_k('))).toEqual([])
   })
 
@@ -386,7 +386,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
     )
     const g = emitGlslModule(dslModule({ uses: [OutBin], funcs: [helperBin, fsBin] }), 'fragment')
     expect(g).toContain('vec4 _dh0 = ((helper_bin(pos.x) * 2.0) + vec4(0.0, 0.0, 0.0, 1.0));')
-    expect(g).toContain('return OutBin(_dh0);')
+    expect(g).toContain('OutBin _out = OutBin(_dh0);')
     expect(ctorSpans(g, ['OutBin']).filter((s) => s.includes('helper_bin('))).toEqual([])
   })
 
@@ -412,7 +412,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
     )
     const g = emitGlslModule(dslModule({ uses: [OutX], funcs: [helperX, fsX] }), 'fragment')
     expect(g).toContain('vec4 _dh0 = lut[int(helper_x(pos.x))];')
-    expect(g).toContain('return OutX(_dh0);')
+    expect(g).toContain('OutX _out = OutX(_dh0);')
     expect(ctorSpans(g, ['OutX']).filter((s) => s.includes('helper_x('))).toEqual([])
   })
 })

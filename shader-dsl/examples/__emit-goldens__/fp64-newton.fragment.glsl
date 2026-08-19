@@ -19,15 +19,6 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-vec2 df64_div(vec2 a, vec2 b);
-float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -95,7 +86,10 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_newton_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   vec2 _licm0 = vec2(2.0, 0.0);
   vec2 _licm1 = vec2(0.0, 0.0);
   float _v0 = pow(10.0, (-u.zoom_exp));
@@ -164,12 +158,5 @@ vec4 fs_newton_impl(VsOut vo) {
   float _v34 = ((_lc3 * _lc3) + (_lc4 * _lc4));
   vec3 _v35 = (((_v32 <= _v33) && (_v32 <= _v34)) ? vec3(0.91, 0.34, 0.22) : ((_v33 <= _v34) ? vec3(0.2, 0.66, 0.88) : vec3(0.98, 0.78, 0.22)));
   float _v36 = (1.0 - (_v7 / 48.0));
-  return vec4((_v35 * mix(0.25, 1.0, _v36)), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_newton_impl(vo);
+  _ret = vec4((_v35 * mix(0.25, 1.0, _v36)), 1.0);
 }

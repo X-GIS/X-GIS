@@ -13,7 +13,10 @@ layout(std140) uniform Uniforms {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   float _av0 = 0.0;
   float _av1 = 0.0;
   vec3 _cse0 = vec3(0.0, 0.0, 3.0);
@@ -36,12 +39,5 @@ vec4 fs_impl(VsOut vo) {
     vec3 _cse2 = normalize(vec3(cos(U.time), 0.75, sin(U.time)));
     _av2 = (((vec3(0.22, 0.48, 0.95) * ((max(dot(_v2, _cse2), 0.0) * 0.85) + 0.12)) + (vec3(1.0) * (pow(max(dot(_v2, normalize((_cse2 - _cse1))), 0.0), 48.0) * 0.6))) + (vec3(0.25, 0.35, 0.55) * (pow((1.0 - max(dot(_v2, (-_cse1)), 0.0)), 2.0) * 0.5)));
   }
-  return vec4(_av2, 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_impl(vo);
+  _ret = vec4(_av2, 1.0);
 }

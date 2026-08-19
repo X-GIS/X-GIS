@@ -14,13 +14,9 @@ layout(std140) uniform Uniforms {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_gradient_impl(VsOut vo) {
-  return vec4(mix(u.bottom.rgb, u.top.rgb, (vo.uv.y + u.mix_bias)), 1.0);
-}
-
 void main() {
   VsOut vo;
   vo.pos = gl_FragCoord;
   vo.uv = uv;
-  _ret = fs_gradient_impl(vo);
+  _ret = vec4(mix(u.bottom.rgb, u.top.rgb, (vo.uv.y + u.mix_bias)), 1.0);
 }

@@ -12,14 +12,16 @@ layout(std140) uniform Uniforms {
   float zoom;
   vec4 mouse;
 } U;
-vec3 palette(float t);
 vec3 palette(float t) {
   return (vec3(0.5) + (cos(((t + vec3(0.0, 0.33, 0.67)) * 6.283)) * 0.5));
 }
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   float _v0 = (exp((-(U.zoom + ((sin((U.time * 0.2)) * 0.75) + 0.75)))) * 2.4);
   vec2 _cse0 = vec2((U.mouse.x / U.resolution.x), (U.mouse.y / U.resolution.y));
   float _cse4 = (U.resolution.x / U.resolution.y);
@@ -38,12 +40,5 @@ vec4 fs_impl(VsOut vo) {
     _v3 = (_v3 + 1.0);
   }
   float _v5 = dot(_v2, _v2);
-  return vec4((palette(((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02))) * (1.0 - step(119.5, _v3))), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_impl(vo);
+  _ret = vec4((palette(((((_v3 - log2(max(log2(max(_v5, 1.0001)), 0.0001))) + 1.0) * 0.035) + (U.time * 0.02))) * (1.0 - step(119.5, _v3))), 1.0);
 }

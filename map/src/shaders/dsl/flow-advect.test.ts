@@ -25,9 +25,13 @@ describe('flow-advect — IBFV step (#1333)', () => {
     expect(wgsl).toContain('fn fs_flow_advect')
     expect(glslV).toContain('#version 300 es')
     expect(glslF).toContain('#version 300 es')
-    // Same entry-point name on both arms, so the Material's vsEntry is backend-identical.
+    // WGSL keeps the authored entry names, which is what the Material's vsEntry/fsEntry
+    // name. GLSL ES has exactly one entry per compilation unit and it IS `main()` — since
+    // #1858 the authored name appears nowhere in the GLSL, so each stage is pinned by what
+    // only that stage emits: a vertex writes gl_Position, a fragment writes its draw buffer.
     expect(wgsl).toContain('fn vs_flow_advect')
-    expect(glslV).toContain('vs_flow_advect')
+    expect(glslV).toContain('gl_Position =')
+    expect(glslF).not.toContain('gl_Position')
   })
 
   it('THE BLINK GATE: no lifetime, no fade, no respawn term exists at all', () => {

@@ -203,12 +203,14 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
     expect(vs).toMatch(/^out vec2 uv;$/m)
     expect(vs).not.toMatch(/layout\(location = \d+\) out/)
     // @builtin(position) → gl_Position (vertex output), not a varying.
-    expect(vs).toContain('gl_Position = _out.position;')
+    expect(vs).toContain('gl_Position = o.position;')
     expect(vs).not.toMatch(/out vec4 position;/)
-    // single main() that calls the authored entry body via the `_impl` fn.
-    expect(vs).toContain('VsOut vs_impl(VsIn inp)')
+    // A single-exit entry body is spelled INSIDE main() (#1858) — no `_impl` fn and no
+    // call to one, and since this body's exit is a plain variable the scatter reads it
+    // where it already is, rather than copying it into an `_out` nothing else reads.
+    expect(vs).not.toContain('_impl')
     expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-    expect(vs).toContain('VsOut _out = vs_impl(inp);')
+    expect(vs).not.toContain('_out')
   })
 
   it('maps a readable @builtin(position) fragment input to gl_FragCoord (not gl_Position)', () => {
@@ -285,7 +287,9 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     // the reserved param `input` is renamed (to `input_`) at the decl AND every reference.
     expect(fs).toMatch(/\binput_\b/)
     expect(fs).not.toMatch(/\binput\b(?!_)/) // no bare reserved `input` left
-    expect(fs).toContain('fs_impl(input_)') // the call site uses the renamed name
+    // the renamed param survives into main()'s gather AND the body that reads it
+    expect(fs).toContain('ReservedIn input_;')
+    expect(fs).toContain('input_.uv')
   })
 
   it('renames a reserved-word local var (`sample`) consistently', () => {
@@ -1034,7 +1038,10 @@ describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
 
   it('the VERTEX stage emits the same explicit-LOD sample (no derivatives needed)', () => {
     const vsG = emitGlslModule(lodMod, 'vertex')
-    expect(vsG).toContain('textureLod(lod_tex, uv, 1.0)')
+    // The coordinate is the entry's `uv` PARAM. In the vertex stage the out varying is
+    // `uv` too, so the merged main() reads it through a renamed gather local (#1858) —
+    // match the LOD call's shape, which is what this gate is about, not that name.
+    expect(vsG).toMatch(/textureLod\(lod_tex, \w+, 1\.0\)/)
     expect(vsG).toContain('uniform sampler2D lod_tex;')
     expect(vsG).not.toContain('lod_smp')
   })
@@ -1133,7 +1140,9 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
     expect(fsG).toContain('texture(arr_tex, vec3(inp.uv, float(1)))')
     expect(fsG).not.toContain('arr_smp') // fused into the combined sampler
     const vsG = emitGlslModule(arrMod, 'vertex')
-    expect(vsG).toContain('textureLod(arr_tex, vec3(uv, float(1)), 0.0)')
+    // …the coordinate identifier is the renamed gather local (#1858 — the vertex out
+    // varying is `uv` as well); the vec3 FOLD is what this asserts.
+    expect(vsG).toMatch(/textureLod\(arr_tex, vec3\(\w+, float\(1\)\), 0\.0\)/)
     expect(vsG).toContain('uniform sampler2DArray arr_tex;')
   })
 

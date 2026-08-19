@@ -15,16 +15,6 @@ layout(std140) uniform Uniforms {
 } U;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-vec2 df64_floor(vec2 a);
-vec2 df64_fract(vec2 a);
-float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -93,7 +83,10 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_clock_impl(VsOut vo) {
+void main() {
+  VsOut vo;
+  vo.pos = gl_FragCoord;
+  vo.uv = uv;
   float _v0 = df64_narrow(df64_fract(df64_mul(df64_add(U.epoch, vec2(U.time, 0.0)), vec2(U.speed, 0.0))));
   float _v1 = fract(((df64_narrow(U.epoch) + U.time) * U.speed));
   bool _cse0 = (vo.uv.x < 0.5);
@@ -115,12 +108,5 @@ vec4 fs_clock_impl(VsOut vo) {
   float _v15 = ((exp((_v13 * -5.0)) * 0.35) * step(_v7, 0.58));
   float _v16 = (1.0 - smoothstep((_v9 * 2.0), (_v9 * 5.0), _v7));
   vec3 _v17 = mix(vec3(0.03, 0.045, 0.08), vec3(0.05, 0.075, 0.12), _v7);
-  return vec4((((((_v17 + (vec3(0.85, 0.9, 1.0) * (_v10 * 0.35))) + (vec3(0.8, 0.85, 0.95) * (_v12 * 0.5))) + (vec3(1.0, 0.72, 0.2) * _v14)) + (vec3(1.0, 0.6, 0.15) * _v15)) + (vec3(1.0, 0.85, 0.5) * _v16)), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_clock_impl(vo);
+  _ret = vec4((((((_v17 + (vec3(0.85, 0.9, 1.0) * (_v10 * 0.35))) + (vec3(0.8, 0.85, 0.95) * (_v12 * 0.5))) + (vec3(1.0, 0.72, 0.2) * _v14)) + (vec3(1.0, 0.6, 0.15) * _v15)) + (vec3(1.0, 0.85, 0.5) * _v16)), 1.0);
 }
