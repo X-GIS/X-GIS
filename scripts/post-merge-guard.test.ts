@@ -30,6 +30,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 type Job = { readonly if?: string; readonly needs?: readonly string[] }
 type Workflow = {
   readonly on?: { readonly push?: { readonly branches?: readonly string[] } }
+  readonly concurrency?: { readonly 'cancel-in-progress'?: unknown }
   readonly jobs: Readonly<Record<string, Job>>
 }
 
@@ -71,5 +72,23 @@ describe('the post-merge guard on main (#1872)', () => {
         'reads `skipped` as a pass — so the post-merge run would report green with those ' +
         'legs never having run. Only `pr-title` may be PR-only here.',
     ).toEqual(['pr-title'])
+  })
+
+  it('a push run is not cancellable by a later push', () => {
+    // The third way to hollow this out, and the one that actually happened — 96
+    // seconds after the guard went live. `cancel-in-progress: true` let the
+    // changelog regeneration that lands ~90s after every merge cancel the run for
+    // the code-bearing commit, and the surviving run was scoped by `changes` to a
+    // CHANGELOG-only diff: green on main, zero tests executed. Only-the-tip-matters
+    // is true of the tip's state and false of a run's coverage.
+    const flag = testWorkflow().concurrency?.['cancel-in-progress']
+    expect(
+      typeof flag === 'string' && flag.includes('github.event_name'),
+      `\`concurrency.cancel-in-progress\` is ${JSON.stringify(flag)} — it must be ` +
+        "conditioned on the event (e.g. `${{ github.event_name != 'push' }}`). " +
+        'Unconditional cancelling lets the next push to main kill the guard run for ' +
+        'the commit that changed code, and the changelog regeneration makes that the ' +
+        'normal path, not a race — see the timeline in test.yml`s concurrency note.',
+    ).toBe(true)
   })
 })
