@@ -73,7 +73,30 @@ function rootsOf(e: Expr): Set<string> {
   return out
 }
 
-/** The value-carrying exprs of a SIMPLE statement (never the lvalue target). */
+/** The exprs of a statement this block evaluates UNCONDITIONALLY (never the lvalue
+ *  target).
+ *
+ *  An `if`'s FIRST arm condition belongs here (#1886): it runs on every path through
+ *  this block, exactly like a `let` initialiser, so binding a repeat inside it to a
+ *  temp placed before the statement adds no work on any path. It used to be absent —
+ *  `default: []` covered every control-flow statement under the note "handled by
+ *  recursion", which is true of the BODIES and false of the CONDITIONS. Measured on
+ *  the committed baked corpus, 346 of 443 recoverable repeated evaluations had at
+ *  least one occurrence in a control-flow header, so 78% of what was left was
+ *  invisible here. `cse` (../cse.ts, the input-only half of the family) has always
+ *  walked `a.cond` and `s.scrut`; this is the same traversal for the local-touching
+ *  half.
+ *
+ *  DELIBERATELY still absent, each because the expr is NOT evaluated once per
+ *  execution of this block:
+ *    • `arms[1..]` — an `else if` runs only when every earlier arm failed, so a temp
+ *      before the `if` would compute it on paths the authored code does not. Same
+ *      rule the `cond` flag in `tally` already applies to a `&&`/`||` RHS.
+ *    • `for` cond/init/update — re-evaluated per iteration; lifting one is loop
+ *      invariance, which is licm's job and needs a proof gvn does not have.
+ *    • `switch` scrut — unconditional, so it is sound to add, but the whole
+ *      production corpus has 26 `switch` headers against 2363 `if`s; it is left out
+ *      rather than shipped on an argument instead of a measurement. */
 function valueExprs(s: Stmt): readonly Expr[] {
   switch (s.s) {
     case 'let':
@@ -85,12 +108,18 @@ function valueExprs(s: Stmt): readonly Expr[] {
       return [s.expr]
     case 'return':
       return s.expr !== undefined ? [s.expr] : []
+    case 'if':
+      return s.arms.length > 0 ? [s.arms[0]!.cond] : []
     default:
-      return [] // control-flow / break / continue / discard — handled by recursion
+      return [] // for / switch / break / continue / discard — see the note above
   }
 }
 
-/** Rewrite only the value side of a simple statement (lvalue target untouched). */
+/** Rewrite the unconditionally-evaluated exprs of a statement (lvalue target
+ *  untouched). Mirrors `valueExprs` exactly — a condition that is tallied but not
+ *  rewritten would mint a temp and leave the original recomputing beside it, so the
+ *  two must name the same set. The arm BODIES are already GVN'd as their own blocks
+ *  by `recurseBlocks` and are carried over as-is. */
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
     case 'let':
@@ -102,6 +131,10 @@ function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
       return { ...s, expr: f(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+    case 'if': {
+      const [first, ...rest] = s.arms
+      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
+    }
     default:
       return s
   }
