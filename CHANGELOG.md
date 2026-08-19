@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: d32304f8bf463d481ec12315f51006e55a580064
+  Generated from: a63e6e575bb9ec594346e5ea38a40b3dec27682b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since d32304f8bf46
+    bun scripts/emit-changelog.ts --since a63e6e575bb9
 -->
 
 # Changelog
@@ -185,6 +185,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **map:** tell the bake gate's remedy to build first, so it stops pointing at itself ([#1870](https://github.com/X-GIS/X-GIS/pull/1870)) `a63e6e5`
 - **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
 - **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
 - **claude:** record the standing merge authorization in §11 ([#1768](https://github.com/X-GIS/X-GIS/pull/1768)) `5f25f4e`
