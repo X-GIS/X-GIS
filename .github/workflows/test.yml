@@ -297,6 +297,18 @@ jobs:
       # Cache bun's global package store so `bun install` reuses downloaded
       # tarballs instead of re-fetching every run. Keyed on the lockfile.
       # All 5 matrix legs share this SAME restore key, so install stays ~1s.
+      #
+      # The `ci-cache` workflow keeps this key warm on main — the only scope a
+      # fresh PR branch can read (see that file for why nothing else writes one).
+      # Warm and EXACT, `actions/cache` skips the post-step save, which is what
+      # stops all 15 jobs of a PR's first run from racing to upload the same
+      # 107 MB entry and 14 of them logging `Failed to save: Unable to reserve
+      # cache with key bun-Linux-…, another job may be creating this cache.`
+      #
+      # `restore-keys` STAYS here, unlike the browser cache below: a prefix hit
+      # on a package store is a stale-but-mostly-right store that still spares
+      # most of the download, whereas a prefix hit on browser binaries is the
+      # WRONG revision that has to be re-downloaded in full.
       - if: needs.changes.outputs.code == 'true'
         uses: actions/cache@v4
         with:
@@ -711,8 +723,8 @@ jobs:
       # No `restore-keys`: a prefix hit can only ever restore a DIFFERENT
       # revision's binaries, which `playwright install` must then re-download
       # anyway — it buys nothing and guarantees the re-upload described above.
-      # The `playwright-cache` workflow keeps this exact key warm on main, which
-      # is the only scope a fresh PR branch can read from.
+      # The `ci-cache` workflow keeps this exact key warm on main, which is the
+      # only scope a fresh PR branch can read from.
       - if: needs.changes.outputs.render == 'true'
         uses: actions/cache@v4
         with:
