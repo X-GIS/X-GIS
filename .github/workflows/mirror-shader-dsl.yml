@@ -32,12 +32,11 @@ name: mirror shader-dsl
 #      it is scoped to X-GIS/X-GIS and cannot push to another repository.
 
 on:
-  # Publish-on-merge, the same shape deploy-pages.yml uses. test.yml's `on:`
-  # block documents why the TEST workflow has no push trigger — its PR run is
-  # what gates the merge, so a post-merge re-run duplicates the matrix for no
-  # gating benefit. That reasoning is about re-running a GATE; this job is a
-  # PUBLISH of what main now contains, so main is exactly the right event (and
-  # a PR, whose head is not yet the mirror's truth, is exactly the wrong one).
+  # Publish-on-merge, the same shape deploy-pages.yml uses. This job is a PUBLISH
+  # of what main now contains, so main is exactly the right event (and a PR, whose
+  # head is not yet the mirror's truth, is exactly the wrong one). test.yml is on
+  # `push: main` as well, for the opposite reason — it re-CHECKS a merged state its
+  # PR run may never have gated (#1872) — so the two are not the same trigger twice.
   #
   # SECURITY (R6): there is deliberately NO `pull_request` and, above all, NO
   # `pull_request_target`. A fork PR must never reach the mirror token.
