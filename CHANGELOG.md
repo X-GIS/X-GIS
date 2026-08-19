@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 3b126a12e795ae9f8cac2e89adcc5761448c192b
+  Generated from: f8bbec935e8ae3fbe68cfcb4ed2c87db0f0fd362
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 3b126a12e795
+    bun scripts/emit-changelog.ts --since f8bbec935e8a
 -->
 
 # Changelog
@@ -27,6 +27,29 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
+- **compiler,map/sources:** declarative refresh polling for live sources (#1304) ([#1835](https://github.com/X-GIS/X-GIS/pull/1835)) `080bb48`
+- **map/interaction:** cooperativeGestures — do not hijack page scroll (#1264) ([#1834](https://github.com/X-GIS/X-GIS/pull/1834)) `7b7e755`
+- **compiler:** gradient()/scale() ramps emit saturate, not the [0,1] clamp ([#1832](https://github.com/X-GIS/X-GIS/pull/1832)) `bf7ca89`
+- **map/render:** globe atmosphere — limb glow and space background (#1258) ([#1827](https://github.com/X-GIS/X-GIS/pull/1827)) `5ccda23`
+- **map/shaders:** migrate the hand-rolled saturate idiom to the builtin ([#1830](https://github.com/X-GIS/X-GIS/pull/1830)) `2854509`
+- **map/sources:** minimal WMS-to-XYZ raster adapter (#1478) ([#1821](https://github.com/X-GIS/X-GIS/pull/1821)) `1d415d7`
+- **rhi-webgl2:** dispatch compute by the portable declaration, not the deprecated flag ([#1824](https://github.com/X-GIS/X-GIS/pull/1824)) `35adaa2`
+- **map/interaction:** double-click zoom and shift-drag box zoom (#1265) ([#1822](https://github.com/X-GIS/X-GIS/pull/1822)) `d99ac57`
+- **map/sources:** built-in JSON field-mapping source loader (#1303) ([#1820](https://github.com/X-GIS/X-GIS/pull/1820)) `caeb994`
+- **shader-dsl:** hyperbolic/saturate/2x16-pack builtins, backend-asymmetry hardening, the portable kernel tier ([#1805](https://github.com/X-GIS/X-GIS/pull/1805)) `672a55a`
+- **shader-dsl:** classify declared production transforms in semanticDiff (#1806) ([#1807](https://github.com/X-GIS/X-GIS/pull/1807)) `00b8001`
+- **map:** patch a moved point in place instead of re-tiling the source (#1375) ([#1803](https://github.com/X-GIS/X-GIS/pull/1803)) `e0c5db0`
+- **compiler,map:** wire the raster-fade-duration style property (#1257) ([#1778](https://github.com/X-GIS/X-GIS/pull/1778)) `e6b9cc5`
+- **rhi:** express unfilterable-float texture bindings in RhiBindLayoutEntry (#1384) ([#1770](https://github.com/X-GIS/X-GIS/pull/1770)) `20da739`
+- **rhi-webgpu:** wrapWebGpuTexture — complete the test-support wrap bridge family (#1556) ([#1761](https://github.com/X-GIS/X-GIS/pull/1761)) `26c2c0c`
+- **map:** surface the rendered-frame interval the adaptive ladder decides on (#1468) ([#1753](https://github.com/X-GIS/X-GIS/pull/1753)) `64e7395`
+- **shader-dsl:** validateVariantsWgsl — lift #1738's WGSL validation into the package (#1715) ([#1741](https://github.com/X-GIS/X-GIS/pull/1741)) `7c8dc6a`
+- **scripts:** implement the missing half of the bulk-demo-data policy — bun run fetch:demo-data ([#1734](https://github.com/X-GIS/X-GIS/pull/1734)) `b9b3064`
+- **shader-dsl:** emitGuardedFragment — the generated ladder, composable into a host program (#1712) ([#1731](https://github.com/X-GIS/X-GIS/pull/1731)) `8aaf90b`
+- **shader-dsl:** the host boundary — emitFragment, externVar, hostUniform, variantFamily, buildRegistry, capabilityMatrix (#1710-#1713, #1716, #1717) ([#1721](https://github.com/X-GIS/X-GIS/pull/1721)) `a152943`
+- **shader-dsl:** semanticDiff over IR + reflection, and the two render gates that had never run (#1714, #1715) ([#1719](https://github.com/X-GIS/X-GIS/pull/1719)) `08423be`
+- **scripts,ci:** regenerate the changelogs on every merge, guard the shallow-clone footgun, and fix three render defects ([#1709](https://github.com/X-GIS/X-GIS/pull/1709)) `164c65d`
 - **shader-dsl:** integer sampled textures (u32/i32 × 2d/2d-array) and the array&lt;u32&gt; storage lowering (#1703) ([#1705](https://github.com/X-GIS/X-GIS/pull/1705)) `9f5a8f9`
 - **site:** publish a generated shader-dsl API reference at /api (#1695) ([#1699](https://github.com/X-GIS/X-GIS/pull/1699)) `cd7a44d`
 - **shader-dsl:** production shader emit — token-level minify, short identifiers, type aliases, minimal parens, prototype pruning, and a log decoder ([#1684](https://github.com/X-GIS/X-GIS/pull/1684)) `fffd79f`
@@ -63,6 +86,45 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **ci:** stop the generated changelogs firing the engine matrix and render-gate (#1842) ([#1856](https://github.com/X-GIS/X-GIS/pull/1856)) `f8bbec9`
+- **map/text,playground:** make the glyph-failure and pragma warnings say what happened (#1848) ([#1852](https://github.com/X-GIS/X-GIS/pull/1852)) `09876d1`
+- **ci:** run the changelog workflow on a dedicated token, so its own PR can actually merge (#1842) ([#1853](https://github.com/X-GIS/X-GIS/pull/1853)) `046df1f`
+- **shader-dsl:** hoist discarding struct-ctor args to named GLSL locals (#1840) ([#1841](https://github.com/X-GIS/X-GIS/pull/1841)) `27e7a38`
+- **ci:** re-title the changelog PR on update, so its landed subject names the SHA it rendered (#1842) ([#1850](https://github.com/X-GIS/X-GIS/pull/1850)) `4ea5adc`
+- **ci:** name the repository setting that blocks the changelog PR, instead of blaming auto-merge (#1842) ([#1849](https://github.com/X-GIS/X-GIS/pull/1849)) `7b6280d`
+- **shader-dsl:** explicit .js specifiers + nodenext — the package loads in plain Node (#1686) ([#1825](https://github.com/X-GIS/X-GIS/pull/1825)) `e704eaf`
+- **compiler/codegen:** keep the layer opacity factor on the compute paint arm (#1808) ([#1818](https://github.com/X-GIS/X-GIS/pull/1818)) `38fe6b2`
+- **map/render:** re-affirm globeTilesSelected on a tile-selection cache HIT and promote the synth-bg dark gate (#1785) ([#1816](https://github.com/X-GIS/X-GIS/pull/1816)) `c687177`
+- **compiler:** diagnose unhandled modifier items instead of dropping them (#1069) ([#1819](https://github.com/X-GIS/X-GIS/pull/1819)) `c8e96e5`
+- **map/sources:** demote both in-place fast paths when a filtered-show variant catalog exists (#1800) ([#1810](https://github.com/X-GIS/X-GIS/pull/1810)) `dbf35ba`
+- **playground/e2e:** opt-in clip capture for the mirror gate to bypass the element-stability hang (#1802) ([#1809](https://github.com/X-GIS/X-GIS/pull/1809)) `65f7bda`
+- **map/render:** blend a translucent extrusion once across tile boundaries (#1253) ([#1804](https://github.com/X-GIS/X-GIS/pull/1804)) `9a2b88c`
+- **rhi-webgl2:** reconcile vertex-attrib enabled state instead of only enabling (#1796) ([#1801](https://github.com/X-GIS/X-GIS/pull/1801)) `4595067`
+- **map/render:** keep the z=0 root for z=0-only sources on non-mercator projTypes (#1792) ([#1799](https://github.com/X-GIS/X-GIS/pull/1799)) `c8a523c`
+- **map/text:** clamp the curved-line label anchor instead of dropping it at a truncated run edge (#1793) ([#1798](https://github.com/X-GIS/X-GIS/pull/1798)) `5e10c49`
+- **map/render:** clamp the azimuthal disc-detail boost to the source maxLevel (#1791) ([#1795](https://github.com/X-GIS/X-GIS/pull/1795)) `4edd55e`
+- **map/render:** each mosaic domain advects its OWN IBFV trail (#1499) ([#1794](https://github.com/X-GIS/X-GIS/pull/1794)) `5c5bac7`
+- **map/text:** keep a circle round — tessellate cubic path segments to the pixel error bound (#1765) ([#1788](https://github.com/X-GIS/X-GIS/pull/1788)) `41148fc`
+- **map/text:** invalidate the label-skip replay when the sounding stride crosses a boundary (#1434) ([#1787](https://github.com/X-GIS/X-GIS/pull/1787)) `b8c9034`
+- **e2e:** drive the spec typecheck to zero and wire it into CI (#1683) ([#1782](https://github.com/X-GIS/X-GIS/pull/1782)) `14a5c57`
+- **map/text:** register a multi-element symbol as ONE combined path (#1766) ([#1781](https://github.com/X-GIS/X-GIS/pull/1781)) `9b88379`
+- **map/render:** budget arena compaction and gate futile passes (#1515) ([#1780](https://github.com/X-GIS/X-GIS/pull/1780)) `774e9cc`
+- **map/render:** fade tile ramps on the wall clock, not frame count (#1477) ([#1777](https://github.com/X-GIS/X-GIS/pull/1777)) `0f56959`
+- **map:** coverage sounding numerals invert through the globe on globe/tilted-azimuthal (#1435) ([#1776](https://github.com/X-GIS/X-GIS/pull/1776)) `df3563d`
+- **map/text:** add GlyphAtlasHost.destroy() and wire it into TextStage teardown (#1404) ([#1773](https://github.com/X-GIS/X-GIS/pull/1773)) `cc7ab6c`
+- **compiler:** subdivide lines in authored lon/lat, not along great circles (#1522) ([#1771](https://github.com/X-GIS/X-GIS/pull/1771)) `7e4a691`
+- **ci:** gate lint through test-result (#1757) ([#1759](https://github.com/X-GIS/X-GIS/pull/1759)) `e44611b`
+- **playground:** make the e2e tsconfig typecheckable — rootDir + one window-global authority (#1683) ([#1762](https://github.com/X-GIS/X-GIS/pull/1762)) `bf04401`
+- **map:** route hillshade DEM tile textures through the RHI (#1623) ([#1763](https://github.com/X-GIS/X-GIS/pull/1763)) `2a16bc5`
+- **engine:** correct the eager ?debug=overdraw clamp once device caps exist (#1615) ([#1758](https://github.com/X-GIS/X-GIS/pull/1758)) `1ec2583`
+- **map,data,shared:** source-failure visibility, byte telemetry, link-cost bandwidth shaping (#1364, #1355, #1356) ([#1756](https://github.com/X-GIS/X-GIS/pull/1756)) `96a315f`
+- **playground:** classify the ofm-mirror asset as local-only in both audit gates (#1640) ([#1750](https://github.com/X-GIS/X-GIS/pull/1750)) `7804408`
+- **map:** bounded retries, then idle, for permanently-failing vector tiles (#1596) ([#1749](https://github.com/X-GIS/X-GIS/pull/1749)) `76e3d7f`
+- **map:** key the tile-point pack cache per show (#1632) ([#1748](https://github.com/X-GIS/X-GIS/pull/1748)) `eb9ca25`
+- **compiler:** give the `zoom` builtin a real uniform lane on the GPU expr path (#1635) ([#1747](https://github.com/X-GIS/X-GIS/pull/1747)) `dd61b17`
+- **map:** surface async GPU validation faults on the typed 'error' channel (#1599) ([#1746](https://github.com/X-GIS/X-GIS/pull/1746)) `124298f`
+- **e2e:** pin the resolution ladder in _gl2-live-swap-gate, and gate the flag that pins it (#1733) ([#1739](https://github.com/X-GIS/X-GIS/pull/1739)) `182b41d`
+- **map:** a re-seed can RECOVER a source, not only swap one already drawing ([#1737](https://github.com/X-GIS/X-GIS/pull/1737)) `01c2c54`
 - **rhi-webgl2:** storage writeBuffer drops the caller's view window — WebGL2 renders no points (#1703 regression) ([#1708](https://github.com/X-GIS/X-GIS/pull/1708)) `3b126a1`
 - **map:** polygon snapshot ancestry gate skips in a shallow clone instead of false-failing (#1706) ([#1707](https://github.com/X-GIS/X-GIS/pull/1707)) `07f1c8c`
 - **site:** make the API reference usable, and the gates that guard it actually run (#1700) ([#1701](https://github.com/X-GIS/X-GIS/pull/1701)) `067ac6d`
@@ -97,6 +159,12 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** stop the emit recomputing hoistable values — post-inline cleanup + gvn wired (#1860, #1861, #1865) ([#1862](https://github.com/X-GIS/X-GIS/pull/1862)) `f005bbe`
+- **ci:** give the bun cache a single saver, so a lockfile change stops 14 jobs racing ([#1859](https://github.com/X-GIS/X-GIS/pull/1859)) `e51ea07`
+- **ci:** warm the bun cache on main too, and gate the warmer's keys against their consumer ([#1855](https://github.com/X-GIS/X-GIS/pull/1855)) `d3ed3f8`
+- **ci:** stop the render-gate re-downloading and re-uploading Chromium every run ([#1851](https://github.com/X-GIS/X-GIS/pull/1851)) `dea27e1`
+- **compiler/tiler:** reuse a preallocated scratch in simplifyLineSphere (#1775) ([#1833](https://github.com/X-GIS/X-GIS/pull/1833)) `6ac4d79`
+- **map/coverage:** overlap cross-cell coverage reads while arming stays strictly sequential (#1505) ([#1826](https://github.com/X-GIS/X-GIS/pull/1826)) `bd9cd25`
 - **map:** fetch the lazy shader group at layer registration, not at draper construction ([#1679](https://github.com/X-GIS/X-GIS/pull/1679)) `5370f65`
 - **map:** line reads the bake behind a variant guard, and finally goes through the seam ([#1679](https://github.com/X-GIS/X-GIS/pull/1679)) `abb5283`
 - **map:** the axis-carrying boot families read the bake, guarded where a variant is live ([#1679](https://github.com/X-GIS/X-GIS/pull/1679)) `89062e0`
@@ -105,6 +173,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **geo,map:** latToMercatorY authority; five packers stop re-spelling it ([#1831](https://github.com/X-GIS/X-GIS/pull/1831)) `56c6f47`
+- **map/camera:** Camera.setProjection owns the projection promotion (#1506) ([#1784](https://github.com/X-GIS/X-GIS/pull/1784)) `ba1caf1`
 - **map,compiler:** one nullable hex parser, one colour-AST authority — the black-fallback and the drifted mirror both die (#1666, #1667) ([#1669](https://github.com/X-GIS/X-GIS/pull/1669)) `0b4b3b0`
 - **compiler:** a zoom-interpolated colour has ONE authority — the CPU resolve (#1661) ([#1663](https://github.com/X-GIS/X-GIS/pull/1663)) `8493ea1`
 - **shader-dsl:** remove the no-op emulateStorage flag from all consumers, tag it @deprecated (#1649) ([#1659](https://github.com/X-GIS/X-GIS/pull/1659)) `136fdef`
@@ -112,12 +182,43 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
+- **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
+- **claude:** record the standing merge authorization in §11 ([#1768](https://github.com/X-GIS/X-GIS/pull/1768)) `5f25f4e`
+- **coverage:** state the mosaic overlap rule, and gate the identity it promises (#1500) ([#1751](https://github.com/X-GIS/X-GIS/pull/1751)) `5a820d0`
+- **plans:** remaining-work roadmap from full open-backlog survey + 08-17 addendum ([#1643](https://github.com/X-GIS/X-GIS/pull/1643)) `79dfa9e`
+- **e2e:** state why _matrix-gate is dark, correctly ([#1743](https://github.com/X-GIS/X-GIS/pull/1743)) `4dfe410`
+- **ci:** triage the four remaining dark gates, and correct a wrong reason I shipped ([#1729](https://github.com/X-GIS/X-GIS/pull/1729)) `8652072`
+- **shader-dsl:** document the last 38 engine-internals exports — the doc-coverage allowlist reaches zero (#1695) ([#1727](https://github.com/X-GIS/X-GIS/pull/1727)) `1e394a0`
+- **shader-dsl:** document the 20 ./dev diagnostic exports, and answer the policy their debt row deferred (#1695) ([#1726](https://github.com/X-GIS/X-GIS/pull/1726)) `dc02560`
+- **shader-dsl,site:** document all 109 core/ir exports, and fix the API reference defects only a rendered page shows (#1695) ([#1725](https://github.com/X-GIS/X-GIS/pull/1725)) `e09a40e`
+- record the offset-zero test blind spot and the refactor-gate rule (§12) ([#1718](https://github.com/X-GIS/X-GIS/pull/1718)) `ee753c9`
 - **shader-dsl:** answer the `#define` question, replace the reference page, and make the docs pipeline self-checking (#1694, #1700, #1695) ([#1702](https://github.com/X-GIS/X-GIS/pull/1702)) `ddaa150`
 - **shader-dsl:** document the eight star-re-exported backend symbols (#1697) ([#1698](https://github.com/X-GIS/X-GIS/pull/1698)) `259caf5`
 - 2026-08-03 audit — campaign plan + 2026-06 series adjudication ([#1555](https://github.com/X-GIS/X-GIS/pull/1555)) `b4c17a3`
 
 #### test
 
+- **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
+- **playground:** invert the dark-spec audit — enumerate known-dark rows (#1817) ([#1829](https://github.com/X-GIS/X-GIS/pull/1829)) `8bc6d8c`
+- **playground:** give the globe-dateline gate a selector-discriminating assertion and register it in CI (#1774) ([#1815](https://github.com/X-GIS/X-GIS/pull/1815)) `3c3736a`
+- **shader-dsl:** cut the controlFlow regression axis and the lifting path in semanticDiff transforms (#1806) ([#1814](https://github.com/X-GIS/X-GIS/pull/1814)) `cbef7f4`
+- **playground:** WebGPU x WebGL2 backend-parity probe for the demotiles mirror (#1508) ([#1797](https://github.com/X-GIS/X-GIS/pull/1797)) `7770a3f`
+- **playground:** offline demotiles mirror + calibrated fail-before probe (#1495) ([#1790](https://github.com/X-GIS/X-GIS/pull/1790)) `c168fc8`
+- **data:** pin tile-selection pitch monotonicity and DPR sensitivity (#1379) ([#1789](https://github.com/X-GIS/X-GIS/pull/1789)) `bbd9528`
+- **e2e:** settle each adaptive-ladder arm on a convergence predicate, not fixed waits (#1463) ([#1783](https://github.com/X-GIS/X-GIS/pull/1783)) `d9c2c97`
+- **e2e:** settle the reseed data-push gate by polling, not fixed waits (#1420) ([#1779](https://github.com/X-GIS/X-GIS/pull/1779)) `1b1a824`
+- **e2e:** gate that a WebGL2 frame CLOSES, not just opens (#1480) ([#1755](https://github.com/X-GIS/X-GIS/pull/1755)) `a9aaffe`
+- **ci:** register the first stability gate — translucent-lines buffer-destroy (#1349) ([#1769](https://github.com/X-GIS/X-GIS/pull/1769)) `30f8b4d`
+- **e2e:** extend the atlas-stability probe for #1611's decision fork, and the containerized browser proxy ([#1764](https://github.com/X-GIS/X-GIS/pull/1764)) `c119e37`
+- **playground:** render-gate the inline-data user-symbol surface — anchor shift + rect/circle (#1557) ([#1767](https://github.com/X-GIS/X-GIS/pull/1767)) `9956132`
+- **playground:** the ladder gate must name WHICH half of the wire broke (#1444) ([#1752](https://github.com/X-GIS/X-GIS/pull/1752)) `1673263`
+- **e2e:** catch a gate that is registered in CI but skips itself there ([#1744](https://github.com/X-GIS/X-GIS/pull/1744)) `e54a892`
+- **e2e:** explain _gl2-live-swap-gate's second failure mode, and register it ([#1742](https://github.com/X-GIS/X-GIS/pull/1742)) `9d03b73`
+- **e2e:** derive the world-copy ceiling instead of hard-coding it ([#1740](https://github.com/X-GIS/X-GIS/pull/1740)) `9b494c7`
+- **e2e:** world-copy gate asserts world copies (#1730), and per-variant WGSL validation (#1715) ([#1738](https://github.com/X-GIS/X-GIS/pull/1738)) `f53a454`
+- **e2e:** settle _gl2-live-swap-gate on events, and correct what its dark-gate row claims (#1733) ([#1736](https://github.com/X-GIS/X-GIS/pull/1736)) `e20d756`
+- **shader-dsl:** cover the mat4 host global, and correct two claims that did not match the code ([#1735](https://github.com/X-GIS/X-GIS/pull/1735)) `f91f107`
 - **shader-dsl:** gate every public export on having a doc comment (#1695) ([#1696](https://github.com/X-GIS/X-GIS/pull/1696)) `3f6428e`
 - **e2e:** the demo-audit tripwire fires per fragment, not just when the whole corpus vanishes ([#1634](https://github.com/X-GIS/X-GIS/pull/1634)) `4d5c3f5`
 - **webgl2:** prove composed line/point GLSL compiles+links on real WebGL2 (#1605 Phase 3 PR A) ([#1633](https://github.com/X-GIS/X-GIS/pull/1633)) `f6be804`
@@ -127,6 +228,15 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 #### build
 
 - **shader-dsl:** distribute via a git subtree mirror, and gate the invariant that makes it work ([#1681](https://github.com/X-GIS/X-GIS/pull/1681)) `54718a7`
+
+#### chore
+
+- **map:** drop the dead publish-manifest fields that contradict the source layout (#1685) ([#1772](https://github.com/X-GIS/X-GIS/pull/1772)) `4123b8b`
+- **design-sync:** import @xgis/site UI kit into claude.ai/design ([#1754](https://github.com/X-GIS/X-GIS/pull/1754)) `36fd72c`
+
+#### other
+
+- fix(ci)+feat(shader-dsl): the mirror that never ran, hostBlock, #1715's two gates, and 30 dark gates lit (#1693, #1710, #1714, #1715, #1716, #1720, #1724) ([#1723](https://github.com/X-GIS/X-GIS/pull/1723)) `b93df52`
 
 ### 2026-07
 
