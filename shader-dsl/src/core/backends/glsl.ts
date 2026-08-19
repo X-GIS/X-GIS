@@ -76,6 +76,7 @@ import {
 import { autoVars } from '../passes/opt/index.js'
 import { wgslLayout } from '../reflect.js'
 import { sanitizeReservedIdents } from './glsl-sanitize.js'
+import { hoistDiscardingCtorArgs } from './glsl-legalize.js'
 import { fixpoint } from '../passes/opt/index.js'
 
 // UnsupportedFeatureError now lives in the backend contract; re-exported here so
@@ -1484,11 +1485,20 @@ function lowerForGlsl(m: ModuleDecl, opts?: GlslEmitOptions): ModuleDecl {
   // the module as authored — one block at one slot, which is exactly what WGSL emits and
   // what `reflect()` reports. Before the plugins, so mangle sees the flattened bindings
   // and its survivor set keeps every host-owned name.
-  return applyIRPlugins(
-    lowerHostLooseBlocks(
-      sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+  //
+  // GLSL-local: bind a struct-ctor argument carrying a (transitively) discarding call to a
+  // named local — ANGLE/D3D11 miscompiles the inline form silently (#1840). LAST in the
+  // chain, over the FINAL IR: the module this returns is the one `assembleGlsl` spells, so
+  // no later transformation exists that could reintroduce the fatal shape — not a
+  // third-party `EmitPlugin.transformIR`, not the opt-in `inline()`. The guarantee is by
+  // construction rather than by an argument about what each downstream pass happens to do.
+  return hoistDiscardingCtorArgs(
+    applyIRPlugins(
+      lowerHostLooseBlocks(
+        sanitizeReservedIdents(lowerForBackend(src, glslEs300Backend, undefined, opts?.fp64Flavor)),
+      ),
+      opts,
     ),
-    opts,
   )
 }
 

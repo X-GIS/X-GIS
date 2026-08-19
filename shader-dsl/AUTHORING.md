@@ -279,6 +279,16 @@ Loop(
 Rule of thumb: inside a loop that mutates a `var`, `Let` any value derived from that `var`
 that you read more than once.
 
+**GLSL target: a discarding struct-ctor argument auto-hoists, no marker needed** (#1840).
+ANGLE's D3D11 backend miscompiles a GLSL ES 3.00 fragment shader whose struct-constructor
+argument contains a call to a function that (transitively) executes `discard` —
+COMPILE_STATUS and LINK_STATUS both report success, and the draw silently drops geometry at
+the first submit. A GLSL-only legalize pass (`glsl-legalize.ts`) detects that shape and binds
+the argument to a fresh `_dhN` local immediately before the constructor call, on every GLSL
+emit. You keep authoring a plain `const` (or an inline call) as usual — there is nothing to
+wrap in `Var()`/`Let()` for this; the hoist is automatic and GLSL-only, so WGSL emit is
+byte-untouched.
+
 ### `.assign(v)` — the one mutation method
 
 JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors three.js TSL's

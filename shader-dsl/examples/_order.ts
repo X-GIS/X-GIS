@@ -30,6 +30,7 @@ export const CURATED_ORDER: readonly string[] = [
   'fp64-rtc',
   // Generic.
   'color-ramp',
+  'discard-cutout',
   'plasma',
   'voronoi',
   'julia',
