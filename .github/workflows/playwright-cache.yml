@@ -1,0 +1,81 @@
+name: playwright-cache
+
+# Keeps the render-gate's Chromium cache warm ON THE DEFAULT BRANCH.
+#
+# WHY THIS EXISTS. GitHub scopes an Actions cache to the ref that WROTE it. A
+# cache written by a `pull_request` run lives under `refs/pull/<n>/merge`, and no
+# other PR can read it — a run may only restore from its own ref, its base
+# branch, and the default branch. `test.yml` deliberately has no `push: main`
+# trigger (the PR run is what gates the merge; re-running the full ~64-minute
+# matrix afterwards buys no gating), so nothing has ever written a main-scoped
+# `pw-*` cache. Every fresh branch therefore started from whatever stale entry
+# its `restore-keys` prefix happened to match, or from nothing — paying the full
+# Chromium download on its first render-gate run.
+#
+# Making `test.yml` run on main would fix the scope and cost an hour of runner
+# time per merge. This job writes that one cache and nothing else, so it costs
+# ~40 s and only when the pin actually moves.
+#
+# It is NOT a gate: it asserts nothing, blocks nothing, and a failure here only
+# means the next render-gate run downloads its own browsers as it does today.
+
+on:
+  push:
+    branches: [main]
+    # The cache key is the resolved playwright-core version, so only a lockfile
+    # change can invalidate it. The workflow file itself is listed so that
+    # landing (or editing) this job seeds the cache without waiting for a bump.
+    paths:
+      - 'bun.lock'
+      - '.github/workflows/playwright-cache.yml'
+  # GitHub evicts a cache entry that has not been READ for 7 days. Active PRs
+  # keep it alive on their own; this weekly run covers a quiet stretch, and is a
+  # no-op (~15 s, lookup only) whenever the entry is still there.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: playwright-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # Same derivation as test.yml's render-gate job — the two keys MUST agree
+      # or this job warms a cache nothing reads. Keep them in sync.
+      - id: pw-version
+        run: |
+          # `-m1` not `| head -1`: GitHub runs steps under `bash -eo pipefail`,
+          # where head closing the pipe early SIGPIPEs grep into a 141 the step
+          # then dies on. `|| true` keeps a no-match out of errexit so the guard
+          # below is what reports it, with a message.
+          version=$(grep -oEm1 '"playwright-core@[0-9]+\.[0-9]+\.[0-9]+"' bun.lock | tr -d '"' | cut -d@ -f2) || true
+          test -n "$version" || { echo "::error::could not resolve playwright-core version from bun.lock"; exit 1; }
+          echo "resolved playwright-core@$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # `lookup-only` reports whether the entry exists without downloading it,
+      # and still saves in the post step when it does not — so a warm cache
+      # costs one API call and the install steps below are skipped entirely.
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+          lookup-only: true
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+      # `--only-shell` and the project-local bin for the same reasons as the
+      # render-gate step this cache feeds — see the comment there. No
+      # `--with-deps`: apt packages live outside ~/.cache/ms-playwright, so
+      # installing them here would cache nothing and the consuming job installs
+      # them itself on every run regardless.
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: ./playground/node_modules/.bin/playwright install chromium --only-shell
