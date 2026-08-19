@@ -80,12 +80,18 @@ function rootsOf(e: Expr): Set<string> {
  *  this block, exactly like a `let` initialiser, so binding a repeat inside it to a
  *  temp placed before the statement adds no work on any path. It used to be absent —
  *  `default: []` covered every control-flow statement under the note "handled by
- *  recursion", which is true of the BODIES and false of the CONDITIONS. Measured on
- *  the committed baked corpus, 346 of 443 recoverable repeated evaluations had at
- *  least one occurrence in a control-flow header, so 78% of what was left was
- *  invisible here. `cse` (../cse.ts, the input-only half of the family) has always
- *  walked `a.cond` and `s.scrut`; this is the same traversal for the local-touching
- *  half.
+ *  recursion", which is true of the BODIES and false of the CONDITIONS. `cse`
+ *  (../cse.ts, the input-only half of the family) has always walked `a.cond` and
+ *  `s.scrut`; this is the same traversal for the local-touching half.
+ *
+ *  WORTH 6 CALL SITES ON ITS OWN — measured, not estimated: over the 87-source baked
+ *  corpus, before vs after a real build + bake, raw call sites went 12239 -> 12233.
+ *  The value is as the PREREQUISITE for cross-block dominance (#1886), where 144 of
+ *  the 241 remaining repeats sit: the outer occurrence that dominates an inner
+ *  recompute is usually the `if` condition, so until it is tallied there is no outer
+ *  temp for the inner block to reuse. Do not quote a bigger number for this pass
+ *  alone — the issue's opening figures came from a corpus that had 12 unrelated
+ *  files in it and are corrected in its comments.
  *
  *  DELIBERATELY still absent, each because the expr is NOT evaluated once per
  *  execution of this block:

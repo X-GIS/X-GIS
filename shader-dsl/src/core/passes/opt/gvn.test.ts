@@ -138,10 +138,11 @@ describe('gvn — cross-statement value numbering', () => {
 //
 // `valueExprs` used to return [] for every control-flow statement, so an `if`
 // condition was never tallied and never rewritten — "handled by recursion" was true
-// of the BODIES and false of the CONDITIONS. Measured over the committed baked
-// corpus (94 sources, ~1 MB): 346 of the 443 recoverable repeated evaluations have
-// at least one occurrence inside a control-flow header, i.e. 78% of the remaining
-// work was invisible to the two passes that handle local-touching exprs.
+// of the BODIES and false of the CONDITIONS.
+//
+// Measured effect on the 87-source baked corpus, before vs after a real build + bake:
+// raw call sites 12239 -> 12233, i.e. SIX. This pass earns its place as the
+// prerequisite for cross-block dominance, not on that number.
 //
 // Only the FIRST arm's condition is unconditionally evaluated, which is what makes
 // binding it to a `let` before the statement free. The two exclusions below are not
