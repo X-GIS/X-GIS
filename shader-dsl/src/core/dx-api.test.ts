@@ -51,7 +51,10 @@ describe('#763 X — API additions', () => {
       { stage: 'vertex' },
     )
     const w = emitModule(module({ structs: [VsOut.decl], funcs: [vs] }))
-    expect(w).toContain('return out;')
+    // The claim is that `return o` RESOLVES — the proxy duck-types as the raw struct
+    // value rather than dying at load. What it resolves TO is then a write-once aggregate,
+    // which #1867's structCtor collapses into the constructor, so that is what ships.
+    expect(w).toContain('return X14Out(vec4<f32>(0.0, 0.0, 0.0, 1.0), vec2<f32>(0.0, 0.0));')
   })
 
   it('X1: module({ uses }) derives structs/bindings/consts from the handles', () => {

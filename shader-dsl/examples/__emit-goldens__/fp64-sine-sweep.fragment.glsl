@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   vec2 resolution;
   vec2 base;
@@ -13,19 +9,6 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-vec2 df64_div(vec2 a, vec2 b);
-float df64_narrow(vec2 a);
-vec2 df64_nint(vec2 a);
-vec2 df64_sin_taylor(vec2 a);
-vec2 df64_cos_taylor(vec2 a);
-vec2 df64_sin(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -137,9 +120,9 @@ vec2 df64_sin(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_sweep_impl(VsOut vo) {
-  float _v0 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+void main() {
+  float _v0 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v1 = (_v0 - (_cse0 ? 0.0 : 1.0));
   bool _v2 = (_cse0 || (u.fp64 < 0.5));
   float _gv0 = (_v1 * 25.132741228718345);
@@ -147,7 +130,7 @@ vec4 fs_sweep_impl(VsOut vo) {
   float _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2(0.0, 0.0))));
   float _v5 = sin((df64_narrow(u.base) + _gv0));
   float _v6 = (_v2 ? _v5 : _v4);
-  float _v7 = ((vo.uv.y - 0.5) * 2.0);
+  float _v7 = ((uv.y - 0.5) * 2.0);
   float _v8 = (2.0 / u.resolution.y);
   float _v9 = fract((_v1 * 10.0));
   float _v10 = fract(((_v7 + 1.0) * 4.0));
@@ -164,12 +147,5 @@ vec4 fs_sweep_impl(VsOut vo) {
   float _lc0 = (_v8 * 1.5);
   float _v21 = min(smoothstep(0.0, _lc0, abs(_v7)), smoothstep(0.0, _lc0, (abs((_v1 - 0.5)) * 2.0)));
   vec3 _v22 = mix(vec3(0.35, 0.33, 0.3), _v20, _v21);
-  return vec4(_v22, 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_sweep_impl(vo);
+  _ret = vec4(_v22, 1.0);
 }

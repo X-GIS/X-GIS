@@ -85,9 +85,12 @@ describe('coverage filter — the predicate reaches the GPU', () => {
 })
 
 describe('coverage filter — the drape composes it, and is untouched without one', () => {
+  /** The fragment ENTRY's body, helpers above it excluded. WGSL keeps the authored entry
+   *  name; GLSL ES has one entry per unit and it IS `main()` — since #1858 the emitter no
+   *  longer wraps the body in the `CovFragOut fs_cov_impl(...)` fn this used to anchor on. */
   const fsOf = (src: string): string => {
     const at = src.indexOf('fn fs_cov')
-    return at >= 0 ? src.slice(at) : src.slice(src.indexOf('CovFragOut fs_cov'))
+    return at >= 0 ? src.slice(at) : src.slice(src.indexOf('void main()'))
   }
 
   it('an UNFILTERED drape emits the fragment body it always did', () => {
