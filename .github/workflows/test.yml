@@ -79,7 +79,11 @@ jobs:
               # gates (_wgsl/_glsl-compile, _emit-obfuscate, _compute-gen, _mrt,
               # _mouse, _optimizer-gpu-parity) are the ONLY place its emitters meet
               # real Tint/ANGLE — a shader-dsl-only PR must fire them (#954).
-              - 'shader-dsl/**'
+              # …but NOT its generated CHANGELOG.md. A changelog diff cannot change an
+              # emitted shader, and leaving it in here is what made render-gate — the
+              # slowest leg — run for 26+ min on the regeneration PR and starve (#1842).
+              # See the `code` filter below for why this is an extglob and not a `!` entry.
+              - 'shader-dsl/**/!(CHANGELOG.md)'
               # Audit (#954): the render-gate ALSO uniquely exercises these two.
               # rhi-webgl2 — the four ?forcegl2=1 gates (_fills-gl2 +
               # _graphics-retained-{icon,arrow,arrow-orientation}) drive WebGl2Device
@@ -116,7 +120,22 @@ jobs:
               # specs were CI-dark — no leg or filter fired on a geo-only PR (#959).
               - 'geo/**'
               - 'blueprint/**'
-              - 'shader-dsl/**'
+              # NOT a bare `shader-dsl/**`: that matched `shader-dsl/CHANGELOG.md`, so the
+              # changelog regeneration PR — a diff of two GENERATED files — fanned out the
+              # whole engine matrix plus render-gate, and every merge to main force-pushed
+              # that branch and cancelled the run via `concurrency` above. At a ~22 min mean
+              # inter-merge interval it never finished once: six cancellations, zero
+              # successes, and the changelog could not land (#1842).
+              #
+              # The extglob is deliberate and a leading `!` is NOT the same thing. Measured
+              # against dorny/paths-filter's own matcher, `'!shader-dsl/CHANGELOG.md'` as a
+              # list entry matches nearly EVERY file in the repo — each entry is its own rule
+              # and the default `predicate-quantifier` is `some`, so a negated pattern reads
+              # as an inclusion of everything it does not name. `some-with-excludes`, which
+              # would make it mean exclusion, needs v4.0.3; this pins @v3. `!(...)` inside a
+              # pattern is an ordinary glob and needs no quantifier.
+              # scripts/paths-filter-semantics.test.ts runs this block through that matcher.
+              - 'shader-dsl/**/!(CHANGELOG.md)'
               # rhi*/data/pipeline were CI-dark: absent from `code`, so a change
               # there ran NO vitest leg or typecheck. The new `engine-rhi-data`
               # test leg covers their suites; list them here so a change fires it.
