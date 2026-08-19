@@ -578,6 +578,8 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'red on main, adjudicated DEFECT #1836 (2026-08-18): boot bounds-fit reads canvas.width=300 pre-first-frame and under-zooms (z1.08 vs 2.46) -- picking itself verified correct to the pixel; register after #1836',
   '_geojson-tile-dropout.spec.ts':
     'measured 2026-08-18 (#1349): sole test is an unconditional test.skip -- zero runnable tests, not registrable until the skip is resolved',
+  '_globe-inertia-dir.spec.ts':
+    'CI-deterministic red (2026-08-19, #1349 PR run): 4/5 tests glide=0 across fail+2 retries on the 2-core runner while green locally in both parallel and serial WORKERS=1 shapes -- inertia velocity estimation is wall-clock-sensitive (the class test.yml quarantines); needs a synthetic-clock drag or a runner-speed-independent velocity source before registering',
   '_hero-map-render.spec.ts':
     'batch-unstable (2026-08-18, #1349): solo-green after the forcegl2+e2e readback repair, but rendered 0.0% non-bg at position 27/85 of a serial WORKERS=1 batch -- whole-scene draw failure under batch contention, not readback; isolate before registering',
   '_text-overlay.spec.ts':
