@@ -25,11 +25,15 @@ const entryBody = (src: string): string => {
   return at >= 0 ? src.slice(at) : src.slice(src.indexOf('void main()'))
 }
 
-/** The entry's EXIT expression. WGSL spells it `return <expr>`; GLSL ES `main()` has no
- *  value to return, so since #1858 the same expression is bound to the temp the output
- *  scatter reads (`CovFragOut _out = <expr>;`). The return-struct CONSTRUCTOR is the anchor
- *  both spellings share, so the lanes below are compared on the same expression. */
-const exitExpr = (body: string): string => body.slice(body.lastIndexOf('CovFragOut('))
+/** The entry's EXIT expression. WGSL spells it `return CovFragOut(<expr>)`; GLSL ES
+ *  `main()` has no value to return and since #1867 does not build the struct either — the
+ *  constructor's argument is written straight to the draw buffer (`color = <expr>;`). Each
+ *  arm is anchored on its own spelling so the lanes below are compared on the same
+ *  expression on both backends. */
+const exitExpr = (body: string): string =>
+  body.includes('CovFragOut(')
+    ? body.slice(body.lastIndexOf('CovFragOut('))
+    : body.slice(body.lastIndexOf('color = '))
 
 /** Resolve a CSE temporary by the shape of its right-hand side. */
 function tempFor(body: string, re: RegExp, what: string): string {

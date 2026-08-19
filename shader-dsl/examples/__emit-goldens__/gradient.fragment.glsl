@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   vec4 top;
   vec4 bottom;
@@ -15,8 +11,5 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = vec4(mix(u.bottom.rgb, u.top.rgb, (vo.uv.y + u.mix_bias)), 1.0);
+  _ret = vec4(mix(u.bottom.rgb, u.top.rgb, (uv.y + u.mix_bias)), 1.0);
 }

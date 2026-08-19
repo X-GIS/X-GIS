@@ -107,7 +107,9 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
   })
 
   it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
-    expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
+    // The fill comes from the `tint` VARYING directly since #1867 — the entry's IO struct
+    // is read field-wise, so it is substituted away rather than gathered into `in_`.
+    expect(fs).toMatch(/mix\(tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
   })
 })
 

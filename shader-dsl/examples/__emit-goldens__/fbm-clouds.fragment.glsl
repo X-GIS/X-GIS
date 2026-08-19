@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
@@ -26,13 +22,10 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
   float _licm0 = U.octaves;
   vec2 _licm1 = vec2((U.time * 0.08), 0.0);
   float _av0 = 0.0;
-  vec2 _av1 = vec2((vo.uv.x * 3.0), (vo.uv.y * 3.0));
+  vec2 _av1 = vec2((uv.x * 3.0), (uv.y * 3.0));
   float _av2 = 0.55;
   for (uint _v0 = 0u; (float(_v0) < _licm0); _v0 = (_v0 + 1u)) {
     _av0 = (_av0 + (_av2 * noise((_av1 + _licm1))));

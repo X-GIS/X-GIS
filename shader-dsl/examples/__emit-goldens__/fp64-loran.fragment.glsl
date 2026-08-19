@@ -2,11 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
-
 struct DF64Vec2 {
   vec2 hi;
   vec2 lo;
@@ -109,15 +104,12 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
   float _v0 = pow(10.0, (-u.zoom_exp));
-  float _v1 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+  float _v1 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
-  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
@@ -154,6 +146,6 @@ void main() {
   float _v21 = ((fwidth(_v19) * 1.2) + 0.0001);
   float _v22 = (1.0 - smoothstep(0.0, _v20, _v18));
   float _v23 = (1.0 - smoothstep(0.0, _v21, _v19));
-  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), vo.uv.y);
+  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), uv.y);
   _ret = vec4((((_v24 + (vec3(0.0, 0.06, 0.08) * _v16)) + (vec3(0.25, 0.95, 0.95) * (_v22 * 0.9))) + (vec3(0.95, 0.7, 0.25) * (_v23 * 0.35))), 1.0);
 }

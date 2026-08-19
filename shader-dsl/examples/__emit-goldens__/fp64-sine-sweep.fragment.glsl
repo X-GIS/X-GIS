@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   vec2 resolution;
   vec2 base;
@@ -124,18 +120,15 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  float _v0 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+  float _v0 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v1 = (_v0 - (_cse0 ? 0.0 : 1.0));
   bool _v2 = (_cse0 || (u.fp64 < 0.5));
   vec2 _v3 = df64_add(u.base, vec2((_v1 * 25.132741228718345), 0.0));
   float _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2(0.0, 0.0))));
   float _v5 = sin((df64_narrow(u.base) + (_v1 * 25.132741228718345)));
   float _v6 = (_v2 ? _v5 : _v4);
-  float _v7 = ((vo.uv.y - 0.5) * 2.0);
+  float _v7 = ((uv.y - 0.5) * 2.0);
   float _v8 = (2.0 / u.resolution.y);
   float _v9 = fract((_v1 * 10.0));
   float _v10 = fract(((_v7 + 1.0) * 4.0));

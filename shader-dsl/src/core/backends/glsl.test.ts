@@ -35,6 +35,7 @@ import {
   type Expr,
   type ModuleDecl,
   type StructDecl,
+  type FuncDecl,
 } from '@xgis/shader-dsl'
 import {
   fn,
@@ -214,15 +215,43 @@ describe('glsl-es300 — @vertex / @fragment entry-IO lowering', () => {
   })
 
   it('maps a readable @builtin(position) fragment input to gl_FragCoord (not gl_Position)', () => {
-    const fs = emitGlslModule(module, 'fragment')
-    expect(fs).toContain('inp.position = gl_FragCoord;')
+    // The shared fixture's fragment never READS the position field, and since #1867 the
+    // gather no longer copies a field nothing reads — so the claim needs a body that
+    // actually reads it, or the gate is about a line that is simply absent.
+    const readsPos: ModuleDecl = {
+      ...module,
+      funcs: module.funcs.map((fn) =>
+        fn.name !== 'fs'
+          ? fn
+          : {
+              ...fn,
+              body: [
+                {
+                  s: 'return',
+                  expr: {
+                    op: 'construct',
+                    type: structT('FsOut'),
+                    args: [fld(param('inp', structT('VsOut')), 'position', vec4fT)],
+                  },
+                },
+              ],
+            },
+      ),
+    }
+    const fs = emitGlslModule(readsPos, 'fragment')
+    // Read where it is used (#1867 substitutes a field-read-only param away) rather than
+    // copied into a gather struct. The claim is unchanged: a readable @builtin(position)
+    // FRAGMENT input is gl_FragCoord, never gl_Position.
+    expect(fs).toContain('color = gl_FragCoord;')
     expect(fs).not.toContain('gl_Position')
+    const fsShared = emitGlslModule(module, 'fragment')
     // a fragment INPUT varying must NOT carry layout(location) (links by name to the vertex out `uv`).
-    expect(fs).toMatch(/^in vec2 uv;$/m)
+    expect(fsShared).toMatch(/^in vec2 uv;$/m)
     // a fragment OUTPUT (draw buffer) DOES carry a location qualifier in ES 3.00.
-    expect(fs).toMatch(/layout\(location = 0\) out vec4 color;/)
-    expect(fs).toContain('color = _out.color;')
-    expect((fs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
+    expect(fsShared).toMatch(/layout\(location = 0\) out vec4 color;/)
+    // …and the draw buffer is written from the exit's ctor argument directly (#1867).
+    expect(fsShared).toContain('color = vec4(uv.x, uv.y, 0.0, 1.0);')
+    expect((fsShared.match(/void main\(\) \{/g) ?? []).length).toBe(1)
   })
 
   it('no WGSL lexemes leak (no `fn`, no `@`, no `let`, no `<f32>`)', () => {
@@ -252,11 +281,29 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     name: 'ReservedIn',
     fields: [{ name: 'uv', type: vec2fT, attr: '@location(0)' }],
   }
+  // A helper that takes the IO struct WHOLE. Load-bearing for this whole suite since
+  // #1867: an entry param read only field-wise is substituted away entirely — its
+  // identifier never reaches the emit — so a rename gate on it would pass vacuously and
+  // the derived sampler probe below would report a miss for EVERY spelling. Handing the
+  // struct to a helper is what keeps a real param in the output, and it is the shape real
+  // shaders use (`compute_line_color(LineOut)` in map/src/shaders/dsl/line.ts).
+  const keepWhole = (): FuncDecl => ({
+    name: 'keep_whole',
+    params: [{ name: 'v', type: structT('ReservedIn') }],
+    ret: f32T,
+    body: [
+      {
+        s: 'return',
+        expr: fld(fld(param('v', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
+      },
+    ],
+  })
   const reservedMod: ModuleDecl = {
     consts: [],
     structs: [ReservedIn, FsOut],
     bindings: [],
     funcs: [
+      keepWhole(),
       {
         name: 'fs',
         attrs: ['@fragment'],
@@ -267,7 +314,12 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
           {
             s: 'let',
             name: 'sample',
-            expr: fld(fld(param('input', structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
+            expr: {
+              op: 'call',
+              fn: 'keep_whole',
+              args: [param('input', structT('ReservedIn'))],
+              type: f32T,
+            },
           },
           {
             s: 'return',
@@ -287,9 +339,9 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     // the reserved param `input` is renamed (to `input_`) at the decl AND every reference.
     expect(fs).toMatch(/\binput_\b/)
     expect(fs).not.toMatch(/\binput\b(?!_)/) // no bare reserved `input` left
-    // the renamed param survives into main()'s gather AND the body that reads it
+    // the renamed param survives into main()'s gather AND the call site that reads it
     expect(fs).toContain('ReservedIn input_;')
-    expect(fs).toContain('input_.uv')
+    expect(fs).toContain('keep_whole(input_)')
   })
 
   it('renames a reserved-word local var (`sample`) consistently', () => {
@@ -328,12 +380,15 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
     // `name` is reserved. A param, not a local: a single-use `let` is copy-propagated
     // away by the optimizer, so the identifier would vanish rather than be renamed and
     // the probe would report a reserved-word miss for every spelling, including the ones
-    // already in the set.
+    // already in the set. For the SAME reason it is handed WHOLE to `keep_whole`: a
+    // field-read-only param is substituted away by #1867, which vanishes it just as
+    // thoroughly as copy-propagation would.
     const paramNamed = (name: string): ModuleDecl => ({
       consts: [],
       structs: [ReservedIn, FsOut],
       bindings: [],
       funcs: [
+        keepWhole(),
         {
           name: 'fs',
           attrs: ['@fragment'],
@@ -347,7 +402,12 @@ describe('glsl-es300 — reserved-word identifier sanitisation', () => {
                 type: structT('FsOut'),
                 args: [
                   v4(
-                    fld(fld(param(name, structT('ReservedIn')), 'uv', vec2fT), 'x', f32T),
+                    {
+                      op: 'call',
+                      fn: 'keep_whole',
+                      args: [param(name, structT('ReservedIn'))],
+                      type: f32T,
+                    },
                     lit(0),
                     lit(0),
                     lit(1),
@@ -1031,7 +1091,7 @@ describe('glsl-es300 / wgsl — textureSampleLevel explicit-LOD sample', () => {
 
   it('GLSL spells textureLod with NO sampler arg and drops the standalone sampler binding', () => {
     const fsG = emitGlslModule(lodMod, 'fragment')
-    expect(fsG).toContain('textureLod(lod_tex, inp.uv, 1.0)')
+    expect(fsG).toContain('textureLod(lod_tex, uv, 1.0)')
     expect(fsG).toContain('uniform sampler2D lod_tex;')
     expect(fsG).not.toContain('lod_smp') // fused into the combined sampler2D
   })
@@ -1137,7 +1197,7 @@ describe('glsl-es300 / wgsl — 2d-array texture reads (#1651)', () => {
   it('GLSL declares a sampler2DArray and folds the layer into a vec3 coordinate', () => {
     const fsG = emitGlslModule(arrMod, 'fragment')
     expect(fsG).toContain('uniform sampler2DArray arr_tex;')
-    expect(fsG).toContain('texture(arr_tex, vec3(inp.uv, float(1)))')
+    expect(fsG).toContain('texture(arr_tex, vec3(uv, float(1)))')
     expect(fsG).not.toContain('arr_smp') // fused into the combined sampler
     const vsG = emitGlslModule(arrMod, 'vertex')
     // …the coordinate identifier is the renamed gather local (#1858 — the vertex out

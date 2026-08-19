@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
@@ -19,10 +15,7 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  vec2 _cse6 = (vo.uv * 6.0);
+  vec2 _cse6 = (uv * 6.0);
   float _cse2 = terrain(_cse6, U.time);
   float _cse3 = _cse6.x;
   float _cse4 = _cse6.y;

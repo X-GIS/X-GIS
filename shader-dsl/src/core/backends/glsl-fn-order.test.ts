@@ -123,9 +123,11 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
     const vs = emitGlslModule(orderedModule(), 'vertex')
     expect(vs).not.toContain('_impl')
     expect((vs.match(/void main\(\) \{/g) ?? []).length).toBe(1)
-    // …and the values still land: the exit expression feeds the scatter directly.
-    expect(vs).toContain('gl_Position = _out.position;')
-    expect(vs).toContain('uv = _out.uv;')
+    // …and the values still land. This exit is a CONSTRUCTOR, so since #1867 each of its
+    // arguments goes straight to its field's varying and no aggregate is built at all.
+    expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
+    expect(vs).toContain('uv = vec2(_v0, _v0);')
+    expect(vs).not.toContain('_out')
     expect(defAt(vs, 'outer')).toBeLessThan(vs.indexOf('void main()'))
   })
 
@@ -203,9 +205,10 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
     expect(vs).toMatch(/^ {2}float seg_id_in = float\(gl_VertexID\);$/m)
     expect(vs).not.toMatch(/^ {2}float seg_id = /m)
     // …the body reads that name…
-    expect(vs).toContain('SegOut(vec4(seg_id_in, 0.0, 0.0, 1.0), seg_id_in)')
+
     // …and the scatter therefore reaches the varying, not a local shadowing it.
-    expect(vs).toContain('seg_id = _out.seg_id;')
+    expect(vs).toContain('gl_Position = vec4(seg_id_in, 0.0, 0.0, 1.0);')
+    expect(vs).toContain('seg_id = seg_id_in;')
   })
 
   it('KEEPS the `_impl` wrapper for an early-return body', () => {
@@ -225,5 +228,75 @@ describe('glsl-es300 — a single-exit entry IS main() (#1858)', () => {
     const fs = emitGlslModule(dslModule({ funcs: [fsR] }), 'fragment')
     expect(fs).toContain('vec4 fs_early_impl(vec4 pos)')
     expect(fs).toContain('_ret = fs_early_impl(gl_FragCoord);')
+  })
+})
+
+// ═══ #1867 — the IO struct is materialised only to be taken apart, so do not build it ═══
+//
+// One level below #1858: `main()` still opened by copying the varyings into a struct and
+// closed by binding the exit to a temp, purely to read its fields back out one line later.
+// Neither aggregate is needed, and once nothing spells the type the DECL goes too — which
+// is where the bytes are. The gates below pin both halves AND both bail-outs, because the
+// bail-outs are what keep the transform sound: a struct handed WHOLE to a helper is a real
+// aggregate, and a field source shadowed by a body local would silently read the local.
+
+describe('glsl-es300 — the entry IO struct is never built (#1867)', () => {
+  it('scatters a CONSTRUCTOR exit field-by-field, minting no aggregate', () => {
+    const vs = emitGlslModule(orderedModule(), 'vertex')
+    expect(vs).toContain('gl_Position = vec4(_v0, 0.0, 0.0, 1.0);')
+    expect(vs).toContain('uv = vec2(_v0, _v0);')
+    expect(vs).not.toContain('IoOut(') // the ctor call itself is gone, not just the temp
+    expect(vs).not.toContain('_out')
+  })
+
+  it('substitutes a field-read-only param, so the gather disappears', () => {
+    const fsRead = fn('fs_read', { inp: IoOut }, ({ inp }) => vec4(inp.uv.x, inp.uv.y, 0, 1), {
+      stage: 'fragment',
+      retAttr: location(0, vec4fT),
+    })
+    const fs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [fsRead] }), 'fragment')
+    expect(fs).toMatch(/^in vec2 uv;$/m)
+    expect(fs).not.toMatch(/^ {2}IoOut inp;$/m) // no gather local…
+    expect(fs).not.toContain('inp.') //            …and no field read through one
+    expect(fs).toContain('_ret = vec4(uv.x, uv.y, 0.0, 1.0);')
+  })
+
+  it('DROPS the struct decl once nothing spells the type', () => {
+    // The bytes this is actually for: the decl is 1.42% of the baked GLSL corpus, and a
+    // decl no line references is dead weight the driver still has to parse.
+    expect(emitGlslModule(orderedModule(), 'vertex')).not.toContain('struct IoOut')
+  })
+
+  it('KEEPS the aggregate for a param handed WHOLE to a helper', () => {
+    // The `compute_line_color(LineOut)` shape, which is why the check counts uses rather
+    // than assuming. The gather, the local AND the decl must all survive here.
+    const take = fn('take_whole', { v: IoOut }, f32T, ({ v }) => v.uv.x)
+    const fsPass = fn('fs_pass', { inp: IoOut }, ({ inp }) => vec4(take({ v: inp }), 0, 0, 1), {
+      stage: 'fragment',
+      retAttr: location(0, vec4fT),
+    })
+    const fs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [take, fsPass] }), 'fragment')
+    expect(fs).toContain('struct IoOut')
+    expect(fs).toMatch(/^ {2}IoOut inp;$/m)
+    expect(fs).toContain('take_whole(inp)')
+  })
+
+  it('KEEPS the gather when a body local would CAPTURE the substituted read', () => {
+    // The #1858 `seg_id` hazard in its second form, and just as silent: substituting
+    // `inp.uv` -> `uv` binds to a body local named `uv` if one exists, and the shader
+    // still compiles and links. The whole substitution is refused for that param.
+    const fsCap = fn(
+      'fs_cap',
+      { inp: IoOut },
+      ({ inp }) => {
+        const uv = Let('uv', vec2(9, 9)) // NAMED, so it reaches emit as `uv` and shadows the varying
+        return vec4(inp.uv.x, uv.y, 0, 1)
+      },
+      { stage: 'fragment', retAttr: location(0, vec4fT) },
+    )
+    const fs = emitGlslModule(dslModule({ uses: [IoOut], funcs: [fsCap] }), 'fragment')
+    expect(fs).toMatch(/^ {2}IoOut inp;$/m) // gather kept…
+    expect(fs).toContain('inp.uv = uv;') //    …reading the varying BEFORE the local exists
+    expect(fs).toContain('struct IoOut')
   })
 })

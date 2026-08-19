@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   float time;
   vec2 resolution;
@@ -22,10 +18,7 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  vec2 _cse0 = (vec2((vo.uv.x * (U.resolution.x / U.resolution.y)), vo.uv.y) * U.tiles);
+  vec2 _cse0 = (vec2((uv.x * (U.resolution.x / U.resolution.y)), uv.y) * U.tiles);
   vec2 _v0 = floor(_cse0);
   vec2 _v1 = fract(_cse0);
   float _v2 = hash(_v0);

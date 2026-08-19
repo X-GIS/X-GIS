@@ -2,10 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
 layout(std140) uniform Uniforms {
   vec2 origin;
   float span;
@@ -58,10 +54,7 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  float _cse1 = (vo.uv.x * u.span);
-  float _cse0 = (((vo.uv.x < 0.5) || (u.fp64 < 0.5)) ? fract((df64_narrow(u.origin) + _cse1)) : df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse1, 0.0)))));
+  float _cse1 = (uv.x * u.span);
+  float _cse0 = (((uv.x < 0.5) || (u.fp64 < 0.5)) ? fract((df64_narrow(u.origin) + _cse1)) : df64_narrow(df64_fract(df64_add(u.origin, vec2(_cse1, 0.0)))));
   _ret = vec4(_cse0, _cse0, _cse0, 1.0);
 }

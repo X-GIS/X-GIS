@@ -6,6 +6,15 @@
 // FIRST DRAW. A named local for the same value (`vec4 c = inner(v); return Out(c);` —
 // #1840's case B) is sufficient, and that is what glsl-legalize.ts synthesises.
 //
+// SINCE #1867, the entry's OUTPUT struct is usually not constructed at all: a constructor
+// exit is scattered field-by-field straight to the draw buffers, so `Out _out = Out(_dh0);`
+// is emitted as `color = _dh0;`. That removes #1840's hazard by construction for the entry
+// return — there is no struct ctor left to miscompile — but NOT everywhere: a ctor inside a
+// helper, or one nested in an argument (`take_k(BoxK(_dh0))` below), still reaches the
+// driver, which is why this pass and the `ctorSpans` shape gate both stay. The per-case
+// assertions therefore pin the hoisted local reaching its varying, and `ctorSpans` pins the
+// shape wherever a ctor does survive.
+//
 // The assertions are on the EMITTED TEXT because the emitted text is what the driver
 // reads. Two arms guard the two ways this could go wrong: the NEGATIVE suites pin the
 // blast radius (a non-discarding callee, a VECTOR ctor, and a guarded position are all
@@ -91,7 +100,7 @@ describe('glsl-legalize — direct discarding call as a struct ctor arg (#1840 c
   it('hoists the argument into a named local before the return', () => {
     const g = emitGlslModule(modA, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_a(pos.x);')
-    expect(g).toContain('OutA _out = OutA(_dh0);')
+    expect(g).toContain('color = _dh0;')
   })
 
   it('leaves NO struct ctor spelling the discarding call inline', () => {
@@ -122,7 +131,7 @@ describe('glsl-legalize — transitively discarding callee', () => {
   it('hoists the wrapper call out of the ctor', () => {
     const g = emitGlslModule(modB, 'fragment')
     expect(g).toContain('vec4 _dh0 = g_wrap(pos.x);')
-    expect(g).toContain('OutB _out = OutB(_dh0);')
+    expect(g).toContain('color = _dh0;')
   })
 
   // inline() substitutes single-return wrappers at their call sites. It now runs BEFORE
@@ -154,7 +163,7 @@ describe('glsl-legalize — discarding call nested inside the ctor argument', ()
   it('hoists the WHOLE argument, leaving the call inside a legal vector ctor', () => {
     const g = emitGlslModule(modC, 'fragment')
     expect(g).toContain('vec4 _dh0 = vec4((helper_c(pos.x).x * 2.0), 0.0, 0.0, 1.0);')
-    expect(g).toContain('OutC _out = OutC(_dh0);')
+    expect(g).toContain('color = _dh0;')
     expect(ctorSpans(g, ['OutC']).filter((s) => s.includes('helper_c('))).toEqual([])
   })
 })
@@ -205,7 +214,8 @@ describe('glsl-legalize — multi-field struct ctor', () => {
   it('hoists ONLY the argument carrying the discarding call', () => {
     const g = emitGlslModule(modG, 'fragment')
     expect(g).toContain('vec4 _dh0 = helper_g(pos.x);')
-    expect(g).toContain('OutG _out = OutG(_dh0, vec4(1.0, 1.0, 1.0, 1.0));')
+    expect(g).toContain('a = _dh0;')
+    expect(g).toContain('b = vec4(1.0, 1.0, 1.0, 1.0);')
     expect(g).not.toContain('_dh1')
   })
 })
@@ -235,7 +245,7 @@ describe('glsl-legalize — leaves the shapes that do not trip ANGLE alone', () 
     )
     const g = emitGlslModule(dslModule({ uses: [OutN], funcs: [plain, kill, fsN] }), 'fragment')
     expect(g).toContain('helper_nd(pos.y)') // the pass ran over a discarding module …
-    expect(g).toContain('OutN _out = OutN(helper_n(') // … and left this ctor exactly as emitted
+    expect(g).toContain('color = helper_n(') // … and left this call exactly as emitted
     expect(g).not.toContain('_dh')
   })
 
@@ -365,7 +375,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
       'fragment',
     )
     expect(g).toContain('vec4 _dh0 = helper_k(pos.x);')
-    expect(g).toContain('OutK _out = OutK(take_k(BoxK(_dh0)));')
+    expect(g).toContain('color = take_k(BoxK(_dh0));')
     expect(ctorSpans(g, ['OutK', 'BoxK']).filter((s) => s.includes('helper_k('))).toEqual([])
   })
 
@@ -386,7 +396,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
     )
     const g = emitGlslModule(dslModule({ uses: [OutBin], funcs: [helperBin, fsBin] }), 'fragment')
     expect(g).toContain('vec4 _dh0 = ((helper_bin(pos.x) * 2.0) + vec4(0.0, 0.0, 0.0, 1.0));')
-    expect(g).toContain('OutBin _out = OutBin(_dh0);')
+    expect(g).toContain('color = _dh0;')
     expect(ctorSpans(g, ['OutBin']).filter((s) => s.includes('helper_bin('))).toEqual([])
   })
 
@@ -412,7 +422,7 @@ describe('glsl-legalize — the ctor is reached through a nested expression posi
     )
     const g = emitGlslModule(dslModule({ uses: [OutX], funcs: [helperX, fsX] }), 'fragment')
     expect(g).toContain('vec4 _dh0 = lut[int(helper_x(pos.x))];')
-    expect(g).toContain('OutX _out = OutX(_dh0);')
+    expect(g).toContain('color = _dh0;')
     expect(ctorSpans(g, ['OutX']).filter((s) => s.includes('helper_x('))).toEqual([])
   })
 })
@@ -765,14 +775,17 @@ describe('glsl-legalize — runs after the whole IR plugin stack', () => {
     const g = emitGlslModule(modA, 'fragment', { plugins: obfuscate({ renames }) })
     // `_dh0` survives verbatim: mangle renames every local it sees, so a `_dh0` in the
     // OUTPUT can only have been minted after mangle already ran.
-    expect(g).toContain('_dh0')
-    expect(g).toMatch(/\w+\(_dh0\)/) // …and it IS the struct ctor's argument
-    // …and no ctor anywhere holds the (now mangled) discarding call.
-    const ctor = renames.get('OutA')!
     const call = renames.get('helper_a')!
-    expect(ctor).toBeDefined()
     expect(call).toBeDefined()
-    expect(ctorSpans(g, [ctor]).filter((s) => s.includes(`${call}(`))).toEqual([])
+    expect(g).toContain('_dh0')
+    // …it binds the MANGLED discarding call, so the hoist ran on the mangled IR…
+    expect(g).toMatch(new RegExp(`_dh0=${call}\\(`))
+    // …and the local is what reaches the draw buffer, so it was not undone.
+    expect(g).toContain('color=_dh0')
+    // NOT re-asserted here: "no ctor holds the discarding call". Since #1867 this entry's
+    // output struct is not constructed at all (`color=_dh0`, not `OutA _out = OutA(_dh0)`),
+    // so a ctorSpans check on it would pass no matter what the pass did. The shape gate
+    // lives in the suites above, on the fixtures where a ctor genuinely survives.
   })
 })
 

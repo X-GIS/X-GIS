@@ -2,11 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
-
 struct DF64Vec2 {
   vec2 hi;
   vec2 lo;
@@ -87,17 +82,14 @@ in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
 void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
   vec2 _licm0 = vec2(16.0, 0.0);
   vec2 _licm1 = vec2(2.0, 0.0);
   float _v0 = pow(10.0, (-u.zoom_exp));
-  float _v1 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+  float _v1 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
-  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   float _v5 = 0.0;
   float _v6 = 0.0;
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
