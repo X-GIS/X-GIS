@@ -1528,6 +1528,13 @@ reverse direction failed in practice: a GLSL-minded author reached for `frag_coo
 (accepted by the GLSL writer at the time), and the module died only when the WGSL
 writer ran.
 
+**Upgrading from a build where `frag_coord` emitted fine?** It did — on GLSL only. That
+alias was retired (#1805) precisely because of the asymmetry: a module authored against it
+compiled on WebGL2 and failed on WGSL, so the trap only sprang on the target you were less
+likely to be testing. Both writers now reject it with the same remedy — spell it
+`builtin('position', vec4fT)` on the fragment input. The rename is spelling-only: GLSL
+still reads `gl_FragCoord` and the emitted bytes do not move.
+
 | GLSL global                      | DSL spelling                                       | Notes                                                                                                                                                                                                         |
 | -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gl_Position`                    | `builtin('position', vec4fT)` on the VERTEX output | writes `gl_Position` on GLSL                                                                                                                                                                                  |
