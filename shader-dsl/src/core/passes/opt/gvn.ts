@@ -220,16 +220,56 @@ function tally(
   }
 }
 
-// GVN one straight-line block (its OWN statements; nested blocks are recursed first).
+/** A value an ENCLOSING block already bound to a temp, offered to nested blocks.
+ *  `roots` travels with it so a mutation can retire it without re-deriving them. */
+interface Avail {
+  readonly name: string
+  readonly roots: ReadonlySet<string>
+}
+
+/** The entries of `live` a nested statement may still trust.
+ *
+ *  `mutatedBy` recurses into nested bodies, so one filter covers every way the value
+ *  could have moved on by the time the inner occurrence runs: an assignment anywhere
+ *  inside the statement, and a `let`/`var` that SHADOWS a root (its own name is added
+ *  to the set), which would silently make the inner expression a different one.
+ *
+ *  Applied to `if` as well as `for`, though only a loop strictly needs it: a loop's
+ *  back edge means iteration 2 reads what iteration 1 wrote, so a temp bound before
+ *  the loop is stale from the second pass on. Being equally conservative about an
+ *  `if` costs one filter and removes a whole class of reasoning about which arm ran. */
+function availableIn(s: Stmt, live: ReadonlyMap<string, Avail>): Map<string, Avail> {
+  if (live.size === 0) return new Map()
+  const mut = mutatedBy(s)
+  const out = new Map<string, Avail>()
+  for (const [k, a] of live) {
+    let hit = false
+    for (const r of a.roots) if (mut.has(r)) hit = true
+    if (!hit) out.set(k, a)
+  }
+  return out
+}
+
+/** GVN one straight-line block: its OWN statements, then each nested block with the
+ *  temps this one has bound so far in scope (#1886).
+ *
+ *  Nested blocks used to be numbered FIRST and in isolation, so a value the enclosing
+ *  block had already computed was recomputed from scratch inside an `if`. Handing the
+ *  binding down is free by construction — the outer `let` is evaluated on every path
+ *  that reaches the inner block, so the inner read replaces work rather than adding
+ *  it. That also makes it sound for a GUARDED inner occurrence, which minting a fresh
+ *  temp never is: nothing new is computed, the value is simply already there. */
 function gvnBlock(
   body: readonly Stmt[],
   localSet: ReadonlySet<string>,
   next: { n: number },
+  env: ReadonlyMap<string, Avail> = new Map(),
 ): Stmt[] {
-  // 1. Recurse into nested blocks first (inner blocks get their own numbering).
-  const rec = body.map((s) => recurseBlocks(s, localSet, next))
-
-  // 2. Tally cross-statement candidates over this block's value exprs.
+  // 1. Tally cross-statement candidates over this block's value exprs. Recursion now
+  //    happens in step 7 instead, so the temps minted here are in scope for it;
+  //    `valueExprs` reads only this block's own statements, which recursion never
+  //    rewrites, so nothing is lost by tallying before it.
+  const rec = body
   const occ = new Map<string, Occur>()
   const condKeys = new Set<string>()
   rec.forEach((s, idx) => {
@@ -237,8 +277,9 @@ function gvnBlock(
   })
 
   // 3. Keep keys that occur unconditionally in >= 2 distinct statements.
+  //    No early return when empty: a block that mints nothing must still recurse, and
+  //    with `env` it may now be the block that USES an enclosing temp.
   let cands = [...occ.entries()].filter(([k, o]) => !condKeys.has(k) && o.stmts.size >= 2)
-  if (cands.length === 0) return rec
 
   // 4. Maximal only — drop a key nested inside another candidate's exemplar (the outer
   //    temp subsumes it; a later fixpoint pass picks up any standalone inner repeat).
@@ -265,51 +306,75 @@ function gvnBlock(
     }
     return true
   })
-  if (safe.length === 0) return rec
 
   // 6. Assign a temp per safe key + record where its `let` lands (before its first stmt).
-  const temp = new Map<string, string>()
-  const insertBefore = new Map<number, Stmt[]>()
-  for (const [k, o] of safe) {
-    const name = `_gv${next.n++}`
-    temp.set(k, name)
+  const insertBefore = new Map<number, Array<{ name: string; expr: Expr }>>()
+  for (const [, o] of safe) {
     const first = Math.min(...o.stmts)
     const lets = insertBefore.get(first) ?? []
-    lets.push({ s: 'let', name, expr: o.exemplar })
+    lets.push({ name: `_gv${next.n++}`, expr: o.exemplar })
     insertBefore.set(first, lets)
   }
 
-  // 7. Replace occurrences (all are unconditional — condKeys excluded) + splice in the lets.
-  const replace = (e: Expr): Expr => {
-    const nm = temp.get(keyOf(e))
-    if (nm !== undefined) return { op: 'varref', type: e.type, name: nm }
-    return mapChildren(e, replace)
-  }
+  // 7. ONE ordered walk: splice each `let` in, rewrite the statement against everything
+  //    bound so far (this block's temps plus the enclosing ones `env` handed down),
+  //    recurse into nested blocks with that same set, then retire whatever the
+  //    statement moved on from. Order matters: a temp minted AT idx is live for
+  //    statement idx itself — which is how an `if` whose condition holds the first
+  //    occurrence can offer it to its own arms.
+  const live = new Map<string, Avail>(env)
   const out: Stmt[] = []
   rec.forEach((s, idx) => {
-    const lets = insertBefore.get(idx)
-    if (lets) out.push(...lets)
-    out.push(mapStmtValue(s, replace))
+    for (const l of insertBefore.get(idx) ?? []) {
+      out.push({ s: 'let', name: l.name, expr: l.expr })
+      live.set(keyOf(l.expr), { name: l.name, roots: rootsOf(l.expr) })
+    }
+    const replace = (e: Expr): Expr => {
+      const a = live.get(keyOf(e))
+      if (a !== undefined) return { op: 'varref', type: e.type, name: a.name }
+      return mapChildren(e, replace)
+    }
+    // The RHS of an assign is evaluated BEFORE the write, so rewriting statement idx
+    // against the pre-statement `live` is right; the retirement below is for idx+1 on.
+    out.push(mapStmtValue(recurseBlocks(s, localSet, next, availableIn(s, live)), replace))
+    const mut = mutatedBy(s)
+    if (mut.size > 0)
+      for (const [k, a] of [...live]) {
+        for (const r of a.roots)
+          if (mut.has(r)) {
+            live.delete(k)
+            break
+          }
+      }
   })
   return out
 }
 
-// Rebuild a control-flow statement with each nested body GVN'd as its own block.
-function recurseBlocks(s: Stmt, localSet: ReadonlySet<string>, next: { n: number }): Stmt {
+// Rebuild a control-flow statement with each nested body GVN'd as its own block,
+// carrying `env` — the enclosing bindings that survive this statement's own writes.
+function recurseBlocks(
+  s: Stmt,
+  localSet: ReadonlySet<string>,
+  next: { n: number },
+  env: ReadonlyMap<string, Avail>,
+): Stmt {
   switch (s.s) {
     case 'if':
       return {
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, localSet, next) })),
-        elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next) : undefined,
+        arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, localSet, next, env) })),
+        elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next, env) : undefined,
       }
     case 'for':
-      return { ...s, body: gvnBlock(s.body, localSet, next) }
+      return { ...s, body: gvnBlock(s.body, localSet, next, env) }
     case 'switch':
       return {
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: gvnBlock(c.body, localSet, next) })),
-        defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, localSet, next) : undefined,
+        cases: s.cases.map((c) => ({
+          value: c.value,
+          body: gvnBlock(c.body, localSet, next, env),
+        })),
+        defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, localSet, next, env) : undefined,
       }
     default:
       return s
