@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: a63e6e575bb9ec594346e5ea38a40b3dec27682b
+  Generated from: 36bfb12cec67f5869aa607a88ac3199a5a57120d
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since a63e6e575bb9
+    bun scripts/emit-changelog.ts --path shader-dsl --since 36bfb12cec67
 -->
 
 # Changelog — shader-dsl
@@ -59,6 +59,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### perf
 
+- **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **shader-dsl:** stop the emit recomputing hoistable values — post-inline cleanup + gvn wired (#1860, #1861, #1865) ([#1862](https://github.com/X-GIS/X-GIS/pull/1862)) `f005bbe`
 
 #### refactor
