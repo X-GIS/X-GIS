@@ -164,7 +164,15 @@ jobs:
               - 'tsconfig*.json'
               - 'vitest.config.ts'
               - 'vitest.setup.ts'
-              - '.github/workflows/test.yml'
+              # ALL workflow files, not just this one. Measured (#1842): 5 of the 6 tracked
+              # workflows matched no filter at all, so `scripts/workflow-validity.test.ts` —
+              # the gate that exists because a workflow once shipped unparseable (#1693) — was
+              # CI-dark for every PR editing a workflow other than this file. Four rewrites of
+              # changelog.yml landed that way in one day, none of them running the gate written
+              # for exactly their failure mode. Only `code` needs widening: the validity gate
+              # runs in the vitest legs, and render/site keep naming test.yml alone because it
+              # is the file that DEFINES those jobs.
+              - '.github/workflows/**'
             site:
               - 'site/**'
               - 'bun.lock'

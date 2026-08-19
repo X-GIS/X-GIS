@@ -43,11 +43,19 @@
 // test that only pinned the pattern text would pass identically whether the pattern works or
 // is a typo matching nothing, which is the exact failure it exists to catch.
 //
+// NOT THE ONLY GATE ON THIS FILTER, and the other one is older. `map/src/architecture-
+// invariants.test.ts` Gate-8 (#1565) asserts every package glob in `code` is in `render`
+// too or exempt with a reason — a containment relation BETWEEN the two filters. This file
+// asserts what each filter actually matches over the real tree. Different invariants, and
+// both are needed: Gate-8 cannot see a pattern that matches nothing, and this file cannot
+// see a package that is in `code` but missing from `render`.
+//
 // KEEPING IT HONEST WITH THE ACTION. `picomatch` is declared at `^2.3.1`, the range
 // dorny/paths-filter declares for itself. If the action's pin moves, move this one with it —
 // a gate that replicates a matcher is only as good as the matcher being the same one.
 
 import { describe, expect, it } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -117,63 +125,168 @@ describe('the filter block was actually read out of the workflow', () => {
   })
 })
 
-// ── T2: `code` still fires for every package it claims to cover ─────────────────────────
-// This is the arm that catches a CI-dark package. One representative path per rule: if a
-// pattern is edited into something that matches nothing, its row goes red and names it.
-describe('the `code` filter fires for real source changes', () => {
-  const code = matcherFor('code')
+// ── T2: EXHAUSTIVE coverage, against an authority that is NOT the filter ─────────────────
+// This arm has now been wrong twice, in two different ways, and both are worth stating because
+// the second is subtler than the first.
+//
+// v1 asserted ONE representative path per pattern. That cannot see a pattern that matches LESS:
+// narrowing `code`'s `map/**` to `map/src/render/**` left `map/src/render/point-renderer.ts`
+// matching, so all 29 assertions stayed green while 595 of map's 1013 tracked files — 366 of
+// them *.test.ts — stopped setting `code`. The whole @xgis/map unit suite would have merged
+// untested with every leg posting green. The row for `pipeline/**` also named a file that does
+// not exist and was green anyway, proving the rows never touched the filesystem at all.
+//
+// v2 read every tracked file, but derived the list of packages to check FROM THE FILTER. That is
+// circular, and it failed the same two cuts: deleting `pipeline/**` removed `pipeline` from the
+// expected set as well, and narrowing `map/**` to `map/src/render/**` no longer parsed as a
+// `<dir>/**` entry so `map` silently dropped out. Both cuts stayed 21/21 green.
+//
+// v3 takes the expected set from root package.json's `workspaces` — the repo's own authority on
+// what packages exist, which the filter cannot edit. Every package there must be fully covered
+// by `code`, with exemptions named and argued individually.
+const MANIFEST = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
+  workspaces: readonly string[]
+}
 
-  const COVERED: readonly (readonly [string, string])[] = [
-    ['compiler/**', 'compiler/src/tiler/vector-tiler.ts'],
-    ['engine/**', 'engine/src/index.ts'],
-    ['map/**', 'map/src/render/point-renderer.ts'],
-    ['shared/**', 'shared/src/index.ts'],
-    ['geo/**', 'geo/src/projection.ts'],
-    ['blueprint/**', 'blueprint/src/index.ts'],
-    ['shader-dsl/**/!(CHANGELOG.md)', 'shader-dsl/src/core/backends/wgsl.ts'],
-    ['rhi/**', 'rhi/src/rhi.ts'],
-    ['rhi-webgl2/**', 'rhi-webgl2/src/index.ts'],
-    ['rhi-webgpu/**', 'rhi-webgpu/src/index.ts'],
-    ['data/**', 'data/src/tile-catalog.ts'],
-    ['pipeline/**', 'pipeline/src/ingest/ingest.ts'],
-    ['playground/**', 'playground/src/demo-runner.ts'],
-    ['scripts/**', 'scripts/emit-changelog.ts'],
-    ['the named site page', 'site/src/pages/shader-dsl/reference.astro'],
-    ['bun.lock', 'bun.lock'],
-    ['root manifest', 'package.json'],
-    ['any manifest', 'shader-dsl/package.json'],
-    ['tsconfig', 'tsconfig.base.json'],
-    ['vitest config', 'vitest.config.ts'],
-    ['this workflow', '.github/workflows/test.yml'],
-  ]
+/** Packages that exist but are deliberately outside `code`, each with the reason. */
+const CODE_EXEMPT: Readonly<Record<string, string>> = {
+  site:
+    'the site has no vitest here, so a site-only change must not spin up the engine legs; ' +
+    'the one page a ratchet reads is listed by name instead (#1700)',
+}
 
-  it.each(COVERED)('%s → code fires for %s', (_rule, file) => {
-    expect(code(file), `${file} no longer matches \`code\` — that package just went CI-dark`).toBe(
-      true,
+/** `code` must fire for every workspace package except the exempt ones, plus `scripts` (which is
+ *  not a workspace but whose *.test.ts are in vitest's include — #1700). */
+const CODE_MUST_COVER: readonly string[] = [
+  ...MANIFEST.workspaces.filter((w) => !(w in CODE_EXEMPT)),
+  'scripts',
+]
+
+/** `render` covers a deliberate SUBSET, argued per package in the filter's own comments: rhi is
+ *  interfaces-only (typecheck-covered) and pipeline is imported only by the seoul-* demos, which
+ *  no render-gate spec loads. Pinned here rather than derived, for the same reason as above —
+ *  and so that dropping a package from the render filter fails instead of redefining the target.
+ *  Widening `render` is fine and does not fail this; narrowing it does. */
+const RENDER_MUST_COVER: readonly string[] = [
+  'compiler',
+  'engine',
+  'map',
+  'shared',
+  'geo',
+  'blueprint',
+  'shader-dsl',
+  'rhi-webgl2',
+  'rhi-webgpu',
+  'data',
+  'playground',
+]
+
+/** The ONLY tracked files under those packages that a filter may miss. Measured across 3345
+ *  (render) / 3415 (code) tracked files: this is the entire exception set. Shrink-only in both
+ *  directions — a new entry is a package losing CI coverage and must be argued for in review. */
+const DELIBERATELY_UNMATCHED: Readonly<Record<string, readonly string[]>> = {
+  render: ['shader-dsl/CHANGELOG.md'],
+  code: ['shader-dsl/CHANGELOG.md'],
+}
+
+/** git's idea of what exists, which is the only one that matters to a path filter. */
+function trackedUnder(prefix: string): readonly string[] {
+  return execFileSync('git', ['ls-files', '--', prefix], { cwd: REPO, encoding: 'utf8' })
+    .split('\n')
+    .filter((l) => l.length > 0)
+}
+
+describe('every filter covers every file of every package it must, exhaustively', () => {
+  const CASES = [
+    ['code', CODE_MUST_COVER],
+    ['render', RENDER_MUST_COVER],
+  ] as const
+
+  it.each(CASES)('%s: no tracked file of a covered package is silently uncovered', (name, pkgs) => {
+    const match = matcherFor(name)
+    const missed: string[] = []
+    let tracked = 0
+    for (const pkg of pkgs) {
+      const files = trackedUnder(pkg)
+      expect(
+        files.length,
+        `'${pkg}' is required to be covered by '${name}' but git tracks nothing there — either ` +
+          'the package moved (update this list AND the filter) or the reader is broken.',
+      ).toBeGreaterThan(0)
+      tracked += files.length
+      for (const file of files) if (!match(file)) missed.push(file)
+    }
+
+    expect(tracked, `${name}: only ${tracked} files read — the reader is broken`).toBeGreaterThan(
+      1000,
     )
+    expect(
+      missed.sort(),
+      `${name}: ${missed.length} of ${tracked} tracked files in packages this filter must cover ` +
+        'do not match it. If a pattern was narrowed or removed, that many files just went ' +
+        'CI-dark while every leg still posts green.',
+    ).toEqual([...(DELIBERATELY_UNMATCHED[name] ?? [])].sort())
   })
 
-  it('still fires for the shader-dsl paths a changelog exclusion must not touch', () => {
-    // The exclusion is one basename. Everything else under the package — including other
-    // markdown, including the generated API surface, including depth-1 dotfiles that only
-    // match because of `dot: true` — must stay code.
-    for (const file of [
-      'shader-dsl/src/index.ts',
-      'shader-dsl/src/api-surface.test.ts',
-      'shader-dsl/src/__api__/surface.md',
-      'shader-dsl/examples/__emit-goldens__/color-ramp.wgsl',
-      'shader-dsl/README.md',
-      'shader-dsl/tsconfig.json',
-      'shader-dsl/.npmignore',
-      'shader-dsl/CHANGELOG.md.bak',
-      'shader-dsl/changelog.md',
-    ]) {
-      expect(code(file), `${file} must still count as code`).toBe(true)
+  it('names an exemption for every workspace `code` does not cover', () => {
+    // Keeps CODE_EXEMPT honest: an exemption is a decision with a reason, not a gap. If a new
+    // workspace appears and nobody wires it into `code`, it lands here rather than nowhere.
+    for (const pkg of MANIFEST.workspaces) {
+      const covered = CODE_MUST_COVER.includes(pkg)
+      const exempt = pkg in CODE_EXEMPT
+      expect(
+        covered !== exempt,
+        `workspace '${pkg}' is neither covered by \`code\` nor listed in CODE_EXEMPT with a reason`,
+      ).toBe(true)
     }
   })
 
+  it.each(['code', 'render'] as const)(
+    '%s: each deliberate exception is real and excluded',
+    (name) => {
+      // Pins the other direction. A stale row here would quietly re-widen the filter, and an
+      // exception naming a deleted file would make the arm above vacuous for that entry.
+      const match = matcherFor(name)
+      for (const file of DELIBERATELY_UNMATCHED[name] ?? []) {
+        expect(
+          existsSync(join(REPO, file)),
+          `${name} excepts '${file}', which does not exist`,
+        ).toBe(true)
+        expect(match(file), `${name} was supposed to exclude '${file}'`).toBe(false)
+      }
+    },
+  )
+})
+
+// ── T2b: the entries that are NOT `<dir>/**` — named files and cross-cutting globs ───────
+describe('the non-directory `code` entries still fire', () => {
+  const code = matcherFor('code')
+
+  // Each names a concrete file, so each is checked against the filesystem too: a row pointing
+  // at a path that no longer exists proves nothing, which is exactly how the first version of
+  // this file shipped a green assertion for `pipeline/src/ingest/ingest.ts`.
+  const NAMED: readonly string[] = [
+    'site/src/pages/shader-dsl/reference.astro',
+    'bun.lock',
+    'package.json',
+    'shader-dsl/package.json',
+    'tsconfig.base.json',
+    'vitest.config.ts',
+    'vitest.setup.ts',
+    '.github/workflows/test.yml',
+    '.github/workflows/changelog.yml',
+    '.github/workflows/mirror-shader-dsl.yml',
+  ]
+
+  it.each(NAMED)('%s exists and counts as code', (file) => {
+    expect(existsSync(join(REPO, file)), `${file} no longer exists — this row proves nothing`).toBe(
+      true,
+    )
+    expect(code(file), `${file} stopped matching \`code\``).toBe(true)
+  })
+
   it('does not leak outside the packages it names', () => {
-    for (const file of ['site/src/pages/index.astro', 'docs/adr/0004.md', 'README.md']) {
+    for (const file of ['site/src/pages/index.astro', 'docs/adr/0004-render-verification.md']) {
       expect(code(file), `${file} must not count as code`).toBe(false)
     }
   })
@@ -184,8 +297,12 @@ describe('the generated changelogs are excluded from `code`', () => {
   const code = matcherFor('code')
 
   it('excludes both changelog artifacts', () => {
-    // Fail-before: with `shader-dsl/**` these were `true`, which is what made the regeneration
-    // PR run the full matrix and starve on `concurrency` cancellation (#1842).
+    // Fail-before, stated precisely: only `shader-dsl/CHANGELOG.md` was `true` before the
+    // extglob — the ROOT CHANGELOG.md was already outside every `code` and `render` pattern and
+    // always has been, so that half of this assertion is inert and is kept only as a regression
+    // pin against someone adding a `**/*.md`-shaped entry. An earlier version of this comment
+    // said "these were true", which is false for the root file; the measured fail-before was one
+    // failing assertion, not two.
     expect(code('shader-dsl/CHANGELOG.md')).toBe(false)
     expect(code('CHANGELOG.md')).toBe(false)
   })
