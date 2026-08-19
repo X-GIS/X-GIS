@@ -847,32 +847,50 @@ jobs:
       - if: needs.changes.outputs.render == 'true'
         timeout-minutes: 8
         run: |
-          ./playground/node_modules/.bin/playwright install chromium --only-shell
+          pw=./playground/node_modules/.bin/playwright
+          $pw install chromium --only-shell
 
-          # Glob into an array, not `ls | head -1`: steps run under `bash -eo
-          # pipefail`, where head closing the pipe early SIGPIPEs ls into a 141.
-          shells=(~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell)
-          shell=${shells[0]}
-          test -x "$shell" || { echo "::error::no headless_shell after install (looked for ${shells[*]})"; exit 1; }
+          # ASK playwright where it put the browser; do not hardcode the path.
+          # Both the directory and the executable inside it change between
+          # revisions — rev 1194 was `chrome-linux/headless_shell`, rev 1223 ships
+          # the Chrome-for-Testing `chrome-headless-shell-linux64/
+          # chrome-headless-shell`. A hardcoded glob is a latent break, and it
+          # already broke once here (b3ce44a, run 32238376734). `--dry-run` prints
+          # the install location and downloads nothing.
+          #
+          # A here-string, not a pipe: awk exiting early would SIGPIPE its writer
+          # into a 141 under `bash -eo pipefail`.
+          plan=$($pw install chromium --only-shell --dry-run)
+          root=$(awk '/Install location:/ { print $3; exit }' <<<"$plan")
+          shell=$(find "$root" -maxdepth 2 -type f -perm -u+x -name '*headless*shell*' -print -quit 2>/dev/null)
 
-          missing=$(ldd "$shell" | grep 'not found' || true)
-          if [ -n "$missing" ]; then
-            echo "::warning::$shell has unresolved libraries — falling back to apt:"
-            echo "$missing"
-            # apt has NO timeout on a stalled connection, so give it one BEFORE using
-            # it. The policy goes in apt.conf.d because playwright spawns apt itself
-            # and there is no flag to reach through `install-deps`. A heredoc body and
-            # its terminator must sit at the block scalar's own indentation, since
-            # that is column 0 of the script bash actually receives.
-            sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
+          if [ -z "$shell" ]; then
+            # Never fail the build on the DIAGNOSTIC's own bookkeeping. If a future
+            # layout defeats the search, say so and let the gates below be the
+            # judge — which is exactly the pre-existing behaviour, not a regression.
+            echo "::warning::could not locate the headless shell under '$root' — skipping the linkage check; the render gates below still exercise the browser"
+          else
+            echo "headless shell: $shell"
+            missing=$(ldd "$shell" | grep 'not found' || true)
+            if [ -n "$missing" ]; then
+              echo "::warning::$shell has unresolved libraries — falling back to apt:"
+              echo "$missing"
+              # apt has NO timeout on a stalled connection, so give it one BEFORE
+              # using it. The policy goes in apt.conf.d because playwright spawns
+              # apt itself and there is no flag to reach through `install-deps`. A
+              # heredoc body and its terminator must sit at the block scalar's own
+              # indentation, since that is column 0 of the script bash receives.
+              sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
           Acquire::http::Timeout "30";
           Acquire::https::Timeout "30";
           Acquire::ftp::Timeout "30";
           Acquire::Retries "5";
           CONF
-            ./playground/node_modules/.bin/playwright install-deps chromium
-            still=$(ldd "$shell" | grep 'not found' || true)
-            test -z "$still" || { echo "::error::still unresolved after install-deps: $still"; exit 1; }
+              $pw install-deps chromium
+              still=$(ldd "$shell" | grep 'not found' || true)
+              test -z "$still" || { echo "::error::still unresolved after install-deps: $still"; exit 1; }
+            fi
+            echo "dynamic linkage complete"
           fi
 
           # Fonts are the other half of what `--with-deps` installed, and unlike
@@ -880,12 +898,11 @@ jobs:
           # changed glyph in a gate below. So record the answer HERE, where a red
           # gate is already being read, instead of making the next session download
           # a diff artifact to ask it. No pipes: `grep -q` closing the pipe early
-          # would SIGPIPE fc-list into a 141 under `bash -eo pipefail`.
+          # would SIGPIPE fc-list into a 141.
           fams=$(fc-list : family 2>/dev/null || true)
           for f in Liberation IPAGothic WenQuanYi Loma FreeSans Unifont; do
             case "$fams" in *"$f"*) echo "font $f: present" ;; *) echo "font $f: ABSENT" ;; esac
           done
-          echo "headless_shell dynamic linkage complete: $shell"
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
