@@ -2,11 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
-
 struct DF64Vec2 {
   vec2 hi;
   vec2 lo;
@@ -21,18 +16,6 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_twoSqr(float a);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-vec2 df64_sqrt(vec2 a);
-vec2 df64_floor(vec2 a);
-vec2 df64_fract(vec2 a);
-float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -120,13 +103,13 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_loran_impl(VsOut vo) {
+void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
-  float _v1 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+  float _v1 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
-  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.center.hi.y, u.center.lo.y);
@@ -165,13 +148,6 @@ vec4 fs_loran_impl(VsOut vo) {
   float _v21 = ((fwidth(_v19) * 1.2) + 0.0001);
   float _v22 = (1.0 - smoothstep(0.0, _v20, _v18));
   float _v23 = (1.0 - smoothstep(0.0, _v21, _v19));
-  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), vo.uv.y);
-  return vec4((((_v24 + (vec3(0.0, 0.06, 0.08) * _v16)) + (vec3(0.25, 0.95, 0.95) * (_v22 * 0.9))) + (vec3(0.95, 0.7, 0.25) * (_v23 * 0.35))), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_loran_impl(vo);
+  vec3 _v24 = mix(vec3(0.02, 0.07, 0.13), vec3(0.04, 0.12, 0.2), uv.y);
+  _ret = vec4((((_v24 + (vec3(0.0, 0.06, 0.08) * _v16)) + (vec3(0.25, 0.95, 0.95) * (_v22 * 0.9))) + (vec3(0.95, 0.7, 0.25) * (_v23 * 0.35))), 1.0);
 }
