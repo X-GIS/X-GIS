@@ -27,12 +27,39 @@ type Spelling = {
 
 const join = (args: readonly string[]): string => args.join(', ')
 
-// The storage-emulation fetch body, shared by the f32/u32/i32 ids below (#1703). The
-// 2D-tiled index math is element-INDEPENDENT — only the sampler type the binding
-// declares changes, and that is carried by the binding, not by this text. One authority
-// so the three ids cannot drift into three different tilings.
-const storageFetchGlsl = (a: readonly string[]): string =>
-  `texelFetch(${a[0]}, ivec2(int(${a[1]}) % textureSize(${a[0]}, 0).x, int(${a[1]}) / textureSize(${a[0]}, 0).x), 0).r`
+// The storage-emulation fetch, shared by the f32/u32/i32 ids below (#1703). The 2D-tiled
+// index math is element-INDEPENDENT — only the sampler type the binding declares and the
+// component type it fetches change. One authority so the three ids cannot drift into
+// three different tilings.
+//
+// Spelled as a CALL to a helper the GLSL writer emits, NOT as an inline expansion (#1878).
+// A template that substitutes `${a[0]}` three times and `${a[1]}` twice duplicates its
+// arguments AFTER every optimizer pass has run: cse/cseLocal/gvn/licm walk the IR, and
+// this text does not exist until the writer produces it, so the repetition is invisible
+// to all of them by construction. It reached the baked corpus as `textureSize(t, 0).x`
+// 998 times — exactly twice per fetch site — and a fetch nested inside `unpack4x8unorm`
+// (itself 4x `${a[0]}`) multiplied out to four identical texelFetches in ONE expression.
+// Binding the width once inside a helper is the same value with none of the repetition:
+// -8.1% raw / -4.6% gzip / -3.5% brotli over the baked GLSL.
+//
+// Sampler-as-parameter is GLSL ES 3.00 §4.1.7, and §6.1 requires the argument to resolve
+// to a uniform or another sampler parameter — so the driver must specialize the helper
+// and there is no dynamic call to pay for.
+//
+// The index parameter is `int`, and the CALL keeps the `int(...)` cast the old template
+// wrote: the lane is `u32T` on every path the storage lowering builds, but the writer is
+// handed whatever Expr the caller indexed with, and a FLOAT index has no implicit
+// conversion to an integer type in GLSL ES 3.00 §4.1.10 — it is a compile error, which
+// is what a `uint i` parameter turned `data[uv.x * 3.0]` into. Casting once at the call
+// site is both the old semantics exactly (`int(-1.5)` is -1, where `uint(-1.5)` is
+// undefined) and still one cast instead of the template's two.
+const storageFetchDef = (ret: string, samp: string, fn: string): string =>
+  `${ret} ${fn}(${samp} t, int i) {\n  int w = textureSize(t, 0).x;\n  return texelFetch(t, ivec2(i % w, i / w), 0).r;\n}`
+
+const storageFetchGlsl =
+  (fn: string) =>
+  (a: readonly string[]): string =>
+    `${fn}(${a[0]}, int(${a[1]}))`
 
 /** Neutral intrinsic id -> per-target spelling. Absent = identity passthrough. */
 export const INTRINSICS: Readonly<Record<string, Spelling>> = {
@@ -237,7 +264,7 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // backend sees this call (the pre-pass creates it); the wgsl spelling is unused.
   storageFetchF32: {
     wgsl: (a) => `storageFetchF32(${join(a)})`,
-    glsl: storageFetchGlsl,
+    glsl: storageFetchGlsl('_sfetch'),
   },
   // The INTEGER twins (#1703) — the TYPED-texture leg of the same emulation, for a
   // top-level array<u32> / array<i32>. The index math is identical (hence the shared
@@ -252,11 +279,11 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   // is the entire point of an integer array.
   storageFetchU32: {
     wgsl: (a) => `storageFetchU32(${join(a)})`,
-    glsl: storageFetchGlsl,
+    glsl: storageFetchGlsl('_sfetchU'),
   },
   storageFetchI32: {
     wgsl: (a) => `storageFetchI32(${join(a)})`,
-    glsl: storageFetchGlsl,
+    glsl: storageFetchGlsl('_sfetchI'),
   },
 }
 
@@ -285,6 +312,34 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
  */
 export const INTRINSIC_BINDING_REFS: Readonly<Record<string, readonly string[]>> = {
   f64Guard: ['_fp64'],
+}
+
+// ── Spelling-provided helper functions ──
+//
+// The sibling of the table above: there, an intrinsic's spelling REFERENCES a name the
+// unit must declare anyway; here, it references a name the unit must DEFINE, and the
+// definition ships with the spelling so the two cannot drift.
+//
+// Each entry is a leaf — it calls only builtins — so a consumer may emit the definitions
+// in any order at the top of its function section with no prototype and no dependency
+// sort. `fn` is the name the spelling calls, exposed so a consumer can assert the pairing
+// rather than re-derive it from the definition text.
+/** Helper function(s) an intrinsic's GLSL SPELLING calls, for the intrinsics that emit a
+ *  call rather than an inline expansion (#1878). The GLSL writer must emit `def` for every
+ *  such intrinsic a reachable function calls — the same reachability walk `stageScope`
+ *  already runs for bindings — or the spelling calls a function the unit never defines.
+ *  Emitting an entry nothing calls is a size regression, not a compile error, so the writer
+ *  keys off the calls it actually collected rather than off the module's bindings.
+ *
+ *  Only the GLSL column has entries: WGSL indexes storage buffers directly and spells no
+ *  helper. Exported from `@xgis/shader-dsl`.
+ */
+export const INTRINSIC_HELPERS: Readonly<
+  Record<string, { readonly fn: string; readonly def: string }>
+> = {
+  storageFetchF32: { fn: '_sfetch', def: storageFetchDef('float', 'sampler2D', '_sfetch') },
+  storageFetchU32: { fn: '_sfetchU', def: storageFetchDef('uint', 'usampler2D', '_sfetchU') },
+  storageFetchI32: { fn: '_sfetchI', def: storageFetchDef('int', 'isampler2D', '_sfetchI') },
 }
 
 /** Spell an intrinsic / call for a target. Registry id -> mapped spelling;

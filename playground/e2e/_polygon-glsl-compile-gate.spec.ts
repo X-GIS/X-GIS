@@ -133,7 +133,11 @@ test.describe('polygon fill GLSL twin compiles on real WebGL2 (#832 M2)', () => 
     // The storage binding became a data texture, and the read became a texel fetch —
     // no SSBO spelling survives into the GLSL.
     expect(fragment).toContain('uniform sampler2D feat_data;')
-    expect(fragment).toContain('texelFetch(feat_data,')
+    // Since #1878 the fetch is a CALL to a helper the writer emits, so both halves are
+    // asserted — and the compile+link below is what proves a sampler-typed FUNCTION
+    // PARAMETER (GLSL ES 3.00 §4.1.7) is accepted by a real driver, not just by the writer.
+    expect(fragment).toContain('float _sfetch(sampler2D t, int i) {')
+    expect(fragment).toContain('_sfetch(feat_data,')
     expect(fragment).not.toContain('feat_data[')
 
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })

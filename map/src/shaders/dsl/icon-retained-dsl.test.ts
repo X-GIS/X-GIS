@@ -68,8 +68,9 @@ describe('#823 retained-icon shader — GLSL ES 3.00 twin', () => {
   it('storage buffers are lowered to data textures (no SSBO in ES 3.00)', () => {
     expect(vs).toContain('uniform sampler2D feat_data;')
     expect(vs).toContain('uniform sampler2D tint_data;')
-    expect(vs).toContain('texelFetch(feat_data,')
-    expect(vs).toContain('texelFetch(tint_data,')
+    expect(vs).toContain('_sfetch(feat_data,') // the fetch is a helper CALL since #1878
+    expect(vs).toContain('_sfetch(tint_data,')
+    expect(vs).toContain('float _sfetch(sampler2D t, int i) {') // …and the unit defines it
     expect(vs).not.toMatch(/\bbuffer\b/) // no SSBO declaration survives
   })
 
