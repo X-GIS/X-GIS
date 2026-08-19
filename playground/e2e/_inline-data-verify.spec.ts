@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,6 +40,7 @@ test('inline-data geojson demo renders', async ({ page }) => {
   )
 
   const png = await page.locator('#map').screenshot()
+  mkdirSync(join(HERE, '__render-verify__'), { recursive: true })
   writeFileSync(join(HERE, '__render-verify__', 'inline-data.png'), png)
 
   // Gate: a `data: {...}` inline source must reach the runtime AND be tiled

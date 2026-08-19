@@ -118,16 +118,12 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // reused verbatim for the specs it already covers instead of being re-derived.
 export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   // ---- CURATED -- individually researched (test.yml's own documented "NOT here" specs, the #1349 census exact matches, and specs whose header text resolves ambiguity explicitly). See the cited issue/PR in each reason. (35) ----
-  '_absorbed-fn-parity.spec.ts':
-    "spec's own header: Compute is SwiftShader-viable, so it is a CI gate -- CI-viable, pending registration (#1349)",
   '_cold-start-perf.spec.ts':
     'mixed local+network cases (#1349 census: 2 of the 47 stability/perf specs) -- local + openfreemap/PMTiles cases in one file; needs splitting before any CI use (#1349)',
   '_convert-page-redesign.spec.ts':
     "targets the SITE Astro dev server (port 4321) via a throwaway static server the spec itself spins up -- Playwright's dev-server config here points only at the playground harness registered specs use; needs separate CI wiring before registration (#1349)",
   '_desktop-baseline-z10.spec.ts':
     'reports triangles/lines/GPU timing as a baseline measurement -- diagnostic reporting, not a pass/fail correctness gate',
-  '_fp64-known-answer.spec.ts':
-    "spec's own header: compute works under SwiftShader in CI, same charter as _shader-math-parity.spec.ts -- CI-viable, pending registration (#1349)",
   '_globe-arena-pressure.spec.ts':
     'builds full RENDER pipelines and streams tiles through the same SwiftShader init that times out; candidate for CI once the GPUArena OOM PR lands (test.yml notes) -- local/pre-push for now',
   '_globe-ecef-render-position.spec.ts':
@@ -136,10 +132,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'fixture-unblocked (#1349) but not CI-viable as a blocking SwiftShader gate -- measured SwiftShader throughput ~4 tiles/min needs ~15 min for full convergence at the bug camera (#1349 comment); belongs in the real-GPU/nightly bucket, not registered',
   '_host-retained-icons-perf.spec.ts':
     'local fixture (#1349 census: 8 fully local of the 47 stability/perf specs) but asserts a real-GPU wall-clock timing budget (e.g. p95 <= 16.6ms for 100k icons) SwiftShader cannot honor -- belongs in a reported-not-blocking nightly bucket, not registered (#1349)',
-  '_host-sprite-atlas-parity.spec.ts':
-    "spec's own header: Objective (exact bytes) ... SwiftShader-safe for CI -- CI-viable, pending registration (#1349)",
-  '_inline-data-verify.spec.ts':
-    "spec's own header claims CI render-gate runs this under SwiftShader, but it is not actually present in test.yml's registered list -- stale claim or dropped registration; appears CI-viable, pending registration (#1349)",
   '_label-anchor-parity.spec.ts':
     'full-engine RENDER of compare.html (X-GIS + MapLibre) with real tiles at z14; needs the same full render-pipeline init SwiftShader times out on. Header says Real chromium WebGPU (test.yml notes) -- local/pre-push only',
   '_landing-hero.spec.ts':
@@ -580,110 +572,38 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'investigation/diagnostic probe (naming convention: probe/diag/audit/witness/hunt/inspector/trace/dump/capture/replay/check/verify/snapshot/profile), never meant to gate CI',
 
   // ---- PENDING REGISTRATION (#1349) -- deterministic, local-fixture, CI-viable per its header and scene demos, simply never added to a workflow leg. Registering these is #1349's follow-up work, not this audit's (see CLAUDE.md: do not edit test.yml here). (62) ----
-  '_1222-drape-stroke-zoom-width.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_1229-ux-batch2.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_1235-push-line.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_1245-wrap-continuity-sweep.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_1248-composite-size-zoom.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_auto-labels.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
   '_dashed-corner.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_ecef-render-position.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_epsg5179-reprojection.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_filter-gdp-z-fighting.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'measured 2026-08-18 (#1349): sole test is test.fixme (headless pixel-scanning doubt) -- zero runnable tests, not registrable; re-check the fixme premise per CLAUDE.md section 5 before promoting',
   '_fixture-picking.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_flat-globe-shots.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_flat-mercator-flatness.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_font-vendoring.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_full-outset.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'red on main, adjudicated DEFECT #1836 (2026-08-18): boot bounds-fit reads canvas.width=300 pre-first-frame and under-zooms (z1.08 vs 2.46) -- picking itself verified correct to the pixel; register after #1836',
   '_geojson-tile-dropout.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'measured 2026-08-18 (#1349): sole test is an unconditional test.skip -- zero runnable tests, not registrable until the skip is resolved',
   '_globe-inertia-dir.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_globe-vector-drape-i2.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_globe-vector-drape-i3-cache.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_globe-vector-line-drape.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'CI-deterministic red (2026-08-19, #1349 PR run): 4/5 tests glide=0 across fail+2 retries on the 2-core runner while green locally in both parallel and serial WORKERS=1 shapes -- inertia velocity estimation is wall-clock-sensitive (the class test.yml quarantines); needs a synthetic-clock drag or a runner-speed-independent velocity source before registering',
   '_hero-map-render.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_import-mapbox-inline-button.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_inline-geojson-import.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_inline-match-virt.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_input-live-set.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_korea-fill-regression.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_label-draw-order-near-first.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_label-occlusion-pitch.spec.ts':
-    "spec's own header states it is SwiftShader-viable/safe for CI -- pending registration (#1349)",
-  '_line-proof.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_line-regressions.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_mobile-monaco-collapse.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_multiline-labels.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_new-fixtures-smoke.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_ortho-backface-cull.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_ortho-tilt-backface.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_outset-corner-max.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_outset-zoom-more.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_pbf-glyphs-offline.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_picking-bgl-mismatch.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_picking-ortho-bindgroup.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_project-accessor.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_projection-zoom-survey.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_scene-builder-jstab.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_scene-builder-twin.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_single-point-bounds-fit.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_step-and-concat.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_stroke-align-compare.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_stroke-outset-detail.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'batch-unstable (2026-08-18, #1349): solo-green after the forcegl2+e2e readback repair, but rendered 0.0% non-bg at position 27/85 of a serial WORKERS=1 batch -- whole-scene draw failure under batch contention, not readback; isolate before registering',
   '_text-overlay.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_water-hierarchy-pitch.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'batch-flaky (2026-08-18, #1349): green in a 56-spec parallel batch, then full-canvas near-black (0/1024000 white px) at position 82/85 of a serial WORKERS=1 batch -- whole-scene draw failure under long-batch contention; isolate before registering',
+  '_import-mapbox-inline-button.spec.ts':
+    'red on main, adjudicated DEFECT #1837 (2026-08-18): fill 0.00% -- import-collected inline GeoJSON rides the legacy route whose empty slice key never matches the VTR targetName lookup; register after #1837',
+  '_inline-geojson-import.spec.ts':
+    'red on main, adjudicated DEFECT #1837 (2026-08-18): fill 0.00%, bg 100% -- same legacy-slice mismatch, second witness; register after #1837',
+  '_korea-fill-regression.spec.ts':
+    'red on main, adjudicated DEFECT #1837 (2026-08-18): fillFraction 0.00% -- same legacy-slice mismatch, third witness (the in-spec renderedDraws dedup hypothesis was refuted at vector-tile-renderer.ts:4441); register after #1837',
+  '_line-proof.spec.ts':
+    'red on main, adjudicated STALE HARNESS (2026-08-18): hand-packs the pre-#1539 272B TileUniforms layout, 368B since 6395120f -- GL_INVALID_OPERATION at draw; repack the harness, then register',
+  '_multiline-labels.spec.ts':
+    'adjudicated SUPERSEDED (2026-08-18): _labels-gl2-gate boots the same multiline_labels demo, registered, with a stronger readPixels white-text assert; this spec reads via toBlob, which is dead on the default WebGPU canvas',
+  '_ortho-backface-cull.spec.ts':
+    'red solo, adjudicated ENV (2026-08-18): unclipped full-page screenshot counts Monaco editor #82aaff AA fringes as back-hemisphere blue; the cull itself verified working -- clip to the canvas box or hideDemoChrome, then register',
+  '_pbf-glyphs-offline.spec.ts':
+    'adjudicated NETWORK-BLOCKED (2026-08-18): compare.html fetches its style from demotiles.maplibre.org in-browser -- misnamed offline; needs the #1322 mirror track',
+  '_projection-zoom-survey.spec.ts':
+    'adjudicated NETWORK-BLOCKED (2026-08-18): 31/32 red on ERR_CONNECTION_RESET to external tiles; sandboxed runs also clobber the tracked survey PNGs -- #1322 mirror track',
+  '_step-and-concat.spec.ts':
+    'red on main, adjudicated DEFECT #1838 (2026-08-18): dots render but label text is 0 white px, with readback, clock and camera all ruled out; readback repaired to forcegl2+preserve here; register after #1838',
   '_world-copy-projections.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
-  '_zoom-interp-point-size.spec.ts':
-    'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
+    'adjudicated NETWORK-BLOCKED (2026-08-18): ERR_CONNECTION_RESET to external tiles in both the mercator and orthographic arms -- #1322 mirror track',
   'a11y-lifecycle-events.spec.ts':
     'pending registration (#1349) -- deterministic local-fixture regression spec, appears CI-viable per its header and scene demos, but has never been registered in any workflow leg',
   'animation.spec.ts':
