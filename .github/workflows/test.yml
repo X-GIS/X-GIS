@@ -298,19 +298,30 @@ jobs:
       # tarballs instead of re-fetching every run. Keyed on the lockfile.
       # All 5 matrix legs share this SAME restore key, so install stays ~1s.
       #
+      # RESTORE-ONLY. Exactly ONE job in this file may SAVE this key — `lint`,
+      # below — and every other site uses `actions/cache/restore`. The five sites
+      # share one key, so when they all miss they all try to reserve it and 14 of
+      # the 15 jobs lose: `Failed to save: Unable to reserve cache with key
+      # bun-Linux-…, another job may be creating this cache.` (#1857)
+      #
       # The `ci-cache` workflow keeps this key warm on main — the only scope a
-      # fresh PR branch can read (see that file for why nothing else writes one).
-      # Warm and EXACT, `actions/cache` skips the post-step save, which is what
-      # stops all 15 jobs of a PR's first run from racing to upload the same
-      # 107 MB entry and 14 of them logging `Failed to save: Unable to reserve
-      # cache with key bun-Linux-…, another job may be creating this cache.`
+      # fresh PR branch can read (see that file for why nothing else writes one)
+      # — and a warm EXACT hit makes `actions/cache` skip the save outright, so
+      # for most PRs there is nothing to race over. But the key is the LOCKFILE
+      # HASH, so that only covers PRs whose lockfile equals main's. A PR that
+      # EDITS bun.lock computes a key no warm can precede: measured on run
+      # 32222092537, `hashFiles` (= sha256(sha256(bun.lock))) gave f4fcbf01d7eb…
+      # for the branch against e5f652a78e… on main, and all 15 raced. Naming one
+      # owner is what closes that case; the warm alone cannot.
       #
       # `restore-keys` STAYS here, unlike the browser cache below: a prefix hit
       # on a package store is a stale-but-mostly-right store that still spares
       # most of the download, whereas a prefix hit on browser binaries is the
-      # WRONG revision that has to be re-downloaded in full.
+      # WRONG revision that has to be re-downloaded in full. That asymmetry is
+      # also why this key cannot simply be switched to a version, the way the
+      # browser key was.
       - if: needs.changes.outputs.code == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -355,7 +366,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -385,6 +396,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # THE SOLE SAVER of the bun key (#1857). Every other site in this file is
+      # `actions/cache/restore` — see the long note in the `test` job for why one
+      # owner is needed even with the `ci-cache` warm. `lint` owns it because it
+      # is a single (non-matrix) job gated on `code`, and `bun.lock` is in the
+      # `code` filter, so it runs for every PR that can invalidate this key.
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -450,7 +466,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -682,7 +698,7 @@ jobs:
         with:
           bun-version: latest
       - if: needs.changes.outputs.render == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
