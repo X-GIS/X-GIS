@@ -21,28 +21,52 @@
 // from ONE choke point (lowerForGlsl), which covers emitGlslModule / emitGlslFragment /
 // emitGlslStages and nothing else.
 //
-// PLACEMENT — AFTER the optimizer fixpoint, before sanitize/mangle. Nothing downstream
-// can undo the hoist: `copyProp` propagates only copies of leaf values and never a call
-// RHS (a call may have side effects and duplicating it would duplicate the discard), and
-// `dce` keeps any `let` that is read. Running it after `lowerComputeToFragment` also
-// matters — that lowering MINTS `{s:'discard'}` (glsl.ts, the bounds-guard early-out),
-// so the analysis below sees those discards too.
+// PLACEMENT — LAST in the GLSL IR chain (glsl.ts `lowerForGlsl`): after the optimizer
+// fixpoint, after `sanitizeReservedIdents`, after `lowerHostLooseBlocks`, and after
+// `applyIRPlugins`. The module this pass returns IS the module `assembleGlsl` spells, so
+// the guarantee below holds over the FINAL IR BY CONSTRUCTION: there is no later
+// transformation that could reintroduce the fatal shape — not a third-party
+// `EmitPlugin.transformIR`, not the opt-in `inline()`. Running last also keeps the older
+// reasons intact: `lowerComputeToFragment` MINTS `{s:'discard'}` (glsl.ts, the bounds-guard
+// early-out) and `fp64Lower`/`lowerModule` rewrite whole expression trees — all of them are
+// upstream, so the analysis sees the discards and the ctors they actually leave behind.
 //
-// TRANSITIVITY IS MANDATORY, not a nicety. The opt-in `inline()` plugin (emit-prod)
-// runs in the IR plugin stage, which is AFTER this pass, and substitutes single-return
-// wrappers at their call sites. A non-transitive analysis would wave `S(wrapper(x))`
-// through, and `inline()` would then rebuild `S(discardingFn(x))` — in PRODUCTION builds
-// only. `transitivelyDiscardingFns` is the single authority for the predicate so that
-// cannot happen.
+// The `_dhN` names are safe at this position. `mangleModule` (emit-prod) mints base-52
+// LETTERS-ONLY identifiers and `sanitizeReservedIdents` only ever suffixes a GLSL reserved
+// word, so neither can produce a `_dhN`; `hoistFn` additionally seeds its counter past any
+// pre-existing `_dhN` param/local. Determinism is unchanged: the module is lowered ONCE per
+// emit and `emitGlslStages` shares that single lowering across both stages, so the two
+// stages agree on every shared name.
+//
+// TRANSITIVITY IS STILL MANDATORY. `inline()` now runs BEFORE this pass, but it inlines
+// only what it can — control-flow bodies, the df64 library, entry points and recursive fns
+// are all left intact — so every wrapper it declines to inline still reaches assembly as a
+// call, and in a plugin-free build EVERY wrapper does. A non-transitive analysis would wave
+// `S(wrapper(x))` through in exactly those cases. `transitivelyDiscardingFns` is the single
+// authority for the predicate.
+//
+// THE INVARIANT: after legalization, no unconditionally-evaluated struct-constructor
+// argument contains a (transitively) discarding call — with ONE carve-out, a `for` header's
+// `cond`/`update`, which is excluded not for being guarded but for being evaluated REPEATEDLY
+// (see the second under-fix below).
 //
 // DOCUMENTED UNDER-FIXES (each fails toward the status quo, never toward a wrong value):
-//   • GUARDED positions are left untouched — a `select` arm, a `logical` (`&&`/`||`)
-//     operand, and loop/branch headers. GLSL spells `select` as a short-circuiting
-//     TERNARY, so hoisting an arm would turn a conditional discard into an unconditional
-//     one: a correctness regression strictly worse than the bug. A struct ctor nested
-//     inside such a position therefore keeps its inline call. (The `logical` LHS is in
-//     fact unconditional and could be processed; the whole node is skipped instead,
-//     because one rule is easier to keep true than two.)
+//   • CONDITIONALLY-EVALUATED positions are left untouched, and that is now exactly one
+//     list: an `else if` condition (`arms[i>=1]`, reached only when every prior condition was
+//     false), a `select` ARM, and the RHS of a `logical` (`&&`/`||`). Each runs only when
+//     something upstream of it decided so, so hoisting one before the enclosing statement
+//     would turn a conditional discard into an unconditional one: a correctness regression
+//     strictly worse than the bug. A struct ctor nested inside one of them therefore keeps
+//     its inline call. Their unconditional siblings — arm 0's condition, the `select` COND,
+//     the `logical` LHS — are all legalised, which is why those three do NOT appear here.
+//   • A `for` header's `cond`/`update` is excluded for a DIFFERENT reason: not guarding, but
+//     REPEATED evaluation. Both run once per iteration, so hoisting either before the loop
+//     would collapse N evaluations into one — wrong independent of any discard, and wrong in
+//     a way the discard bug does not justify. This is the one place the fatal shape can
+//     survive legalization, and it is not reachable from any in-repo shader: of the 39 `for`
+//     headers across the three baked GLSL artifacts, none contains a struct constructor (an
+//     uppercase-named call is the only spelling one has in emitted GLSL). The `for` INIT —
+//     which runs exactly once, before the loop — IS legalised.
 //   • Functions carrying a `raw` statement are skipped whole (the repo-wide convention —
 //     raw text is opaque to every IR walk, so neither the discard seed nor the call
 //     edges are trustworthy there).
@@ -145,7 +169,30 @@ function callsDiscarding(e: Expr, discarding: ReadonlySet<string>): boolean {
   }
 }
 
-/** Rewrite the value side of a simple statement (an lvalue `target` is never a value). */
+/** Rewrite the r-value subexpressions INSIDE an assignment target. An lvalue is never a value
+ *  — `f` is NOT applied to the target as a whole, because replacing a `varref`/`member` chain
+ *  with a temp would stop it being assignable — but an index chain's `idx` operands ARE
+ *  ordinary r-values, evaluated once and unconditionally when the assignment executes, so
+ *  hoisting one before the statement is evaluation-order-identical (every expression here is
+ *  pure but for the discard signal). Walks the chain: `member` recurses into its base only,
+ *  `index` recurses into its base AND rewrites its `idx`; the root (varref/param) is left. */
+function mapTargetIndices(t: Expr, f: (e: Expr) => Expr): Expr {
+  switch (t.op) {
+    case 'member':
+      return { ...t, base: mapTargetIndices(t.base, f) }
+    case 'index':
+      return { ...t, base: mapTargetIndices(t.base, f), idx: f(t.idx) }
+    default:
+      return t // the chain's root — a varref or a param
+  }
+}
+
+/** Rewrite every UNCONDITIONALLY-evaluated value position of one statement (an lvalue
+ *  `target` is never a value, but its INDEX subexpressions are — see `mapTargetIndices`).
+ *  "Unconditional" is relative to the statement executing at all: whenever this statement
+ *  runs, each position below is evaluated exactly once, so a temp spliced immediately BEFORE
+ *  the statement is evaluation-order-identical. Control-flow headers are included where —
+ *  and only where — that holds. */
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
     case 'let':
@@ -154,9 +201,28 @@ function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
       return s.init !== undefined ? { ...s, init: f(s.init) } : s
     case 'assign':
     case 'assignOp':
-      return { ...s, expr: f(s.expr) }
+      // Target first, then the value — both hoist before the statement, and this is the
+      // left-to-right reading order. Which fires first only matters when BOTH sides discard,
+      // and GLSL leaves an assignment's operand order unspecified anyway.
+      return { ...s, target: mapTargetIndices(s.target, f), expr: f(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+    case 'if':
+      // ONLY arm 0. Its condition is evaluated whenever the `if` executes. Every later arm
+      // is an `else if`, reached only when all prior conditions were false — hoisting one
+      // before the `if` would evaluate it unconditionally, so those are left inline.
+      return s.arms.length === 0
+        ? s
+        : { ...s, arms: s.arms.map((a, i) => (i === 0 ? { ...a, cond: f(a.cond) } : a)) }
+    case 'switch':
+      // The scrutinee is evaluated whenever the `switch` executes.
+      return { ...s, scrut: f(s.scrut) }
+    case 'for':
+      // The INIT statement only: a var/assign executed exactly once, before the loop, so a
+      // hoist before the `for` is evaluation-order-identical. `cond` and `update` run PER
+      // ITERATION — hoisting out of either would collapse N evaluations into one before the
+      // loop, which is wrong regardless of any discard, so both are left inline.
+      return { ...s, init: mapStmtValue(s.init, f) }
     default:
       return s
   }
@@ -181,8 +247,10 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
 
   // BOTTOM-UP: children are rewritten before their parent, so a nested `Out(Inner(g(x)))`
   // hoists only the INNERMOST offending argument and the outer ctor then holds a temp, not
-  // a call. Guarded operands (select arms, logical operands, matchExpr arms) are returned
-  // untouched — see the header's under-fix note.
+  // a call. `rewrite` is only ever ENTERED from an unconditional position (mapStmtValue) and
+  // only ever descends into unconditional children, so every node it reaches is evaluated
+  // exactly once whenever its statement runs — which is what makes a temp spliced before the
+  // statement evaluation-order-identical. The GUARDED halves below are where it stops.
   const rewrite = (e: Expr, pending: Stmt[]): Expr => {
     const r = ((): Expr => {
       switch (e.op) {
@@ -199,8 +267,16 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
           return { ...e, base: rewrite(e.base, pending) }
         case 'index':
           return { ...e, base: rewrite(e.base, pending), idx: rewrite(e.idx, pending) }
+        case 'logical':
+          // `&&`/`||` are HALF unconditional: the LHS is evaluated whenever the node is, the
+          // RHS only when the LHS did not short-circuit. Descend the LHS, leave the RHS whole.
+          return { ...e, a: rewrite(e.a, pending), b: e.b }
+        case 'select':
+          // Same split, spelled as a GLSL ternary: the condition is evaluated whenever the
+          // node is, each arm only when chosen. Descend the cond, leave both arms whole.
+          return { ...e, cond: rewrite(e.cond, pending), ifTrue: e.ifTrue, ifFalse: e.ifFalse }
         default:
-          return e // leaf, or a GUARDED node (logical / select / matchExpr) left whole
+          return e // leaf, or a matchExpr (never present post-`lowerModule`) left whole
       }
     })()
     if (r.op !== 'construct' || r.type.kind !== 'struct') return r
@@ -228,8 +304,11 @@ function hoistFn(f: FuncDecl, discarding: ReadonlySet<string>): FuncDecl {
     return out
   }
 
-  // Control-flow HEADERS (if arm conds, for init/cond/update, switch scrut) are not value
-  // positions this pass may splice before — only the nested bodies are processed.
+  // The nested-BODY half of a control-flow statement. Composes with `mapStmtValue`, which
+  // owns the HEADER half: `processBody` runs this first and then maps the value positions
+  // of the result, so an `if` gets both its arm bodies processed here and its arm-0
+  // condition rewritten there, with the condition's temps threading into the OUTER pending
+  // list (they must land before the `if`, not inside an arm).
   const recurseBlocks = (s: Stmt): Stmt => {
     switch (s.s) {
       case 'if':
