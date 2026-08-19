@@ -1,0 +1,114 @@
+name: ci-cache
+
+# Keeps `test.yml`'s two caches warm ON THE DEFAULT BRANCH.
+#
+# WHY THIS EXISTS. GitHub scopes an Actions cache to the ref that WROTE it. A run
+# may restore from its own ref, its base branch, and the default branch — nothing
+# else. So a cache written by a `pull_request` run lives under
+# `refs/pull/<n>/merge` and no OTHER PR can ever read it.
+#
+# Every `actions/cache` step in this repo lives in `test.yml`, and `test.yml`
+# runs on `pull_request` + `workflow_dispatch` only — deliberately, since the PR
+# run is what gates the merge and re-running the full ~64-minute matrix on every
+# push to main buys no gating. The consequence was that NOTHING wrote a
+# main-scoped cache. The one entry every PR kept prefix-hitting,
+# `bun-Linux-f232995…` / `pw-Linux-f232995…`, is a fossil: both names carry the
+# SAME lockfile hash, so a single long-ago `workflow_dispatch` run of `test.yml`
+# on main seeded them, and every PR since has been falling back to it.
+#
+# Making `test.yml` run on main would fix the scope and cost an hour of runner
+# time per merge. This job writes just the two cache entries, so it costs ~30 s,
+# and only when the pin actually moves.
+#
+# It is NOT a gate: it asserts nothing, blocks nothing, and a failure here only
+# means the next `test.yml` run populates its own caches as it did before.
+
+on:
+  push:
+    branches: [main]
+    # `bun.lock` is the only input to either key — the bun key hashes it, and the
+    # playwright key is the playwright-core version resolved out of it. The
+    # workflow file itself is listed so that landing (or editing) this job seeds
+    # the caches without waiting for a dependency bump.
+    paths:
+      - 'bun.lock'
+      - '.github/workflows/ci-cache.yml'
+  # GitHub evicts a cache entry that has not been READ for 7 days. Active PRs
+  # keep both alive on their own; this weekly run covers a quiet stretch, and is
+  # a no-op (lookup only) whenever both entries are still there.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both keys below MUST match `test.yml`'s byte for byte, or this job warms
+      # a cache nothing reads. Keep them in sync.
+      #
+      # `lookup-only` reports whether an entry exists without downloading it, and
+      # still saves in the post step when it does not — so an already-warm cache
+      # costs one API call and the install steps below are skipped entirely.
+
+      # ── bun's global package store ────────────────────────────────────────
+      # Hashed on the lockfile, which is genuinely what it depends on (unlike the
+      # browser payload below). Un-warmed, this was the noisiest cache in CI: all
+      # 15 jobs of a PR's first run prefix-hit the fossil, then raced to save the
+      # SAME 107 MB entry, and 14 of them lost — `Failed to save: Unable to
+      # reserve cache with key bun-Linux-e5f652a…, another job may be creating
+      # this cache.` Warm and exact, `actions/cache` skips the save entirely, so
+      # the race cannot happen and no PR-scoped copy is minted to churn the
+      # repo's 10 GB quota (which is what evicts the browser cache next door).
+      - id: bun-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          lookup-only: true
+
+      # ── playwright browser binaries ───────────────────────────────────────
+      - id: pw-version
+        run: |
+          # `-m1` not `| head -1`: GitHub runs steps under `bash -eo pipefail`,
+          # where head closing the pipe early SIGPIPEs grep into a 141 the step
+          # then dies on. `|| true` keeps a no-match out of errexit so the guard
+          # below is what reports it, with a message.
+          version=$(grep -oEm1 '"playwright-core@[0-9]+\.[0-9]+\.[0-9]+"' bun.lock | tr -d '"' | cut -d@ -f2) || true
+          test -n "$version" || { echo "::error::could not resolve playwright-core version from bun.lock"; exit 1; }
+          echo "resolved playwright-core@$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+          lookup-only: true
+
+      # `bun install` populates the bun store AND provides the playwright bin, so
+      # it runs when EITHER entry is cold. When only the browser cache is cold the
+      # install itself is uncached (the bun entry was a hit, and `lookup-only`
+      # means it was not downloaded) — that is fine here: a full cold
+      # `bun install` measured 8 s, and the hit guarantees the post step will not
+      # re-save it.
+      - if: steps.bun-cache.outputs.cache-hit != 'true' || steps.pw-cache.outputs.cache-hit != 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - if: steps.bun-cache.outputs.cache-hit != 'true' || steps.pw-cache.outputs.cache-hit != 'true'
+        run: bun install --frozen-lockfile
+
+      # `--only-shell` and the project-local bin for the same reasons as the
+      # render-gate step this cache feeds — see the comment there. No
+      # `--with-deps`: apt packages live outside ~/.cache/ms-playwright, so
+      # installing them here would cache nothing and the consuming job installs
+      # them itself on every run regardless.
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: ./playground/node_modules/.bin/playwright install chromium --only-shell
