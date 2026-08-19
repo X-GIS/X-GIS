@@ -16,6 +16,8 @@ import {
   boolT,
   floor,
   fract,
+  sin,
+  cos,
   toF32,
   toF64,
   If,
@@ -212,5 +214,83 @@ describe('inlineLinearAll — conservative exclusions', () => {
     expect(wgsl).toContain('df64_add(')
     expect(wgsl).toContain('fn df64_add')
     expect(wgsl).toContain('fn df64_twoSum')
+  })
+})
+
+// ═══ post-inline cleanup (#1860) ═══
+//
+// Inlining pays its own debt: `inlineFn` substitutes the ARGUMENT expression at
+// every occurrence of the parameter, and `inlineLinearFn` copies the prelude per
+// call site, so one authored value becomes N recomputations. `transformIR` runs
+// AFTER the emit-time optimizer fixpoint, so nothing else can clean it up.
+//
+// These assert the cleanup DISTINGUISHES the states it exists to separate: the
+// module below is built so that neither pass already in DEFAULT_PASSES can catch
+// the repeat — it touches a caller LOCAL (so fn-top `cse` is excluded, it hoists
+// input-only exprs) and lands in SEPARATE statements (so `cse-local` is excluded,
+// it dedups within one statement). Only `gvn` closes that gap. Drop `gvn` from
+// CLEANUP and `sin(`/`cos(` come back three times each.
+describe('inlineLinearAll — post-inline cleanup', () => {
+  // fbm3 reads its param `p` at three call sites → substitution copies the whole
+  // argument expression three times, each into its own lifted `let`.
+  const fbm3 = fn('fbm3', { p: f32T }, f32T, ({ p }, b) => {
+    b.ret(
+      vnoise({ p })
+        .mul(0.5)
+        .add(vnoise({ p: p.mul(2) }).mul(0.25))
+        .add(vnoise({ p: p.mul(4) }).mul(0.125)),
+    )
+  })
+  const shared = module({
+    funcs: [
+      vnoise,
+      fbm3,
+      fn('caller', { x: f32T }, f32T, ({ x }, b) => {
+        const t = b.let('t', x.mul(2)) // a LOCAL — puts the repeat out of cse's reach
+        b.ret(fbm3({ p: sin(t).mul(cos(t)) }))
+      }),
+    ],
+  })
+
+  it('computes a value shared by N inlined copies ONCE, not N times', () => {
+    const wgsl = emitModule(inlineLinearAll(shared))
+    expect(wgsl).not.toContain('fn vnoise')
+    expect(wgsl).not.toContain('fn fbm3')
+    expect(wgsl.match(/sin\(/g)).toHaveLength(1)
+    expect(wgsl.match(/cos\(/g)).toHaveLength(1)
+  })
+
+  it('emits the same single computation on the GLSL side', () => {
+    const glsl = emitGlslModule(shared, 'vertex', {
+      plugins: [{ name: 'inline', transformIR: inlineLinearAll }],
+    })
+    expect(glsl.match(/sin\(/g)).toHaveLength(1)
+    expect(glsl.match(/cos\(/g)).toHaveLength(1)
+  })
+
+  it('preserves the value it dedups (CPU oracle) and stays deterministic', () => {
+    const out = inlineLinearAll(shared)
+    expect(compileModule(out).fns.caller(0.7) as number).toBeCloseTo(
+      compileModule(shared).fns.caller(0.7) as number,
+      6,
+    )
+    expect(emitModule(inlineLinearAll(shared))).toBe(emitModule(out))
+  })
+
+  it('is a NO-OP on a module with nothing to inline', () => {
+    // The cleanup is inlining's debt, not a second optimizer tier: a module the
+    // plugin cannot flatten must emit byte-identically with and without it.
+    const none = module({
+      funcs: [
+        fn('solo', { x: f32T }, f32T, ({ x }, b) => {
+          const t = b.let('t', x.mul(2))
+          b.ret(sin(t).mul(cos(t)).add(sin(t)))
+        }),
+      ],
+    })
+    expect(inlineLinearAll(none)).toBe(none)
+    expect(emitModule(none, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })).toBe(
+      emitModule(none),
+    )
   })
 })
