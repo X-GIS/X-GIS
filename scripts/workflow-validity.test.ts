@@ -189,6 +189,64 @@ describe('every cache `test.yml` reads is one `ci-cache.yml` warms (#1851)', () 
   })
 })
 
+// ═══ Two jobs that can SAVE the same cache key will race, and 14 will lose (#1857) ═══
+//
+// The five bun cache sites in test.yml share one key. When they all miss — which is
+// exactly what a PR that EDITS bun.lock guarantees, since its key is the lockfile hash
+// and no `ci-cache` warm can precede it — all fifteen jobs try to reserve it and only
+// one wins. The other fourteen log `Failed to save: Unable to reserve cache with key
+// bun-Linux-…, another job may be creating this cache.` and upload nothing, having
+// spent the bandwidth. Measured on run 32222092537.
+//
+// The fix is to name ONE owner: `actions/cache@` (restore + save) at a single site per
+// key, `actions/cache/restore@` everywhere else. That is invisible in a diff — a
+// copy-pasted job body reintroduces the race with no red X anywhere, the same silent
+// shape as #1693 and the key-drift arm above. So it is stated here as a count.
+const cacheStepsByKey = (source: string): Map<string, { save: number; restore: number }> => {
+  const out = new Map<string, { save: number; restore: number }>()
+  const lines = source.split('\n')
+  lines.forEach((line, i) => {
+    const m = /^\s*-?\s*uses:\s*(actions\/cache(?:\/restore)?)@/.exec(line)
+    if (!m) return
+    // The key belongs to this step: take the first `key:` in its `with:` block.
+    const key = lines.slice(i + 1, i + 8).find((l) => /^\s+key:\s*\S/.test(l))
+    if (key === undefined) return
+    const k = key.replace(/^\s+key:\s*/, '').trim()
+    const rec = out.get(k) ?? { save: 0, restore: 0 }
+    if (m[1] === 'actions/cache') rec.save += 1
+    else rec.restore += 1
+    out.set(k, rec)
+  })
+  return out
+}
+
+describe('exactly one job may SAVE each cache key (#1857)', () => {
+  const consumer = () => readFileSync(join(WORKFLOW_DIR, 'test.yml'), 'utf8')
+
+  it('the scanner found the cache steps — otherwise the counts below are vacuous', () => {
+    const byKey = cacheStepsByKey(consumer())
+    expect(byKey.size).toBeGreaterThanOrEqual(2)
+    // The bun key is declared at five sites; if this collapses to one, the scanner
+    // stopped seeing the `- uses:` inline form and the count arm proves nothing.
+    expect(Math.max(...[...byKey.values()].map((v) => v.save + v.restore))).toBeGreaterThanOrEqual(
+      5,
+    )
+  })
+
+  it('no key has two savers, and none has zero', () => {
+    for (const [key, { save, restore }] of cacheStepsByKey(consumer())) {
+      expect(
+        save,
+        `cache key ${key} is declared at ${save + restore} step(s), ${save} of them ` +
+          `save-capable \`actions/cache@\`. It must be exactly 1: two or more race and all ` +
+          `but one log "Failed to save: Unable to reserve cache with key …" (#1857); zero ` +
+          `means nothing ever writes the entry, so every run pays it cold. Make the extra ` +
+          `sites \`actions/cache/restore@\`, or promote one back to \`actions/cache@\`.`,
+      ).toBe(1)
+    }
+  })
+})
+
 describe('the key scanner distinguishes the states it claims to', () => {
   it('sees a drifted key as a difference, not a match', () => {
     // The mutation this gate exists to catch: one character in the warmer's key.
