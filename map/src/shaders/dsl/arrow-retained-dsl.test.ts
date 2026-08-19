@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { emitArrowRetainedWgsl, emitArrowRetainedGlsl } from './arrow-retained'
 import { emitArrowRetainedAdvectedWgsl, emitArrowRetainedAdvectedGlsl } from './arrow-advected'
 import { ARROW_TRAIN_GLYPHS, ARROW_TRAIN_STEPS } from './arrow-drift'
-import { matchArc } from './_arrow-emit-nav'
+import { matchArc, returnCtorArg } from './_arrow-emit-nav'
 
 // #824/#825 retained geo-anchored ARROW shader — instanced procedural bounding
 // quad (instance_index + vertex_index), the point.ts geo→clip ladder (reused
@@ -220,9 +220,11 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     // zero, and the glyph is flung off screen — reported as "the particles fly off into space",
     // and it needed a perspective guard. Here the node is a lattice coordinate and the train
     // offset is already in pixels, so the failure is not reachable rather than guarded against.
-    const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    const out = vs.slice(vs.indexOf('.position = '), vs.indexOf('.loc = '))
-    expect(out, 'the clip w is the literal 1').toMatch(/,\s*0\.0,\s*1\.0\)/)
+    // By FIELD NAME, not by the `.position = ` spelling: structCtor (#1867) collapses
+    // the write-once output assembly into a constructor, whose arguments are positional.
+    const out = returnCtorArg(w, 'ArrowRetainedOut', 'position')
+    expect(out, 'the emit returns an ArrowRetainedOut with a position field').toBeDefined()
+    expect(out, 'the clip w is the literal 1').toMatch(/,\s*0\.0,\s*1\.0\)$/)
   })
 
   it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
@@ -335,8 +337,12 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     // …and the colour is a band ROW, not anything carried per instance. Alpha carries the train
     // fade on top — the FADE touches only alpha, so a fading glyph never reads as a different
     // speed band, which is why the rgb triple is still asserted verbatim.
-    expect(w).toMatch(
-      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* \w+\)\)/,
+    // `all`, not the VS-scoped `w`: the field ORDER comes from the struct decl, which sits
+    // above the entry. The describe's scoping rule guards against generated temporaries
+    // resolving to another function's `_vN`; this anchor is the named `return
+    // ArrowRetainedOut(`, which only the entry emits, so it is not exposed to that.
+    expect(returnCtorArg(all, 'ArrowRetainedOut', 'tint')).toMatch(
+      /^vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* \w+\)\)$/,
     )
   })
 

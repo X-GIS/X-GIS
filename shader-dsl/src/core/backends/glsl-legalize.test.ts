@@ -740,6 +740,12 @@ describe('glsl-legalize — assignment target index expressions', () => {
     const mkN = fn('mk_mt', { v: f32T }, BoxN.type, ({ v }) => {
       const o = BoxN.var('o')
       o.c.assign(helperN(v))
+      // Reading the field back keeps the aggregate a VARIABLE: structCtor (#1867)
+      // collapses a write-once assembly into a constructor, and a constructor has no
+      // member-chain target for this gate to be about. The mutated shape is the repo's
+      // own (the polygon fragment's `out.color.w = out.color.w * rim`), and it is
+      // exactly what the pass documents as disqualifying.
+      o.c.w.assign(o.c.w.mul(0.5))
       return o.$
     })
     const fsN = fn(
@@ -754,6 +760,40 @@ describe('glsl-legalize — assignment target index expressions', () => {
     const g = emitGlslModule(dslModule({ uses: [BoxN], funcs: [helperN, mkN, fsN] }), 'fragment')
     expect(g).toContain('o.c = helper_mt(v);')
     expect(g).not.toContain('_dh')
+  })
+
+  // structCtor (#1867) collapses a write-once assembly into a constructor — which is the
+  // one shape this whole pass exists to make legal. A discarding call that sat safely in a
+  // field ASSIGNMENT is moved INSIDE a ctor by that collapse, so the two passes have to
+  // compose: the optimizer builds the fatal shape and legalisation takes it back apart.
+  // Without this case the composition is untested, and the case above no longer covers it
+  // (its aggregate is deliberately mutated so it does NOT collapse).
+  it('hoists a discarding call that structCtor moved INTO a constructor', () => {
+    const BoxC = structDecl('BoxC', { c: vec4fT })
+    const helperC = discardingHelper('helper_sc')
+    const mkC = fn('mk_sc', { v: f32T }, BoxC.type, ({ v }) => {
+      const o = BoxC.var('o')
+      o.c.assign(helperC(v)) // collapsible: written once, read by nothing, returned next
+      return o.$
+    })
+    const fsC = fn(
+      'fs_sc',
+      { pos: builtin('position', vec4fT) },
+      ({ pos }) => BoxC.of(mkC(pos.x)).c,
+      {
+        stage: 'fragment',
+        retAttr: location(0, vec4fT),
+      },
+    )
+    const g = emitGlslModule(dslModule({ uses: [BoxC], funcs: [helperC, mkC, fsC] }), 'fragment')
+    // The collapse happened…
+    expect(g, 'the assembly collapsed to a constructor').not.toContain('o.c = helper_sc(v);')
+    // …and the discarding call is OUTSIDE the ctor it would otherwise sit in.
+    expect(g).toMatch(/vec4 (_dh\d+) = helper_sc\(v\);\n\s*return BoxC\(\1\);/)
+    expect(
+      ctorSpans(g, ['BoxC']).filter((c) => c.includes('helper_sc(')),
+      'no discard inside a BoxC ctor',
+    ).toEqual([])
   })
 })
 

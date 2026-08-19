@@ -64,3 +64,53 @@ export function matchArc(
   }
   return undefined
 }
+
+/** The argument a `return <Struct>(…)` exit supplies for one FIELD, found by NAME.
+ *
+ *  The entry's output used to be assembled field-by-field (`o.tint = …`), which let
+ *  these specs navigate to a field by its name. `structCtor` (#1867) collapses that
+ *  write-once assembly into a constructor, and a constructor's arguments are
+ *  POSITIONAL — so a spec that still wants "the tint argument" has to map the name to
+ *  an index itself. Doing that here, from the struct DECL in the same emitted text,
+ *  keeps the assertions name-based: a field reordered in the IR moves the index too,
+ *  and a field renamed fails loudly instead of silently reading its neighbour.
+ *
+ *  Splits on TOP-LEVEL commas only — every argument here is itself a call or a
+ *  constructor, so a naive split would cut through `vec4<f32>(a, b, c, d)`. Depth
+ *  counts `()` and `[]` and deliberately NOT `<>`: WGSL spells a comparison with the
+ *  same glyph as a generic close, and this emit really does contain one
+ *  (`select(-1.0, 1.0, (_v18.z > 0.5))`), which a `>`-aware scanner mis-reads as
+ *  leaving a nesting level. Generic brackets carry no top-level comma in any type
+ *  these entries return, so ignoring them is exact here. */
+export function returnCtorArg(
+  emitted: string,
+  structName: string,
+  fieldName: string,
+): string | undefined {
+  const decl = new RegExp(`struct ${structName} \\{([^}]*)\\}`).exec(emitted)
+  if (!decl) return undefined
+  const fields = [...decl[1]!.matchAll(/(?:@[\w()]+(?:\([^)]*\))?\s+)*(\w+)\s*:/g)].map(
+    (m) => m[1]!,
+  )
+  const idx = fields.indexOf(fieldName)
+  if (idx < 0) return undefined
+
+  const open = emitted.indexOf(`return ${structName}(`)
+  if (open < 0) return undefined
+  let depth = 0
+  let start = open + `return ${structName}(`.length
+  const args: string[] = []
+  for (let i = start; i < emitted.length; i++) {
+    const c = emitted[i]!
+    if (c === '(' || c === '[') depth++
+    else if (c === ')' && depth === 0) {
+      args.push(emitted.slice(start, i))
+      break
+    } else if (c === ')' || c === ']') depth--
+    else if (c === ',' && depth === 0) {
+      args.push(emitted.slice(start, i))
+      start = i + 1
+    }
+  }
+  return args[idx]?.trim()
+}

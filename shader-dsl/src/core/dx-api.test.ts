@@ -51,7 +51,11 @@ describe('#763 X — API additions', () => {
       { stage: 'vertex' },
     )
     const w = emitModule(module({ structs: [VsOut.decl], funcs: [vs] }))
-    expect(w).toContain('return out;')
+    // What X14 pins is that `return o` SURVIVES the value position at all — it used to
+    // die at LOAD. The emitted spelling of that survival is the optimizer's business:
+    // structCtor (#1867) collapses the write-once assembly, so the exit reads as the
+    // constructor rather than `return out;`. Either way the return is the struct.
+    expect(w).toContain('return X14Out(vec4<f32>(0.0, 0.0, 0.0, 1.0), vec2<f32>(0.0, 0.0));')
   })
 
   it('X1: module({ uses }) derives structs/bindings/consts from the handles', () => {

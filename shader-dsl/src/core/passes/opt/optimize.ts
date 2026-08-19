@@ -24,6 +24,7 @@ import { deadBranch } from './dead-branch.js'
 import { cse } from './cse.js'
 import { cseLocal } from './cse-local.js'
 import { gvn } from './gvn.js'
+import { structCtor } from './struct-ctor.js'
 import { licm } from './licm.js'
 import { dce } from './dce.js'
 
@@ -44,6 +45,15 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  both per-fragment hot paths). Pure dedup, so the values are bit-identical — the
  *  re-bake moved bytes, never pixels.
  *
+ *  `structCtor` sits before them (#1867): it collapses a write-once struct local — the
+ *  `Out.var()` + field-assigns + `return o` shape every ioStruct body authors — into the
+ *  constructor, so the CSE family below sees the final statement shape rather than a
+ *  scatter it cannot dedupe across. Value-safe verbatim: the field expressions are moved
+ *  into the ctor unchanged and in field order, which a constructor evaluates in the same
+ *  order the assignments ran. It composes with GLSL legalisation rather than fighting it —
+ *  a discarding call this collapse moves INTO a ctor is exactly the shape
+ *  `backends/glsl-legalize.ts` exists to hoist back out, pinned by a case there.
+ *
  *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and small fixed-count
  *  loop unrolling (`unrollLoops`, ./unroll — #627) are still deliberately NOT in
  *  this list — like `inlineFn` (../inline), they are available-but-unwired passes.
@@ -58,6 +68,7 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
   constFold,
   algebraicSimplify,
   deadBranch,
+  structCtor,
   cse,
   cseLocal,
   gvn,
@@ -213,7 +224,7 @@ export type OptLevel = 'O0' | 'O1' | 'O2'
  *    `optimizeAt(m,'O2')` is identical to every backend's `optimize: (m) => fixpoint(m)`. */
 export const LEVEL_PASSES: Record<OptLevel, readonly OptPass[]> = {
   O0: [],
-  O1: [constProp, copyProp, deadBranch, cse, cseLocal, gvn, dce],
+  O1: [constProp, copyProp, deadBranch, structCtor, cse, cseLocal, gvn, dce],
   O2: DEFAULT_PASSES,
 }
 
