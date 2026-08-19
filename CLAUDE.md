@@ -171,6 +171,48 @@ calls it, what it calls, its data flow, or how a subsystem is structured — que
 recurring mistake; the graph surfaces the cross-path consumers and call chains a text
 search misses (exactly the blast radius this codebase's bugs hide in).
 
+### 6.1 A fresh VM has NO codebase-memory — INSTALL it, do not fall back to grep
+
+Remote/container sessions start without it every time. That absence is a 2-minute setup
+step, NOT a licence to grep: doing the install once buys the whole session the
+blast-radius sweep. Run this BEFORE the first code-location question.
+
+```bash
+# 1. Install. PIN 0.10.6 — `latest` (0.10.7) is DEPRECATED with a broken postinstall
+#    (it fetches a GitHub release tag that does not exist). Use 0.10.8+ once published.
+npm install -g codebase-memory-mcp@0.10.6        # ~7 s; pulls a ~293 MB native binary
+
+# 2. Index THIS repo. Project name is `D-X-GIS` — every §6 call below assumes it.
+codebase-memory-mcp cli index_repository \
+  --repo-path "$(git rev-parse --show-toplevel)" \
+  --name D-X-GIS --mode moderate                  # ~25 s; ~13.4k nodes / 53.5k edges
+
+# 3. Register for LATER sessions (this one already has its tool list; see the gotcha below).
+claude mcp add codebase-memory --scope local -- codebase-memory-mcp
+```
+
+**The gotcha that makes this look broken:** MCP tool schemas bind at SESSION START, so
+after step 3 `claude mcp list` says `Connected` while no `mcp__codebase-memory__*` tool is
+callable in the current session — verified, not assumed. Do not conclude the install failed
+and revert to grep. **In the session that installed it, drive the graph through the binary's
+CLI**, which is the same engine and needs no restart:
+
+```bash
+echo '{"project":"D-X-GIS","name_pattern":"rangeKey"}' | codebase-memory-mcp cli search_graph
+codebase-memory-mcp cli <tool> --help          # flags per tool; also accepts --args-file
+```
+
+CLI notes paid for in this session: it prints `level=info` / `hint:` / `warning:` lines to
+stdout — filter them before parsing. `trace_path` takes `function_name` (NOT
+`qualified_name`) and `direction` is `inbound` | `outbound` | `both` (NOT `in`/`out`).
+Install GLOBALLY, never into the repo — the binary is ~293 MB and must never be committed.
+
+**The index is a SNAPSHOT, not a live view.** A symbol you added this session is absent
+until you re-run step 2 (`rangeLabel` returned 0 results minutes after it was written;
+re-indexing found it). Re-index after your own edits before trusting a "no callers" answer.
+
+### 6.2 The queries
+
 **Use first (project="D-X-GIS"):**
 
 - `search_graph` (name_pattern / label / qn_pattern / query) — find definitions & symbols
@@ -179,15 +221,16 @@ search misses (exactly the blast radius this codebase's bugs hide in).
 - `query_graph` (Cypher) — complex relationship queries
 - `search_code` — graph-augmented grep when you must text-match
 - `get_architecture` — package/module structure
-  If the project is not indexed yet, run `index_repository` first.
+  If the project is not indexed yet, run `index_repository` (§6.1 step 2) first.
 
 **Grep / Glob / Read remain correct for:** non-code text, configs, comments, docs; and you
 must ALWAYS `Read` a file before editing it. The rule is graph-first for _finding_ code —
 not a ban on Read. Pairs with the `flow-first` skill: graph the call/data flow + blast
 radius before editing.
 
-**If the `codebase-memory` MCP is not connected** (remote/container sessions often lack it —
-verify, don't assume): fall back to Grep/Glob/Read and **say so in the reply**, so a
+**If the `codebase-memory` MCP is not connected** (remote/container sessions lack it by
+default — verify, don't assume): **install and index it (§6.1)**. Grep/Glob/Read is the
+fallback only when the install itself fails — and then **say so in the reply**, so a
 graph-less search is never mistaken for a graph-backed one. The rule is unreachable, not
 waived — the blast-radius sweep a text search misses is then the reader's job.
 
