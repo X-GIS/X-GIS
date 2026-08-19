@@ -18,7 +18,17 @@ test('a raster tile renders on WebGl2Device through the engine loop (?forcegl2=1
 }) => {
   // #1041 — the checker is opt-in now (sourceless production frames draw nothing);
   // ?debug=checker restores it so this US-004 gate keeps asserting the same fixture.
-  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1&debug=checker', {
+  // CAMERA PINNED (#1836). The 8x8 point grid below samples single texels, so it only
+  // reports "checker" when a sample lands INSIDE a cell rather than on the blend between
+  // two — which makes it sensitive to the on-screen cell period, i.e. to whatever zoom the
+  // boot bounds-fit happened to pick. #1836 fixed that fit (it had been reading a 300px
+  // stale canvas buffer), the zoom moved 0.50 -> 0.75, and every one of the 49 samples
+  // landed on a cell boundary: 0/49 checker while the FRAME was strictly better — checker
+  // coverage 46.2% -> 54.7% and black clear 12.2% -> 0.0%, measured on both captures. The
+  // claim here is that a raster tile renders through the engine loop, not that the boot fit
+  // produces one particular zoom, so the hash pins the camera and the gate stops depending
+  // on it. Verified: with this pin the gate passes on both the pre- and post-#1836 trees.
+  await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1&debug=checker#0/0/0/0/0', {
     waitUntil: 'domcontentloaded',
   })
   await page.waitForFunction(
