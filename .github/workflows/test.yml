@@ -679,26 +679,71 @@ jobs:
         run: bun install --frozen-lockfile
       - if: needs.changes.outputs.render == 'true'
         run: bun run build
-      # Cache the downloaded browser binaries (~/.cache/ms-playwright). The
-      # biggest render-gate time sink was re-downloading chromium every run;
-      # on a cache hit the install step below detects the browsers present and
-      # only re-runs the (lighter) apt --with-deps step. Keyed on the lockfile
-      # so a playwright version bump busts the cache.
+      # Resolve the PINNED playwright-core version from the lockfile — the cache
+      # key below, and nothing else, decides whether this job downloads Chromium.
+      # It has to be the resolved version (bun.lock), not the `^1.59.1` range in
+      # playground/package.json: the browser build is a function of the exact
+      # playwright version (1.60.0 -> chromium revision 1223), and a range would
+      # keep the key stable across a bump that changes the binaries.
+      - if: needs.changes.outputs.render == 'true'
+        id: pw-version
+        run: |
+          # `-m1` not `| head -1`: GitHub runs steps under `bash -eo pipefail`,
+          # where head closing the pipe early SIGPIPEs grep into a 141 the step
+          # then dies on. `|| true` keeps a no-match out of errexit so the guard
+          # below is what reports it, with a message.
+          version=$(grep -oEm1 '"playwright-core@[0-9]+\.[0-9]+\.[0-9]+"' bun.lock | tr -d '"' | cut -d@ -f2) || true
+          test -n "$version" || { echo "::error::could not resolve playwright-core version from bun.lock"; exit 1; }
+          echo "resolved playwright-core@$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright).
+      #
+      # KEYED ON THE PLAYWRIGHT VERSION, not the lockfile hash. The lockfile
+      # version was a MISS on every run that touched any dependency, and a miss
+      # that falls through to `restore-keys` still re-UPLOADS the whole cache in
+      # the post step. Measured on run 32201891706: `Cache hit for restore-key:
+      # pw-Linux-f232995...` — a prefix hit, not an exact one, on a job whose
+      # sibling bun cache hit EXACTLY — so 259 MB came down and 259 MB went back
+      # up, every run, into a scope no other PR can read (below). The browser
+      # payload depends on the playwright version alone, so that is the key; a
+      # dependency bump that leaves playwright alone is now a hit with no upload.
+      #
+      # No `restore-keys`: a prefix hit can only ever restore a DIFFERENT
+      # revision's binaries, which `playwright install` must then re-download
+      # anyway — it buys nothing and guarantees the re-upload described above.
+      # The `playwright-cache` workflow keeps this exact key warm on main, which
+      # is the only scope a fresh PR branch can read from.
       - if: needs.changes.outputs.render == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
-          restore-keys: pw-${{ runner.os }}-
+          key: pw-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
       # Use the PROJECT-LOCAL playwright bin (hoisted to root node_modules
       # by bun), NOT `bunx playwright` — bunx fetches the standalone
       # `playwright` package at a DIFFERENT version, installs browsers for
       # that revision, and the test step (project @playwright/test) then
-      # can't find its own revision's binary. Headless runs use
-      # chrome-headless-shell, a SEPARATE binary from full chromium —
-      # install both or browserType.launch fails before any test runs.
+      # can't find its own revision's binary.
+      #
+      # `--only-shell`: this job runs HEADED=0, so playwright.config.ts sets
+      # `headless: true` and no `channel` (XGIS_USE_SYSTEM_CHROME is unset in
+      # CI). playwright-core's getExecutableName() resolves exactly that pair to
+      # `chromium-headless-shell` — full Chromium is downloaded and then never
+      # launched. Verified by installing ONLY the shell and launching this job's
+      # own args (--enable-unsafe-webgpu --enable-unsafe-swiftshader
+      # --use-angle=swiftshader --use-vulkan=swiftshader): the browser started,
+      # `navigator.gpu` returned an adapter and WebGL2 came up on the SwiftShader
+      # driver, with no chromium-1223 directory on disk. Measured payload:
+      # 290.9 MiB -> 115.5 MiB downloaded, 641 MB -> 265 MB on disk. A HEADED
+      # run still needs full Chromium, which is why this flag is on the CI
+      # command and not in a config file.
+      #
+      # `--with-deps` stays: it is what installs the font packages
+      # (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont, fonts-wqy-zenhei,
+      # xfonts-*) that the glyph-bearing gates rasterise against. It costs ~9 s on
+      # a warm runner and is NOT covered by the cache above, which holds only
+      # ~/.cache/ms-playwright.
       - if: needs.changes.outputs.render == 'true'
-        run: ./playground/node_modules/.bin/playwright install chromium chromium-headless-shell --with-deps
+        run: ./playground/node_modules/.bin/playwright install chromium --only-shell --with-deps
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
