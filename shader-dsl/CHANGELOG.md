@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: a16d07fee5a486bd12762b0ae7835c1b0dd90ee7
+  Generated from: 0f0358d7ce34bf3fef4daf0d7ec4c71cd6dc75b4
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since a16d07fee5a4
+    bun scripts/emit-changelog.ts --path shader-dsl --since 0f0358d7ce34
 -->
 
 # Changelog — shader-dsl
@@ -50,6 +50,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
 - **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
 - **shader-dsl:** hoist discarding struct-ctor args to named GLSL locals (#1840) ([#1841](https://github.com/X-GIS/X-GIS/pull/1841)) `27e7a38`
 - **shader-dsl:** explicit .js specifiers + nodenext — the package loads in plain Node (#1686) ([#1825](https://github.com/X-GIS/X-GIS/pull/1825)) `e704eaf`

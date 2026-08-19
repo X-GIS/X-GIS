@@ -2,11 +2,6 @@
 precision highp float;
 precision highp int;
 
-struct VsOut {
-  vec4 pos;
-  vec2 uv;
-};
-
 struct DF64Vec2 {
   vec2 hi;
   vec2 lo;
@@ -19,16 +14,6 @@ layout(std140) uniform Uniforms {
 } u;
 
 uniform sampler2D _fp64;
-vec2 df64_twoSum(float a, float b);
-vec2 df64_quickTwoSum(float a, float b);
-vec2 df64_split(float a);
-vec2 df64_twoProd(float a, float b);
-vec2 df64_add(vec2 a, vec2 b);
-vec2 df64_sub(vec2 a, vec2 b);
-vec2 df64_mul(vec2 a, vec2 b);
-vec2 df64_floor(vec2 a);
-vec2 df64_fract(vec2 a);
-float df64_narrow(vec2 a);
 vec2 df64_twoSum(float a, float b) {
   float _v0 = (a + b);
   float _cse0 = texelFetch(_fp64, ivec2(0, 0), 0).x;
@@ -97,13 +82,13 @@ float df64_narrow(vec2 a) {
 in vec2 uv;
 layout(location = 0) out vec4 _ret;
 
-vec4 fs_checker_impl(VsOut vo) {
+void main() {
   float _v0 = pow(10.0, (-u.zoom_exp));
-  float _v1 = (vo.uv.x * 2.0);
-  bool _cse0 = (vo.uv.x < 0.5);
+  float _v1 = (uv.x * 2.0);
+  bool _cse0 = (uv.x < 0.5);
   float _v2 = (_v1 - (_cse0 ? 0.0 : 1.0));
   float _v3 = ((_v2 - 0.5) * _v0);
-  float _v4 = (((vo.uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
+  float _v4 = (((uv.y - 0.5) * _v0) * ((u.resolution.y / u.resolution.x) * 2.0));
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _v6 = df64_add(_cse1, vec2(_v3, 0.0));
@@ -125,12 +110,5 @@ vec4 fs_checker_impl(VsOut vo) {
   float _v20 = min(min(_v17, (1.0 - _v17)), min(_v18, (1.0 - _v18)));
   float _v21 = (_v0 / (u.resolution.x * 0.5));
   float _v22 = smoothstep(0.0, ((_v21 * 1.5) + 1e-9), _v20);
-  return vec4((mix(vec3(0.93, 0.9, 0.82), vec3(0.23, 0.29, 0.36), _v19) * mix(0.35, 1.0, _v22)), 1.0);
-}
-
-void main() {
-  VsOut vo;
-  vo.pos = gl_FragCoord;
-  vo.uv = uv;
-  _ret = fs_checker_impl(vo);
+  _ret = vec4((mix(vec3(0.93, 0.9, 0.82), vec3(0.23, 0.29, 0.36), _v19) * mix(0.35, 1.0, _v22)), 1.0);
 }

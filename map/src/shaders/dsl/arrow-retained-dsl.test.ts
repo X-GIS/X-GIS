@@ -108,7 +108,9 @@ describe('#823 retained-arrow shader — GLSL ES 3.00 twin', () => {
   })
 
   it('composites the outline via mix(fill, black, strokeCov) in GLSL too', () => {
-    expect(fs).toMatch(/mix\(in_\.tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
+    // The fill comes from the `tint` VARYING directly since #1867 — the entry's IO struct
+    // is read field-wise, so it is substituted away rather than gathered into `in_`.
+    expect(fs).toMatch(/mix\(tint\.xyz, vec3\(0\.0, 0\.0, 0\.0\), max\(/)
   })
 })
 
@@ -220,9 +222,15 @@ describe('#1520 advected-arrow shader — the screen lattice, in the emitted byt
     // zero, and the glyph is flung off screen — reported as "the particles fly off into space",
     // and it needed a perspective guard. Here the node is a lattice coordinate and the train
     // offset is already in pixels, so the failure is not reachable rather than guarded against.
+    // The output is assembled by the entry's CONSTRUCTOR since #1867 (a write-once struct
+    // local collapses into one), so @builtin(position) is its FIRST argument rather than a
+    // `.position = ` assignment — the claim is unchanged: z and w are the literals 0 and 1,
+    // with no clip.w anywhere in the expression to divide by.
     const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
-    const out = vs.slice(vs.indexOf('.position = '), vs.indexOf('.loc = '))
-    expect(out, 'the clip w is the literal 1').toMatch(/,\s*0\.0,\s*1\.0\)/)
+    const out = vs.slice(vs.indexOf('  return ArrowRetainedOut('))
+    expect(out, 'the clip w is the literal 1').toMatch(
+      /return ArrowRetainedOut\(vec4<f32>\([\s\S]*?,\s*0\.0,\s*1\.0\),/,
+    )
   })
 
   it('holds no catalogue threshold of its own — it indexes the uploaded band table', () => {
@@ -336,7 +344,8 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     // fade on top — the FADE touches only alpha, so a fading glyph never reads as a different
     // speed band, which is why the rgb triple is still asserted verbatim.
     expect(w).toMatch(
-      /\.tint = vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* \w+\)\)/,
+      // …as a positional ctor argument now (#1867), not a `.tint = ` assignment.
+      /vec4<f32>\(band_data\[\(\w+ \+ 4u\)\], band_data\[\(\w+ \+ 5u\)\], band_data\[\(\w+ \+ 6u\)\], \(band_data\[\(\w+ \+ 7u\)\] \* \w+\)\)/,
     )
   })
 
