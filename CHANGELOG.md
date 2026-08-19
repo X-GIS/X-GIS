@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a7a615e89d0f5f6085f8a41c63ae4b8185141178
+  Generated from: d32304f8bf463d481ec12315f51006e55a580064
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a7a615e89d0f
+    bun scripts/emit-changelog.ts --since d32304f8bf46
 -->
 
 # Changelog
@@ -231,6 +231,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 #### build
 
 - **shader-dsl:** distribute via a git subtree mirror, and gate the invariant that makes it work ([#1681](https://github.com/X-GIS/X-GIS/pull/1681)) `54718a7`
+
+#### ci
+
+- run the test workflow on push to main, so a bypassed merge cannot leave it broken (#1872) ([#1879](https://github.com/X-GIS/X-GIS/pull/1879)) `d32304f`
 
 #### chore
 
