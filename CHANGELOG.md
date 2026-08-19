@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a16d07fee5a486bd12762b0ae7835c1b0dd90ee7
+  Generated from: 0f0358d7ce34bf3fef4daf0d7ec4c71cd6dc75b4
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a16d07fee5a4
+    bun scripts/emit-changelog.ts --since 0f0358d7ce34
 -->
 
 # Changelog
@@ -86,6 +86,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
 - **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
 - **ci:** stop the generated changelogs firing the engine matrix and render-gate (#1842) ([#1856](https://github.com/X-GIS/X-GIS/pull/1856)) `f8bbec9`
 - **map/text,playground:** make the glyph-failure and pragma warnings say what happened (#1848) ([#1852](https://github.com/X-GIS/X-GIS/pull/1852)) `09876d1`
