@@ -17,20 +17,33 @@ on:
     # engine legs + typecheck (they post skipped → pass), posts render-gate green
     # (all steps `if`-skipped), and — for a site/** change — runs the light site
     # build. Cost: a few runner-seconds per docs PR; benefit: it can actually merge.
-  # NOTE: no `push: main` trigger. Every change reaches main through a PR,
-  # which already ran this whole workflow — re-running it on the post-merge
-  # push just duplicated the full matrix for no gating benefit (the PR run is
-  # what gates the merge, and deploy-pages.yml runs independently of this one).
-  # `workflow_dispatch` keeps a manual on-demand run available for main if
-  # ever needed. If direct pushes to main (bypassing PRs) become a thing and
-  # need CI, add the `push: branches: [main]` trigger back.
+  # POST-MERGE GUARD (#1872). This trigger was removed once, on the premise that
+  # "every change reaches main through a PR, which already ran this whole
+  # workflow". That premise holds only for a merge that WAITED for its checks.
+  # #1864 merged 3m54s before `test-result` reported, that report was `failure`,
+  # and main stayed broken for 2h36m until a person noticed — CI never looked at
+  # the merged state, because nothing here runs on it. (#1876 did the same thing
+  # three hours later and was merely lucky to come back green.) Whether the merge
+  # skipped the wait by bypass or by a direct push, the merged state is exactly
+  # what no PR run covers, so it gets a run of its own.
+  #
+  # Cost is bounded by the same `changes` filters the PR run uses — a merge that
+  # touches nothing this workflow tests still costs only the sub-5s filter — and
+  # by `concurrency` below, which cancels a superseded main run because only the
+  # tip matters. `render-gate` opts out; see the note on that job.
+  push:
+    branches: [main]
+  # `workflow_dispatch` keeps a manual on-demand run available for any ref.
   workflow_dispatch:
 
-# Cancel a PR's older in-flight run when a new commit is pushed to the same
-# ref — iterative pushes used to leave 3-5min runs burning in parallel.
+# Cancel an older in-flight run when a new commit is pushed to the same ref —
+# iterative pushes used to leave 3-5min runs burning in parallel.
 # Keyed on github.ref, so each PR branch cancels only its OWN older run;
 # PRs don't cancel each other. Keys on the whole workflow run, so it covers
 # all 5 `test` matrix legs + render-gate as one cancellable unit.
+# `refs/heads/main` is a group like any other: back-to-back merges cancel the
+# older post-merge guard run, which is what you want — the surviving run tests
+# the tip, and a superseded main run was asking about a state nothing is on.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -712,6 +725,17 @@ jobs:
   # with `test` and is not the critical path) — the win is runner-minutes.
   render-gate:
     needs: changes
+    # PR-only, unlike every other job here. This is the one leg that can outlast
+    # the merge cadence — #1862's took 63 min against the ~22 min mean inter-merge
+    # interval measured in #1842 — so on `push: main` the `concurrency` group above
+    # would cancel it before it reported, and a gate that never reports is not a
+    # gate. The post-merge guard is therefore the FAST legs: they are what
+    # `test-result` aggregates, and they are what would have caught #1864 (a
+    # `TS2305` that `typecheck` reached 1m23s in). A shader regression stays gated
+    # where it CAN be gated — on the pull request, where this job still runs.
+    # `!= 'push'` rather than `== 'pull_request'`, so a manual workflow_dispatch on
+    # main still gets the full gate.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     # A wedged spec once held this job in_progress for 6h (the Actions default)
     # with logs unreadable until the kill. The enlarged leg's sane ceiling is
