@@ -390,6 +390,38 @@ jobs:
       # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
       - run: bun run knip
 
+  # PR-TITLE gate (#1842). The repo squash-merges, so the subject the changelog
+  # renders each entry from is composed server-side by GitHub FROM THE PR TITLE —
+  # a string commitlint never sees, because the husky `commit-msg` hook only ever
+  # inspects the commits that squash away. That gap is measurable: 100 of the 210
+  # first-parent commits touching `shader-dsl/` do not parse as conventional
+  # commits, so they render ungrouped in the changelog's `other` bucket, and one
+  # of them (`fix(ci)+feat(shader-dsl): …`) carried six public exports in behind a
+  # subject beginning `fix(ci)`.
+  #
+  # NO `changes` filter and no `bun install`: the title is a property of the PR,
+  # not of the diff, so gating it on paths would let a mistyped title through on
+  # exactly the PRs that touch nothing this filter names. The script imports only
+  # `node:child_process` (transitively, via the generator it borrows the predicate
+  # from), so a bare checkout + bun runs it in seconds.
+  #
+  # PR_TITLE travels as an ENVIRONMENT variable, never as an interpolated `run:`
+  # line: it is attacker-controlled on a fork PR, and an interpolation would put
+  # it in the shell's own text. Skipped on workflow_dispatch (no PR payload),
+  # which test-result reads as a pass.
+  pr-title:
+    name: pr-title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bun scripts/lint-pr-title.ts
+
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix
   # off for site-only PRs would have left the site UNvalidated on exactly the
@@ -441,7 +473,7 @@ jobs:
   # with eslint never having run in CI.
   test-result:
     name: test-result
-    needs: [test, typecheck, site, lint]
+    needs: [test, typecheck, site, lint, pr-title]
     if: always()
     runs-on: ubuntu-latest
     # Each upstream job is either `success` (ran and passed) or `skipped` (its
@@ -468,7 +500,11 @@ jobs:
         run: |
           fail=0
           cancelled=0
-          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}"; do
+          # `needs['pr-title']`, NOT `needs.pr-title`: a hyphen in a job id is
+          # SUBTRACTION to the expression parser, so the dot spelling silently
+          # evaluates to an empty string and this gate reads a missing result as
+          # neither success nor skipped — red on every PR, for a job that passed.
+          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}" "pr-title:${{ needs['pr-title'].result }}"; do
             name=${j%%:*}; r=${j#*:}
             case "$r" in
               success|skipped) ;;

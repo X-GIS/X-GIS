@@ -28,6 +28,7 @@
     "test:e2e": "cd playground && bunx playwright test",
     "test:shader-dsl-node": "bun run --filter '@xgis/shader-dsl' build && node scripts/shader-dsl-node-smoke.mjs",
     "bake:goldens": "UPDATE_EMIT_GOLDENS=1 vitest run shader-dsl/examples/emit-goldens.test.ts",
+    "bake:api-surface": "UPDATE_API_SURFACE=1 vitest run shader-dsl/src/api-surface.test.ts",
     "fetch:demo-data": "bun scripts/fetch-demo-data.ts",
     "gen:examples": "bun scripts/gen-example-registry.ts > shader-dsl/examples/index.ts && prettier --write shader-dsl/examples/index.ts",
     "dev": "bun run --filter @xgis/playground dev",
