@@ -212,7 +212,14 @@ jobs:
 
           number="$(find_pr)"
           if [ -n "${number}" ]; then
-            echo "::notice::updated changelog PR #${number}"
+            # RE-TITLE, not just re-push. The title carries the SHA the files were
+            # rendered from, and GitHub's squash takes its subject from the PR
+            # title when the repo is set to PR_TITLE — so leaving a stale one here
+            # writes a commit whose subject names a SHA it did not regenerate from.
+            # This is the ordinary case, not an edge one: any second merge landing
+            # before the PR does comes through here.
+            gh pr edit "${number}" --title "chore(changelog): regenerate from ${BASE_SHA}"
+            echo "::notice::updated changelog PR #${number} to ${BASE_SHA}"
           else
             # Assembled with printf into a file rather than written inline as a
             # multi-line `--body '…'`. A YAML literal block scalar ENDS at the
