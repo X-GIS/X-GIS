@@ -18,16 +18,22 @@ test('a raster tile renders on WebGl2Device through the engine loop (?forcegl2=1
 }) => {
   // #1041 — the checker is opt-in now (sourceless production frames draw nothing);
   // ?debug=checker restores it so this US-004 gate keeps asserting the same fixture.
-  // CAMERA PINNED (#1836). The 8x8 point grid below samples single texels, so it only
-  // reports "checker" when a sample lands INSIDE a cell rather than on the blend between
-  // two — which makes it sensitive to the on-screen cell period, i.e. to whatever zoom the
-  // boot bounds-fit happened to pick. #1836 fixed that fit (it had been reading a 300px
-  // stale canvas buffer), the zoom moved 0.50 -> 0.75, and every one of the 49 samples
-  // landed on a cell boundary: 0/49 checker while the FRAME was strictly better — checker
-  // coverage 46.2% -> 54.7% and black clear 12.2% -> 0.0%, measured on both captures. The
-  // claim here is that a raster tile renders through the engine loop, not that the boot fit
-  // produces one particular zoom, so the hash pins the camera and the gate stops depending
-  // on it. Verified: with this pin the gate passes on both the pre- and post-#1836 trees.
+  // CAMERA PINNED (#1836), and the arithmetic is the whole reason. The checker is a
+  // 256px texture with 32px cells (raster-renderer.ts:461-462) = 8x8 cells across the
+  // world quad, and this gate samples an 8x8 grid — so whenever the quad's on-screen
+  // width equals the canvas width, the cell width and the sample spacing are the SAME
+  // number and all 49 samples land exactly on cell boundaries. That is precisely what a
+  // CORRECT boot fit produces: unclamped, `_fitZoomToLonSpan` yields a rendered quad of
+  // 512*2^zoom == the css width it fit to (860px in this harness), so cell = 860/8 =
+  // 107.5px = the grid step. Measured after #1836: 0/49 checker with every sample an
+  // orange-blue blend (135,55,80 / 166,62,68 / 104,48,92) — while the FRAME was strictly
+  // better than before: checker coverage 46.2% -> 54.7%, black clear 12.2% -> 0.0%.
+  // Pre-#1836 the fit read a stale 300px canvas buffer, clamped to the zoom floor 0.5,
+  // and drew a 724px-wide quad (cell 90.5px != the 107.5px step) — the gate passed on
+  // luck of phase, not on anything it asserts. The claim under test is that a raster tile
+  // renders through the engine loop, so the hash pins the camera: zoom 0 => quad 512px,
+  // cell 64px, no resonance with the 107.5px step. Verified green with this pin on BOTH
+  // the pre- and post-#1836 trees, so it neither hides a regression nor needs the fix.
   await page.goto('/demo.html?id=minimal&forcegl2=1&e2e=1&debug=checker#0/0/0/0/0', {
     waitUntil: 'domcontentloaded',
   })
