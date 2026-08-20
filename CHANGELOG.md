@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c1cbcc5e1631ae593746e6d522246643f52ec26f
+  Generated from: e33b62992c3e8301ca26cc40694f0f998fa4d255
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c1cbcc5e1631
+    bun scripts/emit-changelog.ts --since e33b62992c3e
 -->
 
 # Changelog
@@ -165,6 +165,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
 - **map/shaders:** minify every shader source this map hands a device ([#1904](https://github.com/X-GIS/X-GIS/pull/1904)) `a0ef5c9`
 - **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **map/graphics:** build the retained drapers on first use ([#1893](https://github.com/X-GIS/X-GIS/pull/1893)) `2ae2d69`
