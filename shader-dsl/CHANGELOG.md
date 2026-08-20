@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: e33b62992c3e8301ca26cc40694f0f998fa4d255
+  Generated from: 295ac3b57ac828aa0f51f273f2c6baf592a5f1c3
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since e33b62992c3e
+    bun scripts/emit-changelog.ts --path shader-dsl --since 295ac3b57ac8
 -->
 
 # Changelog — shader-dsl
@@ -60,6 +60,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### perf
 
+- **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
 - **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
 - **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
