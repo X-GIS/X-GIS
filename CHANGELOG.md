@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b4c8bdfea2be90d7a03a7cf540fa55717627e329
+  Generated from: b4ebd1a427e8775fc0988d1ced223b66bb522644
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b4c8bdfea2be
+    bun scripts/emit-changelog.ts --since b4ebd1a427e8
 -->
 
 # Changelog
@@ -224,6 +224,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **ci:** register the #1845 and #1838 specs now that both are green ([#1945](https://github.com/X-GIS/X-GIS/pull/1945)) `b4ebd1a`
 - **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
 - **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
