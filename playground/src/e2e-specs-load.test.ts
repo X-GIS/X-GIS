@@ -582,8 +582,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'batch-unstable (2026-08-18, #1349): solo-green after the forcegl2+e2e readback repair, but rendered 0.0% non-bg at position 27/85 of a serial WORKERS=1 batch -- whole-scene draw failure under batch contention, not readback; isolate before registering',
   '_text-overlay.spec.ts':
     'batch-flaky (2026-08-18, #1349): green in a 56-spec parallel batch, then full-canvas near-black (0/1024000 white px) at position 82/85 of a serial WORKERS=1 batch -- whole-scene draw failure under long-batch contention; isolate before registering',
-  '_import-mapbox-inline-button.spec.ts':
-    'red on main, adjudicated DEFECT #1845 (2026-08-19): the import BUTTON path never reaches setSourceData at all (probe-verified: a warn planted at the top of SourceManager.setSourceData prints nothing during this spec), so it is unrelated to the #1837 routing fix that greened its two sibling witnesses; register after #1845',
   '_line-proof.spec.ts':
     'red on main, adjudicated STALE HARNESS (2026-08-18): hand-packs the pre-#1539 272B TileUniforms layout, 368B since 6395120f -- GL_INVALID_OPERATION at draw; repack the harness, then register',
   '_multiline-labels.spec.ts':
@@ -594,8 +592,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'adjudicated NETWORK-BLOCKED (2026-08-18): compare.html fetches its style from demotiles.maplibre.org in-browser -- misnamed offline; needs the #1322 mirror track',
   '_projection-zoom-survey.spec.ts':
     'adjudicated NETWORK-BLOCKED (2026-08-18): 31/32 red on ERR_CONNECTION_RESET to external tiles; sandboxed runs also clobber the tracked survey PNGs -- #1322 mirror track',
-  '_step-and-concat.spec.ts':
-    'red on main, adjudicated DEFECT #1838 (2026-08-18): dots render but label text is 0 white px, with readback, clock and camera all ruled out; readback repaired to forcegl2+preserve here; register after #1838',
   '_world-copy-projections.spec.ts':
     'adjudicated NETWORK-BLOCKED (2026-08-18): ERR_CONNECTION_RESET to external tiles in both the mercator and orthographic arms -- #1322 mirror track',
   'a11y-lifecycle-events.spec.ts':
