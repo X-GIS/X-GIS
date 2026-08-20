@@ -2,6 +2,7 @@
 import ShaderDsl from '../../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../../lib/shader-examples.ts'
+import { SHIP_PLUGINS } from '../../../lib/ship-runtime.ts'
 
 export function getStaticPaths() {
   return shaderCards.map((c, i) => ({
@@ -29,13 +30,21 @@ const hasMouse = Object.values(card.spec?.controls ?? {}).some(
   (c) => (c as { kind: string }).kind === 'mouse' || (c as { kind: string }).kind === 'pan2d',
 )
 
+// WGSL is one module carrying both entry points; GLSL ES 3.00 compiles as two separate
+// sources, so they get separate tabs instead of one concatenated dump. Each shader tab also
+// carries its plugin-free byte count, which is the baseline the Shipping badge reports a
+// delta against — the transformed sizes are computed in the browser, this one is free here.
+const shaderTabs = [
+  { id: 'wgsl', label: 'WGSL', code: card.wgsl },
+  ...(card.glslVertex ? [{ id: 'glsl-vs', label: 'GLSL · vertex', code: card.glslVertex }] : []),
+  ...(card.glslFragment
+    ? [{ id: 'glsl-fs', label: 'GLSL · fragment', code: card.glslFragment }]
+    : []),
+]
+
 const tabs = [
   { id: 'dsl', label: 'DSL (TypeScript)' },
-  { id: 'wgsl', label: 'WGSL' },
-  // WGSL is one module carrying both entry points; GLSL ES 3.00 compiles as two
-  // separate sources, so they get separate tabs instead of one concatenated dump.
-  ...(card.glslVertex ? [{ id: 'glsl-vs', label: 'GLSL · vertex' }] : []),
-  ...(card.glslFragment ? [{ id: 'glsl-fs', label: 'GLSL · fragment' }] : []),
+  ...shaderTabs.map((t) => ({ id: t.id, label: t.label })),
   { id: 'reflect', label: 'Reflection' },
 ]
 ---
@@ -157,7 +166,10 @@ const tabs = [
     <h2 class="font-display text-[19px] font-normal text-fg tracking-[-0.015em] mb-1.5">One source, compiled every way</h2>
     <p class="text-[13.5px] leading-[1.55] text-fg-dim mb-4 max-w-full">
       The DSL source below, compiled to WebGPU (WGSL), WebGL2 (GLSL ES 3.00 — two stages), and a
-      reflection JSON the host binds from. Nothing but the DSL tab is hand-written.
+      reflection JSON the host binds from. Nothing but the DSL tab is hand-written. Flip the
+      <span class="text-fg font-medium">Shipping</span> plugins to see what this example actually
+      ships as — the emitted text changes, the reflection above it does not
+      (<a href={`${base}/shader-dsl/shipping`} class="text-accent hover:text-accent-hover transition-colors">how that works</a>).
     </p>
     <div data-tabs role="tablist" class="flex gap-1 overflow-x-auto no-scrollbar mb-2 -mx-1 px-1">
       {tabs.map((tab, i) => (
@@ -166,11 +178,39 @@ const tabs = [
         </button>
       ))}
     </div>
+    <!-- Shipping settings: the inline()/mangle()/minify() plugins the /shader-dsl/shipping
+         page documents, pointed at THIS example. Inert on the DSL and Reflection tabs —
+         neither is emitted shader text. Nothing is precomputed: flipping a toggle emits the
+         variant in the browser (src/lib/ship-runtime.ts), so a visitor who never touches
+         one downloads none of the machinery. -->
+    <div data-ship-bar data-ship-file={card.file} class="mb-2 rounded-[8px] border border-line bg-bg-card px-3.5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 transition-opacity">
+      <span class="font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em]">Shipping</span>
+      {SHIP_PLUGINS.map((name) => (
+        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+          <span class="relative inline-flex items-center">
+            <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
+            <span class="pointer-events-none w-9 h-5 rounded-full bg-bg-elev border border-line peer-checked:bg-accent/25 peer-checked:border-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors"></span>
+            <span class="pointer-events-none absolute left-0.5 w-4 h-4 rounded-full bg-fg-mute peer-checked:bg-accent peer-checked:translate-x-4 transition-transform"></span>
+          </span>
+          <span class="font-mono text-[12.5px] text-fg">{name}()</span>
+        </label>
+      ))}
+      <span data-ship-status class="ml-auto flex items-center gap-3">
+        <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline"></code>
+        <span data-ship-badge class="font-mono text-[12px] text-fg tabular-nums"></span>
+      </span>
+      <span data-ship-note class="ml-auto font-mono text-[11.5px] text-fg-mute" hidden></span>
+    </div>
     <div class="sd-code">
       <div data-panel="dsl" id="panel-dsl" role="tabpanel" aria-labelledby="tab-dsl" tabindex="0"><Code code={card.source} lang="ts" /></div>
-      <div data-panel="wgsl" id="panel-wgsl" role="tabpanel" aria-labelledby="tab-wgsl" tabindex="0" hidden><Code code={card.wgsl} lang="wgsl" /></div>
-      {card.glslVertex && <div data-panel="glsl-vs" id="panel-glsl-vs" role="tabpanel" aria-labelledby="tab-glsl-vs" tabindex="0" hidden><Code code={card.glslVertex} lang="glsl" /></div>}
-      {card.glslFragment && <div data-panel="glsl-fs" id="panel-glsl-fs" role="tabpanel" aria-labelledby="tab-glsl-fs" tabindex="0" hidden><Code code={card.glslFragment} lang="glsl" /></div>}
+      {shaderTabs.map((t) => (
+        <div data-panel={t.id} id={`panel-${t.id}`} role="tabpanel" aria-labelledby={`tab-${t.id}`} tabindex="0" hidden data-plain-bytes={String(t.code.length)}>
+          {/* The plugin-free emit, rendered at build time exactly as before. Its sibling
+              below is filled in by the browser when a plugin is switched on. */}
+          <div data-ship-plain><Code code={t.code} lang={t.id === 'wgsl' ? 'wgsl' : 'glsl'} /></div>
+          <div data-ship-variant class="sd-hl" hidden></div>
+        </div>
+      ))}
       <div data-panel="reflect" id="panel-reflect" role="tabpanel" aria-labelledby="tab-reflect" tabindex="0" hidden><Code code={card.reflectionJson} lang="json" /></div>
     </div>
   </section>
@@ -216,6 +256,98 @@ const tabs = [
     type Backend,
     type Mounted,
   } from '../../../lib/shader-playground'
+  import {
+    SHIP_PLUGINS,
+    shipBadge,
+    shipPluginNames,
+    shipPlugins,
+    shipToolchain,
+    type ShipTarget,
+  } from '../../../lib/ship-runtime'
+
+  // ── Shipping (emit-prod) settings ──
+  // Toggling a plugin emits that variant HERE, in the browser: the DSL emit core, this
+  // example's module and the highlighter are dynamic imports, so they are fetched by the
+  // first toggle and by nothing else. See src/lib/ship-runtime.ts for what that costs and
+  // for the two designs (bake every combination / fetch prerendered fragments) it replaced.
+  const shipBar = document.querySelector<HTMLElement>('[data-ship-bar]')
+  const shipToggles = Array.from(document.querySelectorAll<HTMLInputElement>('[data-ship-toggle]'))
+  const shipBadgeEl = document.querySelector<HTMLElement>('[data-ship-badge]')
+  const shipCall = document.querySelector<HTMLElement>('[data-ship-call]')
+  const shipStatus = document.querySelector<HTMLElement>('[data-ship-status]')
+  const shipNote = document.querySelector<HTMLElement>('[data-ship-note]')
+  // Tabs with no emitted shader text: the plugins have nothing to act on, and saying so
+  // beats a dead control. Reflection is the ABI — mangle() is defined never to touch it.
+  const shipInert: Record<string, string> = {
+    dsl: 'authored source — the plugins act on the emitted shader',
+    reflect: 'ABI names are frozen — this is what the host still binds',
+  }
+  // The toggles render in SHIP_PLUGINS order, so their DOM order IS the bit order.
+  const shipBits = (): string => shipToggles.map((t) => (t.checked ? '1' : '0')).join('')
+  const activeTab = (): string =>
+    document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.dataset.tab ?? 'dsl'
+
+  let toolchain: ReturnType<typeof shipToolchain> | null = null
+  // Every sync invalidates work still in flight: without this a slow first import could
+  // land after the user has toggled past it and settle the page on a stale variant.
+  let shipSeq = 0
+  const syncShip = (tab: string): void => {
+    if (!shipBar) return
+    const mine = ++shipSeq
+    const inert = shipInert[tab]
+    shipToggles.forEach((t) => { t.disabled = inert !== undefined })
+    shipBar.classList.toggle('opacity-60', inert !== undefined)
+    if (shipStatus) shipStatus.hidden = inert !== undefined
+    if (shipNote) {
+      shipNote.hidden = inert === undefined
+      shipNote.textContent = inert ?? ''
+    }
+    if (inert !== undefined) return
+
+    const host = document.querySelector<HTMLElement>(`[data-panel="${tab}"]`)
+    const plainEl = host?.querySelector<HTMLElement>('[data-ship-plain]')
+    const variantEl = host?.querySelector<HTMLElement>('[data-ship-variant]')
+    if (!host || !plainEl || !variantEl) return
+    const plainBytes = Number(host.dataset.plainBytes)
+    const bits = shipBits()
+    const names = shipPluginNames(bits)
+
+    if (bits === '000') {
+      plainEl.hidden = false
+      variantEl.hidden = true
+      if (shipBadgeEl) shipBadgeEl.textContent = shipBadge(plainBytes, plainBytes)
+      if (shipCall) {
+        shipCall.textContent = tab === 'wgsl' ? 'emitModule(m)' : `emitGlslModule(m, '${tab === 'glsl-vs' ? 'vertex' : 'fragment'}')`
+      }
+      return
+    }
+
+    if (shipBadgeEl) shipBadgeEl.textContent = '…'
+    if (shipCall) shipCall.textContent = ''
+    toolchain ??= shipToolchain(shipBar.dataset.shipFile!)
+    void toolchain
+      .then(async (tc) => {
+        const code = tc.emit(tab as ShipTarget, await shipPlugins(bits))
+        if (mine !== shipSeq) return
+        // Shiki emits the whole <pre><code> block, inline colours included.
+        variantEl.innerHTML = tc.highlight(code, tab as ShipTarget)
+        plainEl.hidden = true
+        variantEl.hidden = false
+        if (shipBadgeEl) shipBadgeEl.textContent = shipBadge(code.length, plainBytes)
+        if (shipCall) shipCall.textContent = tc.call(tab as ShipTarget, names)
+      })
+      .catch(() => {
+        if (mine !== shipSeq) return
+        toolchain = null
+        if (shipStatus) shipStatus.hidden = true
+        if (shipNote) {
+          shipNote.hidden = false
+          shipNote.textContent = 'could not load the shipping tools — check your connection'
+        }
+      })
+  }
+  shipToggles.forEach((t) => t.addEventListener('change', () => syncShip(activeTab())))
+  syncShip(activeTab())
 
   const tablist = document.querySelector<HTMLElement>('[data-tabs]')
   if (tablist) {
@@ -229,6 +361,7 @@ const tabs = [
         if (on && focus) b.focus()
       })
       panels.forEach((p) => { p.hidden = p.dataset.panel !== tab })
+      syncShip(tab)
     }
     buttons.forEach((b) => b.addEventListener('click', () => select(b.dataset.tab!)))
     // Roving-tabindex keyboard nav (WAI-ARIA tabs pattern).

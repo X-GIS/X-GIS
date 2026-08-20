@@ -23,6 +23,8 @@
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/spline-sans-mono": "^5.2.8",
     "@radix-ui/react-slot": "^1.1.2",
+    "@shikijs/langs": "4.2.0",
+    "@shikijs/themes": "4.2.0",
     "@tailwindcss/vite": "^4.3.2",
     "@xgis/blueprint": "workspace:*",
     "@xgis/compiler": "workspace:*",
@@ -39,6 +41,7 @@
     "rehype-katex": "^7.0.1",
     "remark-directive": "^4.0.0",
     "remark-math": "^6.0.0",
+    "shiki": "4.2.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^4.3.2",
     "tw-animate-css": "^1.0.0"
