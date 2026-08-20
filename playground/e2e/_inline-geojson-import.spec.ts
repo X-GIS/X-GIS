@@ -62,14 +62,16 @@ test.describe('Mapbox style import — inline GeoJSON auto-push', () => {
     // sampling pixels. 5 s timeout matches existing geojson demos.
     await page.waitForFunction(
       () => {
+        // #1845: wait for THIS fixture's source, not "any" vtSources entry. The
+        // style's `background-color` installs an always-present
+        // `__synthetic_earth_surface__` source whose GPU cache fills almost
+        // immediately, so an "any entry" predicate resolves before the inline
+        // GeoJSON has been re-tiled and samples a pre-first-frame canvas.
         const map = (window as unknown as { __xgisMap?: { vtSources: Map<string, unknown> } })
           .__xgisMap
-        if (!map?.vtSources) return false
-        for (const entry of map.vtSources.values()) {
-          const r = entry as { renderer?: { getCacheSize?: () => number } }
-          if ((r.renderer?.getCacheSize?.() ?? 0) > 0) return true
-        }
-        return false
+        const entry = map?.vtSources?.get('annotations') as
+          { renderer?: { getCacheSize?: () => number } } | undefined
+        return (entry?.renderer?.getCacheSize?.() ?? 0) > 0
       },
       null,
       { timeout: 10_000 },
