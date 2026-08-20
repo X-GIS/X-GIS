@@ -59,6 +59,17 @@ function bakedSource(id: string): string {
 // methodFlag 4 = multidirectional, the heaviest method and the one the demo authors.
 const REQ = { family: 'hillshade', pick: false, methodFlag: 4 } as const
 
+/** Does `src` carry a numeric literal whose f32 value equals `want`? Spelling-blind on
+ *  purpose — `shipSource` re-spells every float to the shortest decimal that rounds to the
+ *  same f32, so `1737400.0`, `1737400.` and `17374e2` are all the same shader constant and a
+ *  string match on any one of them is testing the minifier, not the body routing. */
+function hasLiteralValue(src: string, want: number): boolean {
+  const target = Math.fround(want)
+  for (const m of src.matchAll(/\d*\.?\d+(?:[eE][+-]?\d+)?/g))
+    if (Math.fround(Number(m[0])) === target) return true
+  return false
+}
+
 describe('baked shaders — the body guard (#1678)', () => {
   it('MOON: the guard CLOSES — the bake may not be served', () => {
     switchBody(MOON)
@@ -73,11 +84,18 @@ describe('baked shaders — the body guard (#1678)', () => {
   it('MOON: the premise — a live emit really does carry the Moon radius', () => {
     switchBody(MOON)
     const live = emitFor(REQ, false)
-    expect(live.vertex, 'the Moon sphere radius reaches the emitted GLSL').toContain(
-      String(MOON.sphereR),
-    )
-    expect(live.fragment).toContain(String(MOON.sphereR))
-    expect(live.vertex, 'and Earth‘s does not').not.toContain(String(EARTH.sphereR))
+    // By VALUE, not by spelling (#1889). The emit now goes through `shipSource`, whose f32
+    // re-spelling writes 1737400 as `17374e2` — same f32, five fewer chars. `toContain(String
+    // (MOON.sphereR))` was asserting the decimal FORM, which is not the claim: the claim is
+    // that the Moon's radius reaches the shader and Earth's does not, and a value test says
+    // that whatever the minifier decides the shortest spelling is.
+    expect(
+      hasLiteralValue(live.vertex, MOON.sphereR),
+      `the Moon sphere radius reaches the emitted GLSL (looked for an f32-equal literal, ` +
+        `since the shipped spelling is minified)`,
+    ).toBe(true)
+    expect(hasLiteralValue(live.fragment, MOON.sphereR)).toBe(true)
+    expect(hasLiteralValue(live.vertex, EARTH.sphereR), 'and Earth‘s does not').toBe(false)
   })
 
   it('MOON: the consequence — those bytes DIFFER from the baked ones', () => {

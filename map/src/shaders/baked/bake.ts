@@ -7,6 +7,7 @@
 // walk, the dedup, and the exact text of the emitted modules. The script only
 // configures the host seams, calls these two functions, and writes + formats files.
 
+import { shipSource } from '../../render/material/wgsl-for'
 import { BAKED_GROUPS, bakedGroupOf } from './ids'
 import {
   BAKED_SHADER_KEYS,
@@ -15,6 +16,7 @@ import {
   type BakedArtifact,
   type BakedGroup,
   type BakedLanguage,
+  type BakedShaderKey,
 } from './registry'
 
 /** The two axes an artifact FILE is keyed on. Language, because a device reads exactly
@@ -46,12 +48,38 @@ export const bakedExportName = (language: BakedLanguage, group: BakedGroup): str
  *  stage hillshade and raster both spell) is stored in each file that addresses it.
  *  That is the price of the split and it is the right way round: the alternative is a
  *  shared chunk every group must download to resolve its own index. */
+/** The bytes an artifact holds for one key — `emit()` put through the production text
+ *  minifier (#1889).
+ *
+ *  ONE AUTHORITY on purpose. `baked-sync.test.ts` byte-compares the artifact against a live
+ *  emit, so if the bake minified and the gate did not, the gate would go permanently red and
+ *  the obvious "fix" would be to teach it the same transform in a second place — the
+ *  two-authorities drift §12 records. Both call this instead.
+ *
+ *  The transform itself is `shipSource`, which lives at the DEVICE seam (`wgsl-for.ts`), not
+ *  here: this artifact is a cache of what that seam produces, so a bake-only transform would
+ *  mean a cache hit and a cache miss serving different text — the identity `baked-body-guard`
+ *  and `seed-hillshade` assert outright.
+ *
+ *  Not at map's `vite build` either, which was the first plan and is wrong: every consumer in
+ *  this repo — site, playground, and so every render and compile gate — aliases `@xgis/map` to
+ *  SOURCE (`site/astro.config.mjs:677`), while `vite build` produces the published `dist`.
+ *  Minifying there would ship bytes no gate in this repo ever compiles, on a token-stream
+ *  rewrite whose failure mode is a merged token only a real driver rejects.
+ *
+ *  What it costs: a committed artifact is one line per source, so a re-bake diff shows WHICH
+ *  sources moved but not what moved inside them. Readable GLSL is still one call away —
+ *  `key.emit()` re-emits it, and the sync gate proves the artifact matches. */
+export function bakedSourceOf(key: BakedShaderKey): string {
+  return shipSource(key.emit())
+}
+
 export function buildBakedArtifact(language: BakedLanguage, group: BakedGroup): BakedArtifact {
   const contents: Record<string, string> = {}
   const index: Record<string, string> = {}
   for (const key of BAKED_SHADER_KEYS) {
     if (key.language !== language || bakedGroupOf(key.family) !== group) continue
-    const source = key.emit()
+    const source = bakedSourceOf(key)
     const hash = bakedContentHash(source)
     const seen = contents[hash]
     if (seen !== undefined && seen !== source)
