@@ -1,3 +1,6 @@
+// CONTROL PROBE (#1886): this branch is origin/main plus this comment. Its only job
+// is to make CI run render-gate against main's content, because `render-gate` opts out
+// of `push` events (#1883) so main itself is never measured. Delete the branch after.
 // ═══ SceneBuilder runScene ↔ run() twin-render gate (#1194 A1b) ═══
 //
 // The A1a parity gate proves builder AST ≡ parsed AST byte-for-byte at the
