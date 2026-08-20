@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 950687b3cd6d8bd4273d1dbc0e4f5e8c5e7f5d62
+  Generated from: 884e32d95f5ded9023f5cb08ebc0cdc718bfaa4b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 950687b3cd6d
+    bun scripts/emit-changelog.ts --since 884e32d95f5d
 -->
 
 # Changelog
@@ -216,6 +216,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
 - **playground:** invert the dark-spec audit — enumerate known-dark rows (#1817) ([#1829](https://github.com/X-GIS/X-GIS/pull/1829)) `8bc6d8c`
 - **playground:** give the globe-dateline gate a selector-discriminating assertion and register it in CI (#1774) ([#1815](https://github.com/X-GIS/X-GIS/pull/1815)) `3c3736a`
