@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: ea7335370935f312ea26615f84be4a1ef46d19e2
+  Generated from: c3ce0e85a0deb6dba35af466a54f802871094db1
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since ea7335370935
+    bun scripts/emit-changelog.ts --since c3ce0e85a0de
 -->
 
 # Changelog
@@ -86,6 +86,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** _scene-builder-twin waits for convergence instead of a fixed sleep (#1895) ([#1896](https://github.com/X-GIS/X-GIS/pull/1896)) `c3ce0e8`
 - **ci:** stop a push to main cancelling the post-merge guard run for the commit that changed code (#1872) ([#1883](https://github.com/X-GIS/X-GIS/pull/1883)) `ea73353`
 - **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
 - **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
