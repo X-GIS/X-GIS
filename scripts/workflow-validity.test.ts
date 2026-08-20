@@ -247,6 +247,56 @@ describe('exactly one job may SAVE each cache key (#1857)', () => {
   })
 })
 
+// ═══ The shard count lives in three places and nothing makes them agree (#1863) ═══
+//
+// `render-shard` declares N as a matrix leg list, repeats it in the job `name`, and
+// repeats it again as the `--shard=i/N` divisor. Workflow syntax cannot derive one from
+// another. Every disagreement is silent AND destructive in a different way:
+//   • divisor > legs  -> the missing shards never run. Their tests vanish from CI with
+//     every job green — the worst outcome available here, and invisible in a diff. The
+//     job's own "executed NO tests" guard does NOT cover this: the legs that DO exist
+//     each still run a non-empty slice, so nothing anywhere goes red.
+//   • divisor < legs  -> playwright rejects the out-of-range shard, so those legs go red
+//     for a reason that names nothing about the real mistake.
+//   • name wrong      -> only cosmetic, but it is the label a human reads when triaging
+//     which shard is red, so a stale one sends them to the wrong log.
+// Stated as an equality so the first two can never ship.
+const shardCounts = (source: string) => {
+  const legs = /shard:\s*\[([^\]]*)\]/.exec(source)
+  const name = /name:\s*render-shard \(\$\{\{ matrix\.shard \}\}\/(\d+)\)/.exec(source)
+  const divisor = /--shard=\$\{\{ matrix\.shard \}\}\/(\d+)/.exec(source)
+  return {
+    legs: legs ? legs[1].split(',').filter((x) => x.trim() !== '').length : null,
+    name: name ? Number(name[1]) : null,
+    divisor: divisor ? Number(divisor[1]) : null,
+  }
+}
+
+describe('the render-shard count agrees in all three places (#1863)', () => {
+  const consumer = () => readFileSync(join(WORKFLOW_DIR, 'test.yml'), 'utf8')
+
+  it('all three declarations are found — otherwise the equality below is vacuous', () => {
+    // A null compares equal to nothing, but a renamed job or a reworded command would
+    // make all three null and `{null, null, null}` would satisfy the equality on an
+    // empty reading. Assert each was actually located first.
+    const c = shardCounts(consumer())
+    expect(c.legs, 'matrix shard legs not found in test.yml').not.toBeNull()
+    expect(c.name, 'render-shard job name not found in test.yml').not.toBeNull()
+    expect(c.divisor, '--shard=i/N divisor not found in test.yml').not.toBeNull()
+    expect(c.legs).toBeGreaterThan(1)
+  })
+
+  it('matrix legs === job-name divisor === --shard divisor', () => {
+    const { legs, name, divisor } = shardCounts(consumer())
+    expect(
+      { legs, name, divisor },
+      'the render-shard count disagrees across its three declarations. If the --shard ' +
+        'divisor EXCEEDS the matrix legs, the missing shards never run and their tests ' +
+        'silently leave CI with every job still green (#1863).',
+    ).toEqual({ legs, name: legs, divisor: legs })
+  })
+})
+
 describe('the key scanner distinguishes the states it claims to', () => {
   it('sees a drifted key as a difference, not a match', () => {
     // The mutation this gate exists to catch: one character in the warmer's key.
