@@ -53,8 +53,16 @@ X-GIS is a domain-specific language and WebGPU rendering engine for GIS maps —
 
 ### Testing Requirements
 
-- `bun run test` — Vitest unit tests across compiler, blueprint, runtime (no GPU, no browser).
+- `bun run test` — Vitest unit tests across compiler, blueprint, runtime (no GPU, no browser). Runs
+  the suite as two passes (`scripts/vitest-run.ts`): a shared-registry pass plus the isolation
+  quarantine `vitest.config.ts` names. Same 1411 files, ~2m20s instead of ~7m26s on a 4-core box.
+  Forwards its arguments, so `bun run test map/src` and `bun run test -t '<name>'` work as usual.
+  `bun run test:isolated` is bare `vitest run` — the whole suite under per-file isolation, which is
+  also what CI's matrix legs invoke.
 - `bun run build` — full typecheck gate; required before any PR.
+- `bun run build:packages` — the same chain minus `@xgis/site`, for the inner loop. The Astro site is
+  ~54s of the ~78s and no package-level change can be typechecked by it; run the full `bun run build`
+  before the PR.
 - `bun run test:pixel` — Playwright pixel-match survey (real GPU, headed browser, `playground/`).
 - `bun run test:perf` — Playwright interactive perf test (`_perf-bright-interactive.spec.ts`).
 - `bun run test:projection` — Playwright projection-coverage suite.
