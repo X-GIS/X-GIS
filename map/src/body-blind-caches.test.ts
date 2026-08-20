@@ -36,6 +36,19 @@ afterEach(() => {
   switchBody(EARTH)
 })
 
+/** Does `src` carry a numeric literal whose f32 value equals `want`? The shader sources go
+ *  through `shipSource` (#1889), whose f32 re-spelling writes 1737400 as `17374e2` — same
+ *  constant, different decimal form — so a `toContain(String(body.sphereR))` here would be
+ *  testing the minifier rather than the body routing. A twin of this lives in
+ *  `shaders/baked/baked-body-guard.test.ts`, which asserts the same property about the same
+ *  two radii from the other side of the guard. */
+function hasLiteralValue(src: string, want: number): boolean {
+  const target = Math.fround(want)
+  for (const m of src.matchAll(/\d*\.?\d+(?:[eE][+-]?\d+)?/g))
+    if (Math.fround(Number(m[0])) === target) return true
+  return false
+}
+
 describe('#1568 body-blind module caches', () => {
   it('A — the compiled CPU projection module follows the body', () => {
     switchBody(EARTH)
@@ -65,7 +78,7 @@ describe('#1568 body-blind module caches', () => {
     await requestShaderSources(req, true)
     const earth = peekShaderSources(req)
     expect(earth, 'the Earth emit landed').toBeDefined()
-    expect(earth!.vertex).toContain(String(EARTH.sphereR))
+    expect(hasLiteralValue(earth!.vertex, EARTH.sphereR)).toBe(true)
 
     switchBody(MOON)
     // The KEY question: before the fix `requestShaderSources` returned
@@ -74,18 +87,18 @@ describe('#1568 body-blind module caches', () => {
     expect(peekShaderSources(req), 'the Earth entry must not answer for the Moon').toBeUndefined()
     await requestShaderSources(req, true)
     const moon = peekShaderSources(req)
-    expect(moon!.vertex).toContain(String(MOON.sphereR))
-    expect(moon!.vertex).not.toContain(String(EARTH.sphereR))
+    expect(hasLiteralValue(moon!.vertex, MOON.sphereR)).toBe(true)
+    expect(hasLiteralValue(moon!.vertex, EARTH.sphereR)).toBe(false)
   })
 
   it('C — the optimized polygon WGSL memo does not serve Earth radii on the Moon', () => {
     switchBody(EARTH)
     const earth = buildShader(null)
-    expect(earth).toContain(String(EARTH.sphereR))
+    expect(hasLiteralValue(earth, EARTH.sphereR)).toBe(true)
     switchBody(MOON)
     const moon = buildShader(null)
     expect(moon).not.toBe(earth)
-    expect(moon).not.toContain(String(EARTH.sphereR))
+    expect(hasLiteralValue(moon, EARTH.sphereR)).toBe(false)
   })
 
   it('D — the graticule buffers are regenerated at the new body-s scale', () => {
