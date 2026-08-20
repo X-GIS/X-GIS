@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: ef415b6458868742a74eb3474f3b4f7a6d4697c8
+  Generated from: af778722e444d21f293711f95189c49e276c6193
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since ef415b645886
+    bun scripts/emit-changelog.ts --since af778722e444
 -->
 
 # Changelog
@@ -88,6 +88,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/sources:** importer-seeded inline GeoJSON defaults onto the VirtualPMTiles route (#1837) ([#1846](https://github.com/X-GIS/X-GIS/pull/1846)) `af77872`
 - **map/sources:** boot bounds-fit reads the laid-out width, not the stale canvas buffer (#1836) ([#1844](https://github.com/X-GIS/X-GIS/pull/1844)) `b5b28ab`
 - **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
 - **e2e:** _globe-dateline-wired-gate converges on the tile set it asserts (#1895) ([#1897](https://github.com/X-GIS/X-GIS/pull/1897)) `1e7feab`
