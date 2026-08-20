@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e33b62992c3e8301ca26cc40694f0f998fa4d255
+  Generated from: 295ac3b57ac828aa0f51f273f2c6baf592a5f1c3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e33b62992c3e
+    bun scripts/emit-changelog.ts --since 295ac3b57ac8
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **site:** shipping-plugin toggles on every shader-dsl example page ([#1911](https://github.com/X-GIS/X-GIS/pull/1911)) `295ac3b`
 - **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
 - **compiler,map/sources:** declarative refresh polling for live sources (#1304) ([#1835](https://github.com/X-GIS/X-GIS/pull/1835)) `080bb48`
@@ -165,6 +166,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
 - **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
 - **map/shaders:** minify every shader source this map hands a device ([#1904](https://github.com/X-GIS/X-GIS/pull/1904)) `a0ef5c9`
 - **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
@@ -185,6 +187,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **rhi-webgpu:** derive bind-group visibility from BindEntry.stages ([#1917](https://github.com/X-GIS/X-GIS/pull/1917)) `deb5dfa`
 - **geo,map:** latToMercatorY authority; five packers stop re-spelling it ([#1831](https://github.com/X-GIS/X-GIS/pull/1831)) `56c6f47`
 - **map/camera:** Camera.setProjection owns the projection promotion (#1506) ([#1784](https://github.com/X-GIS/X-GIS/pull/1784)) `ba1caf1`
 - **map,compiler:** one nullable hex parser, one colour-AST authority — the black-fallback and the drifted mirror both die (#1666, #1667) ([#1669](https://github.com/X-GIS/X-GIS/pull/1669)) `0b4b3b0`
