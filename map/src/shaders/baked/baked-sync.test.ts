@@ -39,6 +39,7 @@ import {
   type BakedLanguage,
 } from './registry'
 import { BAKED_GROUPS, bakedGroupOf } from './ids'
+import { bakedSourceOf } from './bake'
 import { BAKED_GLSL_HILLSHADE } from './baked-glsl-hillshade.generated'
 import { BAKED_GLSL_BOOT } from './baked-glsl-boot.generated'
 import { BAKED_GLSL_LAZY } from './baked-glsl-lazy.generated'
@@ -132,7 +133,10 @@ describe('baked shaders — (a) hash equality: every baked source === a live emi
         baked,
         `${key.id}: index points at content hash ${hash} which the artifact does not carry — ${REBAKE}`,
       ).toBeTypeOf('string')
-      const live = key.emit()
+      // `bakedSourceOf`, not `key.emit()` — the artifact holds the MINIFIED emit (#1889) and
+      // that function is the one authority on which. Comparing against a raw emit here would
+      // make this gate red for every shader and invite a second copy of the transform.
+      const live = bakedSourceOf(key)
       expect(baked === live, firstDiff(key.id, baked as string, live)).toBe(true)
     })
   }
