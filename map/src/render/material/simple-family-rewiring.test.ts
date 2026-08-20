@@ -88,6 +88,21 @@ function artifactIds(file: string): ReadonlySet<string> {
 
 const GLSL_BOOT = artifactIds('baked-glsl-boot.generated.ts')
 const WGSL_BOOT = artifactIds('baked-wgsl-boot.generated.ts')
+const GLSL_LAZY = artifactIds('baked-glsl-lazy.generated.ts')
+const WGSL_LAZY = artifactIds('baked-wgsl-lazy.generated.ts')
+
+/** The artifact a family's ids must live in — its GROUP decides, not this file (#1888). Arm C
+ *  used to name the boot artifact directly, which was true while every rewired family was
+ *  boot-group and became a false negative the moment five of them went lazy. Asking the group
+ *  is what the runtime does, so it is also what makes the arm survive the next move. */
+const idsFor = (family: SimpleFamily, lang: 'glsl' | 'wgsl'): ReadonlySet<string> =>
+  FAMILY_GROUPS[family] === 'lazy'
+    ? lang === 'glsl'
+      ? GLSL_LAZY
+      : WGSL_LAZY
+    : lang === 'glsl'
+      ? GLSL_BOOT
+      : WGSL_BOOT
 
 describe('#1679 inc 5 — reader sanity (the arms below are vacuous without this)', () => {
   it('every rewired material file was read and is non-trivial', () => {
@@ -141,21 +156,22 @@ describe('#1679 inc 5 — A+B: every rewired call site passes a DERIVED id', () 
   }
 })
 
-describe('#1679 inc 5 — C: every derived id exists in the committed boot artifact', () => {
+describe("#1679 inc 5 — C: every derived id exists in its group's committed artifact", () => {
   for (const family of Object.keys(REWIRED)) {
     it(`${family}'s three ids resolve`, () => {
       const f = family as SimpleFamily
+      const where = FAMILY_GROUPS[f]
       expect(
-        WGSL_BOOT.has(simpleWgslId(f)),
-        `${simpleWgslId(f)} is not in baked-wgsl-boot.generated.ts. The call site asks for ` +
-          `it on every WebGPU boot and the store answers 'absent', so the bake is downloaded ` +
-          `and then ignored for this family. Either the grammar moved without the artifact ` +
-          `being regenerated (bun run bake:shaders), or the family's group changed.`,
+        idsFor(f, 'wgsl').has(simpleWgslId(f)),
+        `${simpleWgslId(f)} is not in baked-wgsl-${where}.generated.ts. The call site asks ` +
+          `for it and the store answers 'absent', so the bake is downloaded and then ignored ` +
+          `for this family. Either the grammar moved without the artifact being regenerated ` +
+          `(bun run bake:shaders), or the family's group changed without a re-bake.`,
       ).toBe(true)
       for (const stage of ['vertex', 'fragment'] as const)
         expect(
-          GLSL_BOOT.has(simpleGlslId(f, stage)),
-          `${simpleGlslId(f, stage)} is not in baked-glsl-boot.generated.ts — same cause, ` +
+          idsFor(f, 'glsl').has(simpleGlslId(f, stage)),
+          `${simpleGlslId(f, stage)} is not in baked-glsl-${where}.generated.ts — same cause, ` +
             `and on WebGL2 it costs BOTH stages, not one (both-or-neither).`,
         ).toBe(true)
     })

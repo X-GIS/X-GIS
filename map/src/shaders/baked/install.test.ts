@@ -164,13 +164,18 @@ describe('baked shaders — a chunk that will not load costs a frame, not the bo
 // group is permanently green), and any behavioural arm that derives its expectations from
 // the table is vacuous by construction — moving a family moves the expectation with it.
 //
-// So the census reads an INDEPENDENT authority: `GraphicsManager.attachDevice`, which
-// constructs five retained drapers UNCONDITIONALLY the moment a device exists, each of
-// whose constructors emits its shader immediately. Those five families are reached by
-// every boot as a matter of fact, not of style, and they are exactly the ones a reader is
-// most likely to file as "exotic, surely lazy".
+// So the census reads an INDEPENDENT authority: WHERE `GraphicsManager` constructs each of
+// the five retained drapers, whose constructors emit their shader immediately. A draper built
+// inside `attachDevice` is reached by every boot as a matter of fact, not of style; one built
+// anywhere else is built on first use and its family is downloadable later.
 //
-// LIMIT, stated rather than implied: this covers the five eager drapers. `polygon`, `line`,
+// Since #1888 that split is: NONE eager, all five lazy. The census asserts the partition in
+// BOTH directions rather than just the half that happens to be populated — an "eager ⇒ boot"
+// check alone would now be vacuously green (the eager set is empty), which is exactly the
+// failure §12 records for path-keyed gates. So `lazy ⇒ 'lazy'` carries the weight today, and
+// `eager ⇒ 'boot'` is the arm that catches a draper moving back.
+//
+// LIMIT, stated rather than implied: this covers the five retained drapers. `polygon`, `line`,
 // `point`, `icon`, `text`, `raster` and `under-occluder` are boot-group by an argument
 // about styles (see the rows in `ids.ts`), and no mechanical authority in the repo can
 // confirm that — a wrong group there is caught only by the re-bake drift and by review.
@@ -209,29 +214,53 @@ describe('baked shaders — the boot group matches the eager-construction census
     RetainedParticleDraper: 'particle-retained',
   }
 
-  const constructed = (): string[] => [
-    ...new Set(
-      [...attachDeviceBody().matchAll(/new\s+(\w*Draper)\s*\(/g)].map((m) => m[1] as string),
-    ),
+  const drapersIn = (src: string): string[] => [
+    ...new Set([...src.matchAll(/new\s+(\w*Draper)\s*\(/g)].map((m) => m[1] as string)),
   ]
 
-  it('the census still finds the eagerly-constructed drapers (#996: not vacuous)', () => {
+  /** Built the moment a device exists → its shader is on the boot path. */
+  const eager = (): string[] => drapersIn(attachDeviceBody())
+  /** Built somewhere else in the manager → built on first use, so downloadable later. */
+  const lazy = (): string[] => {
+    const all = drapersIn(readFileSync(MANAGER, 'utf8'))
+    const e = new Set(eager())
+    return all.filter((c) => !e.has(c))
+  }
+
+  it('the census still finds every draper it classifies (#996: not vacuous)', () => {
     expect(
-      constructed().sort(),
-      'attachDevice no longer constructs the drapers this census reads — re-derive the boot ' +
-        'group from whatever replaced them before trusting FAMILY_GROUPS again',
+      [...eager(), ...lazy()].sort(),
+      'GraphicsManager no longer constructs the drapers this census reads — re-derive the ' +
+        'boot group from whatever replaced them before trusting FAMILY_GROUPS again',
     ).toEqual(Object.keys(DRAPER_FAMILY).sort())
   })
 
   it('every family attachDevice reaches at boot is in the BOOT group', () => {
     const misfiled: string[] = []
-    for (const cls of constructed()) {
+    for (const cls of eager()) {
       const family = DRAPER_FAMILY[cls]
       if (family === undefined || FAMILY_GROUPS[family] === 'boot') continue
       misfiled.push(
         `${family} is filed as '${FAMILY_GROUPS[family]}', but GraphicsManager.attachDevice ` +
           `constructs ${cls} unconditionally at EVERY boot (its constructor emits the shader ` +
           `immediately) — the artifact holding it must be the one the boot downloads`,
+      )
+    }
+    expect(misfiled, misfiled.join('\n')).toEqual([])
+  })
+
+  it('every family built ON FIRST USE is in the LAZY group (#1888)', () => {
+    // The arm carrying the weight now that nothing is eager. It is what stops the five rows
+    // drifting back to 'boot' while the construction stays lazy — which would cost the
+    // download the change exists to remove, with every other gate still green.
+    const misfiled: string[] = []
+    for (const cls of lazy()) {
+      const family = DRAPER_FAMILY[cls]
+      if (family === undefined || FAMILY_GROUPS[family] === 'lazy') continue
+      misfiled.push(
+        `${family} is filed as '${FAMILY_GROUPS[family]}', but GraphicsManager builds ${cls} ` +
+          `on FIRST USE, not in attachDevice — a map that never draws one must not download ` +
+          `its shader`,
       )
     }
     expect(misfiled, misfiled.join('\n')).toEqual([])
@@ -260,12 +289,18 @@ describe('baked shaders — the boot group matches the eager-construction census
       icon: 'boot',
       text: 'boot',
       raster: 'boot',
-      'circle-retained': 'boot',
-      'icon-retained': 'boot',
-      'arrow-retained': 'boot',
-      'particle-retained': 'boot',
-      'arrow-retained-advected': 'boot',
       'under-occluder': 'boot',
+      // boot -> lazy in #1888, with the evidence this pin asks for: `GraphicsManager`
+      // stopped constructing these five in `attachDevice` and now builds each on first use
+      // (`*DraperOf()`), so the two arms above re-derive them as lazy from the manager's own
+      // source rather than from this table. Measured on the GLSL boot group: brotli 16,823 ->
+      // 11,630 (-30.9%), raw 397,015 -> 317,051 — 5,193 bytes that only a session calling
+      // `map.graphics.*` now pays for.
+      'circle-retained': 'lazy',
+      'icon-retained': 'lazy',
+      'arrow-retained': 'lazy',
+      'particle-retained': 'lazy',
+      'arrow-retained-advected': 'lazy',
       'heatmap-accum': 'lazy',
       'heatmap-blur': 'lazy',
       'heatmap-compose': 'lazy',

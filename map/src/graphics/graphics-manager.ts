@@ -105,8 +105,15 @@ export class GraphicsManager {
    *  HostAtlasPacker, so sprite coordinates are backend-identical. */
   private atlas: HostSpriteAtlasGPU | HostSpriteAtlasRhi | null = null
 
-  // ── Phase 1 retained-batch state (per-run, built in attachDevice). ──
+  // ── Phase 1 retained-batch state (per-run; the device half is set in attachDevice). ──
   private rhi: RhiDevice | null = null
+  private format: GPUTextureFormat | null = null
+  // The five retained drapers, built ON FIRST USE rather than at attach (#1888). Each one
+  // drags its shader family into the BOOT baked group — together 30.9% of boot's brotli — and
+  // `map.graphics.*` is an opt-in API, so a session that never calls it was downloading all
+  // five for nothing. These are the MEMO SLOTS; `*DraperOf()` below is what fills them, and
+  // the boot/lazy split in shaders/baked/ids.ts is derived from this method's body by
+  // install.test.ts's census, so moving the construction is what moves the group.
   private draper: RetainedIconDraper | null = null
   private arrowDraper: RetainedArrowDraper | null = null
   private advectedArrowDraper: RetainedArrowAdvectedDraper | null = null
@@ -379,15 +386,18 @@ export class GraphicsManager {
       this.materialiseText(batch, spec)
       return
     }
-    if (
-      !this.rhi ||
-      !this.atlas ||
-      !this.draper ||
-      !this.arrowDraper ||
-      !this.circleDraper ||
-      !this.particleDraper
-    )
-      return
+    // ONE draper — this batch's own kind (#1888). Demanding all four here is what made a
+    // single circle build the icon, arrow and particle drapers too, and with them their shader
+    // families' place in the boot artifact.
+    const draper =
+      spec.type === 'arrow'
+        ? this.arrowDraperOf()
+        : spec.type === 'circle'
+          ? this.circleDraperOf()
+          : spec.type === 'particle-flow'
+            ? this.particleDraperOf()
+            : this.iconDraperOf()
+    if (!this.rhi || !this.atlas || !draper) return
     const feat =
       spec.type === 'arrow'
         ? packRetainedArrowFeat(spec, this.dpr)
@@ -441,18 +451,14 @@ export class GraphicsManager {
     // backend-blind (the WebGPU atlas wraps its native handles; the RHI atlas hands its own
     // through).
     batch.bindGroup =
-      spec.type === 'arrow'
-        ? this.arrowDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-        : spec.type === 'circle'
-          ? this.circleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-          : spec.type === 'particle-flow'
-            ? this.particleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-            : this.draper.makeBatchBindGroup(
-                batch.featBuf,
-                batch.tintBuf,
-                this.atlas.rhiView(),
-                this.atlas.rhiSampler(),
-              )
+      draper instanceof RetainedIconDraper
+        ? draper.makeBatchBindGroup(
+            batch.featBuf,
+            batch.tintBuf,
+            this.atlas.rhiView(),
+            this.atlas.rhiSampler(),
+          )
+        : draper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
     batch.count = instanceCountOf(spec)
   }
 
@@ -600,7 +606,11 @@ export class GraphicsManager {
       for (const b of this._retired) this.rhi?.destroyBuffer(b)
       this._retired.length = 0
     }
-    if (!this.draper || !this.frameBlock || this._blockView === null) return
+    // NOT `!this.draper` (#1888): that is the ICON draper, and since the drapers are built on
+    // first use it stays null for a map that only draws circles — this guard would then skip
+    // every frame and render nothing, silently. `frameBlock` is what actually says a device is
+    // attached; the per-batch draper is resolved (and null-checked) at the draw below.
+    if (!this.frameBlock || this._blockView === null) return
     this.applyDpr(dpr)
 
     const drawable = this.batches.filter((b) => b.bindGroup !== null && b.count > 0)
@@ -728,6 +738,57 @@ export class GraphicsManager {
    *  pass resolved MSAA — same strategy as the heatmap / overdraw-compose passes.
    *  Icons need no MSAA (raster edges are texture-alpha; there is no SDF host
    *  path yet), so this sidesteps the resolve-ownership hazard entirely. */
+  // ── Lazy draper construction (#1888) ──
+  //
+  // One accessor per retained kind, each building its draper the first time a batch of that
+  // kind is materialised. `materialise` asks only for the kind it is packing, so adding a
+  // circle builds the circle draper and leaves the other four unbuilt — which is the whole
+  // point: an unbuilt draper is a shader family the boot artifact does not have to carry.
+  //
+  // Returning `null` before attach is the same contract the fields had, so every existing
+  // null-guard keeps its meaning; what changed is that null now also means "nothing has asked
+  // for this yet", which is indistinguishable to a caller and is why the guards did not need
+  // to learn a third state.
+  private iconDraperOf(): RetainedIconDraper | null {
+    if (this.draper === null && this.rhi !== null && this.format !== null)
+      this.draper = new RetainedIconDraper(this.rhi, this.format, 1, pointUniformBytes())
+    return this.draper
+  }
+
+  private arrowDraperOf(): RetainedArrowDraper | null {
+    if (this.arrowDraper === null && this.rhi !== null && this.format !== null)
+      this.arrowDraper = new RetainedArrowDraper(this.rhi, this.format, 1, pointUniformBytes())
+    return this.arrowDraper
+  }
+
+  private advectedArrowDraperOf(): RetainedArrowAdvectedDraper | null {
+    if (this.advectedArrowDraper === null && this.rhi !== null && this.format !== null)
+      this.advectedArrowDraper = new RetainedArrowAdvectedDraper(
+        this.rhi,
+        this.format,
+        1,
+        pointUniformBytes(),
+      )
+    return this.advectedArrowDraper
+  }
+
+  private circleDraperOf(): RetainedCircleDraper | null {
+    if (this.circleDraper === null && this.rhi !== null && this.format !== null)
+      this.circleDraper = new RetainedCircleDraper(this.rhi, this.format, 1, pointUniformBytes())
+    return this.circleDraper
+  }
+
+  private particleDraperOf(): RetainedParticleDraper | null {
+    if (this.particleDraper === null && this.rhi !== null && this.format !== null)
+      this.particleDraper = new RetainedParticleDraper(
+        this.rhi,
+        this.format,
+        1,
+        pointUniformBytes(),
+      )
+    return this.particleDraper
+  }
+
   attachDevice(device: GPUDevice, rhi: RhiDevice, format: GPUTextureFormat): void {
     // #823 — on the WebGL2 backend `device` is the no-op Proxy stub
     // (initGPUForcedWebGL2), so the WebGPU atlas would silently upload nothing;
@@ -737,14 +798,23 @@ export class GraphicsManager {
         ? new HostSpriteAtlasRhi(rhi, this.registry)
         : new HostSpriteAtlasGPU(device, this.registry)
     this.rhi = rhi
-    this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
-    this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
-    this.advectedArrowDraper = new RetainedArrowAdvectedDraper(rhi, format, 1, pointUniformBytes())
-    this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
-    this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
-    // The advected DRAPER is available now; its frame-side source (the FlowRenderer that owns
-    // the arrow state) is handed over separately, once buildSceneRenderers has made one.
-    this._compiledArrows.attach(rhi, this.arrowDraper, this.advectedArrowDraper)
+    this.format = format
+    // NOT constructed here (#1888) — a device attach is not evidence that anything will be
+    // drawn through these. Each `*DraperOf()` builds its own on first use; a re-attach clears
+    // the slots below so the next run rebuilds against the new device.
+    this.draper = null
+    this.arrowDraper = null
+    this.advectedArrowDraper = null
+    this.circleDraper = null
+    this.particleDraper = null
+    // The store is handed THUNKS, not drapers. It keeps the property the paired-arrival comment
+    // on `attach` protects — from attach onward a draper is guaranteed AVAILABLE, so a compiled
+    // arrow is never dropped for want of one — while leaving an empty store costing nothing.
+    this._compiledArrows.attach(
+      rhi,
+      () => this.arrowDraperOf(),
+      () => this.advectedArrowDraperOf(),
+    )
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -781,8 +851,15 @@ export class GraphicsManager {
     }
     this._compiledArrows.destroyGpu()
     this.rhi = null
+    // `format` and the advected slot join the clear-down since #1888: the accessors read a
+    // non-null slot as "already built" and `format` as half of "can build", so a slot left
+    // holding a draper bound to the device just destroyed would be handed straight back out.
+    // Under eager construction the next attach overwrote every slot, which is why only these
+    // two were ever missing and why it never showed.
+    this.format = null
     this.draper = null
     this.arrowDraper = null
+    this.advectedArrowDraper = null
     this.circleDraper = null
     this.particleDraper = null
     this.frameBlock = null

@@ -199,17 +199,24 @@ export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
   // what their names suggest and the reason this table was read rather than guessed. (The
   // eagerness is `attachDevice`'s property, so a gate reads it back from that source:
   // install.test.ts's census arm.)
-  'circle-retained': 'boot',
-  'icon-retained': 'boot',
-  'arrow-retained': 'boot',
-  'particle-retained': 'boot',
-  'arrow-retained-advected': 'boot',
   // Lives and dies with the synthetic earth-surface background (map.ts:1163), i.e. with any
   // style that declares a background fill or pattern — near-universal, but style-driven and
   // globe-only. AMBIGUOUS → boot.
   'under-occluder': 'boot',
 
   // ── lazy ──
+  // The five `map.graphics.*` retained families. Their drapers used to be constructed
+  // unconditionally in `GraphicsManager.attachDevice`, which put all five on every boot —
+  // 30.9% of the boot group's brotli — for an API a session opts into. Since #1888 each is
+  // built on FIRST USE (`GraphicsManager.*DraperOf()`), so adding one circle downloads the
+  // circle shader and nothing else. install.test.ts's census derives this classification from
+  // where the manager constructs them, in both directions, so these rows cannot drift back
+  // while the construction stays lazy.
+  'circle-retained': 'lazy',
+  'icon-retained': 'lazy',
+  'arrow-retained': 'lazy',
+  'particle-retained': 'lazy',
+  'arrow-retained-advected': 'lazy',
   // `HeatmapRenderer` builds all three passes together, and only when a heatmap layer exists
   // (heatmap-renderer.ts:474). No heatmap layer, no draper, no lookup.
   'heatmap-accum': 'lazy',

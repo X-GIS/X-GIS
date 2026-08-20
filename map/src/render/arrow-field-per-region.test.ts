@@ -162,10 +162,14 @@ function twoRegions() {
   const ctx = makeCtx()
   const flow = new FlowRenderer(ctx.dev)
   const store = new CompiledArrowStore()
+  // Thunks since #1888 — the store resolves a draper only when it has an arrow to serve. Built
+  // once here and returned, so this fixture keeps the single-instance behaviour it asserts on.
+  const arrow = new RetainedArrowDraper(ctx.dev, 'bgra8unorm', 1, 256)
+  const advected = new RetainedArrowAdvectedDraper(ctx.dev, 'bgra8unorm', 1, 256)
   store.attach(
     ctx.dev,
-    new RetainedArrowDraper(ctx.dev, 'bgra8unorm', 1, 256),
-    new RetainedArrowAdvectedDraper(ctx.dev, 'bgra8unorm', 1, 256),
+    () => arrow,
+    () => advected,
   )
   store.setAdvectedSource(flow)
   flow.setArrowFields(
