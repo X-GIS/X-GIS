@@ -154,36 +154,83 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
     }, Array.from(png))
   }
 
-  // Poll rather than sample once at a fixed delay. `__xgisReady` fires when the
-  // map is live, NOT when it has painted: measured on the software rasterizer
-  // (XGIS_SOFTWARE_GPU=1) this page reports ready at ~3 s and the canvas is
-  // still ENTIRELY unpainted — not merely fill-less, zero non-background pixels
-  // in the sampled region — at +6 s and +9 s, reaching its steady 6.6k dark-fill
-  // px only around +35 s, because the `dark` demo compiles a 14.6 MB
-  // countries.geojson before the first tile can draw. The former fixed
-  // `waitForTimeout(2500)` therefore read the frame before anything existed and
-  // reported 0, a coin-flip that fails on origin/main as readily as on any
-  // branch (measured 4 of 6 runs at merge-base e44611b8).
+  // ── Converge on the CAUSE, then measure the EFFECT (#1895) ──
   //
-  // This does NOT weaken the gate: the threshold below is unchanged, the loop
-  // never breaks under it, and a hemisphere that genuinely does not paint stays
-  // at 0 for the whole budget and still fails — it only stops the spec
-  // concluding "empty" from a frame that had not been rendered yet.
+  // `__xgisReady` fires when the map is live, NOT when it has painted: measured
+  // on the software rasterizer (XGIS_SOFTWARE_GPU=1) this page reports ready at
+  // ~3 s and the canvas is still ENTIRELY unpainted at +6 s, reaching its steady
+  // 6.6k dark-fill px only around +32 s, because the `dark` demo compiles a
+  // 14.6 MB countries.geojson before the first tile can draw. A fixed
+  // `waitForTimeout(2500)` reads the frame before anything exists — reproduced
+  // here, it fails 1 run in 3 with the CAUSE assertion's own
+  // `selected: (none)`, which is exactly how this gate went red on PR #1894
+  // while passing on the PR one commit below it.
+  //
+  // Polling the DARK-FILL PROXY (the shape this had before) narrows that window
+  // without closing it, for two measured reasons:
+  //
+  //  1. it does not imply the thing the CAUSE assertion reads. Dark pixels can
+  //     come from the globe body; tiles are what `sources.world.tiles` counts.
+  //  2. `sampleDarkFill` is a screenshot + in-page PNG decode + region scan, and
+  //     it queues behind the very GeoJSON compile it is waiting on — one
+  //     iteration measured 26 s of a 120 s budget (samples at +2.0, +3.4, +4.7,
+  //     +5.9, then +32.5 s). Four samples in, the budget is a third gone. On a
+  //     slower runner the loop can spend the whole budget and still conclude
+  //     "empty" from a frame that had not rendered.
+  //
+  // So converge on the QUANTITY THE ASSERTION READS — a non-empty, stable world
+  // tile set — polled through the cheap snapshot instead of a screenshot.
+  //
+  // `getMissingTileCount()` is NOT usable here, and the measurement is the whole
+  // reason to say so: on this page it reads 0 from the first sample onward,
+  // 30 seconds before a single tile exists. It counts tiles IN FLIGHT, so during
+  // the GeoJSON compile — nothing requested yet — "finished" and "not started"
+  // are the same number. It is the right signal for `_1581-static-camera-render-
+  // gate` and `_scene-builder-twin` (tile-driven pages) and carries no
+  // information on this one. Do not "restore" it here.
+  //
+  // This does NOT weaken the gate. The wait requires only that SOME stable
+  // non-empty set was selected; the assertion below still decides whether that
+  // set spans both sides of the antimeridian, so a severed selector that
+  // stably picks one side fails exactly as before — and one that picks nothing
+  // burns the budget and still fails with `selected: (none)`.
+  const readSnapshot = async (): Promise<Snapshot | null> =>
+    (await page.evaluate(async () => {
+      const w = window as unknown as { __xgisSnapshot?: () => Promise<unknown> }
+      return w.__xgisSnapshot ? await w.__xgisSnapshot() : null
+    })) as Snapshot | null
+
+  const tileKey = (s: Snapshot | null): string =>
+    (s?.sources.world?.tiles ?? [])
+      .map((t) => `${t.z}/${t.x}/${t.y}`)
+      .sort()
+      .join(',')
+
   const deadline = Date.now() + 120_000
-  let dark = 0
-  for (;;) {
-    dark = await sampleDarkFill()
-    if (dark > DARK_FILL_MIN || Date.now() > deadline) break
+  let snap = await readSnapshot()
+  let prevKey = tileKey(snap)
+  let stable = 0
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(500)
+    snap = await readSnapshot()
+    const key = tileKey(snap)
+    if (key !== '' && key === prevKey) {
+      if (++stable >= 2) break // three identical non-empty reads in a row
+    } else {
+      stable = 0
+    }
+    prevKey = key
+  }
+
+  // The EFFECT sample now costs one screenshot, not one per second.
+  let dark = await sampleDarkFill()
+  for (let i = 0; i < 20 && dark <= DARK_FILL_MIN && Date.now() < deadline; i++) {
     await page.waitForTimeout(1000)
+    dark = await sampleDarkFill()
   }
 
   // ─── CAUSE — the selected tile set, asserted BEFORE the pixel effect ────
-  // (#1774 / §12: order decides which assertion names the real break.) Read
-  // the same settled frame the pixel sample above just measured.
-  const snap = (await page.evaluate(async () => {
-    const w = window as unknown as { __xgisSnapshot?: () => Promise<unknown> }
-    return w.__xgisSnapshot ? await w.__xgisSnapshot() : null
-  })) as Snapshot | null
+  // (#1774 / §12: order decides which assertion names the real break.)
   if (!snap) throw new Error('window.__xgisSnapshot is unavailable on this page')
   const worldTiles = snap.sources.world?.tiles ?? []
   const both = findBothAntimeridianSides(worldTiles)
