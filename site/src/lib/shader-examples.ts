@@ -9,6 +9,8 @@
 // are filesystem-bound, not resolver-bound.
 import { examples, type Control } from '@xgis/shader-dsl/examples'
 import { emitModule, emitGlslModule, reflect } from '@xgis/shader-dsl'
+import type { EmitPlugin } from '@xgis/shader-dsl'
+import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
@@ -144,3 +146,111 @@ export const categoryGroups: ReadonlyArray<{
     match: (c) => c.category === 'compute' && c.splitLabels == null,
   },
 ]
+
+// ═══ Shipping-plugin variants (@xgis/shader-dsl/emit-prod) ═══
+//
+// Every (emit target × plugin combination) for ONE example, emitted at BUILD time by the
+// real emit — the /shader-dsl/shipping demo and each example's detail page both toggle
+// between these precomputed strings, so the DSL never ships to the browser. The three
+// plugins are the ones /shader-dsl/shipping documents, in execution order: inline()
+// rewrites the IR, mangle() renames what survives, minify() compacts the text.
+//
+// Identical outputs are emitted ONCE and shared. A plugin that is a no-op for a given
+// module (nothing linear to inline, nothing manglable left) would otherwise duplicate the
+// whole shader text per combination — across the example pages that is ~35% of the
+// emitted bytes, measured. The dedupe key carries `minify` so a shared panel can never
+// inherit the wrong wrap mode.
+
+export type ShipTargetKey = 'wgsl' | 'glsl-vs' | 'glsl-fs'
+
+/** One rendered code block: the canonical (first) combination that produced this text. */
+export interface ShipPanel {
+  /** `${target}:${inline}${mangle}${minify}`, e.g. `glsl-fs:101`. */
+  key: string
+  target: ShipTargetKey
+  lang: 'wgsl' | 'glsl'
+  code: string
+  bytes: number
+  /** Plugin-free size of the SAME target — the byte badge's baseline. */
+  plainBytes: number
+  /** Minified output is one long line; the code block soft-wraps it. */
+  wrap: boolean
+}
+
+export interface ShipVariants {
+  targets: { key: ShipTargetKey; label: string }[]
+  panels: ShipPanel[]
+  /** Every combination key → the panel that renders it and the emit call that produces
+   *  it. Two combinations can share a panel but never share a call. */
+  index: Record<string, { panel: string; call: string }>
+}
+
+/** The plugins the demo exposes, in EXECUTION order — which is also the order of the
+ *  three bits in a combination key. The one authority for both: the toggles a page
+ *  renders, and the `${i}${m}${n}` those toggles resolve to. */
+export const SHIP_PLUGINS = ['inline', 'mangle', 'minify'] as const
+
+const PLUGIN_FACTORY = { inline, mangle, minify }
+
+/** The 8 [inline, mangle, minify] triples — index 0 is the plugin-free emit. */
+const SHIP_COMBOS = [false, true].flatMap((i) =>
+  [false, true].flatMap((m) => [false, true].map((n) => [i, m, n] as const)),
+)
+
+/** Emit the shipping-plugin matrix for one example id (BUILD time only). */
+export function shipVariants(id: string): ShipVariants {
+  const ex = examples.find((e) => e.id === id)
+  if (!ex) throw new Error(`[shader-dsl] shipVariants: unknown example '${id}'`)
+  const wgsl = {
+    key: 'wgsl' as ShipTargetKey,
+    label: 'WGSL',
+    lang: 'wgsl' as const,
+    emit: (p: EmitPlugin[]) => emitModule(ex.module, { plugins: p }),
+    call: (n: string[]) =>
+      n.length ? `emitModule(m, { plugins: [${n.join(', ')}] })` : 'emitModule(m)',
+  }
+  // GLSL ES 3.00 compiles as two separate sources, so each stage is its own target — and
+  // mangle() has to agree across them by name or the link fails, which is exactly what its
+  // per-module determinism buys. A compute example has no GLSL face at all.
+  const glsl = (['vertex', 'fragment'] as const).map((stage) => ({
+    key: (stage === 'vertex' ? 'glsl-vs' : 'glsl-fs') as ShipTargetKey,
+    label: `GLSL · ${stage}`,
+    lang: 'glsl' as const,
+    emit: (p: EmitPlugin[]) => emitGlslModule(ex.module, stage, { plugins: p }),
+    call: (n: string[]) =>
+      n.length
+        ? `emitGlslModule(m, '${stage}', { plugins: [${n.join(', ')}] })`
+        : `emitGlslModule(m, '${stage}')`,
+  }))
+  const targets = [wgsl, ...(ex.renderable ? glsl : [])]
+
+  const panels: ShipPanel[] = []
+  const index: ShipVariants['index'] = {}
+  const on = (combo: readonly boolean[]) => SHIP_PLUGINS.filter((_, k) => combo[k])
+  for (const t of targets) {
+    const codes = SHIP_COMBOS.map((combo) => t.emit(on(combo).map((p) => PLUGIN_FACTORY[p]())))
+    const plainBytes = codes[0]!.length
+    const canonical = new Map<string, string>()
+    SHIP_COMBOS.forEach((combo, c) => {
+      const [i, m, n] = combo
+      const key = `${t.key}:${+i}${+m}${+n}`
+      const code = codes[c]!
+      let panel = canonical.get(`${+n} ${code}`)
+      if (panel === undefined) {
+        panel = key
+        canonical.set(`${+n} ${code}`, key)
+        panels.push({
+          key,
+          target: t.key,
+          lang: t.lang,
+          code,
+          bytes: code.length,
+          plainBytes,
+          wrap: n,
+        })
+      }
+      index[key] = { panel, call: t.call(on(combo).map((p) => `${p}()`)) }
+    })
+  }
+  return { targets: targets.map((t) => ({ key: t.key, label: t.label })), panels, index }
+}
