@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c3ce0e85a0deb6dba35af466a54f802871094db1
+  Generated from: 1e7feabd2951db961821ceaf3e70d392ad8b7c80
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c3ce0e85a0de
+    bun scripts/emit-changelog.ts --since 1e7feabd2951
 -->
 
 # Changelog
@@ -86,6 +86,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** _globe-dateline-wired-gate converges on the tile set it asserts (#1895) ([#1897](https://github.com/X-GIS/X-GIS/pull/1897)) `1e7feab`
 - **e2e:** _scene-builder-twin waits for convergence instead of a fixed sleep (#1895) ([#1896](https://github.com/X-GIS/X-GIS/pull/1896)) `c3ce0e8`
 - **ci:** stop a push to main cancelling the post-merge guard run for the commit that changed code (#1872) ([#1883](https://github.com/X-GIS/X-GIS/pull/1883)) `ea73353`
 - **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
