@@ -59,6 +59,7 @@ import * as vtrModule from './render/vector-tile-renderer'
 import * as xgisData from '@xgis/data'
 import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from './camera'
+import { fitWidthCssPx } from './map-geo-helpers'
 
 beforeEach(() => {
   vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation(
@@ -191,5 +192,78 @@ describe('SourceManager GeoJSON-URL attach honours the bounds-fit gate (B2)', ()
     expect(camera.centerX).toBe(startX)
     expect(camera.centerY).toBe(startY)
     expect(camera.zoom).toBe(startZoom)
+  })
+})
+
+// #1836: the boot-time bounds-fit (`_attachGeoJSONViaVirtualPMTiles`, the
+// site GeoJSON URL sources hit before the render loop's first `resizeCanvas`
+// call) derived its fit width from `canvas.width / dpr` — the device PIXEL
+// BUFFER, which still holds the un-sized HTML default (300) at attach time,
+// since `resizeCanvas` (rhi-webgpu/src/gpu.ts) only runs from the render
+// loop and source attach (map.ts run()) happens before that loop starts.
+// Fail-before witness: with the unfixed `cssW = this.getCanvas().width / dpr`,
+// the first test below failed with
+//   "expected 300 to be 780 // Object.is equality"
+// — the attach fit against the 300px buffer default instead of the 780px
+// laid-out width. `fitWidthCssPx` (map-geo-helpers.ts) is the fix: read
+// `clientWidth` (mirrors resizeCanvas's own source of truth) and fall back
+// to `width / dpr` only when layout hasn't happened (`clientWidth === 0`).
+function makeSourceManagerForWidthTest(
+  camera: Camera,
+  canvas: { width: number; clientWidth: number },
+  fitZoomToLonSpan: (lonSpan: number, cssWidthPx: number) => number,
+) {
+  const rendererStub = {} as unknown as MapRendererContent
+  const deps: SourceManagerDeps = {
+    rawDatasets: new Map(),
+    inputs: new InputStore(),
+    registerVtSource: () => {},
+    sourceCRS: new Map(),
+    geojsonCapPoles: new Map(),
+    heatmapPointData: new Map(),
+    camera,
+    getCanvas: () => canvas as unknown as HTMLCanvasElement,
+    getCtx: () => ({ device: {}, format: 'bgra8unorm' }) as unknown as GPUContext,
+    getRenderer: () => rendererStub,
+    getLineRenderer: () => null,
+    invalidate: () => {},
+    fitZoomToLonSpan,
+    runBoundsFitGate: makeGate({ value: false }),
+    rebuildLayers: () => {},
+    teardownSource: () => {},
+    fireError: () => {},
+    getVtSource: () => null,
+    hasVariantSources: () => false,
+    deleteFeatureIndex: () => {},
+    beginCoverageLoad: () => Promise.resolve(),
+  }
+  return new SourceManager(deps)
+}
+
+describe('SourceManager boot-time bounds-fit reads the laid-out width (#1836)', () => {
+  it('pre-first-frame shape: canvas.width=300 (buffer default), clientWidth=780 → fit uses 780', async () => {
+    const camera = new Camera(0, 0, 2)
+    // Identity stand-in surfaces the exact cssWidthPx the attach computed,
+    // the same way the B2 tests above use a constant stand-in to surface
+    // that the fit ran at all.
+    const sm = makeSourceManagerForWidthTest(
+      camera,
+      { width: 300, clientWidth: 780 },
+      (_lonSpan, cssWidthPx) => cssWidthPx,
+    )
+
+    await sm._attachGeoJSONViaVirtualPMTiles('paris', parisFC(), emptyMaps(), { fit: false })
+
+    // The vitest node env has no `window`, so the attach's internal dpr
+    // resolves to its `: 1` branch — cssW must equal the laid-out
+    // clientWidth (780), not the 300px HTML buffer default.
+    expect(camera.zoom).toBe(780)
+  })
+
+  it('no-layout shape: clientWidth=0, width=600, dpr=2 → falls back to width/dpr (old behavior preserved)', () => {
+    // Exercises fitWidthCssPx directly with an explicit dpr — isolating the
+    // fallback arithmetic from the window-detection branch the test above
+    // already covers.
+    expect(fitWidthCssPx({ width: 600, clientWidth: 0 }, 2)).toBe(300)
   })
 })

@@ -195,6 +195,7 @@ import {
   labelsHaveTimeAnimation,
   buildTypographyMap,
   registerFonts,
+  fitWidthCssPx,
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
@@ -4204,7 +4205,8 @@ export class XGISMap {
               // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
               this.camera.syncCenterLat()
               const dpr = canvasEffectiveDpr(this.canvas)
-              const cssW = this.canvas.width / dpr
+              // #1836: laid-out CSS width, not the pre-first-frame canvas buffer.
+              const cssW = fitWidthCssPx(this.canvas, dpr)
               this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
             }
           })

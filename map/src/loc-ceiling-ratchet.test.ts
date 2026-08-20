@@ -731,7 +731,10 @@ const CEILINGS: Record<string, number> = {
   // stop-block — the SourceManager half of the same teardown spine, so a
   // `refresh:`-declared polling loop can't outlive a scene swap or ghost-write
   // into a same-named source in the next scene (the #1569 class of bug).
-  'map/src/map.ts': 5584,
+  // 5584→5586 (#1836, atop the #1304 bump): the boot-fit width import + a one-line
+  // call-site comment at the tile-worker-compile bounds-fit — routes through the new
+  // `fitWidthCssPx` helper (map-geo-helpers.ts) instead of the stale `canvas.width / dpr`.
+  'map/src/map.ts': 5586,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -847,7 +850,12 @@ const CEILINGS: Record<string, number> = {
   // Fix: re-check `isStale?.() || !this._sourceRefresh.isRunning(sourceName)`
   // AFTER the tick's await, BEFORE `setSourceData` — same shape as every other
   // A7 guard in this file. +15 = the guard line + its reasoning comment.
-  'map/src/source-manager.ts': 1057,
+  // 1057→1060 (#1836): a one-line call-site comment at each of the three boot-fit
+  // sites (PMTiles / GeoJSON-URL / VirtualPMTiles attach), now routed through the
+  // new `fitWidthCssPx` helper (map-geo-helpers.ts) instead of the stale `canvas.
+  // width / dpr` — the pre-first-frame boot-fit read the un-sized HTML canvas
+  // default (300) instead of the laid-out CSS width.
+  'map/src/source-manager.ts': 1060,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

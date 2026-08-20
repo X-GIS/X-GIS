@@ -46,7 +46,7 @@ import { TileCatalog } from '@xgis/data'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import type { ShowSourceMaps } from './show-source-maps'
 import type { SceneCommands } from './interpreter'
-import { asVectorTileKind, computeGeoJSONBounds } from './map-geo-helpers'
+import { asVectorTileKind, computeGeoJSONBounds, fitWidthCssPx } from './map-geo-helpers'
 import { attachPMTilesSource, detectVectorTileFormat } from '@xgis/data'
 import { VirtualPMTilesBackend } from '@xgis/data'
 import { detectCapPoles, type CapPoles } from '@xgis/data'
@@ -483,7 +483,8 @@ export class SourceManager {
               typeof window !== 'undefined'
                 ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
                 : 1
-            const cssW = this.getCanvas().width / dpr
+            // #1836: laid-out CSS width, not the pre-first-frame canvas buffer.
+            const cssW = fitWidthCssPx(this.getCanvas(), dpr)
             this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
           })
         }
@@ -741,7 +742,8 @@ export class SourceManager {
         this.camera.syncCenterLat()
         const dpr =
           typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-        const cssW = this.getCanvas().width / dpr
+        // #1836: laid-out CSS width, not the pre-first-frame canvas buffer.
+        const cssW = fitWidthCssPx(this.getCanvas(), dpr)
         this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
       }
     })
@@ -864,7 +866,8 @@ export class SourceManager {
           this.camera.syncCenterLat()
           const dpr =
             typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
-          const cssW = this.getCanvas().width / dpr
+          // #1836: laid-out CSS width, not the pre-first-frame canvas buffer.
+          const cssW = fitWidthCssPx(this.getCanvas(), dpr)
           this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
         })
       }
