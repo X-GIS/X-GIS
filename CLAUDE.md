@@ -502,3 +502,46 @@ frontmatter descriptions) are the single authority, and a hand-synced index woul
 exactly the two-authorities drift §12's own second-ratchet entry warns about. Add a rule
 here only when an incident actually recurred or plausibly will; keep each to one
 actionable line plus its citation.
+
+## 13. Session Start — verify what you inherited, don't trust it
+
+A session begins with no memory of the one before it. Everything it inherits — a working
+copy, a `node_modules`, a green check, "that flake was fixed" — is a **claim left by
+someone who is no longer here.** Three hours went into believing such claims on
+2026-08-20, so the first move of a session is to check them, not to build on them.
+
+**Run this before the first substantive change:**
+
+```bash
+bun scripts/session-check.ts     # branch / HEAD / dirty / behind-main / dependency drift
+```
+
+It owns only the mechanical half — facts about the working copy. It exits non-zero on the
+one unambiguous finding: a dependency **declared but not installed**. That is what bit —
+`main` gained `shiki` in `site` (#1911) while this container's `node_modules` predated it,
+and the symptom was a Rollup `cannot resolve shiki/core` that reads like a code bug. It was
+misdiagnosed twice, in opposite directions, before file timestamps settled it. `bun install
+--frozen-lockfile --dry-run` cannot see this: it plans against the LOCKFILE and prints
+"done" while the tree on disk is stale.
+
+**The other half cannot be scripted — it is re-reading evidence, and it is the half that
+costs hours:**
+
+- **A "fixed" flake is not fixed until a run SINCE the fix shows it clean.** `_globe-
+dateline-wired-gate` was rewritten in #1897 to remove a flake, flaked again the same day,
+  and the fix still looked like a fix. This is now checkable: every render shard prints
+  `flaky-report: N flaky in render-shard k/4`, and a recurrence raises a `::warning::`
+  annotation (#1924/#1930). **Read it before repeating "that one is handled".**
+- **A green check does not mean YOUR gate ran.** The render leg is sharded; a spec you did
+  not touch can be the only thing a shard exercised. Confirm the relevant spec appears in a
+  shard log before treating green as evidence about your change (§5 is about the same
+  vacuity, one level down).
+- **`conclusion: success` does not distinguish first-try from retry-recovered.** The
+  check-run API carries `output.title` / `output.summary` / `output.text` as EMPTY STRINGS,
+  so the UI cannot show you the difference. The marker above is the only place it appears.
+- **A decision, measurement or rejected approach recorded on an issue is a FACT, not a
+  starting point for re-derivation** (§9.5). Read the issue's COMMENTS, not just its body —
+  completion often lives there.
+
+**This is working if** a session never spends its second hour discovering something the
+previous session already knew, and never reports "verified" about a gate that did not run.
