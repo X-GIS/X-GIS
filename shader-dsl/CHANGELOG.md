@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 884e32d95f5ded9023f5cb08ebc0cdc718bfaa4b
+  Generated from: 7959f837eb75896ba396116fa24270e317df99ad
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 884e32d95f5d
+    bun scripts/emit-changelog.ts --path shader-dsl --since 7959f837eb75
 -->
 
 # Changelog — shader-dsl
@@ -51,6 +51,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
 - **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
 - **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
 - **shader-dsl:** hoist discarding struct-ctor args to named GLSL locals (#1840) ([#1841](https://github.com/X-GIS/X-GIS/pull/1841)) `27e7a38`

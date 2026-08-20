@@ -466,6 +466,22 @@ export interface FuncDecl {
    *  here so target-vocabulary gates like assertBuiltins (#1672) can read it without
    *  re-parsing the attr string). */
   readonly retBuiltin?: string
+  /** This fn's BODY must never be exposed at its call sites — the emit optimizer
+   *  keeps the call opaque (#1926). Set by `fp64Lower` on every df64 EFT helper it
+   *  injects: those bodies are error-free transformations that are algebraically
+   *  trivial (`e = b - (s - a)` is 0 in real arithmetic), so flattening them hands
+   *  the terms to passes and drivers that may legally cancel them — see
+   *  core/fp64/df64-lib.ts for the full hazard.
+   *
+   *  A FLAG rather than the `df64_` name prefix this used to be, because `mangle`
+   *  renames that library on purpose: the name test held or not depending on plugin
+   *  ARRAY ORDER, so `[mangle(), inline()]` flattened the whole EFT library while
+   *  `[inline(), mangle()]` did not, with no error either way. A property of the
+   *  decl survives every rename; a property of its spelling does not.
+   *
+   *  Structured ONLY, with deliberately NO `attrs` spelling (as `portable` above):
+   *  it is not a WGSL attribute and cannot change a single emitted byte. */
+  readonly opaque?: boolean
   /** Documented MISRA single-exit DEVIATION — when true the single-exit static
    *  rule skips this fn (it has an intentional early return, e.g. a guard that
    *  skips an expensive loop). Use sparingly, with a comment stating why. */
