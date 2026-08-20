@@ -42,27 +42,8 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
+  isWorthHoisting,
 } from './expr-utils.js'
-
-// Only number exprs that COMPUTE — a bare member/swizzle/index navigation is as
-// cheap inlined as bound (mirrors cse / cse-local isWorthHoisting).
-function isWorthHoisting(e: Expr): boolean {
-  let computes = false
-  eachExpr(e, (x) => {
-    if (
-      x.op === 'binop' ||
-      x.op === 'unop' ||
-      x.op === 'compare' ||
-      x.op === 'logical' ||
-      x.op === 'call' ||
-      x.op === 'construct' ||
-      x.op === 'select' ||
-      x.op === 'matchExpr'
-    )
-      computes = true
-  })
-  return computes
-}
 
 /** The varref / param root names an expression reads. */
 function rootsOf(e: Expr): Set<string> {
@@ -170,8 +151,9 @@ function tally(
   localSet: ReadonlySet<string>,
   occ: Map<string, Occur>,
   condKeys: Set<string>,
+  loadRoots: ReadonlySet<string>,
 ): void {
-  if (isCompound(e) && isWorthHoisting(e) && refsLocal(e, localSet)) {
+  if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet)) {
     const k = keyOf(e)
     if (cond) {
       condKeys.add(k)
@@ -183,37 +165,37 @@ function tally(
   }
   switch (e.op) {
     case 'logical':
-      tally(e.a, idx, cond, localSet, occ, condKeys)
-      tally(e.b, idx, true, localSet, occ, condKeys)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.b, idx, true, localSet, occ, condKeys, loadRoots)
       break
     case 'select':
-      tally(e.cond, idx, cond, localSet, occ, condKeys)
-      tally(e.ifTrue, idx, true, localSet, occ, condKeys)
-      tally(e.ifFalse, idx, true, localSet, occ, condKeys)
+      tally(e.cond, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.ifTrue, idx, true, localSet, occ, condKeys, loadRoots)
+      tally(e.ifFalse, idx, true, localSet, occ, condKeys, loadRoots)
       break
     case 'matchExpr':
-      tally(e.scrutinee, idx, cond, localSet, occ, condKeys)
-      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys)
-      tally(e.default, idx, true, localSet, occ, condKeys)
+      tally(e.scrutinee, idx, cond, localSet, occ, condKeys, loadRoots)
+      for (const [, v] of e.cases) tally(v, idx, true, localSet, occ, condKeys, loadRoots)
+      tally(e.default, idx, true, localSet, occ, condKeys, loadRoots)
       break
     case 'binop':
     case 'compare':
-      tally(e.a, idx, cond, localSet, occ, condKeys)
-      tally(e.b, idx, cond, localSet, occ, condKeys)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.b, idx, cond, localSet, occ, condKeys, loadRoots)
       break
     case 'unop':
-      tally(e.a, idx, cond, localSet, occ, condKeys)
+      tally(e.a, idx, cond, localSet, occ, condKeys, loadRoots)
       break
     case 'call':
     case 'construct':
-      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys)
+      for (const a of e.args) tally(a, idx, cond, localSet, occ, condKeys, loadRoots)
       break
     case 'member':
-      tally(e.base, idx, cond, localSet, occ, condKeys)
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots)
       break
     case 'index':
-      tally(e.base, idx, cond, localSet, occ, condKeys)
-      tally(e.idx, idx, cond, localSet, occ, condKeys)
+      tally(e.base, idx, cond, localSet, occ, condKeys, loadRoots)
+      tally(e.idx, idx, cond, localSet, occ, condKeys, loadRoots)
       break
     default:
       break // leaf
@@ -263,6 +245,7 @@ function gvnBlock(
   body: readonly Stmt[],
   localSet: ReadonlySet<string>,
   next: { n: number },
+  loadRoots: ReadonlySet<string>,
   env: ReadonlyMap<string, Avail> = new Map(),
 ): Stmt[] {
   // 1. Tally cross-statement candidates over this block's value exprs. Recursion now
@@ -273,7 +256,7 @@ function gvnBlock(
   const occ = new Map<string, Occur>()
   const condKeys = new Set<string>()
   rec.forEach((s, idx) => {
-    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys)
+    for (const e of valueExprs(s)) tally(e, idx, false, localSet, occ, condKeys, loadRoots)
   })
 
   // 3. Keep keys that occur unconditionally in >= 2 distinct statements.
@@ -336,7 +319,9 @@ function gvnBlock(
     }
     // The RHS of an assign is evaluated BEFORE the write, so rewriting statement idx
     // against the pre-statement `live` is right; the retirement below is for idx+1 on.
-    out.push(mapStmtValue(recurseBlocks(s, localSet, next, availableIn(s, live)), replace))
+    out.push(
+      mapStmtValue(recurseBlocks(s, localSet, next, loadRoots, availableIn(s, live)), replace),
+    )
     const mut = mutatedBy(s)
     if (mut.size > 0)
       for (const [k, a] of [...live]) {
@@ -356,32 +341,38 @@ function recurseBlocks(
   s: Stmt,
   localSet: ReadonlySet<string>,
   next: { n: number },
+  loadRoots: ReadonlySet<string>,
   env: ReadonlyMap<string, Avail>,
 ): Stmt {
   switch (s.s) {
     case 'if':
       return {
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: gvnBlock(a.body, localSet, next, env) })),
-        elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next, env) : undefined,
+        arms: s.arms.map((a) => ({
+          cond: a.cond,
+          body: gvnBlock(a.body, localSet, next, loadRoots, env),
+        })),
+        elseBody: s.elseBody ? gvnBlock(s.elseBody, localSet, next, loadRoots, env) : undefined,
       }
     case 'for':
-      return { ...s, body: gvnBlock(s.body, localSet, next, env) }
+      return { ...s, body: gvnBlock(s.body, localSet, next, loadRoots, env) }
     case 'switch':
       return {
         ...s,
         cases: s.cases.map((c) => ({
           value: c.value,
-          body: gvnBlock(c.body, localSet, next, env),
+          body: gvnBlock(c.body, localSet, next, loadRoots, env),
         })),
-        defaultBody: s.defaultBody ? gvnBlock(s.defaultBody, localSet, next, env) : undefined,
+        defaultBody: s.defaultBody
+          ? gvnBlock(s.defaultBody, localSet, next, loadRoots, env)
+          : undefined,
       }
     default:
       return s
   }
 }
 
-function gvnFn(f: FuncDecl): FuncDecl {
+function gvnFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
   if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
   const localSet = new Set<string>()
   collectLocals(f.body, localSet)
@@ -392,10 +383,12 @@ function gvnFn(f: FuncDecl): FuncDecl {
     const mm = /^_gv(\d+)$/.exec(n)
     if (mm) base = Math.max(base, Number(mm[1]) + 1)
   }
-  return { ...f, body: gvnBlock(f.body, localSet, { n: base }) }
+  return { ...f, body: gvnBlock(f.body, localSet, { n: base }, loadRoots) }
 }
 
 /** Cross-statement value numbering of local-touching repeats. Pure (module → module). */
 export function gvn(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(gvnFn) }
+  // Indexing one of these is a memory load, not free addressing (#1886).
+  const loadRoots = new Set(m.bindings.map((b) => b.name))
+  return { ...m, funcs: m.funcs.map((f) => gvnFn(f, loadRoots)) }
 }

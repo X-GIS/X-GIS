@@ -36,27 +36,8 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
+  isWorthHoisting,
 } from './expr-utils.js'
-
-// Only hoist exprs that COMPUTE — a bare member/swizzle/index navigation is as cheap
-// inlined as bound (mirrors cse.ts isWorthHoisting).
-function isWorthHoisting(e: Expr): boolean {
-  let computes = false
-  eachExpr(e, (x) => {
-    if (
-      x.op === 'binop' ||
-      x.op === 'unop' ||
-      x.op === 'compare' ||
-      x.op === 'logical' ||
-      x.op === 'call' ||
-      x.op === 'construct' ||
-      x.op === 'select' ||
-      x.op === 'matchExpr'
-    )
-      computes = true
-  })
-  return computes
-}
 
 interface Tally {
   counts: Map<string, number>
@@ -66,8 +47,14 @@ interface Tally {
 
 // Walk `e`, tallying compound + worth-hoisting + LOCAL-touching subexprs, propagating a
 // `cond` flag through short-circuit / branch operands so guarded repeats are excluded.
-function tally(e: Expr, cond: boolean, localSet: ReadonlySet<string>, t: Tally): void {
-  if (isCompound(e) && isWorthHoisting(e) && refsLocal(e, localSet)) {
+function tally(
+  e: Expr,
+  cond: boolean,
+  localSet: ReadonlySet<string>,
+  t: Tally,
+  loadRoots: ReadonlySet<string>,
+): void {
+  if (isCompound(e) && isWorthHoisting(e, loadRoots) && refsLocal(e, localSet)) {
     const k = keyOf(e)
     t.counts.set(k, (t.counts.get(k) ?? 0) + 1)
     if (cond) t.condKeys.add(k)
@@ -75,37 +62,37 @@ function tally(e: Expr, cond: boolean, localSet: ReadonlySet<string>, t: Tally):
   }
   switch (e.op) {
     case 'logical':
-      tally(e.a, cond, localSet, t)
-      tally(e.b, true, localSet, t)
+      tally(e.a, cond, localSet, t, loadRoots)
+      tally(e.b, true, localSet, t, loadRoots)
       break // RHS short-circuits
     case 'select':
-      tally(e.cond, cond, localSet, t)
-      tally(e.ifTrue, true, localSet, t)
-      tally(e.ifFalse, true, localSet, t)
+      tally(e.cond, cond, localSet, t, loadRoots)
+      tally(e.ifTrue, true, localSet, t, loadRoots)
+      tally(e.ifFalse, true, localSet, t, loadRoots)
       break
     case 'matchExpr':
-      tally(e.scrutinee, cond, localSet, t)
-      for (const [, v] of e.cases) tally(v, true, localSet, t)
-      tally(e.default, true, localSet, t)
+      tally(e.scrutinee, cond, localSet, t, loadRoots)
+      for (const [, v] of e.cases) tally(v, true, localSet, t, loadRoots)
+      tally(e.default, true, localSet, t, loadRoots)
       break
     case 'binop':
     case 'compare':
-      tally(e.a, cond, localSet, t)
-      tally(e.b, cond, localSet, t)
+      tally(e.a, cond, localSet, t, loadRoots)
+      tally(e.b, cond, localSet, t, loadRoots)
       break
     case 'unop':
-      tally(e.a, cond, localSet, t)
+      tally(e.a, cond, localSet, t, loadRoots)
       break
     case 'call':
     case 'construct':
-      for (const a of e.args) tally(a, cond, localSet, t)
+      for (const a of e.args) tally(a, cond, localSet, t, loadRoots)
       break
     case 'member':
-      tally(e.base, cond, localSet, t)
+      tally(e.base, cond, localSet, t, loadRoots)
       break
     case 'index':
-      tally(e.base, cond, localSet, t)
-      tally(e.idx, cond, localSet, t)
+      tally(e.base, cond, localSet, t, loadRoots)
+      tally(e.idx, cond, localSet, t, loadRoots)
       break
     default:
       break // leaf
@@ -177,12 +164,13 @@ function hoistInStatement(
   s: Stmt,
   localSet: ReadonlySet<string>,
   next: { n: number },
+  loadRoots: ReadonlySet<string>,
 ): { lets: Stmt[]; stmt: Stmt } {
   const exprs = valueExprs(s)
   if (exprs.length === 0) return { lets: [], stmt: s }
 
   const t: Tally = { counts: new Map(), condKeys: new Set(), exemplar: new Map() }
-  for (const e of exprs) tally(e, false, localSet, t)
+  for (const e of exprs) tally(e, false, localSet, t, loadRoots)
 
   const repeated = [...t.counts].filter(([k, n]) => n >= 2 && !t.condKeys.has(k)).map(([k]) => k)
   if (repeated.length === 0) return { lets: [], stmt: s }
@@ -222,11 +210,12 @@ function processBody(
   body: readonly Stmt[],
   localSet: ReadonlySet<string>,
   next: { n: number },
+  loadRoots: ReadonlySet<string>,
 ): Stmt[] {
   const out: Stmt[] = []
   for (const s of body) {
-    const rec = recurseBlocks(s, localSet, next)
-    const { lets, stmt } = hoistInStatement(rec, localSet, next)
+    const rec = recurseBlocks(s, localSet, next, loadRoots)
+    const { lets, stmt } = hoistInStatement(rec, localSet, next, loadRoots)
     out.push(...lets, stmt)
   }
   return out
@@ -234,28 +223,41 @@ function processBody(
 
 // Rebuild a control-flow statement with its nested bodies processed; simple statements
 // pass through (their own exprs are handled by hoistInStatement).
-function recurseBlocks(s: Stmt, localSet: ReadonlySet<string>, next: { n: number }): Stmt {
+function recurseBlocks(
+  s: Stmt,
+  localSet: ReadonlySet<string>,
+  next: { n: number },
+  loadRoots: ReadonlySet<string>,
+): Stmt {
   switch (s.s) {
     case 'if':
       return {
         ...s,
-        arms: s.arms.map((a) => ({ cond: a.cond, body: processBody(a.body, localSet, next) })),
-        elseBody: s.elseBody ? processBody(s.elseBody, localSet, next) : undefined,
+        arms: s.arms.map((a) => ({
+          cond: a.cond,
+          body: processBody(a.body, localSet, next, loadRoots),
+        })),
+        elseBody: s.elseBody ? processBody(s.elseBody, localSet, next, loadRoots) : undefined,
       }
     case 'for':
-      return { ...s, body: processBody(s.body, localSet, next) }
+      return { ...s, body: processBody(s.body, localSet, next, loadRoots) }
     case 'switch':
       return {
         ...s,
-        cases: s.cases.map((c) => ({ value: c.value, body: processBody(c.body, localSet, next) })),
-        defaultBody: s.defaultBody ? processBody(s.defaultBody, localSet, next) : undefined,
+        cases: s.cases.map((c) => ({
+          value: c.value,
+          body: processBody(c.body, localSet, next, loadRoots),
+        })),
+        defaultBody: s.defaultBody
+          ? processBody(s.defaultBody, localSet, next, loadRoots)
+          : undefined,
       }
     default:
       return s
   }
 }
 
-function cseLocalFn(f: FuncDecl): FuncDecl {
+function cseLocalFn(f: FuncDecl, loadRoots: ReadonlySet<string>): FuncDecl {
   if (bodyHasRaw(f.body)) return f // raw WGSL is opaque
   // "local" = every binding name AND every mutated root — exactly the set the fn-top cse
   // refuses to hoist. Targeting these makes this pass the complement of that one.
@@ -270,11 +272,13 @@ function cseLocalFn(f: FuncDecl): FuncDecl {
     if (mm) base = Math.max(base, Number(mm[1]) + 1)
   }
   const next = { n: base }
-  return { ...f, body: processBody(f.body, localSet, next) }
+  return { ...f, body: processBody(f.body, localSet, next, loadRoots) }
 }
 
 /** Hoist statement-local repeated subexpressions to a `let` before their statement.
  *  Pure (module → module); complements the fn-top `cse`. */
 export function cseLocal(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(cseLocalFn) }
+  // Indexing one of these is a memory load, not free addressing (#1886).
+  const loadRoots = new Set(m.bindings.map((b) => b.name))
+  return { ...m, funcs: m.funcs.map((f) => cseLocalFn(f, loadRoots)) }
 }

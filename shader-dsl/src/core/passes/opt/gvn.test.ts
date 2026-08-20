@@ -5,7 +5,10 @@ import {
   f32,
   f32T,
   i32,
+  u32,
+  u32T,
   vec3,
+  arrayLit,
   normalize,
   Var,
   type ModuleDecl,
@@ -13,6 +16,7 @@ import {
 } from '../../ir/index.js'
 import { emitModule } from '../../backends/wgsl.js'
 import { compileModule } from '../../oracle.js'
+import { structDecl, storageBuffer } from '../../sot.js'
 import { gvn } from './gvn.js'
 
 // gvn numbers a compound, local-touching subexpr that repeats ACROSS statements in a
@@ -326,5 +330,82 @@ describe('gvn — cross-block reuse (#1886)', () => {
     const calls = (fbody.match(/normalize\(/g) ?? []).length
     expect(calls, `the in-loop normalize must survive, got ${calls}:\n${fbody}`).toBe(2)
     oracleStable(m, 'dl', [1, 2, -3, 0.25])
+  })
+})
+
+// ═══ Indexing a BINDING is a memory load, not free navigation (#1886) ═══
+//
+// `isWorthHoisting` counts an expr as worth a temp only if it CALCULATES something
+// (binop / call / construct / …). A bare `buf.at(i).field` calculates nothing, so no
+// pass in the family will ever collapse it however often it repeats — which is right
+// for a local struct and wrong for a storage/uniform buffer, where the index is a
+// LOAD. 142 such repeats sit in X-GIS's own baked corpus, and unlike the peephole
+// candidates this one is corpus-independent: any consumer feeding a shader through a
+// storage buffer hits it, and a driver cannot reliably CSE a load through a dynamic
+// index it must assume may alias.
+describe('gvn — indexing a binding (#1886)', () => {
+  const Slot = structDecl('GvnSlot', { id: u32T, size: f32T })
+
+  it('collapses a repeated `buf.at(i).field` across two statements', () => {
+    const buf = storageBuffer('gvn_buf', Slot, { group: 0, binding: 0, access: 'read' })
+    const m = module({
+      uses: [buf],
+      funcs: [
+        fn('bi', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', u32(3))
+          const p = b.let('p', buf.at(i).size.mul(x))
+          const q = b.let('q', buf.at(i).size.add(1))
+          b.ret(p.add(q))
+        }),
+      ],
+    })
+    const wgsl = emitModule(gvn(m))
+    const fbody = wgsl.slice(wgsl.indexOf('fn bi('))
+    const loads = (fbody.match(/gvn_buf\[/g) ?? []).length
+    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1)
+  })
+
+  it('does NOT collapse the same shape on a LOCAL array — only a binding is a load', () => {
+    // The binding restriction is what does the work, and this is the arm that proves it:
+    // the ONLY difference from the case above is that `arr` is not in the module's
+    // binding set. Indexing a function-local array is addressing, not a load, so hoisting
+    // it would trade one address chain for another and claim a memory win that is not
+    // there. Both arms clear `refsLocal` and both index — `loadRoots` is the single
+    // discriminator between them.
+    const m = module({
+      funcs: [
+        fn('bl', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', u32(1))
+          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)))
+          const p = b.let('p', arr.at(i, f32T).mul(x))
+          const q = b.let('q', arr.at(i, f32T).add(1))
+          b.ret(p.add(q))
+        }),
+      ],
+    })
+    expect(gvTempCount(gvn(m))).toBe(0)
+  })
+
+  it('does NOT collapse across a WRITE to the same read_write binding', () => {
+    // The safety arm. Widening the predicate makes the load a CANDIDATE; every guard
+    // downstream still has to refuse it when the value is not invariant. Nothing new
+    // was written for this — `collectMutatedRoots` already walks an assign target
+    // through its index/member chain, so a written `read_write` binding lands in the
+    // mutated set and the span check rejects the pair. This arm is what fails if the
+    // new path ever reaches the hoist without passing that check.
+    const rw = storageBuffer('gvn_rw', f32T, { group: 0, binding: 1, access: 'read_write' })
+    const m = module({
+      uses: [rw],
+      funcs: [
+        fn('brw', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', u32(1))
+          const p = b.let('p', rw.at(i).mul(x))
+          rw.at(i).assign(f32(7))
+          const q = b.let('q', rw.at(i).add(1))
+          b.ret(p.add(q))
+        }),
+      ],
+    })
+    expect(emitModule(gvn(m))).not.toMatch(/_gv\d+ = gvn_rw\[/)
   })
 })

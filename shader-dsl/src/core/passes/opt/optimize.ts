@@ -135,18 +135,23 @@ function irEqual(a: unknown, b: unknown): boolean {
 /** Optimize ONE function to a fixed point (#1186). Reuses the module-level passes
  *  by wrapping the function in a one-function module — every DEFAULT_PASSES pass
  *  is `{ ...m, funcs: m.funcs.map(perFnFn) }` with a `(f: FuncDecl) => FuncDecl`
- *  transform, so it reads ONLY the function it maps; the shell's consts/structs/
- *  bindings are inert (carried via `{ ...m }` only so a defensive `...m` spread
- *  inside a pass sees a well-formed module).
+ *  transform, so the only function state it reads is the one it maps; the shell's
+ *  consts / structs / bindings ride along via `{ ...m }`.
  *
  *  ⚠ INVARIANT: this is correct ONLY while every pass is per-function-pure. A
  *  CROSS-function pass (inline, deadFnElim — both deliberately UNWIRED, see
  *  DEFAULT_PASSES) run on a one-function module would see a different module than
  *  the whole and silently diverge. `fixpoint-ireq.test.ts` pins per-function ≡
  *  whole-module on the real projection module so wiring such a pass fails loudly.
- *  (`gvn` was listed here too until #1865 wired it. It never belonged: `gvn(m)` is
- *  `m.funcs.map(gvnFn)` and `gvnFn(f: FuncDecl)` reads NOTHING outside the function
- *  it maps — the same shape as every other pass in the list.) */
+ *
+ *  MODULE-LEVEL reads are fine and two passes now make one: `cseLocal` and `gvn`
+ *  derive a set of BINDING NAMES from `m.bindings` (#1886 — indexing one of those is
+ *  a memory load, not free addressing). That is not the hazard above. The shell this
+ *  builds is `{ ...m, funcs: [cur] }`, so `m.bindings` here IS the whole module's
+ *  binding list, identical in both arrangements; what breaks the equivalence is
+ *  reading another FUNCTION, which is per-function state the shell does not carry.
+ *  (`gvn` was listed as cross-function here too until #1865 wired it. It never
+ *  belonged, and neither does this.) */
 function fnFixpoint(
   fn: FuncDecl,
   m: ModuleDecl,
