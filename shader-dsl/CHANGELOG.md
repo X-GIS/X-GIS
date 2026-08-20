@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 295ac3b57ac828aa0f51f273f2c6baf592a5f1c3
+  Generated from: 950687b3cd6d8bd4273d1dbc0e4f5e8c5e7f5d62
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 295ac3b57ac8
+    bun scripts/emit-changelog.ts --path shader-dsl --since 950687b3cd6d
 -->
 
 # Changelog — shader-dsl
@@ -72,6 +72,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### docs
 
+- **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
 - **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
 - **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
 - **shader-dsl:** document the last 38 engine-internals exports — the doc-coverage allowlist reaches zero (#1695) ([#1727](https://github.com/X-GIS/X-GIS/pull/1727)) `1e394a0`
