@@ -102,13 +102,14 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
   }
 }
 
-/** Forward-prototype pruning plugin (GLSL only). The GLSL backend emits a
- *  prototype for EVERY helper because it cannot promise the function section is
- *  in dependency order; this drops the ones whose DEFINITION already declares
- *  the function at each of its uses, and keeps the rest. Worth its own pass: on
- *  the real map shader corpus — where a module drags in the df64 library and the
- *  projection graph — prototypes are 9.5% of the production-transformed text,
- *  a figure the toy examples hide almost entirely. No-op on WGSL. */
+/** Forward-prototype pruning plugin (GLSL only). Drops every prototype whose
+ *  DEFINITION already declares the function at each of its uses, and keeps the
+ *  rest. Since #1858 the GLSL backend topo-sorts its own fn section and emits a
+ *  prototype only where the call graph forces one, so on backend-emitted shaders
+ *  this finds nothing — measured on the map corpus: 0 of 74 GLSL sources altered,
+ *  0.00% of the production-transformed text (#1914). It earns its place on the
+ *  GLSL the backend did not author: hand-written `rawGlsl`, host-spliced
+ *  fragments, and the backend's own `topo === null` fallback. No-op on WGSL. */
 export function prune(): EmitPlugin {
   return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes }
 }

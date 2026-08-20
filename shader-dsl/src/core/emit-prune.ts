@@ -1,17 +1,24 @@
 // ═══ Shader DSL — pruning redundant GLSL forward prototypes ═══
 //
-// The GLSL ES 3.00 backend emits a forward prototype for EVERY helper before the
-// definitions, because it cannot promise the function section is in dependency
-// order: collected callees are prepended and may precede the extern-bodied
-// projection fns they call, so an unconditional prototype block makes the
-// section order-free. That is the right default for an emitter.
+// The GLSL ES 3.00 backend USED to emit a forward prototype for EVERY helper before
+// the definitions, because it could not promise the function section was in dependency
+// order: collected callees are prepended and may precede the extern-bodied projection
+// fns they call, so an unconditional prototype block made the section order-free. Safe,
+// and invisible in a toy example — but on the REAL baked corpus (972 KB of map shaders,
+// where a module drags in the df64 library and the projection graph, ~40 helpers rather
+// than four) it cost 965 prototype lines, 71_011 chars, 9.5% of the production-
+// transformed text, of which a handful were load-bearing.
 //
-// It is also, in a shipped shader, mostly dead weight — and it is invisible in a
-// toy example. Measured on the REAL baked corpus (972 KB of map shaders, where a
-// module drags in the df64 library and the projection graph, ~40 helpers rather
-// than four): 965 prototype lines, 71_011 chars, 9.5% of the production-
-// transformed text. The example corpus shows almost none of it, which is why
-// this was missed until the real payload was measured.
+// #1858 fixed that at the source: `emitGlslModule` topo-sorts its own fn section and
+// emits a prototype only where the call graph forces one. So this pass now finds
+// NOTHING on a backend-emitted map shader — measured over every `BAKED_SHADER_KEYS`
+// entry: 0 prototypes dropped, 0 of 74 GLSL sources altered, 0.00% of the
+// production-transformed text (#1914).
+//
+// It is kept for the GLSL the backend did NOT author, which is where a redundant
+// prototype still arrives: hand-written `rawGlsl`, host-spliced fragments, and the
+// backend's own `topo === null` fallback — a `raw` helper body hides its calls from the
+// IR walk, and the unconditional block comes back.
 //
 // A prototype is redundant exactly when the DEFINITION already declares the
 // function everywhere it is used — i.e. the definition precedes every reference.
