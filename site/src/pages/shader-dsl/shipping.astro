@@ -1,21 +1,70 @@
 ---
 import ShaderDsl from '../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
-import { shipVariants, SHIP_PLUGINS } from '../../lib/shader-examples.ts'
+import { examples } from '@xgis/shader-dsl/examples'
+import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
+import type { EmitPlugin } from '@xgis/shader-dsl'
+import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
 
-// kaleidoscope has a real authored vocabulary (hash / noise / fbm / palette), so the
-// plugins' effect is visible. The demo switches BOTH axes: the emit TARGET (WGSL, or GLSL
-// per stage) and which of the three plugins are on. Every combination is emitted at BUILD
-// time by the real emit — shipVariants() is the same matrix each /shader-dsl/examples page
-// shows for its own shader — so the client only swaps the precomputed string and the DSL
-// never ships to the browser. inline() flattens the call graph entirely (hash/fbm/palette
-// AND multi-statement noise lift into the fragment body); the byte counts are
-// measurements, not copy, and the baseline is per-target (WGSL != GLSL sizes).
-const ship = shipVariants('kaleidoscope')
-const shipDefault = ship.panels.find((p) => p.key === 'wgsl:000')!
+// kaleidoscope has a real authored vocabulary (hash / noise / fbm / palette),
+// so the plugins' effect is visible. Every combination of the three plugins is
+// emitted at BUILD time by the real emit; the client only toggles which
+// precomputed string is shown — the DSL never ships to the browser. inline()
+// flattens the call graph entirely (hash/fbm/palette AND multi-statement noise
+// lift into the fragment body); the byte counts are measurements, not copy.
+const kal = examples.find((e) => e.id === 'kaleidoscope')!
+
+// The demo switches BOTH axes: the emit TARGET (WGSL, or GLSL per stage) and which
+// of the three plugins are on. Every target × plugin combination is emitted at BUILD
+// time by the real emit — the client only swaps the precomputed string, so the DSL
+// never runs in the browser. The byte baseline is per-target (WGSL ≠ GLSL sizes).
+const shipTargets: {
+  key: string
+  label: string
+  lang: 'wgsl' | 'glsl'
+  emit: (plugins: EmitPlugin[]) => string
+  call: (names: string[]) => string
+}[] = [
+  {
+    key: 'wgsl',
+    label: 'WGSL',
+    lang: 'wgsl',
+    emit: (plugins) => emitModule(kal.module, { plugins }),
+    call: (names) => (names.length ? `emitModule(m, { plugins: [${names.join(', ')}] })` : 'emitModule(m)'),
+  },
+  {
+    key: 'glsl-vs',
+    label: 'GLSL · vertex',
+    lang: 'glsl',
+    emit: (plugins) => emitGlslModule(kal.module, 'vertex', { plugins }),
+    call: (names) =>
+      names.length ? `emitGlslModule(m, 'vertex', { plugins: [${names.join(', ')}] })` : "emitGlslModule(m, 'vertex')",
+  },
+  {
+    key: 'glsl-fs',
+    label: 'GLSL · fragment',
+    lang: 'glsl',
+    emit: (plugins) => emitGlslModule(kal.module, 'fragment', { plugins }),
+    call: (names) =>
+      names.length ? `emitGlslModule(m, 'fragment', { plugins: [${names.join(', ')}] })` : "emitGlslModule(m, 'fragment')",
+  },
+]
+const pluginCombos = [false, true].flatMap((i) =>
+  [false, true].flatMap((m) => [false, true].map((n) => ({ i, m, n }))),
+)
+const shipCombos = shipTargets.flatMap((t) => {
+  const plainBytes = t.emit([]).length
+  return pluginCombos.map(({ i, m, n }) => {
+    const plugins = [...(i ? [inline()] : []), ...(m ? [mangle()] : []), ...(n ? [minify()] : [])]
+    const code = t.emit(plugins)
+    const names = [i && 'inline()', m && 'mangle()', n && 'minify()'].filter(Boolean) as string[]
+    return { key: `${t.key}:${+i}${+m}${+n}`, lang: t.lang, n, code, bytes: code.length, plainBytes, label: t.call(names) }
+  })
+})
+const shipDefault = shipCombos.find((c) => c.key === 'wgsl:000')!
 
 const usageSnippet = `import { emitModule, emitGlslModule } from '@xgis/shader-dsl'
 import { inline, mangle, minify } from '@xgis/shader-dsl/emit-prod'
@@ -88,18 +137,18 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
       <div class="px-4 py-3 border-b border-line bg-bg-card flex flex-col gap-3">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div class="flex flex-wrap gap-1" role="group" aria-label="Emit target">
-            {ship.targets.map((t, i) => (
+            {shipTargets.map((t, i) => (
               <button type="button" data-ship-target={t.key} aria-pressed={i === 0 ? 'true' : 'false'}
                 class={`font-mono text-[11px] px-2.5 py-1 rounded-full border transition-colors ${i === 0 ? 'border-line-strong text-fg' : 'border-line text-fg-mute hover:text-fg'}`}>{t.label}</button>
             ))}
           </div>
           <span class="ml-auto flex items-center gap-3">
-            <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline">{ship.index['wgsl:000'].call}</code>
+            <code data-ship-call class="font-mono text-[11.5px] text-fg-mute hidden md:inline">{shipDefault.label}</code>
             <span data-ship-badge class="font-mono text-[12px] text-fg tabular-nums">{shipDefault.plainBytes.toLocaleString()} B</span>
           </span>
         </div>
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 border-t border-line">
-          {SHIP_PLUGINS.map((name) => (
+          {['inline', 'mangle', 'minify'].map((name) => (
             <label class="inline-flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
               <span class="w-9 h-5 rounded-full bg-line-strong peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors relative after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4"></span>
@@ -109,9 +158,9 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
         </div>
       </div>
       <div class="sd-code">
-        {ship.panels.map((p) => (
-          <div data-ship-panel={p.key} data-bytes={String(p.bytes)} data-plain={String(p.plainBytes)} hidden={p.key !== 'wgsl:000'}>
-            <Code code={p.code} lang={p.lang} wrap={p.wrap} />
+        {shipCombos.map((c) => (
+          <div data-ship-panel={c.key} data-bytes={String(c.bytes)} data-plain={String(c.plainBytes)} data-label={c.label} hidden={c.key !== 'wgsl:000'}>
+            <Code code={c.code} lang={c.lang} wrap={c.n} />
           </div>
         ))}
       </div>
@@ -119,19 +168,10 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
   </section>
 </ShaderDsl>
 
-<script type="application/json" id="ship-index" set:html={JSON.stringify(ship.index)}></script>
-
 <script>
   // Pick an emit target (WGSL / GLSL vertex / GLSL fragment) and toggle the
   // inline/mangle/minify plugins; show the matching build-time-emitted string,
   // with a live (growth-aware, per-target) byte badge.
-  //
-  // `${target}:${inline}${mangle}${minify}` -> the panel that renders it (many-to-one: a
-  // plugin that is a no-op for this module emits the same text, so that panel is shared)
-  // plus the emit call that produced it.
-  const shipIndex: Record<string, { panel: string; call: string }> = JSON.parse(
-    document.getElementById('ship-index')?.textContent || '{}',
-  )
   const demo = document.getElementById('ship-demo')
   if (demo) {
     const targetBtns = Array.from(demo.querySelectorAll<HTMLButtonElement>('[data-ship-target]'))
@@ -140,13 +180,13 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
     const badge = demo.querySelector<HTMLElement>('[data-ship-badge]')!
     const call = demo.querySelector<HTMLElement>('[data-ship-call]')
     let target = targetBtns[0]?.dataset.shipTarget ?? 'wgsl'
-    // The toggles render in SHIP_PLUGINS order, so their DOM order IS the bit order.
-    const bits = () => toggles.map((t) => (t.checked ? '1' : '0')).join('')
+    const bit = (name: string) =>
+      toggles.find((t) => t.dataset.shipToggle === name)?.checked ? '1' : '0'
     const fmt = (n: number) => n.toLocaleString()
     const sync = () => {
-      const entry = shipIndex[`${target}:${bits()}`]
-      const active = entry && panels.find((p) => p.dataset.shipPanel === entry.panel)
-      if (!entry || !active) return
+      const key = `${target}:${bit('inline')}${bit('mangle')}${bit('minify')}`
+      const active = panels.find((p) => p.dataset.shipPanel === key)
+      if (!active) return
       panels.forEach((p) => { p.hidden = p !== active })
       const bytes = Number(active.dataset.bytes)
       const plain = Number(active.dataset.plain)
@@ -154,7 +194,7 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
       const sign = bytes <= plain ? '−' : '+'
       badge.textContent =
         bytes === plain ? `${fmt(bytes)} B` : `${fmt(plain)} B → ${fmt(bytes)} B (${sign}${pct}%)`
-      if (call) call.textContent = entry.call
+      if (call) call.textContent = active.dataset.label ?? ''
     }
     targetBtns.forEach((b) =>
       b.addEventListener('click', () => {
