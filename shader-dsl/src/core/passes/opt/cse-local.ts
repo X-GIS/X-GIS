@@ -112,8 +112,24 @@ function tally(e: Expr, cond: boolean, localSet: ReadonlySet<string>, t: Tally):
   }
 }
 
-// The value-carrying exprs of a SIMPLE statement (the ones safe to hoist a temp before).
-// Control-flow statements return [] — only their nested bodies are recursed (elsewhere).
+// The exprs of a statement that are evaluated UNCONDITIONALLY, i.e. the ones a temp
+// may be hoisted ahead of. NOT the lvalue target.
+//
+// An `if`'s FIRST arm condition is one of them (#1886). It runs whenever the statement
+// runs, exactly like a `let` initialiser, so a `let` placed before the `if` costs
+// nothing — and `processBody` already splices this pass's temps in ahead of the
+// statement they came from, so the placement needs no new machinery. It used to be
+// absent: `default: []` covered every control-flow statement and only the nested
+// BODIES were recursed. Measured on the baked corpus after gvn got the same fix, the
+// leftovers are almost all here — 119 within-statement repeats inside control-flow
+// headers against 4 inside plain statements.
+//
+// Still absent, each because the expr is not evaluated once per execution:
+//   • `arms[1..]` — an `else if` runs only when every earlier arm failed, the same
+//     reason `tally` already refuses a `&&`/`||` RHS and a `select` branch;
+//   • `for` cond — re-evaluated per iteration, so lifting it is loop invariance (licm);
+//   • `switch` scrut — unconditional and sound to add, but 26 headers in the whole
+//     production corpus against 2363 `if`s, so it waits for a measurement of its own.
 function valueExprs(s: Stmt): readonly Expr[] {
   switch (s.s) {
     case 'let':
@@ -125,12 +141,17 @@ function valueExprs(s: Stmt): readonly Expr[] {
       return [s.expr] // NOT the lvalue target
     case 'return':
       return s.expr !== undefined ? [s.expr] : []
+    case 'if':
+      return s.arms.length > 0 ? [s.arms[0]!.cond] : []
     default:
       return []
   }
 }
 
-// Rewrite only the value side of a simple statement (target lvalue untouched).
+// Rewrite the unconditionally-evaluated exprs of a statement (target lvalue untouched).
+// Must name exactly the same set as `valueExprs`: a condition that is tallied but not
+// rewritten mints a temp and leaves the original recomputing next to it. The arm bodies
+// are already processed by `recurseBlocks` and pass through here unchanged.
 function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
     case 'let':
@@ -142,6 +163,10 @@ function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
       return { ...s, expr: f(s.expr) }
     case 'return':
       return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
+    case 'if': {
+      const [first, ...rest] = s.arms
+      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
+    }
     default:
       return s
   }
