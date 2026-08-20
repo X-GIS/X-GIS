@@ -1,0 +1,474 @@
+---
+// The WebGL2 GPGPU page — what a host must do to run a compute kernel where the target
+// has no compute stage. Written for the consumer who vendors @xgis/shader-dsl ALONE (no
+// @xgis/rhi, no @xgis/rhi-webgl2), because that consumer cannot reuse the rhi-webgl2
+// dispatcher and otherwise has to reverse-engineer the host contract from emitted GLSL.
+//
+// Both host snippets below are held VERBATIM by playground/e2e/_webgl2-compute-recipe.ts
+// and driven against the CPU-f64 oracle on a real WebGL2 GPU by its .spec.ts twin. Edit
+// one, edit the other — a page that prints an unproven recipe is worse than no page.
+//
+// The WGSL/GLSL panes are emitted HERE, at build time, by the real emit: the shown bytes
+// are the shipped bytes, so an emitter change updates this page instead of stranding it.
+import ShaderDsl from '../../layouts/ShaderDsl.astro'
+import { Code } from 'astro-expressive-code/components'
+import {
+  fn,
+  module,
+  If,
+  Return,
+  storageBuffer,
+  resource,
+  builtin,
+  bitcastU32,
+  emitModule,
+  emitGlslModule,
+  reflect,
+  f32T,
+  u32T,
+  vec3uT,
+  vec4uT,
+} from '@xgis/shader-dsl'
+
+const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
+const root = `${base}/shader-dsl`
+
+// ── The example kernel, authored once and emitted both ways below ──
+const featData = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
+const outValue = storageBuffer('out_value', u32T, { group: 0, binding: 1, access: 'read_write' })
+const dispatchU = resource('u_dispatch', vec4uT, { group: 0, binding: 2 })
+
+const kernel = fn(
+  'scale_features',
+  { gid: builtin('global_invocation_id', vec3uT) },
+  ({ gid }) => {
+    const i = gid.x
+    If(i.ge(dispatchU.node.x), () => {
+      Return()
+    })
+    outValue.at(i).assign(bitcastU32(featData.at(i).mul(2).add(1)))
+  },
+  { stage: 'compute', workgroupSize: 64, portable: true },
+)
+
+const kernelModule = module({
+  bindings: [featData.binding, outValue.binding, dispatchU.binding],
+  funcs: [kernel],
+})
+
+const kernelSource = `const featData  = storageBuffer('feat_data', f32T, { group: 0, binding: 0, access: 'read' })
+const outValue  = storageBuffer('out_value', u32T, { group: 0, binding: 1, access: 'read_write' })
+const dispatchU = resource('u_dispatch', vec4uT, { group: 0, binding: 2 })
+
+const kernel = fn(
+  'scale_features',
+  { gid: builtin('global_invocation_id', vec3uT) },
+  ({ gid }) => {
+    const i = gid.x
+    If(i.ge(dispatchU.node.x), () => { Return() })
+    outValue.at(i).assign(bitcastU32(featData.at(i).mul(2).add(1)))
+  },
+  { stage: 'compute', workgroupSize: 64, portable: true },
+)
+
+const m = module({ bindings: [featData.binding, outValue.binding, dispatchU.binding], funcs: [kernel] })`
+
+const wgsl = emitModule(kernelModule)
+const glsl = emitGlslModule(kernelModule, 'fragment')
+const reflectedBindings = reflect(kernelModule).bindGroups[0]!.entries
+
+const vsSource = `#version 300 es
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`
+
+const inputSnippet = `const MAX_W = 2048 // the guaranteed WebGL2 MAX_TEXTURE_SIZE floor
+
+/** Upload \`data\` as the 2D-tiled R32F data texture the emitted \`_sfetch\` reads. */
+function createDataTexture(gl: WebGL2RenderingContext, data: Float32Array): WebGLTexture {
+  const w = Math.min(Math.max(1, data.length), MAX_W)
+  const h = Math.ceil(data.length / w)
+  const tex = gl.createTexture()!
+  gl.bindTexture(gl.TEXTURE_2D, tex)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null)
+  // REQUIRED: the default MIN_FILTER is NEAREST_MIPMAP_LINEAR, so without these the
+  // texture is mipmap-INCOMPLETE and every texelFetch silently returns 0 — no GL error.
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  // Pad to the full w*h: texSubImage2D must cover the whole texture.
+  let padded = data
+  if (data.length !== w * h) {
+    padded = new Float32Array(w * h)
+    padded.set(data)
+  }
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.FLOAT, padded)
+  return tex
+}`
+
+const dispatchSnippet = `/** Run the lowered kernel as a fullscreen draw into an R32UI target; read back one u32
+ *  per invocation. \`program\` links the vertex shader above with the emitted fragment. */
+function dispatchToR32UI(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  dataTex: WebGLTexture,
+  n: number,
+): Uint32Array {
+  const wOut = Math.min(n, MAX_W)
+  const hOut = Math.ceil(n / wOut)
+
+  const outTex = gl.createTexture()!
+  gl.bindTexture(gl.TEXTURE_2D, outTex)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32UI, wOut, hOut, 0, gl.RED_INTEGER, gl.UNSIGNED_INT, null)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
+  const fbo = gl.createFramebuffer()!
+  // Snapshot the viewport: overriding it below would otherwise corrupt every later draw.
+  const vp = gl.getParameter(gl.VIEWPORT) as Int32Array
+  try {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, outTex, 0)
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE)
+      throw new Error('R32UI FBO incomplete')
+
+    gl.viewport(0, 0, wOut, hOut)
+    gl.disable(gl.BLEND)                                           // illegal on an integer attachment
+    gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]))  // not clearColor
+
+    gl.useProgram(program)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, dataTex)
+    gl.uniform1i(gl.getUniformLocation(program, 'feat_data'), 0)
+    // u_dispatch is a BARE uniform, not a UBO. .x = invocation count, .y = W_out.
+    gl.uniform4uiv(gl.getUniformLocation(program, 'u_dispatch'), new Uint32Array([n, wOut, 0, 0]))
+
+    gl.drawArrays(gl.TRIANGLES, 0, 3) // fullscreen triangle — no VBO, no attributes
+
+    gl.readBuffer(gl.COLOR_ATTACHMENT0)
+    const out = new Uint32Array(wOut * hOut)
+    gl.readPixels(0, 0, wOut, hOut, gl.RED_INTEGER, gl.UNSIGNED_INT, out)
+    return out.slice(0, n) // the rest of the grid is over-grid padding
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(vp[0], vp[1], vp[2], vp[3])
+    gl.deleteFramebuffer(fbo)
+    gl.deleteTexture(outTex)
+  }
+}`
+
+const callSnippet = `import { emitGlslModule } from '@xgis/shader-dsl'
+
+// No emit option: the kernel's own \`portable: true\` routes the compute→fragment
+// lowering. An UNDECLARED compute kernel throws UnsupportedFeatureError right here.
+const fsSource = emitGlslModule(m, 'fragment')
+const program  = link(gl, VERTEX_SOURCE, fsSource) // your usual compile+link
+
+const tex = createDataTexture(gl, featureValues)
+const out = dispatchToR32UI(gl, program, tex, featureValues.length)
+// out[i] === the u32 the @compute kernel would have written to out_value[i]`
+
+// The tier's five rules, as the analyzer checks them.
+const tierRules: { rule: string; why: string }[] = [
+  {
+    rule: 'A <code>@builtin(global_invocation_id)</code> param, used only as <code>.x</code>',
+    why: 'The fragment grid supplies a 1-D linear index; there is no second dispatch axis to recover <code>.y</code>/<code>.z</code> from.',
+  },
+  {
+    rule: 'Exactly ONE <code>read_write</code> storage binding, of <code>array&lt;u32&gt;</code>',
+    why: 'It becomes the single R32UI draw buffer — the only storage-write form WebGL2 has.',
+  },
+  {
+    rule: 'Exactly ONE write to it, a plain store at the invocation index',
+    why: 'A fragment writes its own texel and no other. A scatter, a second store, or a compound assignment has no equivalent.',
+  },
+  {
+    rule: 'A FIRST <code>uniform</code> binding of <code>vec4&lt;u32&gt;</code>',
+    why: 'The dispatch uniform: <code>.x</code> = invocation count (the bounds guard), <code>.y</code> = output-grid width W_out (the row-wrap).',
+  },
+  {
+    rule: 'No <code>raw</code> statement anywhere the entry can reach',
+    why: 'Raw text is per-target and opaque to the analyzer, so it contradicts the portability claim outright.',
+  },
+]
+
+// What reflect() reports vs what the lowered GLSL actually declares. The left column is
+// read off the LIVE reflection rather than transcribed, so the contrast cannot go stale
+// the way a hand-copied table would — if reflect() ever learned about the lowering, this
+// row would change and the claim beside it would visibly stop holding.
+const reflectedOf = (name: string): string => {
+  const e = reflectedBindings.find((b) => b.name === name)!
+  return `<code>${e.resourceKind}</code> @ group ${e.group}, binding ${e.binding}`
+}
+const entryInfo = reflect(kernelModule).entries[0]!
+const divergence: { name: string; reflected: string; glsl: string }[] = [
+  {
+    name: 'the entry',
+    reflected: `stage: <code>${entryInfo.stage}</code>, workgroupSize: ${entryInfo.workgroupSize}`,
+    glsl: 'a fragment <code>void main()</code>',
+  },
+  {
+    name: 'feat_data',
+    reflected: reflectedOf('feat_data'),
+    glsl: '<code>uniform sampler2D</code> — an R32F data texture',
+  },
+  {
+    name: 'out_value',
+    reflected: reflectedOf('out_value'),
+    glsl: 'no binding at all — <code>layout(location = 0) out uint</code>',
+  },
+  {
+    name: 'u_dispatch',
+    reflected: reflectedOf('u_dispatch'),
+    glsl: 'a BARE <code>uniform uvec4</code>, not a std140 block',
+  },
+]
+---
+
+<ShaderDsl
+  current="webgl2-compute"
+  title="X-GIS Shader DSL — Compute on WebGL2"
+  description="GLSL ES 3.00 has no compute stage. A gather-only kernel declared portable: true lowers to a fragment-GPGPU pass — here is the tier it must fit and the exact host contract for dispatching it."
+>
+  <h1 class="font-display font-normal text-fg leading-[1.0] tracking-[-0.02em] text-[40px] sm:text-[52px] lg:text-[64px]">Compute on WebGL2</h1>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
+    GLSL ES 3.00 has no compute stage and no SSBO. A <em>gather-only</em> kernel declared
+    <code class="font-mono text-[14px] text-fg">portable: true</code> still runs there — lowered to a
+    fragment-GPGPU pass that writes one texel per invocation. Same source, same numbers, a different
+    <strong class="text-fg">dispatch</strong>: the host submits a draw, not a compute pass. That last part is
+    the whole cost, and this page is what it takes to pay it.
+  </p>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Declared, never inferred</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      By default a <code class="font-mono text-[13px] text-fg">@compute</code> entry emitted for GLSL ES 3.00
+      raises <code class="font-mono text-[13px] text-fg">UnsupportedFeatureError</code> naming the missing
+      <code class="font-mono text-[13px] text-fg">compute</code> capability. There is no silent fallback, and that
+      is deliberate: the lowering changes how the kernel must be <em>dispatched</em>, so a caller who flipped an
+      emit flag could hand a kernel author a host contract they never agreed to.
+    </p>
+    <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      Declaring <code class="font-mono text-[13px] text-fg">portable: true</code> at the <em>authoring</em> site is
+      the opt-in. It costs nothing on WebGPU — <code class="font-mono text-[13px] text-fg">portable</code> is not a
+      WGSL attribute, so that emit is byte-unchanged — and on GLSL it routes the lowering with no emit option at
+      all. In exchange the kernel is checked against the tier below at <strong class="text-fg">every</strong> emit
+      on <strong class="text-fg">both</strong> backends, so a kernel that could never lower for WebGL2 fails on
+      WebGPU too, at the same moment, with the same sentence
+      (<code class="font-mono text-[13px] text-fg">SD0111</code>) — instead of passing every WGSL gate and dying
+      only on the backend you were not looking at.
+    </p>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">The gather-only tier</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
+      The shape is exactly <code class="font-mono text-[13px] text-fg">out[gid.x] = f(reads)</code>. Every rule
+      below is derived from something the fragment stage cannot do, not from taste:
+    </p>
+    <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[620px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium w-[42%]">The kernel must have…</th>
+              <th class="px-4 py-3 text-left font-medium">…because a fragment pass</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            {tierRules.map((r) => (
+              <tr class="border-t border-line">
+                <td class="px-4 py-3 text-fg" set:html={r.rule}></td>
+                <td class="px-4 py-3" set:html={r.why}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="mt-5 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      <strong class="text-fg">Outside the tier:</strong> scatter writes, multiple outputs, atomics, barriers, and
+      workgroup memory. A reduction, prefix-sum, histogram, or sort needs one of those, so it stays WebGPU-only
+      (omit <code class="font-mono text-[13px] text-fg">portable</code>) or is restructured into several
+      gather-only passes. Barriers, workgroup memory and atomics are also not authorable in the DSL today — the
+      analyzer deliberately does not "check" for them, because an assertion that can never fire carries no
+      information.
+    </p>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">One source, two dispatches</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
+      A kernel in the tier. Both panes below are emitted at build time by the real emit, so these are the bytes
+      you would ship. Note what the lowering had to invent: the invocation index is rebuilt from
+      <code class="font-mono text-[13px] text-fg">gl_FragCoord</code> and the row width, the bounds-guard
+      <code class="font-mono text-[13px] text-fg">return</code> becomes a
+      <code class="font-mono text-[13px] text-fg">discard</code>, the storage read becomes a
+      <code class="font-mono text-[13px] text-fg">texelFetch</code> helper, and the storage <em>write</em>
+      becomes the fragment's own return value.
+    </p>
+    <div class="mb-4">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">the source — authored once</p>
+      <div class="sd-code"><Code code={kernelSource} lang="ts" /></div>
+    </div>
+    {/* Stacked, not side-by-side: a compute module's binding declarations and the
+        lowered index math are both long enough to wrap mid-statement in a half-width
+        pane, which is exactly where these two emissions need to be read line by line. */}
+    <div class="sd-code space-y-4">
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">WGSL — emitModule(m) · a native compute pass</p>
+        <Code code={wgsl} lang="wgsl" />
+      </div>
+      <div>
+        <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">GLSL ES 3.00 — emitGlslModule(m, 'fragment') · the same kernel as a draw</p>
+        <Code code={glsl} lang="glsl" />
+      </div>
+    </div>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">The host contract</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      If you use <code class="font-mono text-[13px] text-fg">@xgis/rhi-webgl2</code>, its
+      <code class="font-mono text-[13px] text-fg">dispatchComputeKernelWebGl2</code> already absorbs all of this
+      and you can stop reading. If you vendor <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl</code>
+      alone — it has zero dependencies, which is a supported way to use it — the three snippets below are the
+      whole contract. Every one of them is held verbatim by a Playwright gate that runs it on a real WebGL2
+      context and byte-compares the result against the CPU-f64 oracle.
+    </p>
+
+    <div class="mt-6">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">1 · the vertex shader — a fullscreen triangle, hand-written</p>
+      <p class="text-[14px] leading-[1.6] text-fg-dim max-w-full mb-3">
+        The DSL emits only the fragment half; the vertex half carries no kernel logic, so it is three vertices
+        derived from <code class="font-mono text-[13px] text-fg">gl_VertexID</code> with no VBO and no attributes.
+      </p>
+      <div class="sd-code"><Code code={vsSource} lang="glsl" /></div>
+    </div>
+
+    <div class="mt-8">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">2 · the input — a storage array becomes a 2D-tiled data texture</p>
+      <p class="text-[14px] leading-[1.6] text-fg-dim max-w-full mb-3">
+        WebGL2 has no SSBO, so a <code class="font-mono text-[13px] text-fg">var&lt;storage, read&gt; array&lt;f32&gt;</code>
+        is lowered to an R32F texture where element <em>i</em> lives at texel
+        <code class="font-mono text-[13px] text-fg">(i % W, i / W)</code>. The shader reads W back through
+        <code class="font-mono text-[13px] text-fg">textureSize()</code>, so there is no width constant for the two
+        sides to disagree about — you only have to tile the upload the same way.
+      </p>
+      <div class="sd-code"><Code code={inputSnippet} lang="ts" /></div>
+      <p class="mt-3 text-[14px] leading-[1.6] text-fg-dim max-w-full">
+        <strong class="text-fg">The silent failure to watch:</strong> skip the
+        <code class="font-mono text-[13px] text-fg">texParameteri</code> calls and the default
+        <code class="font-mono text-[13px] text-fg">NEAREST_MIPMAP_LINEAR</code> min-filter leaves a texture with
+        no mip chain — <em>mipmap-incomplete</em>. Every
+        <code class="font-mono text-[13px] text-fg">texelFetch</code> then returns 0, with no GL error and no
+        warning: the pass runs perfectly and produces an all-zero result.
+      </p>
+    </div>
+
+    <div class="mt-8">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">3 · the dispatch — a fullscreen draw into an R32UI target</p>
+      <p class="text-[14px] leading-[1.6] text-fg-dim max-w-full mb-3">
+        One output texel per invocation, wrapped into rows at the same 2048 width.
+        <code class="font-mono text-[13px] text-fg">R32UI</code> is a core color-renderable format and
+        <code class="font-mono text-[13px] text-fg">R32F</code> is core-texturable, so this needs
+        <strong class="text-fg">no extensions</strong> — not even
+        <code class="font-mono text-[13px] text-fg">EXT_color_buffer_float</code>, since the emulation only ever
+        samples the float texture.
+      </p>
+      <div class="sd-code"><Code code={dispatchSnippet} lang="ts" /></div>
+      <p class="mt-3 text-[14px] leading-[1.6] text-fg-dim max-w-full">
+        <strong class="text-fg">Three lines that are not optional.</strong>
+        <code class="font-mono text-[13px] text-fg">disable(BLEND)</code> — blending on an integer attachment is a
+        GL error. <code class="font-mono text-[13px] text-fg">clearBufferuiv</code>, not
+        <code class="font-mono text-[13px] text-fg">clearColor</code> — the float clear does not apply to an
+        integer buffer. And the viewport snapshot/restore: overriding the viewport for the output grid without
+        putting it back leaves every later draw in your frame rendering at the compute pass's size.
+      </p>
+    </div>
+
+    <div class="mt-8">
+      <p class="text-[11px] font-mono text-fg-mute uppercase tracking-[0.16em] mb-2">putting it together</p>
+      <div class="sd-code"><Code code={callSnippet} lang="ts" /></div>
+    </div>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">reflect() describes the source, not the lowered program</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full mb-5">
+      This is the sharpest edge on the page, and it cuts hosts that drive their binding code from reflection.
+      <code class="font-mono text-[13px] text-fg">reflect(m)</code> takes no backend argument — it is
+      target-neutral metadata about the module you <em>authored</em>. The GLSL you ship is the module the backend
+      <em>lowered</em>. For a compute kernel those are not the same program, and every binding moves:
+    </p>
+    <div class="rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium"></th>
+              <th class="px-4 py-3 text-left font-medium">reflect() reports</th>
+              <th class="px-4 py-3 text-left font-medium">the emitted GLSL declares</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            {divergence.map((d) => (
+              <tr class="border-t border-line">
+                <td class="px-4 py-3 font-mono text-fg">{d.name}</td>
+                <td class="px-4 py-3" set:html={d.reflected}></td>
+                <td class="px-4 py-3 text-fg" set:html={d.glsl}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="mt-5 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      Feed that reflection straight into a bind-group builder and nothing raises: you bind a buffer where a
+      sampler lives, you look for a UBO that is a loose uniform, and you search for an output binding that no
+      longer exists. The result is zeros.
+      <strong class="text-fg">Bind a lowered compute kernel from the contract on this page, not from reflection</strong>
+      — reflection stays the right source for the kernel's WebGPU face, and for everything on a normal
+      vertex/fragment module.
+    </p>
+    <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      One narrower case of the same rule: <em>any</em> module with a
+      <code class="font-mono text-[13px] text-fg">storage</code> binding gets the data-texture lowering on GLSL,
+      compute or not. A plain fragment shader that reads a storage array has the
+      <code class="font-mono text-[13px] text-fg">feat_data</code> row of that table too.
+    </p>
+  </section>
+
+  <section class="mt-12">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">32 bits is a container, not a limit</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      The tier's <code class="font-mono text-[13px] text-fg">array&lt;u32&gt;</code> output looks like an integer
+      constraint. It is not — it is the width of one R32UI texel, and what you put in those 32 bits is yours.
+      A colour packs with <code class="font-mono text-[13px] text-fg">pack4x8unorm</code>; an
+      <code class="font-mono text-[13px] text-fg">f32</code> round-trips exactly through
+      <code class="font-mono text-[13px] text-fg">bitcastU32</code> (which the example above uses — it emits
+      <code class="font-mono text-[13px] text-fg">bitcast&lt;u32&gt;</code> on WGSL and
+      <code class="font-mono text-[13px] text-fg">floatBitsToUint</code> on GLSL, bit-identical on both). What you
+      cannot do is exceed 32 bits per invocation: a wider result needs a second pass over the same input.
+    </p>
+    <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      <strong class="text-fg">Capacity.</strong> Both tilings wrap at a 2048-wide row, so the ceiling is
+      2048 × <code class="font-mono text-[13px] text-fg">MAX_TEXTURE_SIZE</code> elements — about 4.2 M at the
+      guaranteed WebGL2 floor, and higher on real hardware. The last row is partial whenever the count is not a
+      multiple of the width; those over-grid texels take the
+      <code class="font-mono text-[13px] text-fg">discard</code> path and write nothing.
+    </p>
+  </section>
+
+  <div class="mt-16 max-w-full rounded-[8px] border border-line p-5 bg-bg-card">
+    <p class="text-[14px] leading-[1.6] text-fg-dim">
+      Emitting these shaders at build time instead of at runtime — and the staleness gate a committed shader
+      artifact needs — is covered in
+      <a href={`${root}/shipping`} class="text-accent hover:text-accent-hover transition-colors">Shipping shaders</a>.
+      The capability model that makes the default a hard error rather than a guess is in
+      <a href={`${root}/concepts`} class="text-accent hover:text-accent-hover transition-colors">Concepts</a>.
+    </p>
+  </div>
+</ShaderDsl>
