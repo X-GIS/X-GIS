@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 8c25a04908c5b65a41beaf036b7f5ae8cb1b52c0
+  Generated from: b5b28aba28f5346672fd87afc6b1753c01b4f6c7
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 8c25a04908c5
+    bun scripts/emit-changelog.ts --since b5b28aba28f5
 -->
 
 # Changelog
@@ -88,6 +88,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/sources:** boot bounds-fit reads the laid-out width, not the stale canvas buffer (#1836) ([#1844](https://github.com/X-GIS/X-GIS/pull/1844)) `b5b28ab`
 - **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
 - **e2e:** _globe-dateline-wired-gate converges on the tile set it asserts (#1895) ([#1897](https://github.com/X-GIS/X-GIS/pull/1897)) `1e7feab`
 - **e2e:** _scene-builder-twin waits for convergence instead of a fixed sleep (#1895) ([#1896](https://github.com/X-GIS/X-GIS/pull/1896)) `c3ce0e8`
