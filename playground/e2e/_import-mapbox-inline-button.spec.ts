@@ -34,6 +34,9 @@ const FILL_RGB: [number, number, number] = [225, 29, 72] // #e11d48 rose-600
 const BG_RGB: [number, number, number] = [15, 23, 42] // #0f172a slate-900
 const TOL = 35 // fill-opacity 0.85 over navy bg darkens the rose; matches
 // the runtime-import spec's tolerance.
+// Sanitized id of the fixture's one geojson source — keep in sync with the
+// "annotations" key above.
+const SOURCE_ID = 'annotations'
 
 test.describe('Mapbox import hook — inline GeoJSON auto-push', () => {
   test.use({ viewport: { width: 1280, height: 720 } })
@@ -69,19 +72,22 @@ test.describe('Mapbox import hook — inline GeoJSON auto-push', () => {
     })
 
     // GeoJSON sources compile async (worker-pool parts + tileSet) after
-    // the import runs. Wait for a non-empty GPU cache before sampling.
+    // the import runs. Wait for the FIXTURE's own source specifically —
+    // not "any" vtSources entry — because the style's `background-color`
+    // installs an always-present `__synthetic_earth_surface__` vtSources
+    // entry that gets its (unrelated) GPU cache populated well before the
+    // pushed inline GeoJSON is re-tiled. #1845: an "any entry" wait matched
+    // that synthetic source and let the pixel read fire before the real
+    // "annotations" tiles existed, reading a pre-first-frame black canvas.
     await page.waitForFunction(
-      () => {
+      (sourceId) => {
         const map = (window as unknown as { __xgisMap?: { vtSources?: Map<string, unknown> } })
           .__xgisMap
-        if (!map?.vtSources) return false
-        for (const entry of map.vtSources.values()) {
-          const r = entry as { renderer?: { getCacheSize?: () => number } }
-          if ((r.renderer?.getCacheSize?.() ?? 0) > 0) return true
-        }
-        return false
+        const entry = map?.vtSources?.get(sourceId) as
+          { renderer?: { getCacheSize?: () => number } } | undefined
+        return (entry?.renderer?.getCacheSize?.() ?? 0) > 0
       },
-      null,
+      SOURCE_ID,
       { timeout: 20_000 },
     )
     await page.evaluate(
