@@ -57,6 +57,8 @@ export interface GpuDeviceLike {
   createBuffer(d: { size: number; usage: number; mappedAtCreation?: boolean }): unknown
 }
 
+/** How to resolve the tier, and which live GPU handles are available to resolve onto.
+ *  Everything here is read ONCE, when the runner is built. */
 export interface ComputeRunnerOptions {
   /** Backends to try, in order. Defaults to `['webgpu', 'webgl2', 'cpu']`.
    *
@@ -70,6 +72,10 @@ export interface ComputeRunnerOptions {
   readonly device?: GpuDeviceLike
 }
 
+/** A kernel bound to one resolved backend. Build it with {@link createComputeRunner},
+ *  read {@link ComputeRunner.backend} to learn which tier won, then call
+ *  {@link ComputeRunner.run} as many times as you like — the emit, the program link and
+ *  the tier decision all happened at construction, so `run` is the dispatch alone. */
 export interface ComputeRunner {
   /** Which tier resolved. Read it — a CPU fallback costs ~105 ms at 1M invocations. */
   readonly backend: ComputeBackend

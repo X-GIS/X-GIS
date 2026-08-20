@@ -79,7 +79,7 @@ const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as 
 const STUB_SENTINEL = 'TODO(#1695):'
 
 /** The subpaths that ARE the public API and therefore owe documentation. */
-const API_SUBPATHS = ['.', './dev', './emit-prod', './core/ir'] as const
+const API_SUBPATHS = ['.', './compute', './dev', './emit-prod', './core/ir'] as const
 /** Subpaths deliberately outside the doc contract, with the reason.
  *  `./examples` is a curated gallery whose 36 objects already carry required `title` and
  *  `blurb` fields — a TSDoc on each would be a second authority for the same prose. Kept in
@@ -282,6 +282,7 @@ for (const defs of perSubpath.values())
  *  to grow. */
 const EXPORT_FLOOR: Readonly<Record<string, number>> = {
   '.': 284,
+  './compute': 6,
   './dev': 33,
   './emit-prod': 17,
   './core/ir': 193,
