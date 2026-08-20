@@ -56,14 +56,16 @@ import {
   stageOf,
 } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
+import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
-import { spellIntrinsic, INTRINSIC_BINDING_REFS, INTRINSIC_HELPERS } from '../intrinsics.js'
+import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js'
 import { fragmentRequires, type EmitFragment, type FragmentDeclares } from '../fragment.js'
 import { bodyHasRaw } from '../passes/opt/dce.js'
 import { collectLocals, collectMutatedRoots } from '../passes/opt/expr-utils.js'
 import { singleExitBody } from '../passes/single-exit.js'
 import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
+import { reachFrom } from '../passes/stage-bindings.js'
 import { dslError } from '../diagnostics/error.js'
 import { f32Lit } from './wgsl.js'
 import {
@@ -164,10 +166,6 @@ function glslLit(value: number | boolean, t: ShaderType): string {
 // (2) a bare param/return carrying location/builtin directly. Both flatten to the
 // same GLSL varyings.
 
-const LOCATION_RE = /@location\((\d+)\)/
-const BUILTIN_RE = /@builtin\((\w+)\)/
-const INTERPOLATE_RE = /@interpolate\((\w+)\)/
-
 // Shared stage predicate (#763 S1/S3) — structured-first with attr fallback.
 // GLSL has no compute stage; compute entries are handled by the emulation
 // lowering (or rejected by the capability gate) before this predicate runs.
@@ -253,47 +251,10 @@ function topoSortFuncs(
   return { ordered, needsProto }
 }
 
-/** String fallback ONLY (#740 R3): sot-authored fields carry structured
- *  location/builtin — read those via ioAttr() below. This regex path survives
- *  solely for hand-built FuncDecl literals and bare `retAttr` strings. */
-function parseAttrString(attr: string | undefined): {
-  location?: number
-  builtin?: string
-  interpolate?: string
-} {
-  if (!attr) return {}
-  const loc = attr.match(LOCATION_RE)
-  if (loc) {
-    const interp = attr.match(INTERPOLATE_RE)
-    return { location: Number(loc[1]), ...(interp ? { interpolate: interp[1] } : {}) }
-  }
-  const b = attr.match(BUILTIN_RE)
-  if (b) return { builtin: b[1] }
-  return {}
-}
-
-/** Structured-first IO attr read (#740 R3). `interpolate` rides along (#763 P4)
- *  so `@interpolate(flat)` float varyings emit GLSL `flat` — they used to
- *  interpolate smooth on WebGL2 while WGSL got provoking-vertex flat. */
-function ioAttr(
-  src:
-    | {
-        readonly location?: number
-        readonly builtin?: string
-        readonly interpolate?: string
-        readonly attr?: string
-      }
-    | undefined,
-): { location?: number; builtin?: string; interpolate?: string } {
-  if (!src) return {}
-  if (src.location !== undefined)
-    return {
-      location: src.location,
-      ...(src.interpolate !== undefined ? { interpolate: src.interpolate } : {}),
-    }
-  if (src.builtin !== undefined) return { builtin: src.builtin }
-  return parseAttrString(src.attr)
-}
+// The stage-IO attribute read (`ioAttrOf` / `retIoAttrOf`) moved to ir/entry-io.ts
+// (#1905): `reflect()` publishes the same interface as `EntryInfo.io`, and a second reader
+// of one attribute spelling is how a varying-parity gate greenlights a pair this writer
+// then refuses to link.
 
 // ── builtin lowering: WGSL builtin name → GLSL global ──
 // Direction-AND-stage dependent: an INPUT builtin reads FROM a gl_* global, an OUTPUT
@@ -581,12 +542,12 @@ function scatterTargets(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): 
   const out = new Set<string>()
   if (f.ret.kind === 'struct') {
     for (const sf of structByName(structs, f.ret.name).fields) {
-      const { builtin, location } = ioAttr(sf)
+      const { builtin, location } = ioAttrOf(sf)
       if (builtin) out.add(builtinOut(builtin))
       else if (location !== undefined) out.add(sf.name)
     }
   } else if (f.ret.kind !== 'void') {
-    const { builtin } = parseAttrString(f.retAttr)
+    const { builtin } = retIoAttrOf(f)
     out.add(builtin ? builtinOut(builtin) : '_ret')
   }
   return out
@@ -598,7 +559,7 @@ function scatterTargets(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): 
  *  its field name) it binds nothing, because `float uv = uv;` would bind the local to
  *  itself: a GLSL declarator is in scope inside its own initializer. */
 function bareParamSource(p: FuncDecl['params'][number], inName: (n: string) => string): string {
-  const bi = ioAttr(p).builtin
+  const bi = ioAttrOf(p).builtin
   return bi ? builtinInRead(bi, p.type) : inName(p.name)
 }
 
@@ -613,7 +574,7 @@ function structFieldSources(
   const out = new Map<string, string>()
   if (p.type.kind !== 'struct') return out
   for (const sf of structByName(structs, p.type.name).fields) {
-    const { builtin } = ioAttr(sf)
+    const { builtin } = ioAttrOf(sf)
     out.set(sf.name, builtin ? builtinInRead(builtin, sf.type) : inName(sf.name))
   }
   return out
@@ -782,11 +743,11 @@ function emitGlslEntry(
         ? structByName(structs, p.type.name).fields.map((sf) => ({
             name: sf.name,
             type: sf.type,
-            ...ioAttr(sf),
+            ...ioAttrOf(sf),
           }))
         : // A bare entry param carries its stage attr as `attr` (the `@location(n)`/`@builtin(...)`
           // string the location()/builtin() helpers emit) OR as direct location/builtin fields (raw IR).
-          [{ name: p.name, type: p.type, ...ioAttr(p) }]
+          [{ name: p.name, type: p.type, ...ioAttrOf(p) }]
     for (const s of fields) {
       if (s.builtin) continue
       if (s.location === undefined)
@@ -819,11 +780,11 @@ function emitGlslEntry(
       ? structByName(structs, f.ret.name).fields.map((sf) => ({
           name: sf.name,
           type: sf.type,
-          ...ioAttr(sf),
+          ...ioAttrOf(sf),
         }))
       : f.ret.kind === 'void'
         ? []
-        : [{ name: '_ret', type: f.ret, ...parseAttrString(f.retAttr) }]
+        : [{ name: '_ret', type: f.ret, ...retIoAttrOf(f) }]
   for (const s of retFields) {
     if (s.builtin) continue
     if (s.location === undefined)
@@ -929,7 +890,7 @@ function emitGlslEntry(
       const s = structByName(structs, p.type.name)
       body.push(`  ${glslType(p.type)} ${local};`)
       for (const sf of s.fields) {
-        const { builtin } = ioAttr(sf)
+        const { builtin } = ioAttrOf(sf)
         body.push(
           `  ${local}.${sf.name} = ${builtin ? builtinInRead(builtin, sf.type) : inName(sf.name)};`,
         )
@@ -967,7 +928,7 @@ function emitGlslEntry(
     const ctor = directCtorArgs(direct?.ret, f.ret.name, s.fields, outNames)
     if (ctor !== undefined) {
       s.fields.forEach((sf, i) => {
-        const { builtin, location } = ioAttr(sf)
+        const { builtin, location } = ioAttrOf(sf)
         const arg = emitExprNeutral(ctor[i]!, glslEs300Backend, parens)
         if (builtin) body.push(`  ${builtinOut(builtin)} = ${arg};`)
         else if (location !== undefined) body.push(`  ${sf.name} = ${arg};`)
@@ -988,7 +949,7 @@ function emitGlslEntry(
     const tmp = alias ?? (direct === undefined ? '_out' : freshLocal('_out', unavailable))
     if (alias === undefined) body.push(`  ${glslType(f.ret)} ${tmp} = ${value};`)
     for (const sf of s.fields) {
-      const { builtin, location } = ioAttr(sf)
+      const { builtin, location } = ioAttrOf(sf)
       if (builtin) body.push(`  ${builtinOut(builtin)} = ${tmp}.${sf.name};`)
       else if (location !== undefined) body.push(`  ${sf.name} = ${tmp}.${sf.name};`)
     }
@@ -996,7 +957,7 @@ function emitGlslEntry(
     // Inlined, the body IS main's body — there is nothing left to call.
     if (value !== undefined) body.push(`  ${value};`)
   } else {
-    const { builtin } = parseAttrString(f.retAttr)
+    const { builtin } = retIoAttrOf(f)
     body.push(builtin ? `  ${builtinOut(builtin)} = ${value};` : `  _ret = ${value};`)
   }
   lines.push('')
@@ -1459,7 +1420,7 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
     const tier = analyzePortableKernel(m, entry)
     if (!tier.ok) throw dslError('SD0111', tier.violations.join('; '))
   }
-  const gid = entry.params.find((p) => ioAttr(p).builtin === 'global_invocation_id')
+  const gid = entry.params.find((p) => ioAttrOf(p).builtin === 'global_invocation_id')
   if (!gid)
     throw new UnsupportedFeatureError(
       'glsl-es300 compute-emul: @compute entry has no @builtin(global_invocation_id) param',
@@ -1663,25 +1624,10 @@ function stageScope(
   if (entries.length === 0) return null
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return null
 
-  const byName = new Map(m.funcs.map((f) => [f.name, f]))
-  const refs = emptyRefSet()
-  const fns = new Set(entries.map((f) => f.name))
-  const stack = [...entries]
-  while (stack.length > 0) {
-    collectFnRefs(stack.pop()!, refs)
-    for (const name of refs.calls) {
-      const f = byName.get(name)
-      if (f && !fns.has(name)) {
-        fns.add(name)
-        stack.push(f)
-      }
-    }
-  }
-
-  const bindings = new Set<string>()
-  for (const b of m.bindings) if (refs.vars.has(b.name)) bindings.add(b.name)
-  for (const call of refs.calls)
-    for (const bound of INTRINSIC_BINDING_REFS[call] ?? []) bindings.add(bound)
+  // The fn-closure + binding rule is shared with reflect()'s `BindEntry.stages` (#1906)
+  // — one walk, so a host's stage mask cannot describe a narrower program than this
+  // emit declares. The struct closure below stays here: only GLSL needs it.
+  const { fns, bindings, refs } = reachFrom(m, entries)
 
   const structs = new Set(refs.structs)
   for (const b of m.bindings) if (bindings.has(b.name)) typeStructNames(b.type, structs)

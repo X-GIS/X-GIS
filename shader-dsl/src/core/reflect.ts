@@ -27,7 +27,9 @@ import {
   stageOf,
   workgroupSizeOf,
 } from './ir/index.js'
+import { entryIo, type IoField } from './ir/entry-io.js'
 import { requiredCaps } from './passes/required-caps.js'
+import { bindingStages } from './passes/stage-bindings.js'
 import { fp64Lower, type Fp64Flavor } from './passes/fp64-lower.js'
 
 const roundUp = (x: number, a: number): number => Math.ceil(x / a) * a
@@ -314,6 +316,28 @@ export interface BindEntry {
    *  filtering sampler — there is no `sampler` binding to pair it with in a
    *  correctly-authored module, since `textureSample` rejects those keys at tsc. */
   readonly textureElem?: TextureElem
+  /** WHICH STAGES reference this binding (#1906) — from the same reachability walk the
+   *  per-stage GLSL emit uses to decide which unit declares which uniform
+   *  (`passes/stage-bindings.ts`, shared with `stageScope`), so a host's stage mask can
+   *  never describe a narrower program than the emit produces. Ordered
+   *  vertex → fragment → compute.
+   *
+   *  This is `GPUBindGroupLayoutEntry.visibility` before it is a bitmask, and the same
+   *  fact a WebGL2 host needs to assign UBO binding points / texture units per stage.
+   *  Reported as a LIST rather than a `'vertex' | 'fragment' | 'both'` union because
+   *  `both` does not extend to compute and a mask is what both target APIs want.
+   *
+   *  ALWAYS set, same contract as `resourceKind` — but it CAN BE EMPTY, and empty is a
+   *  fact rather than a gap: `bindGroups` stays the complete set of DECLARED bindings, so
+   *  a binding no entry reaches (declared and never read, or a module with no entry at
+   *  all) reports `[]`. A host must not synthesize a visibility for one — there is no
+   *  stage that reads it.
+   *
+   *  For a HOST-owned binding (`owner: 'host'`) this is the MODULE'S VIEW and therefore a
+   *  LOWER BOUND, not the authority: the surrounding renderer's real layout may expose the
+   *  resource to stages this module's entries never reach. Merge it into the host layout;
+   *  do not narrow the host layout to it. */
+  readonly stages: readonly ('vertex' | 'fragment' | 'compute')[]
 }
 /** One WGSL `@group(N)`'s worth of bind entries, sorted by `binding`. `Reflection.bindGroups`
  *  is the complete list across every group the module declares, sorted by `group` — but every
@@ -357,6 +381,51 @@ export interface VertexLayout {
   readonly attributes: readonly VertexAttr[]
   readonly arrayStride: number
 }
+/** One field of an entry point's stage INTERFACE (#1905) — a `@location(n)` varying /
+ *  vertex attribute / fragment draw buffer, or a `@builtin(name)` slot. Flattened out of a
+ *  struct param or struct return where the entry spelled it that way; see {@link EntryIo}.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export interface EntryIoField {
+  /** The field's own identifier — a param's name, a flattened struct field's name, or
+   *  `_ret` for a bare non-struct return (the name the GLSL backend gives that output). */
+  readonly name: string
+  /** The DSL type key (`typeKey`), the same spelling `StructLayout.fields[].type` and
+   *  `VertexAttr.type` use. */
+  readonly type: string
+  /** The declared `@location(n)`. Absent on a `@builtin` field and on an unattributed
+   *  one — the two are distinguished by whether `builtin` is set. */
+  readonly location?: number
+  /** The declared `@builtin(name)`, in WGSL's own vocabulary (`position`,
+   *  `vertex_index`, …). Builtins are REPORTED, not filtered: a consumer excluding them
+   *  (varying parity does — they are not varyings) needs to see that `position` exists to
+   *  say WHY it was excluded, rather than have the field silently not exist. */
+  readonly builtin?: string
+}
+/** One entry point's `@location`/`@builtin` INTERFACE (#1905) — the shape a host validates
+ *  a vertex/fragment pair against, builds a `GPUVertexState` from, or diffs as a pipeline
+ *  contract. Both sides are FLATTENED: a struct param or a struct return contributes its
+ *  fields, not itself, because WGSL lets an entry spell the same varyings either way and a
+ *  consumer comparing two stages must not care which form each side used (every fragment
+ *  entry in this repo takes its varyings as one `ioStruct` param — un-flattened, `inputs`
+ *  would be a single struct-typed row with no location, and a varying-parity check over it
+ *  would pass by having nothing to check). A `void` return contributes nothing.
+ *
+ *  `outputs` being a LIST is also what makes multi-attachment fragment output expressible
+ *  (`@location(0)` colour + `@location(1)` entity id), which `EntryInfo.output`'s single
+ *  type key cannot represent.
+ *
+ *  Read through the same `ioAttrOf`/`retIoAttrOf` the GLSL backend reads its `in`/`out`
+ *  declarations through (`ir/entry-io.ts`), so the published interface and the emitted
+ *  one cannot disagree.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export interface EntryIo {
+  readonly inputs: readonly EntryIoField[]
+  readonly outputs: readonly EntryIoField[]
+}
 /** One `@vertex`/`@fragment`/`@compute` entry point: its stage, parameter/return types as DSL
  *  type keys (not full `ShaderType`s), and — for `@compute` only — its workgroup size, defaulted
  *  to 64 when the entry declares none (reflect.ts:509's `workgroupSizeOf(f) ?? 64`, matching the
@@ -380,6 +449,13 @@ export interface EntryInfo {
    *  exactly that). Read it to decide which dispatch shape a kernel needs; its absence means
    *  the kernel is WebGPU-only. */
   readonly portable?: true
+  /** The entry's location/builtin INTERFACE (#1905). `inputs`/`output` above stay exactly
+   *  as they were — type keys, which is what `semanticDiff` fingerprints with — and this
+   *  is the structured view beside them: a host validating a stage pair needs the
+   *  `@location` numbers, and re-deriving them from `ModuleDecl` meant regex-parsing WGSL
+   *  attribute syntax on top of a package whose premise is structured IR. Always present.
+   *  See {@link EntryIo} for how struct params/returns flatten. */
+  readonly io: EntryIo
 }
 /** A pipeline SPECIALIZATION CONSTANT (#923) the host must supply per pipeline
  *  variant. Both backends' host shapes derive from this: the WGSL `constants: {}`
@@ -468,6 +544,16 @@ export interface ExternRequirement {
   readonly stage?: 'vertex' | 'fragment' | 'compute'
 }
 
+/** An `ir/entry-io` field as the reflection publishes it: the `ShaderType` becomes its type
+ *  KEY (the spelling every other reflected type uses), `interpolate` is dropped — it is an
+ *  emit detail of how a varying is sampled, not part of which slot it occupies. */
+const ioField = (f: IoField): EntryIoField => ({
+  name: f.name,
+  type: typeKey(f.type),
+  ...(f.location !== undefined ? { location: f.location } : {}),
+  ...(f.builtin !== undefined ? { builtin: f.builtin } : {}),
+})
+
 const resourceKind = (space: AddressSpace, t: ShaderType): ResourceKind =>
   t.kind === 'texture'
     ? 'texture'
@@ -514,16 +600,24 @@ export interface ReflectOptions {
  *  violation being fixed here.
  *
  *  Identity for every module without f64 — `fp64Lower` returns the same object, so the cost
- *  is one reference comparison. */
+ *  is one reference comparison.
+ *
+ *  The LOWERED module comes back alongside because `BindEntry.stages` must be walked over
+ *  it, not over the authored one: nothing in the authored IR calls `f64Guard`, so `_fp64`
+ *  is reachable only after the lowering that injected it — the same module the per-stage
+ *  GLSL emit scopes over. */
 function bindingsIncludingInjected(
   m: ModuleDecl,
   flavor: Fp64Flavor | undefined,
-): readonly BindingDecl[] {
+): { readonly bindings: readonly BindingDecl[]; readonly lowered: ModuleDecl } {
   const lowered = fp64Lower(m, flavor !== undefined ? { flavor } : undefined)
-  if (lowered === m) return m.bindings
+  if (lowered === m) return { bindings: m.bindings, lowered }
   const declared = new Set(m.bindings.map((b) => b.name))
   const injected = lowered.bindings.filter((b) => !declared.has(b.name))
-  return injected.length === 0 ? m.bindings : [...m.bindings, ...injected]
+  return {
+    bindings: injected.length === 0 ? m.bindings : [...m.bindings, ...injected],
+    lowered,
+  }
 }
 
 /**
@@ -539,7 +633,8 @@ function bindingsIncludingInjected(
  */
 export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   const structs = new Map(m.structs.map((s) => [s.name, s]))
-  const allBindings = bindingsIncludingInjected(m, opts?.fp64Flavor)
+  const { bindings: allBindings, lowered } = bindingsIncludingInjected(m, opts?.fp64Flavor)
+  const stages = bindingStages(lowered)
   // bind groups (sorted by group, then binding)
   const byGroup = new Map<number, BindEntry[]>()
   for (const b of allBindings) {
@@ -556,6 +651,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
         : {}),
       ...(b.type.kind === 'struct' ? { structName: b.type.name } : {}),
       ...(b.type.kind === 'texture' ? { textureDim: b.type.dim, textureElem: b.type.elem } : {}),
+      stages: stages.get(b.name) ?? [],
     }
     ;(byGroup.get(b.group) ?? byGroup.set(b.group, []).get(b.group)!).push(e)
   }
@@ -578,6 +674,9 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
   for (const f of m.funcs) {
     const stage = stageOf(f)
     if (!stage) continue
+    // #1905 — the location/builtin view of the same signature, read through the GLSL
+    // backend's own attribute readers so the two cannot describe different interfaces.
+    const io = entryIo(f, structs)
     entries.push({
       name: f.name,
       stage,
@@ -587,6 +686,7 @@ export function reflect(m: ModuleDecl, opts?: ReflectOptions): Reflection {
       // Present only when declared (#1812) — an absent field, not `portable: false`, so the
       // host reads "WebGPU-only" the same way it reads every other absent capability.
       ...(f.portable === true ? { portable: true as const } : {}),
+      io: { inputs: io.inputs.map(ioField), outputs: io.outputs.map(ioField) },
     })
     if (stage === 'vertex' && !vertex) {
       let cursor = 0

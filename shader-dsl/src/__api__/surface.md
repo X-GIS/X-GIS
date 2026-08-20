@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 356 exports
+## `.` — 358 exports
 
 ```
 abs
@@ -107,6 +107,8 @@ EmitPlugin
 emitStruct
 EmitTarget
 EntryInfo
+EntryIo
+EntryIoField
 EntryParam
 enumU32
 EnumU32
@@ -658,7 +660,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 404 definitions
+## Shapes — 406 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -996,9 +998,11 @@ src/core/passes/single-exit.ts#checkSingleExit  function  (f: FuncDecl) => strin
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
-src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; space: AddressSpace; structName?: string; textureDim?: "2d" | "2d-array" | "2d-ms"; textureElem?: TextureElem }
+src/core/reflect.ts#BindEntry  interface  { access?: "read" | "read_write"; binding: number; glslSpelling?: "std140-block" | "loose"; group: number; name: string; owner: "module" | "host"; resourceKind: ResourceKind; space: AddressSpace; stages: readonly ("vertex" | "fragment" | "compute")[]; structName?: string; textureDim?: "2d" | "2d-array" | "2d-ms"; textureElem?: TextureElem }
 src/core/reflect.ts#BindGroup  interface  { entries: readonly BindEntry[]; group: number }
-src/core/reflect.ts#EntryInfo  interface  { inputs: readonly string[]; name: string; output: string; portable?: true; stage: "vertex" | "fragment" | "compute"; workgroupSize?: number }
+src/core/reflect.ts#EntryInfo  interface  { inputs: readonly string[]; io: EntryIo; name: string; output: string; portable?: true; stage: "vertex" | "fragment" | "compute"; workgroupSize?: number }
+src/core/reflect.ts#EntryIo  interface  { inputs: readonly EntryIoField[]; outputs: readonly EntryIoField[] }
+src/core/reflect.ts#EntryIoField  interface  { builtin?: string; location?: number; name: string; type: string }
 src/core/reflect.ts#ExternRequirement  interface  { glsl: string; name: string; stage?: "vertex" | "fragment" | "compute"; type: string; wgsl: string }
 src/core/reflect.ts#FieldLayout  interface  { align: number; name: string; offset: number; size: number; type: string }
 src/core/reflect.ts#LayoutKind  type  "std140" | "std430"
