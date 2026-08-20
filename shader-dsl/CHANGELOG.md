@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 7959f837eb75896ba396116fa24270e317df99ad
+  Generated from: f2f81ec9bcb0efe2e1d06557fff3d809d4d2a99e
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 7959f837eb75
+    bun scripts/emit-changelog.ts --path shader-dsl --since f2f81ec9bcb0
 -->
 
 # Changelog — shader-dsl
@@ -61,6 +61,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### perf
 
+- **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
 - **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
 - **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
 - **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`

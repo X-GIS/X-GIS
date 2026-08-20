@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 7959f837eb75896ba396116fa24270e317df99ad
+  Generated from: f2f81ec9bcb0efe2e1d06557fff3d809d4d2a99e
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 7959f837eb75
+    bun scripts/emit-changelog.ts --since f2f81ec9bcb0
 -->
 
 # Changelog
@@ -167,6 +167,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
 - **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
 - **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
 - **map/shaders:** minify every shader source this map hands a device ([#1904](https://github.com/X-GIS/X-GIS/pull/1904)) `a0ef5c9`
