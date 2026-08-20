@@ -119,6 +119,21 @@ export function computeGeoJSONBounds(
   return [minLon, minLat, maxLon, maxLat]
 }
 
+/** CSS width to feed the bounds-fit zoom calc (`_fitZoomToLonSpan`). Source
+ *  attach (map.ts / source-manager.ts) runs BEFORE the render loop's first
+ *  `resizeCanvas` (rhi-webgpu/src/gpu.ts) has ever sized the swapchain, so
+ *  `canvas.width` — the device PIXEL buffer — can still hold the un-sized
+ *  HTML default (300) instead of the laid-out size (#1836: a first-boot fit
+ *  on a 780-css-px canvas computed zoom from a 300px buffer). Mirror
+ *  `resizeCanvas`'s OWN source of truth — `clientWidth`, the browser-laid-out
+ *  CSS width — and fall back to the pre-#1836 `width / dpr` derivation only
+ *  when layout hasn't happened yet (`clientWidth === 0`: detached elements,
+ *  headless/unit-test canvas doubles). Single authority for all four
+ *  bounds-fit call sites (source-manager.ts ×3, map.ts ×1). */
+export function fitWidthCssPx(canvas: { width: number; clientWidth: number }, dpr: number): number {
+  return canvas.clientWidth || canvas.width / dpr
+}
+
 export function buildTypographyMap(fonts: readonly XGISFontResource[]): FontTypographyMap | null {
   const map: FontTypographyMap = new Map()
   for (const f of fonts) {

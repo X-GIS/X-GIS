@@ -759,20 +759,42 @@ jobs:
   # partitions by TEST count, and the explicit file list is applied BEFORE the split,
   # so the leg's registered spec list is still the population.
   #
-  # 4 shards, not more: the ~5 min setup (bun install + build + browser install) is
-  # paid per shard, so wall-clock is testTime/N + 5. At 45-60 min of tests that is
-  # ~17 min at N=4 and ~12 min at N=8, for 69 vs 93 runner-minutes against today's
-  # ~51. N=4 takes the bulk of the win at the smaller multiple.
+  # SIX shards (#1863). N=4 shipped on an ESTIMATE — "~5 min setup per shard, so
+  # wall-clock is testTime/N + 5" — and a real run has since measured both halves of
+  # that, on run 32350448392:
+  #
+  #   shard 1/4  28.5 min  (23.9 min of tests + 4.6 min of setup and the serial gates)
+  #   shard 3/4  19.1 min  (16.6 + 2.4)
+  #   shard 2/4  12.7 min  (10.2 + 2.5)
+  #   shard 4/4  10.1 min  ( 7.7 + 2.4)
+  #
+  # Setup is ~2.5 min, not ~5 — so the per-shard toll the estimate priced N on is half
+  # what it assumed. What the estimate missed entirely is the SPREAD: playwright shards
+  # by TEST COUNT, and a test runs from seconds to minutes, so equal counts are not equal
+  # time. The slowest shard does 3.1x the work of the fastest, and the slowest shard is
+  # the job's wall-clock.
+  #
+  # #1863 enumerated `--list` per shard against per-spec durations and projected 24.3 min
+  # of tests on the slowest shard at N=4 — against the 23.9 min measured above, a 1.6%
+  # error, so its N=6 figure of 18.5 min is trustworthy on the same corpus (144 spec files
+  # here vs 146 there; 58.4 min of total work vs 62.0). Scaled: ~17.4 min of tests, so
+  # ~22 min of wall-clock against today's 28.5, for two more runners (~70 -> ~85
+  # runner-minutes). N=8 buys ~4 min more for another two; N=6 is where the curve bends.
+  #
+  # The residual spread is inherent to count-based sharding and is deliberately NOT fixed
+  # by hand-grouping the spec list: a grouping keyed on today's durations goes stale
+  # silently every time a spec's cost changes, which is the path-keyed-gate failure #996
+  # already paid for.
   render-shard:
     needs: changes
     strategy:
       # NEVER fail-fast: a red shard must not cancel its siblings, or a single
-      # failure hides whatever the other three would have reported and the next
+      # failure hides whatever the other five would have reported and the next
       # push re-discovers it one shard at a time.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
-    name: render-shard (${{ matrix.shard }}/4)
+        shard: [1, 2, 3, 4, 5, 6]
+    name: render-shard (${{ matrix.shard }}/6)
     # PR-only, unlike every other job here. This is the one leg that can outlast
     # the merge cadence — #1862's took 63 min against the ~22 min mean inter-merge
     # interval measured in #1842 — so on `push: main` the `concurrency` group above
@@ -864,13 +886,76 @@ jobs:
       # run still needs full Chromium, which is why this flag is on the CI
       # command and not in a config file.
       #
-      # `--with-deps` stays: it is what installs the font packages
-      # (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont, fonts-wqy-zenhei,
-      # xfonts-*) that the glyph-bearing gates rasterise against. It costs ~9 s on
-      # a warm runner and is NOT covered by the cache above, which holds only
-      # ~/.cache/ms-playwright.
+      # NO `--with-deps` (#1863). It ran an apt transaction, which was a ~9 s cost when
+      # this job was ONE runner and becomes N simultaneous transactions against the same
+      # regional mirror once it is sharded. MEASURED on run 32236609546, at N=6: five of
+      # the six shards burned the whole 8-minute backstop while one sailed through. The
+      # CONTROL rules out the mirror being down — an UNSHARDED render-gate on another
+      # branch five minutes earlier in the same window (run 32236161072, job 96016531667)
+      # installed in 54 s. What changed was the concurrency, not the mirror. Timeouts and
+      # retries only bound the damage: the log shows `Ign:` backing off 1/2/4/8/16 s and
+      # falling back to archive.ubuntu.com, then seven minutes of silence.
+      #
+      # `--with-deps` bought two things, and both are better served without it:
+      #
+      #   (a) SHARED LIBRARIES — now ASSERTED rather than assumed. `ldd` names every
+      #       unresolved DT_NEEDED of the exact binary this job launches, so a runner
+      #       image that drops one fails HERE with the library's name instead of as an
+      #       opaque launch error, and apt runs only in that case. That is strictly more
+      #       information than `--with-deps` gave us, at zero network cost.
+      #
+      #   (b) FONT PACKAGES (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont,
+      #       fonts-wqy-zenhei, xfonts-*) — answered by the render gates themselves, which
+      #       rasterise every glyph this repo draws and diff it. If one of those packages
+      #       moved a gated pixel, the gates below go red and name the spec. That is the
+      #       bar: run the gates, do not reason about the fonts.
       - if: needs.changes.outputs.render == 'true'
-        run: ./playground/node_modules/.bin/playwright install chromium --only-shell --with-deps
+        timeout-minutes: 8
+        run: |
+          pw=./playground/node_modules/.bin/playwright
+          $pw install chromium --only-shell
+
+          # ASK playwright where it put the browser; do not hardcode the path. Both the
+          # directory and the executable inside it change between revisions — rev 1194 was
+          # `chrome-linux/headless_shell`, rev 1223 ships the Chrome-for-Testing
+          # `chrome-headless-shell-linux64/chrome-headless-shell`. A hardcoded glob is a
+          # latent break, and it already broke once here (b3ce44a, run 32238376734).
+          # `--dry-run` prints the install location and downloads nothing.
+          #
+          # A here-string, not a pipe: awk exiting early would SIGPIPE its writer into a
+          # 141 under `bash -eo pipefail`.
+          plan=$($pw install chromium --only-shell --dry-run)
+          root=$(awk '/Install location:/ { print $3; exit }' <<<"$plan")
+          shell=$(find "$root" -maxdepth 2 -type f -perm -u+x -name '*headless*shell*' -print -quit 2>/dev/null)
+
+          if [ -z "$shell" ]; then
+            # Never fail the build on the DIAGNOSTIC's own bookkeeping. If a future layout
+            # defeats the search, say so and let the gates below be the judge — which is
+            # exactly the pre-existing behaviour, not a regression.
+            echo "::warning::could not locate the headless shell under '$root' — skipping the linkage check; the render gates below still exercise the browser"
+          else
+            echo "headless shell: $shell"
+            missing=$(ldd "$shell" | grep 'not found' || true)
+            if [ -n "$missing" ]; then
+              echo "::warning::$shell has unresolved libraries — falling back to apt:"
+              echo "$missing"
+              # apt has NO timeout on a stalled connection, so give it one BEFORE using
+              # it. The policy goes in apt.conf.d because playwright spawns apt itself and
+              # there is no flag to reach through `install-deps`. A heredoc body and its
+              # terminator must sit at the block scalar's own indentation, since that is
+              # column 0 of the script bash receives.
+              sudo tee /etc/apt/apt.conf.d/99-ci-timeouts >/dev/null <<'CONF'
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          Acquire::ftp::Timeout "30";
+          Acquire::Retries "5";
+          CONF
+              $pw install-deps chromium
+              still=$(ldd "$shell" | grep 'not found' || true)
+              test -z "$still" || { echo "::error::still unresolved after install-deps: $still"; exit 1; }
+            fi
+            echo "dynamic linkage complete"
+          fi
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
@@ -1145,10 +1230,10 @@ jobs:
           # diagnostic appended after a verification command becomes the exit code).
           set -o pipefail
           rc=0
-          ./node_modules/.bin/playwright test --shard=${{ matrix.shard }}/4 \
-            _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _webgl2-compute-recipe.spec.ts _compute-runner-parity.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
+          ./node_modules/.bin/playwright test --shard=${{ matrix.shard }}/6 \
+            _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _webgl2-compute-recipe.spec.ts _compute-runner-parity.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts _fixture-picking.spec.ts _inline-geojson-import.spec.ts _korea-fill-regression.spec.ts 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           if ! grep -qE 'Running [1-9][0-9]* test' "$RUNNER_TEMP/shard.log"; then
-            echo "::error::render-shard ${{ matrix.shard }}/4 executed NO tests. A shard that matches nothing exits 0 SILENTLY (measured), so this is a broken shard split or a broken spec list — not a pass."
+            echo "::error::render-shard ${{ matrix.shard }}/6 executed NO tests. A shard that matches nothing exits 0 SILENTLY (measured), so this is a broken shard split or a broken spec list — not a pass."
             exit 1
           fi
           # A test that fails and then passes on retry exits 0 (`retries: 2` in CI), so the
@@ -1161,7 +1246,7 @@ jobs:
           # gate: the retry policy is deliberate (see playwright.config.ts) and is not the bug.
           # Scope: this sharded batch only — the wall-clock and stability steps below run
           # their own invocations and are NOT covered.
-          bun ../scripts/flaky-report.ts "$RUNNER_TEMP/shard.log" "render-shard ${{ matrix.shard }}/4"
+          bun ../scripts/flaky-report.ts "$RUNNER_TEMP/shard.log" "render-shard ${{ matrix.shard }}/6"
           exit "$rc"
 
       # The wall-clock pair and the stability gate are NOT sharded: three specs and one

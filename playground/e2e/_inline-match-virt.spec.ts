@@ -8,9 +8,15 @@
 // with buildShowSourceMaps' showSlices, so the MVT worker emits per-tile
 // featureProps under the slice keys the VTR actually reads.
 //
+// #1837 moved the DEFAULT: an inline source with no filter and no geometryExpr
+// now takes the virtual route without any opt-in, so the blank this spec used to
+// pin on a flag-less boot is gone. The legacy contract it documented survives only
+// behind the explicit Phase-5f opt-OUT (?legacy=1), which is where this now pins it.
+//
 // Three-way real-GPU probe, same discipline as the issue's repro:
-//   legacy + match()  → blank (documents the residual legacy contract)
-//   virt   + match()  → BOTH hues present (per-feature colour applied)
+//   default (no flag)  → BOTH hues present (per-feature colour applied) — #1837
+//   ?legacy=1          → blank (the residual legacy '' slice-key contract)
+//   ?virt_inline=1     → BOTH hues present (the explicit opt-in, unchanged)
 
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -92,20 +98,37 @@ async function loadAndPush(
 }
 
 test.describe('#821 inline match() colour', () => {
-  test('virt_inline renders BOTH per-feature hues; legacy stays blank', async ({ page }) => {
-    test.setTimeout(120_000)
+  test('inline match() renders by default (#1837); ?legacy=1 still blank; opt-in unchanged', async ({
+    page,
+  }) => {
+    test.setTimeout(180_000)
     await withValidationCapture(page, async () => {
-      // Legacy path (no flag): the '' slice-key mismatch → nothing drawn.
-      const legacy = await loadAndPush(page, '')
+      // DEFAULT boot, no flag. Before #1837 this was the blank this spec pinned as
+      // "the residual legacy contract"; the route now defaults to virtual, so the
+      // per-feature colour lands with no opt-in at all.
+      const dflt = await loadAndPush(page, '')
 
-      console.log('[#821 legacy]', legacy)
-      expect(legacy.rose, 'legacy inline match() is a known blank (issue #821)').toBeLessThan(0.001)
-      expect(legacy.emerald, 'legacy inline match() is a known blank (issue #821)').toBeLessThan(
+      console.log('[#821 default]', dflt)
+      expect(dflt.rose, 'default boot must render the kind:a quad in rose (#1837)').toBeGreaterThan(
+        0.02,
+      )
+      expect(
+        dflt.emerald,
+        'default boot must render the kind:b quad in emerald (#1837)',
+      ).toBeGreaterThan(0.02)
+
+      // Explicit Phase-5f opt-OUT: still the legacy path, still the '' slice-key
+      // mismatch. This is the arm that keeps the legacy contract under test — and it
+      // is what makes the assertion above distinguishing rather than vacuous.
+      const legacy = await loadAndPush(page, '&legacy=1')
+
+      console.log('[#821 legacy=1]', legacy)
+      expect(legacy.rose, '?legacy=1 inline match() stays a known blank (#821)').toBeLessThan(0.001)
+      expect(legacy.emerald, '?legacy=1 inline match() stays a known blank (#821)').toBeLessThan(
         0.001,
       )
 
-      // Virtual path: per-feature match() colour must land — both hues,
-      // each covering a substantial share of the frame (two big quads).
+      // Explicit opt-in: unchanged by #1837, still renders both hues.
       const virt = await loadAndPush(page, '&virt_inline=1')
 
       console.log('[#821 virt]', virt)

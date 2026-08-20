@@ -83,7 +83,7 @@ import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { settleSourceLoads } from './source-load-outcome'
-import { SourceManager } from './source-manager'
+import { isLegacyGeoJSONOptOut, SourceManager } from './source-manager'
 import { InteractionController } from './interaction-controller'
 import { MapRendererContent } from './render/renderer'
 import { InputStore } from './render/input-store'
@@ -195,6 +195,7 @@ import {
   labelsHaveTimeAnimation,
   buildTypographyMap,
   registerFonts,
+  fitWidthCssPx,
 } from './map-geo-helpers'
 import { prewarmVectorTileSource, detectVectorTileFormat } from '@xgis/data'
 import { StatsTracker, StatsPanel, type RenderStats } from './stats'
@@ -4056,14 +4057,16 @@ export class XGISMap {
       vtRenderer.setSource(source)
       this._registerVtSource(vtKey, source, vtRenderer)
 
-      // Phase 5f-2 opt-in path: route inline GeoJSON sources through
+      // Phase 5f-2 route: inline GeoJSON sources go through
       // VirtualPMTilesBackend (the same pipeline URL-loaded GeoJSON
-      // takes since Phase 5f-1). Gated behind a flag so the rollout
-      // can expand demo-by-demo as we confirm parity. Skipped when:
+      // takes since Phase 5f-1). Skipped when:
       //   - the show carries a geometryExpr (procedural geometry
       //     reads raw features, not tile geometry)
-      //   - filter is set (per-show filtering needs showSlices wiring
-      //     into VirtualPMTilesBackend — separate work)
+      //   - filter is set: a filtered show gets its OWN `target__N`
+      //     vtKey, and buildShowSourceMaps buckets by `targetName`, so
+      //     the attach would find no slice descriptor for that key and
+      //     the worker would emit one slice named `target__N` against a
+      //     `target__<filterHash>` lookup — the same miss, relocated.
       // Per-feature buffer variants (match()/gradient() colour) ride
       // THIS path since #821: the legacy fallback stores tiles under
       // the default '' slice, which the VTR's computeSliceKey lookup
@@ -4071,11 +4074,26 @@ export class XGISMap {
       // attach passes buildShowSourceMaps' showSlices, so the MVT
       // worker emits per-tile featureProps under the exact slice keys
       // the VTR looks up — the same proven URL-GeoJSON machinery.
+      //
+      // #1837 — that miss blanks the CONSTANT-colour half of the same gate
+      // too, so the opt-in flag is no longer the entry ticket: every show
+      // this gate already admits now takes the virtual route by DEFAULT.
+      // 788e2282 pointed the VTR lookup at `targetName`, which silently
+      // orphaned every flag-off legacy inline scene — the shipped
+      // `import_mapbox_inline_geojson` demo among them (fill 0.00% on three
+      // specs). `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` / `?virt_inline=1`
+      // survive as redundant opt-INs; the pre-existing `?legacy=1` /
+      // `__XGIS_USE_LEGACY_GEOJSON` opt-OUT still pins the legacy compile
+      // (its two e2e diagnostics depend on it), and an explicit inline
+      // opt-in outranks that generic opt-out. The `window` guard stays: in
+      // production this decision is browser-only (rebuildLayers runs after a
+      // GPU boot against a canvas), so a DOM-less host keeps today's route.
       const useVirtualForInline =
         typeof window !== 'undefined' &&
         ((window as unknown as { __XGIS_USE_VIRTUAL_INLINE_GEOJSON?: boolean })
           .__XGIS_USE_VIRTUAL_INLINE_GEOJSON === true ||
-          /[?&]virt_inline=1\b/.test(window.location.search)) &&
+          /[?&]virt_inline=1\b/.test(window.location.search) ||
+          !isLegacyGeoJSONOptOut()) &&
         !hasFilter &&
         !show.geometryExpr?.ast
       if (useVirtualForInline) {
@@ -4204,7 +4222,8 @@ export class XGISMap {
               // Keep centerLatDeg consistent with the fitted centerY (≤85, byte-safe).
               this.camera.syncCenterLat()
               const dpr = canvasEffectiveDpr(this.canvas)
-              const cssW = this.canvas.width / dpr
+              // #1836: laid-out CSS width, not the pre-first-frame canvas buffer.
+              const cssW = fitWidthCssPx(this.canvas, dpr)
               this.camera.zoom = this._fitZoomToLonSpan(maxLon - minLon, cssW)
             }
           })

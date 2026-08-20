@@ -731,7 +731,16 @@ const CEILINGS: Record<string, number> = {
   // stop-block — the SourceManager half of the same teardown spine, so a
   // `refresh:`-declared polling loop can't outlive a scene swap or ghost-write
   // into a same-named source in the next scene (the #1569 class of bug).
-  'map/src/map.ts': 5584,
+  // 5584→5586 (#1836, atop the #1304 bump): the boot-fit width import + a one-line
+  // call-site comment at the tile-worker-compile bounds-fit — routes through the new
+  // `fitWidthCssPx` helper (map-geo-helpers.ts) instead of the stale `canvas.width / dpr`.
+  // 5586→5603 (#1837, atop the #1836 bump): the inline-GeoJSON route gate stops requiring an opt-in flag —
+  // ONE condition line (`|| !isLegacyGeoJSONOptOut()`) plus the comment recording why
+  // 788e2282 orphaned every flag-off legacy inline scene and which two show shapes
+  // (filtered / procedural) deliberately stay behind. Nothing extract-worthy: the gate
+  // is four terms inside the show loop, and the flag it now consults is already a
+  // shared export from source-manager.ts.
+  'map/src/map.ts': 5603,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -847,7 +856,17 @@ const CEILINGS: Record<string, number> = {
   // Fix: re-check `isStale?.() || !this._sourceRefresh.isRunning(sourceName)`
   // AFTER the tick's await, BEFORE `setSourceData` — same shape as every other
   // A7 guard in this file. +15 = the guard line + its reasoning comment.
-  'map/src/source-manager.ts': 1057,
+  // 1057→1060 (#1836): a one-line call-site comment at each of the three boot-fit
+  // sites (PMTiles / GeoJSON-URL / VirtualPMTiles attach), now routed through the
+  // new `fitWidthCssPx` helper (map-geo-helpers.ts) instead of the stale `canvas.
+  // width / dpr` — the pre-first-frame boot-fit read the un-sized HTML canvas
+  // default (300) instead of the laid-out CSS width.
+  // 1060→1068 (#1837, atop the #1836 bump): the `?legacy=1` / `__XGIS_USE_LEGACY_GEOJSON` opt-out became a
+  // named export (`isLegacyGeoJSONOptOut`) because map.ts's inline route now reads the
+  // SAME flag — one authority, not a hand-copied predicate that could drift into meaning
+  // two different things on one page. Net +8: the exported function + its doc, minus the
+  // inline `useLegacy` expression and the comment lines it replaced.
+  'map/src/source-manager.ts': 1068,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

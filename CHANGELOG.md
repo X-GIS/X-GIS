@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: cafa8963f5e4e17ac9f82bae9d931830b10c75ac
+  Generated from: b4c8bdfea2be90d7a03a7cf540fa55717627e329
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since cafa8963f5e4
+    bun scripts/emit-changelog.ts --since b4c8bdfea2be
 -->
 
 # Changelog
@@ -88,6 +88,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
+- **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
+- **map/sources:** importer-seeded inline GeoJSON defaults onto the VirtualPMTiles route (#1837) ([#1846](https://github.com/X-GIS/X-GIS/pull/1846)) `af77872`
+- **map/sources:** boot bounds-fit reads the laid-out width, not the stale canvas buffer (#1836) ([#1844](https://github.com/X-GIS/X-GIS/pull/1844)) `b5b28ab`
 - **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
 - **e2e:** _globe-dateline-wired-gate converges on the tile set it asserts (#1895) ([#1897](https://github.com/X-GIS/X-GIS/pull/1897)) `1e7feab`
 - **e2e:** _scene-builder-twin waits for convergence instead of a fixed sleep (#1895) ([#1896](https://github.com/X-GIS/X-GIS/pull/1896)) `c3ce0e8`
@@ -167,6 +171,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **ci:** six render shards, no apt on their path, and a gate on the count ([#1935](https://github.com/X-GIS/X-GIS/pull/1935)) `0b39a6c`
 - **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
 - **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
 - **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
@@ -199,6 +204,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **shader-dsl:** document the WebGL2 GPGPU host contract, gated on a real GPU ([#1902](https://github.com/X-GIS/X-GIS/pull/1902)) `8c25a04`
 - **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
 - **map:** tell the bake gate's remedy to build first, so it stops pointing at itself ([#1870](https://github.com/X-GIS/X-GIS/pull/1870)) `a63e6e5`
 - **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
@@ -218,6 +224,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
 - **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
 - **playground:** invert the dark-spec audit — enumerate known-dark rows (#1817) ([#1829](https://github.com/X-GIS/X-GIS/pull/1829)) `8bc6d8c`
@@ -257,6 +264,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### chore
 
+- **process:** verify what a session inherited instead of trusting it ([#1934](https://github.com/X-GIS/X-GIS/pull/1934)) `ef415b6`
 - **map:** drop the dead publish-manifest fields that contradict the source layout (#1685) ([#1772](https://github.com/X-GIS/X-GIS/pull/1772)) `4123b8b`
 - **design-sync:** import @xgis/site UI kit into claude.ai/design ([#1754](https://github.com/X-GIS/X-GIS/pull/1754)) `36fd72c`
 
