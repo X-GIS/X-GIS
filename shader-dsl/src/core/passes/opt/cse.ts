@@ -42,29 +42,8 @@ import {
   collectLocals,
   collectMutatedRoots,
   refsLocal,
+  isWorthHoisting,
 } from './expr-utils.js'
-
-// Trivial navigation — a member/swizzle/index chain bottoming out at a leaf
-// (`u.proj_params.x`, `fill_color.rgb`) — is as cheap inlined as bound, so a shared
-// `let` for it is pure overhead (and bloats the WGSL). Only hoist exprs that actually
-// COMPUTE: at least one binop / unop / compare / logical / call / construct / select.
-function isWorthHoisting(e: Expr): boolean {
-  let computes = false
-  eachExpr(e, (x) => {
-    if (
-      x.op === 'binop' ||
-      x.op === 'unop' ||
-      x.op === 'compare' ||
-      x.op === 'logical' ||
-      x.op === 'call' ||
-      x.op === 'construct' ||
-      x.op === 'select' ||
-      x.op === 'matchExpr'
-    )
-      computes = true
-  })
-  return computes
-}
 
 /** Where one occurrence of a subexpression lives: the placement BLOCK (a path of
  *  `${stmtIndex}#${childBlockId}` steps from the fn body) and the index, within that

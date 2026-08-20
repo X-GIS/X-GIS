@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b83b959f3a03584de59680fe151cff64264f4170
+  Generated from: 884e32d95f5ded9023f5cb08ebc0cdc718bfaa4b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b83b959f3a03
+    bun scripts/emit-changelog.ts --since 884e32d95f5d
 -->
 
 # Changelog
@@ -27,6 +27,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **site:** shipping-plugin toggles on every shader-dsl example page ([#1911](https://github.com/X-GIS/X-GIS/pull/1911)) `295ac3b`
+- **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
 - **compiler,map/sources:** declarative refresh polling for live sources (#1304) ([#1835](https://github.com/X-GIS/X-GIS/pull/1835)) `080bb48`
 - **map/interaction:** cooperativeGestures — do not hijack page scroll (#1264) ([#1834](https://github.com/X-GIS/X-GIS/pull/1834)) `7b7e755`
@@ -164,6 +166,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
+- **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
+- **map/shaders:** minify every shader source this map hands a device ([#1904](https://github.com/X-GIS/X-GIS/pull/1904)) `a0ef5c9`
+- **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **map/graphics:** build the retained drapers on first use ([#1893](https://github.com/X-GIS/X-GIS/pull/1893)) `2ae2d69`
 - **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **map/baked:** order the artifact `contents` by source length, not by content hash ([#1875](https://github.com/X-GIS/X-GIS/pull/1875)) `a7a615e`
@@ -181,6 +187,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **rhi-webgpu:** derive bind-group visibility from BindEntry.stages ([#1917](https://github.com/X-GIS/X-GIS/pull/1917)) `deb5dfa`
 - **geo,map:** latToMercatorY authority; five packers stop re-spelling it ([#1831](https://github.com/X-GIS/X-GIS/pull/1831)) `56c6f47`
 - **map/camera:** Camera.setProjection owns the projection promotion (#1506) ([#1784](https://github.com/X-GIS/X-GIS/pull/1784)) `ba1caf1`
 - **map,compiler:** one nullable hex parser, one colour-AST authority — the black-fallback and the drifted mirror both die (#1666, #1667) ([#1669](https://github.com/X-GIS/X-GIS/pull/1669)) `0b4b3b0`
@@ -190,6 +197,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
 - **map:** tell the bake gate's remedy to build first, so it stops pointing at itself ([#1870](https://github.com/X-GIS/X-GIS/pull/1870)) `a63e6e5`
 - **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
 - **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
@@ -208,6 +216,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
 - **playground:** invert the dark-spec audit — enumerate known-dark rows (#1817) ([#1829](https://github.com/X-GIS/X-GIS/pull/1829)) `8bc6d8c`
 - **playground:** give the globe-dateline gate a selector-discriminating assertion and register it in CI (#1774) ([#1815](https://github.com/X-GIS/X-GIS/pull/1815)) `3c3736a`

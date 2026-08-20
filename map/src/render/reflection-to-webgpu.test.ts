@@ -9,23 +9,25 @@ import { buildPointModule } from '@xgis/map'
 import {
   reflectionToBindGroupLayoutEntries,
   uniformFieldSlots,
-  type VisibilityMap,
+  type ShaderStageBits,
 } from '@xgis/rhi-webgpu'
 
+// The spec's own GPUShaderStage values, stubbed because Node has no WebGPU globals —
+// which is exactly why the adapter takes them as a parameter.
 const V = 1 // GPUShaderStage.VERTEX
 const F = 2 // GPUShaderStage.FRAGMENT
-const POINT_VIS: VisibilityMap = new Map([
-  [0, V | F],
-  [1, V | F],
-  [2, F],
-  [3, F],
-])
+const C = 4 // GPUShaderStage.COMPUTE
+const BITS: ShaderStageBits = { VERTEX: V, FRAGMENT: F, COMPUTE: C }
 
 describe('reflectionToBindGroupLayoutEntries', () => {
   const r = reflect(buildPointModule())
 
   it('maps the point reflection to the renderer bind-group-layout entries', () => {
-    expect(reflectionToBindGroupLayoutEntries(r, POINT_VIS)).toEqual([
+    // #1913 — these four visibility masks are DERIVED from `BindEntry.stages` now.
+    // They are byte-for-byte the map point-renderer.ts used to hand-author, which is
+    // the whole claim: `u`/`feat_data` reach both stages, the SDF shape/segment
+    // storage buffers are FRAGMENT-only, and nobody had to say so twice.
+    expect(reflectionToBindGroupLayoutEntries(r, BITS)).toEqual([
       { binding: 0, visibility: V | F, buffer: { type: 'uniform' } },
       { binding: 1, visibility: V | F, buffer: { type: 'read-only-storage' } },
       { binding: 2, visibility: F, buffer: { type: 'read-only-storage' } },
@@ -33,9 +35,30 @@ describe('reflectionToBindGroupLayoutEntries', () => {
     ])
   })
 
-  it('throws when a binding has no visibility entry', () => {
-    expect(() => reflectionToBindGroupLayoutEntries(r, new Map([[0, V]]))).toThrow(
-      /no visibility for binding 1/,
+  it('the derived masks are not all-stages — the reflection actually discriminates', () => {
+    // Without this, the assertion above passes just as well against an adapter that
+    // ORs every bit for every binding (§12: the assertion that succeeds either way).
+    // Bindings 2 and 3 must NOT carry the vertex bit.
+    const vis = reflectionToBindGroupLayoutEntries(r, BITS).map((e) => e.visibility)
+    expect(vis.filter((v) => (v & V) !== 0)).toHaveLength(2)
+    expect(vis.every((v) => (v & C) === 0)).toBe(true) // no compute entry in this module
+  })
+
+  it('throws when no stage reaches a binding', () => {
+    // `stages: []` is a real reflection outcome — a binding declared and never read —
+    // and `visibility: 0` is invalid in WebGPU, so it must fail here naming the
+    // binding rather than at createBindGroupLayout, which names nothing.
+    const unreached: Reflection = {
+      ...r,
+      bindGroups: [
+        {
+          group: 0,
+          entries: [{ ...r.bindGroups[0]!.entries[1]!, stages: [] }],
+        },
+      ],
+    }
+    expect(() => reflectionToBindGroupLayoutEntries(unreached, BITS)).toThrow(
+      /no stage reaches binding 1 \('feat_data'\)/,
     )
   })
 
@@ -53,6 +76,9 @@ describe('reflectionToBindGroupLayoutEntries', () => {
               access: 'read_write',
               resourceKind: 'storage-buffer',
               owner: 'module',
+              // #1906/#1913 — the adapter reads THIS to build the mask now, so the
+              // compute-only stage list below is what makes the expectation `C`.
+              stages: ['compute'],
             },
           ],
         },
@@ -67,8 +93,8 @@ describe('reflectionToBindGroupLayoutEntries', () => {
       // from its host.
       requires: [],
     }
-    expect(reflectionToBindGroupLayoutEntries(synthetic, new Map([[0, F]]))).toEqual([
-      { binding: 0, visibility: F, buffer: { type: 'storage' } },
+    expect(reflectionToBindGroupLayoutEntries(synthetic, BITS)).toEqual([
+      { binding: 0, visibility: C, buffer: { type: 'storage' } },
     ])
   })
 })

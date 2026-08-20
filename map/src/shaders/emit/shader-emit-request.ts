@@ -18,6 +18,7 @@
 import { emitGlslStages } from '@xgis/shader-dsl'
 import { buildHillshadeModule, emitHillshadeWgsl } from '../dsl/hillshade'
 import { bodyEpochValue } from '../../body-epoch'
+import { shipSource } from '../../render/material/wgsl-for'
 
 /** Which shader to emit. Structured-cloneable by construction — it crosses a worker
  *  boundary — so no Nodes, no functions, no class instances. */
@@ -64,9 +65,13 @@ export function shaderRequestKey(r: ShaderEmitRequest): string {
 export function emitFor(req: ShaderEmitRequest, wantWgsl: boolean): ShaderSources {
   const mod = buildHillshadeModule(req.pick, req.methodFlag)
   const glsl = emitGlslStages(mod)
+  // Through `shipSource` (#1889) — this pool bypasses the `wgslFor`/`glslStagesFor` seam, and
+  // its output is compared BYTE-FOR-BYTE against the baked artifact by `seed-hillshade` and
+  // `baked-body-guard`. Those two gates are the reason the transform cannot live only in the
+  // bake: they exist to prove a seeded hit and an unseeded miss are interchangeable.
   return {
-    vertex: glsl.vertex,
-    fragment: glsl.fragment,
-    wgsl: wantWgsl ? emitHillshadeWgsl(req.pick, req.methodFlag) : '',
+    vertex: shipSource(glsl.vertex),
+    fragment: shipSource(glsl.fragment),
+    wgsl: wantWgsl ? shipSource(emitHillshadeWgsl(req.pick, req.methodFlag)) : '',
   }
 }

@@ -166,7 +166,10 @@ const BASELINE: Record<string, number> = {
   'map/src/render/pipeline-factory.ts': 79,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
-  'map/src/render/point-renderer.ts': 15,
+  // 15→10 (#1913): buildPointBglEntries' four hand-authored `GPUShaderStage.*` rows
+  // collapsed to one `GPUShaderStage` pass-through — `reflectionToBindGroupLayoutEntries`
+  // derives per-binding visibility from `BindEntry.stages` and needs only the bit values.
+  'map/src/render/point-renderer.ts': 10,
   // raster-cache-budget.ts row DELETED (#1623): 5→0. `LoadedTexture`/`EvictableTile`
   // narrowed to `texture: RhiTexture` (no more `GPUTexture | RhiTexture` union) now that
   // hillshade's raw-device WebGPU arm — the last producer of a raw `GPUTexture` here — is

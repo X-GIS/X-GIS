@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: b83b959f3a03584de59680fe151cff64264f4170
+  Generated from: 884e32d95f5ded9023f5cb08ebc0cdc718bfaa4b
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since b83b959f3a03
+    bun scripts/emit-changelog.ts --path shader-dsl --since 884e32d95f5d
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
 - **rhi-webgl2:** dispatch compute by the portable declaration, not the deprecated flag ([#1824](https://github.com/X-GIS/X-GIS/pull/1824)) `35adaa2`
 - **shader-dsl:** hyperbolic/saturate/2x16-pack builtins, backend-asymmetry hardening, the portable kernel tier ([#1805](https://github.com/X-GIS/X-GIS/pull/1805)) `672a55a`
@@ -59,6 +60,9 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### perf
 
+- **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
+- **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
+- **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **shader-dsl:** stop the emit recomputing hoistable values — post-inline cleanup + gvn wired (#1860, #1861, #1865) ([#1862](https://github.com/X-GIS/X-GIS/pull/1862)) `f005bbe`
 
@@ -68,6 +72,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### docs
 
+- **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
 - **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
 - **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
 - **shader-dsl:** document the last 38 engine-internals exports — the doc-coverage allowlist reaches zero (#1695) ([#1727](https://github.com/X-GIS/X-GIS/pull/1727)) `1e394a0`
