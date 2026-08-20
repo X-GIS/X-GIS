@@ -49,6 +49,7 @@
 // from the call site's own argument, NEVER from the `isPickEnabled()` global: the id has
 // to describe the bytes this call actually asked for.
 
+import { minifyShaderText } from '@xgis/shader-dsl/emit-prod'
 import { bakedSource } from '../../shaders/baked/store'
 
 /** Does this device consume the WGSL module (rather than the GLSL ES 3.00 twins)?
@@ -68,10 +69,31 @@ export interface ShaderSourceDevice {
  *  `''` rather than `undefined` on the GLSL device because `MaterialDesc.shader` is
  *  REQUIRED — and it is returned without consulting the store: bytes that will not be
  *  read are not worth a lookup, let alone one the accounting would have to explain. */
+/** The bytes this map hands a DEVICE, from a source it just emitted (#1889).
+ *
+ *  Whitespace/comment compaction plus f32-exact literal re-spelling — value-preserving, and
+ *  proven on real Tint + ANGLE by `_emit-obfuscate-gate`. Worth -19% raw / -5..8% brotli on
+ *  the baked artifacts, which is where most of these bytes actually ship from.
+ *
+ *  It lives HERE, at the seam, and not only in the bake, because the bake is a CACHE of this:
+ *  every `bakedSource(id) ?? emit()` below would otherwise serve different text on a hit than
+ *  on a miss, and `baked-body-guard` / `seed-hillshade` assert exactly that they do not. The
+ *  bake calls this too (`shaders/baked/bake.ts` `bakedSourceOf`), so the two agree by
+ *  construction rather than by two copies of one transform staying in step.
+ *
+ *  The cost is a lex-and-reprint on the miss path, which is the path that just paid a full
+ *  shader emit — 58-184 ms for a retained family. This is not the expensive part.
+ *
+ *  `numbers: 'f32'` degrades to lossless canonicalisation for any shader mentioning `f16`,
+ *  so the re-spelling claim is defended rather than assumed. */
+export function shipSource(src: string): string {
+  return minifyShaderText(src, { numbers: 'f32' })
+}
+
 export function wgslFor(rhi: ShaderSourceDevice, emit: () => string, id?: string): string {
   if (!readsWgsl(rhi)) return ''
-  if (id === undefined) return emit()
-  return bakedSource(id) ?? emit()
+  if (id === undefined) return shipSource(emit())
+  return bakedSource(id) ?? shipSource(emit())
 }
 
 /** The mirror: a `vsCode`/`fsCode` half, emitted only on a device that reads GLSL.
@@ -82,8 +104,8 @@ export function glslFor(
   id?: string,
 ): string | undefined {
   if (readsWgsl(rhi)) return undefined
-  if (id === undefined) return emit()
-  return bakedSource(id) ?? emit()
+  if (id === undefined) return shipSource(emit())
+  return bakedSource(id) ?? shipSource(emit())
 }
 
 /** BOTH GLSL halves at once, as MaterialDesc fields — spread it into the descriptor.
@@ -119,5 +141,5 @@ export function glslStagesFor(
       return { vsCode: bakedVertex, fsCode: bakedFragment }
   }
   const { vertex, fragment } = emit()
-  return { vsCode: vertex, fsCode: fragment }
+  return { vsCode: shipSource(vertex), fsCode: shipSource(fragment) }
 }
