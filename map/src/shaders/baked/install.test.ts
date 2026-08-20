@@ -164,9 +164,9 @@ describe('baked shaders — a chunk that will not load costs a frame, not the bo
 // group is permanently green), and any behavioural arm that derives its expectations from
 // the table is vacuous by construction — moving a family moves the expectation with it.
 //
-// So the census reads an INDEPENDENT authority: WHERE `GraphicsManager` constructs each of
+// So the census reads an INDEPENDENT authority: WHERE `RetainedDraperSet` constructs each of
 // the five retained drapers, whose constructors emit their shader immediately. A draper built
-// inside `attachDevice` is reached by every boot as a matter of fact, not of style; one built
+// inside `attach` is reached by every boot as a matter of fact, not of style; one built
 // anywhere else is built on first use and its family is downloadable later.
 //
 // Since #1888 that split is: NONE eager, all five lazy. The census asserts the partition in
@@ -180,26 +180,27 @@ describe('baked shaders — a chunk that will not load costs a frame, not the bo
 // about styles (see the rows in `ids.ts`), and no mechanical authority in the repo can
 // confirm that — a wrong group there is caught only by the re-bake drift and by review.
 describe('baked shaders — the boot group matches the eager-construction census (#1679)', () => {
-  const MANAGER = join(
+  const OWNER = join(
     dirname(fileURLToPath(import.meta.url)),
     '..',
     '..',
     'graphics',
-    'graphics-manager.ts',
+    'retained-draper-set.ts',
   )
 
-  /** The body of `attachDevice`, from its signature to the first line that closes at its
-   *  own indentation. Deliberately not a full parse: the assertion below fails loudly if
-   *  the extraction stops finding drapers, so a shape change cannot leave it vacuous. */
-  function attachDeviceBody(): string {
-    const src = readFileSync(MANAGER, 'utf8')
-    const start = src.indexOf('  attachDevice(')
+  /** The body of `RetainedDraperSet.attach`, from its signature to the first line that closes
+   *  at its own indentation. Deliberately not a full parse: the assertion below fails loudly
+   *  if the extraction stops finding drapers, so a shape change cannot leave it vacuous —
+   *  which is exactly what caught the move out of `GraphicsManager` (#1888). */
+  function attachBody(): string {
+    const src = readFileSync(OWNER, 'utf8')
+    const start = src.indexOf('  attach(')
     expect(
       start,
-      'GraphicsManager.attachDevice not found — the census lost its source',
+      'RetainedDraperSet.attach not found — the census lost its source',
     ).toBeGreaterThan(0)
     const end = src.indexOf('\n  }\n', start)
-    expect(end, 'attachDevice has no closing brace at method indentation').toBeGreaterThan(start)
+    expect(end, 'attach has no closing brace at method indentation').toBeGreaterThan(start)
     return src.slice(start, end)
   }
 
@@ -219,10 +220,10 @@ describe('baked shaders — the boot group matches the eager-construction census
   ]
 
   /** Built the moment a device exists → its shader is on the boot path. */
-  const eager = (): string[] => drapersIn(attachDeviceBody())
-  /** Built somewhere else in the manager → built on first use, so downloadable later. */
+  const eager = (): string[] => drapersIn(attachBody())
+  /** Built somewhere else in the owner → built on first use, so downloadable later. */
   const lazy = (): string[] => {
-    const all = drapersIn(readFileSync(MANAGER, 'utf8'))
+    const all = drapersIn(readFileSync(OWNER, 'utf8'))
     const e = new Set(eager())
     return all.filter((c) => !e.has(c))
   }
@@ -230,7 +231,7 @@ describe('baked shaders — the boot group matches the eager-construction census
   it('the census still finds every draper it classifies (#996: not vacuous)', () => {
     expect(
       [...eager(), ...lazy()].sort(),
-      'GraphicsManager no longer constructs the drapers this census reads — re-derive the ' +
+      'RetainedDraperSet no longer constructs the drapers this census reads — re-derive the ' +
         'boot group from whatever replaced them before trusting FAMILY_GROUPS again',
     ).toEqual(Object.keys(DRAPER_FAMILY).sort())
   })
@@ -241,7 +242,7 @@ describe('baked shaders — the boot group matches the eager-construction census
       const family = DRAPER_FAMILY[cls]
       if (family === undefined || FAMILY_GROUPS[family] === 'boot') continue
       misfiled.push(
-        `${family} is filed as '${FAMILY_GROUPS[family]}', but GraphicsManager.attachDevice ` +
+        `${family} is filed as '${FAMILY_GROUPS[family]}', but RetainedDraperSet.attach ` +
           `constructs ${cls} unconditionally at EVERY boot (its constructor emits the shader ` +
           `immediately) — the artifact holding it must be the one the boot downloads`,
       )
@@ -258,8 +259,8 @@ describe('baked shaders — the boot group matches the eager-construction census
       const family = DRAPER_FAMILY[cls]
       if (family === undefined || FAMILY_GROUPS[family] === 'lazy') continue
       misfiled.push(
-        `${family} is filed as '${FAMILY_GROUPS[family]}', but GraphicsManager builds ${cls} ` +
-          `on FIRST USE, not in attachDevice — a map that never draws one must not download ` +
+        `${family} is filed as '${FAMILY_GROUPS[family]}', but RetainedDraperSet builds ` +
+          `${cls} on FIRST USE, not in attach — a map that never draws one must not download ` +
           `its shader`,
       )
     }

@@ -208,9 +208,9 @@ export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
   // The five `map.graphics.*` retained families. Their drapers used to be constructed
   // unconditionally in `GraphicsManager.attachDevice`, which put all five on every boot —
   // 30.9% of the boot group's brotli — for an API a session opts into. Since #1888 each is
-  // built on FIRST USE (`GraphicsManager.*DraperOf()`), so adding one circle downloads the
+  // built on FIRST USE (`RetainedDraperSet`), so adding one circle downloads the
   // circle shader and nothing else. install.test.ts's census derives this classification from
-  // where the manager constructs them, in both directions, so these rows cannot drift back
+  // where RetainedDraperSet constructs them, in both directions, so these rows cannot drift back
   // while the construction stays lazy.
   'circle-retained': 'lazy',
   'icon-retained': 'lazy',
