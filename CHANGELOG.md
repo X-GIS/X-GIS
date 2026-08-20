@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b83b959f3a03584de59680fe151cff64264f4170
+  Generated from: 5e862cd856d1e9ec070473e331109069477bb640
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b83b959f3a03
+    bun scripts/emit-changelog.ts --since 5e862cd856d1
 -->
 
 # Changelog
@@ -164,6 +164,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **map/graphics:** build the retained drapers on first use ([#1893](https://github.com/X-GIS/X-GIS/pull/1893)) `2ae2d69`
 - **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **map/baked:** order the artifact `contents` by source length, not by content hash ([#1875](https://github.com/X-GIS/X-GIS/pull/1875)) `a7a615e`
