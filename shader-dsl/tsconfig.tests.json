@@ -7,6 +7,16 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    // This pass has no `--build` (it emits nothing, so there is no project to
+    // reference), which left it re-checking src + examples from scratch on every
+    // invocation: measured 7.5s, and `bun run build` runs this package's `build`
+    // TWICE — once in the ordering prefix and once under `--filter '*'` — so it
+    // was ~15s of the chain's ~88s. `incremental` gives the no-emit pass the same
+    // .tsbuildinfo reuse the emitting projects already get: 7.5s → 1.9s warm, with
+    // the identical error set. The file lands in dist/ (gitignored, like every
+    // other build artifact) rather than beside the config.
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/tests.tsbuildinfo",
     // #1686 — `allowImportingTsExtensions` is GONE, deliberately. examples/ used to write
     // `from './_shared.ts'`, which no consumer can compile without setting the same flag
     // (measured: 100 TS5097 errors without it) and which plain Node cannot load at all.

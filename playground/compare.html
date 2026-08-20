@@ -8,10 +8,26 @@
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Attached after `load`, never as a parser-found <link> — see demo.html for
+       the measurement. This page kept the plain render-blocking form long after
+       demo.html and index.html were fixed, so it gated first paint AND
+       DOMContentLoaded AND `load` on fonts.googleapis.com; the two specs that
+       drive it (_label-anchor-parity, _style-parity-diff) paid all three. -->
+    <script>
+      addEventListener('load', () => {
+        const l = document.createElement('link')
+        l.rel = 'stylesheet'
+        l.href =
+          'https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap'
+        document.head.appendChild(l)
+      })
+    </script>
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <!-- Self-hosted woff2 files were never vendored — see demo.html for
        the full story. Disabled to keep the console clean. -->
     <!--

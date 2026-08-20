@@ -56,6 +56,27 @@ export default defineConfig({
       },
     },
   },
+  // REJECTED, with its numbers, so it is not re-proposed: `experimental.bundledDev`
+  // (Vite 8's full-bundle dev server). It is a large, real speedup — one
+  // `demo.html?id=minimal` load on the same machine (SwiftShader, warm server,
+  // fresh context) goes from 2 229 module requests / 2 210 ms load / 4 675 ms to
+  // `__xgisReady`, down to 26 requests / 955 ms / 2 995 ms, and ten of test.yml's
+  // render-gate specs ran 1m39s → 1m10s, 20/20 green.
+  //
+  // It also BREAKS two of them, and that was found only by running the control
+  // arm on the same specs:
+  //   _compute-gen-compile-gate — `page.evaluate: Execution context was destroyed,
+  //     most likely because of a navigation`. Bundle mode reloads the page (its
+  //     HMR granularity is the bundle), and here it did so DURING the test.
+  //   _webgl2-live-render-gate — the analytic checker tile read 27/49 texels
+  //     against a floor of 29.4. A pixel-count divergence, not a timeout.
+  // Both pass unbundled on this exact tree; the third failure in that batch
+  // (_demotiles-labels-gl2-gate) fails in BOTH arms for want of network egress
+  // and is not evidence either way.
+  //
+  // So: a mid-test reload and a changed frame, in the configuration every render
+  // gate runs through, for a flag upstream marks "highly experimental". Revisit
+  // when bundle-mode HMR stops reloading mid-run — the speedup is worth it.
   optimizeDeps: {
     exclude: [
       '@xgis/compiler',
