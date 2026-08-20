@@ -158,6 +158,9 @@ describe('reflect — module metadata walker', () => {
             resourceKind: 'uniform-buffer',
             owner: 'module',
             structName: 'Uniforms',
+            // #1906 — the entries here have empty bodies, so nothing reaches `u`.
+            // `bindGroups` still lists it: empty is a fact, not a gap.
+            stages: [],
           },
         ],
       },
@@ -192,6 +195,8 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
       ],
       funcs: [],
     }
+    // `stages: []` on every row: the fixture declares no entry point, so no stage
+    // reaches any of these bindings (#1906).
     expect(reflect(m).bindGroups[0]?.entries).toEqual([
       {
         group: 0,
@@ -200,6 +205,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d',
         textureElem: 'f32',
       },
@@ -210,6 +216,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d-array',
         textureElem: 'f32',
       },
@@ -220,6 +227,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d-ms',
         textureElem: 'f32',
       },
@@ -231,6 +239,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'sampler',
         owner: 'module',
+        stages: [],
       },
       // #1703 — the two axes are INDEPENDENT: same dim, different element, and the
       // array/integer combination reports both.
@@ -241,6 +250,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d',
         textureElem: 'u32',
       },
@@ -251,6 +261,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d',
         textureElem: 'i32',
       },
@@ -261,6 +272,7 @@ describe('reflect — texture bind entries carry their dim (#1651) and element (
         space: 'uniform',
         resourceKind: 'texture',
         owner: 'module',
+        stages: [],
         textureDim: '2d-array',
         textureElem: 'u32',
       },

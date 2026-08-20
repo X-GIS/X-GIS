@@ -53,6 +53,10 @@ describe('reflectionToBindGroupLayoutEntries', () => {
               access: 'read_write',
               resourceKind: 'storage-buffer',
               owner: 'module',
+              // #1906 — always present, like `owner`. This synthetic fixture has no
+              // module to walk, and the adapter under test reads the caller's
+              // visibility map, not this.
+              stages: ['compute'],
             },
           ],
         },
