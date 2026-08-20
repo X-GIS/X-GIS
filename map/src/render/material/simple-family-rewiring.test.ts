@@ -88,6 +88,21 @@ function artifactIds(file: string): ReadonlySet<string> {
 
 const GLSL_BOOT = artifactIds('baked-glsl-boot.generated.ts')
 const WGSL_BOOT = artifactIds('baked-wgsl-boot.generated.ts')
+const GLSL_LAZY = artifactIds('baked-glsl-lazy.generated.ts')
+const WGSL_LAZY = artifactIds('baked-wgsl-lazy.generated.ts')
+
+/** The artifact a family's ids must live in — its GROUP decides, not this file (#1888). Arm C
+ *  used to name the boot artifact directly, which was true while every rewired family was
+ *  boot-group and became a false negative the moment five of them went lazy. Asking the group
+ *  is what the runtime does, so it is also what makes the arm survive the next move. */
+const idsFor = (family: SimpleFamily, lang: 'glsl' | 'wgsl'): ReadonlySet<string> =>
+  FAMILY_GROUPS[family] === 'lazy'
+    ? lang === 'glsl'
+      ? GLSL_LAZY
+      : WGSL_LAZY
+    : lang === 'glsl'
+      ? GLSL_BOOT
+      : WGSL_BOOT
 
 describe('#1679 inc 5 — reader sanity (the arms below are vacuous without this)', () => {
   it('every rewired material file was read and is non-trivial', () => {
@@ -141,38 +156,69 @@ describe('#1679 inc 5 — A+B: every rewired call site passes a DERIVED id', () 
   }
 })
 
-describe('#1679 inc 5 — C: every derived id exists in the committed boot artifact', () => {
+describe("#1679 inc 5 — C: every derived id exists in its group's committed artifact", () => {
   for (const family of Object.keys(REWIRED)) {
     it(`${family}'s three ids resolve`, () => {
       const f = family as SimpleFamily
+      const where = FAMILY_GROUPS[f]
       expect(
-        WGSL_BOOT.has(simpleWgslId(f)),
-        `${simpleWgslId(f)} is not in baked-wgsl-boot.generated.ts. The call site asks for ` +
-          `it on every WebGPU boot and the store answers 'absent', so the bake is downloaded ` +
-          `and then ignored for this family. Either the grammar moved without the artifact ` +
-          `being regenerated (bun run bake:shaders), or the family's group changed.`,
+        idsFor(f, 'wgsl').has(simpleWgslId(f)),
+        `${simpleWgslId(f)} is not in baked-wgsl-${where}.generated.ts. The call site asks ` +
+          `for it and the store answers 'absent', so the bake is downloaded and then ignored ` +
+          `for this family. Either the grammar moved without the artifact being regenerated ` +
+          `(bun run bake:shaders), or the family's group changed without a re-bake.`,
       ).toBe(true)
       for (const stage of ['vertex', 'fragment'] as const)
         expect(
-          GLSL_BOOT.has(simpleGlslId(f, stage)),
-          `${simpleGlslId(f, stage)} is not in baked-glsl-boot.generated.ts — same cause, ` +
+          idsFor(f, 'glsl').has(simpleGlslId(f, stage)),
+          `${simpleGlslId(f, stage)} is not in baked-glsl-${where}.generated.ts — same cause, ` +
             `and on WebGL2 it costs BOTH stages, not one (both-or-neither).`,
         ).toBe(true)
     })
   }
 })
 
+// A LAZY family's artifact is not installed at device attach, so the rewiring only pays off if
+// something fetches the lazy chunk before the family's draper is built. #1888 made that true for
+// the five retained families: `GraphicsManager` calls `prefetchLazyShaders` at its registration
+// seams (`add` / `addCompiledArrowLayer`) and builds the draper at the first DRAW, one frame
+// later — the same window `prefetchLazyShaders` documents for `HeatmapRenderer.addLayer`.
+//
+// This table names the file that owes that call, per lazy REWIRED family, and the arm below
+// checks it is really there. Without it, "eligible" would just be "boot or lazy", which is every
+// family — a criterion that excludes nothing and would have let a lazy family be rewired with no
+// installer at all, resolving 'absent' at every call.
+const LAZY_PREFETCH_SEAM: Readonly<Record<string, string>> = {
+  'circle-retained': 'graphics-manager.ts',
+  'icon-retained': 'graphics-manager.ts',
+  'arrow-retained': 'graphics-manager.ts',
+  'particle-retained': 'graphics-manager.ts',
+  'arrow-retained-advected': 'graphics-manager.ts',
+}
+
+const GRAPHICS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'graphics')
+
+/** True when the family's ids are installed before its draper is built: boot (installed at
+ *  attach) or lazy WITH a seam that prefetches and is proven to call it. */
+function installedBeforeUse(f: SimpleFamily): boolean {
+  if (FAMILY_GROUPS[f] === 'boot') return true
+  const seam = LAZY_PREFETCH_SEAM[f]
+  if (seam === undefined) return false
+  return readFileSync(join(GRAPHICS, seam), 'utf8').includes('prefetchLazyShaders(')
+}
+
 describe('#1679 inc 5 — D: the rewired set is exactly the eligible set', () => {
-  it('rewired ∪ deferred === the boot-group simple families', () => {
-    const eligible = SIMPLE_FAMILIES.filter((f) => FAMILY_GROUPS[f] === 'boot')
+  it('rewired ∪ deferred === the families whose ids are installed before use', () => {
+    const eligible = SIMPLE_FAMILIES.filter(installedBeforeUse)
     const covered = new Set([...Object.keys(REWIRED), ...Object.keys(DEFERRED)])
     // SET EQUALITY in both directions. A for-each over REWIRED can only confirm what is
     // already in REWIRED; the failure worth catching is an EIGHTH boot-group simple family
     // arriving and nobody wiring it, which only a comparison against the derived set sees.
     expect(
       [...covered].sort(),
-      `the boot-group simple families and the families this file accounts for have diverged. ` +
-        `Eligible (SIMPLE_FAMILIES ∩ boot group): ${eligible.join(', ')}. Accounted for ` +
+      `the eligible simple families and the families this file accounts for have diverged. ` +
+        `Eligible (boot, or lazy with a proven prefetch seam): ${eligible.join(', ')}. ` +
+        `Accounted for ` +
         `(REWIRED + DEFERRED): ${[...covered].sort().join(', ')}. A new family on the left ` +
         `needs either a REWIRED row (pass its ids at the call site) or a DEFERRED row with ` +
         `the reason; one on the right that is no longer boot-group or no longer simple has ` +
@@ -199,7 +245,7 @@ describe('#1679 inc 5 — D: the rewired set is exactly the eligible set', () =>
     }
   })
 
-  it('every REWIRED family is genuinely simple and genuinely boot-group', () => {
+  it('every REWIRED family is genuinely simple, and installed before its draper is built', () => {
     for (const family of Object.keys(REWIRED)) {
       expect(
         (SIMPLE_FAMILIES as readonly string[]).includes(family),
@@ -207,11 +253,14 @@ describe('#1679 inc 5 — D: the rewired set is exactly the eligible set', () =>
           `spell a parameterless key, so a family that grew an axis cannot use them`,
       ).toBe(true)
       expect(
-        FAMILY_GROUPS[family as SimpleFamily],
-        `'${family}' is in REWIRED but its download group is not 'boot'. Only the boot group ` +
-          `is installed at device attach (install.ts); a lazy family's ids would resolve to ` +
-          `'absent' at every call and the rewiring would be a slower no-op.`,
-      ).toBe('boot')
+        installedBeforeUse(family as SimpleFamily),
+        `'${family}' is in REWIRED but nothing installs its ids before its draper is built. ` +
+          `The boot group is installed at device attach (install.ts); a LAZY family needs a ` +
+          `registration seam that calls prefetchLazyShaders BEFORE the draw that builds its ` +
+          `draper — add a LAZY_PREFETCH_SEAM row naming that file (and make the call). ` +
+          `Without it every id resolves 'absent' and the rewiring is a slower no-op that ` +
+          `pays a synchronous shader emit instead.`,
+      ).toBe(true)
     }
   })
 })
