@@ -75,21 +75,15 @@ function pointBlock(): UniformBlockOf<typeof POINT_U> {
 export function pointUniformBytes(): number {
   return pointBlock().byteLength
 }
-// Build the @group(0) bind-group-layout entries from the reflection. Visibility
-// is the renderer's own knowledge (which stages read each binding); reflection
-// records structure, not stage usage. uniform + feat_data are read by both
-// stages; the SDF shape/segment storage buffers are FRAGMENT-only. Called from
-// the constructor (post-configureProjections, where GPUShaderStage exists).
+// Build the @group(0) bind-group-layout entries from the reflection. Visibility is
+// the reflection's own answer now (#1913): `BindEntry.stages` comes from the walk the
+// emit uses to decide which stage declares which binding, so the four rows this used
+// to hand-author — uniform + feat_data on both stages, the SDF shape/segment storage
+// buffers FRAGMENT-only — are derived rather than restated. `GPUShaderStage` supplies
+// only the bit VALUES. Called from the constructor (post-configureProjections, where
+// that global exists).
 function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
-  return reflectionToBindGroupLayoutEntries(
-    pointReflection(),
-    new Map([
-      [0, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT],
-      [1, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT],
-      [2, GPUShaderStage.FRAGMENT],
-      [3, GPUShaderStage.FRAGMENT],
-    ]),
-  )
+  return reflectionToBindGroupLayoutEntries(pointReflection(), GPUShaderStage)
 }
 
 /** Pack the point frame uniform (shared by renderRhi() and flushTilePointsRhi()) into
@@ -264,9 +258,9 @@ export class PointRenderer {
   /** Lazy native BGL — see `_bgl`. WebGPU-arm consumers only. */
   private bgl(): GPUBindGroupLayout {
     return (this._bgl ??= this.device.createBindGroupLayout({
-      // Entries sourced from reflect(buildPointModule()) — binding numbers +
-      // buffer types come from the shader's own IR (see buildPointBglEntries);
-      // the renderer supplies only the per-binding stage visibility.
+      // Entries sourced from reflect(buildPointModule()) — binding numbers, buffer
+      // types AND stage visibility all come from the shader's own IR now (see
+      // buildPointBglEntries); the renderer supplies only the GPUShaderStage bits.
       entries: buildPointBglEntries(),
     }))
   }
