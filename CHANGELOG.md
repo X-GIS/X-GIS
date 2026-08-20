@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a0ef5c9e6e4c589277ea8a053d57504c04ae9a42
+  Generated from: c1cbcc5e1631ae593746e6d522246643f52ec26f
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a0ef5c9e6e4c
+    bun scripts/emit-changelog.ts --since c1cbcc5e1631
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
 - **compiler,map/sources:** declarative refresh polling for live sources (#1304) ([#1835](https://github.com/X-GIS/X-GIS/pull/1835)) `080bb48`
 - **map/interaction:** cooperativeGestures — do not hijack page scroll (#1264) ([#1834](https://github.com/X-GIS/X-GIS/pull/1834)) `7b7e755`
