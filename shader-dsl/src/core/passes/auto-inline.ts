@@ -82,13 +82,15 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  those. The shared filter behind both the size heuristic (autoInline) and the
  *  obfuscation "inline everything" pass (inlineAll).
  *
- *  df64_* emulation helpers are PERMANENTLY opaque (never inlined): their bodies
- *  are error-free transformations the algebraic/const-fold passes could legally
- *  cancel once exposed at a call site — see core/fp64/df64-lib.ts. Recursive
+ *  A fn marked `opaque` is PERMANENTLY so (never inlined) — the df64 emulation
+ *  helpers, whose bodies are error-free transformations the algebraic/const-fold
+ *  passes could legally cancel once exposed at a call site. `FuncDecl.opaque`
+ *  carries it; it used to be a `df64_` NAME test, which `mangle` could rename out
+ *  from under (#1926). See core/fp64/df64-lib.ts for the hazard. Recursive
  *  single-return fns are skipped (inlineFn keeps them; infinite expansion
  *  otherwise). A dead fn (0 calls) is left to deadFnElim, not inlining. */
 function inlinableRet(m: ModuleDecl, f: FuncDecl): Expr | undefined {
-  if (isEntry(f) || f.name.startsWith('df64_')) return undefined
+  if (isEntry(f) || f.opaque === true) return undefined
   const ret = singleReturnExpr(f)
   if (ret === undefined) return undefined
   let recursive = false

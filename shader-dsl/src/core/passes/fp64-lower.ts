@@ -1139,7 +1139,12 @@ export function fp64Lower(m: ModuleDecl, opts?: Fp64LowerOptions): ModuleDecl {
     if (ctx.matWidths.has(n)) structs.push(DF64_MAT_STRUCTS.get(n)!)
   }
 
-  const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER)
+  // `opaque: true` is the emit optimizer's instruction to keep these calls intact
+  // (#1926). Stamped HERE rather than at each of the 48 registry definitions
+  // because this is the ONLY route by which a df64 helper enters a module — the
+  // `df64_` prefix is reserved (SD0043) and authors never list them — so one site
+  // covers both the float and integer registries and any future one.
+  const helpers = helperClosure(ctx.used, REG_FNS, REG_ORDER).map((d) => ({ ...d, opaque: true }))
   if (helpers.length > 0 && helpersUseGuard(helpers)) injectGuard(bindings)
 
   // SPREAD the source module, then override the four fields this pass actually rewrites
