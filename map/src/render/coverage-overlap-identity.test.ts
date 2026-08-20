@@ -129,7 +129,13 @@ function makeStore(): CompiledArrowStore {
     writeBuffer: () => {},
     destroyBuffer: () => {},
   }
-  store.attach(rhi as never, { __draper: true } as never, { __advected: true } as never)
+  // Thunks since #1888 — the store resolves a draper only when it has an arrow to serve, so
+  // the stub is now a function RETURNING the presence marker rather than the marker itself.
+  store.attach(
+    rhi as never,
+    () => ({ __draper: true }) as never,
+    () => ({ __advected: true }) as never,
+  )
   store.setAdvectedSource({ arrowBindingFor: () => null } as never)
   return store
 }

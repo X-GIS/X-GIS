@@ -19,12 +19,9 @@ import { HostImageRegistry } from '../sprite/host-image-registry'
 import { HostSpriteAtlasGPU } from '../sprite/host-sprite-atlas-gpu'
 import { HostSpriteAtlasRhi } from '../sprite/host-sprite-atlas-rhi'
 import type { IconAtlasGpu, SpriteMetadataSource } from '../sprite/icon-stage'
-import { RetainedIconDraper } from '../render/material/icon-retained-material'
-import { RetainedArrowDraper } from '../render/material/arrow-retained-material'
-import { RetainedArrowAdvectedDraper } from '../render/material/arrow-retained-advected-material'
+import { RetainedDraperSet } from './retained-draper-set'
+import { prefetchLazyShaders } from '../shaders/baked/install'
 import type { AdvectedArrowInput, AdvectedArrowSource } from './compiled-arrow-store'
-import { RetainedCircleDraper } from '../render/material/circle-retained-material'
-import { RetainedParticleDraper } from '../render/material/particle-retained-material'
 import { packRetainedIconFeat, packRetainedIconTint } from './retained-icon-packer'
 import { packRetainedArrowFeat, packRetainedArrowTint } from './retained-arrow-packer'
 import { CompiledArrowStore } from './compiled-arrow-store'
@@ -92,7 +89,16 @@ interface RetainedIconBatch {
   count: number
   featBuf: RhiBuffer | null
   tintBuf: RhiBuffer | null
+  /** Built at FIRST DRAW, not at materialise (#1888) — see `renderRetained`. Null therefore
+   *  means "not built yet", and nothing more; `drawable` is what says whether it ever will be. */
   bindGroup: RhiBindGroup | null
+  /** Packed, uploaded, and backed by a draper — i.e. this batch will draw once it has a bind
+   *  group. Split out from `bindGroup !== null` when bind groups went lazy: that test used to
+   *  answer BOTH "is it materialised" and "does this kind draw at all", and a retained TEXT
+   *  batch rode the second meaning (packed + uploaded, deliberately never drawn, until the SDF
+   *  text draper lands). One lazy bind group would have made text start drawing through
+   *  whatever draper answered next. */
+  drawable: boolean
   /** TEXT batches only: per-datum glyph-instance counts from the feat pack, cached so a color-only
    *  update rebuilds the tint buffer WITHOUT re-shaping. Null for icon/circle/arrow. */
   glyphCounts: Uint32Array | null
@@ -105,13 +111,12 @@ export class GraphicsManager {
    *  HostAtlasPacker, so sprite coordinates are backend-identical. */
   private atlas: HostSpriteAtlasGPU | HostSpriteAtlasRhi | null = null
 
-  // ── Phase 1 retained-batch state (per-run, built in attachDevice). ──
+  // ── Phase 1 retained-batch state (per-run; the device half is set in attachDevice). ──
   private rhi: RhiDevice | null = null
-  private draper: RetainedIconDraper | null = null
-  private arrowDraper: RetainedArrowDraper | null = null
-  private advectedArrowDraper: RetainedArrowAdvectedDraper | null = null
-  private circleDraper: RetainedCircleDraper | null = null
-  private particleDraper: RetainedParticleDraper | null = null
+  /** The five `map.graphics.*` drapers, built on first use so an unused family stays out of
+   *  the boot artifact (#1888). Ownership lives in its own module — see it for why the
+   *  construction sites are load-bearing for the baked-group census. */
+  private readonly drapers = new RetainedDraperSet()
   private frameBlock: UniformBlockOf<typeof pointU> | null = null
   private _blockView: Float32Array | null = null
   private readonly batches: RetainedIconBatch[] = []
@@ -232,6 +237,13 @@ export class GraphicsManager {
     // "existing-row bytes untouched" guarantee, and the seed's accessors never
     // re-run). Icon/arrow batches never append → `owned` stays [seed], so their
     // lifecycle stays byte-identical.
+    // START the lazy-chunk fetch here (#1888). The retained shader families live in the LAZY
+    // baked artifact, and `install.ts` only auto-installs the BOOT one — so without this the
+    // draper built on the next frame misses the bake and pays a 58-184 ms synchronous emit.
+    // Registration is the seam that works, for exactly the reason `prefetchLazyShaders`
+    // documents for `HeatmapRenderer.addLayer`: it runs strictly before the first draw, and
+    // the bind group (hence the draper) is built there, one rAF later.
+    if (this.rhi) prefetchLazyShaders(this.rhi)
     const seedSpec = spec as DrawSpec<unknown>
     const owned: RetainedIconBatch[] = [this.makeBatch(seedSpec)]
     this.repaintHook?.()
@@ -268,6 +280,7 @@ export class GraphicsManager {
       featBuf: null,
       tintBuf: null,
       bindGroup: null,
+      drawable: false,
       glyphCounts: null,
     }
     this.batches.push(batch)
@@ -288,7 +301,7 @@ export class GraphicsManager {
     // batch has no bind group until the (pending) SDF text draper lands, so a text-only map stays
     // byte-identical / no-pass — it is packed + uploaded but not yet drawn.
     return (
-      this.batches.some((b) => b.count > 0 && b.bindGroup !== null) ||
+      this.batches.some((b) => b.count > 0 && b.drawable) ||
       !this._compiledArrows.isEmpty ||
       this._retired.length > 0
     )
@@ -328,6 +341,8 @@ export class GraphicsManager {
     region = '',
     advected: AdvectedArrowInput | null = null,
   ): void {
+    // Same registration seam as `add()` — the store's draper thunks resolve at DRAW.
+    if (this.rhi) prefetchLazyShaders(this.rhi)
     this._compiledArrows.add(
       lons,
       lats,
@@ -366,9 +381,7 @@ export class GraphicsManager {
    *  reason (docs/plans/2026-07-27-grid-vector-field-flow-visualization.md); the flow pass that
    *  replaces it inherits the same two-gate obligation. */
   hasAnimatedGraphics(): boolean {
-    return this.batches.some(
-      (b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.bindGroup !== null,
-    )
+    return this.batches.some((b) => drawSpecAnimatesPerFrame(b.spec) && b.count > 0 && b.drawable)
   }
 
   /** Build (or rebuild) a batch's GPU buffers + cached bind group. No-op until a
@@ -379,15 +392,11 @@ export class GraphicsManager {
       this.materialiseText(batch, spec)
       return
     }
-    if (
-      !this.rhi ||
-      !this.atlas ||
-      !this.draper ||
-      !this.arrowDraper ||
-      !this.circleDraper ||
-      !this.particleDraper
-    )
-      return
+    // NO draper is resolved here (#1888) — not even to test for one. Asking would BUILD it, on
+    // the same tick as the `add()` that started the lazy-chunk fetch, which is the whole thing
+    // this defers. `rhi` + `atlas` are the real preconditions for packing; whether a draper can
+    // be had is the draw's question, and `drawable` below is the answer this records.
+    if (!this.rhi || !this.atlas) return
     const feat =
       spec.type === 'arrow'
         ? packRetainedArrowFeat(spec, this.dpr)
@@ -436,23 +445,10 @@ export class GraphicsManager {
     })
     this.rhi.writeBuffer(batch.tintBuf, 0, tint)
     this._tintWrites++
-    // Bind group built ONCE (stable buffers; icon's atlas view/sampler are stable-identity;
-    // the arrow has no atlas). A camera-only frame never rebuilds it. rhiView/rhiSampler are
-    // backend-blind (the WebGPU atlas wraps its native handles; the RHI atlas hands its own
-    // through).
-    batch.bindGroup =
-      spec.type === 'arrow'
-        ? this.arrowDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-        : spec.type === 'circle'
-          ? this.circleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-          : spec.type === 'particle-flow'
-            ? this.particleDraper.makeBatchBindGroup(batch.featBuf, batch.tintBuf)
-            : this.draper.makeBatchBindGroup(
-                batch.featBuf,
-                batch.tintBuf,
-                this.atlas.rhiView(),
-                this.atlas.rhiSampler(),
-              )
+    // The bind group is NOT built here (#1888) — it needs the draper, and building one on this
+    // tick would leave the `add()` prefetch no window to land in (see there). `renderRetained`
+    // builds both on the first frame that draws this batch; this marks it as one that will.
+    batch.drawable = true
     batch.count = instanceCountOf(spec)
   }
 
@@ -571,6 +567,7 @@ export class GraphicsManager {
     if (batch.featBuf) this._retired.push(batch.featBuf)
     if (batch.tintBuf) this._retired.push(batch.tintBuf)
     batch.featBuf = batch.tintBuf = batch.bindGroup = null
+    batch.drawable = false
     batch.count = 0
     this.repaintHook?.()
   }
@@ -600,10 +597,14 @@ export class GraphicsManager {
       for (const b of this._retired) this.rhi?.destroyBuffer(b)
       this._retired.length = 0
     }
-    if (!this.draper || !this.frameBlock || this._blockView === null) return
+    // NOT `!this.draper` (#1888): that is the ICON draper, and since the drapers are built on
+    // first use it stays null for a map that only draws circles — this guard would then skip
+    // every frame and render nothing, silently. `frameBlock` is what actually says a device is
+    // attached; the per-batch draper is resolved (and null-checked) at the draw below.
+    if (!this.frameBlock || this._blockView === null) return
     this.applyDpr(dpr)
 
-    const drawable = this.batches.filter((b) => b.bindGroup !== null && b.count > 0)
+    const drawable = this.batches.filter((b) => b.drawable && b.count > 0)
     if (drawable.length === 0 && this._compiledArrows.isEmpty) return
 
     // Per-frame CPU-time sample (gate: this must be FLAT across icon count — the
@@ -655,18 +656,26 @@ export class GraphicsManager {
     // pool slot ends holding its own copy's world_offset at draw time. If a future
     // change makes the frame uniform batch-specific (e.g. per-batch opacity), this
     // reuse must be revisited (write the pool once, rebind per batch).
+    const atlas = this.atlas
     for (const b of drawable) {
-      const draper =
-        b.spec.type === 'arrow'
-          ? this.arrowDraper
-          : b.spec.type === 'circle'
-            ? this.circleDraper
-            : b.spec.type === 'particle-flow'
-              ? this.particleDraper
-              : this.draper
+      // FIRST DRAW builds the draper and the bind group (#1888); every later frame finds both
+      // cached, so this stays the camera-only no-rebuild path it always was. Doing it here
+      // rather than in `materialise` is what gives the lazy-chunk prefetch a frame to land in.
+      b.bindGroup ??=
+        atlas === null
+          ? null
+          : this.drapers.makeBatchBindGroup(
+              b.spec.type,
+              b.featBuf!,
+              b.tintBuf!,
+              () => atlas.rhiView(),
+              () => atlas.rhiSampler(),
+            )
+      if (b.bindGroup === null) continue
+      const draper = this.drapers.builtForKind(b.spec.type)
       // Sum the drapers' REAL draw-call count (one instanced draw per world copy).
       // This is O(COPIES × batches), never O(N) — the draw-call N-independence gate.
-      this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup!, perCopy, b.count) ?? 0
+      this._lastFrameDrawCalls += draper?.draw(pass, b.bindGroup, perCopy, b.count) ?? 0
     }
 
     // Declarative `| arrow` layers (#1302) — same draper + per-copy uniform as the host
@@ -737,14 +746,15 @@ export class GraphicsManager {
         ? new HostSpriteAtlasRhi(rhi, this.registry)
         : new HostSpriteAtlasGPU(device, this.registry)
     this.rhi = rhi
-    this.draper = new RetainedIconDraper(rhi, format, 1, pointUniformBytes())
-    this.arrowDraper = new RetainedArrowDraper(rhi, format, 1, pointUniformBytes())
-    this.advectedArrowDraper = new RetainedArrowAdvectedDraper(rhi, format, 1, pointUniformBytes())
-    this.circleDraper = new RetainedCircleDraper(rhi, format, 1, pointUniformBytes())
-    this.particleDraper = new RetainedParticleDraper(rhi, format, 1, pointUniformBytes())
-    // The advected DRAPER is available now; its frame-side source (the FlowRenderer that owns
-    // the arrow state) is handed over separately, once buildSceneRenderers has made one.
-    this._compiledArrows.attach(rhi, this.arrowDraper, this.advectedArrowDraper)
+    this.drapers.attach(rhi, format, pointUniformBytes())
+    // The store is handed THUNKS, not drapers. It keeps the property the paired-arrival comment
+    // on `attach` protects — from attach onward a draper is guaranteed AVAILABLE, so a compiled
+    // arrow is never dropped for want of one — while leaving an empty store costing nothing.
+    this._compiledArrows.attach(
+      rhi,
+      () => this.drapers.arrowDraper(),
+      () => this.drapers.advectedArrowDraper(),
+    )
     this.frameBlock = uniformBlock(pointU)
     this._blockView = new Float32Array(this.frameBlock.buffer)
     for (const b of this.batches) this.materialise(b)
@@ -778,13 +788,11 @@ export class GraphicsManager {
       if (b.featBuf) this.rhi?.destroyBuffer(b.featBuf)
       if (b.tintBuf) this.rhi?.destroyBuffer(b.tintBuf)
       b.featBuf = b.tintBuf = b.bindGroup = null
+      b.drawable = false
     }
     this._compiledArrows.destroyGpu()
     this.rhi = null
-    this.draper = null
-    this.arrowDraper = null
-    this.circleDraper = null
-    this.particleDraper = null
+    this.drapers.detach()
     this.frameBlock = null
     this._blockView = null
   }

@@ -28,10 +28,18 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
   test('WGSL: every renderable example, obfuscated, compiles with zero errors', async ({
     page,
   }) => {
-    const variants = renderable.map((ex) => ({
-      name: ex.id,
-      wgsl: emitModule(ex.module, { parens: 'minimal', plugins: obfuscate() }),
-    }))
+    // BOTH plugin pipelines: obfuscate() alone, and the one that first flattens
+    // the call graph. inline() rewrites the IR — it lifts helper bodies and then
+    // re-hoists the values that duplicated (#1860) — so its WGSL is a different
+    // string from obfuscate()'s and needs Tint's own verdict. (The GLSL side of
+    // inline() is additionally pixel-verified below.)
+    const variants = renderable.flatMap((ex) => [
+      { name: ex.id, wgsl: emitModule(ex.module, { parens: 'minimal', plugins: obfuscate() }) },
+      {
+        name: `${ex.id} [inline]`,
+        wgsl: emitModule(ex.module, { parens: 'minimal', plugins: [inline(), ...obfuscate()] }),
+      },
+    ])
     expect(variants.length).toBeGreaterThan(10)
     for (const v of variants) {
       // Minified = exactly one line (WGSL has no directives) — a second line
@@ -144,6 +152,15 @@ test.describe('obfuscated emit (emit-prod obfuscate()) compiles on real Tint + A
     // FULL pipeline [inline, mangle, minify] so inline() — the riskiest
     // transform (it substitutes expressions) — is pixel-verified, incl. that it
     // leaves the df64 EFTs opaque.
+    // A PIXEL gate cannot see the #1926 defect, and this is where someone will come
+    // looking. When the df64 opacity rule was a `df64_` NAME test, `[...obfuscate(),
+    // inline()]` flattened the whole EFT library — and the frames still matched
+    // BYTE-for-byte, because the runtime-opaque ONE (`textureLoad` on `_fp64`) is
+    // copied along with the bodies, so no term is cancelled and the arithmetic is
+    // unchanged. Measured: adding that reversed-order row here passed identically
+    // with the fix and with it cut. The observable difference is STRUCTURAL (5 emitted
+    // fns vs 1), so the invariant is pinned where it can fail — `inline-linear.test.ts`,
+    // "holds under BOTH plugin orderings". Do not re-add a pixel arm for it.
     const ids = ['gradient', 'kaleidoscope', 'fp64-deep-zoom']
     const cases = ids.map((id) => {
       const ex = renderable.find((e) => e.id === id)

@@ -19,8 +19,9 @@ fn noise(p: vec2<f32>) -> f32 {
   let _v0 = floor(p);
   let _v1 = fract(p);
   let _cse0 = vec2<f32>(3.0);
-  let _lc0 = ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).x;
-  return mix(mix(hash(_v0), hash((_v0 + vec2<f32>(1.0, 0.0))), _lc0), mix(hash((_v0 + vec2<f32>(0.0, 1.0))), hash((_v0 + vec2<f32>(1.0, 1.0))), _lc0), ((_v1 * _v1) * (_cse0 - (_v1 * 2.0))).y);
+  let _gv0 = ((_v1 * _v1) * (_cse0 - (_v1 * 2.0)));
+  let _lc0 = _gv0.x;
+  return mix(mix(hash(_v0), hash((_v0 + vec2<f32>(1.0, 0.0))), _lc0), mix(hash((_v0 + vec2<f32>(0.0, 1.0))), hash((_v0 + vec2<f32>(1.0, 1.0))), _lc0), _gv0.y);
 }
 
 @vertex

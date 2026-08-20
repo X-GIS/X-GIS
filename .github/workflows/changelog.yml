@@ -1,7 +1,7 @@
 name: changelog
 
 # Regenerates CHANGELOG.md and shader-dsl/CHANGELOG.md from git history after
-# every merge, and commits the result to main.
+# every merge, and lands the result on main through a self-merging PR.
 #
 # ── WHY THIS RUNS POST-MERGE AND NOT IN PR CI ─────────────────────────────────
 # An entry's text IS the squash subject, and that subject does not exist until
@@ -14,45 +14,111 @@ name: changelog
 # store (#1679) — and the changelog generator's own landing commit (#1656).
 # "Regenerate on demand" is not a mechanism; this is.
 #
-# The artifacts are DERIVED — a pure function of history that a machine just
-# computed — so there is no decision in them for a reviewer to make, and running
-# them through a PR would be ceremony carrying zero information. That is the
-# same reasoning mirror-shader-dsl.yml already applies to publish-on-merge, and
-# it is why this job pushes to main directly rather than opening a PR.
+# ── WHY A PR AND NOT A DIRECT PUSH TO main (#1842) ────────────────────────────
+# This job used to `git push origin HEAD:main`, on the reasoning that a DERIVED
+# artifact carries no decision for a reviewer, so a PR would be ceremony carrying
+# zero information. That reasoning is sound, and it was load-bearing on a premise
+# that turned out to be false: that the push lands. It never once did. Measured
+# over the workflow's first 90 runs — 89 red, 1 green-by-lost-race, and ZERO
+# regeneration commits on main:
 #
-# ── IF THIS JOB REDS ON "protected branch" ───────────────────────────────────
-# main requires status checks (see test.yml's `on:` block), and a protected
-# branch rejects even GITHUB_TOKEN unless the actor is allowed to bypass it. The
-# fix is a maintainer one, done once: Settings → Branches → main → allow the
-# `github-actions[bot]` actor to bypass required checks (or add it to the push
-# allowlist). This job deliberately does NOT skip green on that failure the way
-# mirror-shader-dsl.yml skips an unconfigured mirror — an unconfigured mirror
-# publishes nothing and loses nothing, whereas a silent skip here reintroduces
-# exactly the invisible rot this workflow exists to end.
+#   remote: error: GH006: Protected branch update failed for refs/heads/main.
+#   remote: - 2 of 2 required status checks are expected.
+#    ! [remote rejected]   HEAD -> main (protected branch hook declined)
+#
+# The deadlock is STRUCTURAL, not a flake, and no retry schedule escapes it: main
+# requires `test-result` and `render-gate`, and a GITHUB_TOKEN push raises no
+# workflow event (guard 1 below, which convergence depends on), so those checks
+# can never post on the commit being pushed. The old header prescribed a
+# maintainer bypass for exactly this — and that prescription is the other half of
+# what went wrong, because this workflow is not a required check, so 89
+# consecutive red runs were invisible for four days.
+#
+# So: push the regeneration to one reused branch, let the PR mechanism run the
+# checks it is asking for, and auto-merge on green. The reviewer still reads
+# nothing — auto-merge costs zero human clicks — but the artifact LANDS, and when
+# it cannot land the failure is an open PR in the PR list rather than a red run
+# nobody watches.
+#
+# ── WHY THIS RUNS ON A DEDICATED TOKEN AND NOT GITHUB_TOKEN (#1842) ──────────
+# `secrets.CHANGELOG_TOKEN` is REQUIRED. Not a nicety, not a fallback: with
+# GITHUB_TOKEN this workflow produces a pull request that can never merge, and
+# it does so silently — the job goes green while the PR sits blocked forever.
+#
+# Two separate GITHUB_TOKEN limits bite, and they were measured one after the
+# other on this repo:
+#
+#   1. `gh pr create` is refused outright unless Settings → Actions → General →
+#      Workflow permissions → "Allow GitHub Actions to create and approve pull
+#      requests" is ticked (run 92):
+#        pull request create failed: GraphQL: GitHub Actions is not permitted
+#        to create or approve pull requests (createPullRequest)
+#
+#   2. Even with that ticked, a branch push whose ACTOR is `github-actions[bot]`
+#      produces a `pull_request` run that GitHub parks at `action_required`
+#      instead of executing it. Measured on PR #1847, same branch, same
+#      workflow, three heads:
+#        1641d3f7  actor Seungup            → ran normally
+#        e52987b7  actor github-actions[bot] → action_required, 0s
+#        78d998fb  actor github-actions[bot] → action_required, 0s
+#      `test-result` and `render-gate` therefore never post on the head branch
+#      protection evaluates, so auto-merge waits on checks that will never
+#      arrive. The actor is the whole difference.
+#
+# A repo-scoped token owned by a user or a GitHub App fixes both at once: the
+# push and the PR are attributed to a real actor, so the PR behaves exactly like
+# a human's — CI runs, checks post, auto-merge fires. Branch protection is
+# untouched; this asks for nothing that lets anything BYPASS a required check,
+# which is what the original direct-push prescription wanted and why it was
+# wrong.
+#
+# SETUP (once): a fine-grained PAT (or GitHub App installation token) scoped to
+# THIS repository with `Contents: read and write` + `Pull requests: read and
+# write`, stored as the repository secret `CHANGELOG_TOKEN`. Nothing else needs
+# it, and the preflight step below fails loudly and by name when it is absent
+# rather than falling back to GITHUB_TOKEN and reintroducing the silent stall.
+#
+# "Allow auto-merge" (Settings → General) is the second, softer requirement:
+# with it off the PR just waits for one human click, which is still visible and
+# still lands.
+#
+# CONSEQUENCE FOR THE LOOP GUARDS: a PAT push DOES raise workflow events, so
+# guard 1 (GitHub's rule that a GITHUB_TOKEN push raises none) is gone
+# completely. Guard 2 — the `paths-ignore` below — is now the ONLY thing
+# stopping this workflow from triggering itself. Do not weaken it.
 
 on:
   push:
     branches: [main]
     # LOOP GUARD 2 of 3. The regeneration commit touches these two files and
-    # nothing else, so a push carrying only them is this job's own output. Guard
-    # 1 is GitHub's own rule that a GITHUB_TOKEN push raises no workflow event;
-    # guard 3 — the one that actually GUARANTEES convergence — is in the
+    # nothing else, so a push carrying only them is this job's own output — and
+    # under the PR route that push is the SQUASH MERGE of this job's own PR, which
+    # is a normal merge that DOES raise an event. That makes this guard the one
+    # doing the work now, not guard 1: guard 1 (GitHub's rule that a GITHUB_TOKEN
+    # push raises no workflow event) no longer applies to the landing commit.
+    # Guard 3 — the one that actually GUARANTEES convergence — is in the
     # generator, which excludes its own `chore(changelog): regenerate from …`
     # commits from the walk (scripts/emit-changelog.ts, REGEN_SUBJECT). Without
     # guard 3 the file could never settle: every regen commit is itself a `chore`
     # entry, so the next run would find a diff and append one noise line forever.
+    # That regex is anchored, so it had to learn the ` (#NNN)` a squash appends —
+    # see #1842; without that one change the PR route never converges.
     # Hand-edits to a generated file are not a thing to preserve either, so
     # skipping a changelog-only push costs nothing.
     paths-ignore:
       - 'CHANGELOG.md'
       - 'shader-dsl/CHANGELOG.md'
-  # Manual catch-up — after a run lost the race below, or a maintainer has just
-  # granted the bypass and wants the backlog folded in.
+  # Manual catch-up — after a run lost the race below, or to fold in a backlog.
   workflow_dispatch:
 
 permissions:
-  # The push is the whole job. No `pull-requests`, no `issues`.
-  contents: write
+  # This governs GITHUB_TOKEN, and GITHUB_TOKEN no longer does anything here: the
+  # checkout, the push, and every `gh` call run on CHANGELOG_TOKEN instead (see
+  # the header). So it keeps only what a checkout needs to read. Granting it
+  # write would be a scope nothing spends — and would quietly re-enable the
+  # bot-actor path whose PRs cannot merge, if a future edit dropped the explicit
+  # `token:` inputs.
+  contents: read
 
 # SERIALIZE, never cancel — the mirror workflow's R5 reasoning applies verbatim:
 # two merges landing seconds apart must not race to push main, and cancelling an
@@ -76,12 +142,46 @@ jobs:
       # contents — so a blobless clone answers every question it asks while
       # skipping the bulk of a 498 MB history. Blobs for the checked-out tree
       # are fetched on demand, which is all `bun install` needs.
+      # Preflight, BEFORE the checkout that consumes the token. An absent secret
+      # must not degrade into "use GITHUB_TOKEN and hope": that path produces a
+      # green job and a PR that never merges, which is the exact failure mode
+      # this workflow was rewritten twice to stop being.
+      - name: Require the dedicated token
+        env:
+          CHANGELOG_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CHANGELOG_TOKEN}" ]; then
+            echo "::error::secrets.CHANGELOG_TOKEN is not set, so this run would push and open a PR as github-actions[bot] — GitHub parks that PR's checks at 'action_required', so it can never merge and this job would go green over a stalled PR (#1842). Create a fine-grained PAT scoped to this repository with Contents: read and write + Pull requests: read and write, store it as the repository secret CHANGELOG_TOKEN, and re-run."
+            exit 1
+          fi
+
+      # `token:` is what makes the later `git push` authenticate as the PAT's
+      # owner rather than as github-actions[bot]; the actor is the entire reason
+      # this workflow can merge its own PR at all (see the header).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           filter: blob:none
+          token: ${{ secrets.CHANGELOG_TOKEN }}
 
       - uses: oven-sh/setup-bun@v2
+
+      # MEASURED BEFORE the generator rewrites the files on disk, because afterwards the marker
+      # trivially equals HEAD and says nothing. This is the input to the only step that decides
+      # whether this workflow is actually working — see the last step.
+      - id: staleness
+        run: |
+          set -euo pipefail
+          marker="$(grep -m1 'Generated from:' CHANGELOG.md | awk '{print $NF}' || true)"
+          if [ -z "${marker}" ] || ! git cat-file -e "${marker}^{commit}" 2>/dev/null; then
+            echo "::notice::no resolvable 'Generated from:' marker in CHANGELOG.md — cannot measure staleness this run."
+            echo 'behind=unknown' >> "$GITHUB_OUTPUT"
+          else
+            behind="$(git rev-list --count --first-parent "${marker}..HEAD")"
+            echo "::notice::CHANGELOG.md was last current at ${marker}; main is ${behind} first-parent commits ahead."
+            echo "behind=${behind}" >> "$GITHUB_OUTPUT"
+          fi
 
       # The job runs `bun run changelog` — the SAME command the header of
       # scripts/emit-changelog.ts tells a human to run — so CI and a local
@@ -101,25 +201,28 @@ jobs:
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit and push the regenerated changelogs
+      - id: commit
+        name: Commit the regenerated changelogs to the regeneration branch
         if: steps.regen.outputs.changed == 'true'
+        env:
+          BRANCH: chore/changelog
         run: |
           set -euo pipefail
           head_sha="$(git rev-parse HEAD)"
+          # Handed to the next step rather than re-derived there as `HEAD~1`: the
+          # PR title must be the SAME string as the commit subject (GitHub picks
+          # one or the other depending on the repo's squash-title setting and the
+          # branch's commit count), and "same by construction" beats "same as long
+          # as nobody adds a second commit".
+          echo "base_sha=${head_sha}" >> "$GITHUB_OUTPUT"
 
-          # Lost-race check. actions/checkout leaves a DETACHED HEAD at the
-          # pushed SHA; if another merge landed while this job ran, main has
-          # moved and `HEAD:main` is no longer a fast-forward. Skip green: the
-          # job is idempotent and regenerates from whole history every time, so
-          # the very next merge's run emits this content plus that one. Doing
-          # the check here — rather than reading the push's stderr — keeps any
-          # push failure that DOES reach the next step unambiguously a real one.
-          git fetch --quiet origin main
-          remote_sha="$(git rev-parse FETCH_HEAD)"
-          if [ "${remote_sha}" != "${head_sha}" ]; then
-            echo "::notice::main moved to ${remote_sha} while this run was building ${head_sha} — skipping; the next merge regenerates both."
-            exit 0
-          fi
+          # NO lost-race check any more, and its absence is the point. The old
+          # direct push needed one because `HEAD:main` had to be a fast-forward.
+          # This job force-pushes a DERIVED branch instead, so a run that started
+          # from an older main is not a hazard — it is simply superseded, and the
+          # `concurrency` group above already serializes the two. Whichever run
+          # pushes last wins, and because the generator reads whole history every
+          # time, the last run's content is a superset of the earlier one's.
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -128,10 +231,139 @@ jobs:
           # The subject is RESERVED: scripts/emit-changelog.ts matches it exactly
           # (REGEN_SUBJECT) to keep these commits out of the changelog they
           # write. Changing its wording here silently breaks convergence — the
-          # generator's unit tests pin the shape.
+          # generator's unit tests pin the shape, INCLUDING the ` (#NNN)` that
+          # GitHub's squash appends to it on the way in.
           #
           # --no-verify because `bun install` ran husky's `prepare`, pointing
           # core.hooksPath at .husky: pre-commit would put lint-staged in the
           # middle of a commit whose content prettier just wrote, for nothing.
           git commit --no-verify -m "chore(changelog): regenerate from ${head_sha}"
-          git push origin "HEAD:main"
+
+          # FORCE, deliberately, and only ever at this one branch. The branch is
+          # as derived as the files on it: it holds exactly one commit, rebuilt
+          # from whole history on every run, and nothing else may commit to it.
+          # A fast-forward push would instead fail whenever a previous run's PR
+          # had not merged yet, which is the common case, not the rare one.
+          git push --force origin "HEAD:refs/heads/${BRANCH}"
+
+      # Split from the commit step so a failure here is unambiguously about the
+      # PR mechanism and not about generating or pushing.
+      - name: Open the regeneration PR and let it merge itself
+        if: steps.regen.outputs.changed == 'true'
+        env:
+          BRANCH: chore/changelog
+          BASE_SHA: ${{ steps.commit.outputs.base_sha }}
+          # The SAME dedicated token the checkout used, for the same reason: a
+          # PR opened by github-actions[bot] is refused outright, and one whose
+          # head it pushes gets checks parked at `action_required`. `gh` reads it
+          # from the environment.
+          GH_TOKEN: ${{ secrets.CHANGELOG_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # `gh pr list --json` is the only reliable way to learn the number:
+          # `gh pr create` takes no --json and prints a URL, so parsing it would
+          # be parsing human output. Ask first either way — the branch is reused
+          # by design, and `gh pr create` errors when its PR is already open.
+          find_pr() {
+            gh pr list --head "${BRANCH}" --base main --state open \
+              --json number --jq '.[0].number // empty'
+          }
+
+          number="$(find_pr)"
+          if [ -n "${number}" ]; then
+            # RE-TITLE, not just re-push. The title carries the SHA the files were
+            # rendered from, and GitHub's squash takes its subject from the PR
+            # title when the repo is set to PR_TITLE — so leaving a stale one here
+            # writes a commit whose subject names a SHA it did not regenerate from.
+            # This is the ordinary case, not an edge one: any second merge landing
+            # before the PR does comes through here.
+            gh pr edit "${number}" --title "chore(changelog): regenerate from ${BASE_SHA}"
+            echo "::notice::updated changelog PR #${number} to ${BASE_SHA}"
+          else
+            # Assembled with printf into a file rather than written inline as a
+            # multi-line `--body '…'`. A YAML literal block scalar ENDS at the
+            # first line indented less than the block, so a paragraph break
+            # written flush-left silently terminates `run:` mid-script and the
+            # whole workflow stops parsing — #1693's failure, one file over.
+            body="${RUNNER_TEMP}/changelog-pr-body.md"
+            printf '%s\n\n%s\n' \
+              'Generated by `.github/workflows/changelog.yml` — `bun run changelog` over the first-parent history of `main`. Nothing here is hand-written and a review has no decision to make: both files are a pure function of the history they render.' \
+              'This branch is force-pushed on every merge that moves that history, so repeated updates to this PR are normal. See #1842 for why the regeneration lands through a PR rather than a direct push to `main`.' \
+              > "${body}"
+            # `|| true` so the specific reason survives to the check below rather
+            # than `set -e` killing the step with only gh's one line of output.
+            gh pr create --head "${BRANCH}" --base main \
+              --title "chore(changelog): regenerate from ${BASE_SHA}" \
+              --body-file "${body}" 2> "${RUNNER_TEMP}/gh-create.err" || true
+            cat "${RUNNER_TEMP}/gh-create.err" || true
+
+            number="$(find_pr)"
+            if [ -n "${number}" ]; then
+              echo "::notice::opened changelog PR #${number}"
+            elif grep -q 'not permitted to create or approve pull requests' "${RUNNER_TEMP}/gh-create.err"; then
+              # MEASURED on run 92, when this still ran on GITHUB_TOKEN: the push
+              # SUCCEEDS and only `createPullRequest` is refused, so the files are
+              # already on `${BRANCH}` and nothing is lost. Reaching this branch
+              # now means CHANGELOG_TOKEN was accepted as present but is not what
+              # it needs to be — the preflight only proves it is non-empty.
+              echo "::error::CHANGELOG_TOKEN may not open pull requests in this repository, so the regenerated changelogs are sitting on the '${BRANCH}' branch with no PR. The token needs 'Pull requests: read and write' on THIS repository (a fine-grained PAT scoped elsewhere, or an expired one, fails exactly here). If the token was removed and this fell back to github-actions[bot], the fix is to restore it -- a bot-opened PR is refused, and a bot-pushed head has its checks parked at 'action_required', so it could never merge anyway (#1842). Until then, open the PR by hand from '${BRANCH}' -- its commit is already the reserved subject, so it squashes correctly."
+              exit 1
+            fi
+          fi
+
+          # A PR that was just created and cannot be found again means the query
+          # above is wrong, not that there is nothing to merge — fail loudly
+          # rather than skip the merge step and look like a success.
+          if [ -z "${number}" ]; then
+            echo "::error::pushed ${BRANCH} but found no open PR for it; not arming auto-merge"
+            exit 1
+          fi
+
+          # Best-effort, and green either way: auto-merge is a REPOSITORY setting
+          # ("Allow auto-merge"), so a repo with it off must not turn this job red
+          # — the PR is open and visible, which is the property that matters and
+          # the one the direct-push route never had. Landing then costs one human
+          # click instead of zero. Do not "fix" this by merging the PR from here
+          # with --admin: that bypasses the very checks the PR route exists to let
+          # run, and puts us back where #1842 started.
+          if gh pr merge --auto --squash --delete-branch "${number}"; then
+            echo "::notice::auto-merge armed on #${number}"
+          else
+            echo "::warning::could not arm auto-merge on #${number} — the PR is open and needs one click. Enable Settings → General → Allow auto-merge to make this hands-off."
+          fi
+
+      # ── THE JOB'S ACTUAL SUCCESS CONDITION ───────────────────────────────────────────────
+      # Everything above is "I did my part": regenerate, push, open the PR, arm auto-merge. None
+      # of it observes whether the artifact LANDED, and for eight consecutive runs it did not —
+      # runs 93-100 all reported success while main's CHANGELOG.md sat 101 first-parent commits
+      # stale, because the terminal step exits 0 as soon as `gh pr merge --auto` returns and the
+      # auto-merge refusal path downgrades to a warning (#1842).
+      #
+      # That is worse than the 89 loud red runs it replaced: the header above promises "the
+      # artifact LANDS, and when it cannot land the failure is an open PR rather than a red run
+      # nobody watches", and an unbounded run of silent greens keeps neither half of it. So the
+      # job now ends by asking the only question that matters, about the PAST rather than the
+      # future: is the committed changelog current?
+      #
+      # `always()` because this must also fire on the `changed=false` path — "nothing to
+      # regenerate" and "the last twenty regenerations never landed" look identical otherwise.
+      # The bound is generous on purpose: a regeneration PR normally lands within a merge or two,
+      # so 20 tolerates real in-flight lag while 101 screams. It is a LIVENESS bound, not a
+      # freshness one — tightening it to catch small lags would make this red constantly.
+      - name: Fail unless the changelog is actually landing
+        if: always()
+        env:
+          BEHIND: ${{ steps.staleness.outputs.behind }}
+          MAX_BEHIND: '20'
+        run: |
+          set -euo pipefail
+          if [ "${BEHIND}" = 'unknown' ] || [ -z "${BEHIND}" ]; then
+            echo "::warning::staleness was not measured this run; treating as inconclusive."
+            exit 0
+          fi
+          if [ "${BEHIND}" -gt "${MAX_BEHIND}" ]; then
+            echo "::error::CHANGELOG.md is ${BEHIND} first-parent commits stale (bound ${MAX_BEHIND}). Regenerating and arming auto-merge is NOT the same as landing, and this job used to report success either way. Look at the open PR on the 'chore/changelog' branch: if its required checks keep getting cancelled, a merge landed while they ran; if it has no checks at all, the push actor was github-actions[bot] and CHANGELOG_TOKEN is not in effect. See #1842."
+            exit 1
+          fi
+          echo "::notice::CHANGELOG.md is ${BEHIND} first-parent commits behind main, within the ${MAX_BEHIND} bound."

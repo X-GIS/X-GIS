@@ -76,8 +76,12 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *  df64 emulation library, entry points, and recursive fns are all left intact.
  *  NOT a size win (a multi-call helper is duplicated at each site; the point is
  *  removing structure a reader could follow — pair it with mangle() + minify()).
- *  Opt-in only; NOT part of the obfuscate() preset, so no existing output
- *  changes. Runs in the IR stage, so place it before mangle() in the array. */
+ *  Duplicated TEXT, though, is not duplicated WORK: flattening is followed by a
+ *  bit-exact re-hoisting pass (#1860), so a value N inlined copies derive from
+ *  the same argument is still computed ONCE — without it the emitted shader pays
+ *  that arithmetic per call site. Opt-in only; NOT part of the obfuscate()
+ *  preset, so no existing output changes. Runs in the IR stage, so place it
+ *  before mangle() in the array. */
 export function inline(): EmitPlugin {
   return { name: 'inline', transformIR: inlineLinearAll }
 }
@@ -98,13 +102,14 @@ export function aliasTypes(opts?: { renames?: Map<string, string> }): EmitPlugin
   }
 }
 
-/** Forward-prototype pruning plugin (GLSL only). The GLSL backend emits a
- *  prototype for EVERY helper because it cannot promise the function section is
- *  in dependency order; this drops the ones whose DEFINITION already declares
- *  the function at each of its uses, and keeps the rest. Worth its own pass: on
- *  the real map shader corpus — where a module drags in the df64 library and the
- *  projection graph — prototypes are 9.5% of the production-transformed text,
- *  a figure the toy examples hide almost entirely. No-op on WGSL. */
+/** Forward-prototype pruning plugin (GLSL only). Drops every prototype whose
+ *  DEFINITION already declares the function at each of its uses, and keeps the
+ *  rest. Since #1858 the GLSL backend topo-sorts its own fn section and emits a
+ *  prototype only where the call graph forces one, so on backend-emitted shaders
+ *  this finds nothing — measured on the map corpus: 0 of 74 GLSL sources altered,
+ *  0.00% of the production-transformed text (#1914). It earns its place on the
+ *  GLSL the backend did not author: hand-written `rawGlsl`, host-spliced
+ *  fragments, and the backend's own `topo === null` fallback. No-op on WGSL. */
 export function prune(): EmitPlugin {
   return { name: 'prune-prototypes', transformText: pruneRedundantPrototypes }
 }

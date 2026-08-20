@@ -3,8 +3,10 @@
 // plus optionally the smoke playwright spec, with clear timing so you
 // know what you're paying.
 //
-// Default (`bun precheck`): the FULL vitest suite (no path filter), ~5 min
-//   on a typical dev box. It intentionally runs everything the CI test
+// Default (`bun precheck`): the FULL vitest suite (no path filter), ~2m20s
+//   on a 4-core box — it runs through scripts/vitest-run.ts, which splits the
+//   same 1411 files into a shared-registry pass and an isolation quarantine
+//   (7m26s before that split). It intentionally runs everything the CI test
 //   matrix shards across (compiler-blueprint / shader-dsl-a+b / map-a..e /
 //   data / engine-rhi-shared) — the root vitest.config include is the single
 //   authority, so this local gate can never lose a leg the CI matrix has.
@@ -44,21 +46,18 @@ type Step = {
   // Extra env vars merged over process.env for this step (e.g. XGIS_MATRIX=1
   // to lift the matrix gate's opt-in test.skip).
   env?: Record<string, string>
-  // Treats `1 error / N failed` (vitest worker-IPC timeout flake) as
-  // success when the test-failure count is zero. Vitest's "Unhandled
-  // Errors" bucket fires on long-running suites due to worker rpc
-  // teardown races (`Timeout calling "onTaskUpdate"`); it doesn't
-  // reflect a test outcome. Without this gate, every precheck run
-  // would false-fail.
-  parseTestOutcomeFromStdout?: boolean
 }
 
 const steps: Step[] = [
   {
     label: 'vitest (unit)',
     cmd: 'bun',
-    args: ['x', 'vitest', 'run'],
-    parseTestOutcomeFromStdout: true,
+    // scripts/vitest-run.ts, NOT bare vitest: it runs the suite as two passes
+    // (shared module registry + the isolation quarantine) over the SAME
+    // vitest.config.ts include list, which is 7m26s → 2m20s on a 4-core box for
+    // the identical 1411 files. It also owns the worker-IPC flake gate that used
+    // to live here, hence no `parseTestOutcomeFromStdout` below.
+    args: ['scripts/vitest-run.ts'],
   },
 ]
 
@@ -166,41 +165,17 @@ let failed = false
 for (const step of steps) {
   const t0 = Date.now()
   console.log(`\n→ ${step.label}`)
-  const useStdoutGate = step.parseTestOutcomeFromStdout === true
-  // pipe stdout when we need to parse it; inherit otherwise. tee back
-  // to the terminal so the user still sees live progress.
   const stepEnv = step.env ? { ...process.env, ...step.env } : process.env
-  const result = useStdoutGate
-    ? spawnSync(step.cmd, step.args, {
-        cwd: step.cwd,
-        env: stepEnv,
-        shell: process.platform === 'win32',
-        encoding: 'utf8',
-      })
-    : spawnSync(step.cmd, step.args, {
-        stdio: 'inherit',
-        env: stepEnv,
-        cwd: step.cwd,
-        shell: process.platform === 'win32',
-      })
+  const result = spawnSync(step.cmd, step.args, {
+    stdio: 'inherit',
+    env: stepEnv,
+    cwd: step.cwd,
+    shell: process.platform === 'win32',
+  })
   const ms = Date.now() - t0
   totalMs += ms
 
-  let ok = result.status === 0
-  if (useStdoutGate) {
-    // Stream the captured output so the dev sees it.
-    if ('stdout' in result && typeof result.stdout === 'string') process.stdout.write(result.stdout)
-    if ('stderr' in result && typeof result.stderr === 'string') process.stderr.write(result.stderr)
-    // Override-on-pass: if vitest exited non-zero but reported "0 failed",
-    // the failure is the worker-IPC flake, not a real regression.
-    if (!ok) {
-      const combined = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
-      const m = /Tests\s+\S*\s*(\d+)\s+failed/.exec(combined)
-      const noTestFailures = !m && /Tests\s+[^\n]*passed/.test(combined)
-      if (m && Number(m[1]) === 0) ok = true
-      else if (noTestFailures && /Unhandled Error/.test(combined)) ok = true
-    }
-  }
+  const ok = result.status === 0
 
   console.log(`${ok ? '✓' : '✗'} ${step.label} (${fmt(ms)})`)
   if (!ok) {

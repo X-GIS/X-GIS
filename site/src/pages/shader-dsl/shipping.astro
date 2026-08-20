@@ -166,6 +166,77 @@ const wgsl = emitModule(m, { plugins: [inline(), mangle(), minify()] }) // WGSL 
       </div>
     </div>
   </section>
+
+  <section class="mt-20 pt-10 border-t border-line">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Baking: emit at build time, commit the result</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      Nothing forces the emit to happen in the browser. If your shader set is closed — a known list of modules,
+      not one derived from user data at runtime — you can emit every one at build time, commit the strings as a
+      generated module, and ship <strong class="text-fg">zero bytes of DSL</strong>. The optimizer fixpoint is
+      then a build cost paid once instead of a first-frame cost paid by every user, and
+      <code class="font-mono text-[13px] text-fg">emitGlslModule</code> never appears in your runtime bundle at all.
+    </p>
+    <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      The catch is the one every code-generation step has: <strong class="text-fg">a committed artifact is a
+      second copy of something the emitters already know how to produce.</strong> The moment a DSL source changes
+      without a re-bake, you are shipping a shader that no longer matches its source — and nothing in a normal
+      build will say so.
+    </p>
+
+    <div class="mt-6 rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[600px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium w-[30%]">Gate</th>
+              <th class="px-4 py-3 text-left font-medium">Fails when</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            <tr class="border-t border-line">
+              <td class="px-4 py-3 text-fg">Hash equality</td>
+              <td class="px-4 py-3">The committed bytes differ from a live emit, for any key. Emit is byte-deterministic across processes, so this can be exact equality — not a tolerance, not a similarity score.</td>
+            </tr>
+            <tr class="border-t border-line">
+              <td class="px-4 py-3 text-fg">Completeness, both directions</td>
+              <td class="px-4 py-3">A module was added to the registry without a re-bake (missing), <em>or</em> deleted from it and left behind in the artifact (orphan). One direction alone misses half the drift.</td>
+            </tr>
+            <tr class="border-t border-line">
+              <td class="px-4 py-3 text-fg">Configuration meta</td>
+              <td class="px-4 py-3">The bake was produced under different build-time inputs than the ones live now — injected constants, a specialisation value, a precision option. Hash equality catches this too; the meta gate <em>names</em> it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="mt-6 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      Two rules about where that gate lives, both easy to get backwards:
+    </p>
+    <ul class="mt-3 text-[14.5px] leading-[1.55] text-fg-dim max-w-full space-y-2">
+      <li>
+        <strong class="text-fg">Do not wire the bake into your build.</strong> CI typically builds before it
+        tests, so a bake that runs during the build regenerates the very artifact it is about to be checked
+        against. The gate then passes by construction and proves nothing. Keep the bake a separate command a
+        human runs, and commit its output.
+      </li>
+      <li>
+        <strong class="text-fg">Do not give the gate a write-back mode.</strong> A gate that can fix its own
+        failure is a second generator, and now two places decide what the artifact should contain. One
+        regenerator, one judge.
+      </li>
+    </ul>
+
+    <p class="mt-6 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      <strong class="text-fg">If you bake reflection alongside the source, read
+      <a href={`${root}/webgl2-compute`} class="text-accent hover:text-accent-hover transition-colors">Compute on WebGL2</a> first.</strong>
+      <code class="font-mono text-[13px] text-fg">reflect()</code> describes the module you authored, while the
+      GLSL you baked is the module the backend lowered. For a compute kernel — or any module with a
+      <code class="font-mono text-[13px] text-fg">storage</code> binding — those disagree about every affected
+      binding, and a host driven from the reflected copy binds a buffer where a sampler lives. Bake a
+      GLSL-side binding table for those modules, not the raw reflection.
+    </p>
+  </section>
 </ShaderDsl>
 
 <script>

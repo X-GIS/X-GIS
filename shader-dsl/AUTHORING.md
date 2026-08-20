@@ -279,6 +279,16 @@ Loop(
 Rule of thumb: inside a loop that mutates a `var`, `Let` any value derived from that `var`
 that you read more than once.
 
+**GLSL target: a discarding struct-ctor argument auto-hoists, no marker needed** (#1840).
+ANGLE's D3D11 backend miscompiles a GLSL ES 3.00 fragment shader whose struct-constructor
+argument contains a call to a function that (transitively) executes `discard` —
+COMPILE_STATUS and LINK_STATUS both report success, and the draw silently drops geometry at
+the first submit. A GLSL-only legalize pass (`glsl-legalize.ts`) detects that shape and binds
+the argument to a fresh `_dhN` local immediately before the constructor call, on every GLSL
+emit. You keep authoring a plain `const` (or an inline call) as usual — there is nothing to
+wrap in `Var()`/`Let()` for this; the hoist is automatic and GLSL-only, so WGSL emit is
+byte-untouched.
+
 ### `.assign(v)` — the one mutation method
 
 JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors three.js TSL's
@@ -1517,6 +1527,13 @@ spelling or a typo is a `tsc` error naming the union. This lookup exists because
 reverse direction failed in practice: a GLSL-minded author reached for `frag_coord`
 (accepted by the GLSL writer at the time), and the module died only when the WGSL
 writer ran.
+
+**Upgrading from a build where `frag_coord` emitted fine?** It did — on GLSL only. That
+alias was retired (#1805) precisely because of the asymmetry: a module authored against it
+compiled on WebGL2 and failed on WGSL, so the trap only sprang on the target you were less
+likely to be testing. Both writers now reject it with the same remedy — spell it
+`builtin('position', vec4fT)` on the fragment input. The rename is spelling-only: GLSL
+still reads `gl_FragCoord` and the emitted bytes do not move.
 
 | GLSL global                      | DSL spelling                                       | Notes                                                                                                                                                                                                         |
 | -------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

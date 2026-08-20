@@ -5,9 +5,10 @@
 // spawns the script both ways on purpose.
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   groupCommits,
@@ -148,12 +149,68 @@ describe('isRegenCommit', () => {
     ).toBe(true)
   })
 
+  it('matches the subject AS SQUASHED — the shape that actually lands on main', () => {
+    // The workflow reaches main through a PR (#1842), and GitHub's squash appends
+    // the PR number. This is the only spelling the walk ever meets in practice, so
+    // it is the one convergence depends on: unexcluded, every regen commit becomes
+    // a `chore` entry and the artifact grows one noise line per merge, forever.
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710)')).toBe(true)
+    expect(
+      isRegenCommit(
+        'chore(changelog): regenerate from 4bf461085e22d52de4b3e924dc0371585565ad5e (#1843)',
+      ),
+    ).toBe(true)
+  })
+
   it('does NOT match a human commit that merely talks about regeneration', () => {
     // The exclusion is a reserved subject, not a keyword: a real change to the
-    // generator must still appear in the changelog it generates.
+    // generator must still appear in the changelog it generates. The PR suffix
+    // widened the shape by exactly one GitHub-generated trailer — everything that
+    // made the subject reserved (the literal scope, the verb, a hex hash) still is.
     expect(isRegenCommit('chore(changelog): regenerate from a clean checkout')).toBe(false)
     expect(isRegenCommit('feat(scripts): regenerate from 4bf4610 on every merge')).toBe(false)
-    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710)')).toBe(false)
+    expect(isRegenCommit('chore(changelog): regenerate from 4bf4610 (#1710) and fix a typo')).toBe(
+      false,
+    )
+    expect(isRegenCommit('chore(changelog): regenerate from the mirror (#1710)')).toBe(false)
+  })
+})
+
+describe('loop guard 3 is actually WIRED to the workflow that depends on it', () => {
+  // The comment in .github/workflows/changelog.yml said "the generator's unit tests pin the
+  // shape". They did not: they pinned the REGEX, and nothing anywhere read the string the
+  // workflow actually commits with. Changing that `-m` argument by a character would have left
+  // every test in this file green while the artifact grew one noise entry per merge forever —
+  // the exact failure guard 3 exists to prevent, with no gate between the two halves (#1842).
+  const WORKFLOW = fileURLToPath(new URL('../.github/workflows/changelog.yml', import.meta.url))
+  const SHA = '4bf461085e22d52de4b3e924dc0371585565ad5e'
+
+  /** The subject the workflow commits with, with its shell variable resolved. */
+  function workflowSubject(): string {
+    const yaml = readFileSync(WORKFLOW, 'utf8')
+    const m = /git commit --no-verify -m "([^"]+)"/.exec(yaml)
+    expect(m, 'no `git commit --no-verify -m "…"` in changelog.yml — did the step move?').not.toBe(
+      null,
+    )
+    const template = m?.[1] ?? ''
+    expect(template, 'the commit subject template is empty').not.toBe('')
+    expect(template, 'the subject no longer interpolates a sha').toContain('${head_sha}')
+    return template.replace('${head_sha}', SHA)
+  }
+
+  it('the subject the workflow commits is one the walk excludes', () => {
+    expect(isRegenCommit(workflowSubject())).toBe(true)
+  })
+
+  it('…and stays excluded after GitHub appends the squash PR number', () => {
+    // The only spelling that ever reaches main, since the regeneration lands through a PR.
+    expect(isRegenCommit(`${workflowSubject()} (#1847)`)).toBe(true)
+  })
+
+  it('the extraction is not vacuous — a mutated template is rejected', () => {
+    // Proves the two arms above would notice. Without this, a workflowSubject() that silently
+    // returned something already reserved would make them pass for the wrong reason.
+    expect(isRegenCommit(workflowSubject().replace('regenerate', 'regenerated'))).toBe(false)
   })
 })
 
@@ -618,6 +675,10 @@ describe('entrypoint', () => {
       (repo, git) => {
         addCommit(repo, git, 'feat(map): a real change')
         addCommit(repo, git, 'chore(changelog): regenerate from 0123456789abcdef0123')
+        // The shape the PR route actually lands (#1842). Both spellings are in the
+        // fixture because the walk meets the suffixed one and the unsuffixed one is
+        // what a local `bun run changelog` + hand commit still produces.
+        addCommit(repo, git, 'chore(changelog): regenerate from 89abcdef0123456789ab (#1843)')
       },
       (_tmp, repo) => {
         const run = spawnSync('bun', [installScript(repo)], { encoding: 'utf8' })

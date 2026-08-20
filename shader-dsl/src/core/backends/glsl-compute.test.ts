@@ -98,7 +98,7 @@ describe('glsl-es300 — compute → fragment-GPGPU lowering (emulateCompute)', 
     expect(fs).toMatch(/layout\(location = 0\) out uint \w+;/)
     // the read storage array → a data texture sampled with texelFetch (storage-emul reuse)
     expect(fs).toContain('uniform sampler2D feat_data;')
-    expect(fs).toContain('texelFetch(feat_data,')
+    expect(fs).toContain('_sfetch(feat_data,')
     // u_count survives as a bare default-block uniform (gated behind emulateCompute)
     expect(fs).toContain('uniform uvec4 u_count;')
     // global_invocation_id.x synthesised from gl_FragCoord + the output-row width u_count.y

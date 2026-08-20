@@ -30,6 +30,7 @@
 //     capture an identifier that already exists.
 
 import { lexShader, type Token } from './shader-lex.js'
+import { RESERVED_WORDS } from './reserved-words.js'
 
 /** Which target's alias syntax to write. Determined from the text, not guessed:
  *  a GLSL ES 3.00 shader MUST begin with `#version 300 es` (the spec requires
@@ -166,8 +167,11 @@ export function aliasShaderTypes(src: string, renames?: Map<string, string>): st
   for (const s of sites) counts.set(s.spelling, (counts.get(s.spelling) ?? 0) + 1)
 
   // A `#define` is module-wide and TEXTUAL, so a name that already occurs
-  // anywhere — an identifier, a keyword, a type — is not available.
-  const occupied = new Set<string>()
+  // anywhere — an identifier, a keyword, a type — is not available. Seeded with
+  // the reserved vocabulary (#1861): a word the language OWNS but that this
+  // particular shader never spells is absent from the text scan below, so it
+  // would otherwise look free — `alias as=vec2<f32>;` is what Tint rejected.
+  const occupied = new Set<string>(RESERVED_WORDS)
   for (const t of toks) {
     if (t.kind === 'word') occupied.add(t.text)
     else if (t.kind === 'directive') for (const w of t.text.split(/\W+/)) if (w) occupied.add(w)

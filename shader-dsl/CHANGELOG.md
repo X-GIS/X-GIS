@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 3b126a12e795ae9f8cac2e89adcc5761448c192b
+  Generated from: 8c25a04908c5b65a41beaf036b7f5ae8cb1b52c0
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 3b126a12e795
+    bun scripts/emit-changelog.ts --path shader-dsl --since 8c25a04908c5
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,16 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
+- **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
+- **rhi-webgl2:** dispatch compute by the portable declaration, not the deprecated flag ([#1824](https://github.com/X-GIS/X-GIS/pull/1824)) `35adaa2`
+- **shader-dsl:** hyperbolic/saturate/2x16-pack builtins, backend-asymmetry hardening, the portable kernel tier ([#1805](https://github.com/X-GIS/X-GIS/pull/1805)) `672a55a`
+- **shader-dsl:** classify declared production transforms in semanticDiff (#1806) ([#1807](https://github.com/X-GIS/X-GIS/pull/1807)) `00b8001`
+- **shader-dsl:** validateVariantsWgsl — lift #1738's WGSL validation into the package (#1715) ([#1741](https://github.com/X-GIS/X-GIS/pull/1741)) `7c8dc6a`
+- **shader-dsl:** emitGuardedFragment — the generated ladder, composable into a host program (#1712) ([#1731](https://github.com/X-GIS/X-GIS/pull/1731)) `8aaf90b`
+- **shader-dsl:** the host boundary — emitFragment, externVar, hostUniform, variantFamily, buildRegistry, capabilityMatrix (#1710-#1713, #1716, #1717) ([#1721](https://github.com/X-GIS/X-GIS/pull/1721)) `a152943`
+- **shader-dsl:** semanticDiff over IR + reflection, and the two render gates that had never run (#1714, #1715) ([#1719](https://github.com/X-GIS/X-GIS/pull/1719)) `08423be`
+- **scripts,ci:** regenerate the changelogs on every merge, guard the shallow-clone footgun, and fix three render defects ([#1709](https://github.com/X-GIS/X-GIS/pull/1709)) `164c65d`
 - **shader-dsl:** integer sampled textures (u32/i32 × 2d/2d-array) and the array&lt;u32&gt; storage lowering (#1703) ([#1705](https://github.com/X-GIS/X-GIS/pull/1705)) `9f5a8f9`
 - **shader-dsl:** production shader emit — token-level minify, short identifiers, type aliases, minimal parens, prototype pruning, and a log decoder ([#1684](https://github.com/X-GIS/X-GIS/pull/1684)) `fffd79f`
 - **map,shader-dsl:** baked-shader store with family-derived download groups, and a shader-dsl that compiles standalone (#1679, #1681) `483a30b`
@@ -41,7 +51,22 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
+- **shader-dsl:** restore the GLSL entry work #1864 landed only the test files of ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `0f0358d`
+- **shader-dsl:** make main() the GLSL entry, in dependency order, with no IO struct ([#1858](https://github.com/X-GIS/X-GIS/pull/1858)) `a16d07f`
+- **shader-dsl:** hoist discarding struct-ctor args to named GLSL locals (#1840) ([#1841](https://github.com/X-GIS/X-GIS/pull/1841)) `27e7a38`
+- **shader-dsl:** explicit .js specifiers + nodenext — the package loads in plain Node (#1686) ([#1825](https://github.com/X-GIS/X-GIS/pull/1825)) `e704eaf`
+- **playground:** make the e2e tsconfig typecheckable — rootDir + one window-global authority (#1683) ([#1762](https://github.com/X-GIS/X-GIS/pull/1762)) `bf04401`
 - **rhi-webgl2:** storage writeBuffer drops the caller's view window — WebGL2 renders no points (#1703 regression) ([#1708](https://github.com/X-GIS/X-GIS/pull/1708)) `3b126a1`
+
+#### perf
+
+- **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
+- **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
+- **shader-dsl:** let cse-local see an `if` condition too — −154 call sites (#1886) ([#1892](https://github.com/X-GIS/X-GIS/pull/1892)) `e33b629`
+- **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
+- **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
+- **shader-dsl:** stop the emit recomputing hoistable values — post-inline cleanup + gvn wired (#1860, #1861, #1865) ([#1862](https://github.com/X-GIS/X-GIS/pull/1862)) `f005bbe`
 
 #### refactor
 
@@ -49,16 +74,28 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### docs
 
+- **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
+- **shader-dsl:** note the retired frag_coord alias in the migration section (#1840) ([#1854](https://github.com/X-GIS/X-GIS/pull/1854)) `bfd997e`
+- **shader-dsl:** stop transcribing signatures in AUTHORING.md and latch it (#1700) ([#1786](https://github.com/X-GIS/X-GIS/pull/1786)) `cdad8e2`
+- **shader-dsl:** document the last 38 engine-internals exports — the doc-coverage allowlist reaches zero (#1695) ([#1727](https://github.com/X-GIS/X-GIS/pull/1727)) `1e394a0`
+- **shader-dsl:** document the 20 ./dev diagnostic exports, and answer the policy their debt row deferred (#1695) ([#1726](https://github.com/X-GIS/X-GIS/pull/1726)) `dc02560`
+- **shader-dsl,site:** document all 109 core/ir exports, and fix the API reference defects only a rendered page shows (#1695) ([#1725](https://github.com/X-GIS/X-GIS/pull/1725)) `e09a40e`
 - **shader-dsl:** answer the `#define` question, replace the reference page, and make the docs pipeline self-checking (#1694, #1700, #1695) ([#1702](https://github.com/X-GIS/X-GIS/pull/1702)) `ddaa150`
 - **shader-dsl:** document the eight star-re-exported backend symbols (#1697) ([#1698](https://github.com/X-GIS/X-GIS/pull/1698)) `259caf5`
 
 #### test
 
+- **shader-dsl:** cut the controlFlow regression axis and the lifting path in semanticDiff transforms (#1806) ([#1814](https://github.com/X-GIS/X-GIS/pull/1814)) `cbef7f4`
+- **shader-dsl:** cover the mat4 host global, and correct two claims that did not match the code ([#1735](https://github.com/X-GIS/X-GIS/pull/1735)) `f91f107`
 - **shader-dsl:** gate every public export on having a doc comment (#1695) ([#1696](https://github.com/X-GIS/X-GIS/pull/1696)) `3f6428e`
 
 #### build
 
 - **shader-dsl:** distribute via a git subtree mirror, and gate the invariant that makes it work ([#1681](https://github.com/X-GIS/X-GIS/pull/1681)) `54718a7`
+
+#### other
+
+- fix(ci)+feat(shader-dsl): the mirror that never ran, hostBlock, #1715's two gates, and 30 dark gates lit (#1693, #1710, #1714, #1715, #1716, #1720, #1724) ([#1723](https://github.com/X-GIS/X-GIS/pull/1723)) `b93df52`
 
 ### 2026-07
 

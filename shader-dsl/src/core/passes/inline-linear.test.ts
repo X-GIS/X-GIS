@@ -16,6 +16,8 @@ import {
   boolT,
   floor,
   fract,
+  sin,
+  cos,
   toF32,
   toF64,
   If,
@@ -26,6 +28,7 @@ import { emitModule } from '../backends/wgsl.js'
 import { emitGlslModule } from '../backends/glsl.js'
 import { compileModule } from '../oracle.js'
 import { inlineLinearAll } from './inline-linear.js'
+import { mangleModule } from './mangle.js'
 
 // A linear multi-statement helper: two `let`s then a return (the noise shape).
 const vnoise = fn('vnoise', { p: f32T }, f32T, ({ p }, b) => {
@@ -212,5 +215,136 @@ describe('inlineLinearAll — conservative exclusions', () => {
     expect(wgsl).toContain('df64_add(')
     expect(wgsl).toContain('fn df64_add')
     expect(wgsl).toContain('fn df64_twoSum')
+  })
+
+  // CONTROL ARM. The assertion above passes if the df64 fns survive — including in
+  // the world where `inlineLinearAll` inlines NOTHING at all, which is the "failed
+  // either way" shape (#1444). This pins that the opacity is the RULE talking: two
+  // helpers with IDENTICAL bodies, differing only in the flag, and only the flagged
+  // one survives.
+  it('… and that opacity is the RULE talking, not an un-inlinable body', () => {
+    const linear = (name: string) =>
+      fn(name, { p: f32T }, f32T, ({ p }, b) => {
+        const a = b.let('a', floor(p))
+        const c = b.let('c', fract(p))
+        b.ret(a.add(c).mul(2))
+      })
+    const plain = linear('probe_sum')
+    // `module()` puts the HANDLE in funcs[], so the flag goes on the handle — the
+    // same reason `fn()` mirrors `portable` onto it (builder.ts).
+    const opaque = Object.assign(linear('opaque_sum'), { opaque: true })
+    const mf = module({
+      funcs: [
+        plain,
+        opaque,
+        fn('caller', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(plain({ p: x }).add(opaque({ p: x })))
+        }),
+      ],
+    })
+    const wgsl = emitModule(mf, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })
+    expect(wgsl).not.toContain('fn probe_sum')
+    expect(wgsl).toContain('fn opaque_sum')
+  })
+
+  // The invariant is a PROPERTY of the injected decl, not of its emitted NAME. It
+  // used to be `f.name.startsWith('df64_')`, and `mangle()` renames the df64 library
+  // on purpose (emit-prod.ts) — so `[mangle, inline]` flattened the whole EFT library
+  // while `[inline, mangle]` did not, silently, decided by plugin array order alone.
+  // Both orders must hold. (The two plugins are spelled here exactly as emit-prod's
+  // `inline()` / `mangle()` build them, without importing the production wrapper
+  // into a core test.)
+  it('holds under BOTH plugin orderings — mangle renames df64_*, the flag survives', () => {
+    const mf = module({
+      funcs: [
+        fn('kf', { a: f32T }, f32T, ({ a }, b) => {
+          b.ret(toF32(toF64(a).add(toF64(a))))
+        }),
+      ],
+    })
+    const inlineP = { name: 'inline', transformIR: inlineLinearAll }
+    const mangleP = { name: 'mangle', transformIR: (x: ModuleDecl) => mangleModule(x).module }
+    const countFns = (src: string): number => (src.match(/^fn /gm) ?? []).length
+    // The df64 closure for one add is twoSum / quickTwoSum / add / narrow, + `kf`.
+    expect(countFns(emitModule(mf, { plugins: [inlineP, mangleP] }))).toBe(5)
+    expect(countFns(emitModule(mf, { plugins: [mangleP, inlineP] }))).toBe(5)
+  })
+})
+
+// ═══ post-inline cleanup (#1860) ═══
+//
+// Inlining pays its own debt: `inlineFn` substitutes the ARGUMENT expression at
+// every occurrence of the parameter, and `inlineLinearFn` copies the prelude per
+// call site, so one authored value becomes N recomputations. `transformIR` runs
+// AFTER the emit-time optimizer fixpoint, so nothing else can clean it up.
+//
+// These assert the cleanup DISTINGUISHES the states it exists to separate: the
+// module below is built so that neither pass already in DEFAULT_PASSES can catch
+// the repeat — it touches a caller LOCAL (so fn-top `cse` is excluded, it hoists
+// input-only exprs) and lands in SEPARATE statements (so `cse-local` is excluded,
+// it dedups within one statement). Only `gvn` closes that gap. Drop `gvn` from
+// CLEANUP and `sin(`/`cos(` come back three times each.
+describe('inlineLinearAll — post-inline cleanup', () => {
+  // fbm3 reads its param `p` at three call sites → substitution copies the whole
+  // argument expression three times, each into its own lifted `let`.
+  const fbm3 = fn('fbm3', { p: f32T }, f32T, ({ p }, b) => {
+    b.ret(
+      vnoise({ p })
+        .mul(0.5)
+        .add(vnoise({ p: p.mul(2) }).mul(0.25))
+        .add(vnoise({ p: p.mul(4) }).mul(0.125)),
+    )
+  })
+  const shared = module({
+    funcs: [
+      vnoise,
+      fbm3,
+      fn('caller', { x: f32T }, f32T, ({ x }, b) => {
+        const t = b.let('t', x.mul(2)) // a LOCAL — puts the repeat out of cse's reach
+        b.ret(fbm3({ p: sin(t).mul(cos(t)) }))
+      }),
+    ],
+  })
+
+  it('computes a value shared by N inlined copies ONCE, not N times', () => {
+    const wgsl = emitModule(inlineLinearAll(shared))
+    expect(wgsl).not.toContain('fn vnoise')
+    expect(wgsl).not.toContain('fn fbm3')
+    expect(wgsl.match(/sin\(/g)).toHaveLength(1)
+    expect(wgsl.match(/cos\(/g)).toHaveLength(1)
+  })
+
+  it('emits the same single computation on the GLSL side', () => {
+    const glsl = emitGlslModule(shared, 'vertex', {
+      plugins: [{ name: 'inline', transformIR: inlineLinearAll }],
+    })
+    expect(glsl.match(/sin\(/g)).toHaveLength(1)
+    expect(glsl.match(/cos\(/g)).toHaveLength(1)
+  })
+
+  it('preserves the value it dedups (CPU oracle) and stays deterministic', () => {
+    const out = inlineLinearAll(shared)
+    expect(compileModule(out).fns.caller(0.7) as number).toBeCloseTo(
+      compileModule(shared).fns.caller(0.7) as number,
+      6,
+    )
+    expect(emitModule(inlineLinearAll(shared))).toBe(emitModule(out))
+  })
+
+  it('is a NO-OP on a module with nothing to inline', () => {
+    // The cleanup is inlining's debt, not a second optimizer tier: a module the
+    // plugin cannot flatten must emit byte-identically with and without it.
+    const none = module({
+      funcs: [
+        fn('solo', { x: f32T }, f32T, ({ x }, b) => {
+          const t = b.let('t', x.mul(2))
+          b.ret(sin(t).mul(cos(t)).add(sin(t)))
+        }),
+      ],
+    })
+    expect(inlineLinearAll(none)).toBe(none)
+    expect(emitModule(none, { plugins: [{ name: 'inline', transformIR: inlineLinearAll }] })).toBe(
+      emitModule(none),
+    )
   })
 })

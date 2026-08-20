@@ -18,15 +18,25 @@
        in a network-less sandbox: DOMContentLoaded at 13.1 s, of which 12.6 s
        was this one request timing out, with the main thread 96% idle. Nothing
        else on the page was slow.
-       `media="print"` makes it non-blocking; the onload flip applies it the
-       moment it lands. `display=swap` (already on the URL) governs the FONT,
-       not the stylesheet fetch, so it could never have covered this. -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"
-      rel="stylesheet"
-      media="print"
-      onload="this.media = 'all'"
-    />
+       `media="print"` fixed DOMContentLoaded and NOT the `load` EVENT, which
+       still waits for every subresource the parser found — including a
+       print-media sheet. That is the event `page.goto()` waits for by default,
+       so in the same sandbox every e2e spec still paid the full timeout
+       (measured: DOMContentLoaded 378 ms, `load` 12 699 ms, the pending list
+       holding exactly this URL until ERR_CONNECTION_RESET at 12 759 ms).
+       Appending the sheet AFTER `load` is what decouples the two: a subresource
+       added once the event has fired cannot retroactively block it, and an
+       online browser still applies the font a frame later exactly as the
+       `media` flip did. See demo.html for the full measurement. -->
+    <script>
+      addEventListener('load', () => {
+        const l = document.createElement('link')
+        l.rel = 'stylesheet'
+        l.href =
+          'https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap'
+        document.head.appendChild(l)
+      })
+    </script>
     <noscript>
       <link
         href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;700&display=swap"

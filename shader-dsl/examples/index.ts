@@ -19,6 +19,7 @@ import { fp64Loran } from './fp64-loran.js'
 import { fp64MercatorTiles } from './fp64-mercator-tiles.js'
 import { fp64Rtc } from './fp64-rtc.js'
 import { colorRamp } from './color-ramp.js'
+import { discardCutout } from './discard-cutout.js'
 import { plasma } from './shadertoy-plasma.js'
 import { voronoi } from './voronoi.js'
 import { julia } from './julia.js'
@@ -58,6 +59,7 @@ export {
   fp64MercatorTiles,
   fp64Rtc,
   colorRamp,
+  discardCutout,
   plasma,
   voronoi,
   julia,
@@ -97,6 +99,7 @@ export const examples: readonly ShaderExample[] = [
   fp64MercatorTiles,
   fp64Rtc,
   colorRamp,
+  discardCutout,
   plasma,
   voronoi,
   julia,

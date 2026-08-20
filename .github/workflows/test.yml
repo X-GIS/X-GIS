@@ -17,23 +17,54 @@ on:
     # engine legs + typecheck (they post skipped → pass), posts render-gate green
     # (all steps `if`-skipped), and — for a site/** change — runs the light site
     # build. Cost: a few runner-seconds per docs PR; benefit: it can actually merge.
-  # NOTE: no `push: main` trigger. Every change reaches main through a PR,
-  # which already ran this whole workflow — re-running it on the post-merge
-  # push just duplicated the full matrix for no gating benefit (the PR run is
-  # what gates the merge, and deploy-pages.yml runs independently of this one).
-  # `workflow_dispatch` keeps a manual on-demand run available for main if
-  # ever needed. If direct pushes to main (bypassing PRs) become a thing and
-  # need CI, add the `push: branches: [main]` trigger back.
+  # POST-MERGE GUARD (#1872). This trigger was removed once, on the premise that
+  # "every change reaches main through a PR, which already ran this whole
+  # workflow". That premise holds only for a merge that WAITED for its checks.
+  # #1864 merged 3m54s before `test-result` reported, that report was `failure`,
+  # and main stayed broken for 2h36m until a person noticed — CI never looked at
+  # the merged state, because nothing here runs on it. (#1876 did the same thing
+  # three hours later and was merely lucky to come back green.) Whether the merge
+  # skipped the wait by bypass or by a direct push, the merged state is exactly
+  # what no PR run covers, so it gets a run of its own.
+  #
+  # Cost is bounded by the same `changes` filters the PR run uses — a merge that
+  # touches nothing this workflow tests still costs only the sub-5s filter — and
+  # by `render-gate` opting out; see the note on that job. What does NOT bound it
+  # is cancelling a superseded main run: see `concurrency` below for why that made
+  # this guard cover nothing on the very first merge it ran on.
+  push:
+    branches: [main]
+  # `workflow_dispatch` keeps a manual on-demand run available for any ref.
   workflow_dispatch:
 
-# Cancel a PR's older in-flight run when a new commit is pushed to the same
-# ref — iterative pushes used to leave 3-5min runs burning in parallel.
+# Cancel an older in-flight run when a new commit is pushed to the same ref —
+# iterative pushes used to leave 3-5min runs burning in parallel.
 # Keyed on github.ref, so each PR branch cancels only its OWN older run;
 # PRs don't cancel each other. Keys on the whole workflow run, so it covers
 # all 5 `test` matrix legs + render-gate as one cancellable unit.
+#
+# A PUSH RUN IS NEVER CANCELLED (#1872). `main` shipped as a group like any other,
+# on the reasoning that "only the tip matters, so the surviving run tests the tip".
+# That is true of the tip's STATE and false of the run's COVERAGE, because the
+# `changes` filter scopes each run to ITS OWN diff — and the two mechanisms are
+# individually sound and jointly vacuous. It cost the guard its first merge, 96
+# seconds after it went live:
+#
+#   15:29:54  push d32304f8  (workflows + a test file → code=true, render=true)
+#   15:31:11  push ea44139b  (CHANGELOG.md only → code=false) — CANCELS the above
+#   15:32:47  test-result GREEN on main, having run zero tests
+#
+# That interleaving is not a race, it is the NORMAL path: every merge to main is
+# followed by a changelog regeneration (changelog.yml, `push: main` with
+# `paths-ignore: CHANGELOG.md`) landing ~90 s later. So under `true` the guard
+# would have been cancelled on essentially every code merge it exists to check.
+# Conditioned on the event, PR behaviour is untouched — iterative pushes still
+# cancel — and main runs queue instead. They are bounded: `render-gate` opts out
+# of push, so a main run is minutes, well inside the ~22 min mean inter-merge
+# interval (#1842).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # Cheap filter job (sub-5s, no bun/build) that decides which downstream jobs
@@ -79,7 +110,11 @@ jobs:
               # gates (_wgsl/_glsl-compile, _emit-obfuscate, _compute-gen, _mrt,
               # _mouse, _optimizer-gpu-parity) are the ONLY place its emitters meet
               # real Tint/ANGLE — a shader-dsl-only PR must fire them (#954).
-              - 'shader-dsl/**'
+              # …but NOT its generated CHANGELOG.md. A changelog diff cannot change an
+              # emitted shader, and leaving it in here is what made render-gate — the
+              # slowest leg — run for 26+ min on the regeneration PR and starve (#1842).
+              # See the `code` filter below for why this is an extglob and not a `!` entry.
+              - 'shader-dsl/**/!(CHANGELOG.md)'
               # Audit (#954): the render-gate ALSO uniquely exercises these two.
               # rhi-webgl2 — the four ?forcegl2=1 gates (_fills-gl2 +
               # _graphics-retained-{icon,arrow,arrow-orientation}) drive WebGl2Device
@@ -116,7 +151,22 @@ jobs:
               # specs were CI-dark — no leg or filter fired on a geo-only PR (#959).
               - 'geo/**'
               - 'blueprint/**'
-              - 'shader-dsl/**'
+              # NOT a bare `shader-dsl/**`: that matched `shader-dsl/CHANGELOG.md`, so the
+              # changelog regeneration PR — a diff of two GENERATED files — fanned out the
+              # whole engine matrix plus render-gate, and every merge to main force-pushed
+              # that branch and cancelled the run via `concurrency` above. At a ~22 min mean
+              # inter-merge interval it never finished once: six cancellations, zero
+              # successes, and the changelog could not land (#1842).
+              #
+              # The extglob is deliberate and a leading `!` is NOT the same thing. Measured
+              # against dorny/paths-filter's own matcher, `'!shader-dsl/CHANGELOG.md'` as a
+              # list entry matches nearly EVERY file in the repo — each entry is its own rule
+              # and the default `predicate-quantifier` is `some`, so a negated pattern reads
+              # as an inclusion of everything it does not name. `some-with-excludes`, which
+              # would make it mean exclusion, needs v4.0.3; this pins @v3. `!(...)` inside a
+              # pattern is an ordinary glob and needs no quantifier.
+              # scripts/paths-filter-semantics.test.ts runs this block through that matcher.
+              - 'shader-dsl/**/!(CHANGELOG.md)'
               # rhi*/data/pipeline were CI-dark: absent from `code`, so a change
               # there ran NO vitest leg or typecheck. The new `engine-rhi-data`
               # test leg covers their suites; list them here so a change fires it.
@@ -145,7 +195,15 @@ jobs:
               - 'tsconfig*.json'
               - 'vitest.config.ts'
               - 'vitest.setup.ts'
-              - '.github/workflows/test.yml'
+              # ALL workflow files, not just this one. Measured (#1842): 5 of the 6 tracked
+              # workflows matched no filter at all, so `scripts/workflow-validity.test.ts` —
+              # the gate that exists because a workflow once shipped unparseable (#1693) — was
+              # CI-dark for every PR editing a workflow other than this file. Four rewrites of
+              # changelog.yml landed that way in one day, none of them running the gate written
+              # for exactly their failure mode. Only `code` needs widening: the validity gate
+              # runs in the vitest legs, and render/site keep naming test.yml alone because it
+              # is the file that DEFINES those jobs.
+              - '.github/workflows/**'
             site:
               - 'site/**'
               - 'bun.lock'
@@ -297,8 +355,31 @@ jobs:
       # Cache bun's global package store so `bun install` reuses downloaded
       # tarballs instead of re-fetching every run. Keyed on the lockfile.
       # All 5 matrix legs share this SAME restore key, so install stays ~1s.
+      #
+      # RESTORE-ONLY. Exactly ONE job in this file may SAVE this key — `lint`,
+      # below — and every other site uses `actions/cache/restore`. The five sites
+      # share one key, so when they all miss they all try to reserve it and 14 of
+      # the 15 jobs lose: `Failed to save: Unable to reserve cache with key
+      # bun-Linux-…, another job may be creating this cache.` (#1857)
+      #
+      # The `ci-cache` workflow keeps this key warm on main — the only scope a
+      # fresh PR branch can read (see that file for why nothing else writes one)
+      # — and a warm EXACT hit makes `actions/cache` skip the save outright, so
+      # for most PRs there is nothing to race over. But the key is the LOCKFILE
+      # HASH, so that only covers PRs whose lockfile equals main's. A PR that
+      # EDITS bun.lock computes a key no warm can precede: measured on run
+      # 32222092537, `hashFiles` (= sha256(sha256(bun.lock))) gave f4fcbf01d7eb…
+      # for the branch against e5f652a78e… on main, and all 15 raced. Naming one
+      # owner is what closes that case; the warm alone cannot.
+      #
+      # `restore-keys` STAYS here, unlike the browser cache below: a prefix hit
+      # on a package store is a stale-but-mostly-right store that still spares
+      # most of the download, whereas a prefix hit on browser binaries is the
+      # WRONG revision that has to be re-downloaded in full. That asymmetry is
+      # also why this key cannot simply be switched to a version, the way the
+      # browser key was.
       - if: needs.changes.outputs.code == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -343,7 +424,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -373,6 +454,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # THE SOLE SAVER of the bun key (#1857). Every other site in this file is
+      # `actions/cache/restore` — see the long note in the `test` job for why one
+      # owner is needed even with the `ci-cache` warm. `lint` owns it because it
+      # is a single (non-matrix) job gated on `code`, and `bun.lock` is in the
+      # `code` filter, so it runs for every PR that can invalidate this key.
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -390,6 +476,38 @@ jobs:
       # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
       - run: bun run knip
 
+  # PR-TITLE gate (#1842). The repo squash-merges, so the subject the changelog
+  # renders each entry from is composed server-side by GitHub FROM THE PR TITLE —
+  # a string commitlint never sees, because the husky `commit-msg` hook only ever
+  # inspects the commits that squash away. That gap is measurable: 100 of the 210
+  # first-parent commits touching `shader-dsl/` do not parse as conventional
+  # commits, so they render ungrouped in the changelog's `other` bucket, and one
+  # of them (`fix(ci)+feat(shader-dsl): …`) carried six public exports in behind a
+  # subject beginning `fix(ci)`.
+  #
+  # NO `changes` filter and no `bun install`: the title is a property of the PR,
+  # not of the diff, so gating it on paths would let a mistyped title through on
+  # exactly the PRs that touch nothing this filter names. The script imports only
+  # `node:child_process` (transitively, via the generator it borrows the predicate
+  # from), so a bare checkout + bun runs it in seconds.
+  #
+  # PR_TITLE travels as an ENVIRONMENT variable, never as an interpolated `run:`
+  # line: it is attacker-controlled on a fork PR, and an interpolation would put
+  # it in the shell's own text. Skipped on workflow_dispatch (no PR payload),
+  # which test-result reads as a pass.
+  pr-title:
+    name: pr-title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bun scripts/lint-pr-title.ts
+
   # Site build gate. The engine `test` matrix used to be the only thing that
   # built the site (as a side effect of `bun run build`), so gating that matrix
   # off for site-only PRs would have left the site UNvalidated on exactly the
@@ -406,7 +524,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -441,7 +559,7 @@ jobs:
   # with eslint never having run in CI.
   test-result:
     name: test-result
-    needs: [test, typecheck, site, lint]
+    needs: [test, typecheck, site, lint, pr-title]
     if: always()
     runs-on: ubuntu-latest
     # Each upstream job is either `success` (ran and passed) or `skipped` (its
@@ -468,7 +586,11 @@ jobs:
         run: |
           fail=0
           cancelled=0
-          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}"; do
+          # `needs['pr-title']`, NOT `needs.pr-title`: a hyphen in a job id is
+          # SUBTRACTION to the expression parser, so the dot spelling silently
+          # evaluates to an empty string and this gate reads a missing result as
+          # neither success nor skipped — red on every PR, for a job that passed.
+          for j in "test:${{ needs.test.result }}" "typecheck:${{ needs.typecheck.result }}" "site:${{ needs.site.result }}" "lint:${{ needs.lint.result }}" "pr-title:${{ needs['pr-title'].result }}"; do
             name=${j%%:*}; r=${j#*:}
             case "$r" in
               success|skipped) ;;
@@ -619,8 +741,49 @@ jobs:
   # (render == 'true') all five run exactly as before. ~82s of runner work is
   # saved per docs-only PR. Wall-clock is unchanged (this job runs in parallel
   # with `test` and is not the critical path) — the win is runner-minutes.
-  render-gate:
+  # SHARDED (#1899). This job's WORK now runs as `render-shard`, N runners in
+  # parallel; the required status context keeps the name `render-gate` and moves to
+  # the tiny aggregate job at the bottom of this file, exactly as `test-result`
+  # aggregates the `test` matrix.
+  #
+  # Why shard rather than raise `WORKERS`: #1433 measured two workers inside ONE
+  # runner CONTENDING for a single SwiftShader rasteriser, and losing a spec to that
+  # contention at random — three consecutive runs of #1430 went red on three
+  # DIFFERENT specs. Serialising cost ~1 min and bought determinism. Sharding is not
+  # that trade: each shard is its OWN runner with its OWN rasteriser, so `WORKERS: 1`
+  # still holds inside every shard and nothing contends. The constraint #1433
+  # established is "do not share one rasteriser", not "do not parallelise".
+  #
+  # MEASURED before shipping (a 4-core cloud container, SwiftShader, WORKERS=1):
+  # `--shard=k/4` over an explicit 8-file list split 16 tests into 4/4/4/4 — Playwright
+  # partitions by TEST count, and the explicit file list is applied BEFORE the split,
+  # so the leg's registered spec list is still the population.
+  #
+  # 4 shards, not more: the ~5 min setup (bun install + build + browser install) is
+  # paid per shard, so wall-clock is testTime/N + 5. At 45-60 min of tests that is
+  # ~17 min at N=4 and ~12 min at N=8, for 69 vs 93 runner-minutes against today's
+  # ~51. N=4 takes the bulk of the win at the smaller multiple.
+  render-shard:
     needs: changes
+    strategy:
+      # NEVER fail-fast: a red shard must not cancel its siblings, or a single
+      # failure hides whatever the other three would have reported and the next
+      # push re-discovers it one shard at a time.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    name: render-shard (${{ matrix.shard }}/4)
+    # PR-only, unlike every other job here. This is the one leg that can outlast
+    # the merge cadence — #1862's took 63 min against the ~22 min mean inter-merge
+    # interval measured in #1842 — so on `push: main` the `concurrency` group above
+    # would cancel it before it reported, and a gate that never reports is not a
+    # gate. The post-merge guard is therefore the FAST legs: they are what
+    # `test-result` aggregates, and they are what would have caught #1864 (a
+    # `TS2305` that `typecheck` reached 1m23s in). A shader regression stays gated
+    # where it CAN be gated — on the pull request, where this job still runs.
+    # `!= 'push'` rather than `== 'pull_request'`, so a manual workflow_dispatch on
+    # main still gets the full gate.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     # A wedged spec once held this job in_progress for 6h (the Actions default)
     # with logs unreadable until the kill. The enlarged leg's sane ceiling is
@@ -634,7 +797,7 @@ jobs:
         with:
           bun-version: latest
       - if: needs.changes.outputs.render == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
@@ -643,26 +806,71 @@ jobs:
         run: bun install --frozen-lockfile
       - if: needs.changes.outputs.render == 'true'
         run: bun run build
-      # Cache the downloaded browser binaries (~/.cache/ms-playwright). The
-      # biggest render-gate time sink was re-downloading chromium every run;
-      # on a cache hit the install step below detects the browsers present and
-      # only re-runs the (lighter) apt --with-deps step. Keyed on the lockfile
-      # so a playwright version bump busts the cache.
+      # Resolve the PINNED playwright-core version from the lockfile — the cache
+      # key below, and nothing else, decides whether this job downloads Chromium.
+      # It has to be the resolved version (bun.lock), not the `^1.59.1` range in
+      # playground/package.json: the browser build is a function of the exact
+      # playwright version (1.60.0 -> chromium revision 1223), and a range would
+      # keep the key stable across a bump that changes the binaries.
+      - if: needs.changes.outputs.render == 'true'
+        id: pw-version
+        run: |
+          # `-m1` not `| head -1`: GitHub runs steps under `bash -eo pipefail`,
+          # where head closing the pipe early SIGPIPEs grep into a 141 the step
+          # then dies on. `|| true` keeps a no-match out of errexit so the guard
+          # below is what reports it, with a message.
+          version=$(grep -oEm1 '"playwright-core@[0-9]+\.[0-9]+\.[0-9]+"' bun.lock | tr -d '"' | cut -d@ -f2) || true
+          test -n "$version" || { echo "::error::could not resolve playwright-core version from bun.lock"; exit 1; }
+          echo "resolved playwright-core@$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Cache the downloaded browser binaries (~/.cache/ms-playwright).
+      #
+      # KEYED ON THE PLAYWRIGHT VERSION, not the lockfile hash. The lockfile
+      # version was a MISS on every run that touched any dependency, and a miss
+      # that falls through to `restore-keys` still re-UPLOADS the whole cache in
+      # the post step. Measured on run 32201891706: `Cache hit for restore-key:
+      # pw-Linux-f232995...` — a prefix hit, not an exact one, on a job whose
+      # sibling bun cache hit EXACTLY — so 259 MB came down and 259 MB went back
+      # up, every run, into a scope no other PR can read (below). The browser
+      # payload depends on the playwright version alone, so that is the key; a
+      # dependency bump that leaves playwright alone is now a hit with no upload.
+      #
+      # No `restore-keys`: a prefix hit can only ever restore a DIFFERENT
+      # revision's binaries, which `playwright install` must then re-download
+      # anyway — it buys nothing and guarantees the re-upload described above.
+      # The `ci-cache` workflow keeps this exact key warm on main, which is the
+      # only scope a fresh PR branch can read from.
       - if: needs.changes.outputs.render == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: pw-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
-          restore-keys: pw-${{ runner.os }}-
+          key: pw-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
       # Use the PROJECT-LOCAL playwright bin (hoisted to root node_modules
       # by bun), NOT `bunx playwright` — bunx fetches the standalone
       # `playwright` package at a DIFFERENT version, installs browsers for
       # that revision, and the test step (project @playwright/test) then
-      # can't find its own revision's binary. Headless runs use
-      # chrome-headless-shell, a SEPARATE binary from full chromium —
-      # install both or browserType.launch fails before any test runs.
+      # can't find its own revision's binary.
+      #
+      # `--only-shell`: this job runs HEADED=0, so playwright.config.ts sets
+      # `headless: true` and no `channel` (XGIS_USE_SYSTEM_CHROME is unset in
+      # CI). playwright-core's getExecutableName() resolves exactly that pair to
+      # `chromium-headless-shell` — full Chromium is downloaded and then never
+      # launched. Verified by installing ONLY the shell and launching this job's
+      # own args (--enable-unsafe-webgpu --enable-unsafe-swiftshader
+      # --use-angle=swiftshader --use-vulkan=swiftshader): the browser started,
+      # `navigator.gpu` returned an adapter and WebGL2 came up on the SwiftShader
+      # driver, with no chromium-1223 directory on disk. Measured payload:
+      # 290.9 MiB -> 115.5 MiB downloaded, 641 MB -> 265 MB on disk. A HEADED
+      # run still needs full Chromium, which is why this flag is on the CI
+      # command and not in a config file.
+      #
+      # `--with-deps` stays: it is what installs the font packages
+      # (fonts-ipafont-gothic, fonts-freefont-ttf, fonts-unifont, fonts-wqy-zenhei,
+      # xfonts-*) that the glyph-bearing gates rasterise against. It costs ~9 s on
+      # a warm runner and is NOT covered by the cache above, which holds only
+      # ~/.cache/ms-playwright.
       - if: needs.changes.outputs.render == 'true'
-        run: ./playground/node_modules/.bin/playwright install chromium chromium-headless-shell --with-deps
+        run: ./playground/node_modules/.bin/playwright install chromium --only-shell --with-deps
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
@@ -758,6 +966,14 @@ jobs:
         # lowering vs the CPU-f64 oracle — the ONE semantic (not just compile) gate over
         # the storage data-texture fetch, promoted when the lowering became default-on
         # (#1647; 3 consecutive clean local SwiftShader runs before registration).
+        # _webgl2-compute-recipe: the SAME lowering seen from OUTSIDE the rhi packages —
+        # the host recipe published on /shader-dsl/webgl2-compute, held verbatim and driven
+        # against the CPU-f64 oracle with hand GL. _compute-parity proves the emitted shader
+        # is right; this proves the DOCUMENTED way to dispatch it is, for a consumer who
+        # vendors @xgis/shader-dsl alone and so cannot reuse dispatchComputeKernelWebGl2.
+        # Distinct failure: a page that prints an R32UI/data-texture contract nobody
+        # executes drifts silently from the emit it describes. Local only, no egress, ~6 s
+        # (3 consecutive clean local SwiftShader runs before registration, per _compute-parity).
         # _compute-path-continent-match: the compute PAINT arm's visual parity —
         # ?compute=1 vs ?compute=0 on six match()-bearing fixtures. It is not
         # gate-NAMED, so the dark-gate ratchet in e2e-specs-load.test.ts never
@@ -908,12 +1124,53 @@ jobs:
         # up" from a two-rAF median whose 60 Hz floor is numerically its own 33.4 ms bar
         # (#1433 option 2, still open, for whoever owns #1393 to decide the right signal).
         run: |
-          # The real-signal batch FIRST: the step shell is `bash -e`, so a flake in the
-          # wall-clock pair must not abort the compile/parity/pixel gates before they
-          # have reported. Quiet-machine ordering is unaffected — each invocation is its
-          # own process either way.
-          ./node_modules/.bin/playwright test _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts
-          ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts _epsg5179-reprojection.spec.ts
+          # ── SHARDED (#1899) ─────────────────────────────────────────────────────────────────
+          # `--shard=k/N` partitions the EXPLICIT list below, not the whole testDir:
+          # Playwright applies file filters first, then splits the surviving tests by
+          # COUNT. So the registered spec list is still the population `e2e-specs-
+          # load.test.ts` reads, and adding a spec to it still runs it.
+          #
+          # The guard under the run is not decoration. MEASURED: a shard that matches
+          # ZERO tests exits **0** and prints nothing at all — no summary, no "Running"
+          # line — which is the vacuous-green shape of #996 with a silent tell. So the
+          # step demands positive evidence that work happened, and `|| rc=$?` keeps the
+          # real exit code from being laundered by the guard that follows it (§12: a
+          # diagnostic appended after a verification command becomes the exit code).
+          set -o pipefail
+          rc=0
+          ./node_modules/.bin/playwright test --shard=${{ matrix.shard }}/4 \
+            _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _label-pitch-alignment-gate.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _webgl2-compute-recipe.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
+          if ! grep -qE 'Running [1-9][0-9]* test' "$RUNNER_TEMP/shard.log"; then
+            echo "::error::render-shard ${{ matrix.shard }}/4 executed NO tests. A shard that matches nothing exits 0 SILENTLY (measured), so this is a broken shard split or a broken spec list — not a pass."
+            exit 1
+          fi
+          # A test that fails and then passes on retry exits 0 (`retries: 2` in CI), so the
+          # check concludes `success` — and the check-run API carries `output.summary` and
+          # `output.text` as EMPTY STRINGS, so there is no field the flake could appear in.
+          # Two went unrecorded on 2026-08-20 and surfaced only because a log was being read
+          # for an unrelated reason; one of them was a spec whose flake had just been "fixed"
+          # (#1897), which is the case where silence costs most. This lifts Playwright's own
+          # `N flaky` accounting into an annotation + the job summary. It REPORTS, it does not
+          # gate: the retry policy is deliberate (see playwright.config.ts) and is not the bug.
+          # Scope: this sharded batch only — the wall-clock and stability steps below run
+          # their own invocations and are NOT covered.
+          bun ../scripts/flaky-report.ts "$RUNNER_TEMP/shard.log" "render-shard ${{ matrix.shard }}/4"
+          exit "$rc"
+
+      # The wall-clock pair and the stability gate are NOT sharded: three specs and one
+      # spec respectively, so a split would cost four setups to save seconds. They run
+      # on shard 1 only — running them in every shard would quadruple their flake
+      # exposure for no coverage. Kept as their own step so the `bash -e` ordering the
+      # note above relies on still holds: a failure here cannot pre-empt the sharded
+      # batch, which has already reported.
+      - name: Wall-clock gates (shard 1 only) — see the #1433 split note above
+        if: needs.changes.outputs.render == 'true' && matrix.shard == 1
+        working-directory: playground
+        env:
+          XGIS_SOFTWARE_GPU: '1'
+          HEADED: '0'
+          WORKERS: '1'
+        run: ./node_modules/.bin/playwright test --workers=1 _adaptive-quality-ladder-gate.spec.ts _shader-dsl-mouse-interaction.spec.ts _epsg5179-reprojection.spec.ts
 
       # First stability/leak gate (#1349). Census of the 47 unregistered stability/perf specs
       # under playground/e2e found 8 local (no network egress), 2 mixed, and 37 network-blocked
@@ -925,10 +1182,54 @@ jobs:
       # and stay local / pre-push for now. Runs on the default backend (WebGPU/SwiftShader) —
       # no ?forcegl2.
       - name: Stability gate — translucent-lines buffer-destroy (#1349)
-        if: needs.changes.outputs.render == 'true'
+        if: needs.changes.outputs.render == 'true' && matrix.shard == 1
         working-directory: playground
         env:
           XGIS_SOFTWARE_GPU: '1'
           HEADED: '0'
           WORKERS: '1'
         run: ./node_modules/.bin/playwright test _translucent-lines-buffer-destroy.spec.ts
+
+  # ── The required status context (#1899) ──────────────────────────────────────
+  #
+  # `render-gate` is one of the two contexts branch protection requires, and a
+  # required context is matched BY NAME. Sharding the work renamed it to
+  # `render-shard (1/4)` … `(4/4)`, four names branch protection has never heard of,
+  # so `render-gate` would post nothing and every PR would sit on "Expected —
+  # waiting" forever. That is not hypothetical: the note at the top of this file
+  # records exactly that deadlock trapping the #781 blog PR (#895).
+  #
+  # So the name stays, on a job that costs seconds and does nothing but read the
+  # shards' verdict — the same shape `test-result` uses for the `test` matrix. For a
+  # MATRIX job, `needs.render-shard.result` is already the rollup: `success` only if
+  # every leg succeeded, `failure` if any failed, `skipped` if the whole job was
+  # skipped.
+  #
+  # `if: always()` because the shards are PR-only. On `push: main` they skip, this
+  # job runs, reads `skipped`, and reports green in seconds — preserving the push
+  # opt-out that bounds the post-merge guard's cost, while still posting the context.
+  #
+  # `cancelled` fails, for the reason spelled out at length in `test-result`: passing
+  # on it would let a cancelled run turn a required context green with nothing having
+  # run, and branch protection evaluates the HEAD commit's checks anyway, so a
+  # superseded run's failure never blocks a real merge.
+  render-gate:
+    name: render-gate
+    needs: [render-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          r='${{ needs.render-shard.result }}'
+          case "$r" in
+            success)
+              echo "all render shards passed" ;;
+            skipped)
+              echo "render shards skipped (push event, or the \`changes\` render filter did not fire)" ;;
+            cancelled)
+              echo "::error::render-shard was CANCELLED. Almost always this run was SUPERSEDED by a newer push to the same branch — check whether this run's head is still the PR head before investigating; if it is not, look at the run for the head SHA instead."
+              exit 1 ;;
+            *)
+              echo "::error::render-shard result: $r — open the failing shard's log; with fail-fast disabled the other shards ran to completion, so more than one may have something to say."
+              exit 1 ;;
+          esac

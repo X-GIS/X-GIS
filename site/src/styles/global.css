@@ -281,6 +281,30 @@
 .sd-code .expressive-code pre {
   max-height: 520px;
 }
+
+/* Shipping-plugin variants are emitted and highlighted in the BROWSER (src/lib/
+   ship-runtime.ts) rather than baked into the page. Shiki carries its own per-token colours
+   inline — the same engine, grammar and theme the build-time panel beside it uses, so there
+   is no palette to keep in sync here — and this block only reproduces the FRAME so a toggle
+   does not visibly change the chrome. */
+.sd-hl pre {
+  margin: 0;
+  max-height: 520px;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+}
+.sd-hl code {
+  font-family: 'DM Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.sd-hl .line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .no-scrollbar {
   scrollbar-width: none;
 }
