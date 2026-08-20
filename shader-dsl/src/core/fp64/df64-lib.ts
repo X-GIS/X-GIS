@@ -34,8 +34,11 @@
 //
 // These fns are injected into a module by fp64-lower (never listed by
 // authors); the `df64_` name prefix is reserved (SD0043). Their bodies are
-// ordinary IR, but the emit optimizer must keep the calls OPAQUE — see the
-// `df64_` skip in passes/auto-inline.ts.
+// ordinary IR, but the emit optimizer must keep the calls OPAQUE — fp64-lower
+// stamps `opaque: true` on every helper it injects and both inliners honour it
+// (see FuncDecl.opaque). The rule is deliberately NOT a name test: `mangle`
+// renames this library on purpose, so a name test held or not depending on
+// plugin order (#1926).
 
 import {
   fn,

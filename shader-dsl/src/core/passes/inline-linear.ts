@@ -23,7 +23,8 @@
 //     expression value;
 //   • a call site sits in a `for` init/cond/update — lifting it out would change
 //     how many times it runs;
-//   • df64_* (opacity invariant), entry points, recursive fns — as in autoInline.
+//   • a fn marked `opaque` (the df64 EFT library — see FuncDecl.opaque), entry
+//     points, recursive fns — as in autoInline.
 // Everything else — calls in let/var/assign/return exprs, `if` conditions,
 // `switch` scrutinees, and inside any block body — is lifted within its own
 // block, so conditional execution is preserved.
@@ -150,7 +151,7 @@ function stmtDeepCallsName(s: Stmt, name: string): boolean {
  *  `requireMultiStatement` gates the two passes so single-return goes through
  *  the simpler inlineFn first. */
 function isInlinable(m: ModuleDecl, f: FuncDecl, requireMultiStatement: boolean): boolean {
-  if (isEntry(f) || f.name.startsWith('df64_')) return false
+  if (isEntry(f) || f.opaque === true) return false
   const lb = linearBody(f)
   if (lb === undefined) return false
   if (requireMultiStatement !== lb.prelude.length > 0) return false

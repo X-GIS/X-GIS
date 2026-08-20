@@ -117,6 +117,30 @@ describe('autoInline — cost-driven function inlining (#627)', () => {
     expect(emitModule(autoInline(withRaw))).toContain('fn dbl') // dbl called only in raw -> untouched
   })
 
+  // Cutting this pass's opacity guard reddened NOTHING before this test existed —
+  // autoInline is unwired (not in DEFAULT_PASSES), so the df64 library never
+  // reaches it in production and no other gate exercises the guard. It is still
+  // the shape a maintainer would wire, and it must not learn to flatten an EFT.
+  it('never inlines an `opaque` helper, however cheap it looks (#1926)', () => {
+    // A LEAF return — the single shape autoInline inlines at any call count. If
+    // the guard is dropped, this one goes, which is what makes the arm sharp.
+    const leaf = (name: string) => fn(name, { x: f32T }, f32T, ({ x }, b) => b.ret(x))
+    const plain = leaf('alias_plain')
+    const opaque = Object.assign(leaf('alias_opaque'), { opaque: true })
+    const m = module({
+      funcs: [
+        plain,
+        opaque,
+        fn('caller', { y: f32T }, f32T, ({ y }, b) => {
+          b.ret(plain({ x: y }).add(opaque({ x: y })))
+        }),
+      ],
+    })
+    const wgsl = emitModule(autoInline(m))
+    expect(wgsl).not.toContain('fn alias_plain')
+    expect(wgsl).toContain('fn alias_opaque')
+  })
+
   it('leaves a recursive single-return fn alone', () => {
     const recRef = externFn('rec', { x: f32T }, f32T)
     const m = module({
