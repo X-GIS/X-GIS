@@ -11,28 +11,107 @@
 //    glides a Marker DOM overlay (#1262) along the arc via per-frame
 //    marker.setLngLat() (a screen-space reposition, not a source re-tile).
 // Demos WITHOUT actions must not show the bar.
+//
+// The three `waitForTimeout` calls left in this file are DURATION measurements, not
+// convergence waits, and a #1895-style sweep must not replace them: 700ms of rotation
+// is what makes the bearing delta exceed noise, 500ms of NOT rotating is what proves
+// Stop took effect, and 1500ms of route animation is what moves the marker far enough
+// to distinguish from jitter. Deleting them deletes the interval being measured. Waits
+// for the map to finish drawing go through `settle()` below.
 
 import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
 
 const DIR = '/tmp/claude-0/-home-user-X-GIS/8da4ef15-9f91-58b5-8776-d8104f8ea4eb/scratchpad'
 
-async function boot(page: Page, id: string): Promise<void> {
-  await page.goto(`/demo.html?id=${id}&e2e=1&forcegl2=1`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(
-    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    { timeout: 60_000 },
-  )
-  await pump(page)
+type MapWin = {
+  __xgisReady?: boolean
+  __xgisMap?: {
+    invalidate?: () => void
+    getMissingTileCount?: () => number
+    ctx?: { rhi?: { gl?: WebGL2RenderingContext } }
+  }
 }
 
-async function pump(page: Page): Promise<void> {
-  for (let i = 0; i < 20; i++) {
-    await page.evaluate(() =>
-      (window as unknown as { __xgisMap?: { invalidate?: () => void } }).__xgisMap?.invalidate?.(),
-    )
+async function boot(page: Page, id: string): Promise<void> {
+  await page.goto(`/demo.html?id=${id}&e2e=1&forcegl2=1`, { waitUntil: 'domcontentloaded' })
+  await page.waitForFunction(() => (window as unknown as MapWin).__xgisReady === true, {
+    timeout: 60_000,
+  })
+  // A settled frame is a precondition of every screenshot below, so a boot that
+  // never converges must fail HERE and name itself, not surface as a diff count.
+  const { nonBg } = await settle(page)
+  expect(nonBg, `${id} never drew content before the screenshot`).toBeGreaterThan(0)
+}
+
+/** A content hash of the drawing buffer + a non-background pixel count, read straight
+ *  from GL so only two numbers cross the CDP bridge. Mirrors `_scene-builder-twin`. */
+const readFrame = (page: Page) =>
+  page.evaluate(() => {
+    const gl = (window as unknown as MapWin).__xgisMap?.ctx?.rhi?.gl
+    if (!gl) return { ok: false as const }
+    const W = gl.drawingBufferWidth
+    const H = gl.drawingBufferHeight
+    const buf = new Uint8Array(W * H * 4)
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+    let h = 0x811c9dc5
+    for (let i = 0; i < buf.length; i++) {
+      h ^= buf[i]!
+      h = Math.imul(h, 0x01000193)
+    }
+    let nonBg = 0
+    for (let p = 0; p < W * H; p++) {
+      const i = p * 4
+      if (buf[i] !== 0 || buf[i + 1] !== 0 || buf[i + 2] !== 0) nonBg++
+    }
+    return { ok: true as const, hash: h >>> 0, nonBg }
+  })
+
+/** Pump until the scene converges — no tile still resolving AND three identical frame
+ *  hashes — instead of pumping a fixed 20 times (#1895).
+ *
+ *  The count-based pump this replaces did not wait on the map at all. Measured on this
+ *  page, the same `20 x (invalidate + 80ms)` loop took 3416ms, 3684ms, 3854ms, 4846ms and
+ *  once 11896ms: the `waitForTimeout(80)` is a floor and the CDP round trip supplies the
+ *  rest, so its length tracks bridge latency, not tile loading. It happened to be long
+ *  enough here — five repeats of the slowest flow all reached the final frame before it
+ *  ended — but nothing tied the two together, and a faster bridge shortens the wait
+ *  without shortening the load.
+ *
+ *  BOTH halves of the predicate are load-bearing: `getMissingTileCount() === 0` alone
+ *  goes true while the frame is still being composited, and hash equality alone accepts
+ *  a plateau mid-load. Reachability is checked rather than assumed — an absent accessor
+ *  would make `?? 0` read as "nothing in flight", the vacuous shape #1444 warns about,
+ *  and cutting the accessor confirms the assertion below names exactly that half.
+ *
+ *  The `invalidate()` call is a driver of last resort, and measured NOT load-bearing on
+ *  this page: cutting it leaves the gate green, because the demo's own rAF loop already
+ *  advances frames. It stays for a runner whose background rAF is throttled — but do not
+ *  read it as a mechanism this gate depends on. */
+async function settle(page: Page, timeoutMs = 60_000): Promise<{ hash: number; nonBg: number }> {
+  const hasCounter = await page.evaluate(
+    () => typeof (window as unknown as MapWin).__xgisMap?.getMissingTileCount === 'function',
+  )
+  expect(hasCounter, 'getMissingTileCount() is unreachable — settle() would be vacuous').toBe(true)
+
+  const deadline = Date.now() + timeoutMs
+  let prev = await readFrame(page)
+  let stable = 0
+  while (Date.now() < deadline) {
+    await page.evaluate(() => (window as unknown as MapWin).__xgisMap?.invalidate?.())
     await page.waitForTimeout(80)
+    const cur = await readFrame(page)
+    const inFlight = await page.evaluate(() =>
+      (window as unknown as MapWin).__xgisMap!.getMissingTileCount!(),
+    )
+    if (inFlight === 0 && cur.ok && prev.ok && cur.hash === prev.hash) {
+      if (++stable >= 2) return { hash: cur.hash, nonBg: cur.nonBg }
+    } else {
+      stable = 0
+    }
+    prev = cur
   }
+  return prev.ok ? { hash: prev.hash, nonBg: prev.nonBg } : { hash: 0, nonBg: 0 }
 }
 
 const shoot = async (page: Page, path: string): Promise<PNG> => {
@@ -81,7 +160,7 @@ test('color_switcher: "Rose fill" recolours the live layer', async ({ page }) =>
   const [, , bBlue] = dominant(before)
 
   await page.getByRole('button', { name: 'Rose fill' }).click()
-  await pump(page)
+  await settle(page)
   const after = await shoot(page, `${DIR}/actions-color-after.png`)
   const [aRed, , aBlue] = dominant(after)
 
@@ -103,7 +182,7 @@ test('fly_to: "Seoul" moves the camera; actionless demos hide the bar', async ({
   const before = await shoot(page, `${DIR}/actions-fly-before.png`)
 
   await page.getByRole('button', { name: 'Seoul' }).click()
-  await pump(page)
+  await settle(page)
   const after = await shoot(page, `${DIR}/actions-fly-after.png`)
 
   const d = diff(before, after)
@@ -141,7 +220,7 @@ test('camera_around_point: Start spins the bearing, Stop halts it', async ({ pag
   const afterStop = await getBearing(page)
   expect(Math.abs(afterStop - atStop)).toBeLessThan(0.01)
 
-  await pump(page)
+  await settle(page)
   const frameAfter = await shoot(page, `${DIR}/actions-rotate-after.png`)
   const d = diff(frameBefore, frameAfter)
   console.log(`[demo-actions] rotate bearing ${before}→${afterStop} framediff=${d}`)
