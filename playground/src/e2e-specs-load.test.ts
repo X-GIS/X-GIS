@@ -574,8 +574,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   // ---- PENDING REGISTRATION (#1349) -- deterministic, local-fixture, CI-viable per its header and scene demos, simply never added to a workflow leg. Registering these is #1349's follow-up work, not this audit's (see CLAUDE.md: do not edit test.yml here). (62) ----
   '_dashed-corner.spec.ts':
     'measured 2026-08-18 (#1349): sole test is test.fixme (headless pixel-scanning doubt) -- zero runnable tests, not registrable; re-check the fixme premise per CLAUDE.md section 5 before promoting',
-  '_fixture-picking.spec.ts':
-    'red on main, adjudicated DEFECT #1836 (2026-08-18): boot bounds-fit reads canvas.width=300 pre-first-frame and under-zooms (z1.08 vs 2.46) -- picking itself verified correct to the pixel; register after #1836',
   '_geojson-tile-dropout.spec.ts':
     'measured 2026-08-18 (#1349): sole test is an unconditional test.skip -- zero runnable tests, not registrable until the skip is resolved',
   '_globe-inertia-dir.spec.ts':
@@ -585,11 +583,7 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   '_text-overlay.spec.ts':
     'batch-flaky (2026-08-18, #1349): green in a 56-spec parallel batch, then full-canvas near-black (0/1024000 white px) at position 82/85 of a serial WORKERS=1 batch -- whole-scene draw failure under long-batch contention; isolate before registering',
   '_import-mapbox-inline-button.spec.ts':
-    'red on main, adjudicated DEFECT #1837 (2026-08-18): fill 0.00% -- import-collected inline GeoJSON rides the legacy route whose empty slice key never matches the VTR targetName lookup; register after #1837',
-  '_inline-geojson-import.spec.ts':
-    'red on main, adjudicated DEFECT #1837 (2026-08-18): fill 0.00%, bg 100% -- same legacy-slice mismatch, second witness; register after #1837',
-  '_korea-fill-regression.spec.ts':
-    'red on main, adjudicated DEFECT #1837 (2026-08-18): fillFraction 0.00% -- same legacy-slice mismatch, third witness (the in-spec renderedDraws dedup hypothesis was refuted at vector-tile-renderer.ts:4441); register after #1837',
+    'red on main, adjudicated DEFECT #1845 (2026-08-19): the import BUTTON path never reaches setSourceData at all (probe-verified: a warn planted at the top of SourceManager.setSourceData prints nothing during this spec), so it is unrelated to the #1837 routing fix that greened its two sibling witnesses; register after #1845',
   '_line-proof.spec.ts':
     'red on main, adjudicated STALE HARNESS (2026-08-18): hand-packs the pre-#1539 272B TileUniforms layout, 368B since 6395120f -- GL_INVALID_OPERATION at draw; repack the harness, then register',
   '_multiline-labels.spec.ts':
