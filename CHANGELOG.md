@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: af778722e444d21f293711f95189c49e276c6193
+  Generated from: b4c8bdfea2be90d7a03a7cf540fa55717627e329
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since af778722e444
+    bun scripts/emit-changelog.ts --since b4c8bdfea2be
 -->
 
 # Changelog
@@ -88,6 +88,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
+- **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
 - **map/sources:** importer-seeded inline GeoJSON defaults onto the VirtualPMTiles route (#1837) ([#1846](https://github.com/X-GIS/X-GIS/pull/1846)) `af77872`
 - **map/sources:** boot bounds-fit reads the laid-out width, not the stale canvas buffer (#1836) ([#1844](https://github.com/X-GIS/X-GIS/pull/1844)) `b5b28ab`
 - **shader-dsl:** carry the df64 opacity invariant on the DECL, not on its name (#1926) ([#1927](https://github.com/X-GIS/X-GIS/pull/1927)) `7959f83`
@@ -222,6 +224,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
 - **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`
 - **playground:** invert the dark-spec audit — enumerate known-dark rows (#1817) ([#1829](https://github.com/X-GIS/X-GIS/pull/1829)) `8bc6d8c`
