@@ -1136,6 +1136,17 @@ jobs:
             echo "::error::render-shard ${{ matrix.shard }}/4 executed NO tests. A shard that matches nothing exits 0 SILENTLY (measured), so this is a broken shard split or a broken spec list — not a pass."
             exit 1
           fi
+          # A test that fails and then passes on retry exits 0 (`retries: 2` in CI), so the
+          # check concludes `success` — and the check-run API carries `output.summary` and
+          # `output.text` as EMPTY STRINGS, so there is no field the flake could appear in.
+          # Two went unrecorded on 2026-08-20 and surfaced only because a log was being read
+          # for an unrelated reason; one of them was a spec whose flake had just been "fixed"
+          # (#1897), which is the case where silence costs most. This lifts Playwright's own
+          # `N flaky` accounting into an annotation + the job summary. It REPORTS, it does not
+          # gate: the retry policy is deliberate (see playwright.config.ts) and is not the bug.
+          # Scope: this sharded batch only — the wall-clock and stability steps below run
+          # their own invocations and are NOT covered.
+          bun ../scripts/flaky-report.ts "$RUNNER_TEMP/shard.log" "render-shard ${{ matrix.shard }}/4"
           exit "$rc"
 
       # The wall-clock pair and the stability gate are NOT sharded: three specs and one
