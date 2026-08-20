@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { module, fn, f32, f32T, i32, vec3fT, vec3, normalize, Var } from '../../ir/index.js'
+import {
+  module,
+  fn,
+  f32,
+  f32T,
+  i32,
+  u32,
+  u32T,
+  vec3fT,
+  vec3,
+  arrayLit,
+  normalize,
+  Var,
+} from '../../ir/index.js'
 import { emitModule } from '../../backends/wgsl.js'
 import { compileModule } from '../../oracle.js'
+import { structDecl, storageBuffer } from '../../sot.js'
 import { cseLocal } from './cse-local.js'
 
 // cse-local hoists a subexpr that repeats WITHIN ONE statement and touches a local/var —
@@ -145,5 +159,56 @@ describe('cse-local — control-flow conditions (#1886)', () => {
       ],
     })
     expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = normalize/)
+  })
+})
+
+// ═══ Indexing a BINDING is a memory load (#1886) ═══
+//
+// Same widening as gvn's: `isWorthHoisting` refuses a bare `buf.at(i).field` because it
+// calculates nothing, which is right for a local struct and wrong for a storage buffer,
+// where the index IS the load. Here the two reads share ONE statement, which is this
+// pass's half of the family.
+//
+// The write hazard gvn's sibling block pins has NO analogue here and deliberately gets no
+// test: this pass hoists only within a single statement, and nothing mutates during one
+// statement's expression evaluation (assignments ARE statements) — the header paragraph
+// this file opens with. A read_write arm written here would pass whatever the predicate
+// says, because the two reads would sit in different statements and never be tallied
+// together at all. That is the vacuous shape, not a guard.
+describe('cse-local — indexing a binding (#1886)', () => {
+  const Slot = structDecl('LcSlot', { id: u32T, size: f32T })
+
+  it('collapses two `buf.at(i).field` reads inside one statement', () => {
+    const buf = storageBuffer('lc_buf', Slot, { group: 0, binding: 0, access: 'read' })
+    const m = module({
+      uses: [buf],
+      funcs: [
+        fn('lbi', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', u32(2))
+          b.ret(buf.at(i).size.mul(x).add(buf.at(i).size))
+        }),
+      ],
+    })
+    const wgsl = emitModule(cseLocal(m))
+    const fbody = wgsl.slice(wgsl.indexOf('fn lbi('))
+    const loads = (fbody.match(/lc_buf\[/g) ?? []).length
+    expect(loads, `the buffer should be indexed once, got ${loads}:\n${fbody}`).toBe(1)
+  })
+
+  it('does NOT collapse the same shape on a LOCAL array — only a binding is a load', () => {
+    // The discriminating arm: identical statement, identical `index` op, identical
+    // `refsLocal` outcome — the ONLY difference is that `arr` is not a module binding.
+    // Indexing a function-local array is addressing, not a load; binding it to a temp
+    // would trade one address chain for another and claim a memory win that is not there.
+    const m = module({
+      funcs: [
+        fn('lla', { x: f32T }, f32T, ({ x }, b) => {
+          const i = b.let('i', u32(1))
+          const arr = b.let('arr', arrayLit(f32T, f32(1), f32(2), f32(3)))
+          b.ret(arr.at(i, f32T).mul(x).add(arr.at(i, f32T)))
+        }),
+      ],
+    })
+    expect(emitModule(cseLocal(m))).not.toMatch(/_lc\d+ = arr\[/)
   })
 })

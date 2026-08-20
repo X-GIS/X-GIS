@@ -259,6 +259,64 @@ function targetRoot(e: Expr): string | undefined {
   return undefined
 }
 
+/** Is `e` worth binding to a temp when it repeats?
+ *
+ *  The base rule, shared by `cse`, `cse-local` and `gvn` (it lived as three
+ *  byte-identical copies, each with a comment saying it mirrored the other two —
+ *  exactly the drift §12's second-ratchet entry warns about): only an expression that
+ *  COMPUTES earns a temp. A bare member / swizzle / index navigation is as cheap
+ *  inlined as bound, so binding it would trade one addressing chain for another.
+ *
+ *  `loadRoots` widens that (#1886). "Navigation is free" is true of a local struct and
+ *  FALSE of a resource: `buf[i].field` on a storage or uniform buffer is a MEMORY LOAD,
+ *  and repeating it repeats the load. Pass the module's binding names and an `index`
+ *  rooted at one of them counts as worth hoisting even with no arithmetic around it.
+ *  Callers that omit `loadRoots` keep the old behaviour exactly.
+ *
+ *  Only `index` qualifies, not a bare `member` of a uniform (`layer.offset_m`): a
+ *  scalar uniform field commonly lives in a register, and nothing measured says
+ *  otherwise. The WRITE hazard needs no new machinery here — `collectMutatedRoots`
+ *  below already carries a written `read_write` storage binding into the callers'
+ *  mutation sets, which is what invalidates a hoist across a store.
+ *
+ *  MEASURED on the 87-source baked corpus, before vs after a real build + bake:
+ *  index operations 774 -> 663 (-111), for +322 artifact bytes and 50 new temps. This
+ *  is the first increment in the stack that grows the artifact, and deliberately: it
+ *  trades source bytes for memory traffic. Call sites are unchanged (12023) — the
+ *  wrong metric for this pass, kept only so a regression there would show.
+ *
+ *  Attribution was probed rather than assumed. Instrumenting this branch through the
+ *  real bake reported 7438 accepted candidates over 80 distinct keys, rooted at
+ *  `segments` (4976), `layer` (1932), `shapes`, `band_data`, `shape_segments`,
+ *  `tint_data`, `u`, `feat_data` — every one a module binding, none a local. That
+ *  check exists because the emitted artifact LOOKS otherwise: several new temps read
+ *  `_licm0[_v17]`, a function-local copy. They are minted earlier in the same sweep,
+ *  while the expression is still `layer.patterns[_v17]`; `licm` (which runs after the
+ *  CSE family) then hoists the array and rewrites the base inside the temp. Reading
+ *  the output alone would have accused this predicate of leaking. */
+export function isWorthHoisting(e: Expr, loadRoots?: ReadonlySet<string>): boolean {
+  let worth = false
+  eachExpr(e, (x) => {
+    if (
+      x.op === 'binop' ||
+      x.op === 'unop' ||
+      x.op === 'compare' ||
+      x.op === 'logical' ||
+      x.op === 'call' ||
+      x.op === 'construct' ||
+      x.op === 'select' ||
+      x.op === 'matchExpr'
+    ) {
+      worth = true
+      return
+    }
+    if (loadRoots === undefined || x.op !== 'index') return
+    const root = targetRoot(x.base)
+    if (root !== undefined && loadRoots.has(root)) worth = true
+  })
+  return worth
+}
+
 /** Collect every name MUTATED by an assignment in `body` (the assign-target roots).
  *  A read of a mutated name — including a `read_write` storage binding — is NOT
  *  invariant, so CSE / LICM must exclude any expr that references one (else they
