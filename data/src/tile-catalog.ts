@@ -477,11 +477,17 @@ export class TileCatalog {
   /** Store raw geometry parts for on-demand compilation (GeoJSON sources).
    *  Constructs + attaches a GeoJSONRuntimeBackend on first call;
    *  subsequent calls update its parts (and re-merge meta in case
-   *  bounds / maxZoom changed). */
-  setRawParts(parts: GeometryPart[], maxZoom: number): void {
+   *  bounds / maxZoom changed).
+   *
+   *  `sliceKey` names the slot the backend's results land in — fixed at
+   *  first attach, since the backend serves exactly one source. '' keeps
+   *  the anonymous default slot; the legacy GeoJSON route passes the VTR's
+   *  `computeSliceKey` value so what is stored is what is looked up
+   *  (#1940). */
+  setRawParts(parts: GeometryPart[], maxZoom: number, sliceKey = ''): void {
     let firstAttach = false
     if (!this.geojsonBackend) {
-      this.geojsonBackend = new GeoJSONRuntimeBackend()
+      this.geojsonBackend = new GeoJSONRuntimeBackend(sliceKey)
       firstAttach = true
     }
     this.geojsonBackend.setParts(parts, maxZoom)
@@ -814,6 +820,11 @@ export class TileCatalog {
     level: TileLevel,
     bounds: [number, number, number, number],
     propertyTable: PropertyTable,
+    /** Slot these tiles are stored under — see `setRawParts`. Must match
+     *  the `sliceKey` the same source's runtime backend emits under, or
+     *  the pre-compiled level and the on-demand tiles land in different
+     *  slots (#1940). */
+    sliceKey = '',
   ): void {
     if (!this.index) {
       this.index = {
@@ -857,7 +868,7 @@ export class TileCatalog {
       idx.entryByHash.set(key, entry)
 
       if (isFullCover && tile.vertices.length === 0) {
-        this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices)
+        this.createFullCoverTileData(key, entry, tile.lineVertices, tile.lineIndices, sliceKey)
       } else {
         const polygons: RingPolygon[] | undefined = tile.polygons?.map((p) => ({
           rings: p.rings,
@@ -872,6 +883,7 @@ export class TileCatalog {
           lineIndices: tile.lineIndices,
           pointVertices: tile.pointVertices,
           outlineIndices: tile.outlineIndices, // eslint-disable-line @typescript-eslint/no-deprecated -- ABI passthrough (see SerializedTile)
+          sourceLayer: sliceKey,
           dequant: { scale: tile.dequantScale, half: tile.dequantHalf },
         })
       }

@@ -27,6 +27,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { computeSliceKey, type GeoJSONFeatureCollection } from '@xgis/data'
+import { tileKey, type GeometryPart, type TileLevel } from '@xgis/compiler'
 import * as vtrModule from './render/vector-tile-renderer'
 import type { ShowSourceMaps } from './show-source-maps'
 import { XGISMap } from './map'
@@ -75,7 +76,21 @@ type MapInternals = {
   rawDatasets: Map<string, GeoJSONFeatureCollection>
   showCommands: unknown[]
   _cameraExplicitlyPositioned: boolean
+  vtSources: Map<string, { source: CatalogProbe }>
   rebuildLayers(): void
+}
+
+/** The TileCatalog surface the #1940 assertions read — which slot a tile
+ *  actually landed in, and the on-demand compile that produces the empty
+ *  placeholder. */
+interface CatalogProbe {
+  hasTileData(key: number, sliceLayer?: string): boolean
+  getTileData(
+    key: number,
+    sliceLayer?: string,
+  ): { vertices: Float32Array; indices: Uint32Array } | null
+  resetCompileBudget(frameId?: number): void
+  compileTileOnDemand(key: number): boolean
 }
 
 /** The inline FeatureCollection the `import_mapbox_inline_geojson` fixture carries
@@ -316,10 +331,162 @@ describe('inline route slice-key agreement (#1837)', () => {
     }
   })
 
-  it("the legacy route's default '' slot cannot serve that lookup key", () => {
+  it("a named source's lookup key is never the anonymous '' slot", () => {
     // `TileCatalog.cacheTileData` stores `d.sourceLayer ?? ''` and `getTileData`
-    // returns `slot.get(sourceLayer) ?? null` for any non-empty key — so a named
-    // source on the legacy route is a permanent miss, no matter what it compiled.
+    // returns `slot.get(sourceLayer) ?? null` for any non-empty key — so ANY route
+    // that writes the anonymous slot for a named source is a permanent miss, no
+    // matter what it compiled. #1940 is that miss on the legacy route; the
+    // describe below pins the storage side of the agreement.
     expect(computeSliceKey('annotations', null)).not.toBe('')
+  })
+})
+
+// ── #1940 — the same invariant, on the LEGACY route's own storage ───────────
+//
+// The legacy route compiles in-process instead of asking a worker for slices, so
+// nothing external declares its slice key: the catalog's own two writes ARE the
+// storage authority — the pre-compiled z0 level (`addTileLevel`) and the runtime
+// backend's on-demand tiles (`setRawParts` → `GeoJSONRuntimeBackend.acceptResult`).
+// Both wrote the anonymous '' slot while the VTR asked for
+// `computeSliceKey(sourceLayer || targetName, filter)`, so every legacy-route
+// source drew nothing — `?legacy=1` for URL GeoJSON (measured: styled_world's
+// legacy arm at oceanRatio 0, darkRatio 1) and filtered / procedural inline shows
+// on the DEFAULT route, which the route gate keeps here in every configuration.
+//
+// FAIL-BEFORE (recorded against the unfixed tree, this file's other cases green):
+//   × stores the pre-compiled z0 level under the key the VTR looks up
+//     AssertionError: expected false to be true // Object.is equality
+describe('legacy route slice-key agreement (#1940)', () => {
+  const Z0 = tileKey(0, 0, 0)
+  /** z=6 over the eastern Pacific — inside the backend's zoom range, outside the
+   *  fixture's z=3 grid cell, so `compileSync` takes the empty-placeholder
+   *  branch. */
+  const PACIFIC = tileKey(6, 10, 30)
+
+  /** One z0 tile carrying a single triangle: enough for `addTileLevel` to cache a
+   *  slice under whatever key the route hands it. */
+  function oneTileLevel(): TileLevel {
+    return {
+      zoom: 0,
+      tiles: new Map([
+        [
+          Z0,
+          {
+            z: 0,
+            x: 0,
+            y: 0,
+            tileWest: -180,
+            tileSouth: -85.0511,
+            vertices: new Float32Array(18),
+            dequantScale: 1,
+            dequantHalf: 0,
+            indices: new Uint32Array([0, 1, 2]),
+            lineVertices: new Float32Array(0),
+            lineIndices: new Uint32Array(0),
+            outlineIndices: new Uint32Array(0),
+            outlineVertices: new Float32Array(0),
+            outlineLineIndices: new Uint32Array(0),
+            featureCount: 1,
+          },
+        ],
+      ]),
+    }
+  }
+
+  /** The Seoul box as the worker would hand it back — feeds `setRawParts`, so the
+   *  runtime backend has a grid to miss against. */
+  const seoulPart: GeometryPart = {
+    type: 'polygon',
+    rings: [
+      [
+        [126.5, 37.3],
+        [127.4, 37.3],
+        [127.4, 37.7],
+        [126.5, 37.7],
+        [126.5, 37.3],
+      ],
+    ],
+    featureIndex: 0,
+    minLon: 126.5,
+    minLat: 37.3,
+    maxLon: 127.4,
+    maxLat: 37.7,
+  }
+
+  /** Drive one legacy-route rebuild to completion and hand back the catalog the
+   *  route registered under `vtKey`. */
+  async function runLegacy(vtKey: string, extras: Record<string, unknown>): Promise<CatalogProbe> {
+    installWindow('?legacy=1')
+    const { attach, internals } = makeMap()
+    compileSpy.mockResolvedValue({
+      parts: [seoulPart],
+      tileSet: {
+        levels: [oneTileLevel()],
+        bounds: [126.5, 37.3, 127.4, 37.7],
+        featureCount: 1,
+        propertyTable: { fieldNames: [], fieldTypes: [], values: [] },
+      },
+    })
+    internals.rawDatasets.set('annotations', annotationsFC())
+    internals.showCommands = [show('annotations', extras)]
+
+    internals.rebuildLayers()
+
+    // The route under test IS the legacy one — a virt attach here would make
+    // every assertion below vacuous.
+    expect(attach).toHaveBeenCalledTimes(0)
+    expect(compileSpy).toHaveBeenCalledTimes(1)
+    // Let the compile promise's `.then()` (addTileLevel + setRawParts) settle.
+    await new Promise((r) => setTimeout(r, 0))
+    const catalog = internals.vtSources.get(vtKey)?.source
+    expect(catalog, `no catalog registered under "${vtKey}"`).toBeTruthy()
+    return catalog!
+  }
+
+  it('stores the pre-compiled z0 level under the key the VTR looks up', async () => {
+    const catalog = await runLegacy('annotations', { layerName: 'annotation-fill' })
+    const lookup = computeSliceKey('annotations', null)
+
+    expect(catalog.hasTileData(Z0, lookup), `z0 tile missing from slice "${lookup}"`).toBe(true)
+    // The tile in that slot is the one the compile produced, not a placeholder.
+    expect(catalog.getTileData(Z0, lookup)?.indices.length).toBe(3)
+    // Key-sensitivity: the query distinguishes slots, so the line above carries
+    // information. (`hasTileData(k, '')` cannot serve as this contrast — an empty
+    // sourceLayer is the slice-AGNOSTIC query, tile-catalog.ts:589-593, and
+    // answers `slot.size > 0` for ANY slice.)
+    expect(catalog.hasTileData(Z0, `${lookup}__decoy`)).toBe(false)
+  })
+
+  it("the runtime backend's empty placeholder lands in that same slot", async () => {
+    const catalog = await runLegacy('annotations', { layerName: 'annotation-fill' })
+    const lookup = computeSliceKey('annotations', null)
+
+    catalog.resetCompileBudget()
+    expect(catalog.compileTileOnDemand(PACIFIC), 'backend refused the key').toBe(true)
+
+    // The empty-placeholder contract (tile-decision.ts:228-240) is preserved, not
+    // removed: the placeholder still exists and still carries zero geometry — it
+    // is simply in the slot the VTR asks about, so `hasNonEmptySliceInCatalog`
+    // can see it is empty and let it fall through to drop-empty.
+    expect(catalog.hasTileData(PACIFIC, lookup)).toBe(true)
+    expect(catalog.getTileData(PACIFIC, lookup)?.vertices.length).toBe(0)
+    expect(catalog.getTileData(PACIFIC, lookup)?.indices.length).toBe(0)
+  })
+
+  it('a FILTERED show stores under its filter-hashed key, not its vtKey', async () => {
+    // The decoy: a filtered show's vtKey is `annotations__0` (an ordinal, assigned
+    // by `vectorTileShows.length`), while the VTR looks up
+    // `computeSliceKey('annotations', ast)` = `annotations::<hash>`. Storing under
+    // the vtKey would satisfy the first case above and still render nothing here.
+    const filterExpr = { ast: { kind: 'BooleanLiteral', value: true } }
+    const catalog = await runLegacy('annotations__0', { filterExpr })
+    const lookup = computeSliceKey('annotations', filterExpr.ast)
+
+    expect(lookup).not.toBe('annotations__0')
+    expect(catalog.hasTileData(Z0, lookup), `z0 tile missing from slice "${lookup}"`).toBe(true)
+    expect(catalog.hasTileData(Z0, 'annotations__0')).toBe(false)
+    // ...and not under the UNFILTERED key either: the filter hash is part of the
+    // slot name, exactly as it is part of the VTR's lookup.
+    expect(catalog.hasTileData(Z0, 'annotations')).toBe(false)
   })
 })

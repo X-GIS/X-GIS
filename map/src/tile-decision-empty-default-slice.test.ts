@@ -67,6 +67,18 @@ describe('classifyTile — empty default-slice (single-layer GeoJSON)', () => {
     if (d.kind === 'parent-fallback') expect(d.parentKey).toBe(ancestorKey)
   })
 
+  it("#1940: the placeholder under a NAMED slice drops empty too (legacy route's new key)", () => {
+    // The legacy GeoJSON route no longer writes the anonymous '' slot — it writes
+    // `computeSliceKey(sourceLayer || targetName, filter)`, the string the VTR
+    // looks up. The empty placeholder moves with it, so this branch must reach
+    // the SAME verdict for a named slice: present in catalog, zero geometry,
+    // nothing to fall back to → drop-empty, never queued-with-fallback (which
+    // would queue an upload of a tile that has no triangles, forever).
+    const d = classifyTile(emptyDefaultSliceInputs({ sliceLayer: 'annotations' }))
+    expect(d.kind).not.toBe('queued-with-fallback')
+    expect(d.kind).toBe('drop-empty-slice')
+  })
+
   it('back-compat: NON-empty default slice still uploads (queued-with-fallback)', () => {
     const ancestorKey = tileKeyParent(visibleKey)
     const d = classifyTile(
