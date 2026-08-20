@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2ae2d69259bf0062c752a252a8f707aaef60c4fa
+  Generated from: a0ef5c9e6e4c589277ea8a053d57504c04ae9a42
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2ae2d69259bf
+    bun scripts/emit-changelog.ts --since a0ef5c9e6e4c
 -->
 
 # Changelog
@@ -164,6 +164,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map/shaders:** minify every shader source this map hands a device ([#1904](https://github.com/X-GIS/X-GIS/pull/1904)) `a0ef5c9`
+- **shader-dsl:** gvn sees `if` conditions and lets a nested block reuse an enclosing temp (#1886) ([#1887](https://github.com/X-GIS/X-GIS/pull/1887)) `5e862cd`
 - **map/graphics:** build the retained drapers on first use ([#1893](https://github.com/X-GIS/X-GIS/pull/1893)) `2ae2d69`
 - **shader-dsl/glsl:** spell the storage fetch as a helper call, not an inline expansion ([#1880](https://github.com/X-GIS/X-GIS/pull/1880)) `36bfb12`
 - **map/baked:** order the artifact `contents` by source length, not by content hash ([#1875](https://github.com/X-GIS/X-GIS/pull/1875)) `a7a615e`
@@ -240,6 +242,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- shard the render gate across 4 runners — 64 min of wall clock to 25 (#1899) ([#1900](https://github.com/X-GIS/X-GIS/pull/1900)) `b83b959`
 - run the test workflow on push to main, so a bypassed merge cannot leave it broken (#1872) ([#1879](https://github.com/X-GIS/X-GIS/pull/1879)) `d32304f`
 
 #### chore
