@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 0b39a6cd1bd112df0f0c1d69e924ed51f91ed8c8
+  Generated from: ef415b6458868742a74eb3474f3b4f7a6d4697c8
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 0b39a6cd1bd1
+    bun scripts/emit-changelog.ts --since ef415b645886
 -->
 
 # Changelog
@@ -260,6 +260,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### chore
 
+- **process:** verify what a session inherited instead of trusting it ([#1934](https://github.com/X-GIS/X-GIS/pull/1934)) `ef415b6`
 - **map:** drop the dead publish-manifest fields that contradict the source layout (#1685) ([#1772](https://github.com/X-GIS/X-GIS/pull/1772)) `4123b8b`
 - **design-sync:** import @xgis/site UI kit into claude.ai/design ([#1754](https://github.com/X-GIS/X-GIS/pull/1754)) `36fd72c`
 
