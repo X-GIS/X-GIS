@@ -77,6 +77,7 @@ export default tseslint.config(
             'shader-dsl/src/*.test.ts',
             'shader-dsl/src/core/*.test.ts',
             'shader-dsl/src/core/backends/*.test.ts',
+            'shader-dsl/src/core/compute/*.test.ts',
             'shader-dsl/src/core/diagnostics/*.test.ts',
             'shader-dsl/src/core/fp64/*.test.ts',
             'shader-dsl/src/core/ir/*.test.ts',
