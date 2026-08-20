@@ -127,7 +127,14 @@ if (import.meta.main) {
     console.error('usage: bun scripts/flaky-report.ts <playwright-log> [label]')
     process.exit(2)
   }
-  const { annotations, summary } = renderReport(parseFlaky(readFileSync(path, 'utf8')), label)
+  const parsed = parseFlaky(readFileSync(path, 'utf8'))
+  const { annotations, summary } = renderReport(parsed, label)
+  // Always print ONE line, even (especially) when there is nothing to report. A reporter
+  // that is silent on a clean run is indistinguishable from one that never ran: verifying
+  // this step executed took a `bash -e` contradiction argument rather than a look at the
+  // log, and an argument stops holding the moment someone appends `|| true`. A PR about
+  // making things visible should not need inference to prove its own wiring fired.
+  console.log(`flaky-report: ${parsed.count} flaky in ${label}`)
   for (const a of annotations) console.log(a)
   const out = process.env.GITHUB_STEP_SUMMARY
   if (summary !== '' && out !== undefined) appendFileSync(out, summary + '\n')

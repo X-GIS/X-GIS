@@ -13,6 +13,11 @@
 // and nothing else.
 
 import { describe, it, expect } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseFlaky, renderReport } from './flaky-report.js'
 
 // run 32357088141, render-shard (1/4), PR #1927 — `_globe-dateline-wired-gate` failed
@@ -152,5 +157,39 @@ describe('renderReport — surfaces, does not gate', () => {
       annotations: [],
       summary: '',
     })
+  })
+})
+
+// The units above all passed while the CLI was BROKEN — it read a real 88 KB log and
+// reported zero flakes, because the fixtures were the wrong shape (#1924, and CLAUDE.md
+// §12's "every test passed offset zero"). So exercise the binary the workflow actually
+// invokes: real argv, real file read, real stdout.
+describe('the CLI the workflow invokes', () => {
+  const run = (body: string, label: string): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'flaky-'))
+    const log = join(dir, 'shard.log')
+    writeFileSync(log, body)
+    const script = fileURLToPath(new URL('./flaky-report.ts', import.meta.url))
+    return execFileSync('bun', [script, log, label], { encoding: 'utf8' })
+  }
+
+  it('prints one marker line on a clean run, and nothing else', () => {
+    expect(run(CLEAN_SHARD, 'render-shard 2/4').trim()).toBe(
+      'flaky-report: 0 flaky in render-shard 2/4',
+    )
+  })
+
+  it('prints the marker AND the annotation when a flake is present', () => {
+    const out = run(DATELINE_FLAKE, 'render-shard 1/4')
+    expect(out).toContain('flaky-report: 1 flaky in render-shard 1/4')
+    expect(out).toContain('::warning title=Flaky test (render-shard 1/4)::')
+  })
+
+  // A marker that appears even when the parse silently finds nothing is what makes a
+  // broken reporter distinguishable from a clean run.
+  it('still marks its own execution on a log it cannot parse at all', () => {
+    expect(run('not a playwright log\nat all\n', 'render-shard 3/4').trim()).toBe(
+      'flaky-report: 0 flaky in render-shard 3/4',
+    )
   })
 })
