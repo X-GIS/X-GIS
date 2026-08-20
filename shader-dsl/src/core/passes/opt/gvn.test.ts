@@ -4,6 +4,7 @@ import {
   fn,
   f32,
   f32T,
+  i32,
   vec3,
   normalize,
   Var,
@@ -130,5 +131,200 @@ describe('gvn — cross-statement value numbering', () => {
       funcs: [{ ...base.funcs[0]!, body: [{ s: 'raw', wgsl: 'return x * 2.0;' }] }],
     }
     expect(gvTempCount(gvn(withRaw))).toBe(0) // untouched
+  })
+})
+
+// ═══ Control-flow CONDITIONS (#1886) ═══
+//
+// `valueExprs` used to return [] for every control-flow statement, so an `if`
+// condition was never tallied and never rewritten — "handled by recursion" was true
+// of the BODIES and false of the CONDITIONS.
+//
+// Measured effect on the 87-source baked corpus, before vs after a real build + bake:
+// raw call sites 12239 -> 12233, i.e. SIX. This pass earns its place as the
+// prerequisite for cross-block dominance, not on that number.
+//
+// Only the FIRST arm's condition is unconditionally evaluated, which is what makes
+// binding it to a `let` before the statement free. The two exclusions below are not
+// hypothetical caution — they are the cases that would make this unsound, and each
+// has its own arm here.
+describe('gvn — control-flow conditions (#1886)', () => {
+  it('numbers a repeat shared between an `if` condition and a later statement', () => {
+    // normalize(v) is evaluated by the `if` condition on every path, then again by
+    // `q` in the same block. Before #1886 gvn saw only ONE occurrence (the `q` one)
+    // and did nothing.
+    const m = module({
+      funcs: [
+        fn('c', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x, x))
+          const r = Var(f32(0))
+          b.if(normalize(v).x.gt(0.5), () => {
+            r.assign(f32(1))
+          })
+          const q = b.let('q', normalize(v).y)
+          b.ret(r.add(q))
+        }),
+      ],
+    })
+    const out = gvn(m)
+    expect(gvTempCount(out)).toBeGreaterThanOrEqual(1)
+    const wgsl = emitModule(out)
+    const fbody = wgsl.slice(wgsl.indexOf('fn c('))
+    const calls = (fbody.match(/normalize\(/g) ?? []).length
+    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1)
+    oracleStable(m, 'c', [1, 2, -3, 0.25])
+  })
+
+  it('does NOT number from an `else if` condition — the arm before it guards it', () => {
+    // Hoisting normalize(v) to before the `if` would evaluate it on the x > 0 path,
+    // where the authored code never does. Same rule that already excludes a `&&`/`||`
+    // RHS and a `select` branch.
+    const m = module({
+      funcs: [
+        fn('e', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x, x))
+          const r = Var(f32(0))
+          b.if(x.gt(0), () => {
+            r.assign(f32(1))
+          }).elif(normalize(v).x.gt(0.5), () => {
+            r.assign(f32(2))
+          })
+          const q = b.let('q', normalize(v).y)
+          b.ret(r.add(q))
+        }),
+      ],
+    })
+    expect(gvTempCount(gvn(m))).toBe(0)
+    oracleStable(m, 'e', [1, -2, 0.5])
+  })
+
+  it('does NOT number from a `for` condition — it is re-evaluated per iteration', () => {
+    // A loop condition runs once per iteration; lifting one out is loop-invariance,
+    // which is licm's job and needs an invariance proof gvn does not have.
+    //
+    // The repeat sits on the LEFT of the `&&`, deliberately. On the RIGHT it would be
+    // excluded by the short-circuit guard whatever `valueExprs` returns, and this arm
+    // would then pass with `for` conditions tallied — i.e. prove nothing. It is the
+    // left operand that `tally` treats as unconditional, so the only thing keeping
+    // this green is `for` being absent from `valueExprs`. (`normalize(vec3(x,x,x)).x`
+    // is ±0.577, so the left operand is always true and `i < 2` still terminates.)
+    const m = module({
+      funcs: [
+        fn('l', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x, x))
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) =>
+              normalize(v)
+                .x.gt(-2)
+                .and(i.lt(i32(2))),
+            (cb) => {
+              cb.addAssign(acc, f32(1))
+            },
+          )
+          const q = b.let('q', normalize(v).y)
+          b.ret(acc.add(q))
+        }),
+      ],
+    })
+    expect(gvTempCount(gvn(m))).toBe(0)
+    oracleStable(m, 'l', [1, -2, 0.5])
+  })
+})
+
+// ═══ Cross-block reuse: an inner block may read an enclosing block's temp (#1886) ═══
+//
+// gvn numbered each block in isolation, so a value the OUTER block had already bound
+// to a temp was recomputed from scratch inside a nested block. That costs nothing to
+// remove — the outer binding is evaluated on every path that reaches the inner block,
+// so replacing the inner recompute with the temp adds no work anywhere.
+//
+// Measured on the 87-source baked corpus: 144 of the 241 remaining repeats are this
+// shape, and 84 of those need nothing but the env being passed down (the outer block
+// already mints a temp). No group in the corpus has an occurrence inside a loop body,
+// so the back-edge guard below is free here — it is in the code for correctness, not
+// for a measured case.
+describe('gvn — cross-block reuse (#1886)', () => {
+  it('reuses an enclosing block’s temp inside a nested `if` body', () => {
+    const m = module({
+      funcs: [
+        fn('d', { x: f32T }, f32T, ({ x }, b) => {
+          const v = b.let('v', vec3(x, x, x))
+          const p = b.let('p', normalize(v).x) // outer occurrence 1
+          const q = b.let('q', normalize(v).y) // outer occurrence 2 -> mints the temp
+          const r = Var(f32(0))
+          b.if(x.gt(0), () => {
+            r.assign(normalize(v).z) // inner: must read the temp, not recompute
+          })
+          b.ret(p.add(q).add(r))
+        }),
+      ],
+    })
+    const out = gvn(m)
+    const wgsl = emitModule(out)
+    const fbody = wgsl.slice(wgsl.indexOf('fn d('))
+    const calls = (fbody.match(/normalize\(/g) ?? []).length
+    expect(calls, `normalize should emit once after gvn, got ${calls}:\n${fbody}`).toBe(1)
+    oracleStable(m, 'd', [1, 2, -3, 0.25])
+  })
+
+  it('does NOT reuse it past a statement that mutates a root the expr reads', () => {
+    // The temp is bound from the pre-mutation `v`; inside the `if`, `normalize(v)` is a
+    // DIFFERENT value. Reusing the temp there would be wrong, not merely wasteful — so
+    // this arm is the one that fails if the invalidation filter is severed.
+    const m = module({
+      funcs: [
+        fn('dm', { x: f32T }, f32T, ({ x }, b) => {
+          const v = Var(vec3(x, x, x))
+          const p = b.let('p', normalize(v).x)
+          const q = b.let('q', normalize(v).y) // mints on the pre-mutation v
+          v.assign(v.add(vec3(1, 1, 1))) // …then v changes
+          const r = Var(f32(0))
+          b.if(x.gt(0), () => {
+            r.assign(normalize(v).z) // post-mutation value — must recompute
+          })
+          b.ret(p.add(q).add(r))
+        }),
+      ],
+    })
+    const out = gvn(m)
+    const wgsl = emitModule(out)
+    const fbody = wgsl.slice(wgsl.indexOf('fn dm('))
+    const calls = (fbody.match(/normalize\(/g) ?? []).length
+    expect(calls, `the post-mutation normalize must survive, got ${calls}:\n${fbody}`).toBe(2)
+    oracleStable(m, 'dm', [1, 2, -3, 0.25])
+  })
+
+  it('does NOT reuse it inside a loop whose body mutates a root the expr reads', () => {
+    // The back edge is what makes this different from the `if` above: iteration 2 sees
+    // the mutated `v`, so a temp bound before the loop is stale from the second pass on.
+    const m = module({
+      funcs: [
+        fn('dl', { x: f32T }, f32T, ({ x }, b) => {
+          const v = Var(vec3(x, x, x))
+          const p = b.let('p', normalize(v).x)
+          const q = b.let('q', normalize(v).y) // mints before the loop
+          const acc = b.var('acc', f32T, f32(0))
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(2)),
+            (cb) => {
+              cb.addAssign(acc, normalize(v).z) // stale after the mutation below
+              v.assign(v.add(vec3(1, 1, 1)))
+            },
+          )
+          b.ret(p.add(q).add(acc))
+        }),
+      ],
+    })
+    const out = gvn(m)
+    const wgsl = emitModule(out)
+    const fbody = wgsl.slice(wgsl.indexOf('fn dl('))
+    const calls = (fbody.match(/normalize\(/g) ?? []).length
+    expect(calls, `the in-loop normalize must survive, got ${calls}:\n${fbody}`).toBe(2)
+    oracleStable(m, 'dl', [1, 2, -3, 0.25])
   })
 })

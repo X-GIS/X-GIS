@@ -34,14 +34,14 @@ export const BAKED_GLSL_LAZY: BakedArtifact = {
       '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 uv;flat in float weight;layout(location=0)out vec4 _ret;void main(){_ret=vec4((max((exp((((uv.x*uv.x)+(uv.y*uv.y))*-1.5))-.22313016),0.)*weight),0.,0.,1.);}\n',
     '1316e64cebe3eb66':
       '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;uniform sampler2D atlas_tex;in vec2 uv;in vec4 tint;flat in float cos_c;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}vec4 _cse1=texture(atlas_tex,uv);vec4 _cse0=vec4((_cse1.rgb*tint.rgb),(_cse1.w*tint.w));if((_cse0.w<.004)){discard;}_ret=_cse0;}\n',
+    daf835e4fabd0af6:
+      '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 loc;flat in vec4 tint;flat in float alpha;flat in float cos_c;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}float _cse0=length(loc);float _v0=(fwidth(_cse0)*1.5);float _v1=(1.-smoothstep((1.-_v0),(1.+_v0),_cse0));vec4 _gv0=vec4(tint.xyz,((tint.w*_v1)*alpha));if((_gv0.w<.004)){discard;}_ret=_gv0;}\n',
     '4cd2fe94a14e10fe':
       '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D density_tex;uniform sampler2D ramp_tex;layout(std140)uniform ComposeParams{vec4 params;}u;float load_density(vec2 uv){uvec2 _cse1=uvec2(textureSize(density_tex,0));vec2 _cse0=vec2(float(_cse1.x),float(_cse1.y));return texelFetch(density_tex,ivec2(int((uv.x*_cse0.x)),int((uv.y*_cse0.y))),int(0u)).x;}in vec2 uv;layout(location=0)out vec4 _ret;void main(){vec4 _cse0=texture(ramp_tex,vec2(clamp((load_density(uv)*u.params.x),0.,1.),.5));_ret=vec4(_cse0.rgb,(_cse0.w*u.params.y));}\n',
-    a8f8453df095a41f:
-      '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 loc;flat in vec4 tint;flat in float alpha;flat in float cos_c;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}float _cse0=length(loc);float _v0=(fwidth(_cse0)*1.5);float _v1=(1.-smoothstep((1.-_v0),(1.+_v0),_cse0));if((vec4(tint.xyz,((tint.w*_v1)*alpha)).w<.004)){discard;}_ret=vec4(tint.xyz,((tint.w*_v1)*alpha));}\n',
+    af2834b14cdbdfe7:
+      '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 loc;flat in vec4 fill;flat in vec4 stroke;flat in float strokeW;flat in float cos_c;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}float _cse0=length(loc);float _v0=(fwidth(_cse0)*1.5);float _gv0=(1.-smoothstep((1.-_v0),(1.+_v0),_cse0));float _cse1=(1.-strokeW);float _v2=(smoothstep((_cse1-_v0),(_cse1+_v0),_cse0)*_gv0);vec4 _cse2=vec4(stroke.xyz,stroke.w);vec4 _gv1=mix(vec4(fill.xyz,(fill.w*_gv0)),_cse2,_v2);if((_gv1.w<.004)){discard;}_ret=_gv1;}\n',
     '1508d396e1fb9fe0':
       '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 loc;in vec4 tint;flat in float cos_c;flat in float stroke_units;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}float _cse2=max((abs(loc.y)-((loc.x<.6)?.09:(max((1.-loc.x),0.)*.65))),max((-loc.x),(loc.x-1.)));float _cse3=(((fwidth(loc.x)+fwidth(loc.y))*.7)+1e-5);float _cse1=clamp((.5-((_cse2-stroke_units)/_cse3)),0.,1.);vec4 _cse0=vec4(mix(tint.xyz,vec3(0.,0.,0.),max((_cse1-clamp((.5-(_cse2/_cse3)),0.,1.)),0.)),(tint.w*_cse1));if((_cse0.w<.004)){discard;}_ret=_cse0;}\n',
-    '5a3e232a91c544a4':
-      '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 loc;flat in vec4 fill;flat in vec4 stroke;flat in float strokeW;flat in float cos_c;layout(location=0)out vec4 _ret;void main(){if((cos_c<0.)){discard;}float _cse0=length(loc);float _v0=(fwidth(_cse0)*1.5);float _gv0=(1.-smoothstep((1.-_v0),(1.+_v0),_cse0));float _cse1=(1.-strokeW);float _v2=(smoothstep((_cse1-_v0),(_cse1+_v0),_cse0)*_gv0);vec4 _cse2=vec4(stroke.xyz,stroke.w);if((mix(vec4(fill.xyz,(fill.w*_gv0)),_cse2,_v2).w<.004)){discard;}_ret=mix(vec4(fill.xyz,(fill.w*_gv0)),_cse2,_v2);}\n',
     '662869383c10ac22':
       '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D prev_tex;uniform sampler2D u_tex;uniform sampler2D v_tex;layout(std140)uniform AdvectParams{vec4 step;vec4 phase;}u;float flow_hash(vec2 p,float phase){vec3 _v0=fract((vec3(p.x,p.y,(p.x+phase))*.1031));float _v1=(((_v0.x*(_v0.y+33.33))+(_v0.y*(_v0.z+33.33)))+(_v0.z*(_v0.x+33.33)));vec3 _v2=(_v0+vec3(_v1,_v1,_v1));return fract(((_v2.x+_v2.y)*_v2.z));}in vec2 uv;layout(location=0)out vec4 _ret;void main(){float _v0=texture(u_tex,uv).x;float _v1=texture(v_tex,uv).x;vec2 _v2=vec2((uv.x-(_v0*u.step.x)),(uv.y+(_v1*u.step.y)));vec2 _v3=vec2(clamp(_v2.x,0.,1.),clamp(_v2.y,0.,1.));float _v4=(texture(prev_tex,_v3).x*u.step.z);float _v5=((_v4*(1.-u.step.w))+(flow_hash((uv*320.),u.phase.x)*u.step.w));_ret=vec4(_v5,_v5,_v5,1.);}\n',
     d5d6a546d7738968:
@@ -64,7 +64,7 @@ export const BAKED_GLSL_LAZY: BakedArtifact = {
     'glsl/arrow-retained-advected/vertex': '7db4a089634d73f3',
     'glsl/arrow-retained/fragment': '1508d396e1fb9fe0',
     'glsl/arrow-retained/vertex': '50285847ee41adf9',
-    'glsl/circle-retained/fragment': '5a3e232a91c544a4',
+    'glsl/circle-retained/fragment': 'af2834b14cdbdfe7',
     'glsl/circle-retained/vertex': 'de7628225ff5a8d8',
     'glsl/flow-advect/fragment': '662869383c10ac22',
     'glsl/flow-advect/vertex': 'e164a15ca68f662e',
@@ -78,7 +78,7 @@ export const BAKED_GLSL_LAZY: BakedArtifact = {
     'glsl/icon-retained/vertex': '4e4dbaa1e53e29d3',
     'glsl/line-composite/fragment': '4cb8916175593f17',
     'glsl/line-composite/vertex': '491997beb26ee97c',
-    'glsl/particle-retained/fragment': 'a8f8453df095a41f',
+    'glsl/particle-retained/fragment': 'daf835e4fabd0af6',
     'glsl/particle-retained/vertex': '817b689d9ac9d05f',
     'glsl/scene-upscale/fragment': 'c5490f59a6e6feeb',
     'glsl/scene-upscale/vertex': '491997beb26ee97c',
