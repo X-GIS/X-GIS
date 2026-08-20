@@ -133,8 +133,13 @@ interface CompiledArrowBatch {
 
 export class CompiledArrowStore {
   private rhi: RhiDevice | null = null
-  private draper: RetainedArrowDraper | null = null
-  private advectedDraper: RetainedArrowAdvectedDraper | null = null
+  // Draper THUNKS, not drapers (#1888). The manager builds each retained draper on first use
+  // so an unused family stays out of the boot artifact; the store's own contract is unchanged —
+  // from `attach` onward a thunk is present, which is the "a draper is available" property the
+  // paired-arrival note on `attach` exists to protect. Resolved only inside `add` / `draw`, the
+  // two paths that run when there is actually a compiled arrow to serve.
+  private draper: (() => RetainedArrowDraper | null) | null = null
+  private advectedDraper: (() => RetainedArrowAdvectedDraper | null) | null = null
   private arrowSource: AdvectedArrowSource | null = null
   private readonly batches: CompiledArrowBatch[] = []
 
@@ -153,8 +158,8 @@ export class CompiledArrowStore {
    *  portrayal rendered NOTHING. Both are still required to ADD one; they just arrive apart. */
   attach(
     rhi: RhiDevice,
-    draper: RetainedArrowDraper,
-    advectedDraper?: RetainedArrowAdvectedDraper,
+    draper: () => RetainedArrowDraper | null,
+    advectedDraper?: () => RetainedArrowAdvectedDraper | null,
   ): void {
     this.rhi = rhi
     this.draper = draper
@@ -182,6 +187,10 @@ export class CompiledArrowStore {
     advected: AdvectedArrowInput | null = null,
   ): void {
     const count = lons.length
+    // The THUNK's presence, not a resolved draper (#1888): resolving here would build the arrow
+    // draper on this call, and `GraphicsManager.addCompiledArrowLayer` has just started the
+    // lazy-chunk fetch that the draper wants to read its baked shader from. The bind group is
+    // built at DRAW instead, one rAF later.
     if (!this.rhi || !this.draper) return
     // An ADVECTED batch carries NO instances (#1520 step 2) — its count is a per-frame decision
     // taken from the viewport, so an empty lon/lat array is the normal case there and only the
@@ -239,7 +248,9 @@ export class CompiledArrowStore {
     this.batches.push({
       featBuf,
       tintBuf,
-      bindGroup: featBuf && tintBuf ? this.draper.makeBatchBindGroup(featBuf, tintBuf) : null,
+      // Built at first draw; `featBuf && tintBuf` is what says it ever will be (an advected
+      // batch has neither and draws through `drawAdvected`).
+      bindGroup: null,
       advected,
       bandBuf,
       viewBuf,
@@ -330,11 +341,21 @@ export class CompiledArrowStore {
    *  arrows, so compiler-fed and `map.graphics` arrows are one draw authority. Returns the
    *  real draw-call count (one instanced draw per world copy per layer). */
   draw(pass: RhiRenderPass, perCopy: Float32Array[], view: AdvectedArrowView | null): number {
-    if (!this.draper) return 0
+    // EMPTY FIRST (#1888). Resolving the thunk builds the arrow draper, and an empty store is
+    // every map that never declared an `| arrow` layer — which is most of them. Asking before
+    // checking made the first frame that drew anything at all build the arrow pair too.
+    if (this.batches.length === 0) return 0
+    const draper = this.draper?.()
+    if (!draper) return 0
     let calls = 0
     for (const ca of this.batches) {
-      if (ca.advected) calls += this.drawAdvected(pass, ca, perCopy, view)
-      else if (ca.bindGroup) calls += this.draper.draw(pass, ca.bindGroup, perCopy, ca.count)
+      if (ca.advected) {
+        calls += this.drawAdvected(pass, ca, perCopy, view)
+        continue
+      }
+      if (ca.featBuf && ca.tintBuf)
+        ca.bindGroup ??= draper.makeBatchBindGroup(ca.featBuf, ca.tintBuf)
+      if (ca.bindGroup) calls += draper.draw(pass, ca.bindGroup, perCopy, ca.count)
     }
     return calls
   }
@@ -355,7 +376,7 @@ export class CompiledArrowStore {
     perCopy: Float32Array[],
     view: AdvectedArrowView | null,
   ): number {
-    const draper = this.advectedDraper
+    const draper = this.advectedDraper?.() ?? null
     // THIS batch's region, not the map's one field (#1458): a mosaic's domains each carry their
     // own current, and the glyph's colour, heading and scale are re-decided every frame from the
     // velocity under it — bound from the wrong domain that is another sea reported as this one.
