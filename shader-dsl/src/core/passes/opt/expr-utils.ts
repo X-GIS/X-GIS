@@ -280,10 +280,16 @@ function targetRoot(e: Expr): string | undefined {
  *  mutation sets, which is what invalidates a hoist across a store.
  *
  *  MEASURED on the 87-source baked corpus, before vs after a real build + bake:
- *  index operations 774 -> 663 (-111), for +322 artifact bytes and 50 new temps. This
- *  is the first increment in the stack that grows the artifact, and deliberately: it
- *  trades source bytes for memory traffic. Call sites are unchanged (12023) — the
- *  wrong metric for this pass, kept only so a regression there would show.
+ *  index operations 774 -> 663 (-111), for +13 temp declarations. Call sites are
+ *  unchanged — the wrong metric for this pass, kept only so a regression there
+ *  would show.
+ *
+ *  The BYTE figure depends on whether the shader minifier has run, so quote it with
+ *  its base or not at all. At this increment's own commit the artifacts grew 892,811
+ *  -> 893,183 (+372) and the note here read "trades source bytes for memory traffic";
+ *  the minifier landed right after and took the corpus to 709,556, where the same
+ *  increment measures 709,556 -> 709,356 (-200). Sign-flipped, same -111 loads: the
+ *  load count is the invariant this pass moves, the byte count is not.
  *
  *  Attribution was probed rather than assumed. Instrumenting this branch through the
  *  real bake reported 7438 accepted candidates over 80 distinct keys, rooted at
