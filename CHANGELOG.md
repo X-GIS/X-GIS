@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: f2f81ec9bcb0efe2e1d06557fff3d809d4d2a99e
+  Generated from: cafa8963f5e4e17ac9f82bae9d931830b10c75ac
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since f2f81ec9bcb0
+    bun scripts/emit-changelog.ts --since cafa8963f5e4
 -->
 
 # Changelog
@@ -251,6 +251,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- surface a retry-masked flake instead of burying it in a green log (#1924) ([#1930](https://github.com/X-GIS/X-GIS/pull/1930)) `cafa896`
 - shard the render gate across 4 runners — 64 min of wall clock to 25 (#1899) ([#1900](https://github.com/X-GIS/X-GIS/pull/1900)) `b83b959`
 - run the test workflow on push to main, so a bypassed merge cannot leave it broken (#1872) ([#1879](https://github.com/X-GIS/X-GIS/pull/1879)) `d32304f`
 
