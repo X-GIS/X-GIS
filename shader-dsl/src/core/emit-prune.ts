@@ -11,9 +11,9 @@
 //
 // #1858 fixed that at the source: `emitGlslModule` topo-sorts its own fn section and
 // emits a prototype only where the call graph forces one. So this pass now finds
-// NOTHING on a backend-emitted map shader — measured on the current corpus (74 GLSL
-// keys, 521 KB of raw emit): 0 prototypes dropped, 0 of 74 sources altered, 0.00% of
-// the production-transformed text (#1914).
+// NOTHING on a backend-emitted map shader — measured over every `BAKED_SHADER_KEYS`
+// entry: 0 prototypes dropped, 0 of 74 GLSL sources altered, 0.00% of the
+// production-transformed text (#1914).
 //
 // It is kept for the GLSL the backend did NOT author, which is where a redundant
 // prototype still arrives: hand-written `rawGlsl`, host-spliced fragments, and the
