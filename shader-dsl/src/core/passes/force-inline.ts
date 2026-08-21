@@ -26,6 +26,26 @@
 // and its single call is a strict size win and nothing is duplicated — measured −5% to
 // +8% bytes for 2-5 fewer functions per example.
 //
+// INLINING IS NOT FOLDING, AND THAT IS WHY THIS IS SAFE. Flattening a df64 body copies
+// its EXPRESSIONS to the call site; it does not evaluate them. The runtime-opaque ONE
+// (`f64Guard`, a texel fetch) travels with them, so every error-free-transform term still
+// rides the guard after the call is gone — verified on the emitted WGSL, which still reads
+// `textureLoad(_fp64, ...)` and still multiplies each EFT term through it. This is C's
+// `volatile` rule: inlining a function does not make a volatile expression inside it
+// foldable. `force-inline.test.ts` pins it.
+//
+// WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE, measured rather than assumed.
+// `renormForCancel` (fp64-lower.ts) launders a LOADED lo into a computed one by adding a
+// df64 ZERO ahead of a cancelling op, and it is spelled as a df64_ call precisely so the
+// optimizer cannot fold it (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that
+// spelling, so what holds afterwards was checked directly: the zero reaches the add as
+// `_cseN.y`, a member of a CSE-hoisted LET, so deleting the add would take BOTH
+// construct-propagation into the member AND member-of-construct folding (gcc's scalar
+// replacement of aggregates). Neither pass exists here; adding member-of-construct folding
+// alone was tried against the flattened output and changed nothing. The ONE is a texel
+// fetch, which nothing folds at all. If both passes are ever written, the df64 zero wants
+// a real barrier (`optBarrier`) rather than the shape it happens to have.
+//
 // WHAT NEITHER STRENGTH CAN PROMISE. The barrier question this reopens is a DRIVER
 // question, and a correctly-rounded CPU oracle (and SwiftShader) is structurally blind
 // to it — see the Class-1/Class-2 split in the-multiply-you-cannot-guard. On Apple/Metal

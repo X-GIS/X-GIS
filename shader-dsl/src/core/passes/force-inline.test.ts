@@ -6,6 +6,9 @@ import { fp64Lower } from './fp64-lower.js'
 import { fixpoint, mapModuleExprs } from './opt/index.js'
 import { splitF64 } from '../fp64/df64-lib.js'
 import { forceInline } from './force-inline.js'
+import { forceInline as forceInlinePlugin } from '../../emit-prod.js'
+import { emitModule } from '../../index.js'
+import type { EmitPlugin } from '../emit.js'
 
 // forceInline unlocks `FuncDecl.opaque` so the df64 library can be inlined and then
 // tree-shaken away. The whole question is whether the error-free transforms SURVIVE
@@ -58,6 +61,12 @@ const kernel = module({
   ],
 })
 
+// An f64 divide on two PARAMS: neither operand is a helper output, so fp64Lower inserts
+// renormForCancel before the cancelling op — the exact shape whose guard must survive.
+const guarded = module({
+  funcs: [fn('g', { a: f64T, b: f64T }, f32T, (p, bb) => bb.ret(toF32(p.a.div(p.b))))],
+})
+
 const BASE = fixpoint(fp64Lower(kernel))
 const SIZE_WIN = forceInline(BASE, 'size-win')
 const ALL = forceInline(BASE, 'all')
@@ -87,6 +96,31 @@ describe('forceInline — unlocking `opaque` removes the df64 library', () => {
     const plain = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => b.ret(x.add(1)))] })
     expect(forceInline(plain, 'all')).toBe(plain)
     expect(forceInline(plain, 'size-win')).toBe(plain)
+  })
+})
+
+// Inlining is not folding. Flattening a df64 body copies its expressions; the
+// runtime-opaque ONE travels with them, so the fast-math guard is still there afterwards —
+// which is the whole reason forcing the inline is allowed while folding the guarded
+// expression is not. The value arms above cannot see this: on a correctly-rounded machine a
+// deleted guard changes no value, only what a driver is then free to do.
+describe('forceInline — the fast-math guard survives the flattening', () => {
+  const wgslOf = (plugins: EmitPlugin[]): string =>
+    emitModule(guarded, { parens: 'minimal', plugins })
+
+  const GUARD = /textureLoad\(_fp64/g
+
+  it('the baseline reads the opaque ONE, and the flattened body still does', () => {
+    expect(wgslOf([]).match(GUARD)?.length ?? 0).toBeGreaterThan(0)
+    expect(
+      wgslOf([forceInlinePlugin({ strength: 'all' })]).match(GUARD)?.length ?? 0,
+    ).toBeGreaterThan(0)
+  })
+
+  it('the df64 call graph is gone, yet the guard binding is not', () => {
+    const flat = wgslOf([forceInlinePlugin({ strength: 'all' })])
+    expect(flat).not.toMatch(/^fn df64_/m) // every helper inlined away…
+    expect(flat).toMatch(/_fp64/) // …and the guard it carried is still read
   })
 })
 
