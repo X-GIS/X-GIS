@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bd677c2ead62ac0325bcd88298eca790e8da22e2
+  Generated from: 09dcb2849cee6346c4ea9157eb6741e6f29d75f3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bd677c2ead62
+    bun scripts/emit-changelog.ts --since 09dcb2849cee
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** the webgpu tier of createComputeRunner ([#1957](https://github.com/X-GIS/X-GIS/pull/1957)) `09dcb28`
 - **shader-dsl:** one compute entry point across the cpu and webgl2 tiers ([#1946](https://github.com/X-GIS/X-GIS/pull/1946)) `fe30559`
 - **site:** shipping-plugin toggles on every shader-dsl example page ([#1911](https://github.com/X-GIS/X-GIS/pull/1911)) `295ac3b`
 - **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
