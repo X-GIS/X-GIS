@@ -175,6 +175,54 @@ function maskLogKeyForDisplay(logKey: string): string {
   return q < 0 ? logKey : logKey.slice(0, q) + logKey.slice(q).replace(/\d+/g, '{n}')
 }
 
+/** Randomness source for the retry backoff jitter below (test seam). Defaults
+ *  to `Math.random`; a bare `Math.random()` inlined in the retry loop cannot
+ *  be asserted on, so it is threaded through this module-private swap point
+ *  instead — the same module-state + test-only-setter/reset shape already
+ *  used above for the log throttle and negative cache. */
+let tileRetryRandom: () => number = Math.random
+
+/** Test-only override of the retry backoff's randomness source, so a test
+ *  can drive a deterministic sequence of jittered delays. */
+export function __setTileRetryRandomForTest(fn: () => number): void {
+  tileRetryRandom = fn
+}
+
+/** Test-only reset of the retry backoff's randomness source to `Math.random`. */
+export function __resetTileRetryRandomForTest(): void {
+  tileRetryRandom = Math.random
+}
+
+/** Jittered backoff delay for one retry attempt, in ms.
+ *
+ *  Shape: EQUAL jitter — `base/2 + random()*base/2`, uniform on
+ *  `[base/2, base)`. NOT full jitter (`random() * base`, uniform on
+ *  `[0, base)`) — full jitter is the right answer when the client can
+ *  retry indefinitely and the objective is total completion time / total
+ *  load across a large fleet (the AWS "Exponential Backoff And Jitter"
+ *  case). That is not this path: `fetchTileWithRetry` spends exactly 3
+ *  fixed attempts, and exhausting them negative-caches the tile for
+ *  `NEGATIVE_CACHE_TTL_MS` (5 minutes) — a MUCH more expensive failure
+ *  than one more short wait. Under full jitter both attempts can land
+ *  near their floor simultaneously (e.g. r1=r2=0.05 → a 60 ms total retry
+ *  window against a fixed schedule's 1200 ms), burning all 3 attempts
+ *  inside ~2.7% of tiles hitting a sub-second upstream blip — a restart, a
+ *  5xx burst, a mobile radio gap — that the OLD fixed schedule would have
+ *  outlasted. Equal jitter keeps a guaranteed floor of `base/2` (so the
+ *  total retry window is always ≥ 600 ms, half of the old 1200 ms) while
+ *  still de-synchronizing a herd: 8 tiles landing anywhere in `[150, 300)`
+ *  are no longer in lockstep, which is the whole defect #1269 names — the
+ *  extra spread full jitter buys below that floor is worth less than the
+ *  minimum wait it gives up on a path this exhaustion-expensive.
+ *
+ *  Bound: the result is always in `[base/2, base)` — never below half of
+ *  today's fixed schedule, never at or above it. `base` here is always one
+ *  of the two `backoffsMs` entries below, so for the first retry the
+ *  window is `[150, 300)` ms and for the second it is `[450, 900)` ms. */
+function jitteredBackoffMs(baseMs: number): number {
+  return baseMs / 2 + tileRetryRandom() * (baseMs / 2)
+}
+
 /** Single-tile fetch with retry + graceful null fallback for transient
  *  upstream failures (5xx, network errors). Returns:
  *
@@ -184,7 +232,9 @@ function maskLogKeyForDisplay(logKey: string): string {
  *                    keeps the tile in failedKeys so the parent-walk falls
  *                    back to the nearest cached ancestor.
  *
- *  Backoff: 300 ms, then 900 ms (max 2 retries → 3 attempts total).
+ *  Backoff: equal-jitter delays in [150, 300) ms, then [450, 900) ms (max 2
+ *  retries → 3 attempts total) — see {@link jitteredBackoffMs} for the
+ *  jitter-shape rationale (#1269).
  *
  *  `logKey` is the SOURCE's tile-URL template (`…/{z}/{x}/{y}.mvt`), never the
  *  substituted URL: every (z, x, y) of one source must share one warn-throttle
@@ -278,7 +328,7 @@ async function fetchTileWithRetry(
       timer = setTimeout(() => {
         signal.removeEventListener('abort', onAbort)
         resolve()
-      }, backoffsMs[attempt])
+      }, jitteredBackoffMs(backoffsMs[attempt]))
     })
   }
   const now = Date.now()
