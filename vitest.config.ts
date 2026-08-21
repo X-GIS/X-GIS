@@ -161,6 +161,12 @@ const ISOLATED = [
   'map/src/map-destroy.test.ts',
   'map/src/map-error-event.test.ts',
   'map/src/map-hash-sync.test.ts',
+  // (1) `vi.mock('@xgis/data', …)` for the shared GeoJSON compile pool. Landed in
+  //     #1837/#1940 without joining this list, which left it green only for as long as
+  //     the pool happened to pack it ahead of every sibling that imports the real
+  //     @xgis/data — exactly the fail-at-random the rule above exists to prevent. It
+  //     came due when an UNRELATED shader-dsl spec grew by two cases (#1903).
+  'map/src/map-inline-geojson-route.test.ts',
   'map/src/map-polar-cap-deprecation.test.ts',
   'map/src/map-rebuild-layers.characterization.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
