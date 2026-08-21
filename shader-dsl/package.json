@@ -31,6 +31,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./dev": "./src/dev.ts",
+    "./compute": "./src/compute.ts",
     "./emit-prod": "./src/emit-prod.ts",
     "./core/ir": "./src/core/ir/index.ts",
     "./examples": "./examples/index.ts"
