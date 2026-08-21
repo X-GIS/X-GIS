@@ -84,6 +84,17 @@ describe('collectPageErrors', () => {
     expect(errors).toEqual([])
   })
 
+  // Same fail-safe direction, one step earlier: a page sits on `about:blank`
+  // until its first navigation commits, and `about:blank` has an opaque origin
+  // that parses to the string "null". Comparing against it would make EVERY
+  // early error look cross-origin and vanish.
+  it('keeps an error that arrives before the page has an origin', () => {
+    const f = fakePage('about:blank')
+    const errors = collectPageErrors(f.page)
+    f.console('error', 'boot threw', 'https://localhost:3000/src/map.ts')
+    expect(errors).toEqual(['boot threw'])
+  })
+
   // Fail-safe direction: an error whose source cannot be established is still
   // reported. Silently dropping it is how an error budget rots.
   it('keeps an error whose location is empty or unparseable', () => {

@@ -42,7 +42,13 @@ export function collectPageErrors(page: Page): string[] {
 function isCrossOrigin(pageUrl: string, resourceUrl: string): boolean {
   if (!resourceUrl || !pageUrl) return false
   try {
-    return new URL(resourceUrl).origin !== new URL(pageUrl).origin
+    const pageOrigin = new URL(pageUrl).origin
+    // An opaque origin parses to the string "null" -- `about:blank`, which is
+    // where a page sits until its first navigation commits. There is nothing to
+    // compare against yet, and an early first-party error is exactly the kind
+    // this budget must not lose, so keep it.
+    if (pageOrigin === 'null') return false
+    return new URL(resourceUrl).origin !== pageOrigin
   } catch {
     return false
   }
