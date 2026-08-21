@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 09dcb2849cee6346c4ea9157eb6741e6f29d75f3
+  Generated from: 838f99de742b19d25e8ccdca80ca0f023596bebc
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 09dcb2849cee
+    bun scripts/emit-changelog.ts --since 838f99de742b
 -->
 
 # Changelog
@@ -209,6 +209,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **site:** the compute runner on the WebGL2 GPGPU page ([#1967](https://github.com/X-GIS/X-GIS/pull/1967)) `838f99d`
 - **shader-dsl:** document the WebGL2 GPGPU host contract, gated on a real GPU ([#1902](https://github.com/X-GIS/X-GIS/pull/1902)) `8c25a04`
 - **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
 - **map:** tell the bake gate's remedy to build first, so it stops pointing at itself ([#1870](https://github.com/X-GIS/X-GIS/pull/1870)) `a63e6e5`
