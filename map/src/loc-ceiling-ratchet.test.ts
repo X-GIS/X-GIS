@@ -1753,7 +1753,12 @@ const CEILINGS: Record<string, number> = {
   // in the wrapped tiles the renderer draws at world-copy ±1 (ADR-0006). New
   // logic (not a formatting bump); no natural extract site (belongs beside
   // makeLinePart in decomposeFeatures). Measured after prettier: wc -l = 1587.
-  'compiler/src/tiler/vector-tiler.ts': 1587,
+  // 1587→1601 (#1947): buildPropertyTable takes the FeatureIdResolver and parks
+  // each row at the feature's fid (the number decomposeFeatures stamps on the
+  // geometry) instead of its array position, so data-driven paint stops reading
+  // another feature's row. +14 = signature + index loop + the contract comment;
+  // irreducible, the table and the resolver must be decided in one place.
+  'compiler/src/tiler/vector-tiler.ts': 1601,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

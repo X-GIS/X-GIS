@@ -908,7 +908,7 @@ export function compileGeoJSONToTiles(
   }
 
   // Build property table early (needed for progressive onLevel callbacks)
-  const propertyTable = buildPropertyTable(geojson.features)
+  const propertyTable = buildPropertyTable(geojson.features, options?.idResolver)
   const bounds: [number, number, number, number] = [gMinLon, gMinLat, gMaxLon, gMaxLat]
 
   // Step 2: Per-zoom processing with adaptive subdivision
@@ -1500,7 +1500,7 @@ export async function compileGeoJSONToTilesAsync(
       if (p.maxLat > gMaxLat) gMaxLat = p.maxLat
     }
     const bounds: [number, number, number, number] = [gMinLon, gMinLat, gMaxLon, gMaxLat]
-    const propertyTable = buildPropertyTable(geojson.features)
+    const propertyTable = buildPropertyTable(geojson.features, options?.idResolver)
     const levels: TileLevel[] = []
     const needsSubdivision = new Set<number>()
     const scratch = {
@@ -1547,7 +1547,10 @@ export async function compileGeoJSONToTilesAsync(
  * Build a property table from GeoJSON features.
  * Scans all features to determine field names, types, and values.
  */
-function buildPropertyTable(features: GeoJSONFeature[]): PropertyTable {
+function buildPropertyTable(
+  features: GeoJSONFeature[],
+  idResolver: FeatureIdResolver = defaultIdResolver,
+): PropertyTable {
   // Collect union of all property keys
   const fieldSet = new Map<string, PropertyFieldType>()
 
@@ -1568,9 +1571,20 @@ function buildPropertyTable(features: GeoJSONFeature[]): PropertyTable {
   const fieldNames = [...fieldSet.keys()]
   const fieldTypes = fieldNames.map((k) => fieldSet.get(k)!)
 
-  // Build values array
+  // Build values array. A row's POSITION is the feature's fid — the very
+  // `idResolver(feature, i)` decomposeFeatures stamps onto the geometry — and
+  // not the feature's array position, because every consumer addresses this
+  // table by that fid: the GPU packer writes `feat_data[fid * fieldCount + j]`
+  // (map/src/render/feature-data-binder.ts) and the label path reads
+  // `values[featId]` (map/src/render/label-feature-source.ts). Position and fid
+  // coincide only under the default index resolver; under the legacy inline
+  // route's `feature-id-fallback` they never did, so every data-driven paint
+  // read another feature's row (#1947). The array is sparse exactly where the
+  // fid space is — an unclaimed slot reads back undefined, which both consumers
+  // already treat as "this feature has no properties".
   const values: (number | string | boolean | null)[][] = []
-  for (const feature of features) {
+  for (let i = 0; i < features.length; i++) {
+    const feature = features[i]
     const row: (number | string | boolean | null)[] = []
     for (const name of fieldNames) {
       const val = feature.properties?.[name]
@@ -1580,7 +1594,7 @@ function buildPropertyTable(features: GeoJSONFeature[]): PropertyTable {
         row.push(val as number | string | boolean)
       }
     }
-    values.push(row)
+    values[idResolver(feature, i)] = row
   }
 
   return { fieldNames, fieldTypes, values }
