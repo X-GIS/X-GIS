@@ -740,7 +740,13 @@ const CEILINGS: Record<string, number> = {
   // (filtered / procedural) deliberately stay behind. Nothing extract-worthy: the gate
   // is four terms inside the show loop, and the flag it now consults is already a
   // shared export from source-manager.ts.
-  'map/src/map.ts': 5603,
+  // 5603→5623 (#1940, atop the #1837 bump): the legacy GeoJSON route now names the slot it
+  // writes — one `computeSliceKey(...)` const (4 lines) threaded into `addTileLevel` (+5, the
+  // call wraps at four args) and `setRawParts`, plus the comment recording that the key is
+  // the VTR's lookup string, that `vtKey` is the wrong one, and which shows this un-blanks.
+  // Nothing extract-worthy: this is the ONE line only map.ts can write — it owns both the
+  // ShowCommand the key is derived from and the catalog the key is handed to. MEASURED.
+  'map/src/map.ts': 5623,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1197,7 +1203,12 @@ const CEILINGS: Record<string, number> = {
   // that forgot to bump would be invisible to the point repack. The other +26 is the
   // import block, the `pointFeatureIds` passthrough at the two descriptor sites, and the
   // recorded reasoning. MEASURED.
-  'data/src/tile-catalog.ts': 1444,
+  // 1444→1456 (#1940): `setRawParts` / `addTileLevel` gain a `sliceKey` (default '', so every
+  // existing caller is byte-identical) and pass it to the runtime backend + the two writes in
+  // addTileLevel's body. +12 is the two parameters, the three passthroughs and the doc that
+  // says WHY the slot has to be named — the catalog is the storage authority the VTR's
+  // `computeSliceKey` lookup has to agree with. MEASURED.
+  'data/src/tile-catalog.ts': 1456,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

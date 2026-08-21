@@ -10,13 +10,29 @@
 //
 // #1837 moved the DEFAULT: an inline source with no filter and no geometryExpr
 // now takes the virtual route without any opt-in, so the blank this spec used to
-// pin on a flag-less boot is gone. The legacy contract it documented survives only
-// behind the explicit Phase-5f opt-OUT (?legacy=1), which is where this now pins it.
+// pin on a flag-less boot is gone. The legacy route kept the '' slice-key miss
+// behind the explicit Phase-5f opt-OUT (?legacy=1), and this spec pinned that
+// blank as contract.
+//
+// #1940 REMOVED that residual: the legacy route now stores its tiles under the
+// same `computeSliceKey(sourceLayer || targetName, filter)` string the VTR looks
+// them up under, so the opt-out arm renders. All three arms now assert PIXELS.
 //
 // Three-way real-GPU probe, same discipline as the issue's repro:
 //   default (no flag)  → BOTH hues present (per-feature colour applied) — #1837
-//   ?legacy=1          → blank (the residual legacy '' slice-key contract)
+//   ?legacy=1          → BOTH hues present (the slice-key agreement) — #1940
 //   ?virt_inline=1     → BOTH hues present (the explicit opt-in, unchanged)
+//
+// KNOWN RESIDUAL, deliberately NOT asserted here (a separate root cause, so
+// pinning it would make this spec bless a second defect the way it used to bless
+// the blank): on the legacy route the two hues are SWAPPED relative to the
+// virtual route — measured default { rose 0.1888, emerald 0.1860 } vs legacy
+// { rose 0.1860, emerald 0.1888 }, i.e. the same quad. `buildPropertyTable`
+// (compiler/src/tiler/vector-tiler.ts:1550) indexes its `values` rows by feature
+// ARRAY INDEX while the tile geometry carries `feature.id`-derived fids
+// (`resolveIdResolver`, data/src/workers/geojson-compile-worker.ts:94), so a
+// source whose features carry explicit ids reads the wrong row. Invisible until
+// now because #821 moved every match() show off this route rather than fixing it.
 
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
@@ -98,7 +114,7 @@ async function loadAndPush(
 }
 
 test.describe('#821 inline match() colour', () => {
-  test('inline match() renders by default (#1837); ?legacy=1 still blank; opt-in unchanged', async ({
+  test('inline match() renders on all three routes — default (#1837), ?legacy=1 (#1940), opt-in', async ({
     page,
   }) => {
     test.setTimeout(180_000)
@@ -117,16 +133,23 @@ test.describe('#821 inline match() colour', () => {
         'default boot must render the kind:b quad in emerald (#1837)',
       ).toBeGreaterThan(0.02)
 
-      // Explicit Phase-5f opt-OUT: still the legacy path, still the '' slice-key
-      // mismatch. This is the arm that keeps the legacy contract under test — and it
-      // is what makes the assertion above distinguishing rather than vacuous.
+      // Explicit Phase-5f opt-OUT: still the legacy compile path (no virt attach),
+      // and since #1940 its tiles land in the slot the VTR reads. Measured on the
+      // fix: { rose: 0.1860, emerald: 0.1888 } — the same two quads the other arms
+      // paint, both far above the 0.02 floor (0 / 0 before the fix). See the KNOWN
+      // RESIDUAL note in the header for why this arm asserts hue PRESENCE and not
+      // the hue↔quad assignment.
       const legacy = await loadAndPush(page, '&legacy=1')
 
       console.log('[#821 legacy=1]', legacy)
-      expect(legacy.rose, '?legacy=1 inline match() stays a known blank (#821)').toBeLessThan(0.001)
-      expect(legacy.emerald, '?legacy=1 inline match() stays a known blank (#821)').toBeLessThan(
-        0.001,
-      )
+      expect(
+        legacy.rose,
+        '?legacy=1 must render the rose quad — the legacy route stores under the VTR lookup key (#1940)',
+      ).toBeGreaterThan(0.02)
+      expect(
+        legacy.emerald,
+        '?legacy=1 must render the emerald quad — the legacy route stores under the VTR lookup key (#1940)',
+      ).toBeGreaterThan(0.02)
 
       // Explicit opt-in: unchanged by #1837, still renders both hues.
       const virt = await loadAndPush(page, '&virt_inline=1')

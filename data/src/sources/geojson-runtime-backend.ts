@@ -32,7 +32,11 @@ export class GeoJSONRuntimeBackend implements TileSource {
   private partGrid: Map<number, number[]> = new Map()
   private static readonly GRID_ZOOM = 3
 
-  constructor() {
+  /** Slice name every result this backend pushes is stored under (#1940).
+   *  '' — the anonymous default slot — for sources nothing looks up by
+   *  name; the legacy GeoJSON route passes the VTR's `computeSliceKey`
+   *  value so storage and lookup are the SAME string by construction. */
+  constructor(private readonly sliceKey: string = '') {
     this.meta = {
       bounds: [-180, -85, 180, 85],
       minZoom: 0,
@@ -107,7 +111,7 @@ export class GeoJSONRuntimeBackend implements TileSource {
     // with no data (e.g. z=6 ocean tiles far from a fixture's line).
     const parts = this.getRelevantParts(z, x, y)
     if (!parts || parts.length === 0) {
-      this.sink.acceptResult(key, null)
+      this.sink.acceptResult(key, null, this.sliceKey)
       return true
     }
 
@@ -117,29 +121,33 @@ export class GeoJSONRuntimeBackend implements TileSource {
       // overlapped the spatial grid but produced no triangles after
       // clipping (very thin line slicing a corner, for example) would
       // otherwise stay "missed" forever.
-      this.sink.acceptResult(key, null)
+      this.sink.acceptResult(key, null, this.sliceKey)
       return true
     }
     const polygons: RingPolygon[] | undefined = tile.polygons?.map((p) => ({
       rings: p.rings,
       featId: p.featId,
     }))
-    this.sink.acceptResult(key, {
-      vertices: tile.vertices,
-      dequantScale: tile.dequantScale,
-      dequantHalf: tile.dequantHalf,
-      indices: tile.indices,
-      lineVertices: tile.lineVertices,
-      lineIndices: tile.lineIndices,
-      pointVertices: tile.pointVertices,
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the deprecated always-empty outlineIndices during the outline-frame migration
-      outlineIndices: tile.outlineIndices,
-      outlineVertices: tile.outlineVertices,
-      outlineLineIndices: tile.outlineLineIndices,
-      polygons,
-      fullCover: tile.fullCover,
-      fullCoverFeatureId: tile.fullCoverFeatureId,
-    })
+    this.sink.acceptResult(
+      key,
+      {
+        vertices: tile.vertices,
+        dequantScale: tile.dequantScale,
+        dequantHalf: tile.dequantHalf,
+        indices: tile.indices,
+        lineVertices: tile.lineVertices,
+        lineIndices: tile.lineIndices,
+        pointVertices: tile.pointVertices,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- reads the deprecated always-empty outlineIndices during the outline-frame migration
+        outlineIndices: tile.outlineIndices,
+        outlineVertices: tile.outlineVertices,
+        outlineLineIndices: tile.outlineLineIndices,
+        polygons,
+        fullCover: tile.fullCover,
+        fullCoverFeatureId: tile.fullCoverFeatureId,
+      },
+      this.sliceKey,
+    )
     return true
   }
 
