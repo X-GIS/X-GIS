@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 22b7c957070f21aab1027dee31cd3994062a902d
+  Generated from: 2fe415020e4a0e49cde0d4134c603f9b9d6446d5
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 22b7c957070f
+    bun scripts/emit-changelog.ts --since 2fe415020e4a
 -->
 
 # Changelog
@@ -89,6 +89,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data/tiles:** jitter the vector-tile retry backoff so a failing viewport does not retry in lockstep (#1269) ([#1959](https://github.com/X-GIS/X-GIS/pull/1959)) `2fe4150`
 - **compiler/tiler:** key the property table by the resolved fid (#1947) ([#1951](https://github.com/X-GIS/X-GIS/pull/1951)) `22b7c95`
 - **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
 - **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
