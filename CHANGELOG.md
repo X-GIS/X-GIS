@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b4ebd1a427e8775fc0988d1ced223b66bb522644
+  Generated from: 2d872e1bc30c834988d915d1ec9254cc57d90dab
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b4ebd1a427e8
+    bun scripts/emit-changelog.ts --since 2d872e1bc30c
 -->
 
 # Changelog
@@ -88,6 +88,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
 - **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
 - **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
 - **map/sources:** importer-seeded inline GeoJSON defaults onto the VirtualPMTiles route (#1837) ([#1846](https://github.com/X-GIS/X-GIS/pull/1846)) `af77872`
