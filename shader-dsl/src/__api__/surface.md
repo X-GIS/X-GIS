@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 358 exports
+## `.` — 359 exports
 
 ```
 abs
@@ -222,6 +222,7 @@ NODE_BRAND
 NodeLike
 NonComposite
 normalize
+optBarrier
 OptLevel
 ORACLE_BUILTIN_NAMES
 ORACLE_GPU_STUB_NAMES
@@ -433,7 +434,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 222 exports
+## `./core/ir` — 223 exports
 
 ```
 abs
@@ -559,6 +560,7 @@ NODE_BRAND
 NodeLike
 NonComposite
 normalize
+optBarrier
 outsideRange
 overrideConst
 OverrideDecl
@@ -660,7 +662,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 406 definitions
+## Shapes — 407 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -849,6 +851,7 @@ src/core/ir/node.ts#mix  const  <K extends FloatKey | Float64Key>(a: ReadonlyNod
 src/core/ir/node.ts#mod  const  <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#mulMat64  const  <N extends 2 | 3 | 4>(a: ReadonlyNode<`mat${N}x${N}<f64>`>, b: ReadonlyNode<`mat${N}x${N}<f64>`>) => Node<`mat${N}x${N}<f64>`>
 src/core/ir/node.ts#normalize  const  <K extends `vec${number}<f32>` | `vec${number}<f64>`>(x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#optBarrier  const  (v: number | ReadonlyNode<"f32">) => Node<"f32">
 src/core/ir/node.ts#outsideRange  const  (x: ReadonlyNode<ScalarKey>, lo: number | ReadonlyNode<ScalarKey>, hi: number | ReadonlyNode<ScalarKey>) => Node<"bool">
 src/core/ir/node.ts#overrideRef  function  <T extends ShaderType>(name: string, type: T) => ReadonlyNode<KeyOf<T>>
 src/core/ir/node.ts#pack2x16float  const  (v: ReadonlyNode<"vec2<f32>">) => Node<"u32">
