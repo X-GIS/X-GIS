@@ -48,6 +48,16 @@ export function buildCategoryMap(values: Iterable<string>): Map<string, number> 
  *  featId → row mapping table. Unfilled slots stay 0, which is what the
  *  variant's fallback arm expects.
  *
+ *  That `max(featId) + 1` needs NO sparsity bound, unlike the source-level
+ *  packer's (see DENSE_TABLE_FLOOR_BYTES in feature-data-binder.ts): every
+ *  producer of a `featureProps` map keys it by the TILE-LOCAL ARRAY INDEX —
+ *  `buildFeatureProps` (data/src/workers/mvt-worker.ts:42) and the per-tile
+ *  props loop (data/src/sources/pmtiles-backend.ts:612) — and every other
+ *  `featureProps:` in the tree is a passthrough of one of those two. So
+ *  `max(featId) + 1 <= features.length` here by construction. A stable USER id
+ *  (`toU32Id`, hashed across the whole u32 range for a non-integer id) only
+ *  ever rides the SOURCE-level table, which is where the bound lives (#1947).
+ *
  *  Returns null when there is nothing to pack (no props, no fields, or every
  *  featId negative), so the caller can skip the buffer allocation entirely. */
 export function packPerTileFeatureData(

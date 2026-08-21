@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 2d872e1bc30c834988d915d1ec9254cc57d90dab
+  Generated from: bd677c2ead62ac0325bcd88298eca790e8da22e2
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 2d872e1bc30c
+    bun scripts/emit-changelog.ts --path shader-dsl --since bd677c2ead62
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **shader-dsl:** one compute entry point across the cpu and webgl2 tiers ([#1946](https://github.com/X-GIS/X-GIS/pull/1946)) `fe30559`
 - **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
 - **rhi-webgl2:** dispatch compute by the portable declaration, not the deprecated flag ([#1824](https://github.com/X-GIS/X-GIS/pull/1824)) `35adaa2`

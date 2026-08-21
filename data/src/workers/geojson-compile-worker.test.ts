@@ -235,3 +235,111 @@ describe('runCompile — edge cases', () => {
     expect(maxLat).toBeCloseTo(40)
   })
 })
+
+// ═══ #1947 — the property table is addressed BY FID, not by array position ═══
+//
+// `decomposeFeatures` stamps `idResolver(feature, i)` onto every GeometryPart
+// (and from there onto the vertex `fid` slot), and BOTH consumers of the
+// source-level PropertyTable address it with that same fid: the GPU packer
+// writes `feat_data[fid * fieldCount + j]` (map/src/render/feature-data-binder.ts)
+// and the label path reads `values[featId]` (map/src/render/label-feature-source.ts).
+// A row parked at the feature's ARRAY POSITION is therefore the wrong row for
+// every feature whose resolved fid differs from its position — which is every
+// feature under `feature-id-fallback`, the mode the legacy inline/filtered
+// GeoJSON route compiles with (map.ts → pool.compile(…, 'feature-id-fallback')).
+describe('runCompile — property table is fid-addressed (#1947)', () => {
+  /** Two disjoint unit squares, one per `kinds` entry, with optional ids. */
+  function kindFC(
+    kinds: string[],
+    ids?: (string | number | undefined)[],
+  ): GeoJSONFeatureCollection {
+    return {
+      type: 'FeatureCollection',
+      features: kinds.map((kind, i) => ({
+        type: 'Feature',
+        id: ids?.[i],
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [i * 2, 0],
+              [i * 2 + 1, 0],
+              [i * 2 + 1, 1],
+              [i * 2, 1],
+              [i * 2, 0],
+            ],
+          ],
+        },
+        properties: { kind },
+      })),
+    }
+  }
+
+  function kindAt(
+    response: { propertyTable: { fieldNames: string[]; values: unknown[][] } },
+    fid: number,
+  ) {
+    const ki = response.propertyTable.fieldNames.indexOf('kind')
+    return response.propertyTable.values[fid]?.[ki]
+  }
+
+  it('explicit feature.id values that differ from array position land at their fid', () => {
+    const fc = kindFC(['a', 'b'], [7, 3])
+    const { response } = runCompile({
+      kind: 'compile',
+      taskId: 1947,
+      geojson: fc,
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'feature-id-fallback',
+    })
+
+    // The fids the GEOMETRY carries — same resolver runCompile fed to
+    // decomposeFeatures, so this is the index the shader will use.
+    const resolve = resolveIdResolver('feature-id-fallback')
+    expect(resolve(fc.features[0], 0)).toBe(7)
+    expect(resolve(fc.features[1], 1)).toBe(3)
+    // …and they really are on the emitted vertices: the quantized fill layout
+    // is stride 28 bytes = 7 floats `[uint16x6 position | fid | abs_lon |
+    // abs_lat | true_lat]`, so `feature_id` sits at float slot 3
+    // (ecef-packing.ts FILL_FID_FLOAT).
+    const verts = new Float32Array(response.levels[0].tiles[0][1].vertices)
+    const fidsOnGeometry = new Set<number>()
+    for (let v = 3; v < verts.length; v += 7) fidsOnGeometry.add(verts[v])
+    expect(fidsOnGeometry).toEqual(new Set([7, 3]))
+
+    expect(kindAt(response, 7)).toBe('a')
+    expect(kindAt(response, 3)).toBe('b')
+  })
+
+  it('id-less features under feature-id-fallback land at their i+1 fid', () => {
+    const { response } = runCompile({
+      kind: 'compile',
+      taskId: 1948,
+      geojson: kindFC(['a', 'b']),
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'feature-id-fallback',
+    })
+    // resolveIdResolver offsets the id-less fallback by +1 (fid 0 is the pick
+    // decoder's "no feature" sentinel), so even a plain FeatureCollection is
+    // shifted one row off its array positions.
+    expect(kindAt(response, 1)).toBe('a')
+    expect(kindAt(response, 2)).toBe('b')
+  })
+
+  it('index mode is unchanged — fid IS the array position', () => {
+    const { response } = runCompile({
+      kind: 'compile',
+      taskId: 1949,
+      geojson: kindFC(['a', 'b'], [7, 3]),
+      minZoom: 0,
+      maxZoom: 0,
+      idResolverMode: 'index',
+    })
+    // Contrast case: `index` mode ignores feature.id, so rows stay at 0 and 1
+    // and this assertion holds both before and after the fix.
+    expect(kindAt(response, 0)).toBe('a')
+    expect(kindAt(response, 1)).toBe('b')
+  })
+})

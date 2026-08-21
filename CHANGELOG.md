@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2d872e1bc30c834988d915d1ec9254cc57d90dab
+  Generated from: bd677c2ead62ac0325bcd88298eca790e8da22e2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2d872e1bc30c
+    bun scripts/emit-changelog.ts --since bd677c2ead62
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** one compute entry point across the cpu and webgl2 tiers ([#1946](https://github.com/X-GIS/X-GIS/pull/1946)) `fe30559`
 - **site:** shipping-plugin toggles on every shader-dsl example page ([#1911](https://github.com/X-GIS/X-GIS/pull/1911)) `295ac3b`
 - **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`
@@ -88,6 +89,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data/tiles:** jitter the vector-tile retry backoff so a failing viewport does not retry in lockstep (#1269) ([#1959](https://github.com/X-GIS/X-GIS/pull/1959)) `2fe4150`
+- **compiler/tiler:** key the property table by the resolved fid (#1947) ([#1951](https://github.com/X-GIS/X-GIS/pull/1951)) `22b7c95`
 - **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
 - **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
 - **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
@@ -225,6 +228,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **ci:** register the legacy-route render gate, re-measure the perf gate's dark reason (#1349) ([#1960](https://github.com/X-GIS/X-GIS/pull/1960)) `bd677c2`
 - **ci:** register the #1845 and #1838 specs now that both are green ([#1945](https://github.com/X-GIS/X-GIS/pull/1945)) `b4ebd1a`
 - **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
 - **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`

@@ -17,7 +17,10 @@ export type PropertyFieldType = 'f64' | 'string' | 'bool'
 export interface PropertyTable {
   fieldNames: string[]
   fieldTypes: PropertyFieldType[]
-  /** values[featureIndex][fieldIndex] */
+  /** values[fid][fieldIndex] — the row position is the feature's RESOLVED id
+   *  (`FeatureIdResolver`), the same number `decomposeFeatures` stamps onto the
+   *  geometry, because every consumer looks a row up by that fid. Sparse
+   *  wherever the fid space is; an unclaimed slot reads back undefined (#1947). */
   values: (number | string | boolean | null)[][]
 }
 
