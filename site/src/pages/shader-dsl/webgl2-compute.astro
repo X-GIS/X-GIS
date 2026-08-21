@@ -29,6 +29,7 @@ import {
   vec3uT,
   vec4uT,
 } from '@xgis/shader-dsl'
+import { createComputeRunner } from '@xgis/shader-dsl/compute'
 
 const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
 const root = `${base}/shader-dsl`
@@ -72,6 +73,65 @@ const kernel = fn(
 )
 
 const m = module({ bindings: [featData.binding, outValue.binding, dispatchU.binding], funcs: [kernel] })`
+
+// The runner, ACTUALLY RUN at build time on the kernel shown above. `prefer: ['cpu']`
+// because a static site build has no GL context and no GPU device — which is itself the
+// point being demonstrated: the same call site resolves to whatever the host has, and
+// says which. If the runner's API or its numbers ever drift, this page stops building
+// rather than printing a stale promise.
+const runnerInput = new Float32Array([0, 0.25, 0.5, 0.75, 1])
+const liveRunner = await createComputeRunner(kernelModule, { prefer: ['cpu'] })
+const liveOut = await liveRunner.run(runnerInput)
+liveRunner.dispose()
+// The same construction with NO handles at all, to show what `rejected` actually says.
+const bareRunner = await createComputeRunner(kernelModule)
+const bareRejected = bareRunner.rejected.map((r) => ({ backend: r.backend, reason: r.reason }))
+bareRunner.dispose()
+// f32 round-trip: the kernel bitcasts `v * 2 + 1` into u32, so decoding the readback is
+// what a consumer does, and printing the decode proves the bytes are the values.
+const liveDecoded = Array.from(liveOut, (u) => new Float32Array(new Uint32Array([u]).buffer)[0]!)
+
+const runnerSnippet = `import { createComputeRunner } from '@xgis/shader-dsl/compute'
+
+// Resolved ONCE. \`prefer\` is a declared order, not a capability guess: the first
+// backend whose handle is present wins, and the ones ahead of it report why they did not.
+const runner = await createComputeRunner(m, {
+  prefer: ['webgpu', 'webgl2', 'cpu'],
+  gl,      // a WebGL2RenderingContext -> the webgl2 tier is a candidate
+  device,  // a GPUDevice              -> the webgpu tier is a candidate
+})
+
+runner.backend   // 'webgl2' — which tier actually resolved. READ THIS.
+runner.rejected  // [{ backend: 'webgpu', reason: 'no WebGPU device was passed (\`device\`)' }]
+
+const out = await runner.run(featureValues)  // Float32Array -> Uint32Array
+runner.dispose()`
+
+const pinnedSnippet = `// One entry makes that tier REQUIRED: it throws instead of degrading.
+const runner = await createComputeRunner(m, { prefer: ['webgl2'], gl })
+// Error: createComputeRunner: no backend from [webgl2] could run this kernel
+//        - webgl2: no WebGL2 context was passed (\`gl\`)`
+
+const tiers: { backend: string; needs: string; how: string; note: string }[] = [
+  {
+    backend: 'webgpu',
+    needs: '<code class="font-mono text-[13px] text-fg">device</code>',
+    how: 'the <strong class="text-fg">unchanged</strong> <code class="font-mono text-[13px] text-fg">@compute</code> source, one compute pass',
+    note: 'No lowering at all — <code class="font-mono text-[13px] text-fg">portable</code> costs zero bytes here. Every binding must be in <code class="font-mono text-[13px] text-fg">@group(0)</code>; one elsewhere is reported in <code class="font-mono text-[13px] text-fg">rejected</code> and the next tier runs.',
+  },
+  {
+    backend: 'webgl2',
+    needs: '<code class="font-mono text-[13px] text-fg">gl</code>',
+    how: 'the fragment-GPGPU lowering — everything the rest of this page describes',
+    note: 'The data texture, the R32UI target, the viewport save/restore, the three silent-failure traps below: all of it, done for you.',
+  },
+  {
+    backend: 'cpu',
+    needs: 'nothing',
+    how: '<code class="font-mono text-[13px] text-fg">compileModuleJs</code> — the kernel as generated JS, <code class="font-mono text-[13px] text-fg">new Function</code>\u2019d',
+    note: 'Real, not a stub: measured 9.52M invocations/sec. Still a cliff versus a GPU (~105&nbsp;ms at 1M invocations), which is exactly why <code class="font-mono text-[13px] text-fg">backend</code> is worth reading.',
+  },
+]
 
 const wgsl = emitModule(kernelModule)
 const glsl = emitGlslModule(kernelModule, 'fragment')
@@ -240,6 +300,12 @@ const divergence: { name: string; reflected: string; glsl: string }[] = [
     <strong class="text-fg">dispatch</strong>: the host submits a draw, not a compute pass. That last part is
     the whole cost, and this page is what it takes to pay it.
   </p>
+  <p class="mt-4 text-[16px] leading-[1.6] text-fg-dim max-w-full">
+    <strong class="text-fg">You probably do not have to pay it yourself.</strong>
+    <a href="#runner" class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">One
+    call site</a> runs the kernel on WebGPU, WebGL2 or the CPU and tells you which one it got. Read the rest
+    of this page when you want to know what it is doing, or when you need to hand-roll the dispatch anyway.
+  </p>
 
   <section class="mt-12">
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">Declared, never inferred</h2>
@@ -328,14 +394,147 @@ const divergence: { name: string; reflected: string; glsl: string }[] = [
     </div>
   </section>
 
+  <section class="mt-12" id="runner">
+    <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">One call site, whichever backend the host has</h2>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      A compute kernel in the tier does not need you to pick a backend and write its dispatch.
+      <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl/compute</code> resolves one, runs the kernel,
+      and — this is the part that matters — <strong class="text-fg">tells you which one it got</strong>.
+      Still zero dependencies, and on its own subpath: an emit-only consumer who never imports it bundles none
+      of it.
+    </p>
+    <div class="sd-code mt-5"><Code code={runnerSnippet} lang="ts" /></div>
+
+    <div class="mt-6 rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[680px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium w-[13%]">backend</th>
+              <th class="px-4 py-3 text-left font-medium w-[12%]">needs</th>
+              <th class="px-4 py-3 text-left font-medium w-[30%]">runs</th>
+              <th class="px-4 py-3 text-left font-medium">what that means</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            {tiers.map((t) => (
+              <tr class="border-t border-line">
+                <td class="px-4 py-3"><code class="font-mono text-[13px] text-fg">{t.backend}</code></td>
+                <td class="px-4 py-3" set:html={t.needs}></td>
+                <td class="px-4 py-3" set:html={t.how}></td>
+                <td class="px-4 py-3" set:html={t.note}></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3 class="mt-8 font-display text-[17px] font-normal text-fg tracking-[-0.02em] mb-2">Never a silent fallback</h3>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      three.js documents that compute work on its renderer <em>“may not run when devices silently drop to the
+      WebGL2 fallback.”</em> That is the failure this API is shaped to make impossible. Resolution is
+      <strong class="text-fg">order-driven, not capability-guessed</strong>, it happens once at construction, and
+      every candidate ahead of the winner leaves a sentence behind. Here is what
+      <code class="font-mono text-[13px] text-fg">rejected</code> actually contains when the same kernel is
+      constructed with no handles at all — read off a real runner while this page was built:
+    </p>
+    <div class="mt-4 rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[560px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium w-[20%]">rejected backend</th>
+              <th class="px-4 py-3 text-left font-medium">reason</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim">
+            {bareRejected.map((r) => (
+              <tr class="border-t border-line">
+                <td class="px-4 py-3"><code class="font-mono text-[13px] text-fg">{r.backend}</code></td>
+                <td class="px-4 py-3 font-mono text-[12.5px]">{r.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="mt-5 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      A CPU fallback you did not notice is a real cliff — roughly 105&nbsp;ms at 1M invocations — and it is not
+      debuggable from the outside. If a tier is <em>required</em>, say so and the constructor throws:
+    </p>
+    <div class="sd-code mt-4"><Code code={pinnedSnippet} lang="ts" /></div>
+
+    <h3 class="mt-8 font-display text-[17px] font-normal text-fg tracking-[-0.02em] mb-2">Run at build time, on this page</h3>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      The numbers below are not an illustration. The kernel shown earlier on this page —
+      <code class="font-mono text-[13px] text-fg">out[i] = bitcast&lt;u32&gt;(in[i] * 2 + 1)</code> — was run
+      through <code class="font-mono text-[13px] text-fg">createComputeRunner</code> while this page was
+      generated. A static build has no GL context and no GPU device, so it resolved to
+      <code class="font-mono text-[13px] text-fg">{`'${liveRunner.backend}'`}</code>, which is the same
+      resolution your host would get with no handles passed.
+    </p>
+    <div class="mt-4 rounded-2xl bg-bg-card border border-line overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[560px] text-[13px] sm:text-[14px]">
+          <thead class="bg-bg-elev text-fg">
+            <tr>
+              <th class="px-4 py-3 text-left font-medium w-[8%]">i</th>
+              <th class="px-4 py-3 text-left font-medium w-[24%]">in (f32)</th>
+              <th class="px-4 py-3 text-left font-medium w-[34%]">out (u32, as returned)</th>
+              <th class="px-4 py-3 text-left font-medium">bitcast back to f32</th>
+            </tr>
+          </thead>
+          <tbody class="text-fg-dim font-mono text-[12.5px]">
+            {Array.from(liveOut, (u, i) => (
+              <tr class="border-t border-line">
+                <td class="px-4 py-3">{i}</td>
+                <td class="px-4 py-3">{runnerInput[i]}</td>
+                <td class="px-4 py-3">{u}</td>
+                <td class="px-4 py-3 text-fg">{liveDecoded[i]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="mt-5 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      Those are the same values the WebGL2 and WebGPU tiers produce for the same input — checked byte-for-byte
+      against a tree-walk interpreter, on a real GPU, by
+      <code class="font-mono text-[13px] text-fg">playground/e2e/_compute-runner-parity.spec.ts</code>.
+    </p>
+
+    <h3 class="mt-8 font-display text-[17px] font-normal text-fg tracking-[-0.02em] mb-2">Two things to know before you adopt it</h3>
+    <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      <strong class="text-fg"><code class="font-mono text-[13px] text-fg">run()</code> is async on every tier,
+      including CPU.</strong> WebGPU has no synchronous buffer read —
+      <code class="font-mono text-[13px] text-fg">mapAsync</code> is the only door. Unity hit the same wall on
+      its own web target (<code class="font-mono text-[13px] text-fg">ComputeBuffer.GetData</code> does not work
+      there; <code class="font-mono text-[13px] text-fg">AsyncGPUReadback</code> had to be added). A synchronous
+      common signature would have been a lie on the one backend that most needs the escape hatch, so the other
+      two resolve an already-settled promise instead.
+    </p>
+    <p class="mt-3 text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
+      <strong class="text-fg">It emits at construction, so it is not the pre-baked path.</strong> If you bake
+      shaders to files ahead of time and ship the artifacts — see
+      <a href={`${root}/shipping`} class="text-fg underline decoration-line underline-offset-4 hover:decoration-fg">Shipping</a> —
+      the runner is doing that emit at runtime instead, which is a different trade: no bake step and no staleness
+      gate, but the emitter is in your bundle. Both are supported. Pick one per kernel, not per project, and if
+      you bake, the host contract below is what you are baking <em>for</em>.
+    </p>
+  </section>
+
   <section class="mt-12">
     <h2 class="font-display text-[21px] font-normal text-fg tracking-[-0.02em] mb-2">The host contract</h2>
     <p class="text-[14.5px] leading-[1.6] text-fg-dim max-w-full">
-      If you use <code class="font-mono text-[13px] text-fg">@xgis/rhi-webgl2</code>, its
-      <code class="font-mono text-[13px] text-fg">dispatchComputeKernelWebGl2</code> already absorbs all of this
-      and you can stop reading. If you vendor <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl</code>
-      alone — it has zero dependencies, which is a supported way to use it — the three snippets below are the
-      whole contract. Every one of them is held verbatim by a Playwright gate that runs it on a real WebGL2
+      Three ways out of this section, in the order most people should take them.
+      <code class="font-mono text-[13px] text-fg">@xgis/shader-dsl/compute</code> (above) absorbs all of it with
+      zero dependencies and covers WebGPU and the CPU too;
+      <code class="font-mono text-[13px] text-fg">@xgis/rhi-webgl2</code>'s
+      <code class="font-mono text-[13px] text-fg">dispatchComputeKernelWebGl2</code> absorbs it if you already
+      have that package. Read on if you need the dispatch in your <em>own</em> GL code — a pre-baked shader, an
+      existing render loop, a framebuffer you already own — because then the three snippets below are the whole
+      contract. Every one of them is held verbatim by a Playwright gate that runs it on a real WebGL2
       context and byte-compares the result against the CPU-f64 oracle.
     </p>
 
