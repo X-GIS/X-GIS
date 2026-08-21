@@ -1859,6 +1859,20 @@ const CEILINGS: Record<string, number> = {
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
   // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP before.
   'compiler/src/ir/emit-commands.ts': 805,
+  // 785→826 (#1269 item 3): retry backoff jitter, so tiles that fail together
+  // don't retry in lockstep — the injectable-rng test seam (mirrors the log-throttle/
+  // negative-cache module-state + test-only-setter shape already in this file) +
+  // jitteredBackoffMs + its jitter-shape rationale doc comment. First CEILINGS entry
+  // for this file — it crossed NEW_FILE_CAP (800) with this change.
+  // 826→835 (#1269 item 3, adversarial review): full jitter swapped for EQUAL jitter —
+  // full jitter let both backoff attempts land near zero simultaneously (witness
+  // r1=r2=0.05 → 60ms total retry window vs the fixed schedule's 1200ms), burning all
+  // 3 attempts inside a sub-second upstream blip ~2.7% of the time and paying the
+  // 5-minute negative-cache penalty for it. The doc comment on jitteredBackoffMs was
+  // rewritten (not just the formula swapped) to argue from this path's own economics —
+  // 3 fixed attempts + a 5-minute exhaustion cost — rather than leave the prior AWS
+  // unbounded-retry citation standing unexplained against a different formula.
+  'data/src/vector-tile-loader.ts': 835,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {
