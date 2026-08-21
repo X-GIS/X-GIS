@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: fe305598c6d2e18ea168da78d790450d2441ccc4
+  Generated from: 22b7c957070f21aab1027dee31cd3994062a902d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since fe305598c6d2
+    bun scripts/emit-changelog.ts --since 22b7c957070f
 -->
 
 # Changelog
@@ -89,6 +89,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/tiler:** key the property table by the resolved fid (#1947) ([#1951](https://github.com/X-GIS/X-GIS/pull/1951)) `22b7c95`
 - **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
 - **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
 - **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
