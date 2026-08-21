@@ -151,7 +151,7 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   '_perf-scenarios.spec.ts':
     'local fixture (#1349 census: 8 fully local of the 47 stability/perf specs) but asserts a real-GPU wall-clock timing budget (e.g. p95 <= 16.6ms for 100k icons) SwiftShader cannot honor -- belongs in a reported-not-blocking nightly bucket, not registered (#1349)',
   '_phase5f-perf-compare.spec.ts':
-    'local fixture (#1349 census: 8 fully local of the 47 stability/perf specs) but asserts a real-GPU wall-clock timing budget (e.g. p95 <= 16.6ms for 100k icons) SwiftShader cannot honor -- belongs in a reported-not-blocking nightly bucket, not registered (#1349)',
+    'wall-clock budget on SwiftShader, red on main independently of any change (measured 2026-08-21: defaultMed.firstPaintMs 16436 ms against a 15000 ms assertion) -- CLAUDE.md section 5 excludes timing gates from the software-raster path, so this cannot be registered until it is re-scoped to a non-timing signal or moved to a real-GPU lane',
   '_profile-hybrid-stall.spec.ts':
     'targeted CPU profile capture (Chromium Profiler) for a stall investigation -- diagnostic tool, not a pass/fail correctness gate',
   '_profile-minimal.spec.ts':
@@ -551,8 +551,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   '_heatmap-verify.spec.ts':
     'investigation/diagnostic probe (naming convention: probe/diag/audit/witness/hunt/inspector/trace/dump/capture/replay/check/verify/snapshot/profile), never meant to gate CI',
   '_interaction-audit.spec.ts':
-    'investigation/diagnostic probe (naming convention: probe/diag/audit/witness/hunt/inspector/trace/dump/capture/replay/check/verify/snapshot/profile), never meant to gate CI',
-  '_phase5e-yellow-sea-verify.spec.ts':
     'investigation/diagnostic probe (naming convention: probe/diag/audit/witness/hunt/inspector/trace/dump/capture/replay/check/verify/snapshot/profile), never meant to gate CI',
   '_phase5f2-inline-verify.spec.ts':
     'investigation/diagnostic probe (naming convention: probe/diag/audit/witness/hunt/inspector/trace/dump/capture/replay/check/verify/snapshot/profile), never meant to gate CI',
