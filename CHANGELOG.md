@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b4c8bdfea2be90d7a03a7cf540fa55717627e329
+  Generated from: 2d872e1bc30c834988d915d1ec9254cc57d90dab
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b4c8bdfea2be
+    bun scripts/emit-changelog.ts --since 2d872e1bc30c
 -->
 
 # Changelog
@@ -88,6 +88,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
 - **playground:** gate step_and_concat labels on glyph ink, not an unreachable pure-white count (#1838) ([#1943](https://github.com/X-GIS/X-GIS/pull/1943)) `b4c8bdf`
 - **playground:** narrow the import-button e2e wait to the pushed source (#1845) ([#1942](https://github.com/X-GIS/X-GIS/pull/1942)) `544caa7`
 - **map/sources:** importer-seeded inline GeoJSON defaults onto the VirtualPMTiles route (#1837) ([#1846](https://github.com/X-GIS/X-GIS/pull/1846)) `af77872`
@@ -224,6 +225,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **ci:** register the #1845 and #1838 specs now that both are green ([#1945](https://github.com/X-GIS/X-GIS/pull/1945)) `b4ebd1a`
 - **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
 - **playground:** tie the demo-actions gate's waits to the map, not to CDP latency (#1895) ([#1920](https://github.com/X-GIS/X-GIS/pull/1920)) `884e32d`
 - **ci:** register 40 dark specs in the render gate, adjudicate the reds (#1349) ([#1839](https://github.com/X-GIS/X-GIS/pull/1839)) `7200bb2`

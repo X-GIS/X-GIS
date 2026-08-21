@@ -59,7 +59,7 @@ import {
   type PolarCapInstallHost,
 } from './geojson-polar-cap-show'
 import { invalidateResolvedShowCache } from './render/resolved-show'
-import { getSharedGeoJSONCompilePool } from '@xgis/data'
+import { computeSliceKey, getSharedGeoJSONCompilePool } from '@xgis/data'
 import { canvasEffectiveDpr, getSampleCount } from '@xgis/engine'
 // #834 M-B2 — the neutral surface (BackendChoice = public XGISMapOptions.backend
 // type; RhiDeviceLostInfo = onDeviceLost payload) comes from @xgis/engine, not
@@ -4159,6 +4159,21 @@ export class XGISMap {
       // Stable-id policy (`feature.id` → `properties.id` → index) lives
       // in the worker now via the `'feature-id-fallback'` mode; see
       // `geojson-compile-worker.ts:resolveIdResolver`.
+      //
+      // #1940 — the slot this route's tiles are STORED under is the string the
+      // VTR LOOKS THEM UP under, by construction. Both halves below (the
+      // pre-compiled z0 level and the runtime backend's on-demand tiles) take
+      // it. Before, both wrote the anonymous '' slot while the VTR asked for
+      // `computeSliceKey(sourceLayer || targetName, filter)` (vector-tile-
+      // renderer.ts:1074) — a permanent miss since 788e2282, i.e. every legacy-
+      // route source drew nothing: `?legacy=1` for URL GeoJSON, and filtered /
+      // procedural inline shows on the DEFAULT route too (the gate above keeps
+      // those two shapes here). NOT `vtKey`: a filtered show's vtKey carries a
+      // `__N` ordinal, while its lookup is `targetName::<filterHash>`.
+      const legacySliceKey = computeSliceKey(
+        show.sourceLayer || show.targetName || '',
+        show.filterExpr?.ast ?? null,
+      )
       const pool = getSharedGeoJSONCompilePool()
       const compilePromise = pool.compile(filtered, 0, 0, 'feature-id-fallback')
       // Capture the entry we just registered so a stale completion (arriving
@@ -4170,7 +4185,12 @@ export class XGISMap {
         .then(({ parts, tileSet }) => {
           if (this.vtSources.get(vtKey) !== registeredEntry) return // superseded
           if (tileSet.levels.length > 0) {
-            source.addTileLevel(tileSet.levels[0], tileSet.bounds, tileSet.propertyTable)
+            source.addTileLevel(
+              tileSet.levels[0],
+              tileSet.bounds,
+              tileSet.propertyTable,
+              legacySliceKey,
+            )
           }
           // rawMaxZoom caps runtime sub-tile generation depth. Set to
           // camera.maxZoom (22) so zooming past z=7 produces properly-
@@ -4179,7 +4199,7 @@ export class XGISMap {
           // Paired with 5c1be77's fullCover plumbing through compileSingleTile
           // → xgvt-source so the sub-tile quads reach the match() color
           // lookup with the correct feature id attached.
-          source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0)
+          source.setRawParts(parts, tileSet.levels.length > 0 ? 22 : 0, legacySliceKey)
 
           // Feature data buffer MUST be built after the property table is set on the source — which
           // only happens in `addTileLevel` above. Building it earlier (inside the sync
