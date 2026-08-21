@@ -275,6 +275,7 @@ export class FeatureDataBinder {
           // expression's `_` default arm intent.
           const uniqueVals = new Set<string>()
           for (const row of table.values) {
+            if (!row) continue
             const v = row[fi]
             if (typeof v === 'string' && !map.has(v)) uniqueVals.add(v)
           }
@@ -289,6 +290,7 @@ export class FeatureDataBinder {
           // present. (Was: per-tile/-source alphabetical rank.)
           const vals: string[] = []
           for (const row of table.values) {
+            if (!row) continue
             const v = row[fi]
             if (typeof v === 'string') vals.push(v)
           }
@@ -299,7 +301,11 @@ export class FeatureDataBinder {
     }
 
     for (let i = 0; i < featureCount; i++) {
+      // `i` is a fid, and the table is sparse wherever the fid space is
+      // (#1947) — an unclaimed slot has no row and keeps its zero-filled
+      // slice, which is what the variant's fallback arm expects.
       const row = table.values[i]
+      if (!row) continue
       for (let j = 0; j < fieldCount; j++) {
         const fieldName = variant.featureFields[j]
         const fi = table.fieldNames.indexOf(fieldName)
