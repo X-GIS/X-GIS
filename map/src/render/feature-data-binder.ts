@@ -32,6 +32,7 @@ import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'
 import { polygonUniformSlots } from './polygon-uniform-slots'
 import { buildCategoryMap, packPerTileFeatureData } from './feature-data-pack'
+import { xlog } from '@xgis/shared'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
 // lazily from reflect(buildPolygonModule()) — the SAME IR the shader is emitted
@@ -59,6 +60,55 @@ export interface PaletteResources {
 // this binder) packs the SAME bytes. Re-exported here: both names are part of
 // `@xgis/map`'s surface via `export * from './render/feature-data-binder'`.
 export { stableCategoryId, buildCategoryMap } from './feature-data-pack'
+
+// ═══ #1947 — the source-level feat_data sparsity bound ═══
+//
+// The source-level buffer is addressed DIRECTLY by fid (`feat_data[fid *
+// fieldCount + j]`), so its length is `maxFid + 1` — a size set by the id
+// SPACE, not by the feature count. `PropertyTable.values` is fid-addressed and
+// fids are stable USER ids: `toU32Id` passes integers through but FNV-hashes
+// every other id across the whole u32 range (data/src/id-resolver.ts:35), so a
+// single feature with `"id": "USA"` parks its row at slot 2_523_649_480 and a
+// dense array over that space is a ~10 GB Float32Array. Refusing the dense
+// representation is the only sane answer; the caller then takes the same
+// per-tile fallback the empty-table branch takes.
+//
+// The bound has two clauses, each doing a different job:
+//   FLOOR — below one mebibyte the dense array cannot be the memory problem
+//   whatever the ids, so no table is ever refused for merely having a gap. This
+//   is what keeps ordinary sparse-but-small id sets (ids 1..200_000 for eight
+//   features, 800 KB) on the fast path, and it is why the two-quad fixture with
+//   ids 1 and 2 is unaffected.
+//   DENSITY — above the floor, allocate only while the array is at most
+//   MAX_SLOTS_PER_ROW slots per row that actually carries data. The resolver's
+//   own dense case is N+1 slots for N rows (fid 0 is reserved as the pick
+//   decoder's "no feature" sentinel), so 4x leaves a wide margin over the
+//   tightest legitimate layout while rejecting a hashed-id space by ~9 orders
+//   of magnitude. Nothing between those two extremes is a close call.
+const DENSE_TABLE_FLOOR_BYTES = 1 << 20
+const MAX_SLOTS_PER_ROW = 4
+
+/** Warn-once per shader variant that a source's per-feature data was DROPPED.
+ *  A wrong colour that announces itself is recoverable; a silent one is the
+ *  defect #1947 exists to close, so this path must never be quiet. Module-scope
+ *  Set matches the `layer.ts` `_warnedUnknownTypes` idiom. */
+const _warnedSparseTables = new Set<string>()
+function warnSparseFeatureTable(
+  variantKey: string,
+  slots: number,
+  rows: number,
+  bytes: number,
+): void {
+  if (_warnedSparseTables.has(variantKey)) return
+  _warnedSparseTables.add(variantKey)
+  xlog.warn(
+    `[X-GIS] per-feature data SKIPPED for shader variant "${variantKey}": this source's feature-id ` +
+      `space is sparse — ${slots} feat_data slots for ${rows} feature${rows === 1 ? '' : 's'}, a ` +
+      `${Math.round(bytes / (1 << 20))} MiB dense buffer. Data-driven paint (match / gradient / any ` +
+      `.prop read) falls back to the expression's default arm for this source. Give the features ` +
+      `integer ids in a compact range: a non-integer id is hashed across the whole u32 range. (#1947)`,
+  )
+}
 
 export class FeatureDataBinder {
   private device: GPUDevice
@@ -247,6 +297,23 @@ export class FeatureDataBinder {
 
     const fieldCount = variant.featureFields.length
     const featureCount = table.values.length
+    // #1947 sparsity gate — see DENSE_TABLE_FLOOR_BYTES above for why this
+    // bound, and why the fixture's ids 1 / 2 never reach it.
+    const denseBytes = featureCount * fieldCount * 4
+    if (denseBytes > DENSE_TABLE_FLOOR_BYTES) {
+      // Pay for the row count only once the dense array is big enough to
+      // matter. On a sparse table V8 holds the rows in dictionary elements, so
+      // this enumerates the FEATURES, not the id space (measured 0.007 ms for
+      // one row parked at fid 2_523_649_480).
+      const presentRows = Object.keys(table.values).length
+      if (featureCount > presentRows * MAX_SLOTS_PER_ROW) {
+        warnSparseFeatureTable(variant.key, featureCount, presentRows, denseBytes)
+        // Same fallback the empty-table branch above takes: per-tile path on
+        // uploadTile. It yields nothing on this backend, which is why the warn
+        // is not optional.
+        return false
+      }
+    }
     const data = new Float32Array(featureCount * fieldCount)
 
     const catMaps = new Map<string, Map<string, number>>()
