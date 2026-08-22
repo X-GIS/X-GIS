@@ -4,8 +4,28 @@
 // (CSE, LICM, …). Kept in one place so the two passes cannot drift (duplicated
 // traversal logic that must agree is this codebase's #1 bug archetype).
 
-import type { Expr, Stmt } from '../../ir/index.js'
+import type { Expr, Stmt, ShaderType } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
+
+/** `'i32'` / `'u32'` for an integer scalar or integer VECTOR type, else undefined.
+ *
+ *  The single test behind every rewrite that is sound on integers and unsound on floats.
+ *  Both apply: `i * 0 -> 0` and `i - i -> 0` hold for every integer but not for a float
+ *  (`NaN * 0` is `NaN`, `Inf - Inf` is `NaN`), and integer literal arithmetic WRAPS where
+ *  float literal arithmetic does not. Shared by const-fold and algebraic so the two cannot
+ *  disagree about what counts as an integer — the drift this module exists to prevent. */
+export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
+  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : undefined
+  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : undefined
+  return undefined
+}
+
+/** Wrap a folded integer into `elem`'s 32-bit range, the way the GPU (and C) does.
+ *  JS `ToInt32` / `ToUint32` ARE the modulo-2^32 reduction, so this is exact for any finite
+ *  input — measured against gcc 13.3 -O2: `2147483647 + 1` -> `-2147483648`,
+ *  `0u - 1u` -> `4294967295`, `100000 * 100000` -> `1410065408`. */
+export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
+  elem === 'u32' ? v >>> 0 : v | 0
 
 /** A deterministic structural key — two structurally-equal exprs share a key. */
 export function keyOf(e: Expr): string {

@@ -358,8 +358,11 @@ describe('#1520 advected arrow — re-symbolized from the field UNDER it', () =>
     // moving glyphs over.
     const vs = w.slice(w.indexOf('fn vs_arrow_retained_advected'))
     const body = vs.slice(0, vs.indexOf('\n}'))
-    expect(body, 'the instance splits into seed and glyph by G').toContain(
-      `/ ${ARROW_TRAIN_GLYPHS}.0`,
+    // Divided by G, in either EXACT spelling: the optimizer canonicalises a division by a
+    // power of two into a multiply by its reciprocal (gcc -O2 does the same), and G is 4.
+    // Both forms are asserted from the constant, so this still fails if the divisor moves.
+    expect(body, 'the instance splits into seed and glyph by G').toMatch(
+      new RegExp(`/ ${ARROW_TRAIN_GLYPHS}\\.0|\\* ${1 / ARROW_TRAIN_GLYPHS}\\b`),
     )
     // By shape, not by spelling — the optimizer may bind the sum to its own name
     // (gvn does, #1865); arrow-excursion-bound.test.ts is where the operands are
