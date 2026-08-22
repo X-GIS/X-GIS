@@ -431,6 +431,19 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   uploaded a neighbouring renderer's bytes and drew nothing. Feed at least one input shaped the
   way real callers shape it, and plant a decoy around it.
   → `2026-08-14-every-test-passed-offset-zero.md`
+- One step earlier AGAIN: the assertions and the inputs can both be fine and the INSTRUMENT you
+  measure with can still be blind — and a blind instrument reports ZERO, which reads as a
+  finding. Counting optimizer opportunities by regex over EMITTED TEXT does exactly this: the
+  emitter CSEs every expression into a `let` chain, so `vec2(x,y).x` is spelled `_cseN.y` two
+  statements apart and a nested-shape regex finds none of it. 13 of 15 gcc-parity rules
+  measured "0 sites" that way; re-measured on the IR with let-bindings resolved,
+  member-of-construct alone is 37 sites in the default emit and 2,420 after
+  `forceInline('all')`. Worse, the same blind probe produced a FALSE SAFETY claim that reached
+  main ("adding this fold changed nothing") when a let-resolving fold deletes
+  `renormForCancel`'s twoSum — the #915 guard. Count on the IR, never the text; validate the
+  instrument against a KNOWN POSITIVE before believing a zero (one was already in hand, built
+  by hand two probes earlier); and read a uniform zero as a broken ruler, not a clean corpus.
+  → `#1972`
 - A change that REFACTORS a shared path owes the gates of that path's CONSUMERS, not the gates of
   the feature that motivated it — those are different sets, and the feature's own are the ones you
   will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
