@@ -66,25 +66,73 @@ async function setZoom(page: import('@playwright/test').Page, z: number): Promis
 
 /** How long the rendered sizes are given to stop changing, and how often to look.
  *
- *  MEASURED on the headless SwiftShader path. Three runs of the loop below reach two
- *  matching reads in 3-4 polls at z2 and 2 polls at z4. Do NOT read those poll counts
- *  as a settle time: each poll is a screenshot + measure round-trip costing ~200-800 ms
- *  here, so the loop's elapsed time is dominated by its own measurement, and the loop
- *  needs two polls minimum even when the page settled before the first one.
+ *  MEASURED, and the second round of measurement CORRECTED the first — recorded here
+ *  because the correction is the whole reason the predicate below has two signals.
  *
- *  What IS measured about the page: a read taken with no wait at all comes back
- *  [0, 0, 0] — nothing drawn yet — while the same read after the old 2000 ms sleep
- *  comes back at the settled values on this (idle) box, 3 runs out of 3. So 2000 ms was
- *  sufficient HERE and insufficient on a loaded CI shard, which is exactly the property
- *  that makes a fixed sleep the wrong instrument: its correct value is a function of the
- *  machine, and no single number is right on both. That is the argument for converging
- *  rather than for a bigger sleep.
+ *  Round 1 replaced a hardcoded `waitForTimeout(2000)` with "two consecutive equal,
+ *  non-zero diameter reads". It passed 3/3 locally and STILL FLAKED ON CI, reporting
+ *  `settled=true` on the wrong value:
  *
- *  45 s is therefore a "something is actually broken" ceiling, not a tuned wait: ~10x
- *  the slowest loop observed here, enough to absorb the ~10x CI slowdown the dateline
- *  gate showed (#1924), and still leaving ~150 s of this test's own 240 s budget. */
+ *      CI, failing attempt   Z2 [6,12,18]  settled=true polls=2  977 ms
+ *      CI, retry             Z2 [9,14,20]  settled=true polls=2 1068 ms
+ *      local                 Z2 [8,14,19]  settled=true polls=3 2100-3300 ms
+ *
+ *  Two equal reads detect MOMENTARY stability, not convergence. CI's screenshot+measure
+ *  round-trip is faster than this box's, so it reached its second poll at 977 ms —
+ *  early enough in the page's life to catch a plateau and call it settled. A predicate
+ *  sampling one quantity can always be outrun by a fast sampler on a slow page.
+ *
+ *  Hence a SECOND, independent signal: the map's own `contentGeneration`. Traced locally
+ *  per poll, it moves on its own schedule and is not derivable from the pixels:
+ *
+ *      run A  poll1 d=[0,0,0]   gen=0  inFlight=4
+ *             poll2 d=[0,0,0]   gen=37 inFlight=0     <- diameters EQUAL, gen moved
+ *             poll3 d=[8,14,19] gen=37
+ *             poll4 d=[8,14,19] gen=37                <- both stable: settled
+ *      run B  poll1 d=[0,0,0]   gen=33
+ *             poll2 d=[8,14,19] gen=37                <- both moved
+ *             poll3 d=[8,14,19] gen=37                <- both stable: settled
+ *
+ *  Run A's poll1/poll2 is also the case the all-positive guard exists for, caught in the
+ *  act: two EQUAL reads of [0,0,0] while the scene was still loading. That guard was
+ *  documented as unproven in round 1 — this trace is the proof, so it now stays on
+ *  evidence rather than on caution.
+ *
+ *  HONEST LIMIT, stated because round 1 was over-claimed and CI collected the bill:
+ *  the gen conjunct is strictly stronger BY CONSTRUCTION — a conjunction can only delay
+ *  settling, never advance it — and CI's 977 ms exit sits far inside the 1500-2500 ms
+ *  this box needs for gen to stabilise, so it very likely blocks that exact plateau.
+ *  It is NOT proven to. Two things are true and neither is proof:
+ *    - the failing CI run predates the gen probe, so gen at that moment is unknown;
+ *    - CUTTING the gen conjunct here changes no local outcome (same 3 polls, 2/2 runs),
+ *      because the diameter conjunct is always the binding one on this box. So gen is
+ *      unexercised locally, exactly as the all-positive guard was until the trace above
+ *      caught it firing.
+ *  `gen` is therefore logged on the Z2/Z4 line. The next CI run states which half held,
+ *  which is what makes a third round a measurement rather than another guess.
+ *
+ *  45 s is a "something is actually broken" ceiling, not a tuned wait: ~10x the slowest
+ *  loop seen here, absorbing the ~10x CI slowdown the dateline gate showed (#1924), and
+ *  still leaving ~150 s of this test's own 240 s budget. */
 const SETTLE_BUDGET_MS = 45_000
 const SETTLE_POLL_MS = 200
+
+/** The map's own "the scene changed" counter, summed over attached catalogs — the same
+ *  quantity `_1616-content-generation-churn` watches. Read as a SECOND, independent
+ *  stability signal, because the measured diameters alone are not enough (see below). */
+const readGen = (page: import('@playwright/test').Page): Promise<number> =>
+  page.evaluate(() => {
+    const m = (
+      window as unknown as {
+        __xgisMap?: {
+          vtSources?: Map<string, { source?: { contentGeneration?: () => number } }>
+        }
+      }
+    ).__xgisMap
+    let gen = 0
+    for (const [, v] of m?.vtSources ?? []) gen += v.source?.contentGeneration?.() ?? 0
+    return gen
+  })
 
 interface Settled {
   png: Buffer
@@ -94,6 +142,9 @@ interface Settled {
    *  the ramp (#1924: a gate that blames a mechanism for a state it cannot distinguish
    *  sends the next person to the wrong file). */
   settled: boolean
+  /** The content generation at the settling read. LOGGED so the next CI run can decide
+   *  whether the gen half of the predicate was what held, instead of guessing again. */
+  gen: number
   polls: number
   ms: number
   /** The last two reads, for the failure message. */
@@ -115,14 +166,10 @@ interface Settled {
  *  Convergence on the quantity the assertions actually read — two consecutive equal
  *  measurements — not a bigger sleep. A bigger sleep only moves the same failure later.
  *
- *  The all-positive guard is DEFENSIVE AND UNPROVEN, stated plainly so nobody mistakes
- *  it for a gated invariant: two reads of [0, 0, 0] are "equal", so without it the loop
- *  could report settled with nothing drawn — and the tier assertion would then fail
- *  accusing the ramp, the misattribution #1924 is about. Removing it does not redden any
- *  run on this box, because the dots are drawn by the second poll here. It is kept
- *  because a first read of [0, 0, 0] IS observed (measured above), so two of them is a
- *  slower machine away, and the cost of being wrong is a false accusation rather than a
- *  clean failure. */
+ *  The all-positive guard is load-bearing, and observed firing: a poll pair of
+ *  [0, 0, 0] / [0, 0, 0] is traced above. Without it the loop reports settled with
+ *  nothing drawn, and the tier assertion then fails accusing the ramp — the
+ *  misattribution #1924 is about. */
 async function settleAndMeasure(
   page: import('@playwright/test').Page,
   z: number,
@@ -130,27 +177,32 @@ async function settleAndMeasure(
   await setZoom(page, z)
   const t0 = Date.now()
   let prev: number[] = []
+  let prevGen = -1
   let png = Buffer.alloc(0)
   let diameters: number[] = []
+  let gen = -1
   let polls = 0
   let settled = false
   for (;;) {
     png = await page.locator('#map').screenshot()
     diameters = await measureDiameters(page, png)
+    gen = await readGen(page)
     polls++
     if (
       diameters.length === LONS.length &&
       diameters.every((v) => v > 0) &&
-      diameters.every((v, i) => v === prev[i])
+      diameters.every((v, i) => v === prev[i]) &&
+      gen === prevGen
     ) {
       settled = true
       break
     }
     if (Date.now() - t0 > SETTLE_BUDGET_MS) break
     prev = diameters
+    prevGen = gen
     await page.waitForTimeout(SETTLE_POLL_MS)
   }
-  return { png, diameters, settled, polls, ms: Date.now() - t0, tail: [prev, diameters] }
+  return { png, diameters, gen, settled, polls, ms: Date.now() - t0, tail: [prev, diameters] }
 }
 
 /** Diameter of each dot: the contiguous rose run along the row through the
@@ -221,14 +273,14 @@ test('#1248 composite size tracks zoom live with per-feature tiers intact', asyn
   writeFileSync(join(OUT, 'z2.png'), low.png)
   const dLow = low.diameters
   console.log(
-    `Z2 diameters: ${JSON.stringify(dLow)} (settled=${low.settled} polls=${low.polls} ${low.ms}ms)`,
+    `Z2 diameters: ${JSON.stringify(dLow)} (settled=${low.settled} polls=${low.polls} ${low.ms}ms gen=${low.gen})`,
   )
 
   const high = await settleAndMeasure(page, 4)
   writeFileSync(join(OUT, 'z4.png'), high.png)
   const dHigh = high.diameters
   console.log(
-    `Z4 diameters: ${JSON.stringify(dHigh)} (settled=${high.settled} polls=${high.polls} ${high.ms}ms)`,
+    `Z4 diameters: ${JSON.stringify(dHigh)} (settled=${high.settled} polls=${high.polls} ${high.ms}ms gen=${high.gen})`,
   )
 
   expect(errors, 'no page errors').toEqual([])
