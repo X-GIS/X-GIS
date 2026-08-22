@@ -67,6 +67,10 @@ const guarded = module({
   funcs: [fn('g', { a: f64T, b: f64T }, f32T, (p, bb) => bb.ret(toF32(p.a.div(p.b))))],
 })
 
+/** The pinned arithmetic-op count of the force-inlined `guarded` kernel. Measured, and it
+ *  is the number a guard-deleting fold moves: a member-of-construct fold takes it to 400. */
+const FLATTENED_OPS = 408
+
 const BASE = fixpoint(fp64Lower(kernel))
 const SIZE_WIN = forceInline(BASE, 'size-win')
 const ALL = forceInline(BASE, 'all')
@@ -121,6 +125,34 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
     const flat = wgslOf([forceInlinePlugin({ strength: 'all' })])
     expect(flat).not.toMatch(/^fn df64_/m) // every helper inlined away…
     expect(flat).toMatch(/_fp64/) // …and the guard it carried is still read
+  })
+
+  // The `_fp64` check above is NOT sufficient, and that was measured rather than assumed:
+  // a member-of-construct fold deletes `renormForCancel`'s twoSum (408 arithmetic ops ->
+  // 400, `let _v0 = _a0 + _a1` collapsing to `_a0`) while the texel read stays at 1, so the
+  // presence check passes through the exact regression it looks like it guards.
+  //
+  // What DOES see it is the op count. Every df64 error-free transform is arithmetic; a pass
+  // that quietly cancels one shows up here as a DROP. So this is a ratchet, in the shape the
+  // repo already uses for backend identity: an exact count, and a drop is a finding to
+  // explain — "which guard did this delete, and is it one #915 paid for?" — before anyone
+  // re-baselines it. A RISE is ordinary (a new helper, a wider lowering) and just re-pins.
+  it('pins the flattened arithmetic-op count — a DROP means a guard was optimized away', () => {
+    const flat = forceInline(fixpoint(fp64Lower(guarded)), 'all')
+    let ops = 0
+    const walkE = (e: unknown): void => {
+      if (!e || typeof e !== 'object') return
+      const x = e as { op?: string; s?: string }
+      if (x.op === 'binop' || x.op === 'unop') ops++
+      for (const v of Object.values(e as Record<string, unknown>)) {
+        if (Array.isArray(v)) v.forEach(walkE)
+        else if (v && typeof v === 'object') walkE(v)
+      }
+    }
+    for (const f of flat.funcs) f.body.forEach(walkE)
+    expect(ops, 'flattened df64 arithmetic-op count moved — see the header before re-pinning').toBe(
+      FLATTENED_OPS,
+    )
   })
 })
 

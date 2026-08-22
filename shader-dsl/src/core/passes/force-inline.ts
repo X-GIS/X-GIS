@@ -34,17 +34,28 @@
 // `volatile` rule: inlining a function does not make a volatile expression inside it
 // foldable. `force-inline.test.ts` pins it.
 //
-// WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE, measured rather than assumed.
+// WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE — and the ONE pass that would break it.
 // `renormForCancel` (fp64-lower.ts) launders a LOADED lo into a computed one by adding a
 // df64 ZERO ahead of a cancelling op, and it is spelled as a df64_ call precisely so the
 // optimizer cannot fold it (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that
-// spelling, so what holds afterwards was checked directly: the zero reaches the add as
-// `_cseN.y`, a member of a CSE-hoisted LET, so deleting the add would take BOTH
-// construct-propagation into the member AND member-of-construct folding (gcc's scalar
-// replacement of aggregates). Neither pass exists here; adding member-of-construct folding
-// alone was tried against the flattened output and changed nothing. The ONE is a texel
-// fetch, which nothing folds at all. If both passes are ever written, the df64 zero wants
-// a real barrier (`optBarrier`) rather than the shape it happens to have.
+// spelling. What holds afterwards is only this: the zero reaches the add as `_cseN.y`, a
+// member of a CSE-hoisted LET, and no pass here folds a member of a construct.
+//
+// ADDING THAT FOLD BREAKS THE GUARD — measured, not feared. A member-of-construct fold
+// (gcc's scalar replacement of aggregates) that resolves the base through its let binding
+// turns `_cseN.y` into the literal `0.0`; const-prop then substitutes it into the twoSum's
+// `s = a + 0`, and the pre-existing `x + 0 -> x` identity deletes that add. On the a/b
+// division kernel: 408 arithmetic ops -> 400, and the emitted `let _v0 = _a0 + _a1` is
+// replaced by `_a0` inline — the launder is gone. The `_fp64` texel read SURVIVES (1 -> 1),
+// so a gate that only checks the guard binding cannot see this; the op-count ratchet in
+// `force-inline.test.ts` is what catches it.
+//
+// This matters because the fold is worth a lot: member-of-construct fires on 37 sites in
+// the default emit and 2,420 after `forceInline('all')`, since every df64 helper returns
+// `vec2<f32>(hi, lo)` that its caller immediately takes `.x`/`.y` of. It is the single
+// largest remaining gcc -O2 gap. Shipping it requires making the df64 zero robust BY
+// CONSTRUCTION first — an `optBarrier` on the renorm addend, or a renorm spelling the
+// identity rules cannot match — not relying on which folds happen to be absent.
 //
 // WHAT NEITHER STRENGTH CAN PROMISE. The barrier question this reopens is a DRIVER
 // question, and a correctly-rounded CPU oracle (and SwiftShader) is structurally blind
