@@ -58,6 +58,10 @@ const SCRIPT: ReadonlyArray<{ bearing: number; zoom: number; pitch: number }> = 
 
 async function bootArm(page: Page, bundleOff: boolean): Promise<void> {
   _clip = null
+  // Kill animation-timing nondeterminism (symbol fades etc.): one observed
+  // one-off step-0 deviation traced to first-pose content timing; reduced
+  // motion removes the variable in BOTH arms identically.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1#1.5/20/140`, {
     waitUntil: 'domcontentloaded',
   })

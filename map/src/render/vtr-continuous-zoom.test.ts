@@ -68,6 +68,12 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   const layout = {} as GPUBindGroupLayout
   const group = {} as GPUBindGroup
 
+  // #1190 allocation ledger — renderTileKeys resets these instance scratch
+  // arrays at entry (class-field initializers don't run under Object.create).
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueTiles = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueSlots = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeOffsetsScratch = []
+
   const set = (k: string, v: unknown) => {
     ;(vtr as unknown as Record<string, unknown>)[k] = v
   }

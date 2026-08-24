@@ -244,7 +244,11 @@ const CEILINGS: Record<string, number> = {
   // construction — ringCursor + stroke layer-slot offsets in both BundleKeyState
   // literals, the hit-path alloc-count invariant at both sites, default-ON gate.
   // Deltas disjoint (+29 #2024, +88 #1190 over the shared #2028 base). MEASURED.
-  'map/src/render/vector-tile-renderer.ts': 5078,
+  // 5078→5101 (#1190 allocation ledger): the strokeQueue's per-call object
+  // array became instance parallel scratch (+ the offsets-pair scratch) — the
+  // O(stroked-tiles × layers)/frame nursery churn from the issue's ledger, plus
+  // the field docs that record why the reuse is re-entrancy-safe.
+  'map/src/render/vector-tile-renderer.ts': 5101,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

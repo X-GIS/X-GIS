@@ -296,6 +296,19 @@ export class VectorTileRenderer {
   /** Per-frame scratch array for the `_tileDecisions` diagnostic
    *  (reused via `.length = N` reset). */
   private readonly _scratchTileDecisions: (string | undefined)[] = []
+  /** #1190 allocation ledger — the strokeQueue as reused PARALLEL scratch.
+   *  Was a per-renderTileKeys `{cached, slotOffset}[]` with one object per
+   *  stroked tile: O(stroked-tiles × layers) nursery garbage every
+   *  navigating frame (OFM Bright ≈ thousands/frame). Parallel arrays on
+   *  the instance, `.length = 0` at call entry — safe because
+   *  renderTileKeys never re-enters itself (the bundle encode + hit
+   *  re-walk are SEQUENTIAL calls from render()) and the queue is fully
+   *  consumed before the call returns. */
+  private readonly _strokeQueueTiles: GPUTile[] = []
+  private readonly _strokeQueueSlots: number[] = []
+  /** Companion scratch for the per-call stroke offset pair (single-line
+   *  `[lineLayerOffset]` vs road-casing `[lineLayerOffset, gap]`). */
+  private readonly _strokeOffsetsScratch: number[] = []
   /** #778 P1: reused scratch for world-copy offset cache-key rounding
    *  (replaces per-frame `.map()` allocs; see `_worldOffScratchKey`). */
   private readonly _worldOffScratch: number[] = []
@@ -4538,7 +4551,10 @@ export class VectorTileRenderer {
     // this tile in the per-tile loop). Without this, an extruded
     // building's roof outline would get overwritten by a later tile's
     // wall fill at the same pixel.
-    const strokeQueue: { cached: GPUTile; slotOffset: number }[] = []
+    const strokeQueueTiles = this._strokeQueueTiles
+    const strokeQueueSlots = this._strokeQueueSlots
+    strokeQueueTiles.length = 0
+    strokeQueueSlots.length = 0
     // Per-call invariants shared by the per-tile light-rotation + clip_bounds
     // math below (the anchor math itself lives in tile-camera-anchor.ts).
     const DEG2RAD = Math.PI / 180
@@ -4946,7 +4962,10 @@ export class VectorTileRenderer {
         if ((isOitFill || wantsExtrude) && !useExtrudedPipe) {
           // strokes for this tile still queue below (never in the shell phase,
           // where drawStrokes is false) — only the fill is being skipped here.
-          if (drawStrokes) strokeQueue.push({ cached, slotOffset })
+          if (drawStrokes) {
+            strokeQueueTiles.push(cached)
+            strokeQueueSlots.push(slotOffset)
+          }
           continue
         }
         // Debug=overdraw: collapse the extruded path onto the
@@ -5003,7 +5022,8 @@ export class VectorTileRenderer {
         this.lineRenderer &&
         (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
       ) {
-        strokeQueue.push({ cached, slotOffset })
+        strokeQueueTiles.push(cached)
+        strokeQueueSlots.push(slotOffset)
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -5025,7 +5045,7 @@ export class VectorTileRenderer {
     // buffer; with DEPTH_READ_ONLY they don't disturb later layers'
     // depth tests, but their occlusion against THIS layer's own
     // 3D geometry is now correct regardless of tile iteration order.
-    if (strokeQueue.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
+    if (strokeQueueTiles.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
       // `_skipStrokeDrawForBundle` gates these two drawSegments call sites.
       // When set true by the bundle replay path, both calls are skipped —
       // the cached bundle's executeBundles already replays the stroke
@@ -5036,11 +5056,14 @@ export class VectorTileRenderer {
       // written, iterate the strokeQueue with each offset. Single-line
       // (default) draws once. The second pass uses the SAME segment
       // data — only the layer-slot uniform's offset_m differs.
-      const offsets =
-        lineLayerOffsetGap >= 0 ? [lineLayerOffset, lineLayerOffsetGap] : [lineLayerOffset]
+      const offsets = this._strokeOffsetsScratch
+      offsets.length = 0
+      offsets.push(lineLayerOffset)
+      if (lineLayerOffsetGap >= 0) offsets.push(lineLayerOffsetGap)
       for (const lo of offsets) {
-        for (let i = 0; i < strokeQueue.length; i++) {
-          const { cached, slotOffset } = strokeQueue[i]
+        for (let i = 0; i < strokeQueueTiles.length; i++) {
+          const cached = strokeQueueTiles[i]!
+          const slotOffset = strokeQueueSlots[i]!
           if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
             this.lineRenderer.drawSegments(
               pass,
