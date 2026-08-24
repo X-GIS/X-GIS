@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 03927bf2c66dc219c20212195bd28b776f482725
+  Generated from: 35a1d894aa9211bdc06458e2a0b4cdc73037ab62
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 03927bf2c66d
+    bun scripts/emit-changelog.ts --since 35a1d894aa92
 -->
 
 # Changelog
@@ -216,6 +216,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
 - a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`
 - **site:** the compute runner on the WebGL2 GPGPU page ([#1967](https://github.com/X-GIS/X-GIS/pull/1967)) `838f99d`
