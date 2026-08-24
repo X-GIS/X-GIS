@@ -311,13 +311,12 @@ export class SourceManager {
     // caller (which passes nothing) is unaffected.
     isStale?: () => boolean,
   ): Promise<void> {
-    // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME
-    // VirtualPMTiles geojson ingest the url path uses (reproject → tile via
-    // VirtualPMTilesBackend → VTR pipelines → camera-fit), just skipping the
-    // fetch. Seeding only `rawDatasets` is NOT enough to render: the source
-    // must be tiled with a backend exactly like url geojson, or it stays
-    // invisible (real-GPU verified — rawDatasets-only seed produced a blank
-    // frame even tiled+camera-fit). `data:` wins over `url:` (compiler warns).
+    // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME VirtualPMTiles geojson
+    // ingest the url path uses (reproject → tile via VirtualPMTilesBackend → VTR pipelines →
+    // camera-fit), just skipping the fetch. Seeding only `rawDatasets` is NOT enough to render: the
+    // source must be tiled with a backend exactly like url geojson, or it stays invisible (real-GPU
+    // verified — rawDatasets-only seed produced a blank frame even tiled+camera-fit). `data:` wins
+    // over `url:` (compiler warns).
     if (load.inlineData !== undefined && load.inlineData !== null) {
       await this._attachGeoJSONViaVirtualPMTiles(
         load.name,
@@ -343,12 +342,11 @@ export class SourceManager {
     const declaredType = load.type
 
     // ── Custom source-loader registry (source-loader-seam §3.3) ──────────────
-    // Hoisted BEFORE the URL-shape heuristics so a registered custom type is
-    // AUTHORITATIVE — a custom source whose URL looks like a tile template (or
-    // ends `.pmtiles`) must not be hijacked into the raster / PMTiles branch
-    // (architect Finding D). The loader output routes through the SAME
-    // `_attachGeoJSONViaVirtualPMTiles` path the geojson branch uses; a bare
-    // `rawDatasets.set` seed renders a BLANK frame (see the inline-data note above).
+    // Hoisted BEFORE the URL-shape heuristics so a registered custom type is AUTHORITATIVE — a
+    // custom source whose URL looks like a tile template (or ends `.pmtiles`) must not be hijacked
+    // into the raster / PMTiles branch (architect Finding D). The loader output routes through the
+    // SAME `_attachGeoJSONViaVirtualPMTiles` path the geojson branch uses; a bare `rawDatasets.set`
+    // seed renders a BLANK frame (see the inline-data note above).
     if (declaredType !== undefined && !BUILTIN_SOURCE_TYPES.has(declaredType)) {
       const fc = await this._runCustomLoader(declaredType, load.name, url, load.options)
       // Route seam marker (mirrors the geojson-URL branch's `__xgisVirtualPMTilesActive`)
@@ -380,12 +378,13 @@ export class SourceManager {
       return
     }
 
-    // Mapbox styles declare `type: vector` / converted to `type: tilejson`
-    // for MVT XYZ endpoints whose URL contains the `{z}/{x}/{y}` template.
-    // Don't let the template-shape heuristic re-route those into the
-    // raster path — declared vector-family type wins.
+    // Mapbox styles declare `type: vector` / converted to `type: tilejson` for MVT XYZ endpoints
+    // whose URL contains the `{z}/{x}/{y}` template. Don't let the template-shape heuristic
+    // re-route those into the raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
+    // The DATASET's deepest real level (#1983) — both tile markers carry it for rasterCoverZoom.
+    const { maxzoom } = load
     // raster-dem (#777) — guard BEFORE looksLikeRaster; see map-types.ts `_dem`.
     if (declaredType === 'raster-dem') {
       this.rawDatasets.set(load.name, {
@@ -397,6 +396,7 @@ export class SourceManager {
         greenFactor: load.greenFactor,
         blueFactor: load.blueFactor,
         baseShift: load.baseShift,
+        maxzoom,
       })
       return
     }
@@ -404,7 +404,7 @@ export class SourceManager {
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize })
+      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize, maxzoom })
       return
     }
 

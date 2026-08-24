@@ -96,6 +96,15 @@ export interface LoadCommand {
   greenFactor?: number
   blueFactor?: number
   baseShift?: number
+  /** SOURCE-level `maxzoom` — the DATASET's deepest real tile level, threaded from the
+   *  compiler LoadCommand (emit-commands.ts) so `source-manager` can put it on the
+   *  raster / raster-dem markers and `rasterCoverZoom` can clamp the cover zoom to it.
+   *  Distinct from a LAYER's visibility gate: a tile past this does not EXIST, so
+   *  requesting one is a guaranteed 404. Undefined = unbounded, the pre-existing
+   *  behaviour for every source that does not declare one. Two-sibling rule; the legacy
+   *  `interpret()` path never sets it. Its `minzoom` sibling deliberately stops at the
+   *  compiler LoadCommand — the tile selector has no source-minzoom consumer (#1983). */
+  maxzoom?: number
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304),
    *  threaded from the compiler LoadCommand (emit-commands.ts) so
    *  `source-manager` reads it off `SceneCommands['loads'][0]` regardless of

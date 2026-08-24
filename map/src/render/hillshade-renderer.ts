@@ -405,12 +405,11 @@ export class HillshadeRenderer {
     this.urlTemplate = url
   }
 
-  /** Merge resolved hillshade params over the current set. The DEM decode
-   *  (unpack / tileSize) is set once at arm-time (map.ts, from the `_dem`
-   *  source marker); the paint (direction / altitude / exaggeration / colours /
-   *  method) is resolved per-frame by the HillshadePass. Merging lets the two
-   *  compose without one clobbering the other. Non-finite scalars keep the
-   *  current value (a value can't NaN-poison the shade). */
+  /** Merge resolved hillshade params over the current set. The DEM decode (unpack / tileSize /
+   *  maxzoom) is set once at arm-time (map.ts, from the `_dem` source marker); the paint
+   *  (direction / altitude / exaggeration / colours / method) is resolved per-frame by the
+   *  HillshadePass. Merging lets the two compose without one clobbering the other. Non-finite
+   *  scalars keep the current value (a value can't NaN-poison the shade). */
   setParams(p: Partial<HillshadeParams>): void {
     const cur = this._params
     const f = (v: number | undefined, d: number) =>
@@ -433,6 +432,7 @@ export class HillshadeRenderer {
       extraSources: p.extraSources ?? cur.extraSources,
       unpack: p.unpack ?? cur.unpack,
       tileSize: p.tileSize === 256 || p.tileSize === 512 ? p.tileSize : cur.tileSize,
+      maxzoom: p.maxzoom ?? cur.maxzoom, // #1983 — without this key the arm's value was dropped
     }
   }
 
