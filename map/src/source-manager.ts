@@ -303,12 +303,11 @@ export class SourceManager {
     baseUrl: string,
     maps: ShowSourceMaps,
     cameraFitState: { fit: boolean },
-    // A7 (#1153 P1) — optional staleness probe. A superseded run()'s attach
-    // promises keep settling AFTER the winner's entry-teardown; when this returns
-    // true the branch destroys its locally built catalog+renderer and returns
-    // WITHOUT the shared-map registerVtSource write, so a dead-device entry can't
-    // overwrite the winner's same-key entry. Additive/optional — every existing
-    // caller (which passes nothing) is unaffected.
+    // A7 (#1153 P1) — optional staleness probe. A superseded run()'s attach promises keep settling
+    // AFTER the winner's entry-teardown; when this returns true the branch destroys its locally
+    // built catalog+renderer and returns WITHOUT the shared-map registerVtSource write, so a
+    // dead-device entry can't overwrite the winner's same-key entry. Additive/optional — every
+    // existing caller (which passes nothing) is unaffected.
     isStale?: () => boolean,
   ): Promise<void> {
     // Inline GeoJSON (`source x { data: {...} }`) — route through the SAME VirtualPMTiles geojson
@@ -383,8 +382,9 @@ export class SourceManager {
     // re-route those into the raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
-    // The DATASET's deepest real level (#1983) — both tile markers carry it for rasterCoverZoom.
-    const { maxzoom } = load
+    // The DATASET's deepest real level (#1983) + its spatial extent (#1984) — both tile
+    // markers carry them, for rasterCoverZoom and clipTilesToBounds respectively.
+    const { maxzoom, bounds } = load
     // raster-dem (#777) — guard BEFORE looksLikeRaster; see map-types.ts `_dem`.
     if (declaredType === 'raster-dem') {
       this.rawDatasets.set(load.name, {
@@ -397,6 +397,7 @@ export class SourceManager {
         blueFactor: load.blueFactor,
         baseShift: load.baseShift,
         maxzoom,
+        bounds,
       })
       return
     }
@@ -404,7 +405,7 @@ export class SourceManager {
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize, maxzoom })
+      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize, maxzoom, bounds })
       return
     }
 
@@ -477,12 +478,11 @@ export class SourceManager {
       this.registerVtSource(load.name, source, vtRenderer)
       this.rawDatasets.set(load.name, { _vectorTile: true })
 
-      // Fit camera to the FIRST source that finishes. Multi-source demos
-      // typically share world-bounds; "first to win" avoids order-
-      // dependent racing across parallel loads. Route through
-      // `_runBoundsFitGate` so an explicitly-positioned camera (setView /
-      // hash / pointer / programmatic setter) is NOT clobbered when the
-      // attach lands — matching the GeoJSON + inline paths.
+      // Fit camera to the FIRST source that finishes. Multi-source demos typically share
+      // world-bounds; "first to win" avoids order- dependent racing across parallel loads. Route
+      // through `_runBoundsFitGate` so an explicitly-positioned camera (setView / hash / pointer /
+      // programmatic setter) is NOT clobbered when the attach lands — matching the GeoJSON + inline
+      // paths.
       if (!cameraFitState.fit) {
         const vtBounds = vtRenderer.getBounds()
         if (vtBounds) {

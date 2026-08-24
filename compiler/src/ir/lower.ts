@@ -11,6 +11,7 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { runFrontPasses } from './front-passes'
+import { lowerSourceBounds, type SourceBounds } from './source-bounds'
 import {
   expandPresets,
   resolveStylePreset,
@@ -133,6 +134,7 @@ function lowerSource(
   let baseShift: number | undefined
   let srcMaxzoom: number | undefined
   let srcMinzoom: number | undefined
+  let bounds: SourceBounds | undefined
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Seconds, positive; 0/absent = off. Undefined for every non-declaring source
    *  (byte-identical lowering — the source-loader-seam §9 gate). */
@@ -180,9 +182,8 @@ function lowerSource(
         )
       }
     } else if (prop.name === 'layers') {
-      // Accept either `layers: "water"` (single MVT layer) or
-      // `layers: ["water", "roads"]` (subset). PMTiles backend uses
-      // this to filter MVT features before decompose+compile so each
+      // Accept either `layers: "water"` (single MVT layer) or `layers: ["water", "roads"]`
+      // (subset). PMTiles backend uses this to filter MVT features before decompose+compile so each
       // xgis layer can paint its own slice with its own style.
       if (prop.value.kind === 'StringLiteral') {
         layers = [prop.value.value]
@@ -212,21 +213,23 @@ function lowerSource(
       srcMaxzoom = prop.value.value
     } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
       srcMinzoom = prop.value.value
+    } else if (prop.name === 'bounds') {
+      // SOURCE-level spatial extent (#1984). An unusable box lowers to undefined, the
+      // same silent-ignore rule the tile props above follow — see ./source-bounds.
+      bounds = lowerSourceBounds(prop.value)
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
     } else if (prop.name === 'refresh') {
-      // Declarative polling for a live source (#1304, the NOAA CO-OPS motivating
-      // case) — periodic re-fetch/re-load of a URL-backed source, no host timer.
-      // A bare number (`refresh: 300`) or an explicit seconds literal
-      // (`refresh: 300s`, the `s` unit already lexes — tokens.ts:100) both mean
-      // seconds; any OTHER unit is a compile error rather than a silent
-      // misinterpretation (a stray `300ms` would otherwise poll 1000x too fast).
+      // Declarative polling for a live source (#1304, the NOAA CO-OPS motivating case) — periodic
+      // re-fetch/re-load of a URL-backed source, no host timer. A bare number (`refresh: 300`) or
+      // an explicit seconds literal (`refresh: 300s`, the `s` unit already lexes — tokens.ts:100)
+      // both mean seconds; any OTHER unit is a compile error rather than a silent misinterpretation
+      // (a stray `300ms` would otherwise poll 1000x too fast).
       let refreshVal = prop.value
-      // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block
-      // properties parse as a full expression (parseBlockProperty), not a
-      // literal-only grammar, same reason `astLiteralToJS` above unwraps `-`
-      // for inline `data:` literals. Unwrap it so a negative value reaches the
-      // non-negative check below with its real number instead of mis-reporting
+      // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block properties parse as a
+      // full expression (parseBlockProperty), not a literal-only grammar, same reason
+      // `astLiteralToJS` above unwraps `-` for inline `data:` literals. Unwrap it so a negative
+      // value reaches the non-negative check below with its real number instead of mis-reporting
       // "not a number".
       if (
         refreshVal.kind === 'UnaryExpr' &&
@@ -323,6 +326,7 @@ function lowerSource(
     baseShift,
     maxzoom: srcMaxzoom,
     minzoom: srcMinzoom,
+    bounds,
     refresh,
   }
 }
@@ -1069,12 +1073,10 @@ function lowerLayer(
   heatmapOpacity = acc.heatmapOpacity
   heatmapColorStops = acc.heatmapColorStops
 
-  // Expand referenced keyframes into per-property time stops. Pure
-  // sub-pass (lower-animation.ts): reads only the animation meta set in
-  // the loop above + the keyframes table, returns the six time-stop
-  // arrays consumed by the promotion block below. The call stays here —
-  // AFTER the utility loop (so animationName/Duration are set) and
-  // BEFORE the promotion (DO-NOT-SPLIT #2).
+  // Expand referenced keyframes into per-property time stops. Pure sub-pass (lower-animation.ts):
+  // reads only the animation meta set in the loop above + the keyframes table, returns the six
+  // time-stop arrays consumed by the promotion block below. The call stays here — AFTER the utility
+  // loop (so animationName/Duration are set) and BEFORE the promotion (DO-NOT-SPLIT #2).
   const {
     opacityTimeStops,
     fillTimeStops,
@@ -1219,11 +1221,9 @@ function lowerLayer(
           p.size > 0 &&
           (p.spacing > 0 || (p.anchor !== 'repeat' && p.anchor !== undefined)),
       )
-      // Resolve the three local accumulators into a single
-      // discriminated union. Priority — per-feature AST wins over
-      // zoom stops, which win over the static constant — mirrors the
-      // runtime resolution order (worker bake > per-frame stops >
-      // layer uniform).
+      // Resolve the three local accumulators into a single discriminated union. Priority —
+      // per-feature AST wins over zoom stops, which win over the static constant — mirrors the
+      // runtime resolution order (worker bake > per-frame stops > layer uniform).
       let widthSource: import('./render-node').StrokeWidthValue
       if (strokeWidthExpr !== undefined) {
         widthSource = { kind: 'data-driven', expr: strokeWidthExpr }

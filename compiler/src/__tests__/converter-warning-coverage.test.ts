@@ -197,11 +197,12 @@ describe('converter warning coverage', () => {
     }
   })
 
-  it('source minzoom / bounds → still-unhandled warnings (maxzoom now emits, #1983)', () => {
-    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds), NARROWED by #1983: a raster
-    // source's `maxzoom` is now emitted into the xgis block and clamps the cover zoom,
-    // so only the two genuinely-still-dropped halves warn — `minzoom` (emitted, but the
-    // selector has no source-minzoom consumer) and `bounds` (no spatial gate at all).
+  it('source minzoom → still unhandled; maxzoom (#1983) and bounds (#1984) now emit', () => {
+    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds), narrowed TWICE: #1983 stopped
+    // dropping a raster source's `maxzoom` (it clamps the cover zoom), and #1984 stopped
+    // dropping its `bounds` (the raster / raster-dem selectors clip to it —
+    // map/src/render/source-bounds-clip.ts). `minzoom` is the one half still genuinely
+    // dropped: it IS emitted, but no tile selector consumes a source-level minzoom.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -216,9 +217,34 @@ describe('converter warning coverage', () => {
       layers: [{ id: 'r', type: 'raster', source: 'regional' }],
     })
     expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom: 4'))).toBe(true)
-    expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(true)
-    // The half that stopped being dropped: nothing claims maxzoom is unhandled.
+    // The two halves that stopped being dropped — asserted as the ABSENCE of any
+    // warning naming them, which is what "the property reaches the runtime" looks like
+    // from here (the emission itself is pinned in source-bounds-emit.test.ts).
     expect(w.some((s) => s.includes('maxzoom') && s.includes('not emitted'))).toBe(false)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(false)
+  })
+
+  it('a VECTOR source keeps a bounds warning — narrowed to name the real owner (#1984)', () => {
+    // The other side of the #1984 narrowing: bounds is emitted only for the two types
+    // whose selectors clip. A vector source still warns, but no longer as "unsupported"
+    // — its ARCHIVE metadata (PMTiles header / TileJSON manifest) already owns the clip,
+    // so re-declaring it in the xgis block would create a second authority.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'https://example.com/x.pmtiles' } },
+      layers: [{ id: 'l', type: 'line', source: 'v', 'source-layer': 'roads' }],
+    })
+    const bounds = warningsOf({
+      version: 8,
+      sources: {
+        v: { type: 'vector', url: 'https://example.com/x.pmtiles', bounds: [125, 33, 132, 39] },
+      },
+      layers: [{ id: 'l', type: 'line', source: 'v', 'source-layer': 'roads' }],
+    }).filter((s) => s.includes('bounds'))
+    expect(w.filter((s) => s.includes('bounds'))).toHaveLength(0) // no bounds ⇒ no note
+    expect(bounds).toHaveLength(1)
+    expect(bounds[0]).toContain('not emitted for type "vector"')
+    expect(bounds[0]).toMatch(/PMTiles header|TileJSON manifest/)
   })
 
   it('interpolate-lab colour spec → compile-time densification warning (iter 61)', () => {
