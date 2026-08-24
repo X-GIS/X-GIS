@@ -95,6 +95,24 @@ export interface BundleKeyState {
   /** Identifying label of the line pipeline (variant cache key
    *  proxy). Null if no line pipeline (fill-only show). */
   readonly linePipelineLabel: string | null
+
+  /** UniformRing slot cursor at key-build time (#1190). The recorded
+   *  draws bake dynamic offsets = (this base + position in the walk);
+   *  the base depends on every allocation EARLIER in the frame — other
+   *  shows of the same VTR, fallback walks — which no show-local field
+   *  pins. A key hit with a shifted base replayed stale offsets: the
+   *  previously-undiagnosed "mostly empty canvas during interactive
+   *  navigation" that kept the bundle path disabled. -1 = ring not yet
+   *  created (no allocations possible → any recorded offsets start at
+   *  base 0 once it is; the first real frame keys with the true cursor). */
+  readonly ringCursor: number
+
+  /** Layer-slot dynamic offset baked into the recorded stroke draws. */
+  readonly lineLayerOffset: number
+
+  /** Second (gap) layer-slot offset for the road-casing double-stroke
+   *  draw pair; -1 sentinel = single-stroke path (no second draw). */
+  readonly lineLayerOffsetGap: number
 }
 
 /** Type guard — pinned for tests + future runtime assertions. */

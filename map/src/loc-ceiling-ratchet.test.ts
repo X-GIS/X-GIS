@@ -240,7 +240,11 @@ const CEILINGS: Record<string, number> = {
   // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
   // (the bake matrix is this file's state), and one import. Deltas are disjoint
   // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
-  'map/src/render/vector-tile-renderer.ts': 4990,
+  // 4990→5078 (#1190, merge union atop #2024): bundle replay made correct-by-
+  // construction — ringCursor + stroke layer-slot offsets in both BundleKeyState
+  // literals, the hit-path alloc-count invariant at both sites, default-ON gate.
+  // Deltas disjoint (+29 #2024, +88 #1190 over the shared #2028 base). MEASURED.
+  'map/src/render/vector-tile-renderer.ts': 5078,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1605,7 +1609,9 @@ const CEILINGS: Record<string, number> = {
   // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
   // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
   // fall back to 16 and no-op).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
+  // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
+  // the new render-bundle capability the VT bundle gate keys on.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
