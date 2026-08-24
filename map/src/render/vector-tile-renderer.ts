@@ -76,7 +76,7 @@ import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool } from '@xgis/rhi-webgpu'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { isPickEnabled, getSampleCount, adaptiveFarLodBoost } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog, TileData } from '@xgis/data'
@@ -3259,6 +3259,11 @@ export class VectorTileRenderer {
           fallbackOffsets.push(worldOffDeg[i])
           fallbackVisibleKeys.push(key)
         }
+        // Fetch-frontier push, mirror of the parent-fallback arm above
+        // (#2013): covered is not loaded — without this the stretched
+        // descendants satisfy every frame and the visible z is never
+        // requested. requestTiles dedupes against loadingTiles.
+        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
       } else if (inner.kind === 'pending') {
         if (inner.requestKey !== null) toLoad.push(inner.requestKey)
         // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
@@ -4025,11 +4030,22 @@ export class VectorTileRenderer {
     //                so once user crosses below cz, the prior LOD
     //                is what they're heading toward)
     //
-    // Throttled to every 6 frames (~100 ms) to keep
-    // visibleTilesFrustum's quadtree walk amortised — the prefetch
-    // doesn't need per-frame freshness because the camera typically
-    // moves slowly relative to the rAF cadence.
-    if (cameraIdle && this.frameCount % 6 === 0) {
+    // Throttled to every 6 frames (~100 ms) to keep the selector walk
+    // amortised — the prefetch doesn't need per-frame freshness because
+    // the camera typically moves slowly relative to the rAF cadence.
+    //
+    // #2013 — deliberately NOT gated on cameraIdle (unlike prefetchAdjacent
+    // above). The idle gate made this block unreachable in the exact case it
+    // exists for: during an ACTIVE zoom the camera moves every frame, so
+    // cameraIdle stayed false for the whole gesture and every integer
+    // boundary was crossed with zero next-LOD tiles in flight — the
+    // measured fallback fan-out + blank-tile window on zoom-out (osm_style
+    // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
+    // the camera is provably heading toward (same centre, next LOD), so the
+    // pan-invalidation rationale behind the adjacent-prefetch idle gate does
+    // not apply; cost is bounded by the %6 throttle, the isCached filter,
+    // and the fetch queue's own concurrency cap.
+    if (this.frameCount % 6 === 0) {
       // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
       // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
       // execution order/throttle is byte-identical to the prior inline block.
@@ -4050,6 +4066,9 @@ export class VectorTileRenderer {
         selectorProj,
         offsetMarginPx,
         isCached: sliceCached,
+        // #1393/#2013 — probe the same far-field notch the drawing selection
+        // runs at, so the prefetch set matches the renderer's actual demand.
+        farTargetBoost: adaptiveFarLodBoost(),
       })
       if (prefetchKeys.length > 0) {
         this.source.prefetchTiles(prefetchKeys)

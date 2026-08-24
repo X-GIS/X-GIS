@@ -80,6 +80,7 @@ export type LabelPassHost = Pick<
   | 'effectiveFadeDurationMs'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
+  | '_labelDispatchLoopRuns'
   | '_pendingLabelDebugHook'
   | '_pendingTraceRecorder'
   | '_scratchEmittedLineIconKeys'

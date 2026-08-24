@@ -325,6 +325,20 @@ export function convertSource(
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     warnMapboxSchemeUrl(id, url, warnings)
+    // #2007 — Mapbox `promoteId` on a vector source remaps a vector-tile
+    // property to feature.id (string, or a per-source-layer map). The MVT
+    // decoder (data/src/mvt-decoder.ts) reads only the tile's native
+    // wire-format `id` field (protobuf tag 1) into GeoJSONFeature.id;
+    // promoteId is never consulted anywhere in the pipeline. Same risk as
+    // the GeoJSON promoteId warning below (data-driven joins / feature
+    // lookups keyed on the promoted property mis-key), previously
+    // unwarned for this source type.
+    const vectorPromoteId = (src as { promoteId?: unknown }).promoteId
+    if (vectorPromoteId !== undefined && vectorPromoteId !== null) {
+      warnings.push(
+        `Vector source "${id}" declares promoteId; the runtime does not remap vector-tile properties to feature.id — features keep the MVT wire-format id (or none), so data-driven joins keyed on the promoted property may mis-key.`,
+      )
+    }
     if (url && /\.pmtiles(\?|#|$)/i.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
