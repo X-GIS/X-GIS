@@ -15,7 +15,7 @@ import {
   vec2AxisZoomInterp,
   surfaceIgnoredPaint,
 } from './paint-helpers'
-import { isZoomInterpCandidate } from './zoom-function-fold'
+import { isZoomInterpCandidate, unwrapStopLiteral } from './zoom-function-fold'
 
 export function emitLinePaint(
   out: string[],
@@ -274,6 +274,33 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
   )
 }
 
+/** Format one dasharray STOP VALUE (an array of non-negative dash
+ *  lengths) as an xgis array literal. Applies the SAME normalization the
+ *  constant-array path below uses: per-element `["literal", n]` unwrap, a
+ *  non-negative clamp, and the SVG/MapLibre odd-length repeat rule
+ *  (`[a] → [a, a]`) — a 1-element stop value is otherwise inexpressible
+ *  downstream (extractInterpolateZoomArrayStops in lower-helpers.ts
+ *  requires >= 2 entries per stop), and Carto Dark Matter authors exactly
+ *  that (`boundary_county`). Longer odd lengths stay as authored, mirroring
+ *  the constant path. Shared by the interpolate-form stop formatter and the
+ *  zoom-step lift (#1994) so both zoom-driven dasharray sources normalize
+ *  identically. Returns null when the value isn't a fully-numeric array —
+ *  the caller then drops the WHOLE binding, not just this stop. */
+function formatDashArrayValue(val: unknown): string | null {
+  let inner: unknown = val
+  while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+  if (
+    Array.isArray(inner) &&
+    inner.length >= 1 &&
+    inner.every((n) => typeof n === 'number' && Number.isFinite(n))
+  ) {
+    const nums = (inner as number[]).map((n) => Math.max(0, n))
+    const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
+    return '[' + dash.join(', ') + ']'
+  }
+  return null
+}
+
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   if (isOmitted(v)) return
   // Mapbox v8 `["literal", [4, 2]]` wrapper — unwrap to the inner
@@ -345,30 +372,42 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // array; format it back to an xgis array literal so lower.ts'
   // extractInterpolateZoomArrayStops picks it up.
   if (isZoomInterpCandidate(v)) {
-    const interp = interpolateZoomCall(v, warnings, (val) => {
-      let inner: unknown = val
-      while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
-      if (
-        Array.isArray(inner) &&
-        inner.length >= 1 &&
-        inner.every((n) => typeof n === 'number' && Number.isFinite(n))
-      ) {
-        const nums = (inner as number[]).map((n) => Math.max(0, n))
-        // SVG / MapLibre dash rule: an odd-length dash array repeats,
-        // i.e. it is equivalent to itself concatenated with itself, so
-        // [a] ≡ [a, a]. A 1-element stop value is otherwise
-        // inexpressible downstream — extractInterpolateZoomArrayStops
-        // (lower-helpers.ts) requires >= 2 entries per stop — and Carto
-        // Dark Matter authors exactly that (`boundary_county`). Longer
-        // odd lengths stay as authored, mirroring the constant path.
-        const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
-        return '[' + dash.join(', ') + ']'
-      }
-      return null
-    })
+    const interp = interpolateZoomCall(v, warnings, formatDashArrayValue)
     if (interp !== null) {
       out.push(`stroke-dasharray-[${interp}]`)
       return
+    }
+  }
+  // WS-2 (#1994) — zoom-step dasharray: `["step", ["zoom"], base, z1, v1, …]`
+  // is Mapbox's right-continuous step function over zoom (v_i applies for
+  // zoom >= z_i). resolveArrayShape (map/src/render/paint-shape-resolve.ts
+  // :230-236) already STEPS the interpolate-form binding above to the LAST
+  // stop whose zoom <= cameraZoom — Mapbox line-dasharray is
+  // interpolated:false, so the runtime treats BOTH source expressions
+  // identically once lowered. Mapping step's own breakpoints onto that SAME
+  // `interpolate(zoom, …)` binding is therefore an EXACT translation, not an
+  // approximation: the base value sits at a sentinel zoom of 0 (camera zoom
+  // is never negative) so it applies for every zoom below z1, exactly like
+  // Mapbox's step base does.
+  if (Array.isArray(v) && v.length >= 5 && v.length % 2 === 1 && v[0] === 'step') {
+    const input = unwrapStopLiteral(v[1])
+    if (Array.isArray(input) && input[0] === 'zoom') {
+      const base = formatDashArrayValue(v[2])
+      let ok = base !== null
+      const parts: string[] = ok ? [`0, ${base}`] : []
+      for (let i = 3; ok && i + 1 < v.length; i += 2) {
+        const z = unwrapStopLiteral(v[i])
+        const val = formatDashArrayValue(v[i + 1])
+        if (typeof z !== 'number' || !Number.isFinite(z) || val === null) {
+          ok = false
+          break
+        }
+        parts.push(`${z}, ${val}`)
+      }
+      if (ok) {
+        out.push(`stroke-dasharray-[interpolate(zoom, ${parts.join(', ')})]`)
+        return
+      }
     }
   }
   // Remaining non-constant shapes (data-driven, malformed) drop with a
@@ -378,13 +417,24 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   //
   // Specific shape detection so the warning explains WHICH gap fires:
   //   * ["interpolate", ...] → zoom-interp gap (PropertyShape<array>)
-  //   * ["case", ...] / ["match", ...] / ["get", ...] → data-driven
+  //   * ["step", ["zoom"], ...] that reached here → the lift above
+  //     declined it for a MALFORMED reason (a non-numeric stop key or a
+  //     non-array stop value) — never data-driven; step-over-zoom IS the
+  //     per-frame shape the runtime speaks (#1994).
+  //   * ["case", ...] / ["match", ...] / ["get", ...] / step over a
+  //     per-feature input → data-driven
   //   * anything else → generic non-constant
   let shape = 'non-constant'
   if (Array.isArray(v) && v.length > 0) {
     if (v[0] === 'interpolate' || v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') {
       shape = 'zoom-interp (needs PropertyShape<array> variant)'
-    } else if (v[0] === 'case' || v[0] === 'match' || v[0] === 'get' || v[0] === 'step') {
+    } else if (v[0] === 'step') {
+      const input = unwrapStopLiteral(v[1])
+      shape =
+        Array.isArray(input) && input[0] === 'zoom'
+          ? 'zoom-step (malformed stop values)'
+          : 'data-driven (needs per-feature dash plumbing)'
+    } else if (v[0] === 'case' || v[0] === 'match' || v[0] === 'get') {
       shape = 'data-driven (needs per-feature dash plumbing)'
     }
   }

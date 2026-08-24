@@ -17,8 +17,10 @@
 //     failed the `length >= 2` gate on BOTH dasharray paths — normalised
 //     via the SVG/MapLibre odd-length repeat rule, in both places.
 //
-// Out of scope (still drops, deliberately): `["step", ["zoom"], …]`
-// dasharray and data-driven forms.
+// Out of scope (still drops, deliberately): data-driven forms.
+// `["step", ["zoom"], …]` dasharray now converts too (#1994, see
+// step-zoom-dasharray.test.ts) — 7d below covers its interaction with the
+// #1976 lift machinery this file otherwise exercises.
 
 import { describe, expect, it } from 'vitest'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
@@ -323,16 +325,21 @@ describe('#1976 — regression guards', () => {
     expect(out).toContain('stroke-dasharray-1-2-3')
   })
 
-  it('7d. ["step", ["zoom"], …] dasharray still drops with its data-driven label', () => {
+  it('7d. ["step", ["zoom"], …] dasharray now converts (#1994) — coexists with the #1976 lift', () => {
+    // Superseded by #1994: a well-formed zoom-step dasharray used to drop
+    // with a (mislabeled) data-driven warning; it now lifts onto the same
+    // stroke-dasharray-[interpolate(zoom, …)] binding the legacy-{stops}
+    // and modern-interpolate forms above use. Full coverage (malformed
+    // forms, the zoom-step classifier label, the [a]→[a,a] repeat rule,
+    // the pipeline check) lives in step-zoom-dasharray.test.ts; this guard
+    // just confirms the #1976 lift work didn't regress step's own path.
     const { out, warnings } = convert(
       lineLayer({
         'line-dasharray': ['step', ['zoom'], ['literal', [2, 2]], 14, ['literal', [4, 4]]],
       }),
     )
-    expect(out).not.toContain('stroke-dasharray-[')
-    const drops = dashDrops(warnings)
-    expect(drops.length).toBe(1)
-    expect(drops[0]).toContain('data-driven (needs per-feature dash plumbing)')
+    expect(out).toContain('stroke-dasharray-[interpolate(zoom, 0, [2, 2], 14, [4, 4])]')
+    expect(dashDrops(warnings)).toEqual([])
   })
 
   it('7e. a legacy DATA-DRIVEN property function still warns and drops, it does not lift', () => {
