@@ -5,6 +5,7 @@
 
 import type { MapboxLayer } from './types'
 import { exprToXgis, filterToXgis } from './expressions'
+import { foldSingleStopZoomFunctions } from './zoom-function-fold'
 import { isLinePlacement, resolvePitchAlignment } from '../ir/label-alignment'
 
 // ═══ Fail-CLOSED filter emission ═══
@@ -188,11 +189,15 @@ export const unwrapPairScalars = (t: unknown): unknown[] | null => {
  *  plain Record. Mirror of paint.ts's same guard — non-object forms
  *  (string copy-paste, array, etc.) used to let property-name index
  *  return a char of the string or undefined, leaking garbage into
- *  the emitted utility list. */
+ *  the emitted utility list.
+ *
+ *  Also folds legacy SINGLE-stop zoom functions to the constant they
+ *  denote (#1976) so every property below reads them through its
+ *  existing constant path — see foldSingleStopZoomFunctions. */
 export function safePropsBag(v: unknown): Record<string, unknown> {
   if (v === null || v === undefined) return {}
   if (typeof v !== 'object' || Array.isArray(v)) return {}
-  return v as Record<string, unknown>
+  return foldSingleStopZoomFunctions(v as Record<string, unknown>)
 }
 
 /** True when v should be treated as "property omitted" per Mapbox

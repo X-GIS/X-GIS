@@ -8,23 +8,7 @@ import type { InterpolateZoomShape } from './paint-types'
 import { colorToXgis } from './colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
-
-/** Unwrap Mapbox v8's `["literal", value]` wrapper for any scalar /
- *  array stop value or paint scalar input. The callbacks downstream
- *  type-check against the inner concrete type (number / string / array)
- *  and reject the wrapper as "not the shape I expected"; unwrapping
- *  eagerly lets a uniform code path handle both the bare and v8-
- *  strict forms. */
-function unwrapStopLiteral(v: unknown): unknown {
-  // Loop unwrap so double-wraps like `["literal", ["literal", 0.5]]`
-  // (rare, but emitted by some v8 strict preprocessor chains) peel
-  // down to the inner scalar/array in one pass. Mirror of the loop
-  // unwrap in colorToXgis (921d5ad).
-  while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') {
-    v = v[1]
-  }
-  return v
-}
+import { isZoomInterpCandidate, unwrapStopLiteral } from './zoom-function-fold'
 
 /** True when v should be treated as "property omitted" per Mapbox
  *  spec: bare null/undefined OR `["literal", null]`. Used by every
@@ -724,7 +708,16 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
  *  Anchor: fill-translate-anchor: viewport (default) is the only
  *  currently-honored mode. "map" would shift in world coords; not
  *  yet implemented (no OFM hits use map anchor). */
-export function addFillTranslate(out: string[], v: unknown, warnings: string[]): void {
+export function addFillTranslate(
+  out: string[],
+  v: unknown,
+  warnings: string[],
+  // `property` names the paint key the value came from. fill-extrusion-
+  // translate rides the SAME fill-translate-{x,y} utilities and so shares
+  // this emitter — without the parameter its drop warning mislabelled a
+  // fill-extrusion-translate loss as "paint.fill-translate" (#1976).
+  property: 'fill-translate' | 'fill-extrusion-translate',
+): void {
   if (isOmitted(v)) return
   // Mapbox v8 wraps `[dx, dy]` as `["literal", [dx, dy]]`. Unwrap so
   // the bare-array fast path catches both forms.
@@ -754,9 +747,13 @@ export function addFillTranslate(out: string[], v: unknown, warnings: string[]):
   // into RenderNode.fillTranslate{X,Y}Shape → resolveShow resolves them
   // per frame (resolveNumberShape) → VTR NDC-bakes the resolved value.
   // Replaces the old last-stop approximation.
-  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+  if (isZoomInterpCandidate(v)) {
     const ix = vec2AxisZoomInterp(v, warnings, 0)
-    const iy = vec2AxisZoomInterp(v, warnings, 1)
+    // Skip the y axis once x has already failed: both axes run the SAME
+    // lift over the SAME value, so a diagnostic the lift pushes (e.g. the
+    // legacy data-driven property-function note) would otherwise be
+    // reported twice for one authored value.
+    const iy = ix === null ? null : vec2AxisZoomInterp(v, warnings, 1)
     if (ix !== null && iy !== null) {
       out.push(`fill-translate-x-[${ix}]`)
       out.push(`fill-translate-y-[${iy}]`)
@@ -764,7 +761,7 @@ export function addFillTranslate(out: string[], v: unknown, warnings: string[]):
     }
   }
   warnings.push(
-    `paint.fill-translate: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
+    `paint.${property}: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
   )
 }
 
