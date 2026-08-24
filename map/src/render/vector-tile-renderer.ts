@@ -269,7 +269,7 @@ export class VectorTileRenderer {
    *  (Cluster E; see class doc). VTR calls `selectForFrame` once per
    *  render() and consumes the returned Selection; `stableKeys` stays on
    *  VTR (read by eviction + labels). */
-  private readonly _selection = new TileSelectionCache()
+  readonly _selection = new TileSelectionCache()
   /** Speculative prefetch routes (sibling-of-visible + pan-direction
    *  speculation). Owns the frame-stable camera snapshot that the
    *  velocity-vector projection depends on; updated exactly once per

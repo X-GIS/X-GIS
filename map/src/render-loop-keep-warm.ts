@@ -19,11 +19,22 @@ export interface KeepWarmInputs {
   totalMissed: number
   raster: KeepWarmTiles
   hillshade: KeepWarmTiles
-  /** The VT sources' renderers — scanned only when nothing above already fired. */
-  vtRenderers: Iterable<{ renderer: { hasPendingUploads(): boolean } }>
+  /** The VT sources' renderers — scanned only when nothing above already fired.
+   *
+   *  `_selection._czPendingAdvance` is reached DIRECTLY rather than through a
+   *  per-renderer forwarder, the same call the raster/DEM `failedTiles` ledger above
+   *  makes and for the same reason: the transition state has exactly one owner
+   *  (`TileSelectionCache`), and a forwarder is a second place that could answer this
+   *  question differently. It is also the only shape available — both owning files sit
+   *  on shrink-only LOC ceilings (`loc-ceiling-ratchet.test.ts`), so the accessor this
+   *  would otherwise be cannot be added to either without an unrelated extraction. The
+   *  coupling is typechecked here, so a rename on either side breaks the build. */
+  vtRenderers: Iterable<{
+    renderer: { hasPendingUploads(): boolean; _selection: { _czPendingAdvance: unknown } }
+  }>
 }
 
-/** Must the loop render again? Five signals:
+/** Must the loop render again? Six signals:
  *
  *   - VT tiles with unresolved placeholders (`missedTiles > 0`) — including a VT tile
  *     inside its source's fetch backoff, which is BOUNDED exactly as the raster ledger
@@ -41,7 +52,20 @@ export interface KeepWarmInputs {
  *     re-attempted only from inside `render()` — never ran. It terminates: a tile gets
  *     `MAX_TILE_ATTEMPTS` over ~10.5 s and is then abandoned.
  *   - VT tiles queued behind the per-frame upload budget (scanned last: it is the only
- *     signal that costs a loop over the sources) */
+ *     signal that costs a loop over the sources)
+ *   - a VT LOD transition still in flight (#1997). The readiness gate advances the tile
+ *     LOD one step per RENDERED frame, so a camera that jumps two levels — a `#z/lat/lon`
+ *     hash, `jumpTo`, a bounds fit — leaves the selection behind the camera for two more
+ *     frames. An unconverged selection can be legitimately EMPTY (a z=0 root tile is not
+ *     inside a zoom-2 sphere frustum), and an empty selection requests nothing, misses
+ *     nothing and uploads nothing: every signal above reads quiet in the exact frame the
+ *     ramp still owes work. The loop then idles mid-ramp and CANNOT restart, because the
+ *     LOD only advances inside a rendered frame — the 5 s readiness timeout included. It
+ *     terminates for the same reason the others do: the gate either reaches its target or
+ *     times out, and both paths clear the flag. Measured on the globe demo: the loop
+ *     stopped with cz=0 against camera zoom 2 and stayed there with zero tiles
+ *     indefinitely; one `invalidate()` finished the ramp in two frames (cz 0→1→2,
+ *     tiles 0→4→8). */
 export function keepLoopWarm(input: KeepWarmInputs): boolean {
   if (
     input.totalMissed > 0 ||
@@ -53,7 +77,7 @@ export function keepLoopWarm(input: KeepWarmInputs): boolean {
     return true
   }
   for (const { renderer } of input.vtRenderers) {
-    if (renderer.hasPendingUploads()) return true
+    if (renderer.hasPendingUploads() || renderer._selection._czPendingAdvance !== null) return true
   }
   return false
 }
