@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 86e085d9564fbe2d1f10a1d16e895bde9cd7a8c3
+  Generated from: a7c783479758acdfeeda9440f3576fc94e69f2e2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 86e085d9564f
+    bun scripts/emit-changelog.ts --since a7c783479758
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
 - **compiler+map:** per-frame zoom-step fill-antialias — the expression form stops dropping (#1995) ([#2000](https://github.com/X-GIS/X-GIS/pull/2000)) `42970d8`
 - **compiler/convert:** lower step-by-zoom line-dasharray onto the stepped dash shape (#1994) ([#1996](https://github.com/X-GIS/X-GIS/pull/1996)) `1c45c47`
