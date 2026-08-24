@@ -51,6 +51,9 @@ export type RawDataset =
        *  extent (#1984). The selector drops every tile that does not overlap it;
        *  undefined = unclipped. */
       readonly bounds?: [number, number, number, number]
+      /** Source-level `scheme` — the DATASET's row origin (#1985). `'tms'` makes the
+       *  request path substitute `2^z − 1 − y` for `{y}`; undefined = `'xyz'`. */
+      readonly scheme?: 'xyz' | 'tms'
     }
   | {
       readonly _tileUrl: string
@@ -64,6 +67,8 @@ export type RawDataset =
       readonly maxzoom?: number
       /** Source-level `bounds` — same spatial clip as the raster marker above (#1984). */
       readonly bounds?: [number, number, number, number]
+      /** Source-level `scheme` — same row origin as the raster marker above (#1985). */
+      readonly scheme?: 'xyz' | 'tms'
       /** `encoding: custom` elevation unpack factors. */
       readonly redFactor?: number
       readonly greenFactor?: number

@@ -146,8 +146,13 @@ export function tileBounds(coord: TileCoord): {
   return { west, south, east, north }
 }
 
+/** Row-origin numbering of a tile pyramid. `xyz` (the Mapbox/MapLibre default)
+ *  counts rows from the TOP of the world; `tms` (OSGeo Tile Map Service, the
+ *  older Stamen / Stadia / GeoServer endpoints) counts from the BOTTOM. */
+export type TileRowScheme = 'xyz' | 'tms'
+
 /** Build tile URL from template */
-export function tileUrl(template: string, coord: TileCoord): string {
+export function tileUrl(template: string, coord: TileCoord, scheme?: TileRowScheme): string {
   // Global replace + {ratio} substitution mirror the vector-tile
   // loader's fix:
   //   - Single-pass `.replace('{z}', …)` left subsequent
@@ -156,10 +161,30 @@ export function tileUrl(template: string, coord: TileCoord): string {
   //   - `{ratio}` (Mapbox DPR suffix `""` / `"@2x"`) wasn't
   //     substituted, so a raster source using a retina-aware
   //     template fetched the unsubstituted URL and 404'd.
+  //
+  // ── Row origin: `scheme` and `{-y}` (#1985) ──
+  // `{y}` carries the SOURCE's own row numbering, so a `tms` source substitutes the
+  // bottom-origin row `2^z − 1 − y`. That is MapLibre's rule verbatim —
+  // `CanonicalTileID.url()` (maplibre-gl-js `src/tile/tile_id.ts`) is
+  //   `.replace(/{y}/g, String(scheme === 'tms' ? Math.pow(2, this.z) - this.y - 1 : this.y))`
+  // and the scheme touches no other token there.
+  //
+  // `{-y}` is a Leaflet/GDAL convention MapLibre does NOT implement at all (no `{-y}`
+  // branch exists in that file). Leaflet is the authority, and it makes the token
+  // scheme-INDEPENDENT: `TileLayer.getTileUrl` sets `data['-y'] = invertedY`
+  // unconditionally and only ADDITIONALLY overwrites `data['y'] = invertedY` when
+  // `options.tms`. We copy that exactly — `{-y}` always means "the bottom-origin row",
+  // never flipped-of-flipped. Under `scheme: tms` both tokens therefore resolve to the
+  // same value, which is precisely what Leaflet does with `tms: true`, and is right
+  // either way: both name the TMS row of a TMS endpoint. Substituting `{-y}` before
+  // `{y}` is presentation only — `/\{y\}/` cannot match inside `{-y}` (the `{` is
+  // followed by `-`), so neither order can corrupt the other.
+  const flippedY = Math.pow(2, coord.z) - 1 - coord.y
   let url = template
     .replace(/\{z\}/g, String(coord.z))
     .replace(/\{x\}/g, String(coord.x))
-    .replace(/\{y\}/g, String(coord.y))
+    .replace(/\{-y\}/g, String(flippedY))
+    .replace(/\{y\}/g, String(scheme === 'tms' ? flippedY : coord.y))
     .replace(/\{ratio\}/g, '')
   // `{bbox-epsg-3857}` (#1478) — the WMS-interop placeholder MapLibre/Mapbox GL's
   // raster `tiles:` array documents for the same problem: a WMS GetMap BBOX is a

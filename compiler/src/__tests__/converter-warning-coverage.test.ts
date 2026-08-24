@@ -95,7 +95,11 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('fill-pattern declared without'))).toBe(false)
   })
 
-  it('source scheme: "tms" → Y-flip warning', () => {
+  it('source scheme: "tms" → the Y-flip warning is RETIRED; a raster source emits (#1985)', () => {
+    // Was: "tiles will render Y-flipped … wait for native scheme support". The scheme now
+    // reaches the request path (`tileUrl` substitutes `2^z − 1 − y` for `{y}`), so the
+    // whole warning is gone for the two types that consume it. The vector family keeps a
+    // NARROWED one, pinned in source-scheme-emit.test.ts alongside the emit witness.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -107,7 +111,8 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'legacy' }],
     })
-    expect(w.some((s) => s.includes('legacy') && s.includes('tms'))).toBe(true)
+    expect(w.filter((s) => s.includes('scheme'))).toEqual([])
+    expect(w.some((s) => s.includes('Y-flipped'))).toBe(false)
   })
 
   it('multiple tile mirrors → subdomain-rotation warning', () => {
