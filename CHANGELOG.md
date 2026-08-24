@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: dbda432930c946bbb8b0ef993c7b869d0bcad931
+  Generated from: 6be0aee3c99424be2f096406031f2656f9178c83
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since dbda432930c9
+    bun scripts/emit-changelog.ts --since 6be0aee3c994
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler+map+data:** source-level scheme — tms row flip at the URL builder and the {-y} template token (#1985) ([#2029](https://github.com/X-GIS/X-GIS/pull/2029)) `41351e6`
 - **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
@@ -97,6 +98,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** emit each source point once per frame ([#2036](https://github.com/X-GIS/X-GIS/pull/2036)) `6be0aee`
 - **map:** keep the loop warm while a LOD transition is still in flight ([#2010](https://github.com/X-GIS/X-GIS/pull/2010)) `86e085d`
 - **compiler/convert:** warn on the two silent conversion gaps — non-constant icon-offset and mapbox:// urls (#1977) ([#1990](https://github.com/X-GIS/X-GIS/pull/1990)) `dfd6ae2`
 - **compiler/convert:** lift legacy {stops} zoom functions and fold single-stop functions (#1976) ([#1982](https://github.com/X-GIS/X-GIS/pull/1982)) `a0fcd9a`

@@ -13,7 +13,7 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
 import {
   admitTile,
   type EvictableTile,
@@ -88,11 +88,10 @@ export function demUnpack(encoding: DemEncoding, custom?: Partial<DemUnpack>): D
   return MAPBOX_UNPACK
 }
 
-/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2):
- *  tileSize / pow(2, 28.2562). The zoom-dependent half —
- *  pow(2, zoom − exaggeration_zoom(zoom)) — is a property of the TILE, not of the
- *  frame, so the fragment applies it per tile from the tile's own Mercator span
- *  (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
+/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2): tileSize / pow(2,
+ *  28.2562). The zoom-dependent half — pow(2, zoom − exaggeration_zoom(zoom)) — is a property
+ *  of the TILE, not of the frame, so the fragment applies it per tile from the tile's own
+ *  Mercator span (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
  *  parent-fallback and every magnified leaf by 2^Δz. */
 export function hillshadeDerivBase(tileSize: number): number {
   return tileSize / Math.pow(2, 28.2562)
@@ -230,9 +229,12 @@ export function armHillshadeSource(
     baseShift?: number
     maxzoom?: number
     bounds?: [number, number, number, number]
+    scheme?: TileRowScheme
   },
 ): void {
-  renderer.setUrlTemplate(dem._tileUrl)
+  // The row origin (#1985) rides the TEMPLATE, not setParams: it is a property of the URL,
+  // so re-arming a DEM without one must clear it rather than inherit the previous flip.
+  renderer.setUrlTemplate(dem._tileUrl, dem.scheme)
   renderer.setParams({
     // The DATASET's deepest real level. Undefined = unbounded (every source that does
     // not declare it keeps the pre-existing behaviour).
@@ -398,12 +400,17 @@ export class HillshadeRenderer {
     this._hillshadeDraper = undefined
   }
 
-  setUrlTemplate(url: string): void {
+  /** The DEM source's row origin (#1985) — `'tms'` numbers tile rows from the BOTTOM, so
+   *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. Undefined = `'xyz'`. Mirror of the
+   *  raster twin: it rides the template so a re-arm cannot leave a stale flip behind. */
+  private _scheme: TileRowScheme | undefined
+  setUrlTemplate(url: string, scheme?: TileRowScheme): void {
     // A different template is a different coverage, so past failures say nothing
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
+    this._scheme = scheme
   }
 
   /** Merge resolved hillshade params over the current set. The DEM decode (unpack / tileSize /
@@ -583,7 +590,7 @@ export class HillshadeRenderer {
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
-      this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal)
+      this.loadTileTexture(tileUrl(this.urlTemplate, coord, this._scheme), ctrl.signal)
         // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load failure resolves
         // to null so the .then ALWAYS frees the loadingTiles slot (else the key wedges, pinning all
         // MAX_CONCURRENT slots → the DEM stream stalls). Scoped here so a throw from the .then
@@ -616,15 +623,8 @@ export class HillshadeRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        this.loadTileTexture(
-          tileUrl(this.urlTemplate, {
-            z: parentZ,
-            x: coord.x >> pz,
-            y: coord.y >> pz,
-            ox: coord.x >> pz,
-          }),
-          ctrl.signal,
-        )
+        const parentCoord = { z: parentZ, x: coord.x >> pz, y: coord.y >> pz, ox: coord.x >> pz }
+        this.loadTileTexture(tileUrl(this.urlTemplate, parentCoord, this._scheme), ctrl.signal)
           // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain.
           .catch(() => null)
           .then((texture) => {

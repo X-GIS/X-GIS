@@ -103,6 +103,7 @@ import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
+import { accumulateTilePoints } from './tile-point-emit'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -1109,12 +1110,11 @@ export class VectorTileRenderer {
     // strokes) reads what THIS pass selected. Above the paint bails, like the
     // acquisition below it and for the same reason.
     //
-    // Point-parity with the WebGPU merged set (neededKeys + fallbackKeys +
-    // protectedAncestors): the ancestors merge straight off `sel`, disjoint from
-    // neededKeys. fallbackKeys is the ONE term not reproduced — this path runs
-    // primary-only acquisition (#1140 reverted its fallback pass for a zoom-in
-    // perf regression) — so mid-load fallback-ancestor points are a known
-    // residual gap vs WebGPU, not a fabricated set.
+    // Point contract (#2028), ONE for both arms: each source point is emitted at
+    // most once per frame, from the DEEPEST key in `stableKeys` carrying point
+    // data at that position (render/tile-point-emit.ts). This arm omits
+    // fallbackKeys (#1140 reverted its fallback pass), so its residual vs WebGPU
+    // is UNDER-draw mid-load — a COVERAGE gap, never a double.
     this.stableKeys =
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
@@ -4219,11 +4219,11 @@ export class VectorTileRenderer {
    *  (vtr-immediate-arm.ts) calls it with its screen RhiRenderPass after each
    *  show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
    *  render() (WebGPU) or renderFillsRhi (WebGL2) for THIS frame — and derives
-   *  `sliceLayer` the same way both do. Parity note: renderFillsRhi's stableKeys
-   *  is neededKeys + protectedAncestors; it omits fallbackKeys (primary-only
-   *  acquisition — fallback pass reverted in #1140), so mid-load fallback-
-   *  ancestor points can appear on WebGPU but not WebGL2. See renderFillsRhi's
-   *  assignment site for the full rationale.
+   *  `sliceLayer` the same way both do. Parity: renderFillsRhi omits fallbackKeys
+   *  (#1140), so mid-load fallback-ancestor points appear on WebGPU and not on
+   *  WebGL2 — a COVERAGE gap. #2028: neither arm can composite a point twice —
+   *  `accumulateTilePoints` emits each source point once, from the deepest key in
+   *  the set carrying point data there. See renderFillsRhi's assignment site.
    *
    *  Skip when the layer hasn't opted into point rendering — PMTiles MVT
    *  layers like 'buildings' carry centroid Point features alongside polygons,
@@ -4281,35 +4281,20 @@ export class VectorTileRenderer {
       return
     }
 
-    // Read ECEF DSFUN stride-9: [ex_h,ey_h,ez_h, ex_l,ey_l,ez_l, feat_id, abs_lon,abs_lat]
-    // #722 S4 — thread SOURCE feature props for a data-driven size expression
-    // (fixes #17 size); featureProps is PER-TILE (fids collide across tiles),
-    // so resolved here, not after the loop. Constant-size layers pass undefined.
-    const wantsFeatProps = show.sizeExpr?.ast != null
-    for (const key of this.stableKeys) {
-      const tileData = this.source!.getTileData(key, sliceLayer)
-      if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
-      const ptv = tileData.pointVertices
-      const featProps = wantsFeatProps ? tileData.featureProps : undefined
-      for (let i = 0; i < ptv.length; i += 13) {
-        pointRenderer.addTilePoint(
-          ptv[i],
-          ptv[i + 1],
-          ptv[i + 2], // ex_h, ey_h, ez_h
-          ptv[i + 3],
-          ptv[i + 4],
-          ptv[i + 5], // ex_l, ey_l, ez_l
-          ptv[i + 6], // feat_id
-          ptv[i + 7],
-          ptv[i + 8], // abs_lon, abs_lat (cull)
-          ptv[i + 9],
-          ptv[i + 10],
-          ptv[i + 11],
-          ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
-          featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
-        )
-      }
-    }
+    // #2028 — one emission per source point per frame. `stableKeys` is an
+    // EVICTION set (neededKeys ∪ fallbackKeys ∪ protectedAncestors, repeated per
+    // world copy), never a partition, so iterating it submitted a feature twice
+    // at identical absolute coordinates and the alpha-blended point material
+    // composited both. `accumulateTilePoints` keeps the record from the deepest
+    // key in the set that actually carries point data there — the per-point form
+    // of #616's label ancestry shadow. See tile-point-emit.ts.
+    accumulateTilePoints(
+      this.stableKeys,
+      this.source!,
+      sliceLayer,
+      show.sizeExpr?.ast != null, // #722 S4 — a data-driven size wants featureProps
+      pointRenderer,
+    )
     pointRenderer.flushTilePointsRhi(
       pass,
       camera,

@@ -230,12 +230,15 @@ const CEILINGS: Record<string, number> = {
   // probes the same far-field notch the drawing selection runs at), and the
   // child-fallback fetch-frontier push (covered is not loaded — without it the
   // deeper #2013 stretch let a view settle permanently on stretched children).
-  // 4976→5065 (#1190): bundle replay made correct-by-construction — the ringCursor
-  // + stroke layer-slot offsets joined both BundleKeyState literals, the hit-path
-  // alloc-count invariant landed at both sites (with the rationale that names the
-  // failure it distinguishes), and the default-ON gate carries the diagnosis of the
-  // years-old "mostly empty canvas" replay bug it replaces.
-  'map/src/render/vector-tile-renderer.ts': 5065,
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  // 4961→5049 (#1190, merge union): bundle replay made correct-by-construction —
+  // the ringCursor + stroke layer-slot offsets joined both BundleKeyState literals,
+  // the hit-path alloc-count invariant landed at both sites, and the default-ON gate
+  // carries the diagnosis of the "mostly empty canvas" replay bug it replaces.
+  // Ceiling = the MERGED file's measured count (#2028's extraction + #1190's adds).
+  'map/src/render/vector-tile-renderer.ts': 5049,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
