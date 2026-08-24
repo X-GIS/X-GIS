@@ -1407,6 +1407,40 @@ export const bitcastU32 = (v: ReadonlyNode<'f32'>): Node<'u32'> =>
  *  integer domain is not subject to float reassociation/contraction). */
 export const bitcastF32 = (v: ReadonlyNode<'u32'>): Node<'f32'> =>
   call('bitcastF32', f32T, v) as Node<'f32'>
+/** An OPTIMIZATION BARRIER on one f32 value — the shader equivalent of C's `volatile`, and
+ *  the value-granular counterpart to `FuncDecl.opaque` (which can only protect a WHOLE
+ *  function, and pays for it by never being inlined).
+ *
+ *  `optBarrier(x)` IS `x` — bit-for-bit, on both backends and on the CPU oracle. What it adds
+ *  is that no optimizer may look THROUGH it: it lowers to an f32 -> u32 -> f32 round-trip
+ *  ({@link bitcastU32} then {@link bitcastF32}), and the integer domain is not subject to float
+ *  reassociation, distribution or contraction. Two instructions, both targets, no extension.
+ *
+ *  WHAT IT DEFEATS.
+ *   - This library's own passes: `constFold` and `algebraicSimplify` match only `lit` operands,
+ *     so a wrapped term stops matching every rewrite they have. Gated by `opt-barrier.test.ts`,
+ *     which asserts the rewrite fires WITHOUT the barrier and is blocked WITH it.
+ *   - A driver's float reassociation/contraction across the barrier — the same mechanism the
+ *     integer df64 flavour (`core/fp64/df64-int.ts`) already leans on.
+ *
+ *  WHAT IT DOES NOT FIX. It is a COMPILER barrier, not a hardware one. It cannot make a lossy
+ *  f32 multiply correctly rounded (the Class-2 failure in
+ *  /blog/2026-07-08-an-opaque-guard-cannot-fix-a-lossy-multiplier), and on Apple/Metal no
+ *  float-domain barrier has been shown sufficient for a df64 multiply
+ *  (/blog/2026-07-09-the-multiply-you-cannot-guard) — which is what `recommendFp64Flavor`'s
+ *  integer flavour exists for. Use it to pin ONE value an optimizer would otherwise be free to
+ *  rewrite (a Kahan compensation term, a split constant, an error-free-transform residual), not
+ *  as a blanket precision switch.
+ *
+ *  ```ts
+ *  // Kahan compensation: `(sum + y) - sum - y` is algebraically zero, which is exactly
+ *  // what a reassociating compiler is licensed to delete.
+ *  const t = Let(sum.add(y))
+ *  const c = Let(optBarrier(t.sub(sum)).sub(y))
+ *  ```
+ */
+export const optBarrier = (v: ReadonlyNode<'f32'> | number): Node<'f32'> =>
+  bitcastF32(bitcastU32(typeof v === 'number' ? f32(v) : v))
 /** An array-layer argument (#1651). A `number` becomes an i32 LITERAL, not the f32
  *  one `lift()` defaults to: WGSL's array_index takes i32/u32, and `0.0` there is a
  *  type error (GLSL wraps the value in float() either way). A FRACTIONAL number is

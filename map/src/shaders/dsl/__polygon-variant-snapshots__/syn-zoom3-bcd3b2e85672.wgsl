@@ -1,4 +1,4 @@
-// baseline: 6395120f5e87a170fab86b0c94fe3aad144efd66
+// baseline: e9691fc796a0c5e37dba1c9a7dbdfebf0ba9d408
 // fixture: syn-zoom3
 // variant.key: syn-zoom3
 // pick: false
@@ -84,7 +84,7 @@ const Z3_1: vec4<f32> = vec4<f32>(0.0, 1.0, 0.0, 1.0);
 const Z3_2: vec4<f32> = vec4<f32>(0.0, 0.0, 1.0, 1.0);
 
 fn proj_mercator(lon_deg: f32, lat_deg: f32) -> vec2<f32> {
-  return vec2<f32>((radians(lon_deg) * EARTH_R), (log(tan(((PI / 4.0) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) / 2.0)))) * EARTH_R));
+  return vec2<f32>((radians(lon_deg) * EARTH_R), (log(tan(((PI * 0.25) + (radians(clamp(lat_deg, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT)) * 0.5)))) * EARTH_R));
 }
 
 fn wrap_lon_delta(d: f32) -> f32 {
@@ -185,7 +185,7 @@ fn oblique_rot(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
 
 fn proj_oblique_mercator_d(lam_rot: f32, phi_rot: f32) -> vec2<f32> {
   let _cse0 = radians(89.9999);
-  return vec2<f32>((EARTH_R * lam_rot), (EARTH_R * log(tan(((PI / 4.0) + (clamp(phi_rot, (-_cse0), _cse0) / 2.0))))));
+  return vec2<f32>((EARTH_R * lam_rot), (EARTH_R * log(tan(((PI * 0.25) + (clamp(phi_rot, (-_cse0), _cse0) * 0.5))))));
 }
 
 fn proj_oblique_mercator(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
@@ -311,7 +311,7 @@ fn rim_alpha(lon_deg: f32, lat_deg: f32, proj_params: vec4<f32>, globe_eye: vec4
 }
 
 fn inv_merc_lat_rad(merc_y_m: f32) -> f32 {
-  return ((2.0 * atan(exp((merc_y_m / EARTH_R)))) - (PI / 2.0));
+  return ((2.0 * atan(exp((merc_y_m / EARTH_R)))) - (PI * 0.5));
 }
 
 fn apply_log_depth(pos: vec4<f32>, fc: f32) -> vec4<f32> {
@@ -354,7 +354,7 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   let _cse3 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI / 4.0) + (radians(_cse3) / 2.0)))) * EARTH_R), 0.0, _cse0, vec2<f32>(0.0, 0.0));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse3, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI * 0.25) + (radians(_cse3) * 0.5)))) * EARTH_R), 0.0, _cse0, vec2<f32>(0.0, 0.0));
 }
 
 @vertex
@@ -415,7 +415,7 @@ fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u3
   let _cse7 = (1.0 - u.light_dir_ecef.w);
   let vgrad_factor = select(1.0, clamp(((is_top + wall_base) * sqrt((max(wall_height, 0.0) / 150.0))), mix(0.7, 0.98, _cse7), 1.0), ((abs(_v6.z) < 0.5) && (u.cam_ecef_off_l.w != 0.0)));
   let _v7 = clamp((((u.fill_color.rgb + vec3<f32>(0.03)) * (mix(_cse7, max(((1.0 - (((u.fill_color.rgb.x * 0.2126) + (u.fill_color.rgb.y * 0.7152)) + (u.fill_color.rgb.z * 0.0722))) + u.light_dir_ecef.w), 1.0), d_geom) * vgrad_factor)) * unpack4x8unorm(u.light_color_packed).xyz), vec3<f32>(0.0), vec3<f32>(1.0));
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse8, _av0.w, is_top, (_cse5 * EARTH_R), (log(tan(((PI / 4.0) + (_cse2 / 2.0)))) * EARTH_R), (wall_height * is_top), vec4<f32>(_v7, u.fill_color.w), vec2<f32>(d_geom, vgrad_factor));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse8, _av0.w, is_top, (_cse5 * EARTH_R), (log(tan(((PI * 0.25) + (_cse2 * 0.5)))) * EARTH_R), (wall_height * is_top), vec4<f32>(_v7, u.fill_color.w), vec2<f32>(d_geom, vgrad_factor));
 }
 
 @fragment
