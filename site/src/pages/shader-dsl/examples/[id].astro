@@ -2,7 +2,7 @@
 import ShaderDsl from '../../../layouts/ShaderDsl.astro'
 import { Code } from 'astro-expressive-code/components'
 import { shaderCards } from '../../../lib/shader-examples.ts'
-import { SHIP_PLUGINS } from '../../../lib/ship-runtime.ts'
+import { SHIP_PLUGINS, SHIP_HINTS } from '../../../lib/ship-runtime.ts'
 
 export function getStaticPaths() {
   return shaderCards.map((c, i) => ({
@@ -186,7 +186,7 @@ const tabs = [
     <div data-ship-bar data-ship-file={card.file} class="mb-2 rounded-[8px] border border-line bg-bg-card px-3.5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 transition-opacity">
       <span class="font-mono text-[10px] text-fg-mute uppercase tracking-[0.16em]">Shipping</span>
       {SHIP_PLUGINS.map((name) => (
-        <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+        <label class="inline-flex items-center gap-2 cursor-pointer select-none" title={SHIP_HINTS[name]}>
           <span class="relative inline-flex items-center">
             <input type="checkbox" data-ship-toggle={name} class="peer sr-only" />
             <span class="pointer-events-none w-9 h-5 rounded-full bg-bg-elev border border-line peer-checked:bg-accent/25 peer-checked:border-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg-card transition-colors"></span>
@@ -258,6 +258,7 @@ const tabs = [
   } from '../../../lib/shader-playground'
   import {
     SHIP_PLUGINS,
+    SHIP_BITS_NONE,
     shipBadge,
     shipPluginNames,
     shipPlugins,
@@ -312,7 +313,7 @@ const tabs = [
     const bits = shipBits()
     const names = shipPluginNames(bits)
 
-    if (bits === '000') {
+    if (bits === SHIP_BITS_NONE) {
       plainEl.hidden = false
       variantEl.hidden = true
       if (shipBadgeEl) shipBadgeEl.textContent = shipBadge(plainBytes, plainBytes)

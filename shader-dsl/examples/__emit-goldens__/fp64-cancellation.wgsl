@@ -36,7 +36,8 @@ fn fs_cancel(vo: VsOut) -> @location(0) vec4<f32> {
   let _v9 = df64_mul(_v8, _v5);
   let _v10 = df64_mul(_v7, _v7);
   let _v11 = df64_mul(_v10, _v5);
-  let _cse2 = vec2<f32>(0.0, 0.0);
+  let _cse6 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse2 = vec2<f32>(_cse6, _cse6);
   let _cse3 = vec2<f32>(7.0, 0.0);
   let _cse4 = vec2<f32>(21.0, 0.0);
   let _cse5 = vec2<f32>(35.0, 0.0);

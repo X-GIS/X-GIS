@@ -27,7 +27,8 @@ fn fs_sweep(vo: VsOut) -> @location(0) vec4<f32> {
   let _v2 = (_cse0 || (u.fp64 < 0.5));
   let _gv0 = (_v1 * 25.132741228718345);
   let _v3 = df64_add(u.base, vec2<f32>(_gv0, 0.0));
-  let _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2<f32>(0.0, 0.0))));
+  let _cse1 = bitcast<f32>(bitcast<u32>(0.0));
+  let _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2<f32>(_cse1, _cse1))));
   let _v5 = sin((df64_narrow(u.base) + _gv0));
   let _v6 = select(_v4, _v5, _v2);
   let _v7 = ((vo.uv.y - 0.5) * 2.0);

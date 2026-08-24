@@ -60,7 +60,8 @@ void main() {
   bool _v5 = (_cse0 || (u.fp64 < 0.5));
   vec2 _cse1 = vec2(u.center.hi.x, u.center.lo.x);
   vec2 _cse2 = vec2(u.mark.hi.x, u.mark.lo.x);
-  vec2 _cse3 = vec2(0.0, 0.0);
+  float _cse6 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse3 = vec2(_cse6, _cse6);
   float _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2(_v3, 0.0)), df64_add(_cse2, _cse3)));
   vec2 _cse4 = vec2(u.center.hi.y, u.center.lo.y);
   vec2 _cse5 = vec2(u.mark.hi.y, u.mark.lo.y);
