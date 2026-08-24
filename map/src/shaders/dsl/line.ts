@@ -1279,6 +1279,25 @@ export const vsLine = fn(
       // project_geom reproject − projected camera centre) → flat 2D-plane MVP.
       const cornerFc = Let(finalizeCorner({ corner: cornerLocal }))
       clip.assign(transformMat4(mvp, vec4(cornerFc.x, cornerFc.y, zLift, 1)))
+      // #1496 — seam-crossing segment cull. A rotated projection's branch cut
+      // (oblique_mercator: the rotated antimeridian, rotated lon ±π) sweeps
+      // with the camera and does NOT follow tile seams, so a tile can carry a
+      // segment whose endpoints project one world circumference (2πR) apart —
+      // drawn, it is the full-frame streak of the report. The cut is
+      // camera-tracked, so no CPU-side split can pre-clean the buffers (the
+      // deferred follow-up named in choose-where-the-discontinuity-lives);
+      // instead degenerate the quad when the SEGMENT's two projected endpoints
+      // sit more than half a world apart in projected X — a branch jump is
+      // exactly 2πR, while a legitimate post-tessellation segment spans well
+      // under one tile. Non-Mercator flat only (Mercator's cut is tile-aligned
+      // at ±180°, and the guard keeps its hot path at one flat_rel per vertex).
+      If(projParamsF.x.gt(0.5), () => {
+        const otherLocal = select(isStart, p1, p0)
+        const otherFc = finalizeCorner({ corner: otherLocal })
+        If(abs(cornerFc.x.sub(otherFc.x)).gt(PI.mul(EARTH_R)), () => {
+          clip.assign(vec4(0, 0, 0, 0))
+        })
+      })
     }).else(() => {
       const tileAbsX = toF32(tileOrigin2.x)
       const tileAbsY = toF32(tileOrigin2.y)
