@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6be0aee3c99424be2f096406031f2656f9178c83
+  Generated from: 2bab5272b2b73fd17fd1cd30f62224026f2a5942
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6be0aee3c994
+    bun scripts/emit-changelog.ts --since 2bab5272b2b7
 -->
 
 # Changelog
@@ -98,6 +98,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** non-mercator projection bugs — drape anchor, antimeridian lon wrap, globe overzoom sharpness, oblique seam streaks (#2022 #2023 #2024 #1496) ([#2031](https://github.com/X-GIS/X-GIS/pull/2031)) `2bab527`
 - **map:** emit each source point once per frame ([#2036](https://github.com/X-GIS/X-GIS/pull/2036)) `6be0aee`
 - **map:** keep the loop warm while a LOD transition is still in flight ([#2010](https://github.com/X-GIS/X-GIS/pull/2010)) `86e085d`
 - **compiler/convert:** warn on the two silent conversion gaps — non-constant icon-offset and mapbox:// urls (#1977) ([#1990](https://github.com/X-GIS/X-GIS/pull/1990)) `dfd6ae2`
