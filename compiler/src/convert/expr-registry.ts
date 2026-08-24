@@ -61,6 +61,9 @@ import {
   numberFormatHandler,
   rgbHandler,
   hslHandler,
+  splitHandler,
+  joinHandler,
+  toRgbaHandler,
 } from './expr-string'
 
 // `match` / `interpolate` already live in their own modules with a
@@ -112,6 +115,13 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['to-boolean', typeCoercionHandler],
   ['boolean', typeCoercionHandler],
   ['to-color', typeCoercionHandler],
+  // #2008 C-tier: `object` has the IDENTICAL overload shape as `string` /
+  // `number` / `boolean` above — `["object", value_1, …, value_n]`, first
+  // arg that converts wins (@maplibre/maplibre-gl-style-spec 24.8.5) — so
+  // it reuses the same fallback-chain handler, no new code.
+  ['object', typeCoercionHandler],
+  // #2008 C-tier: to-rgba — see expr-string.ts toRgbaHandler.
+  ['to-rgba', toRgbaHandler],
   // interpolate family
   ['interpolate', interpolateHandler],
   ['interpolate-lab', interpolateHandler],
@@ -154,6 +164,9 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   // string / value-shaping
   ['slice', sliceHandler],
   ['index-of', indexOfHandler],
+  // #2008 C-tier: string ops — expr-string.ts splitHandler/joinHandler.
+  ['split', splitHandler],
+  ['join', joinHandler],
   ['number-format', numberFormatHandler],
   ['rgb', rgbHandler],
   ['rgba', rgbHandler],

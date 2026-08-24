@@ -119,7 +119,12 @@ describe('spec-coverage ↔ runtime capability drift', () => {
       'hsl / hsla',
       'image',
       'to-number / number',
-      'to-string / to-boolean / to-color',
+      'to-string / string / to-boolean / boolean / to-color',
+      // #2008 C-tier — expression operators, not renderable paint/layout
+      // properties; same non-renderable class as 'array' / 'concat' above.
+      'object',
+      'to-rgba',
+      'split / join',
       'geometry-type',
       'id',
       'properties',
