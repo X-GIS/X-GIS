@@ -15,6 +15,7 @@ export type { Diagnostic }
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
 import type { SourceBounds } from './source-bounds'
+import type { TileRowScheme } from './source-scheme'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
 /** A complete IR scene — the output of the lowering pass. */
@@ -96,6 +97,13 @@ export interface SourceDef extends RasterDemSourceFields {
    *  unclipped, the pre-existing behaviour. Validity (west < east — no antimeridian
    *  wrap — south < north, WGS84 ranges) is settled once in ./source-bounds. */
   bounds?: SourceBounds
+  /** The DATASET's row-origin — Mapbox source-level `scheme: "xyz" | "tms"` (#1985).
+   *  `tms` numbers tile rows from the BOTTOM, so the request path substitutes
+   *  `2^z − 1 − y` for `{y}`; `xyz` (the default, and what an omitted property means)
+   *  numbers from the top. Only the raster / raster-dem request path reads it — the
+   *  vector family builds its URLs in a different substitution (`vector-tile-loader`)
+   *  that never sees a SourceDef. The legal value set lives once in ./source-scheme. */
+  scheme?: TileRowScheme
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Positive seconds; undefined (0/absent in `.xgis`) = off, the pre-existing
    *  behaviour for every source. The runtime re-runs the SAME load path the
@@ -353,18 +361,15 @@ export interface RenderNode
    *  size, dash-offset). emit-commands reads from this field as the
    *  authoritative source of lifecycle metadata. */
   animationMeta?: { loop: boolean; easing: Easing; delayMs: number }
-  /** Optional text label for the layer's features. When set, the
-   *  point-renderer expands each feature into one quad per glyph
-   *  (text content from `text.expr`, font + size from `text.font`
-   *  and `text.size`). Mapbox `text-field` / `text-font` /
-   *  `text-size` map here. Set via the `label-[<expr>]` utility OR
-   *  the `label:` block property (added in Batch 1c).
+  /** Optional text label for the layer's features. When set, the point-renderer expands
+   *  each feature into one quad per glyph (text content from `text.expr`, font + size from
+   *  `text.font` and `text.size`). Mapbox `text-field` / `text-font` / `text-size` map here.
+   *  Set via the `label-[<expr>]` utility OR the `label:` block property (added in Batch 1c).
    *
-   *  Engine plumbing arrives in Batch 1c — this field is the
-   *  contract that both the converter (Batch 1f) and the renderer
-   *  agree on. Batch 1b only adds the field + lower.ts plumbing
-   *  so Mapbox styles can carry text intent through compilation
-   *  without throwing. Rendering stays no-op until 1c. */
+   *  Engine plumbing arrives in Batch 1c — this field is the contract that both the converter
+   *  (Batch 1f) and the renderer agree on. Batch 1b only adds the field + lower.ts plumbing so
+   *  Mapbox styles can carry text intent through compilation without throwing. Rendering stays
+   *  no-op until 1c. */
   label?: LabelDef
 }
 
@@ -438,16 +443,13 @@ export interface LabelDef {
 
   // ── Typography ──
   /** Font stack — first available wins. Maps from Mapbox
-   *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`.
-   *  Optional — runtime defaults to its first loaded font.
-   *  Weight/italic words ("Regular", "Bold", "Italic", "Light", …)
-   *  are STRIPPED at conversion time and surfaced as `fontWeight` /
-   *  `fontStyle` below; the names left in this array are the family
-   *  portion only (e.g. just "Noto Sans"). Without that split the
-   *  browser parses "Noto-Sans-Bold" as a literal family name, fails
-   *  to match any installed font, and falls back to the OS default
-   *  — every Mapbox style ended up looking like the same Regular
-   *  weight regardless of what the style declared. */
+   *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`. Optional — runtime
+   *  defaults to its first loaded font. Weight/italic words ("Regular", "Bold", "Italic",
+   *  "Light", …) are STRIPPED at conversion time and surfaced as `fontWeight` / `fontStyle`
+   *  below; the names left in this array are the family portion only (e.g. just "Noto Sans").
+   *  Without that split the browser parses "Noto-Sans-Bold" as a literal family name, fails to
+   *  match any installed font, and falls back to the OS default — every Mapbox style ended up
+   *  looking like the same Regular weight regardless of what the style declared. */
   font?: string[]
   /** CSS font-weight derived from the Mapbox `text-font` entry's
    *  trailing keyword. `"Noto Sans Bold"` → 700, `"… Light"` → 300,
@@ -795,17 +797,14 @@ export interface StrokePattern {
   anchor?: 'repeat' | 'start' | 'end' | 'center'
 }
 
-/** A stroke width expressed as exactly ONE form. Now an alias over the
- *  unified `PropertyShape<number>` — every variant the legacy
- *  StrokeWidthValue carried (constant / zoom-stops / per-feature)
- *  matches PropertyShape one-to-one after renaming kinds and the
- *  `px` field to `value`. The alias means callsites continue to
- *  type-check; new callsites should reach for `PropertyShape<number>`
- *  directly.
+/** A stroke width expressed as exactly ONE form. Now an alias over the unified
+ *  `PropertyShape<number>` — every variant the legacy StrokeWidthValue carried (constant /
+ *  zoom-stops / per-feature) matches PropertyShape one-to-one after renaming kinds and the
+ *  `px` field to `value`. The alias means callsites continue to type-check; new callsites
+ *  should reach for `PropertyShape<number>` directly.
  *
- *  Pre-union safety guarantee preserved: every stroke MUST pick a
- *  kind — there is no way to construct a `StrokeWidthValue` that
- *  means "no width" except by explicitly writing
+ *  Pre-union safety guarantee preserved: every stroke MUST pick a kind — there is no way to
+ *  construct a `StrokeWidthValue` that means "no width" except by explicitly writing
  *  `{ kind: 'constant', value: 0 }`. */
 export type StrokeWidthValue = import('./property-types').PropertyShape<number>
 

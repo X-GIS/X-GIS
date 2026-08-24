@@ -382,22 +382,25 @@ export class SourceManager {
     // re-route those into the raster path — declared vector-family type wins.
     const isDeclaredVector =
       declaredType === 'vector' || declaredType === 'tilejson' || declaredType === 'pmtiles'
-    // The DATASET's deepest real level (#1983) + its spatial extent (#1984) — both tile
-    // markers carry them, for rasterCoverZoom and clipTilesToBounds respectively.
-    const { maxzoom, bounds } = load
+    // The DATASET's deepest real level (#1983), its spatial extent (#1984) and its row
+    // origin (#1985) — both tile markers carry all three, for rasterCoverZoom,
+    // clipTilesToBounds and the `{y}` substitution respectively. `tileSize` joins the
+    // destructure so the raster marker below still fits on one line.
+    const { maxzoom, bounds, scheme, tileSize } = load
     // raster-dem (#777) — guard BEFORE looksLikeRaster; see map-types.ts `_dem`.
     if (declaredType === 'raster-dem') {
       this.rawDatasets.set(load.name, {
         _tileUrl: url,
         _dem: true,
         encoding: load.encoding,
-        tileSize: load.tileSize,
+        tileSize,
         redFactor: load.redFactor,
         greenFactor: load.greenFactor,
         blueFactor: load.blueFactor,
         baseShift: load.baseShift,
         maxzoom,
         bounds,
+        scheme,
       })
       return
     }
@@ -405,7 +408,7 @@ export class SourceManager {
     const vectorTileFormat = detectVectorTileFormat(url, asVectorTileKind(declaredType))
 
     if (looksLikeRaster) {
-      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize: load.tileSize, maxzoom, bounds })
+      this.rawDatasets.set(load.name, { _tileUrl: url, tileSize, maxzoom, bounds, scheme })
       return
     }
 
@@ -682,18 +685,15 @@ export class SourceManager {
     this._sourceRefresh.stopAll()
   }
 
-  /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered,
-   *  per-show) through VirtualPMTilesBackend, bypassing the legacy
-   *  pool.compile + setRawParts + GeoJSONRuntimeBackend chain. Run
-   *  when `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` / `?virt_inline=1` is
-   *  set AND the show carries no filter / geometryExpr (those still
-   *  take the legacy path). Per-feature buffer variants (match() /
-   *  gradient() colour) ride THIS path since #821: `maps` carries the
-   *  same showSlices / extrude / stroke descriptors the URL-GeoJSON
-   *  attach passes, so the MVT worker emits per-tile featureProps and
-   *  the slice keys match the VTR's computeSliceKey lookups — the
-   *  legacy path stored tiles under the default `''` slice, which the
-   *  VTR never finds (permanent cache miss → blank frame). */
+  /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered, per-show) through
+   *  VirtualPMTilesBackend, bypassing the legacy pool.compile + setRawParts +
+   *  GeoJSONRuntimeBackend chain. Run when `__XGIS_USE_VIRTUAL_INLINE_GEOJSON` /
+   *  `?virt_inline=1` is set AND the show carries no filter / geometryExpr (those still take
+   *  the legacy path). Per-feature buffer variants (match() / gradient() colour) ride THIS
+   *  path since #821: `maps` carries the same showSlices / extrude / stroke descriptors the
+   *  URL-GeoJSON attach passes, so the MVT worker emits per-tile featureProps and the slice
+   *  keys match the VTR's computeSliceKey lookups — the legacy path stored tiles under the
+   *  default `''` slice, which the VTR never finds (permanent cache miss → blank frame). */
   _attachInlineGeoJSONViaVirtualPMTiles(
     vtKey: string,
     filtered: GeoJSONFeatureCollection,

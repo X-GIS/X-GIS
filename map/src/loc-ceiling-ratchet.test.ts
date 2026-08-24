@@ -224,13 +224,20 @@ const CEILINGS: Record<string, number> = {
   // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
   // comment that records why the shell phase answers to the extrude skip rule.
   // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
-  // 4957→4986 (#2024): the globe virtual-overzoom drape. The selection ladder
-  // itself lives in render/drape-overzoom-dispatch.ts (extracted at birth);
-  // the +29 kept here is the irreducible composition wiring — the dispatch
-  // call with its collaborator closure (uploadResident needs this.uploadTile),
-  // the bakeTileToTexture window parameter + windowed ortho (the bake matrix
-  // is this file's state), and one import. MEASURED post-prettier.
-  'map/src/render/vector-tile-renderer.ts': 4986,
+  // 4957→4976 (#2013): the Tier-2 zoom-direction prefetch is no longer gated on
+  // cameraIdle — the guard made it unreachable during the gesture it exists for —
+  // with the comment recording why, the farTargetBoost pass-through (prefetch
+  // probes the same far-field notch the drawing selection runs at), and the
+  // child-fallback fetch-frontier push (covered is not loaded — without it the
+  // deeper #2013 stretch let a view settle permanently on stretched children).
+  // 4976→5005 (#2024, merge with #2013): the globe virtual-overzoom drape. The
+  // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
+  // at birth); the +29 kept here is the irreducible composition wiring — the
+  // dispatch call with its collaborator closure (uploadResident needs
+  // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
+  // (the bake matrix is this file's state), and one import. Both deltas are
+  // disjoint (+19 #2013, +29 #2024 = 4957+48). MEASURED post-merge.
+  'map/src/render/vector-tile-renderer.ts': 5005,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -752,7 +759,10 @@ const CEILINGS: Record<string, number> = {
   // the VTR's lookup string, that `vtKey` is the wrong one, and which shows this un-blanks.
   // Nothing extract-worthy: this is the ONE line only map.ts can write — it owns both the
   // ShowCommand the key is derived from and the catalog the key is handed to. MEASURED.
-  'map/src/map.ts': 5623,
+  // 5623→5630 (#1177/#2013): the `_labelDispatchLoopRuns` counter + its rationale and
+  // the `loopRuns` field in getLabelDispatchStats — the observable the zoom-skip gate
+  // asserts the dispatch-loop skip on (measure the skip, not the frame time).
+  'map/src/map.ts': 5630,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1048,7 +1058,11 @@ const CEILINGS: Record<string, number> = {
   // 2005→1996 (#1046 F3b): the `ctx.rhiPass` twin arm (draw directly on the forced-
   // WebGL2 frame's live screen pass) deleted; the `else` branch (originate through
   // the RHI frame encoder) unconditional now that it is the only frame shape.
-  'map/src/render/passes/label-pass.ts': 1996,
+  // 1996→2010 (#1177/#2013): the S16 dispatch-loop skip — a loop-condition guard
+  // plus its safety rationale, and the loop-run counter incremented INSIDE the
+  // body so the zoom-skip gate's loopRuns === misses assertion measures the skip
+  // itself (removing the guard while keeping the counter turns the gate red).
+  'map/src/render/passes/label-pass.ts': 2010,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

@@ -795,15 +795,22 @@ export class XGISMap {
    *  investing in the full snapshot/replay refactor. */
   _labelDispatchHits = 0
   _labelDispatchMisses = 0
+  /** #1177/#2013 — frames on which the label dispatch loop BODY actually
+   *  entered (counted inside the first iteration). On an S16 hit the loop is
+   *  skipped entirely (its queue would be dropped unconsumed), so with any
+   *  labels present this tracks misses, never hits — the zoom-skip gate
+   *  asserts the skip itself through this counter, not through frame time. */
+  _labelDispatchLoopRuns = 0
   /** iter-261 — read this via __xgisMap.getLabelDispatchStats() to
    *  see Phase L.1 cache hit-rate without actually building the
    *  cache. */
-  getLabelDispatchStats(): { hits: number; misses: number; hitRate: number } {
+  getLabelDispatchStats(): { hits: number; misses: number; hitRate: number; loopRuns: number } {
     const total = this._labelDispatchHits + this._labelDispatchMisses
     return {
       hits: this._labelDispatchHits,
       misses: this._labelDispatchMisses,
       hitRate: total > 0 ? this._labelDispatchHits / total : 0,
+      loopRuns: this._labelDispatchLoopRuns,
     }
   }
   /** iter-266 — TextStage's per-label content-keyed layout cache
@@ -3732,7 +3739,7 @@ export class XGISMap {
       // Raster tile source referenced by a layer → activate raster renderer
       const tileUrl = '_tileUrl' in data ? data._tileUrl : undefined
       if (tileUrl) {
-        this.rasterRenderer.setUrlTemplate(tileUrl)
+        this.rasterRenderer.setUrlTemplate(tileUrl, 'scheme' in data ? data.scheme : undefined)
         // Authored tileSize (256 | 512) biases the cover zoom; unauthored keeps
         // the renderer's 256 default (the de-facto XYZ raster standard).
         this.rasterRenderer.setTileSize('tileSize' in data ? data.tileSize : undefined)

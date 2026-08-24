@@ -25,8 +25,15 @@ export interface MapboxStyle {
    *  and `${sprite}.png` (or `@2x` variants on hidpi) to load icon
    *  metadata + raster. Same plumbing pattern as `glyphs` — the
    *  importer forwards this to `XGISMap.setSpriteUrl()`; the
-   *  compiler does NOT encode it into xgis source. */
-  sprite?: string
+   *  compiler does NOT encode it into xgis source.
+   *
+   *  MapLibre also permits the multi-sprite array form —
+   *  `[{ id: "default", url: "…" }, { id: "extra", url: "…" }]` —
+   *  for styles that address more than one atlas via an
+   *  `otherId:icon-name` prefixed `icon-image` value (#2007). X-GIS
+   *  renders a single atlas, so the converter collects only one entry
+   *  (see mapbox-to-xgis.ts) and warns about the rest. */
+  sprite?: string | { id?: string; url?: string }[]
   /** Known-but-unsupported top-level fields — declared only so the
    *  converter can detect them and warn; never encoded into xgis source. */
   fog?: unknown
@@ -36,6 +43,20 @@ export interface MapboxStyle {
   transition?: unknown
   imports?: unknown
   models?: unknown
+  /** MapLibre object-form camera projection (`{ type: "globe" }` etc).
+   *  Genuinely host/runtime territory in X-GIS (XGISMap.setProjection) —
+   *  unlike fog/lights/terrain above this isn't an unimplemented
+   *  feature, but the COMPILER itself never reads or maps it (#2007);
+   *  declared here only so the ignored-top-level warning can name it. */
+  projection?: unknown
+  /** MapLibre global-state defaults (paired with the `["global-state"]`
+   *  expression). Not read by the converter (#2007) — declared only so
+   *  the ignored-top-level warning can name it. */
+  state?: unknown
+  /** MapLibre local font-face declarations. Not read by the converter
+   *  (#2007) — declared only so the ignored-top-level warning can name
+   *  it. */
+  'font-faces'?: unknown
   // Other top-level fields (metadata) still ignored.
 }
 

@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a7c783479758acdfeeda9440f3576fc94e69f2e2
+  Generated from: 41351e69fec962af9a69be90abc1d2ec24501eb9
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a7c783479758
+    bun scripts/emit-changelog.ts --since 41351e69fec9
 -->
 
 # Changelog
@@ -27,6 +27,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler+map+data:** source-level scheme — tms row flip at the URL builder and the {-y} template token (#1985) ([#2029](https://github.com/X-GIS/X-GIS/pull/2029)) `41351e6`
+- **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
 - **compiler+map:** per-frame zoom-step fill-antialias — the expression form stops dropping (#1995) ([#2000](https://github.com/X-GIS/X-GIS/pull/2000)) `42970d8`
@@ -185,6 +187,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** keep zoom transitions covered and cheap — prefetch mid-gesture, 3-level children-stretch, label dispatch-loop skip (#2013) ([#2021](https://github.com/X-GIS/X-GIS/pull/2021)) `dbda432`
 - **ci:** six render shards, no apt on their path, and a gate on the count ([#1935](https://github.com/X-GIS/X-GIS/pull/1935)) `0b39a6c`
 - **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
 - **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`

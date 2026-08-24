@@ -95,7 +95,11 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('fill-pattern declared without'))).toBe(false)
   })
 
-  it('source scheme: "tms" → Y-flip warning', () => {
+  it('source scheme: "tms" → the Y-flip warning is RETIRED; a raster source emits (#1985)', () => {
+    // Was: "tiles will render Y-flipped … wait for native scheme support". The scheme now
+    // reaches the request path (`tileUrl` substitutes `2^z − 1 − y` for `{y}`), so the
+    // whole warning is gone for the two types that consume it. The vector family keeps a
+    // NARROWED one, pinned in source-scheme-emit.test.ts alongside the emit witness.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -107,7 +111,8 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'legacy' }],
     })
-    expect(w.some((s) => s.includes('legacy') && s.includes('tms'))).toBe(true)
+    expect(w.filter((s) => s.includes('scheme'))).toEqual([])
+    expect(w.some((s) => s.includes('Y-flipped'))).toBe(false)
   })
 
   it('multiple tile mirrors → subdomain-rotation warning', () => {
@@ -128,7 +133,7 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"m"') && s.includes('mirrors'))).toBe(true)
   })
 
-  it('top-level fog → ignored-fields warning (projection + light host-applied, WS-8/WS-9)', () => {
+  it('top-level fog + projection → ignored-fields warning; light stays host-applied (WS-9, #2007 supersedes WS-8)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -139,14 +144,18 @@ describe('converter warning coverage', () => {
     })
     expect(w.some((s) => s.startsWith('Top-level style fields ignored'))).toBe(true)
     const note = w.find((s) => s.startsWith('Top-level style fields ignored'))!
-    // WS-8: top-level `projection` is now host-applied (demo-runner /
-    // compare-runner read it off the raw style JSON and call
-    // XGISMap.setProjection), so it must NOT appear in the ignored list.
-    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain(
-      'projection',
+    // #2007 supersedes WS-8: the playground demo-runner/compare-runner still
+    // apply `projection` themselves, but the COMPILER never did — a host
+    // embedding convertMapboxStyle() directly had zero signal. `projection`
+    // now appears in the ignored list with a clause naming it a host/runtime
+    // choice (not a plain "unimplemented" gap like fog).
+    expect(note, `expected "projection" in: ${note}`).toContain('projection')
+    expect(note, `expected the host/runtime clause in: ${note}`).toContain(
+      'host/runtime choice in X-GIS',
     )
-    // WS-9: top-level `light` is now host-applied (XGISMap.setLight via the
-    // demo-runner / compare-runner), so it must NOT appear in the ignored list.
+    // WS-9: top-level `light` is still host-applied (XGISMap.setLight via the
+    // demo-runner / compare-runner) with no compiler-side gap to warn about,
+    // so it must still NOT appear in the ignored list.
     expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
     for (const k of ['fog']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
