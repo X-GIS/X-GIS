@@ -73,19 +73,19 @@ import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
-import { tileKey, tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
+import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool } from '@xgis/rhi-webgpu'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
 import { isPickEnabled, getSampleCount } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog, TileData } from '@xgis/data'
-import { globeVisibleTiles } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape, isGlobeProj } from '@xgis/geo'
-import { VectorDrapeRenderer, type DrapeOverzoomTile } from './vector-drape-renderer'
+import { bakesVectorDrape } from '@xgis/geo'
+import { VectorDrapeRenderer } from './vector-drape-renderer'
+import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -130,11 +130,6 @@ export type { LayerDrawPhase }
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
  *  dequant scale). */
 const TWO_PI_R_EARTH = 2 * Math.PI * EARTH.sphereR
-// #2024 — deepest virtual overzoom depth the globe drape windows past the
-// source maxLevel. 8 covers the whole camera range (universal maxZoom 22 over
-// the shallowest real-world archive maxLevels) while bounding the per-frame
-// virtual selector call.
-const DRAPE_OVERZOOM_MAX_BOOST = 8
 
 /** Cesium replacement-invariant ancestor protection depth: pyramid
  *  levels above each visible tile pinned in the catalog cache. 22
@@ -3509,93 +3504,21 @@ export class VectorTileRenderer {
       // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
       // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
       this._drapeStrokes = this._bakeStrokeActive
-      // #2024 — GLOBE overzoom: currentZ is clamped to the source maxLevel, so
-      // past it the drape magnifies each 512px tile bake 2^(zoom − maxLevel)×
-      // (the "low-res past the source max" report — the direct path never
-      // blurs, it re-projects real vertices). Select VIRTUAL sub-tiles at the
-      // camera's own z from the SAME globe selector tile selection uses, map
-      // each onto its resident maxLevel ancestor, and hand the drape the
-      // windowed set. The switch is atomic: any missing ancestor (or a mixed-z
-      // selector set) keeps this frame on the parent path — never both covers
-      // (double alpha would darken translucent fills). Globe route only; the
-      // flat-disc drape trio (3/4/5) selects via SSE and keeps the
-      // parent-magnified behaviour (follow-up noted on #2024).
-      let drapeOverzoom: DrapeOverzoomTile[] | undefined
-      const srcMaxLevel = this.source.maxLevel
-      let virtualZ = Math.min(Math.floor(camera.zoom), srcMaxLevel + DRAPE_OVERZOOM_MAX_BOOST)
-      // globeVisibleTiles serves deep zoom through its overzoom FOOTPRINT branch,
-      // gated on zoom > maxZ + 1e-3; at zoom == maxZ exactly the legacy descent
-      // runs instead and collapses past z≈15 (its own in-file comment). At an
-      // exact-integer camera zoom drop one virtual level so the footprint branch
-      // always serves the set — a transient 2× magnification at the precise
-      // integer, against the parent path's 2^(zoom − maxLevel)×.
-      if (!(camera.zoom > virtualZ + 1e-3)) virtualZ -= 1
-      if (
-        isGlobeProj(projType) &&
-        srcMaxLevel > 0 &&
-        currentZ === srcMaxLevel &&
-        virtualZ > currentZ
-      ) {
-        const sphereR = activeBody().sphereR
-        // Globe stores the TRUE centre latitude (representsCenterAs(7) ===
-        // 'lat-deg'); lon derives from Mercator-X — globeVisibleTiles wraps the
-        // ±180.000…3 antimeridian float artifact at entry (#2023).
-        const vTiles = globeVisibleTiles(
-          (camera.centerX / sphereR) * (180 / Math.PI),
-          camera.centerLatDeg,
-          camera.zoom,
-          virtualZ,
-          canvasWidth / dpr,
-          canvasHeight / dpr,
-          camera.pitch ?? 0,
-          camera.bearing ?? 0,
-        )
-        const drapeCache = this.getOrCreateLayerCache(sliceLayer)
-        let allResident = vTiles.length > 0
-        const out: DrapeOverzoomTile[] = []
-        // Ancestors the virtual set needs but the GPU cache lacks. The virtual
-        // footprint is PADDED (±1 tile at the virtual z), so its edge tiles can
-        // map to maxLevel ancestors OUTSIDE the primary selection's own padded
-        // box — tiles the normal fetch/upload pipeline never touches. Without
-        // requesting them here, one forever-missing pad ancestor pins
-        // allResident false and the sharp path never engages.
-        const missingParents: number[] = []
-        for (const t of vTiles) {
-          const shift = t.z - srcMaxLevel
-          if (shift <= 0) {
-            allResident = false
-            break
-          }
-          const parentKey = tileKey(srcMaxLevel, t.x >> shift, t.y >> shift)
-          if (!drapeCache.has(parentKey)) {
-            if (this.source.hasTileData(parentKey, sliceLayer)) {
-              // Compiled in the catalog but never GPU-uploaded (outside the
-              // primary selection) — upload directly, same call the visible
-              // path uses for its post-compile stragglers.
-              allResident = false
-              this.uploadTile(
-                parentKey,
-                this.source.getTileData(parentKey, sliceLayer)!,
-                sliceLayer,
-              )
-            } else if (this.source.hasTileData(parentKey)) {
-              // Fetched/compiled, but EMPTY for this layer (open sea under a
-              // land layer): a virtual tile over it has nothing to drape —
-              // satisfied by omission, never a reason to hold the sharp path.
-            } else {
-              allResident = false
-              missingParents.push(parentKey)
-            }
-            continue
-          }
-          out.push({ z: t.z, x: t.x, y: t.y, parentKey })
-        }
-        // Fetch/compile the not-yet-cataloged ancestors (per-key dedupe in the
-        // catalog makes the per-frame repeat cheap); the switch stays atomic —
-        // the parent-magnified path renders until every ancestor is resident.
-        if (missingParents.length > 0) this.source.requestTiles(missingParents)
-        if (allResident) drapeOverzoom = out
-      }
+      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
+      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
+      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
+      const drapeOverzoom = computeDrapeOverzoom({
+        camera,
+        projType,
+        currentZ,
+        cssWidth: canvasWidth / dpr,
+        cssHeight: canvasHeight / dpr,
+        source: this.source,
+        sliceLayer,
+        layerCache: this.getOrCreateLayerCache(sliceLayer),
+        uploadResident: (parentKey) =>
+          this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
+      })
       this._drape.renderGlobeFills(
         rhiPass,
         frame,
