@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6f825af7ef0fe8ca0089c9aaa4e7416439d98716
+  Generated from: f0a45ff955e203d1d47e33373373f72e22b11409
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6f825af7ef0f
+    bun scripts/emit-changelog.ts --since f0a45ff955e2
 -->
 
 # Changelog
@@ -225,6 +225,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** terrain-family design — terrain root, ["elevation"], color-relief, encoding emit (ADR-0012 D5 track) ([#2032](https://github.com/X-GIS/X-GIS/pull/2032)) `f0a45ff`
 - **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
 - a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`
