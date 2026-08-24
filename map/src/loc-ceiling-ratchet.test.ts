@@ -230,7 +230,10 @@ const CEILINGS: Record<string, number> = {
   // probes the same far-field notch the drawing selection runs at), and the
   // child-fallback fetch-frontier push (covered is not loaded — without it the
   // deeper #2013 stretch let a view settle permanently on stretched children).
-  'map/src/render/vector-tile-renderer.ts': 4976,
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  'map/src/render/vector-tile-renderer.ts': 4961,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
