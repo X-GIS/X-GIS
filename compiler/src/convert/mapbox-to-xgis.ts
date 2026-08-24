@@ -260,6 +260,24 @@ export function convertMapboxStyle(
     warnings.push(`Top-level style fields ignored: ${topLevelGaps.join(', ')}`)
   }
 
+  // #1977 — a `mapbox://` scheme sprite/glyphs URL requires the Mapbox API
+  // + an access token; same gap as the per-source url check below. This is
+  // orthogonal to the "sprite/glyphs are host-integration concerns" note
+  // above (which is about the DSL never encoding them at all) — the host
+  // still receives whatever URL is here and can only fail to fetch it.
+  // `glyphs` is otherwise never read in this file; add the read here so
+  // the warning has something to inspect.
+  if (typeof style.sprite === 'string' && /^mapbox:\/\//i.test(style.sprite)) {
+    warnings.push(
+      `Style sprite "${style.sprite.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible sprite or point at an https sprite JSON/PNG pair.`,
+    )
+  }
+  if (typeof style.glyphs === 'string' && /^mapbox:\/\//i.test(style.glyphs)) {
+    warnings.push(
+      `Style glyphs "${style.glyphs.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible glyphs endpoint or point at an https glyphs PBF template.`,
+    )
+  }
+
   // ── Sources ────────────────────────────────────────────────────────
   // Defensive: style.sources should be a plain object per spec. A
   // string / array / null would otherwise either crash (null) or

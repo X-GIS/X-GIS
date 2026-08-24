@@ -11,6 +11,24 @@ export interface ConvertSourceOptions {
   inlineGeoJSON?: Map<string, unknown>
 }
 
+// #1977 — a `mapbox://` scheme URL requires the Mapbox API + an access
+// token. The X-GIS runtime has no Mapbox auth logic anywhere (source-
+// manager.ts only prepends baseUrl to a non-http(s)/non-'/' URL), so a
+// mapbox:// source can only 404 at fetch time — and every real Mapbox
+// v11+ terrain style ships a `raster-dem` source in exactly this shape.
+// Warn but keep emitting the URL as-is (warn-only — every call site below
+// keeps its existing emission unchanged). Shared by every branch that
+// reads a source url (vector / raster / raster-dem / the explicit
+// "type": "tilejson" arm); the pmtiles:// scheme handling above
+// (stripPmtilesScheme) is a different, already-handled scheme.
+function warnMapboxSchemeUrl(id: string, url: unknown, warnings: string[]): void {
+  if (typeof url === 'string' && /^mapbox:\/\//i.test(url)) {
+    warnings.push(
+      `Source "${id}" url "${url.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible style or point at an https TileJSON.`,
+    )
+  }
+}
+
 /** Mapbox `sources[id]` entry → xgis `source <id> { … }` block.
  *
  *  Routing rules:
@@ -274,6 +292,7 @@ export function convertSource(
   if (typeof src.url === 'string') checkPlaceholdersOnTiles([src.url])
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
+    warnMapboxSchemeUrl(id, url, warnings)
     if (url && /\.pmtiles(\?|#|$)/i.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
@@ -312,6 +331,7 @@ export function convertSource(
     // tilejson backend. Without this arm the converter fell to
     // "unsupported source type" and the layer dropped entirely.
     const url = src.url ?? src.tiles?.[0]
+    warnMapboxSchemeUrl(id, url, warnings)
     if (url) {
       lines.push('  type: tilejson')
       lines.push(`  url: ${JSON.stringify(url)}`)
@@ -336,6 +356,7 @@ export function convertSource(
     }
   } else if (src.type === 'raster') {
     const url = src.tiles?.[0] ?? src.url
+    warnMapboxSchemeUrl(id, url, warnings)
     if (url) {
       // tiles[] entries are XYZ URL TEMPLATES — Mapbox spec requires
       // `{z}/{x}/{y}` placeholders. Without all three the runtime
@@ -370,6 +391,7 @@ export function convertSource(
     // Emit type so the runtime's source registry has the entry — a
     // future hillshade / 3D-terrain layer will pick it up.
     const url = src.tiles?.[0] ?? src.url
+    warnMapboxSchemeUrl(id, url, warnings)
     if (url) {
       // Mirror of the raster path placeholder check — raster-dem also
       // serves per-tile elevation textures and the URL template needs

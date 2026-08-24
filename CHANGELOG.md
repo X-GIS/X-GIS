@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 773205036776338db0c520215637de2bbaead30f
+  Generated from: dfd6ae2ad9718aada2afe2ab674ae9aa9b4c42bf
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 773205036776
+    bun scripts/emit-changelog.ts --since dfd6ae2ad971
 -->
 
 # Changelog
@@ -92,6 +92,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/convert:** warn on the two silent conversion gaps — non-constant icon-offset and mapbox:// urls (#1977) ([#1990](https://github.com/X-GIS/X-GIS/pull/1990)) `dfd6ae2`
 - **compiler/convert:** lift legacy {stops} zoom functions and fold single-stop functions (#1976) ([#1982](https://github.com/X-GIS/X-GIS/pull/1982)) `a0fcd9a`
 - **data/tiles:** jitter the vector-tile retry backoff so a failing viewport does not retry in lockstep (#1269) ([#1959](https://github.com/X-GIS/X-GIS/pull/1959)) `2fe4150`
 - **compiler/tiler:** key the property table by the resolved fid (#1947) ([#1951](https://github.com/X-GIS/X-GIS/pull/1951)) `22b7c95`
