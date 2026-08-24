@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b92539434b04e301e45d2a2024c9d770ebf7568e
+  Generated from: 994015a6695412c0c975909952892c6961f89fca
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b92539434b04
+    bun scripts/emit-changelog.ts --since 994015a66954
 -->
 
 # Changelog
@@ -233,6 +233,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** converge the #1248 size gate instead of sleeping 2000ms ([#1970](https://github.com/X-GIS/X-GIS/pull/1970)) `994015a`
+- **scripts:** close rule (1) of vitest.config.ts's ISOLATED list ([#1979](https://github.com/X-GIS/X-GIS/pull/1979)) `09392e5`
 - **ci:** register the legacy-route render gate, re-measure the perf gate's dark reason (#1349) ([#1960](https://github.com/X-GIS/X-GIS/pull/1960)) `bd677c2`
 - **ci:** register the #1845 and #1838 specs now that both are green ([#1945](https://github.com/X-GIS/X-GIS/pull/1945)) `b4ebd1a`
 - **ci:** register the three #1836/#1837 witness specs, re-point the button row at #1845 ([#1941](https://github.com/X-GIS/X-GIS/pull/1941)) `3f3ead6`
