@@ -21,6 +21,7 @@ import {
   VALID_ANCHORS,
   parseMapboxFontName,
   pitchAlignmentGapWarning,
+  convertIconOffset,
 } from './layers-helpers'
 
 /** TEXT PAINT pass — text-color / text-opacity / text-size / text-halo-*.
@@ -335,27 +336,11 @@ export function convertIconProperties(
       utils.push(`label-icon-anchor-${iconAnchor}`)
     }
   }
-  // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
-  const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
-  const iconOffset =
-    Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
-      ? iconOffsetRaw.map((c) => {
-          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
-          return c
-        })
-      : null
-  if (
-    iconOffset !== null &&
-    typeof iconOffset[0] === 'number' &&
-    typeof iconOffset[1] === 'number'
-  ) {
-    // Two utilities so the xgis-utility-name grammar (`-` is the
-    // segment separator) can carry signed numbers without a custom
-    // string-comma syntax. Mirrors the `label-offset-x-N` /
-    // `label-offset-y-M` split for text-offset.
-    if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
-    if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
-  }
+  // icon-offset: constant-emit + (#1977) non-constant warn+drop — split out
+  // to layers-helpers.convertIconOffset to keep this file under its
+  // shrink-only LOC ceiling (mirror of the pitchAlignmentGapWarning
+  // extraction). Zero logic change.
+  convertIconOffset(layer, layout, utils, warnings)
   const iconRotate = unwrapLiteralScalar(layout['icon-rotate'])
   if (typeof iconRotate === 'number' && iconRotate !== 0) {
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
