@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 42970d894b630b4177693a69af84d32064baa85a
+  Generated from: 03927bf2c66dc219c20212195bd28b776f482725
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 42970d894b63
+    bun scripts/emit-changelog.ts --since 03927bf2c66d
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
 - **compiler+map:** per-frame zoom-step fill-antialias — the expression form stops dropping (#1995) ([#2000](https://github.com/X-GIS/X-GIS/pull/2000)) `42970d8`
 - **compiler/convert:** lower step-by-zoom line-dasharray onto the stepped dash shape (#1994) ([#1996](https://github.com/X-GIS/X-GIS/pull/1996)) `1c45c47`
 - unlock fp64 inlining — barrier the renorm zero, ship the member-of-construct fold, and expose it on the site ([#1972](https://github.com/X-GIS/X-GIS/pull/1972)) `22889e6`
