@@ -2,7 +2,7 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
@@ -35,25 +35,23 @@ import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
- *  MUST be the WGS84 **ellipsoid** ECEF of the camera centre (lonLatToECEF,
- *  E2≠0) — the same frame `lonlat_to_ecef` reconstructs the raster tile
- *  vertices in. The camera's `getECEFCenter()` is the **sphere** (E2=0);
- *  subtracting a sphere anchor from ellipsoid vertices leaves the
- *  ellipsoid−sphere discrepancy (~21.5 km at mid-latitude) on every vertex,
- *  which threw the whole raster sheet off the globe. Mirrors the vector
- *  tiler's ellipsoid `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
+ *  MUST be the WGS84 **ellipsoid** ECEF of the camera centre (lonLatToECEF, E2≠0) — the same
+ *  frame `lonlat_to_ecef` reconstructs the raster tile vertices in. The camera's
+ *  `getECEFCenter()` is the **sphere** (E2=0); subtracting a sphere anchor from ellipsoid
+ *  vertices leaves the ellipsoid−sphere discrepancy (~21.5 km at mid-latitude) on every vertex,
+ *  which threw the whole raster sheet off the globe. Mirrors the vector tiler's ellipsoid
+ *  `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
 export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
   return lonLatToECEF(lonDeg, latDeg)
 }
 
-/** The DSFUN camera anchor for the raster/hillshade global uniform — the single
- *  authority shared by RasterRenderer + HillshadeRenderer (both drive the shared
- *  vs_tile, so both MUST pack identical lanes). Lanes are PER projType arm (see
- *  the cam_ecef_center struct-field comment in raster.ts): Mercator → 2D Merc
- *  centre; flat non-Mercator (1-6) → [clon, camProj0.x, camProj0.y] where camProj0
- *  = the camera's projected 2D centre in the clon = 0 frame (kills the single-f32
- *  clon/clat shake in every non-Mercator projection); globe → WGS84 ELLIPSOID
- *  ECEF (must match the ellipsoid the VS rebuilds vertices on, not
+/** The DSFUN camera anchor for the raster/hillshade global uniform — the single authority
+ *  shared by RasterRenderer + HillshadeRenderer (both drive the shared vs_tile, so both MUST
+ *  pack identical lanes). Lanes are PER projType arm (see the cam_ecef_center struct-field
+ *  comment in raster.ts): Mercator → 2D Merc centre; flat non-Mercator (1-6) → [clon,
+ *  camProj0.x, camProj0.y] where camProj0 = the camera's projected 2D centre in the clon = 0
+ *  frame (kills the single-f32 clon/clat shake in every non-Mercator projection); globe →
+ *  WGS84 ELLIPSOID ECEF (must match the ellipsoid the VS rebuilds vertices on, not
  *  getECEFCenter()'s sphere). */
 export function rasterFrameCamAnchor(
   camera: Pick<Camera, 'centerX' | 'centerY'>,
@@ -117,14 +115,13 @@ export interface RasterColorParams {
   contrast: number
 }
 
-/** Pack the raster global uniform — the SINGLE authority shared by render() and
- *  the forced-WebGL2 checker (renderRhiChecker). The checker's old literal-offset
- *  packer carried raster_params.w = 8 where render() wrote 0 — a dead lane (the
- *  shader reads only raster_params.x), retired by this unification. Completeness
- *  is compile-time (#600 globe_eye class does not compile if omitted); globe_eye
- *  is all-zero off the globe (frame.eye undefined), matching both old packers.
- *  camAnchor: 2D Mercator centre in .xy on the flat path (ECEF lanes dead
- *  there); the WGS84 ELLIPSOID anchor (rasterGlobeCamAnchor) on globe/3D.
+/** Pack the raster global uniform — the SINGLE authority shared by render() and the
+ *  forced-WebGL2 checker (renderRhiChecker). The checker's old literal-offset packer carried
+ *  raster_params.w = 8 where render() wrote 0 — a dead lane (the shader reads only
+ *  raster_params.x), retired by this unification. Completeness is compile-time (#600 globe_eye
+ *  class does not compile if omitted); globe_eye is all-zero off the globe (frame.eye
+ *  undefined), matching both old packers. camAnchor: 2D Mercator centre in .xy on the flat path
+ *  (ECEF lanes dead there); the WGS84 ELLIPSOID anchor (rasterGlobeCamAnchor) on globe/3D.
  *  (exported for the byte-equality gate — raster-frame-uniform.test.ts) */
 export function writeRasterFrameUniform(
   block: UniformBlockOf<typeof RASTER_U>,
@@ -185,12 +182,11 @@ export function writeRasterTileUniform(
 }
 
 // ── #1053 — raster globe pole caps ──
-// The Web-Mercator raster surface saturates at ±85.0511°, so the topmost (y=0)
-// and bottommost (y=2^z−1) tile rows abut an open polar hole. On the GLOBE only
-// (isGlobeProj → projType 7, the sole ECEF surface arm; every flat/Mercator
-// projection is a plane with no geographic pole), those rows get an extra cap
-// "tile" that fans their band edge to the pole. Cheap pure predicates, zero
-// allocation — the render loop calls them per tile.
+// The Web-Mercator raster surface saturates at ±85.0511°, so the topmost (y=0) and bottommost
+// (y=2^z−1) tile rows abut an open polar hole. On the GLOBE only (isGlobeProj → projType 7, the
+// sole ECEF surface arm; every flat/Mercator projection is a plane with no geographic pole),
+// those rows get an extra cap "tile" that fans their band edge to the pole. Cheap pure
+// predicates, zero allocation — the render loop calls them per tile.
 /** North cap needed? Globe + topmost tile row (north edge = +85.0511°). */
 export function needsNorthPoleCap(projType: number, tileY: number): boolean {
   return isGlobeProj(projType) && tileY === 0
@@ -353,9 +349,16 @@ export class RasterRenderer {
     this._rasterDraper = undefined
   }
 
-  setUrlTemplate(url: string): void {
+  /** The source's row origin (#1985) — `'tms'` numbers tile rows from the BOTTOM, so
+   *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. It rides `setUrlTemplate` rather than
+   *  a setter of its own because it is a property OF the template: re-arming a different
+   *  source without a scheme MUST clear it, and a separate setter could leave a stale flip
+   *  on the new URL. Undefined = `'xyz'`, the pre-existing behaviour. */
+  private _scheme: TileRowScheme | undefined
+  setUrlTemplate(url: string, scheme?: TileRowScheme): void {
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
+    this._scheme = scheme
   }
 
   /** Set the source's tile size in px (256 | 512). Values other than 256/512
@@ -446,9 +449,8 @@ export class RasterRenderer {
    *  polls this to keep ticking during load — newly-arrived textures need
    *  one more frame to show up, but arrivals don't fire a direct callback
    *  today, so we just keep the loop warm until the queue drains. */
-  /** True once a raster source's URL template is configured (#834 M5 slice 2
-   *  — the forced-WebGL2 frame draws real tiles instead of the analytic
-   *  checker when a source exists). */
+  /** True once a raster source's URL template is configured (#834 M5 slice 2 — the
+   *  forced-WebGL2 frame draws real tiles instead of the analytic checker when one exists). */
   hasSource(): boolean {
     return this.urlTemplate !== ''
   }
@@ -714,7 +716,7 @@ export class RasterRenderer {
 
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
-      const url = tileUrl(this.urlTemplate, coord)
+      const url = tileUrl(this.urlTemplate, coord, this._scheme)
 
       this.loadTileTexture(url, ctrl.signal)
         // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load failure (bitmap
@@ -770,10 +772,8 @@ export class RasterRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        this.loadTileTexture(
-          tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }),
-          ctrl.signal,
-        )
+        const parentCoord = { z: parentZ, x: parentX, y: parentY, ox: parentX }
+        this.loadTileTexture(tileUrl(this.urlTemplate, parentCoord, this._scheme), ctrl.signal)
           // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain, with
           // the catch scoped to the LOAD promise so a .then-body throw still surfaces.
           .catch(() => null)

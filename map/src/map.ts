@@ -3732,7 +3732,7 @@ export class XGISMap {
       // Raster tile source referenced by a layer → activate raster renderer
       const tileUrl = '_tileUrl' in data ? data._tileUrl : undefined
       if (tileUrl) {
-        this.rasterRenderer.setUrlTemplate(tileUrl)
+        this.rasterRenderer.setUrlTemplate(tileUrl, 'scheme' in data ? data.scheme : undefined)
         // Authored tileSize (256 | 512) biases the cover zoom; unauthored keeps
         // the renderer's 256 default (the de-facto XYZ raster standard).
         this.rasterRenderer.setTileSize('tileSize' in data ? data.tileSize : undefined)
