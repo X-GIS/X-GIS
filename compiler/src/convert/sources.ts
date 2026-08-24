@@ -137,7 +137,7 @@ export function convertSource(
   // surface so the style author knows fetch volume isn't optimal.
   if (typeof src.minzoom === 'number' || typeof src.maxzoom === 'number') {
     warnings.push(
-      `Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`,
+      `Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the converter doesn't yet emit this pair onto the xgis source block, so it never reaches the runtime. A PMTiles archive or TileJSON manifest already carries its own minzoom/maxzoom and clamps correctly on its own — this only bites a source whose ONLY zoom-bound signal is this JSON field (e.g. plain raster/geojson). Out-of-range tiles get requested and 404 — wasteful, not visually wrong. Use layer-level minzoom/maxzoom to limit fetch volume until the converter carries this through.`,
     )
   }
 
@@ -184,7 +184,7 @@ export function convertSource(
         )
       }
       warnings.push(
-        `Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`,
+        `Source "${id}" declares bounds [${src.bounds.join(', ')}]; there's no xgis grammar for this yet, so the converter can't emit it and this box never reaches the runtime. A PMTiles archive or TileJSON manifest already clips tile requests to its OWN embedded bounds regardless — this only bites a source whose ONLY spatial-extent signal is this JSON field (e.g. plain raster/geojson), which requests tiles for the whole world and 404s outside real coverage. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until bounds support lands.`,
       )
     }
   } else if (Array.isArray(src.bounds)) {
@@ -208,7 +208,7 @@ export function convertSource(
   const tileSize = (src as { tileSize?: unknown }).tileSize
   if (typeof tileSize === 'number' && tileSize !== 512) {
     warnings.push(
-      `Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`,
+      `Source "${id}" declares tileSize: ${tileSize}; the converter doesn't emit this into the generated xgis source block yet, so the runtime uses its own default (256 px) instead of the declared value. A 256-px source is unaffected by coincidence; any other tileSize (e.g. true 512-px tiles) renders at the wrong zoom scale. Author the source directly in xgis DSL with an explicit tileSize: property until the converter carries it through.`,
     )
   }
 

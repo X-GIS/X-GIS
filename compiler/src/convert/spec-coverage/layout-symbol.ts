@@ -108,8 +108,9 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-optional',
     status: 'unsupported',
-    impact: 'low',
-    note: 'Icons not implemented — moot.',
+    impact: 'medium',
+    note: "Default `false` (text + icon place or drop together) IS X-GIS' contract, not a gap: a collision-rejected label adds its pairKey to droppedPairKeys (text-stage.ts:2099-2100), and the paired icon is skipped the next time it dispatches (icon-stage.ts:430-444) — mirroring MapLibre's text+icon-as-one-symbol rule. `true` (let the icon survive alone once only the label can't fit) is the real, deferred gap: it needs split text/icon collision arbitration the placement queue doesn't have. The converter warns on an explicit `true`. Impact raised low → medium: all 3 shipped OFM styles author `true` on their airport layers, so per the legend this is 'visible in some styles', not a rare/invisible knob.",
+    source: 'layers-symbol.ts:1043-1047',
   },
   {
     name: 'text-rotation-alignment',
@@ -164,9 +165,10 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'icon-offset',
-    status: 'supported',
-    note: '[x, y] in CSS px; split into label-icon-offset-x / -y utilities.',
-    source: 'layers.ts:631',
+    status: 'partial',
+    impact: 'low',
+    note: "Constant numeric [x, y] in CSS px only, split into label-icon-offset-x / -y utilities. Non-constant forms (legacy {stops} or an interpolate expression) warn and drop as of #1977, which moves the conversion into convertIconOffset in layers-helpers.ts. Constant is the overwhelmingly common authoring pattern (no OFM fixture even declares a non-constant icon-offset); 'low' impact reflects how rarely a style zoom-interpolates it.",
+    source: 'layers-helpers.ts convertIconOffset',
   },
   {
     name: 'icon-allow-overlap',
