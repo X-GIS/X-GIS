@@ -52,6 +52,11 @@ import {
 // above. `PMTilesFetcher` and `PMTilesBackendOptions` stay part of the
 // public surface and are re-exported here.
 export type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
+// The spatial-extent overlap test is the SINGLE authority for "does this tile touch the
+// source's box" — the vector family reaches it through `hasTile` below, and the raster /
+// raster-dem selectors reach it through this barrel (#1984). Surfaced by name rather
+// than `export *`, which would publish the whole helper leaf.
+export { tileIntersectsBounds } from './pmtiles-backend-helpers'
 
 export class PMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta

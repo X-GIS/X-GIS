@@ -1,5 +1,6 @@
 import type { MapboxSource } from './types'
 import { sanitizeId } from './utils'
+import { checkSourceBounds } from '../ir/source-bounds'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
@@ -183,59 +184,39 @@ export function convertSource(
     )
   }
 
-  // Mapbox source-level `bounds: [west, south, east, north]` is the
-  // spatial-extent gate — tiles outside the box should never be
-  // requested. X-GIS's tile selector is global-only today, so a
-  // regional source (e.g. a city basemap with bounds covering one
-  // metro area) gets requests for ocean tiles too. Same wasteful-but-
-  // correct pattern as the zoom-bound gap above.
-  if (Array.isArray(src.bounds) && src.bounds.length === 4) {
-    // Also validate every entry is a finite number; a malformed pair
-    // (e.g. ['west', 'south', 'east', 'north'] as strings) used to
-    // emit the original warning verbatim and the runtime later
-    // crashed on the non-numeric compare in tileIntersectsBounds.
-    const allNumeric = src.bounds.every((b) => typeof b === 'number' && Number.isFinite(b))
-    if (!allNumeric) {
+  // ── Source-level `bounds: [west, south, east, north]` (#1984) ────────
+  //
+  // The spatial-extent gate: outside the box the source HAS no data, so every request
+  // there is a guaranteed 404 spending the same fixed concurrency budget the visible
+  // tiles are waiting on. `raster` / `raster-dem` emit it, because those are the two
+  // arms whose selectors now clip (`clipTilesToBounds` over `tileIntersectsBounds`,
+  // map/src/render/source-bounds-clip.ts). The vector family does NOT: it already
+  // clips from its own archive metadata (PMTiles header / TileJSON manifest bounds
+  // → `PMTilesBackend.hasTile`), which is authoritative for what the archive actually
+  // contains, and re-declaring it in the xgis block would create a second authority.
+  //
+  // Validity is settled by `checkSourceBounds` — the SAME predicate `lowerSource`
+  // applies to a hand-authored block, so the two stages cannot disagree about what a
+  // usable box is. An unusable one is dropped, never emitted: emitting it would either
+  // blank the source (MapLibre's reading of a crossing/inverted box) or need a
+  // wraparound the reference renderer does not implement.
+  if (src.bounds !== undefined) {
+    const checked = checkSourceBounds(src.bounds)
+    if (typeof checked === 'string') {
       warnings.push(
-        `Source "${id}" bounds must contain 4 finite numbers; got ${JSON.stringify(src.bounds).slice(0, 80)} — ignored.`,
+        `Source "${id}" bounds ${checked} — ignored; the source stays unclipped and keeps requesting the full frustum.`,
       )
+    } else if (consumesTileProps) {
+      tileProps.push(`  bounds: [${checked.join(', ')}]`)
     } else {
-      // Mapbox bounds format = [west, south, east, north]. Sanity
-      // checks BEYOND finiteness:
-      //   - south > north → inverted latitude box, never intersects
-      //     any tile, the source is dead.
-      //   - lat outside [-90, 90] / lon outside [-180, 180] → typo
-      //     (commonly swapped axes when copying from a CSV).
-      // west > east is INTENTIONALLY not flagged — Mapbox spec permits
-      // antimeridian-crossing bounds where the longitude wraps past
-      // +180 / -180 (Bering-strait, dateline-crossing extents).
-      const [west, south, east, north] = src.bounds as [number, number, number, number]
-      if (south > north) {
-        warnings.push(
-          `Source "${id}" bounds south=${south} > north=${north} — inverted latitude box never intersects any tile; the source is dead. Verify [west, south, east, north] order.`,
-        )
-      }
-      if (south < -90 || south > 90 || north < -90 || north > 90) {
-        warnings.push(
-          `Source "${id}" bounds latitude out of [-90, 90]: south=${south}, north=${north}. Likely a swapped lon/lat axis.`,
-        )
-      }
-      if (west < -180 || west > 180 || east < -180 || east > 180) {
-        warnings.push(
-          `Source "${id}" bounds longitude out of [-180, 180]: west=${west}, east=${east}. Likely a swapped lon/lat axis.`,
-        )
-      }
+      const owner =
+        src.type === 'vector' || src.type === 'tilejson' || src.type === 'pmtiles'
+          ? "the vector tile path already clips to the ARCHIVE's own extent (PMTiles header / TileJSON manifest bounds), which is authoritative for what the archive actually holds"
+          : 'nothing in that load path reads a spatial extent'
       warnings.push(
-        `Source "${id}" declares bounds [${src.bounds.join(', ')}]; the runtime tile selector doesn't yet clip requests to the spatial extent, so tiles outside the box will be requested and 404. Filter coverage at the host (geojson clip / pre-cropped PMTiles archive) until native bounds support lands.`,
+        `Source "${id}" declares bounds [${checked.join(', ')}]; not emitted for type "${String(src.type)}" — only raster / raster-dem carry a declared extent into the tile selector, and ${owner}.`,
       )
     }
-  } else if (Array.isArray(src.bounds)) {
-    // Malformed bounds (wrong length) silently slipped past the spec
-    // gate. Warn so style authors know the bounds field is being
-    // ignored entirely.
-    warnings.push(
-      `Source "${id}" bounds must be [west, south, east, north] (4 numbers); got length ${src.bounds.length} — ignored.`,
-    )
   }
 
   // Mapbox source-level `tileSize` declares the native pixel size of the tile
@@ -333,6 +314,20 @@ export function convertSource(
   if (src.type === 'vector') {
     const url = src.url ?? src.tiles?.[0]
     warnMapboxSchemeUrl(id, url, warnings)
+    // #2007 — Mapbox `promoteId` on a vector source remaps a vector-tile
+    // property to feature.id (string, or a per-source-layer map). The MVT
+    // decoder (data/src/mvt-decoder.ts) reads only the tile's native
+    // wire-format `id` field (protobuf tag 1) into GeoJSONFeature.id;
+    // promoteId is never consulted anywhere in the pipeline. Same risk as
+    // the GeoJSON promoteId warning below (data-driven joins / feature
+    // lookups keyed on the promoted property mis-key), previously
+    // unwarned for this source type.
+    const vectorPromoteId = (src as { promoteId?: unknown }).promoteId
+    if (vectorPromoteId !== undefined && vectorPromoteId !== null) {
+      warnings.push(
+        `Vector source "${id}" declares promoteId; the runtime does not remap vector-tile properties to feature.id — features keep the MVT wire-format id (or none), so data-driven joins keyed on the promoted property may mis-key.`,
+      )
+    }
     if (url && /\.pmtiles(\?|#|$)/i.test(url)) {
       lines.push('  type: pmtiles')
       lines.push(`  url: ${JSON.stringify(url)}`)
@@ -422,7 +417,7 @@ export function convertSource(
       }
       lines.push('  type: raster')
       lines.push(`  url: ${JSON.stringify(url)}`)
-      lines.push(...tileProps) // #1983 — declared tileSize / maxzoom / minzoom
+      lines.push(...tileProps) // declared tileSize / maxzoom / minzoom (#1983) + bounds (#1984)
     } else {
       lines.push('  // TODO: raster source missing url/tiles')
       warnings.push(`Raster source "${id}" has no URL.`)
@@ -454,7 +449,7 @@ export function convertSource(
       }
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
-      lines.push(...tileProps) // #1983 — declared tileSize / maxzoom / minzoom
+      lines.push(...tileProps) // declared tileSize / maxzoom / minzoom (#1983) + bounds (#1984)
       lines.push(
         '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
       )

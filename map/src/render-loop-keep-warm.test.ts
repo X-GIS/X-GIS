@@ -22,12 +22,26 @@ const tiles = (loads: boolean, retries: boolean): KeepWarmTiles => ({
 })
 const quiet = (): KeepWarmTiles => tiles(false, false)
 
+/** One VT renderer as the gate sees it. BOTH arms are explicit so a case meaning to
+ *  exercise one cannot pass on the other still firing. */
+const vt = (
+  uploads: boolean,
+  lodAdvance: boolean,
+): { renderer: { hasPendingUploads(): boolean; _selection: { _czPendingAdvance: unknown } } } => ({
+  renderer: {
+    hasPendingUploads: () => uploads,
+    // The real shape: `{ target, since } | null`, non-null exactly while a transition
+    // is in flight. The gate only ever asks whether it is null.
+    _selection: { _czPendingAdvance: lodAdvance ? { target: 2, since: 0 } : null },
+  },
+})
+
 function inputs(over: Partial<Parameters<typeof keepLoopWarm>[0]> = {}) {
   return {
     totalMissed: 0,
     raster: quiet(),
     hillshade: quiet(),
-    vtRenderers: [] as Array<{ renderer: { hasPendingUploads(): boolean } }>,
+    vtRenderers: [] as Array<ReturnType<typeof vt>>,
     ...over,
   }
 }
@@ -53,15 +67,29 @@ describe('keepLoopWarm', () => {
     expect(keepLoopWarm(inputs({ totalMissed: 1 }))).toBe(true)
     expect(keepLoopWarm(inputs({ raster: tiles(true, false) }))).toBe(true)
     expect(keepLoopWarm(inputs({ hillshade: tiles(true, false) }))).toBe(true)
-    expect(
-      keepLoopWarm(inputs({ vtRenderers: [{ renderer: { hasPendingUploads: () => true } }] })),
-    ).toBe(true)
+    expect(keepLoopWarm(inputs({ vtRenderers: [vt(true, false)] }))).toBe(true)
   })
 
-  it('the VT upload scan is reached only when nothing cheaper fired', () => {
-    // Ordering is load-bearing: the upload scan is the one signal that costs a loop over
+  it('#1997 — an unconverged LOD ramp keeps the loop warm', () => {
+    // The state every OTHER signal here is structurally blind to. The readiness gate
+    // advances the tile LOD one step per RENDERED frame, and a selection whose LOD is
+    // still behind the camera can be legitimately EMPTY — a z=0 root tile is not inside
+    // a zoom-2 sphere frustum. Empty selection ⇒ nothing requested, nothing missed,
+    // nothing to upload: `totalMissed`, both raster arms and the upload scan all read
+    // quiet in the very frame the ramp still owes work. The loop idled there and could
+    // not restart, because the LOD (and the 5 s readiness timeout) only advance inside a
+    // rendered frame — so the map fossilised at zero tiles until an invalidate().
+    expect(keepLoopWarm(inputs({ vtRenderers: [vt(false, true)] }))).toBe(true)
+    // Non-vacuity: a settled renderer must still let the loop idle, or the assertion
+    // above would pass against a gate that had simply stopped discriminating.
+    expect(keepLoopWarm(inputs({ vtRenderers: [vt(false, false)] }))).toBe(false)
+  })
+
+  it('the VT scan is reached only when nothing cheaper fired', () => {
+    // Ordering is load-bearing: the VT scan is the one signal that costs a loop over
     // every source, so it must sit behind the O(1) checks rather than beside them.
-    let scanned = 0
+    let uploadsScanned = 0
+    let lodScanned = 0
     keepLoopWarm(
       inputs({
         totalMissed: 1,
@@ -69,15 +97,20 @@ describe('keepLoopWarm', () => {
           {
             renderer: {
               hasPendingUploads: () => {
-                scanned++
+                uploadsScanned++
                 return false
+              },
+              get _selection() {
+                lodScanned++
+                return { _czPendingAdvance: null }
               },
             },
           },
         ],
       }),
     )
-    expect(scanned, 'an earlier signal short-circuits the scan').toBe(0)
+    expect(uploadsScanned, 'an earlier signal short-circuits the scan').toBe(0)
+    expect(lodScanned, 'an earlier signal short-circuits the scan').toBe(0)
   })
 })
 

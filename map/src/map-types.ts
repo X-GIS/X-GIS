@@ -47,6 +47,10 @@ export type RawDataset =
        *  cover zoom clamps to it so the selector never asks for a tile that cannot
        *  exist; undefined = unbounded. */
       readonly maxzoom?: number
+      /** Source-level `bounds` [west, south, east, north] — the DATASET's spatial
+       *  extent (#1984). The selector drops every tile that does not overlap it;
+       *  undefined = unclipped. */
+      readonly bounds?: [number, number, number, number]
     }
   | {
       readonly _tileUrl: string
@@ -58,6 +62,8 @@ export type RawDataset =
       readonly tileSize?: number
       /** Source-level `maxzoom` — same clamp as the raster marker above (#1983). */
       readonly maxzoom?: number
+      /** Source-level `bounds` — same spatial clip as the raster marker above (#1984). */
+      readonly bounds?: [number, number, number, number]
       /** `encoding: custom` elevation unpack factors. */
       readonly redFactor?: number
       readonly greenFactor?: number

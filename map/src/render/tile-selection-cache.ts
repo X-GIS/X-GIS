@@ -155,8 +155,8 @@ export class TileSelectionCache {
    *  user sees the previous LOD over-zoomed instead of blank tiles)
    *  until either every visible tile at `target` is cached OR
    *  `READINESS_TIMEOUT_MS` elapses. Cleared on advance + on any
-   *  frame the threshold is no longer crossed. */
-  private _czPendingAdvance: { target: number; since: number } | null = null
+   *  frame the threshold is no longer crossed. Read by keepLoopWarm (#1997). */
+  _czPendingAdvance: { target: number; since: number } | null = null
   /** Camera idle detection — prefetch is suppressed while the
    *  camera is actively moving (pinch zoom, pan) to keep mobile
    *  GPU + bandwidth budget on visible-only work. The moment the

@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 03927bf2c66dc219c20212195bd28b776f482725
+  Generated from: 14af493897a32f43fdd079b6e812396b7fe57d4c
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 03927bf2c66d
+    bun scripts/emit-changelog.ts --since 14af493897a3
 -->
 
 # Changelog
@@ -27,6 +27,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
+- **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
 - **compiler+map:** per-frame zoom-step fill-antialias — the expression form stops dropping (#1995) ([#2000](https://github.com/X-GIS/X-GIS/pull/2000)) `42970d8`
 - **compiler/convert:** lower step-by-zoom line-dasharray onto the stepped dash shape (#1994) ([#1996](https://github.com/X-GIS/X-GIS/pull/1996)) `1c45c47`
@@ -95,6 +97,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** keep the loop warm while a LOD transition is still in flight ([#2010](https://github.com/X-GIS/X-GIS/pull/2010)) `86e085d`
 - **compiler/convert:** warn on the two silent conversion gaps — non-constant icon-offset and mapbox:// urls (#1977) ([#1990](https://github.com/X-GIS/X-GIS/pull/1990)) `dfd6ae2`
 - **compiler/convert:** lift legacy {stops} zoom functions and fold single-stop functions (#1976) ([#1982](https://github.com/X-GIS/X-GIS/pull/1982)) `a0fcd9a`
 - **data/tiles:** jitter the vector-tile retry backoff so a failing viewport does not retry in lockstep (#1269) ([#1959](https://github.com/X-GIS/X-GIS/pull/1959)) `2fe4150`
@@ -216,6 +219,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
 - a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`
 - **site:** the compute runner on the WebGL2 GPGPU page ([#1967](https://github.com/X-GIS/X-GIS/pull/1967)) `838f99d`
