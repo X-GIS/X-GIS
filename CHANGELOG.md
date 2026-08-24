@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: d4a862fb7de8d4f77cc1c563035a2d57551ce470
+  Generated from: 6f825af7ef0fe8ca0089c9aaa4e7416439d98716
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since d4a862fb7de8
+    bun scripts/emit-changelog.ts --since 6f825af7ef0f
 -->
 
 # Changelog
@@ -189,6 +189,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** strokeQueue as instance parallel scratch + the uniform-block-split design (#1190) ([#2041](https://github.com/X-GIS/X-GIS/pull/2041)) `6f825af`
 - **map/rhi:** re-enable render bundles by default — pin the ring cursor in the bundle key (#1190) ([#2038](https://github.com/X-GIS/X-GIS/pull/2038)) `d4a862f`
 - **map:** keep zoom transitions covered and cheap — prefetch mid-gesture, 3-level children-stretch, label dispatch-loop skip (#2013) ([#2021](https://github.com/X-GIS/X-GIS/pull/2021)) `dbda432`
 - **ci:** six render shards, no apt on their path, and a gate on the count ([#1935](https://github.com/X-GIS/X-GIS/pull/1935)) `0b39a6c`
