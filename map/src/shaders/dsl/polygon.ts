@@ -190,6 +190,22 @@ const U = uniformStruct(
     input_color_1: vec4fT,
     input_color_2: vec4fT,
     input_color_3: vec4fT,
+    // #2042 INC-1 — the ABSOLUTE anchors whose f64 difference IS cam_ecef_off
+    // (above): .xyz = WGS84-ellipsoid ECEF of the tile anchor / the camera
+    // centre, DSFUN hi/lo. tile_ecef_center_h.w spare (0); cam_ecef_center_h.w
+    // is the RECOMBINE flag (1 = the VS derives the RTC offset in-shader as
+    // (tileH − camH) + (tileL − camL); 0 = legacy CPU-packed cam_ecef_off);
+    // cam_ecef_center_l.w spare (0). Divergence from the CPU pair is ulp-
+    // relative (≤ |off|·2⁻²³): measured ≤ 2.3e-4 px whole-domain, bound 1e-3
+    // (rtc-recombine-precision.test.ts). Step toward the Frame/Show/Tile
+    // block split (docs/plans/2026-08-24-uniform-block-split.md): with the
+    // flag on, the last per-(tile × frame) uniform dependency is derivable
+    // from per-tile-static + per-frame inputs. Appended AFTER the input pool
+    // (the #1539 discipline) so no existing offset moves.
+    tile_ecef_center_h: vec4fT,
+    tile_ecef_center_l: vec4fT,
+    cam_ecef_center_h: vec4fT,
+    cam_ecef_center_l: vec4fT,
   },
 )
 // Exported (distinct barrel name) for the CPU packers' UniformBlock (#733 P2):
@@ -472,9 +488,35 @@ const emitPolygonProjectionLadder = (args: {
       // to the camera-origin tile on projType 7 globe pitch>0.
       const camOffH = U.field.cam_ecef_off_h
       const camOffL = U.field.cam_ecef_off_l
-      const ecefCam = ecefRtc
-        .add(vec3(camOffH.x, camOffH.y, camOffH.z))
-        .add(vec3(camOffL.x, camOffL.y, camOffL.z))
+      // #2042 INC-1 — flag-selected RTC source. Legacy: the CPU-packed
+      // cam_ecef_off pair. Recombine: derive the SAME pair in-shader from the
+      // absolute anchors — hi−hi first (Sterbenz-exact when the tile is near
+      // the camera, which is exactly where sub-pixel precision matters), then
+      // lo−lo. The summation shape below (rtc + H + L) is UNCHANGED either
+      // way, so the flag flips only where the pair comes from. select() is an
+      // exact pick (no mix() rounding).
+      const tileCH = U.field.tile_ecef_center_h
+      const tileCL = U.field.tile_ecef_center_l
+      const camCH = U.field.cam_ecef_center_h
+      const camCL = U.field.cam_ecef_center_l
+      const recombine = camCH.w.gt(0.5)
+      const offH = Let(
+        'rtc_off_h',
+        select(
+          recombine,
+          vec3(tileCH.x, tileCH.y, tileCH.z).sub(vec3(camCH.x, camCH.y, camCH.z)),
+          vec3(camOffH.x, camOffH.y, camOffH.z),
+        ),
+      )
+      const offL = Let(
+        'rtc_off_l',
+        select(
+          recombine,
+          vec3(tileCL.x, tileCL.y, tileCL.z).sub(vec3(camCL.x, camCL.y, camCL.z)),
+          vec3(camOffL.x, camOffL.y, camOffL.z),
+        ),
+      )
+      const ecefCam = ecefRtc.add(offH).add(offL)
       clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
     })
 }

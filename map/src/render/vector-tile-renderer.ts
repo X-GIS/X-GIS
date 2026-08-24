@@ -31,7 +31,7 @@ import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
-import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
+import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import {
   recordFillDraw,
@@ -1276,6 +1276,7 @@ export class VectorTileRenderer {
       // (antialias on, gradient inert on this path).
       B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
       B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      this._writeRtcAnchors(anchor)
       B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(opacity)
       B.set.log_depth_fc(this.logDepthFc)
@@ -1599,6 +1600,7 @@ export class VectorTileRenderer {
       B.set.cam_l(anchor.camXL, anchor.camYL)
       B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
       B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      this._writeRtcAnchors(anchor)
       B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(layerOpacity)
       B.set.log_depth_fc(this.logDepthFc)
@@ -1972,6 +1974,30 @@ export class VectorTileRenderer {
    *  before the ring exists (no allocations possible yet). */
   private _ringCursorForBundleKey(): number {
     return this.uniformRing?.slotCursor() ?? -1
+  }
+
+  /** #2042 INC-1 — stage the ABSOLUTE tile/camera ECEF anchors beside the
+   *  legacy cam_ecef_off pair, so the polygon VS can recombine the RTC offset
+   *  in-shader ((tileH − camH) + (tileL − camL); precision bound:
+   *  rtc-recombine-precision.test.ts). cam_ecef_center_h.w is the recombine
+   *  flag — __XGIS_RTC_RECOMBINE, default OFF = legacy CPU-packed offset.
+   *  Called at every frameBlock site that writes cam_ecef_off (the _bakeBlock
+   *  ortho bake stays all-zero → flag 0 → legacy, its dedicated block never
+   *  carries stale lanes). */
+  private _writeRtcAnchors(anchor: TileCameraAnchor): void {
+    const g = globalThis as { __XGIS_RTC_RECOMBINE?: boolean; __XGIS_RTC_RECOMBINE_SKEW?: number }
+    const on = g.__XGIS_RTC_RECOMBINE === true
+    // Test-only witness (the §5 A/B gate's cut-the-mechanism arm): a metre
+    // skew on the tile anchor X moves geometry IFF the VS recombine path is
+    // live — flag ON + skew must change the frame, flag OFF + skew must not.
+    // Distinguishes "both arms byte-equal because the paths agree" from
+    // "byte-equal because the flag never reached the shader" (#996 vacuity).
+    const skew = g.__XGIS_RTC_RECOMBINE_SKEW ?? 0
+    const B = this.frameBlock
+    B.set.tile_ecef_center_h(anchor.tileEcefXH + skew, anchor.tileEcefYH, anchor.tileEcefZH, 0)
+    B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
+    B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
+    B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given
@@ -4655,6 +4681,7 @@ export class VectorTileRenderer {
         anchor.ecefZL,
         this.currentFillVerticalGradient,
       )
+      this._writeRtcAnchors(anchor)
 
       // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
       // dots the per-vertex ECEF face_normal against this; the raw MapLibre
