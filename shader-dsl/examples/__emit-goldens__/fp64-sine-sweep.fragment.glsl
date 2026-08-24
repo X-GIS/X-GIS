@@ -127,7 +127,8 @@ void main() {
   bool _v2 = (_cse0 || (u.fp64 < 0.5));
   float _gv0 = (_v1 * 25.132741228718345);
   vec2 _v3 = df64_add(u.base, vec2(_gv0, 0.0));
-  float _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2(0.0, 0.0))));
+  float _cse1 = uintBitsToFloat(floatBitsToUint(0.0));
+  float _v4 = df64_narrow(df64_sin(df64_add(_v3, vec2(_cse1, _cse1))));
   float _v5 = sin((df64_narrow(u.base) + _gv0));
   float _v6 = (_v2 ? _v5 : _v4);
   float _v7 = ((uv.y - 0.5) * 2.0);

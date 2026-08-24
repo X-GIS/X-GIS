@@ -39,7 +39,8 @@ fn fs_checker(vo: VsOut) -> @location(0) vec4<f32> {
   let _cse2 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _v7 = df64_add(_cse2, vec2<f32>(_v4, 0.0));
   let _v8 = df64_narrow(df64_fract(df64_mul(df64_add(df64_floor(_v6), df64_floor(_v7)), vec2<f32>(0.5, 0.0))));
-  let _cse3 = vec2<f32>(0.0, 0.0);
+  let _cse4 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse3 = vec2<f32>(_cse4, _cse4);
   let _v9 = df64_narrow(df64_fract(df64_add(_v6, _cse3)));
   let _v10 = df64_narrow(df64_fract(df64_add(_v7, _cse3)));
   let _v11 = (df64_narrow(_cse1) + _v3);

@@ -49,6 +49,7 @@ import { stageOf } from '../ir/nodes.js'
 import {
   type ShaderType,
   f32T,
+  u32T,
   boolT,
   vec2fT,
   isF64,
@@ -183,9 +184,34 @@ const pairLit = (v: number): Expr => {
 /** vec2<f32>(x, 0.0) — the exact f32 → f64 widen. */
 const widen = (x: Expr): Expr => ({ op: 'construct', type: vec2fT, args: [x, litF32(0)] })
 
+/** An f32 literal the optimizer may not look THROUGH — the raw-IR spelling of
+ *  `optBarrier` (ir/node.ts): `bitcast<f32>(bitcast<u32>(v))` on WGSL,
+ *  `uintBitsToFloat(floatBitsToUint(v))` on GLSL, identity on the CPU oracle. The
+ *  value is bit-identical to `v` on every target, and both halves are `call` nodes,
+ *  so this buys opacity at zero arithmetic. */
+const opaqueF32 = (v: number): Expr => ({
+  op: 'call',
+  type: f32T,
+  fn: 'bitcastF32',
+  args: [{ op: 'call', type: u32T, fn: 'bitcastU32', args: [litF32(v)] }],
+})
+
 /** vec2<f32>(0.0, 0.0) — the additive identity a raw df64 operand is renormalized
- *  against before a cancelling op (see the binop lowering; Apple df64 fix). */
-const RENORM_ZERO: Expr = { op: 'construct', type: vec2fT, args: [litF32(0), litF32(0)] }
+ *  against before a cancelling op (see the binop lowering; Apple df64 fix).
+ *
+ *  THE ZERO IS BARRIERED, and that is load-bearing rather than decorative. Written
+ *  as a plain literal it is a `vec2(0, 0)` construct, and the moment ANY pass can
+ *  resolve a member through its binding — `_cseN.x` back to the `0.0` it was built
+ *  from, which `member-fold` now does — const-prop carries that zero into
+ *  `df64_twoSum`'s `s = a + b` and the pre-existing `x + 0 -> x` identity deletes
+ *  the add. That add IS the renorm: it is what launders a LOADED lo into a COMPUTED
+ *  one, and #915 paid for it on Apple `sub` and Blackwell WebGL2 `div`. Measured
+ *  before the barrier: 408 flattened arithmetic ops -> 400.
+ *
+ *  Opacity here is by CONSTRUCTION, not by which folds happen to be absent —
+ *  the distinction #1972 was opened to correct. `member-fold.test.ts` pins both
+ *  directions: the twoSum dies without this barrier and survives with it. */
+const RENORM_ZERO: Expr = { op: 'construct', type: vec2fT, args: [opaqueF32(0), opaqueF32(0)] }
 
 // ── vec64 expr utilities (post-lowering shapes over the DF64VecN struct) ──
 
