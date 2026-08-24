@@ -31,8 +31,10 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url))
 // `bun precheck` go through scripts/vitest-run.ts, which runs both halves.
 const MODE = process.env.XGIS_VITEST_MODE ?? ''
 
-// The single authority for what the unit suite covers.
-const INCLUDE = [
+// The single authority for what the unit suite covers. EXPORTED so
+// scripts/isolated-closure.test.ts can gate rule (1) below against the very same
+// array, rather than re-deriving the corpus and becoming a second authority.
+export const INCLUDE = [
   'shared/src/**/*.test.ts',
   'geo/src/**/*.test.ts',
   'compiler/src/**/*.test.ts',
@@ -108,7 +110,7 @@ const INCLUDE = [
 // is its companion assertion: an entry that matches nothing fails the config
 // load instead of quietly quarantining nothing — which covers a moved FILE and
 // an emptied DIRECTORY alike.
-const ISOLATED = [
+export const ISOLATED = [
   // (4) the whole @xgis/rhi-webgpu suite — see the rule above.
   'rhi-webgpu/src/**/*.test.ts',
   // (2) engine's GPU quality flags read off `globalThis.location`.
