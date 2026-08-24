@@ -230,7 +230,12 @@ const CEILINGS: Record<string, number> = {
   // probes the same far-field notch the drawing selection runs at), and the
   // child-fallback fetch-frontier push (covered is not loaded — without it the
   // deeper #2013 stretch let a view settle permanently on stretched children).
-  'map/src/render/vector-tile-renderer.ts': 4976,
+  // 4976→5065 (#1190): bundle replay made correct-by-construction — the ringCursor
+  // + stroke layer-slot offsets joined both BundleKeyState literals, the hit-path
+  // alloc-count invariant landed at both sites (with the rationale that names the
+  // failure it distinguishes), and the default-ON gate carries the diagnosis of the
+  // years-old "mostly empty canvas" replay bug it replaces.
+  'map/src/render/vector-tile-renderer.ts': 5065,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1590,7 +1595,9 @@ const CEILINGS: Record<string, number> = {
   // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
   // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
   // fall back to 16 and no-op).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
+  // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
+  // the new render-bundle capability the VT bundle gate keys on.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

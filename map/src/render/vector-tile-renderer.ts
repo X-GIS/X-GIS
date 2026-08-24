@@ -502,6 +502,13 @@ export class VectorTileRenderer {
    *  gpuCache change OR pipeline rebuild produces a different key →
    *  re-encode. */
   private bundleCache: BundleCache
+  /** #1190 — ring-slot allocation count of each bundle's ENCODE walk,
+   *  keyed by the bundle object (GC-synced with the cache). A key HIT
+   *  guarantees the cursor base matches (ringCursor is in the key); this
+   *  additionally pins the walk's own alloc count, so the dev invariant
+   *  can prove the replayed offsets still align draw-for-draw — and goes
+   *  red if a future input to renderTileKeys is left out of the key. */
+  private readonly _bundleWalkAllocs = new WeakMap<object, number>()
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -1933,6 +1940,13 @@ export class VectorTileRenderer {
 
   private allocUniformSlot(): number {
     return this.uniformRing!.allocSlot()
+  }
+
+  /** UniformRing slot cursor for the bundle cache key (#1190) — the base
+   *  every dynamic offset a recorded bundle bakes is measured from. -1
+   *  before the ring exists (no allocations possible yet). */
+  private _ringCursorForBundleKey(): number {
+    return this.uniformRing?.slotCursor() ?? -1
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given
@@ -3624,13 +3638,24 @@ export class VectorTileRenderer {
       // Gating shouldBundle on the all-loaded invariant eliminates the
       // partial-encode case. During fast zoom we fall through to a direct
       // renderTileKeys call (no bundle, no cache); steady-state (all tiles
-      // loaded) keeps the 97.6% hit rate. Bundle path is DEFAULT OFF: a prior
-      // re-enable (gated on the all-loaded invariant) was validated against
-      // only a SINGLE STATIC SCREENSHOT per scene and missed interactive cases
-      // — iPhone OFM Bright z=7.53/36.97/127.46 + pitch 3.6 showed a MOSTLY
-      // EMPTY canvas (polygons + lines almost all missing). Bundle replay
-      // during interactive navigation / pitch produces broken state.
-      //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
+      // loaded) keeps the 97.6% hit rate.
+      //
+      // #1190 — DEFAULT ON again (WebGPU only; WebGL2 has no render
+      // bundles). The prior default-off was containment for an
+      // then-undiagnosed replay bug: interactive navigation showed a
+      // MOSTLY EMPTY canvas (iPhone OFM Bright z=7.53 pitch 3.6) even
+      // under the all-loaded gate, because the recorded bundles bake
+      // UniformRing dynamic offsets and the ring CURSOR BASE (every
+      // allocation earlier in the frame, across the VTR's other shows +
+      // fallback walks) was not part of the cache key — an upstream
+      // alloc-count change replayed stale offsets under a hit. The key
+      // now pins `ringCursor` + the stroke draws' layer-slot offsets
+      // (BundleKeyState), making a stale-offset replay a MISS by
+      // construction; the hit-path dev invariant below proves the
+      // re-walk still lands draw-for-draw on the baked offsets.
+      // `_bundle-replay-parity-gate.spec.ts` is the interactive §5 gate
+      // the old single-static-screenshot validation lacked.
+      //   __XGIS_BUNDLE_OFF = true   → A/B + emergency escape hatch
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) {
@@ -3638,10 +3663,10 @@ export class VectorTileRenderer {
           break
         }
       }
-      const _bundleForceOn =
-        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      const _bundleOff = (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
       const shouldBundle =
-        _bundleForceOn &&
+        !_bundleOff &&
+        this.rhi.caps.renderBundles &&
         !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
@@ -3677,6 +3702,15 @@ export class VectorTileRenderer {
           samples,
           mainPipelineLabel: mainFill.label ?? null,
           linePipelineLabel: linePipeline.label ?? null,
+          // #1190 — the walk's dynamic-offset base and the stroke draws'
+          // baked layer-slot offsets. Without the cursor, an EARLIER
+          // show's allocation-count change let this show's key hit while
+          // its baked offsets pointed at foreign slots — the "mostly
+          // empty canvas during interactive navigation" that kept the
+          // bundle path disabled. See BundleKeyState field docs.
+          ringCursor: this._ringCursorForBundleKey(),
+          lineLayerOffset,
+          lineLayerOffsetGap,
         } as const satisfies BundleKeyState
         const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
@@ -3711,7 +3745,13 @@ export class VectorTileRenderer {
             show.shaderVariant,
           )
         })
-        if (!wasMiss) {
+        if (wasMiss) {
+          // #1190 — pin the encode walk's ring-slot alloc count to the bundle.
+          this._bundleWalkAllocs.set(
+            bundle,
+            this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor),
+          )
+        } else {
           // Cache hit: replay path. Re-run renderTileKeys for state
           // side effects with both skip flags TRUE — recordTileFill
           // + drawSegments no-op; uniform staging + strokeQueue
@@ -3738,6 +3778,26 @@ export class VectorTileRenderer {
           )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
+          // #1190 invariant — the hit re-walk must land its uniforms on
+          // EXACTLY the offsets the bundle baked: same base (ringCursor is
+          // in the key, so it matches by key equality) AND same alloc
+          // count. A mismatch means an input to renderTileKeys changed
+          // under an unchanged BundleKeyState — the class of bug that
+          // produced the mostly-empty interactive canvas. Fail loud in
+          // dev; the key fix (not this check) is what prevents it.
+          if (_inv) {
+            const expected = this._bundleWalkAllocs.get(bundle)
+            const got = this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor)
+            if (expected !== undefined && got !== expected) {
+              throw new Error(
+                `[XGIS INVARIANT] bundle hit re-walk allocated ${got} ring slots where ` +
+                  `the encoded bundle recorded ${expected} (key ${cacheKey}). An input to ` +
+                  `renderTileKeys changed under an unchanged BundleKeyState — the baked ` +
+                  `dynamic offsets no longer align. Add the missing input to ` +
+                  `_cache/bundle-cache-key.ts.`,
+              )
+            }
+          }
         }
         pass.executeBundles([bundle])
       } else {
@@ -3861,11 +3921,13 @@ export class VectorTileRenderer {
           break
         }
       }
-      // Fallback path also default OFF (see primary path).
-      const _fbBundleForceOn =
-        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      // #1190 — fallback path defaults ON with the primary (same key fix,
+      // same escape hatch; see the primary-site rationale).
+      const _fbBundleOff =
+        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
       const fbShouldBundle =
-        _fbBundleForceOn &&
+        !_fbBundleOff &&
+        this.rhi.caps.renderBundles &&
         !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
@@ -3914,6 +3976,13 @@ export class VectorTileRenderer {
             samples: fbSamples,
             mainPipelineLabel: fallbackFill.label ?? null,
             linePipelineLabel: linePipelineFallback?.label ?? null,
+            // #1190 — mirror of the primary site: the fallback walk's
+            // dynamic-offset base (it runs AFTER the primary walk, so
+            // its base also moves with the primary's alloc count) and
+            // the stroke draws' baked layer-slot offsets.
+            ringCursor: this._ringCursorForBundleKey(),
+            lineLayerOffset,
+            lineLayerOffsetGap,
           } as const satisfies BundleKeyState
           const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
           const fbDesc: BundleEncodeDescriptor = {
@@ -3948,7 +4017,13 @@ export class VectorTileRenderer {
               show.shaderVariant,
             )
           })
-          if (!fbWasMiss) {
+          if (fbWasMiss) {
+            // #1190 — pin the encode walk's alloc count (mirror of primary).
+            this._bundleWalkAllocs.set(
+              fbBundle,
+              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
+            )
+          } else {
             this._skipFillDrawForBundle = true
             this._skipStrokeDrawForBundle = true
             this.renderTileKeys(
@@ -3971,6 +4046,19 @@ export class VectorTileRenderer {
             )
             this._skipFillDrawForBundle = false
             this._skipStrokeDrawForBundle = false
+            // #1190 invariant — mirror of the primary site; see there.
+            if (_inv) {
+              const expected = this._bundleWalkAllocs.get(fbBundle)
+              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
+              if (expected !== undefined && got !== expected) {
+                throw new Error(
+                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
+                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
+                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
+                    `add the missing input to _cache/bundle-cache-key.ts.`,
+                )
+              }
+            }
           }
           pass.executeBundles([fbBundle])
         } else {

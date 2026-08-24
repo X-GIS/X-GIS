@@ -501,6 +501,13 @@ export interface RhiCaps {
    *  the single site that used to ask this by backend IDENTITY
    *  (map/src/backend-identity-ratchet.test.ts — the F3–F6 sweep's target class). */
   readonly shaderLanguage: 'wgsl' | 'glsl-es300'
+  /** Recorded render bundles: encode a draw sequence once, replay it with
+   *  `executeBundles` on later frames (#1190 — the VT retained-command path).
+   *  WebGPU: true (GPURenderBundleEncoder). WebGL2: false (no equivalent —
+   *  command replay would be a JS-side re-issue, which is exactly the cost
+   *  the bundle path exists to avoid). Consumer: VectorTileRenderer's
+   *  shouldBundle gates. */
+  readonly renderBundles: boolean
   /** This device can host the UNIFIED pass chain's whole frame (#1046 Inc-4):
    *  the frame encoder, the multi-pass origination surface AND the loop tail
    *  (render-target allocation, validation scopes, compute dispatch, timer
