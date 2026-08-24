@@ -18,7 +18,7 @@
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
-import { lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
 import { maxCachedEntriesFor } from './raster-cache-budget'
@@ -35,10 +35,20 @@ import {
 import type { GPUTile } from './vector-tile-renderer-types'
 
 const DEG2RAD = Math.PI / 180
+const RAD2DEG = 180 / Math.PI
 const MERC_LIMIT = 85.051129
 const clampLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
 const mercY = (latDeg: number): number =>
   Math.log(Math.tan(Math.PI / 4 + (clampLat(latDeg) * DEG2RAD) / 2))
+// #2024 — the bake's tile-local frame is Mercator METRES on the tiler's sphere
+// radius (compiler ecef-packing DSFUN_EARTH_R = EARTH.sphereR; the VTR's bake
+// ortho spans TWO_PI_R_EARTH/2^z of the same frame). The window math below must
+// live on the SAME radius or every windowed bake shifts by the radius ratio.
+const SPHERE_R = EARTH.sphereR
+const TWO_PI_R = 2 * Math.PI * SPHERE_R
+/** North-edge latitude (deg) of Mercator tile row y at 2^z = tileN. */
+const tileRowLat = (y: number, tileN: number): number =>
+  Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / tileN))) * RAD2DEG
 const BAKE_PX = 512
 /** Bytes of one bake — RGBA8 at BAKE_PX², every entry the same size. */
 const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
@@ -62,7 +72,35 @@ export interface DrapeBakeProvider {
     sizePx: number,
     /** #1222 zoom-bucket stroke-width compensation; 1 = bake-native. */
     strokeWidthScale?: number,
+    /** #2024 — bake only this WINDOW of the tile (parent-local Mercator metres,
+     *  origin = tile SW corner): the virtual sub-tile rect at overzoom, so a
+     *  512px bake keeps native texel density past the source maxLevel. Absent =
+     *  the whole tile (byte-identical to the pre-#2024 bake). */
+    window?: BakeWindow,
   ): RhiTexture | null
+}
+
+/** #2024 — sub-rect of a tile's local-Mercator frame ([0, E]²) to bake. */
+export interface BakeWindow {
+  /** Window origin X in tile-local Mercator metres (0 = tile west edge). */
+  ox: number
+  /** Window origin Y in tile-local Mercator metres (0 = tile SOUTH edge). */
+  oy: number
+  /** Window extent (square) in tile-local Mercator metres. */
+  extent: number
+}
+
+/** #2024 — one virtual overzoom tile the drape renders as a windowed bake of
+ *  its resident maxLevel ancestor. Emitted by the VTR's globe overzoom
+ *  dispatch (globeVisibleTiles at the virtual z), so the set exactly tiles the
+ *  viewport — the drape draws EITHER these OR the parent tiles, never both
+ *  (double alpha-cover would darken translucent fills). */
+export interface DrapeOverzoomTile {
+  z: number
+  x: number
+  y: number
+  /** Compiler tileKey of the maxLevel ancestor whose geometry gets windowed. */
+  parentKey: number
 }
 
 /** Drape baked vector-fill tiles onto the raster sphere grid (#599 I2). Owns the
@@ -147,6 +185,14 @@ export class VectorDrapeRenderer {
     worldOffDeg: number[] | undefined,
     layerCache: Map<number, GPUTile>,
     provider: DrapeBakeProvider,
+    /** #2024 — when present and non-empty (globe overzoom past the source
+     *  maxLevel), drape THESE virtual sub-tiles — each a 512px WINDOWED bake of
+     *  its resident maxLevel ancestor — INSTEAD of neededKeys, restoring native
+     *  texel density at any camera depth. The caller passes this only when
+     *  every parentKey is resident, so the parent→virtual switch is atomic per
+     *  frame: parent and child cover are never mixed (double alpha cover would
+     *  darken translucent fills). */
+    overzoom?: DrapeOverzoomTile[],
   ): void {
     this.calls++
     // Cache-invalidation key: quantized fill RGBA. A colour change re-bakes; a
@@ -155,7 +201,74 @@ export class VectorDrapeRenderer {
     const fillKey = q(fill[0]) | (q(fill[1]) << 8) | (q(fill[2]) << 16) | (q(fill[3]) << 24)
 
     const tiles: RasterTile[] = []
-    for (let ki = 0; ki < neededKeys.length; ki++) {
+    const useOverzoom = overzoom !== undefined && overzoom.length > 0
+    if (useOverzoom) {
+      // ─── #2024 virtual overzoom sub-tiles (globe route) ───
+      // The set comes from globeVisibleTiles at the virtual z, so it exactly
+      // tiles the viewport; the globe is SINGLE_WORLD, so no world-copy offsets.
+      for (const vt of overzoom) {
+        const cached = layerCache.get(vt.parentKey)
+        if (!cached || cached.extruded) continue
+        // Stroke rebake bucket vs the VIRTUAL z: the windowed bake magnifies
+        // 2^(vz − parentZ) less than the parent bake would, so camZoom − vz is
+        // the residual magnification the #1222 width compensation must cancel.
+        const zoomBucket =
+          strokeKey !== 0 && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
+            ? drapeZoomBucket(camZoom, vt.z)
+            : 0
+        // Virtual tile bounds — the standard Mercator tile formulas (matches
+        // tile-catalog.ts), NOT derived from the parent's f32-quantized fields.
+        const tileN = Math.pow(2, vt.z)
+        const west = (vt.x / tileN) * 360 - 180
+        const east = ((vt.x + 1) / tileN) * 360 - 180
+        const north = tileRowLat(vt.y, tileN)
+        const south = tileRowLat(vt.y + 1, tileN)
+        // Bake window in the PARENT's tile-local Mercator-metre frame (origin =
+        // parent SW corner, the frame the packed vertex local_merc lanes live
+        // in). extent is exact (E / 2^Δz); the origin comes from the f64 bounds.
+        const parentE = TWO_PI_R / Math.pow(2, cached.tileZoom)
+        const extent = parentE / Math.pow(2, vt.z - cached.tileZoom)
+        const window: BakeWindow = {
+          ox: (west - cached.tileWest) * DEG2RAD * SPHERE_R,
+          oy: (mercY(south) - mercY(cached.tileSouth)) * SPHERE_R,
+          extent,
+        }
+        const cacheKey = `${sliceLayer}:${vt.parentKey}:${vt.z}/${vt.x}/${vt.y}`
+        const tex = this._obtainBake(
+          provider,
+          sliceLayer,
+          vt.parentKey,
+          cached,
+          fill,
+          fillKey,
+          strokeKey,
+          zoomBucket,
+          cacheKey,
+          window,
+        )
+        if (!tex) continue
+        const swEcef = lonLatToECEF(west, south)
+        const mercSouth = mercY(south)
+        const gridN = rasterGridN(projType, vt.z)
+        writeRasterTileUniform(
+          this.tileScratch,
+          west,
+          south,
+          east,
+          north,
+          swEcef,
+          mercSouth,
+          mercY(north) - mercSouth,
+          gridN,
+        )
+        tiles.push({
+          texture: tex,
+          tileBytes: new Float32Array(this.tileScratch.buffer.slice(0)),
+          gridN,
+        })
+      }
+    }
+    for (let ki = 0; !useOverzoom && ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
       const cached = layerCache.get(key)
       // #599 line-drape — bake fill tiles AND line-only tiles (indexCount 0 but non-empty stroke
@@ -178,37 +291,18 @@ export class VectorDrapeRenderer {
         strokeKey !== 0 && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
           ? drapeZoomBucket(camZoom, cached.tileZoom)
           : 0
-      let entry = this.baked.get(cacheKey)
-      if (
-        !entry ||
-        entry.uploadEpoch !== cached.uploadEpoch ||
-        entry.fillKey !== fillKey ||
-        entry.strokeKey !== strokeKey ||
-        entry.zoomBucket !== zoomBucket
-      ) {
-        const tex = provider.bakeTileToTexture(
-          sliceLayer,
-          key,
-          fill,
-          BAKE_PX,
-          drapeStrokeWidthScale(zoomBucket),
-        )
-        if (!tex) continue
-        if (entry) {
-          this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
-          this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
-        }
-        entry = {
-          tex,
-          uploadEpoch: cached.uploadEpoch,
-          fillKey,
-          strokeKey,
-          zoomBucket,
-          lastCall: this.calls,
-        }
-        this.baked.set(cacheKey, entry)
-      }
-      entry.lastCall = this.calls
+      const tex = this._obtainBake(
+        provider,
+        sliceLayer,
+        key,
+        cached,
+        fill,
+        fillKey,
+        strokeKey,
+        zoomBucket,
+        cacheKey,
+      )
+      if (!tex) continue
 
       // Per-tile drape bounds — the raster tile formula (tile-catalog.ts). The
       // world-copy offset shifts lon so the tile lands in its own copy; the
@@ -234,11 +328,9 @@ export class VectorDrapeRenderer {
         mercY(north) - mercSouth,
         gridN,
       )
-      // Mark this bake as draped this frame — the beginFrame eviction skip-set.
-      this.visibleKeys.add(cacheKey)
       // The scratch block is reused per tile — COPY its bytes for the batch entry.
       tiles.push({
-        texture: entry.tex,
+        texture: tex,
         tileBytes: new Float32Array(this.tileScratch.buffer.slice(0)),
         gridN,
       })
@@ -264,6 +356,60 @@ export class VectorDrapeRenderer {
       // (its draws share this one per-frame submit; see _framePoolBase). #1142
       this._framePoolBase += tiles.length
     }
+  }
+
+  /** Bake-cache lookup/refresh shared by the primary and #2024 virtual-overzoom
+   *  loops. Bakes (or re-bakes on any invalidation-key change), retires the
+   *  replaced texture into the post-submit-safe queue, marks the entry draped
+   *  this frame (the beginFrame eviction skip-set), and returns the texture —
+   *  null when the tile has nothing to bake (provider self-skips empties). */
+  private _obtainBake(
+    provider: DrapeBakeProvider,
+    sliceLayer: string,
+    providerKey: number,
+    cached: GPUTile,
+    fill: readonly [number, number, number, number],
+    fillKey: number,
+    strokeKey: number,
+    zoomBucket: number,
+    cacheKey: string,
+    window?: BakeWindow,
+  ): RhiTexture | null {
+    let entry = this.baked.get(cacheKey)
+    if (
+      !entry ||
+      entry.uploadEpoch !== cached.uploadEpoch ||
+      entry.fillKey !== fillKey ||
+      entry.strokeKey !== strokeKey ||
+      entry.zoomBucket !== zoomBucket
+    ) {
+      const tex = provider.bakeTileToTexture(
+        sliceLayer,
+        providerKey,
+        fill,
+        BAKE_PX,
+        drapeStrokeWidthScale(zoomBucket),
+        window,
+      )
+      if (!tex) return null
+      if (entry) {
+        this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
+        this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
+      }
+      entry = {
+        tex,
+        uploadEpoch: cached.uploadEpoch,
+        fillKey,
+        strokeKey,
+        zoomBucket,
+        lastCall: this.calls,
+      }
+      this.baked.set(cacheKey, entry)
+    }
+    entry.lastCall = this.calls
+    // Mark this bake as draped this frame — the beginFrame eviction skip-set.
+    this.visibleKeys.add(cacheKey)
+    return entry.tex
   }
 
   /** Frame-boundary cache maintenance — MUST run once per frame BEFORE this
