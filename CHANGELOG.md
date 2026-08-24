@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 22889e6aef54812240d087fcf873b494c9a89c6a
+  Generated from: b92539434b04e301e45d2a2024c9d770ebf7568e
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 22889e6aef54
+    bun scripts/emit-changelog.ts --since b92539434b04
 -->
 
 # Changelog
@@ -211,6 +211,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`
 - **site:** the compute runner on the WebGL2 GPGPU page ([#1967](https://github.com/X-GIS/X-GIS/pull/1967)) `838f99d`
 - **shader-dsl:** document the WebGL2 GPGPU host contract, gated on a real GPU ([#1902](https://github.com/X-GIS/X-GIS/pull/1902)) `8c25a04`
 - **shader-dsl:** prune()'s justification is a 9.5% figure #1858 made 0.00% (#1914) ([#1919](https://github.com/X-GIS/X-GIS/pull/1919)) `950687b`
