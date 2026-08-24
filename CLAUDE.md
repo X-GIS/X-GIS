@@ -444,6 +444,17 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   instrument against a KNOWN POSITIVE before believing a zero (one was already in hand, built
   by hand two probes earlier); and read a uniform zero as a broken ruler, not a clean corpus.
   → `#1972`
+- A POLLER is an instrument too, and the same zero lies. A CI wait-loop built on unauthenticated
+  `curl` got `{"message":"GitHub access is not enabled for this session..."}`, and its
+  `d.get('check_runs', [])` turned that into an empty list — no jobs busy, so it printed
+  `DONE all-green` on the FIRST poll and the push that followed supersede-cancelled three
+  live render shards plus the `render-gate` that runs after them. Two tells were on screen:
+  it "passed" in under a second, and the report was used to claim something stronger than the
+  authenticated API had actually shown. Never treat a missing key as an empty result — parse
+  strictly and fail loud on an unexpected shape; poll the WORKFLOW RUN, not a name-matched
+  subset of its jobs (`render-gate` has `needs: render-shard`, so shards-all-green is not
+  run-done); and check the wait actually WAITED before believing what it says.
+  → `#1972`
 - A change that REFACTORS a shared path owes the gates of that path's CONSUMERS, not the gates of
   the feature that motivated it — those are different sets, and the feature's own are the ones you
   will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
