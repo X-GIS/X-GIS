@@ -17,6 +17,7 @@ import { emitLinePaint } from './paint-line'
 import { emitFillExtrusionPaint } from './paint-fill-extrusion'
 import { emitRasterPaint } from './paint-raster'
 import { emitHillshadePaint } from './paint-hillshade'
+import { foldSingleStopZoomFunctions } from './zoom-function-fold'
 // Re-export public helpers so importers of './paint' keep their surface.
 export { cssBezierEase, interpolateZoomCall } from './paint-helpers'
 
@@ -26,13 +27,16 @@ export function paintToUtilities(layer: MapboxLayer, warnings: string[]): string
   // (string from copy-paste, array, etc.) would otherwise let
   // `p['fill-color']` index a char or undefined. Mirror of the
   // expand-color-match guard.
+  // Legacy SINGLE-stop zoom functions fold to the constant they denote
+  // here, once, so every emitter below reads them through its existing
+  // constant path (#1976) — see foldSingleStopZoomFunctions.
   const rawPaint = (layer as { paint?: unknown }).paint
   const p =
     rawPaint !== null &&
     rawPaint !== undefined &&
     typeof rawPaint === 'object' &&
     !Array.isArray(rawPaint)
-      ? (rawPaint as Record<string, unknown>)
+      ? foldSingleStopZoomFunctions(rawPaint as Record<string, unknown>)
       : {}
 
   if (layer.type === 'fill') {

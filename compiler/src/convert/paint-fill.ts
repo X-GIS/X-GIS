@@ -57,7 +57,7 @@ export function emitFillPaint(
       )
     }
   }
-  addFillTranslate(out, p['fill-translate'], warnings)
+  addFillTranslate(out, p['fill-translate'], warnings, 'fill-translate')
   // fill-translate-anchor: viewport (default) is screen-space (today's
   // behaviour, byte-identical). map → world-space offset that rotates
   // with the map bearing; emitted as fill-translate-anchor-map.

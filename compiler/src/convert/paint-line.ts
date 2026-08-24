@@ -15,6 +15,7 @@ import {
   vec2AxisZoomInterp,
   surfaceIgnoredPaint,
 } from './paint-helpers'
+import { isZoomInterpCandidate } from './zoom-function-fold'
 
 export function emitLinePaint(
   out: string[],
@@ -232,9 +233,11 @@ function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
   // WS-1 — per-frame zoom-interp via per-axis scalar PropertyShape
   // (mirrors fill-translate). Emit stroke-translate-{x,y}-[interpolate…]
   // bracket bindings → strokeTranslate{X,Y}Shape → per-frame resolve.
-  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+  if (isZoomInterpCandidate(v)) {
     const ix = vec2AxisZoomInterp(v, warnings, 0)
-    const iy = vec2AxisZoomInterp(v, warnings, 1)
+    // Skip the y axis once x has failed — mirror of addFillTranslate: one
+    // authored value must not produce two copies of the lift's diagnostic.
+    const iy = ix === null ? null : vec2AxisZoomInterp(v, warnings, 1)
     if (ix !== null && iy !== null) {
       out.push(`stroke-translate-x-[${ix}]`)
       out.push(`stroke-translate-y-[${iy}]`)
@@ -321,8 +324,16 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
           `paint.line-dasharray: dropped ${unwrapped.length - nums.length} non-numeric entr${unwrapped.length - nums.length === 1 ? 'y' : 'ies'}; emitted dash pattern differs from authored value.`,
         )
       }
-      if (nums.length >= 2) {
-        out.push('stroke-dasharray-' + nums.join('-'))
+      // SVG / MapLibre dash rule: an odd-length dash array repeats, i.e.
+      // it is equivalent to itself concatenated with itself, so [a] ≡
+      // [a, a]. The same rule is applied to interp STOP values below;
+      // both paths must agree, or a fold of {"stops": [[6, [1]]]} to its
+      // constant [1] would turn a convertible value into a dropped one.
+      // Longer odd lengths stay as authored (a 3-element dash is
+      // expressible as-is).
+      const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
+      if (dash.length >= 2) {
+        out.push('stroke-dasharray-' + dash.join('-'))
         return
       }
     }
@@ -333,16 +344,25 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // line-dasharray is interpolated:false). Each stop value is a numeric
   // array; format it back to an xgis array literal so lower.ts'
   // extractInterpolateZoomArrayStops picks it up.
-  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+  if (isZoomInterpCandidate(v)) {
     const interp = interpolateZoomCall(v, warnings, (val) => {
       let inner: unknown = val
       while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
       if (
         Array.isArray(inner) &&
-        inner.length >= 2 &&
+        inner.length >= 1 &&
         inner.every((n) => typeof n === 'number' && Number.isFinite(n))
       ) {
-        return '[' + (inner as number[]).map((n) => Math.max(0, n)).join(', ') + ']'
+        const nums = (inner as number[]).map((n) => Math.max(0, n))
+        // SVG / MapLibre dash rule: an odd-length dash array repeats,
+        // i.e. it is equivalent to itself concatenated with itself, so
+        // [a] ≡ [a, a]. A 1-element stop value is otherwise
+        // inexpressible downstream — extractInterpolateZoomArrayStops
+        // (lower-helpers.ts) requires >= 2 entries per stop — and Carto
+        // Dark Matter authors exactly that (`boundary_county`). Longer
+        // odd lengths stay as authored, mirroring the constant path.
+        const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
+        return '[' + dash.join(', ') + ']'
       }
       return null
     })
