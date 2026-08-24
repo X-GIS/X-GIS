@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a0fcd9a3d66f06fa1a5cb91269b0b0efef8a23ce
+  Generated from: 773205036776338db0c520215637de2bbaead30f
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a0fcd9a3d66f
+    bun scripts/emit-changelog.ts --since 773205036776
 -->
 
 # Changelog
@@ -235,6 +235,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** make the dateline gate name which failure it saw ([#1981](https://github.com/X-GIS/X-GIS/pull/1981)) `7732050`
 - **e2e:** converge the #1248 size gate instead of sleeping 2000ms ([#1970](https://github.com/X-GIS/X-GIS/pull/1970)) `994015a`
 - **scripts:** close rule (1) of vitest.config.ts's ISOLATED list ([#1979](https://github.com/X-GIS/X-GIS/pull/1979)) `09392e5`
 - **ci:** register the legacy-route render gate, re-measure the perf gate's dark reason (#1349) ([#1960](https://github.com/X-GIS/X-GIS/pull/1960)) `bd677c2`
