@@ -2709,11 +2709,11 @@ export class VectorTileRenderer {
     )
     this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / canvasWidth : 0
     this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / canvasHeight : 0
-    // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs.
-    // Default (undefined / true) → 1 (current behavior, byte-identical).
-    // Explicit false → 0; the WGSL gates the rim-smoothstep / vertical-
-    // gradient ramp on `!= 0`. Packed into cam_ecef_off_{h,l}.w below.
-    this.currentFillAntialias = show.fillAntialias === false ? 0 : 1
+    // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs, packed
+    // into cam_ecef_off_{h,l}.w below: 1 = current behavior (byte-identical
+    // default), 0 = opt-out, and the WGSL gates on `!= 0`. Antialias reads the
+    // per-frame RESOLVED flag so #1995's zoom form flips it at its authored zoom.
+    this.currentFillAntialias = resolvedShow.fillAntialias ? 1 : 0
     this.currentFillVerticalGradient = show.fillExtrusionVerticalGradient === false ? 0 : 1
     this.currentBearingDeg = camera.bearing ?? 0
     // Per-frame resolved fill RGBA — animated stops were already

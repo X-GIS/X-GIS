@@ -532,9 +532,9 @@ function lowerLayer(
    *  (screen-space convention; runtime negates for NDC). */
   let fillTranslateY: number | undefined
   /** Mapbox `paint.fill-antialias` / `fill-extrusion-vertical-gradient`
-   *  opt-out flags. Undefined = spec default (true) = unchanged render;
-   *  only the explicit `false` utility sets these. */
-  let fillAntialias: boolean | undefined
+   *  opt-out flags. Undefined = spec default (true) = unchanged render; the
+   *  `false` utility or (antialias only, #1995) a 0/1 zoom shape sets these. */
+  let fillAntialias: import('./property-types').FillAntialiasValue | undefined
   let fillExtrusionVerticalGradient: boolean | undefined
   /** Mapbox `paint.circle-translate` x/y and `circle-blur`. */
   let circleTranslateX: number | undefined

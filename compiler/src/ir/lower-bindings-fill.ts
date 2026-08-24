@@ -7,7 +7,11 @@
 
 import { resolveColor } from '../tokens/colors'
 import { colorConstant, hexToRgba } from './render-node'
-import { extractInterpolateZoomColorStops, resolveColorTokenLiterals } from './lower-helpers'
+import {
+  extractInterpolateZoomColorStops,
+  extractStepZoomStops,
+  resolveColorTokenLiterals,
+} from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
 
 /** Binding-form `fill-[…]` arm (zoom-interp color, data-driven match). */
@@ -74,6 +78,24 @@ export const fillAntialiasUtilHandler: BindingHandler = {
   match: (ctx) => ctx.name === 'fill-antialias-false',
   apply: (ctx) => {
     ctx.acc.fillAntialias = false
+    return true
+  },
+}
+/** Binding-form `fill-antialias-[step(zoom, 0, z1, 1, …)]` — the boolean
+ *  zoom-expression form (#1995). The converter has already mapped each
+ *  authored boolean to 0/1, so the SAME `extractStepZoomStops` the opacity
+ *  arm uses lifts it into the shared zoom-stop encoding (a `z-ε, z` pair per
+ *  boundary). The runtime STEPS it per frame — fill-antialias is
+ *  `interpolated: false` in the Mapbox spec — into the same rim-alpha lane
+ *  the constant `false` flag rides, so no new GPU surface is involved.
+ *  Returning false on a non-step binding leaves the item to the ladder's
+ *  X-GIS0005 catch-all rather than silently swallowing it. */
+export const fillAntialiasBindingHandler: BindingHandler = {
+  match: (ctx) => ctx.name === 'fill-antialias',
+  apply: (ctx) => {
+    const stepStops = extractStepZoomStops(ctx.item.binding!)
+    if (!stepStops) return false
+    ctx.acc.fillAntialias = { kind: 'zoom-interpolated', stops: stepStops.stops }
     return true
   },
 }
