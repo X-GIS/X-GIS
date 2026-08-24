@@ -3498,6 +3498,7 @@ export class VectorTileRenderer {
         projType,
         projCenterLon,
         projCenterLat,
+        camera,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
         strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),

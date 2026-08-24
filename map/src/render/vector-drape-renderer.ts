@@ -30,7 +30,7 @@ import {
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
-  rasterGlobeCamAnchor,
+  rasterFrameCamAnchor,
 } from './raster-renderer'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -130,6 +130,9 @@ export class VectorDrapeRenderer {
     projType: number,
     projCenterLon: number,
     projCenterLat: number,
+    /** Camera 2D centre — feeds rasterFrameCamAnchor's Mercator/flat lanes (#2022).
+     *  Only centerX/centerY are read; the globe arm ignores them. */
+    camera: { centerX: number; centerY: number },
     opacity: number,
     fill: readonly [number, number, number, number],
     /** #599 line-drape — a 32-bit key over the show's stroke style (VTR.strokeBakeKey). Part of the
@@ -248,7 +251,12 @@ export class VectorDrapeRenderer {
         projType,
         projCenterLon,
         projCenterLat,
-        rasterGlobeCamAnchor(projCenterLon, projCenterLat),
+        // #2022 — the SAME per-projType anchor authority raster + hillshade pack.
+        // The drape serves {3,4,5} ∪ globeMode; on the flat-disc trio vs_tile's
+        // flat arm reads [clon, camProj0.x, camProj0.y], and the unconditional
+        // globe ECEF anchor put planet-scale metres in those lanes — every
+        // draped fill landed off-screen (fills invisible on ortho/azi/stereo).
+        rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat),
         { opacity, hueRotate: 0, brightnessMin: 0, brightnessMax: 1, saturation: 0, contrast: 0 },
       )
       this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled(), this._framePoolBase)
