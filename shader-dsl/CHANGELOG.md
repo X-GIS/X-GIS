@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 510010fcb8db5cdec1e08c624bf63a8bc05407c3
+  Generated from: 22889e6aef54812240d087fcf873b494c9a89c6a
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 510010fcb8db
+    bun scripts/emit-changelog.ts --path shader-dsl --since 22889e6aef54
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- unlock fp64 inlining — barrier the renorm zero, ship the member-of-construct fold, and expose it on the site ([#1972](https://github.com/X-GIS/X-GIS/pull/1972)) `22889e6`
 - **shader-dsl:** optBarrier, forceInline, and the gcc -O2 identity gap ([#1969](https://github.com/X-GIS/X-GIS/pull/1969)) `510010f`
 - **shader-dsl:** the webgpu tier of createComputeRunner ([#1957](https://github.com/X-GIS/X-GIS/pull/1957)) `09dcb28`
 - **shader-dsl:** one compute entry point across the cpu and webgl2 tiers ([#1946](https://github.com/X-GIS/X-GIS/pull/1946)) `fe30559`
