@@ -28,6 +28,7 @@
 // reach the GPU is gone, and the test catches it before any render.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { resolveShow } from '../resolved-show'
 import {
   installWebGPUStub,
   type StubInstallation,
@@ -187,5 +188,71 @@ describe('fill-antialias opt-out wiring (uf[55] = currentFillAntialias)', () => 
     const on = stageOneTile(1)[FILL_ANTIALIAS_SLOT]
     const off = stageOneTile(0)[FILL_ANTIALIAS_SLOT]
     expect(on).not.toBe(off)
+  })
+})
+
+// ─── #1995: the ZOOM-expression form reaches the same lane ───────────────────
+//
+// OFM Bright's `landcover-wood` authors `["step", ["zoom"], false, 9, true]`.
+// That lowers to the 0/1 zoom shape below on ShowCommand.fillAntialias, and
+// render() bakes `currentFillAntialias` from the PER-FRAME ResolvedShow rather
+// than the raw ShowCommand — so the flag now varies with camera zoom.
+//
+// This drives the REAL resolveShow (no re-implemented curve here: the shape
+// below is the compiler's output, pinned by
+// compiler/src/__tests__/fill-antialias-expr.test.ts) and stages the resolved
+// flag through the REAL renderTileKeys, asserting the lane flips at z9.
+//
+// Scope note (honest): the ONE hop this GPU-free harness cannot execute is
+// render()'s own `currentFillAntialias = resolvedShow.fillAntialias ? 1 : 0`
+// statement — render() needs an attached tile source before it reaches that
+// line. Its two halves are each pinned: the resolve by
+// resolved-show.test.ts's "flips exactly at the authored zoom 9", the lane
+// write by the three cases above.
+const OFM_LANDCOVER_WOOD_AA = {
+  kind: 'zoom-interpolated',
+  stops: [
+    { zoom: 8.9999, value: 0 },
+    { zoom: 9, value: 1 },
+  ],
+}
+
+/** ShowCommand-shaped stub carrying only what resolveShow reads. */
+function showWithAntialias(fillAntialias: unknown): never {
+  return {
+    targetName: 'src',
+    layerName: 'landcover-wood',
+    paintShapes: {
+      fill: { fill: null },
+      line: { stroke: null, strokeWidth: { kind: 'constant', value: 1 } },
+      circle: { size: null },
+      common: { opacity: { kind: 'constant', value: 1 } },
+    },
+    fillAntialias,
+  } as never
+}
+
+/** slot 55 for one frame at `zoom`, with the flag taken from the REAL
+ *  per-frame resolve of `fillAntialias` (mirrors render()'s bake). */
+function laneAtZoom(fillAntialias: unknown, zoom: number): number {
+  const resolved = resolveShow(showWithAntialias(fillAntialias), {
+    cameraZoom: zoom,
+    elapsedMs: 0,
+  })
+  return stageOneTile(resolved.fillAntialias ? 1 : 0)[FILL_ANTIALIAS_SLOT]!
+}
+
+describe('fill-antialias zoom expression → the same uniform lane (#1995)', () => {
+  it('the OFM Bright step reaches slot 55 as 0 below z9 and 1 from z9 up', () => {
+    // Fail-before (pre-#1995): the zoom form never reached ShowCommand at all
+    // — the converter dropped it with a warning — so both zooms staged 1.
+    expect(laneAtZoom(OFM_LANDCOVER_WOOD_AA, 8.5)).toBe(0)
+    expect(laneAtZoom(OFM_LANDCOVER_WOOD_AA, 9)).toBe(1)
+  })
+
+  it('the constant forms still stage what they always did', () => {
+    expect(laneAtZoom(false, 9)).toBe(0)
+    expect(laneAtZoom(true, 9)).toBe(1)
+    expect(laneAtZoom(undefined, 9)).toBe(1)
   })
 })

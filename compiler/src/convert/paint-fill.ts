@@ -14,6 +14,7 @@ import {
   addTranslateAnchor,
   surfaceIgnoredPaint,
 } from './paint-helpers'
+import { boolZoomStepCall } from './bool-zoom-step'
 
 export function emitFillPaint(
   out: string[],
@@ -74,15 +75,22 @@ export function emitFillPaint(
   if (aa === false) {
     out.push('fill-antialias-false')
   } else if (typeof aa === 'object' && aa !== null) {
-    // aa is a non-literal expression (e.g. `["step", ["zoom"], false,
-    // 9, true]` on OFM-bright landcover-wood). Only constant true/false
-    // is honoured — a zoom-expression form was SILENTLY dropped with no
-    // warning (the `=== false` test is false for an array, the unwrap
-    // only peels `["literal", …]`). Surface the loss instead of
-    // dropping it silently; full zoom-expr antialias is out of scope.
-    warnings.push(
-      `Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.`,
-    )
+    // #1995 — the ZOOM form. A boolean is `interpolated: false` in the spec,
+    // so a zoom-varying one is spelled `["step", ["zoom"], …]` (OFM Bright
+    // landcover-wood). The flag already rides a PER-FRAME uniform lane, so
+    // that curve lifts to a 0/1 `step(zoom, …)` binding the runtime resolves
+    // each frame into the same lane — no new GPU surface, exact fidelity.
+    const aaStep = boolZoomStepCall(aa)
+    if (aaStep !== null) {
+      out.push(`fill-antialias-[${aaStep}]`)
+    } else {
+      // Everything else still drops with the loss surfaced: a per-feature
+      // (data-driven) input has no per-feature lane, and a non-step zoom
+      // form has no boolean curve to lift.
+      warnings.push(
+        `Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false and a boolean zoom step) — dropped.`,
+      )
+    }
   }
   surfaceIgnoredPaint(layer.id, p, warnings, ['fill-sort-key'])
 }

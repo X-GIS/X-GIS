@@ -5,7 +5,7 @@
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import type { SymbolDef } from './render-node'
 import { rgbaToHex } from './render-node'
-import type { PaintShapes, PropertyShape } from './property-types'
+import type { PaintShapes, PropertyShape, FillAntialiasValue } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
 import {
   emitHeatmapFields,
@@ -127,10 +127,10 @@ export interface FillPaint {
    *  true the runtime rotates the [dx,dy] offset by the map bearing so
    *  it tracks the map world axes (map/world-space anchor). */
   fillTranslateAnchorMap?: boolean
-  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
-   *  preserves the current fill render path byte-for-byte; only `false`
-   *  is passed through to disable the rim-alpha smoothstep at runtime. */
-  fillAntialias?: boolean
+  /** Mapbox `paint.fill-antialias`. Default (undefined / true) preserves the
+   *  current fill render path byte-for-byte; `false` — or a 0/1 zoom shape
+   *  (#1995) resolving to 0 — disables the rim-alpha smoothstep at runtime. */
+  fillAntialias?: FillAntialiasValue
 }
 
 /** Line / polygon-outline paint axes. */

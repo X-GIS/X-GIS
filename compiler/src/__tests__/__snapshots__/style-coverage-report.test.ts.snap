@@ -147,11 +147,9 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "fill",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "landcover-wood",
-      "reasons": [
-        "Layer "landcover-wood" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.",
-      ],
+      "reasons": [],
       "type": "fill",
     },
     {
@@ -819,7 +817,6 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
-    "Layer "landcover-wood" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.",
     "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
     "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
     "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",

@@ -138,13 +138,13 @@ export interface RenderNodeFillPaint {
    *  When true the runtime rotates the [dx,dy] offset by the map bearing
    *  so it tracks the map's world axes (map/world-space anchor). */
   fillTranslateAnchorMap?: boolean
-  /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
-   *  = current behavior (the fill fragment multiplies in the sphere-rim
-   *  smoothstep AA fade). Only `false` changes anything: the runtime
-   *  drops the rim-alpha smoothstep so fill edges stay hard, honouring
-   *  the spec's pixel-art intent. (Geometric edge AA from pipeline MSAA
-   *  is not per-layer-disable-able and is left untouched.) */
-  fillAntialias?: boolean
+  /** Mapbox `paint.fill-antialias`. Default (unauthored / true) = current
+   *  behavior (the fill fragment multiplies in the sphere-rim smoothstep AA
+   *  fade). `false` drops that rim-alpha smoothstep so fill edges stay hard;
+   *  a 0/1 zoom shape (#1995) does the same per frame from the authored zoom.
+   *  (Geometric edge AA from pipeline MSAA is not per-layer-disable-able and
+   *  is left untouched.) See FillAntialiasValue for the two-form rationale. */
+  fillAntialias?: import('./property-types').FillAntialiasValue
   /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
    *  name. Runtime resolves against sprite atlas at draw time and
    *  uses sprite centre pixel as fill colour. Stage 2 (real

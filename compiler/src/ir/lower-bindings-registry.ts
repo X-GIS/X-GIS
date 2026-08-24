@@ -15,6 +15,7 @@
 import type { BindingHandler } from './lower-bindings'
 import {
   fillBindingHandler,
+  fillAntialiasBindingHandler,
   fillAntialiasUtilHandler,
   fillExtrusionVerticalGradientUtilHandler,
   fillPatternUtilHandler,
@@ -75,6 +76,9 @@ export const BINDING_HANDLERS: BindingHandler[] = [
   strokeTranslateXBindingHandler,
   strokeTranslateYBindingHandler,
   strokeOpacityBindingHandler,
+  // #1995 — must precede fillBindingHandler only for readability (that arm is
+  // an EXACT `fill` match, so the two can never both fire on one item).
+  fillAntialiasBindingHandler,
   fillBindingHandler,
   strokeBindingHandler,
   fillExtrusionHeightBindingHandler,
