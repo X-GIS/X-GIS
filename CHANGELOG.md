@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: f0a45ff955e203d1d47e33373373f72e22b11409
+  Generated from: 463bb65302ac71eb6160bddc63f47d31fc4bb6a0
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since f0a45ff955e2
+    bun scripts/emit-changelog.ts --since 463bb65302ac
 -->
 
 # Changelog
@@ -225,6 +225,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
+- **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
+- **plans:** GeoJSON clustering design — cluster options, synthetic properties, ["accumulated"] (ADR-0012 T3 track) ([#2033](https://github.com/X-GIS/X-GIS/pull/2033)) `90b097b`
 - **plans:** terrain-family design — terrain root, ["elevation"], color-relief, encoding emit (ADR-0012 D5 track) ([#2032](https://github.com/X-GIS/X-GIS/pull/2032)) `f0a45ff`
 - **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
@@ -295,6 +298,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### chore
 
+- **skills:** reconstruct the §5 render-verification tooling — compare-parity-pixeldiff + tile-crop-review (#2012 prerequisite 1) ([#2046](https://github.com/X-GIS/X-GIS/pull/2046)) `463bb65`
 - **process:** verify what a session inherited instead of trusting it ([#1934](https://github.com/X-GIS/X-GIS/pull/1934)) `ef415b6`
 - **map:** drop the dead publish-manifest fields that contradict the source layout (#1685) ([#1772](https://github.com/X-GIS/X-GIS/pull/1772)) `4123b8b`
 - **design-sync:** import @xgis/site UI kit into claude.ai/design ([#1754](https://github.com/X-GIS/X-GIS/pull/1754)) `36fd72c`
