@@ -167,7 +167,90 @@ describe('classifyTile', () => {
     if (d.kind === 'child-fallback') {
       expect(d.childKeys).toEqual([cachedChild])
       expect(d.childrenNeedingUpload).toEqual([cachedChild])
+      // iter-284 mirror (#2013): covered is not loaded — the visible z
+      // (uncached, indexed) must still be requested or the view sits on
+      // stretched children forever.
+      expect(d.wantsRequestKey).toBe(visibleKey)
     }
+  })
+
+  it('#2013: children-stretch reaches GRANDCHILDREN when the z+1 level was never fetched', () => {
+    // The fast zoom-out case: camera left z10 for z8 quickly enough that
+    // no z9 tile was ever fetched — the just-left viewport's z10 tiles
+    // are cached. Pre-#2013 (1-level stretch) this returned 'pending'
+    // (blank tile); now the cached z10 grandchildren cover.
+    const visible = tile(8, 100, 50)
+    const cachedGrandchildren = [tileKey(10, 400, 200), tileKey(10, 403, 203)]
+    const cachedSet = new Set(cachedGrandchildren)
+    const d = classifyTile(
+      baseInputs({
+        visible,
+        visibleKey: tileKey(visible.z, visible.x, visible.y),
+        maxLevel: 14,
+        hasSliceInCatalog: (k) => cachedSet.has(k),
+      }),
+    )
+    expect(d.kind).toBe('child-fallback')
+    if (d.kind === 'child-fallback') {
+      expect([...d.childKeys].sort()).toEqual([...cachedGrandchildren].sort())
+      expect(d.wantsRequestKey).toBe(tileKey(visible.z, visible.x, visible.y))
+    }
+  })
+
+  it('#2013: a cached child terminates its branch — its own children are NOT also pushed', () => {
+    // A cached z9 child fully covers its quadrant; pushing its z10
+    // children too would draw the same area twice.
+    const cachedChild = tileKey(9, 200, 100)
+    const grandchildUnderCached = tileKey(10, 400, 200)
+    const cachedSet = new Set([cachedChild, grandchildUnderCached])
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(8, 100, 50),
+        visibleKey: tileKey(8, 100, 50),
+        maxLevel: 14,
+        hasSliceInCatalog: (k) => cachedSet.has(k),
+      }),
+    )
+    expect(d.kind).toBe('child-fallback')
+    if (d.kind === 'child-fallback') {
+      expect(d.childKeys).toEqual([cachedChild])
+    }
+  })
+
+  it('#2013: the stretch is capped at MAX_UNDERZOOM_LEVELS (3) — z+4 descendants are not found', () => {
+    // Only z12 descendants of the z8 visible tile cached (4 levels down)
+    // → outside the cap → pending, not an unbounded descent.
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(8, 100, 50),
+        visibleKey: tileKey(8, 100, 50),
+        maxLevel: 14,
+        hasSliceInCatalog: (k) => k === tileKey(12, 1600, 800),
+      }),
+    )
+    expect(d.kind).toBe('pending')
+  })
+
+  it('#2013: the stretch never descends past maxLevel', () => {
+    // visible z13, maxLevel 14: only the z14 level exists to search.
+    // A hasSliceInCatalog that would claim z15/z16 keys cached must not
+    // be consulted for them — cached z14 child found, deeper never asked.
+    const asked: number[] = []
+    const cachedChild = tileKey(14, 2 * 3000, 2 * 1500)
+    const d = classifyTile(
+      baseInputs({
+        visible: tile(13, 3000, 1500),
+        visibleKey: tileKey(13, 3000, 1500),
+        maxLevel: 14,
+        hasSliceInCatalog: (k) => {
+          asked.push(k)
+          return k === cachedChild
+        },
+      }),
+    )
+    expect(d.kind).toBe('child-fallback')
+    const z15floor = Math.pow(4, 15)
+    expect(asked.every((k) => k < z15floor)).toBe(true)
   })
 
   it('returns drop-no-archive when no ancestor + no archive entry', () => {
