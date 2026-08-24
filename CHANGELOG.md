@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: dfd6ae2ad9718aada2afe2ab674ae9aa9b4c42bf
+  Generated from: 1c45c47c45af9a211a4ac5f2a9ec7d2321d57ac2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since dfd6ae2ad971
+    bun scripts/emit-changelog.ts --since 1c45c47c45af
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** lower step-by-zoom line-dasharray onto the stepped dash shape (#1994) ([#1996](https://github.com/X-GIS/X-GIS/pull/1996)) `1c45c47`
 - unlock fp64 inlining — barrier the renorm zero, ship the member-of-construct fold, and expose it on the site ([#1972](https://github.com/X-GIS/X-GIS/pull/1972)) `22889e6`
 - **shader-dsl:** optBarrier, forceInline, and the gcc -O2 identity gap ([#1969](https://github.com/X-GIS/X-GIS/pull/1969)) `510010f`
 - **shader-dsl:** the webgpu tier of createComputeRunner ([#1957](https://github.com/X-GIS/X-GIS/pull/1957)) `09dcb28`
