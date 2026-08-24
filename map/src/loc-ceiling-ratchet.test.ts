@@ -248,7 +248,11 @@ const CEILINGS: Record<string, number> = {
   // array became instance parallel scratch (+ the offsets-pair scratch) — the
   // O(stroked-tiles × layers)/frame nursery churn from the issue's ledger, plus
   // the field docs that record why the reuse is re-entrancy-safe.
-  'map/src/render/vector-tile-renderer.ts': 5101,
+  // 5101→5128 (#2042 INC-1): _writeRtcAnchors — the absolute tile/cam ECEF
+  // anchor staging (one helper, three per-tile call sites) + the §5 witness
+  // skew hook, behind the __XGIS_RTC_RECOMBINE flag. Shrinks back at INC-4/5
+  // when the legacy cam_ecef_off writes and the per-tile re-walk retire.
+  'map/src/render/vector-tile-renderer.ts': 5128,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1150,7 +1154,10 @@ const CEILINGS: Record<string, number> = {
   // line-corner.ts (TILE lanes as parameters; a one-line adapter keeps the
   // call sites). Net shrink banked per the shrink-only rule. MEASURED
   // post-prettier.
-  'map/src/shaders/dsl/line.ts': 1527,
+  // 1527→1535 (#2042 INC-1): the four `_pad_*_ecef_center_*` size-mirror pads
+  // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
+  // polygon-line-uniform-parity). MEASURED post-prettier.
+  'map/src/shaders/dsl/line.ts': 1535,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1189,7 +1196,11 @@ const CEILINGS: Record<string, number> = {
   // prunes the module before EACH emit, so the four polygon pipelines (three in VTR, one
   // graticule) each lowered + ran the optimizer fixpoint twice; the module build is 2 ms
   // against ~80 ms for one emit, so that lowering is the entire cost.
-  'map/src/shaders/dsl/polygon.ts': 1498,
+  // 1498→1540 (#2042 INC-1): the four absolute RTC anchor struct fields (with
+  // the recombine-flag contract doc) + the flag-selected rtc_off_h/l Let pair
+  // in the projection ladder's 3D arm. Shrinks at INC-4 when the legacy
+  // cam_ecef_off fields and the select retire. MEASURED post-prettier.
+  'map/src/shaders/dsl/polygon.ts': 1540,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -1556,7 +1567,9 @@ const CEILINGS: Record<string, number> = {
   // comment, and `...inputPoolValues(this.inputs)` spread into the polygon uniform
   // write — auto-merged cleanly (disjoint from this branch's F3b edits); two adjacent
   // comments' prettier-reflow saved a couple lines back. Measured post-hook.
-  'map/src/render/renderer.ts': 1003,
+  // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
+  // full-struct write() completeness net requires. MEASURED post-prettier.
+  'map/src/render/renderer.ts': 1009,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —

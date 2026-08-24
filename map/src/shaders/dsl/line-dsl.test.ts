@@ -191,9 +191,11 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(off.globe_eye).toBe(64) // #600 — MUST equal polygon Uniforms.globe_eye (shared buffer)
     // #1539 — 272 → 368: polygon grew by the 96-byte reserved `input` pool, and
     // TileUniforms shares VTR's group(0) buffer, so it mirrors the SIZE with
-    // `_pad_input_*`. This literal is the hardcoded half of the guard;
+    // `_pad_input_*`. #2042 INC-1 — 368 → 432: polygon appended the four
+    // absolute RTC anchors (tile/cam_ecef_center hi/lo), mirrored here as
+    // `_pad_*_ecef_center_*`. This literal is the hardcoded half of the guard;
     // polygon-line-uniform-parity.test.ts is the one that reflects BOTH structs.
-    expect(Math.ceil(cur / maxA) * maxA).toBe(368)
+    expect(Math.ceil(cur / maxA) * maxA).toBe(432)
     // The final clip transform feeds vertex+offset through the MVP.
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
     expect(vs).toContain('u.cam_ecef_off_h')

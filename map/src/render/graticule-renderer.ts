@@ -416,6 +416,12 @@ export class GraticuleRenderer {
       pattern_active: 0,
       cam_ecef_off_h: [0, 0, 0, 0],
       cam_ecef_off_l: [0, 0, 0, 0],
+      // #2042 INC-1 anchors all-zero: cam_ecef_center_h.w = 0 keeps the VS
+      // on the legacy cam_ecef_off path (the graticule has no RTC).
+      tile_ecef_center_h: [0, 0, 0, 0],
+      tile_ecef_center_l: [0, 0, 0, 0],
+      cam_ecef_center_h: [0, 0, 0, 0],
+      cam_ecef_center_l: [0, 0, 0, 0],
       light_dir_ecef: [0, 0, 0, 0],
       globe_eye: [globeEye[0], globeEye[1], globeEye[2], globeEye[3]],
     })
