@@ -66,6 +66,13 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'length', status: 'supported' },
   { name: 'upcase / downcase', status: 'supported' },
   { name: 'at', status: 'supported', note: 'Array indexing.' },
+  {
+    name: 'split / join',
+    status: 'supported',
+    note: '#2008 C-tier. Plain JS String#split / Array#join — no MapLibre-specific edge-case handling, per the reference implementation (@maplibre/maplibre-gl-style-spec 24.8.5, expression/compound_expression.ts:511-520). CPU-only (arrays can\'t reach the GPU — ir/classify.ts). Witness: `["join", ["split", ["get", "name"], ","], " / "]` on a text-field converts to `join(split(.name, ","), " / ")` and evaluates "a,b,c" → "a / b / c".',
+    source:
+      'expr-string.ts splitHandler/joinHandler + eval/evaluator-helpers.ts callBuiltin split/join',
+  },
   // Coercions
   {
     name: 'to-number / number',
@@ -74,10 +81,17 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     source: 'evaluator.ts:to_number',
   },
   {
-    name: 'to-string / to-boolean / to-color',
+    name: 'to-string / string / to-boolean / boolean / to-color',
     status: 'supported',
-    note: 'Converter passes through to coalesce chains; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.); iter 541 added `to_color` (hex regex validation, X-GIS hex-only — converter pre-resolves CSS names like "red" via tokens/colors.ts:resolveColor).',
-    source: 'evaluator.ts:to_string + to_boolean + to_color',
+    note: 'Converter passes through to coalesce chains; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.); iter 541 added `to_color` (hex regex validation, X-GIS hex-only — converter pre-resolves CSS names like "red" via tokens/colors.ts:resolveColor). The bare ASSERTION forms `string` / `boolean` (as opposed to their `to-`-prefixed COERCION siblings) route through the identical typeCoercionHandler — same fallback-chain treatment, just previously untracked by name here (#2008 C-tier fold-in; converter-probed 2026-08-24, already implemented and tested — see type-coercion-fallback-coverage.test.ts).',
+    source:
+      'evaluator.ts:to_string + to_boolean + to_color; expr-registry.ts (typeCoercionHandler)',
+  },
+  {
+    name: 'object',
+    status: 'supported',
+    note: '#2008 C-tier. Mapbox `["object", value_1, …, value_n]` has the IDENTICAL fallback-chain overload shape as the `string` / `number` / `boolean` asserts above (first arg that converts wins) — reuses typeCoercionHandler verbatim, no new handler. Like its siblings this does not runtime-verify the value is actually an object; X-GIS has no per-value type tag (same trade-off the `array` row above documents).',
+    source: 'expr-registry.ts (typeCoercionHandler)',
   },
   // Colour
   {
@@ -85,6 +99,12 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     status: 'supported',
     note: 'Constant channels hex-encode at convert time; per-feature (data-driven) channels — `["rgb", ["get","r"], …]` — now lower to a runtime `rgb(…)` / `rgba(…)` call (expr-string.ts rgbHandler) that the evaluator\'s rgb/rgba builtin resolves per feature into a hex string (encoding byte-matches the constant path). Classified per-feature-CPU (rgb ∉ GPU_SAFE_BUILTINS). Per-channel v8 literal-wrap (`["literal", N]`) accepted.',
     source: 'expr-string.ts rgbHandler + eval/evaluator-helpers.ts callBuiltin rgb/rgba',
+  },
+  {
+    name: 'to-rgba',
+    status: 'supported',
+    note: '#2008 C-tier — real coercion, not pass-through (a pass-through would be UNSOUND: the spec output is a 4-element numeric array, not the input colour, so downstream `["at", 0, ["to-rgba", c]]` needs the actual decomposition). Spec (@maplibre/maplibre-gl-style-spec 24.8.5, expression/compound_expression.ts:228-234): `[r*255, g*255, b*255, a]` from the colour\'s normalised [0,1] channels — r/g/b 0-255, a 0-1. Constant colours fold to a literal xgis array at convert time (colorToXgis + tokens/colors.ts:resolveColorToRgba, same resolver the paint-color pipeline uses); data-driven colours emit a runtime `to_rgba(…)` CPU builtin call. Unresolvable input returns null (X-GIS evaluator convention: fail soft, not the spec\'s throw).',
+    source: 'expr-string.ts toRgbaHandler + eval/evaluator-helpers.ts callBuiltin to_rgba',
   },
   {
     name: 'hsl / hsla',

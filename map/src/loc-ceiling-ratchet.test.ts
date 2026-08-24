@@ -1872,6 +1872,14 @@ const CEILINGS: Record<string, number> = {
   // live-source polling interval).
   'compiler/src/ir/render-node.ts': 989,
   'compiler/src/convert/paint-helpers.ts': 826,
+  // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
+  // colour coercion added to callBuiltin's single-authority switch (the
+  // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
+  // not threaded into a second file) — 3 new BUILTIN_FN_NAMES entries + the
+  // `split`/`join`/`to_rgba` case blocks with their spec-citation comments.
+  // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP
+  // before (same situation emit-commands.ts hit at #1304, above).
+  'compiler/src/eval/evaluator-helpers.ts': 845,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
