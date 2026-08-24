@@ -587,3 +587,52 @@ export function pitchAlignmentGapWarning(
     `Labels stay upright billboards under pitch instead of lying in the ground plane.`
   )
 }
+
+/** icon-offset (Batch 2 sprite atlas) — v8 literal-wrap unwrap + constant
+ *  2-tuple emit, or (#1977) a warn+drop for any non-constant form (legacy
+ *  `{stops:[...]}` function, modern `["interpolate", …]` expression, or any
+ *  other shape that doesn't reduce to a numeric pair). Appends
+ *  `label-icon-offset-x/-y-N` (mirrors the text-offset split — the `-`
+ *  utility-name separator can't carry a comma tuple) or a single gap
+ *  warning onto the caller's accumulators in place. Split out of
+ *  convertIconProperties (layers-symbol.ts) to keep that god-file under
+ *  its shrink-only LOC ceiling — mirror of the pitchAlignmentGapWarning
+ *  extraction above. Zero logic change. */
+export function convertIconOffset(
+  layer: { id: string },
+  layout: Record<string, unknown>,
+  utils: string[],
+  warnings: string[],
+): void {
+  // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
+  const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
+  const iconOffset =
+    Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
+      ? iconOffsetRaw.map((c) => {
+          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+          return c
+        })
+      : null
+  if (
+    iconOffset !== null &&
+    typeof iconOffset[0] === 'number' &&
+    typeof iconOffset[1] === 'number'
+  ) {
+    // Two utilities so the xgis-utility-name grammar (`-` is the
+    // segment separator) can carry signed numbers without a custom
+    // string-comma syntax. Mirrors the `label-offset-x-N` /
+    // `label-offset-y-M` split for text-offset.
+    if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
+    if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
+  } else if (layout['icon-offset'] !== undefined && layout['icon-offset'] !== null) {
+    // #1977 — non-constant icon-offset (legacy {stops:[...]} function form
+    // OR modern ["interpolate", …] / other expression form) silently
+    // became [0,0] with ZERO diagnostic — every other gap on this pass
+    // warns; this one didn't. Warn + drop (mirror of icon-size's
+    // non-constant gap warning in convertIconProperties); expression
+    // support is a documented follow-up, not this fix.
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-offset non-constant form not yet supported — value dropped: ${JSON.stringify(layout['icon-offset']).slice(0, 80)}`,
+    )
+  }
+}

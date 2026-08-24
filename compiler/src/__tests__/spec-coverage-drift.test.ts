@@ -49,6 +49,12 @@ function readConverterSource(): string {
     'layers-circle.ts',
     'layers-symbol.ts',
     'layers-heatmap.ts',
+    // #1977: convertIconOffset (icon-offset constant emit + non-constant
+    // warn) split out of layers-symbol.ts into this helpers module to keep
+    // that god-file under its shrink-only LOC ceiling — same relocation
+    // pattern as the Tier-A / C5 split this file's header comment already
+    // accounts for.
+    'layers-helpers.ts',
     'paint.ts',
     'paint-fill.ts',
     'paint-line.ts',
