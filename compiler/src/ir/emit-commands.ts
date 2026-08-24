@@ -4,6 +4,7 @@
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import type { SymbolDef } from './render-node'
+import type { SourceBounds } from './source-bounds'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape, FillAntialiasValue } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
@@ -68,6 +69,11 @@ export interface LoadCommand {
    *  unbounded, the pre-existing behaviour. */
   maxzoom?: number
   minzoom?: number
+  /** SOURCE-level spatial extent `[west, south, east, north]` (WGS84 degrees), threaded
+   *  from `SourceDef.bounds` (#1984). The raster / raster-dem selectors drop every tile
+   *  that does not overlap it, instead of requesting ocean tiles that can only 404.
+   *  Undefined = unclipped, the pre-existing behaviour. See `SourceDef.bounds`. */
+  bounds?: SourceBounds
   /** `encoding: custom` elevation unpack factors (threaded from `SourceDef`):
    *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`. */
   redFactor?: number
@@ -439,27 +445,22 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     baseShift: src.baseShift,
     maxzoom: src.maxzoom,
     minzoom: src.minzoom,
+    bounds: src.bounds,
     refresh: src.refresh,
   }))
 
-  // Walk the IR once to collect every ZOOM-only paint literal /
-  // gradient (P3 Step 1). Always emit the palette into SceneCommands
-  // so a runtime that opts INTO `enablePaletteSampling` later in
-  // its boot has the data ready. Shader-gen integration is gated
-  // separately — without the runtime bind-group extension, an
-  // active palette would generate WGSL with @binding(2..4)
-  // references that fail pipeline validation against
-  // mr-baseBindGroupLayout.
+  // Walk the IR once to collect every ZOOM-only paint literal / gradient (P3 Step 1). Always emit
+  // the palette into SceneCommands so a runtime that opts INTO `enablePaletteSampling` later in its
+  // boot has the data ready. Shader-gen integration is gated separately — without the runtime
+  // bind-group extension, an active palette would generate WGSL with @binding(2..4) references that
+  // fail pipeline validation against mr-baseBindGroupLayout.
   const palette = collectPalette(scene)
-  // Variant-time palette is COLOR-only when only `enablePaletteSampling`
-  // is set; scalar gradients are stripped so processOpacity falls back
-  // to the legacy `u.opacity` uniform path. Once
-  // `enableScalarPaletteSampling` flips on, the full palette flows
-  // through and processOpacity routes zoom-interpolated axes to the
-  // scalar atlas. Two flags because the runtime needs to extend its
-  // bind-group layout BEFORE pipelines that reference
-  // `scalar_grad_atlas` are created — flipping per-call lets the
-  // runtime side ship in a separate commit without breaking validation.
+  // Variant-time palette is COLOR-only when only `enablePaletteSampling` is set; scalar gradients
+  // are stripped so processOpacity falls back to the legacy `u.opacity` uniform path. Once
+  // `enableScalarPaletteSampling` flips on, the full palette flows through and processOpacity
+  // routes zoom-interpolated axes to the scalar atlas. Two flags because the runtime needs to
+  // extend its bind-group layout BEFORE pipelines that reference `scalar_grad_atlas` are created —
+  // flipping per-call lets the runtime side ship in a separate commit without breaking validation.
   let variantPalette: Palette | undefined
   if (opts?.enablePaletteSampling) {
     if (opts.enableScalarPaletteSampling) {
@@ -484,12 +485,11 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   // so emitting it is back-compat by construction.
   const computePlan = planComputeKernels(scene)
 
-  // Compile-side merge gate. When the caller opts in AND the plan
-  // has entries, replace each show's variant with the per-show
-  // merged version. The runtime sees `shaderVariant.computeBindings`
-  // populated and switches to the compute-aware bind-group layout;
-  // without `enableComputePath`, variants are byte-identical to the
-  // legacy path so existing pipelines validate unchanged.
+  // Compile-side merge gate. When the caller opts in AND the plan has entries, replace each
+  // show's variant with the per-show merged version. The runtime sees
+  // `shaderVariant.computeBindings` populated and switches to the compute-aware bind-group
+  // layout; without `enableComputePath`, variants are byte-identical to the legacy path so
+  // existing pipelines validate unchanged.
   if (opts?.enableComputePath && computePlan.length > 0) {
     const bindGroup = opts.computePathBindGroup ?? 0
     const baseBinding = opts.computePathBaseBinding ?? 16

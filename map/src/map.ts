@@ -3472,11 +3472,9 @@ export class XGISMap {
     // Full scene (re)build — style, sources, geometry, labels, and possibly
     // projection/animation all replaced; DIRTY_ALL is the honest mask.
     this._markDirty(DIRTY_ALL)
-    // Cache the compute plan on `this` so non-run paths (e.g.
-    // rebuildLayers after a setProjection, which re-creates VTR
-    // sources WITHOUT a fresh emitCommands run) can still hand the
-    // current plan to VTR.setComputeContext. Cleared on binary load
-    // (which has no compute plan).
+    // Cache the compute plan on `this` so non-run paths (e.g. rebuildLayers after a setProjection,
+    // which re-creates VTR sources WITHOUT a fresh emitCommands run) can still hand the current
+    // plan to VTR.setComputeContext. Cleared on binary load (which has no compute plan).
     this._currentComputePlan = (
       commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }
     ).computePlan
@@ -3739,10 +3737,12 @@ export class XGISMap {
         // the renderer's 256 default (the de-facto XYZ raster standard).
         this.rasterRenderer.setTileSize('tileSize' in data ? data.tileSize : undefined)
         // Source-level maxzoom = the dataset's deepest real level. Without it the cover
-        // zoom outruns the data and every tile 404s past that depth.
+        // zoom outruns the data and every tile 404s past that depth. Its spatial twin
+        // (#1984) drops tiles the declared bounds cannot contain — the setter re-validates.
         this.rasterRenderer.setSourceMaxzoom(
           'maxzoom' in data && typeof data.maxzoom === 'number' ? data.maxzoom : undefined,
         )
+        this.rasterRenderer.setSourceBounds('bounds' in data ? data.bounds : undefined)
         // Style-authored `raster-fade-duration` (#1257) — constant-only, so
         // resolved once here (not per-frame, unlike the colour-adjust axes).
         // Undefined leaves the map-option/default duration already pushed by

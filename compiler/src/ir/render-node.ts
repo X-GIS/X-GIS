@@ -14,6 +14,7 @@ export type { Diagnostic }
 // `./render-node` importers of these names keep resolving from here.
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
+import type { SourceBounds } from './source-bounds'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
 /** A complete IR scene — the output of the lowering pass. */
@@ -87,6 +88,14 @@ export interface SourceDef extends RasterDemSourceFields {
    *  does not declare them. */
   maxzoom?: number
   minzoom?: number
+  /** The DATASET's spatial extent — Mapbox source-level `bounds: [west, south, east,
+   *  north]` in WGS84 degrees (#1984). A tile outside it holds no data, so the raster /
+   *  raster-dem selectors drop it before requesting. The vector family reaches the same
+   *  predicate from its ARCHIVE metadata instead (PMTiles header / TileJSON manifest),
+   *  which is why the converter emits this for the raster family only. Undefined =
+   *  unclipped, the pre-existing behaviour. Validity (west < east — no antimeridian
+   *  wrap — south < north, WGS84 ranges) is settled once in ./source-bounds. */
+  bounds?: SourceBounds
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Positive seconds; undefined (0/absent in `.xgis`) = off, the pre-existing
    *  behaviour for every source. The runtime re-runs the SAME load path the
@@ -105,16 +114,13 @@ export interface SourceDef extends RasterDemSourceFields {
 
 // ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────
 //
-// The flat OPTIONAL scalar paint fields on RenderNode were grouped PER
-// CONCERN into the four interfaces below; `RenderNode` then `extends`
-// them. (The core required value fields — `fill: ColorValue`,
-// `stroke: StrokeValue` (which already bundles most line styling),
-// `opacity`, `size` — stay on RenderNode itself.) This is a TYPE-level
-// grouping only: interface extension is structurally transparent, so
-// every wire key stays where it was and the lower / emit / runtime
-// readers are untouched. The inline `*TranslateXShape` zoom-interp
-// types are preserved verbatim — they are deliberately NOT
-// `PropertyShape<number>` so render-node.ts doesn't take a circular
+// The flat OPTIONAL scalar paint fields on RenderNode were grouped PER CONCERN into the four
+// interfaces below; `RenderNode` then `extends` them. (The core required value fields — `fill:
+// ColorValue`, `stroke: StrokeValue` (which already bundles most line styling), `opacity`, `size` —
+// stay on RenderNode itself.) This is a TYPE-level grouping only: interface extension is
+// structurally transparent, so every wire key stays where it was and the lower / emit / runtime
+// readers are untouched. The inline `*TranslateXShape` zoom-interp types are preserved verbatim —
+// they are deliberately NOT `PropertyShape<number>` so render-node.ts doesn't take a circular
 // import on property-types.ts.
 
 /** Polygon fill paint axes. */
@@ -364,19 +370,15 @@ export interface RenderNode
 
 // ─── Text template AST (Batch 1c) ─────────────────────────────────
 //
-// Label text is more than a single expression: GIS labels need
-// inline format specifiers ("{lat:.4f}°N", "{coord:mgrs}", etc.).
-// We encode this as a small AST: a sequence of literal fragments
-// interleaved with `{<expr>:<spec>}` interpolations. The DSL
-// surface is Mapbox-token-compatible — `"{name}"` parses to one
-// `interp` part with no spec, exactly like the existing tokens —
-// so styles relying on the legacy form keep working. Format
-// dispatch (number / datetime / dms / mgrs / …) happens at
-// per-feature text-resolve time (worker), not on the GPU.
+// Label text is more than a single expression: GIS labels need inline format specifiers
+// ("{lat:.4f}°N", "{coord:mgrs}", etc.). We encode this as a small AST: a sequence of literal
+// fragments interleaved with `{<expr>:<spec>}` interpolations. The DSL surface is
+// Mapbox-token-compatible — `"{name}"` parses to one `interp` part with no spec, exactly like the
+// existing tokens — so styles relying on the legacy form keep working. Format dispatch (number /
+// datetime / dms / mgrs / …) happens at per-feature text-resolve time (worker), not on the GPU.
 //
-// `kind: 'expr'` covers the simple legacy shape (a single bare
-// expression, no surrounding literal text) without forcing every
-// label through the template machinery. `kind: 'template'` is for
+// `kind: 'expr'` covers the simple legacy shape (a single bare expression, no surrounding literal
+// text) without forcing every label through the template machinery. `kind: 'template'` is for
 // anything richer.
 
 /** Format spec for one interpolation. Subset of Python PEP 3101
@@ -877,13 +879,11 @@ export interface StrokeValue {
    *  the other way. Combined with explicit `offset` by addition. */
   align?: 'center' | 'inset' | 'outset'
   // ── Animation (PR 3) ──
-  // Parallel time stop lists live on the parent interface instead of
-  // promoting `width` / `dashOffset` to a union type — keeps every
-  // downstream consumer (emit-commands, renderer, line-renderer) able
-  // to read the base scalar without branching, and only checks the
-  // stops when animation is actually attached. Shared loop / easing /
-  // delay metadata is reused from the opacity animation attached to
-  // the same layer (see LayerAnimationMeta on RenderNode below).
+  // Parallel time stop lists live on the parent interface instead of promoting `width` /
+  // `dashOffset` to a union type — keeps every downstream consumer (emit-commands, renderer,
+  // line-renderer) able to read the base scalar without branching, and only checks the stops when
+  // animation is actually attached. Shared loop / easing / delay metadata is reused from the
+  // opacity animation attached to the same layer (see LayerAnimationMeta on RenderNode below).
   timeWidthStops?: TimeStop<number>[]
   timeDashOffsetStops?: TimeStop<number>[]
 }
