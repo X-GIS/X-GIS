@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c3bc932e70029badf0780ef9f50ba7eae992af40
+  Generated from: a0fcd9a3d66f06fa1a5cb91269b0b0efef8a23ce
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c3bc932e7002
+    bun scripts/emit-changelog.ts --since a0fcd9a3d66f
 -->
 
 # Changelog
@@ -92,6 +92,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/convert:** lift legacy {stops} zoom functions and fold single-stop functions (#1976) ([#1982](https://github.com/X-GIS/X-GIS/pull/1982)) `a0fcd9a`
 - **data/tiles:** jitter the vector-tile retry backoff so a failing viewport does not retry in lockstep (#1269) ([#1959](https://github.com/X-GIS/X-GIS/pull/1959)) `2fe4150`
 - **compiler/tiler:** key the property table by the resolved fid (#1947) ([#1951](https://github.com/X-GIS/X-GIS/pull/1951)) `22b7c95`
 - **map/sources:** store legacy-route tiles under the VTR's slice key (#1940) ([#1949](https://github.com/X-GIS/X-GIS/pull/1949)) `2d872e1`
