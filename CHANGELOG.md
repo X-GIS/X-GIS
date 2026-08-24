@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a7c783479758acdfeeda9440f3576fc94e69f2e2
+  Generated from: 14af493897a32f43fdd079b6e812396b7fe57d4c
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a7c783479758
+    bun scripts/emit-changelog.ts --since 14af493897a3
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
 - **compiler+map:** per-frame zoom-step fill-antialias — the expression form stops dropping (#1995) ([#2000](https://github.com/X-GIS/X-GIS/pull/2000)) `42970d8`
