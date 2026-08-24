@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 14af493897a32f43fdd079b6e812396b7fe57d4c
+  Generated from: dbda432930c946bbb8b0ef993c7b869d0bcad931
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 14af493897a3
+    bun scripts/emit-changelog.ts --since dbda432930c9
 -->
 
 # Changelog
@@ -186,6 +186,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** keep zoom transitions covered and cheap — prefetch mid-gesture, 3-level children-stretch, label dispatch-loop skip (#2013) ([#2021](https://github.com/X-GIS/X-GIS/pull/2021)) `dbda432`
 - **ci:** six render shards, no apt on their path, and a gate on the count ([#1935](https://github.com/X-GIS/X-GIS/pull/1935)) `0b39a6c`
 - **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
 - **shader-dsl:** indexing a binding is a memory LOAD, not free navigation (#1886) ([#1894](https://github.com/X-GIS/X-GIS/pull/1894)) `44f893b`
