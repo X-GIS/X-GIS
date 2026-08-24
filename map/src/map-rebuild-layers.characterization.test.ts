@@ -362,21 +362,30 @@ function pointFC(): GeoJSONFeatureCollection {
 /** Raster source: rebuildLayers detects `data._tileUrl` and arms the
  *  raster renderer instead of tiling. We tag a near-empty FC with the
  *  private `_tileUrl` marker the runtime sets on raster sources. */
-function rasterSource(url: string): GeoJSONFeatureCollection {
+function rasterSource(url: string, maxzoom?: number): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   ;(fc as unknown as { _tileUrl: string })._tileUrl = url
+  // #1983 — the source-manager marker carries the DECLARED source maxzoom; omitted
+  // here reproduces a source that declares none (unbounded).
+  if (maxzoom !== undefined) (fc as unknown as { maxzoom: number }).maxzoom = maxzoom
   return fc
 }
 
 /** raster-dem source marker (#777): `{ _tileUrl, _dem: true, encoding, tileSize }`
  *  — rebuildLayers routes a `_dem` marker to the HILLSHADE renderer, not raster. */
-function demSource(url: string, encoding = 'mapbox', tileSize = 512): GeoJSONFeatureCollection {
+function demSource(
+  url: string,
+  encoding = 'mapbox',
+  tileSize = 512,
+  maxzoom?: number,
+): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   Object.assign(fc as unknown as Record<string, unknown>, {
     _tileUrl: url,
     _dem: true,
     encoding,
     tileSize,
+    ...(maxzoom === undefined ? {} : { maxzoom }),
   })
   return fc
 }
@@ -566,6 +575,34 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       )
     })
 
+    it('arms the source-level maxzoom from the marker (#1983)', () => {
+      // Pins the SECOND hop only: given a marker that carries `maxzoom`, rebuildLayers
+      // hands it to setSourceMaxzoom. This arm was already correct before #1983 — the
+      // gap was the FIRST hop, source-manager never putting the key on the marker, so
+      // this assertion is green either way on its own. Pair it with hop 1 in
+      // `source-level-zoom-wiring.test.ts`: together they close the marker-key loop
+      // (a rename on either side reds exactly one of them).
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://tiles/{z}/{x}/{y}.png', 6))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setSourceMaxzoom).toHaveBeenCalledWith(6)
+    })
+
+    it('a source declaring no maxzoom arms undefined — unbounded, as before (#1983)', () => {
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://tiles/{z}/{x}/{y}.png'))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setSourceMaxzoom).toHaveBeenCalledWith(undefined)
+    })
+
     it('captures the raster show as _rasterShow and skips vector tiling', () => {
       const mocks = makeMocks()
       const { internals } = makeMap(mocks)
@@ -604,6 +641,26 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       // The raster renderer is only reset ('') — a DEM source must NOT arm it as colour.
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(1)
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledWith('')
+    })
+
+    it('threads the DEM source maxzoom into setParams (#1983)', () => {
+      // Same split as the raster arm above: `armHillshadeSource` already passed
+      // `maxzoom` through, and setParams is MOCKED here, so this pins the call and not
+      // the merge that dropped it. The real merge is gated in
+      // `source-level-zoom-wiring.test.ts` against a live HillshadeRenderer.
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set(
+        'dem',
+        demSource('https://dem/{z}/{x}/{y}.png', 'terrarium', 256, 15),
+      )
+      internals.showCommands = [show('dem', { layerName: 'relief' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.hillshadeRenderer.setParams).toHaveBeenCalledWith(
+        expect.objectContaining({ maxzoom: 15 }),
+      )
     })
 
     it('captures the hillshade show as _hillshadeShow', () => {

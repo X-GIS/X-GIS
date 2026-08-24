@@ -43,6 +43,10 @@ export type RawDataset =
       readonly _tileUrl: string
       /** Raster tile pixel size (256 | 512) — cover-zoom bias (rasterCoverZoom). */
       readonly tileSize?: number
+      /** Source-level `maxzoom` — the DATASET's deepest real tile level (#1983). The
+       *  cover zoom clamps to it so the selector never asks for a tile that cannot
+       *  exist; undefined = unbounded. */
+      readonly maxzoom?: number
     }
   | {
       readonly _tileUrl: string
@@ -52,6 +56,8 @@ export type RawDataset =
       readonly encoding?: string
       /** Native DEM tile pixel size (256 / 512). */
       readonly tileSize?: number
+      /** Source-level `maxzoom` — same clamp as the raster marker above (#1983). */
+      readonly maxzoom?: number
       /** `encoding: custom` elevation unpack factors. */
       readonly redFactor?: number
       readonly greenFactor?: number

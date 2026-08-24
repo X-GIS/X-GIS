@@ -197,8 +197,11 @@ describe('converter warning coverage', () => {
     }
   })
 
-  it('source minzoom / maxzoom / bounds → unhandled-bounds warnings', () => {
-    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds).
+  it('source minzoom / bounds → still-unhandled warnings (maxzoom now emits, #1983)', () => {
+    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds), NARROWED by #1983: a raster
+    // source's `maxzoom` is now emitted into the xgis block and clamps the cover zoom,
+    // so only the two genuinely-still-dropped halves warn — `minzoom` (emitted, but the
+    // selector has no source-minzoom consumer) and `bounds` (no spatial gate at all).
     const w = warningsOf({
       version: 8,
       sources: {
@@ -212,8 +215,10 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'regional' }],
     })
-    expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom/maxzoom'))).toBe(true)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom: 4'))).toBe(true)
     expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(true)
+    // The half that stopped being dropped: nothing claims maxzoom is unhandled.
+    expect(w.some((s) => s.includes('maxzoom') && s.includes('not emitted'))).toBe(false)
   })
 
   it('interpolate-lab colour spec → compile-time densification warning (iter 61)', () => {
@@ -419,8 +424,11 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
   })
 
-  it('source tileSize: 256 → wrong-zoom-scale warning', () => {
-    // Pins 20af7b6.
+  it('source tileSize: 256 → emitted, NOT warned (#1983 replaced 20af7b6)', () => {
+    // Was: "the runtime tile selector hardcodes 512 px tiles". It does not — the raster
+    // arm takes 256 | 512 and biases the cover zoom by log2(512/tileSize) — so the
+    // declared size is now emitted into the source block instead of being warned away.
+    // A warning here again means the emit regressed back to a silent drop.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -432,7 +440,20 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'relief' }],
     })
-    expect(w.some((s) => s.includes('"relief"') && s.includes('tileSize: 256'))).toBe(true)
+    expect(w.some((s) => s.includes('"relief"') && s.includes('tileSize'))).toBe(false)
+    expect(
+      convertMapboxStyle({
+        version: 8,
+        sources: {
+          relief: {
+            type: 'raster',
+            tiles: ['https://example.com/ne2/{z}/{x}/{y}.png'],
+            tileSize: 256,
+          },
+        },
+        layers: [{ id: 'r', type: 'raster', source: 'relief' }],
+      } as never),
+    ).toContain('tileSize: 256')
   })
 
   it('fill-extrusion-base non-zero → NO unhonoured-base warning (iter 489 + 493 — vertex shader now honors u.extrude_base_m)', () => {

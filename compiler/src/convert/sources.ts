@@ -145,17 +145,41 @@ export function convertSource(
     )
   }
 
-  // Mapbox source-level `minzoom` / `maxzoom` constrain which tile
-  // zooms the source actually serves. X-GIS's tile selector uses
-  // LAYER-level minzoom/maxzoom (per-show culling) but doesn't yet
-  // consume the SOURCE-level bounds, so a raster source with
-  // `maxzoom: 6` (typical for low-res shaded relief like ne2_shaded)
-  // gets tile requests at z=7+ from the renderer, all of which return
-  // 404 and fall back to parent ancestors. Wasteful, not incorrect —
-  // surface so the style author knows fetch volume isn't optimal.
-  if (typeof src.minzoom === 'number' || typeof src.maxzoom === 'number') {
+  // ── Source-level `tileSize` / `maxzoom` / `minzoom` (#1983) ──────────
+  //
+  // The xgis grammar parses all three on any source block (ir/lower.ts `lowerSource`
+  // → emit-commands.ts `LoadCommand` → SourceDef), but only two source types have a
+  // runtime that READS them, and both read them through the same function:
+  // `rasterCoverZoom(zoom, tileSize, sourceMaxzoom)` — bias `log2(512/tileSize)`,
+  // then clamp to the dataset's deepest real level. `raster` reaches it via
+  // RasterRenderer.setTileSize / setSourceMaxzoom, `raster-dem` via
+  // HillshadeRenderer.setParams. So those two EMIT the declared values, and every
+  // other type keeps a warning: emitting a line nothing reads would be the same
+  // silent gap this replaces, not a fix for it.
+  const consumesTileProps = src.type === 'raster' || src.type === 'raster-dem'
+  /** Extra source-block lines the raster / raster-dem arms append after `url:`. */
+  const tileProps: string[] = []
+  /** A zoom bound the grammar can actually lower: `lowerSource` matches a bare
+   *  NumberLiteral, so a negative value (which parses as a UnaryExpr) would round-trip
+   *  to nothing. Emit only what survives; anything else falls to the warning below. */
+  const emittableZoom = (v: unknown): number | undefined =>
+    consumesTileProps && typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
+  const emitMaxzoom = emittableZoom(src.maxzoom)
+  const emitMinzoom = emittableZoom(src.minzoom)
+  const droppedZoom = [
+    typeof src.minzoom === 'number' && emitMinzoom === undefined ? `minzoom=${src.minzoom}` : '',
+    typeof src.maxzoom === 'number' && emitMaxzoom === undefined ? `maxzoom=${src.maxzoom}` : '',
+  ].filter(Boolean)
+  if (droppedZoom.length > 0) {
     warnings.push(
-      `Source "${id}" declares minzoom/maxzoom (${src.minzoom ?? '-'}…${src.maxzoom ?? '-'}); the runtime tile selector doesn't yet honour source-level zoom bounds, so out-of-range tiles will be requested and 404. Use layer-level minzoom/maxzoom to limit fetch volume.`,
+      `Source "${id}" — source-level ${droppedZoom.join(' / ')} not emitted: only raster / raster-dem sources carry source-level zoom bounds into the runtime, and only as a non-negative number. Out-of-range tiles will be requested and 404; use layer-level minzoom/maxzoom to limit fetch volume.`,
+    )
+  }
+  if (emitMaxzoom !== undefined) tileProps.push(`  maxzoom: ${emitMaxzoom}`)
+  if (emitMinzoom !== undefined) {
+    tileProps.push(`  minzoom: ${emitMinzoom}`)
+    warnings.push(
+      `Source "${id}" minzoom: ${emitMinzoom} is emitted and reaches the IR, but there is no source-minzoom consumer in the tile selector yet — only maxzoom clamps the cover zoom — so shallower tiles are still requested. Use layer-level minzoom to limit fetch volume.`,
     )
   }
 
@@ -214,19 +238,35 @@ export function convertSource(
     )
   }
 
-  // Mapbox source-level `tileSize` declares the native pixel size of
-  // the tile (typically 256 for shaded-relief / older OSM mirrors,
-  // 512 for modern raster tiles). X-GIS's tile selector hardcodes
-  // TILE_PX = 512 (runtime/src/engine/gpu/gpu-shared.ts) for ALL tile
-  // scale math. A 256-tile source rendered with 512-grid assumptions
-  // shows up as the wrong zoom level (effectively one zoom too far
-  // out) — tiles cover 2× the world-space they should. OFM Liberty's
-  // ne2_shaded source declares tileSize: 256; the low-zoom hillshade
-  // ends up coarser than MapLibre's reference rendering.
+  // Mapbox source-level `tileSize` declares the native pixel size of the tile
+  // (typically 256 for shaded-relief / older OSM mirrors, 512 for modern raster
+  // tiles) and sets the cover-zoom bias `log2(512/tileSize)`. The runtime accepts
+  // 256 | 512 ONLY — `RasterRenderer.setTileSize` and `HillshadeRenderer.setParams`
+  // both ignore any other value and keep their default — so an exotic size is
+  // CLAMPED to the nearer supported one rather than emitted verbatim: emitting 1024
+  // would be silently discarded and the source would fall back to the renderer
+  // default, two cover-zoom levels from the declared truth instead of one. MapLibre
+  // permits arbitrary sizes, but 256 / 512 are the entire real-style corpus.
   const tileSize = (src as { tileSize?: unknown }).tileSize
-  if (typeof tileSize === 'number' && tileSize !== 512) {
+  if (typeof tileSize === 'number' && consumesTileProps) {
+    if (tileSize === 256 || tileSize === 512) {
+      tileProps.push(`  tileSize: ${tileSize}`)
+    } else if (Number.isFinite(tileSize) && tileSize > 0) {
+      // Nearest in LOG space, because the bias is logarithmic: the geometric
+      // midpoint √(256·512) ≈ 362 px splits them, so 1024 → 512 and 128 → 256.
+      const clamped = tileSize < Math.sqrt(256 * 512) ? 256 : 512
+      tileProps.push(`  tileSize: ${clamped}`)
+      warnings.push(
+        `Source "${id}" declares tileSize: ${tileSize}; the runtime tile grid supports 256 or 512 only, so it is clamped to ${clamped} (nearest in log space — the cover-zoom bias is log2(512/tileSize)). Re-tile the source at 256 or 512 px for an exact match.`,
+      )
+    } else {
+      warnings.push(
+        `Source "${id}" tileSize must be a positive number (got ${JSON.stringify(tileSize)}); ignored — the renderer's default tile grid applies.`,
+      )
+    }
+  } else if (typeof tileSize === 'number') {
     warnings.push(
-      `Source "${id}" declares tileSize: ${tileSize}; the runtime tile selector hardcodes 512 px tiles, so this source renders at the wrong zoom scale (typically one zoom level too coarse for 256-px sources). Visible as low-resolution shaded-relief / older OSM-style raster underlays.`,
+      `Source "${id}" declares tileSize: ${tileSize}, but only raster / raster-dem sources carry it into the runtime; for type "${String(src.type)}" the tile grid falls back to the renderer default.`,
     )
   }
 
@@ -382,6 +422,7 @@ export function convertSource(
       }
       lines.push('  type: raster')
       lines.push(`  url: ${JSON.stringify(url)}`)
+      lines.push(...tileProps) // #1983 — declared tileSize / maxzoom / minzoom
     } else {
       lines.push('  // TODO: raster source missing url/tiles')
       warnings.push(`Raster source "${id}" has no URL.`)
@@ -413,6 +454,7 @@ export function convertSource(
       }
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
+      lines.push(...tileProps) // #1983 — declared tileSize / maxzoom / minzoom
       lines.push(
         '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
       )
