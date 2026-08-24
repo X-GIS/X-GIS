@@ -174,6 +174,14 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   await page.addInitScript(() => {
     ;(window as unknown as { __xgisPerfMarks?: boolean }).__xgisPerfMarks = true
   })
+  // #1190 A/B arm: `XGIS_BUNDLE_OFF=1` env disables the (default-ON)
+  // render-bundle path so this meter can measure direct re-encode vs
+  // bundle replay on the same build. Unset = the production default.
+  if (process.env.XGIS_BUNDLE_OFF === '1') {
+    await page.addInitScript(() => {
+      ;(globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF = true
+    })
+  }
 
   const rows: Array<{
     n: number

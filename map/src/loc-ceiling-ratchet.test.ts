@@ -230,7 +230,25 @@ const CEILINGS: Record<string, number> = {
   // probes the same far-field notch the drawing selection runs at), and the
   // child-fallback fetch-frontier push (covered is not loaded — without it the
   // deeper #2013 stretch let a view settle permanently on stretched children).
-  'map/src/render/vector-tile-renderer.ts': 4976,
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  // 4961→4990 (#2024, merge union): the globe virtual-overzoom drape. The
+  // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
+  // at birth); the +29 kept here is the irreducible composition wiring — the
+  // dispatch call with its collaborator closure (uploadResident needs
+  // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
+  // (the bake matrix is this file's state), and one import. Deltas are disjoint
+  // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
+  // 4990→5078 (#1190, merge union atop #2024): bundle replay made correct-by-
+  // construction — ringCursor + stroke layer-slot offsets in both BundleKeyState
+  // literals, the hit-path alloc-count invariant at both sites, default-ON gate.
+  // Deltas disjoint (+29 #2024, +88 #1190 over the shared #2028 base). MEASURED.
+  // 5078→5101 (#1190 allocation ledger): the strokeQueue's per-call object
+  // array became instance parallel scratch (+ the offsets-pair scratch) — the
+  // O(stroked-tiles × layers)/frame nursery churn from the issue's ledger, plus
+  // the field docs that record why the reuse is re-entrancy-safe.
+  'map/src/render/vector-tile-renderer.ts': 5101,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1127,7 +1145,12 @@ const CEILINGS: Record<string, number> = {
   // rationale comments for a rename whose reason is invisible from the token.
   // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
   // segment), so the import list carries BOTH names — one structural line, zero logic.
-  'map/src/shaders/dsl/line.ts': 1543,
+  // 1543→1527 (#1496): the seam-crossing segment cull lands +15 in vs_line,
+  // paid for by extracting finalize_corner + pattern_unit_to_m to
+  // line-corner.ts (TILE lanes as parameters; a one-line adapter keeps the
+  // call sites). Net shrink banked per the shrink-only rule. MEASURED
+  // post-prettier.
+  'map/src/shaders/dsl/line.ts': 1527,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1590,7 +1613,9 @@ const CEILINGS: Record<string, number> = {
   // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
   // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
   // fall back to 16 and no-op).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
+  // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
+  // the new render-bundle capability the VT bundle gate keys on.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

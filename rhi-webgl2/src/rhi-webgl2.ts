@@ -732,6 +732,7 @@ export class WebGl2Device implements RhiDevice {
       // This backend requires the split GLSL sources and never reads `code` —
       // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
       shaderLanguage: 'glsl-es300',
+      renderBundles: false,
       // #1046 F4 Inc-E2 — the loop tail landed on the RHI (Inc-A..D + E1), so
       // this device hosts the unified chain's whole frame. The forced-WebGL2
       // twin this flag used to hold the door open for was deleted in Inc-F3a.

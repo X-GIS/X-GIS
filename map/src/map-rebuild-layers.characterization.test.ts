@@ -364,12 +364,18 @@ function pointFC(): GeoJSONFeatureCollection {
 /** Raster source: rebuildLayers detects `data._tileUrl` and arms the
  *  raster renderer instead of tiling. We tag a near-empty FC with the
  *  private `_tileUrl` marker the runtime sets on raster sources. */
-function rasterSource(url: string, maxzoom?: number): GeoJSONFeatureCollection {
+function rasterSource(
+  url: string,
+  maxzoom?: number,
+  scheme?: 'xyz' | 'tms',
+): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   ;(fc as unknown as { _tileUrl: string })._tileUrl = url
   // #1983 — the source-manager marker carries the DECLARED source maxzoom; omitted
   // here reproduces a source that declares none (unbounded).
   if (maxzoom !== undefined) (fc as unknown as { maxzoom: number }).maxzoom = maxzoom
+  // #1985 — and its row-origin sibling; omitted reproduces an xyz source.
+  if (scheme !== undefined) (fc as unknown as { scheme: string }).scheme = scheme
   return fc
 }
 
@@ -380,6 +386,7 @@ function demSource(
   encoding = 'mapbox',
   tileSize = 512,
   maxzoom?: number,
+  scheme?: 'xyz' | 'tms',
 ): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   Object.assign(fc as unknown as Record<string, unknown>, {
@@ -388,6 +395,7 @@ function demSource(
     encoding,
     tileSize,
     ...(maxzoom === undefined ? {} : { maxzoom }),
+    ...(scheme === undefined ? {} : { scheme }),
   })
   return fc
 }
@@ -570,10 +578,30 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
 
       internals.rebuildLayers()
 
-      // First call is the reset (''), second arms the real URL.
+      // First call is the reset (''), second arms the real URL. The row origin (#1985)
+      // rides the SAME call — an undeclared source arms `undefined`, i.e. xyz.
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(2)
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
         'https://tiles/{z}/{x}/{y}.png',
+        undefined,
+      )
+    })
+
+    it('arms the source-level scheme from the marker, on the template call (#1985)', () => {
+      // The map.ts hop: given a marker that carries `scheme`, rebuildLayers hands it to
+      // setUrlTemplate alongside the URL. Pair with hop 1 in source-scheme-wiring.test.ts
+      // (source-manager putting the key on the marker) — a rename on either side reds
+      // exactly one of the two.
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://t/{z}/{x}/{y}.png', 6, 'tms'))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
+        'https://t/{z}/{x}/{y}.png',
+        'tms',
       )
     })
 
@@ -629,9 +657,11 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
 
       internals.rebuildLayers()
 
-      // Hillshade armed with the DEM URL (2nd call; 1st is the '' reset).
+      // Hillshade armed with the DEM URL (2nd call; 1st is the '' reset). The row origin
+      // (#1985) rides the same call; an undeclared DEM arms `undefined`, i.e. xyz.
       expect(mocks.hillshadeRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
         'https://dem/{z}/{x}/{y}.png',
+        undefined,
       )
       // DEM decode threaded: terrarium unpack + tileSize 256.
       expect(mocks.hillshadeRenderer.setParams).toHaveBeenCalledWith(

@@ -114,6 +114,12 @@ export interface LoadCommand {
    *  path never sets it. Re-validated at the renderer edge (source-bounds-clip.ts), so
    *  a malformed box can only mean "no clip", never a silently blanked source. */
   bounds?: [number, number, number, number]
+  /** SOURCE-level `scheme: "xyz" | "tms"` — the DATASET's row origin, threaded from the
+   *  compiler LoadCommand (emit-commands.ts) so `source-manager` can put it on the raster /
+   *  raster-dem markers and the request path can substitute `2^z − 1 − y` for `{y}` (#1985).
+   *  Undefined = `"xyz"`, the pre-existing behaviour. Two-sibling rule; the legacy
+   *  `interpret()` path never sets it. */
+  scheme?: 'xyz' | 'tms'
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304),
    *  threaded from the compiler LoadCommand (emit-commands.ts) so
    *  `source-manager` reads it off `SceneCommands['loads'][0]` regardless of

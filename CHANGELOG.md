@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: dbda432930c946bbb8b0ef993c7b869d0bcad931
+  Generated from: f0a45ff955e203d1d47e33373373f72e22b11409
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since dbda432930c9
+    bun scripts/emit-changelog.ts --since f0a45ff955e2
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler+map+data:** source-level scheme — tms row flip at the URL builder and the {-y} template token (#1985) ([#2029](https://github.com/X-GIS/X-GIS/pull/2029)) `41351e6`
 - **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
 - **compiler+map:** emit source-level tileSize/maxzoom/minzoom and wire the declared path (#1983) ([#2005](https://github.com/X-GIS/X-GIS/pull/2005)) `03927bf`
@@ -97,6 +98,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** non-mercator projection bugs — drape anchor, antimeridian lon wrap, globe overzoom sharpness, oblique seam streaks (#2022 #2023 #2024 #1496) ([#2031](https://github.com/X-GIS/X-GIS/pull/2031)) `2bab527`
+- **map:** emit each source point once per frame ([#2036](https://github.com/X-GIS/X-GIS/pull/2036)) `6be0aee`
 - **map:** keep the loop warm while a LOD transition is still in flight ([#2010](https://github.com/X-GIS/X-GIS/pull/2010)) `86e085d`
 - **compiler/convert:** warn on the two silent conversion gaps — non-constant icon-offset and mapbox:// urls (#1977) ([#1990](https://github.com/X-GIS/X-GIS/pull/1990)) `dfd6ae2`
 - **compiler/convert:** lift legacy {stops} zoom functions and fold single-stop functions (#1976) ([#1982](https://github.com/X-GIS/X-GIS/pull/1982)) `a0fcd9a`
@@ -186,6 +189,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** strokeQueue as instance parallel scratch + the uniform-block-split design (#1190) ([#2041](https://github.com/X-GIS/X-GIS/pull/2041)) `6f825af`
+- **map/rhi:** re-enable render bundles by default — pin the ring cursor in the bundle key (#1190) ([#2038](https://github.com/X-GIS/X-GIS/pull/2038)) `d4a862f`
 - **map:** keep zoom transitions covered and cheap — prefetch mid-gesture, 3-level children-stretch, label dispatch-loop skip (#2013) ([#2021](https://github.com/X-GIS/X-GIS/pull/2021)) `dbda432`
 - **ci:** six render shards, no apt on their path, and a gate on the count ([#1935](https://github.com/X-GIS/X-GIS/pull/1935)) `0b39a6c`
 - **ci:** cut the local gate ladder from ~10m to ~3m30s ([#1918](https://github.com/X-GIS/X-GIS/pull/1918)) `f2f81ec`
@@ -220,6 +225,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** terrain-family design — terrain root, ["elevation"], color-relief, encoding emit (ADR-0012 D5 track) ([#2032](https://github.com/X-GIS/X-GIS/pull/2032)) `f0a45ff`
 - **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
 - a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`

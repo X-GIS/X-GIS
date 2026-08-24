@@ -174,6 +174,9 @@ describe('#598 finalize_corner — non-Mercator longitude precision', () => {
   })
 })
 
+// finalize_corner now takes the TILE lanes as PARAMETERS (line-corner.ts,
+// #1003 extraction), so the emitted spellings dropped the `u.` prefix — the
+// pinned WIRING (camera-relative longitude; clon recentring) is unchanged.
 describe('#598 finalize_corner — emitted WGSL wiring (fails on the pre-fix abs-degree path)', () => {
   const body = () => {
     const w = emitLineWgsl(null, false)
@@ -184,18 +187,18 @@ describe('#598 finalize_corner — emitted WGSL wiring (fails on the pre-fix abs
   it('feeds flat_rel the DSFUN camera-relative longitude, not the absolute degree', () => {
     const b = body()
     // camera-relative longitude: corner.x − cam_h.x − cam_l.x (the precise DSFUN delta).
-    expect(b).toContain('corner.x - u.cam_h.x')
-    expect(b).toContain('u.cam_l.x')
+    expect(b).toContain('corner.x - cam_h.x')
+    expect(b).toContain('- cam_l.x')
     // the old lossy reconstruction `(corner + tile_origin_merc).x / …` for the
     // LONGITUDE must be gone (the abs-merc reconstruction survives only for .y / lat).
-    expect(b).not.toContain('(corner + u.tile_origin_merc).x')
+    expect(b).not.toContain('(corner + tile_origin).x')
   })
 
   it('recentres the projection onto clon = 0 (proj_params.y → 0, ref_lon → tile_ref_lon − clon)', () => {
     const b = body()
     // proj_params passed to flat_rel with y zeroed.
-    expect(b).toContain('vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w)')
+    expect(b).toContain('vec4<f32>(proj_params.x, 0.0, proj_params.z, proj_params.w)')
     // ref_lon recentred by subtracting clon.
-    expect(b).toContain('- u.proj_params.y')
+    expect(b).toContain('- proj_params.y')
   })
 })

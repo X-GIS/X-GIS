@@ -85,6 +85,7 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
+import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -103,6 +104,7 @@ import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
+import { accumulateTilePoints } from './tile-point-emit'
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -294,6 +296,19 @@ export class VectorTileRenderer {
   /** Per-frame scratch array for the `_tileDecisions` diagnostic
    *  (reused via `.length = N` reset). */
   private readonly _scratchTileDecisions: (string | undefined)[] = []
+  /** #1190 allocation ledger — the strokeQueue as reused PARALLEL scratch.
+   *  Was a per-renderTileKeys `{cached, slotOffset}[]` with one object per
+   *  stroked tile: O(stroked-tiles × layers) nursery garbage every
+   *  navigating frame (OFM Bright ≈ thousands/frame). Parallel arrays on
+   *  the instance, `.length = 0` at call entry — safe because
+   *  renderTileKeys never re-enters itself (the bundle encode + hit
+   *  re-walk are SEQUENTIAL calls from render()) and the queue is fully
+   *  consumed before the call returns. */
+  private readonly _strokeQueueTiles: GPUTile[] = []
+  private readonly _strokeQueueSlots: number[] = []
+  /** Companion scratch for the per-call stroke offset pair (single-line
+   *  `[lineLayerOffset]` vs road-casing `[lineLayerOffset, gap]`). */
+  private readonly _strokeOffsetsScratch: number[] = []
   /** #778 P1: reused scratch for world-copy offset cache-key rounding
    *  (replaces per-frame `.map()` allocs; see `_worldOffScratchKey`). */
   private readonly _worldOffScratch: number[] = []
@@ -502,6 +517,13 @@ export class VectorTileRenderer {
    *  gpuCache change OR pipeline rebuild produces a different key →
    *  re-encode. */
   private bundleCache: BundleCache
+  /** #1190 — ring-slot allocation count of each bundle's ENCODE walk,
+   *  keyed by the bundle object (GC-synced with the cache). A key HIT
+   *  guarantees the cursor base matches (ringCursor is in the key); this
+   *  additionally pins the walk's own alloc count, so the dev invariant
+   *  can prove the replayed offsets still align draw-for-draw — and goes
+   *  red if a future input to renderTileKeys is left out of the key. */
+  private readonly _bundleWalkAllocs = new WeakMap<object, number>()
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -863,6 +885,11 @@ export class VectorTileRenderer {
     sizePx: number,
     /** #1222 zoom-bucket stroke-width compensation (VectorDrapeRenderer); 1 = bake-native. */
     strokeWidthScale = 1,
+    /** #2024 — bake only this sub-rect of the tile-local Mercator frame (origin
+     *  = tile SW corner, metres): the virtual overzoom sub-tile window, so a
+     *  512px bake keeps native texel density past the source maxLevel. Absent =
+     *  the whole tile (byte-identical to the pre-#2024 bake). */
+    window?: { ox: number; oy: number; extent: number },
   ): RhiTexture | null {
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
     if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
@@ -881,15 +908,21 @@ export class VectorTileRenderer {
     this.ensureUniformRing()
     const mat = this.ensureFillBakeMaterialRhi()
 
-    // tile-local ortho: [0, E]² → NDC, north-up, z ≡ 0 (colour-only, no depth).
-    // Column-major; the zero z-row neutralizes the VS's zPlane (0 for a flat fill
-    // anyway), so clip.z = 0 for every vertex regardless of tile-buffer overspill.
+    // tile-local ortho: [wx, wx+we]×[wy, wy+we] → NDC, north-up, z ≡ 0 (colour-
+    // only, no depth). Default window = the whole tile ([0, E]² — byte-identical
+    // to the pre-#2024 matrix); a #2024 overzoom window scales/offsets the same
+    // ortho so the virtual sub-tile fills the full bake target. Column-major;
+    // the zero z-row neutralizes the VS's zPlane (0 for a flat fill anyway), so
+    // clip.z = 0 for every vertex regardless of tile-buffer overspill.
     const E = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
+    const wx = window?.ox ?? 0
+    const wy = window?.oy ?? 0
+    const we = window?.extent ?? E
     const mvp = new Float32Array(16)
-    mvp[0] = 2 / E
-    mvp[5] = 2 / E
-    mvp[12] = -1
-    mvp[13] = -1
+    mvp[0] = 2 / we
+    mvp[5] = 2 / we
+    mvp[12] = -1 - (2 * wx) / we
+    mvp[13] = -1 - (2 * wy) / we
     mvp[15] = 1
 
     // Tile origin from the single anchor authority (#1044) — the bake camera
@@ -1019,7 +1052,7 @@ export class VectorTileRenderer {
         pass,
         cached,
         slotOffset,
-        E / sizePx,
+        we / sizePx,
         this._bakeStroke,
         this._linePatternActiveForShow,
         strokeWidthScale,
@@ -1102,12 +1135,11 @@ export class VectorTileRenderer {
     // strokes) reads what THIS pass selected. Above the paint bails, like the
     // acquisition below it and for the same reason.
     //
-    // Point-parity with the WebGPU merged set (neededKeys + fallbackKeys +
-    // protectedAncestors): the ancestors merge straight off `sel`, disjoint from
-    // neededKeys. fallbackKeys is the ONE term not reproduced — this path runs
-    // primary-only acquisition (#1140 reverted its fallback pass for a zoom-in
-    // perf regression) — so mid-load fallback-ancestor points are a known
-    // residual gap vs WebGPU, not a fabricated set.
+    // Point contract (#2028), ONE for both arms: each source point is emitted at
+    // most once per frame, from the DEEPEST key in `stableKeys` carrying point
+    // data at that position (render/tile-point-emit.ts). This arm omits
+    // fallbackKeys (#1140 reverted its fallback pass), so its residual vs WebGPU
+    // is UNDER-draw mid-load — a COVERAGE gap, never a double.
     this.stableKeys =
       protectedAncestors.length > 0 ? [...neededKeys, ...protectedAncestors] : neededKeys
 
@@ -1933,6 +1965,13 @@ export class VectorTileRenderer {
 
   private allocUniformSlot(): number {
     return this.uniformRing!.allocSlot()
+  }
+
+  /** UniformRing slot cursor for the bundle cache key (#1190) — the base
+   *  every dynamic offset a recorded bundle bakes is measured from. -1
+   *  before the ring exists (no allocations possible yet). */
+  private _ringCursorForBundleKey(): number {
+    return this.uniformRing?.slotCursor() ?? -1
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given
@@ -3497,12 +3536,28 @@ export class VectorTileRenderer {
       // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
       // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
       this._drapeStrokes = this._bakeStrokeActive
+      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
+      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
+      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
+      const drapeOverzoom = computeDrapeOverzoom({
+        camera,
+        projType,
+        currentZ,
+        cssWidth: canvasWidth / dpr,
+        cssHeight: canvasHeight / dpr,
+        source: this.source,
+        sliceLayer,
+        layerCache: this.getOrCreateLayerCache(sliceLayer),
+        uploadResident: (parentKey) =>
+          this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
+      })
       this._drape.renderGlobeFills(
         rhiPass,
         frame,
         projType,
         projCenterLon,
         projCenterLat,
+        camera,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
         strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
@@ -3512,6 +3567,7 @@ export class VectorTileRenderer {
         worldOffDeg,
         this.getOrCreateLayerCache(sliceLayer),
         this,
+        drapeOverzoom,
       )
     }
 
@@ -3624,13 +3680,24 @@ export class VectorTileRenderer {
       // Gating shouldBundle on the all-loaded invariant eliminates the
       // partial-encode case. During fast zoom we fall through to a direct
       // renderTileKeys call (no bundle, no cache); steady-state (all tiles
-      // loaded) keeps the 97.6% hit rate. Bundle path is DEFAULT OFF: a prior
-      // re-enable (gated on the all-loaded invariant) was validated against
-      // only a SINGLE STATIC SCREENSHOT per scene and missed interactive cases
-      // — iPhone OFM Bright z=7.53/36.97/127.46 + pitch 3.6 showed a MOSTLY
-      // EMPTY canvas (polygons + lines almost all missing). Bundle replay
-      // during interactive navigation / pitch produces broken state.
-      //   __XGIS_BUNDLE_FORCE_ON = true   to force enable (testing only)
+      // loaded) keeps the 97.6% hit rate.
+      //
+      // #1190 — DEFAULT ON again (WebGPU only; WebGL2 has no render
+      // bundles). The prior default-off was containment for an
+      // then-undiagnosed replay bug: interactive navigation showed a
+      // MOSTLY EMPTY canvas (iPhone OFM Bright z=7.53 pitch 3.6) even
+      // under the all-loaded gate, because the recorded bundles bake
+      // UniformRing dynamic offsets and the ring CURSOR BASE (every
+      // allocation earlier in the frame, across the VTR's other shows +
+      // fallback walks) was not part of the cache key — an upstream
+      // alloc-count change replayed stale offsets under a hit. The key
+      // now pins `ringCursor` + the stroke draws' layer-slot offsets
+      // (BundleKeyState), making a stale-offset replay a MISS by
+      // construction; the hit-path dev invariant below proves the
+      // re-walk still lands draw-for-draw on the baked offsets.
+      // `_bundle-replay-parity-gate.spec.ts` is the interactive §5 gate
+      // the old single-static-screenshot validation lacked.
+      //   __XGIS_BUNDLE_OFF = true   → A/B + emergency escape hatch
       let allTilesLoaded = true
       for (let i = 0; i < neededKeys.length; i++) {
         if (!layerCache.get(neededKeys[i]!)) {
@@ -3638,10 +3705,10 @@ export class VectorTileRenderer {
           break
         }
       }
-      const _bundleForceOn =
-        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      const _bundleOff = (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
       const shouldBundle =
-        _bundleForceOn &&
+        !_bundleOff &&
+        this.rhi.caps.renderBundles &&
         !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
@@ -3677,6 +3744,15 @@ export class VectorTileRenderer {
           samples,
           mainPipelineLabel: mainFill.label ?? null,
           linePipelineLabel: linePipeline.label ?? null,
+          // #1190 — the walk's dynamic-offset base and the stroke draws'
+          // baked layer-slot offsets. Without the cursor, an EARLIER
+          // show's allocation-count change let this show's key hit while
+          // its baked offsets pointed at foreign slots — the "mostly
+          // empty canvas during interactive navigation" that kept the
+          // bundle path disabled. See BundleKeyState field docs.
+          ringCursor: this._ringCursorForBundleKey(),
+          lineLayerOffset,
+          lineLayerOffsetGap,
         } as const satisfies BundleKeyState
         const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
@@ -3711,7 +3787,13 @@ export class VectorTileRenderer {
             show.shaderVariant,
           )
         })
-        if (!wasMiss) {
+        if (wasMiss) {
+          // #1190 — pin the encode walk's ring-slot alloc count to the bundle.
+          this._bundleWalkAllocs.set(
+            bundle,
+            this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor),
+          )
+        } else {
           // Cache hit: replay path. Re-run renderTileKeys for state
           // side effects with both skip flags TRUE — recordTileFill
           // + drawSegments no-op; uniform staging + strokeQueue
@@ -3738,6 +3820,26 @@ export class VectorTileRenderer {
           )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
+          // #1190 invariant — the hit re-walk must land its uniforms on
+          // EXACTLY the offsets the bundle baked: same base (ringCursor is
+          // in the key, so it matches by key equality) AND same alloc
+          // count. A mismatch means an input to renderTileKeys changed
+          // under an unchanged BundleKeyState — the class of bug that
+          // produced the mostly-empty interactive canvas. Fail loud in
+          // dev; the key fix (not this check) is what prevents it.
+          if (_inv) {
+            const expected = this._bundleWalkAllocs.get(bundle)
+            const got = this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor)
+            if (expected !== undefined && got !== expected) {
+              throw new Error(
+                `[XGIS INVARIANT] bundle hit re-walk allocated ${got} ring slots where ` +
+                  `the encoded bundle recorded ${expected} (key ${cacheKey}). An input to ` +
+                  `renderTileKeys changed under an unchanged BundleKeyState — the baked ` +
+                  `dynamic offsets no longer align. Add the missing input to ` +
+                  `_cache/bundle-cache-key.ts.`,
+              )
+            }
+          }
         }
         pass.executeBundles([bundle])
       } else {
@@ -3861,11 +3963,13 @@ export class VectorTileRenderer {
           break
         }
       }
-      // Fallback path also default OFF (see primary path).
-      const _fbBundleForceOn =
-        (globalThis as { __XGIS_BUNDLE_FORCE_ON?: boolean }).__XGIS_BUNDLE_FORCE_ON === true
+      // #1190 — fallback path defaults ON with the primary (same key fix,
+      // same escape hatch; see the primary-site rationale).
+      const _fbBundleOff =
+        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
       const fbShouldBundle =
-        _fbBundleForceOn &&
+        !_fbBundleOff &&
+        this.rhi.caps.renderBundles &&
         !isOverdrawActive(this.rhi.caps) &&
         !translucentBucket &&
         phase !== 'strokes' &&
@@ -3914,6 +4018,13 @@ export class VectorTileRenderer {
             samples: fbSamples,
             mainPipelineLabel: fallbackFill.label ?? null,
             linePipelineLabel: linePipelineFallback?.label ?? null,
+            // #1190 — mirror of the primary site: the fallback walk's
+            // dynamic-offset base (it runs AFTER the primary walk, so
+            // its base also moves with the primary's alloc count) and
+            // the stroke draws' baked layer-slot offsets.
+            ringCursor: this._ringCursorForBundleKey(),
+            lineLayerOffset,
+            lineLayerOffsetGap,
           } as const satisfies BundleKeyState
           const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
           const fbDesc: BundleEncodeDescriptor = {
@@ -3948,7 +4059,13 @@ export class VectorTileRenderer {
               show.shaderVariant,
             )
           })
-          if (!fbWasMiss) {
+          if (fbWasMiss) {
+            // #1190 — pin the encode walk's alloc count (mirror of primary).
+            this._bundleWalkAllocs.set(
+              fbBundle,
+              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
+            )
+          } else {
             this._skipFillDrawForBundle = true
             this._skipStrokeDrawForBundle = true
             this.renderTileKeys(
@@ -3971,6 +4088,19 @@ export class VectorTileRenderer {
             )
             this._skipFillDrawForBundle = false
             this._skipStrokeDrawForBundle = false
+            // #1190 invariant — mirror of the primary site; see there.
+            if (_inv) {
+              const expected = this._bundleWalkAllocs.get(fbBundle)
+              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
+              if (expected !== undefined && got !== expected) {
+                throw new Error(
+                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
+                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
+                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
+                    `add the missing input to _cache/bundle-cache-key.ts.`,
+                )
+              }
+            }
           }
           pass.executeBundles([fbBundle])
         } else {
@@ -4131,11 +4261,11 @@ export class VectorTileRenderer {
    *  (vtr-immediate-arm.ts) calls it with its screen RhiRenderPass after each
    *  show's fills+strokes. Reads `this.stableKeys` — the visible keys set by
    *  render() (WebGPU) or renderFillsRhi (WebGL2) for THIS frame — and derives
-   *  `sliceLayer` the same way both do. Parity note: renderFillsRhi's stableKeys
-   *  is neededKeys + protectedAncestors; it omits fallbackKeys (primary-only
-   *  acquisition — fallback pass reverted in #1140), so mid-load fallback-
-   *  ancestor points can appear on WebGPU but not WebGL2. See renderFillsRhi's
-   *  assignment site for the full rationale.
+   *  `sliceLayer` the same way both do. Parity: renderFillsRhi omits fallbackKeys
+   *  (#1140), so mid-load fallback-ancestor points appear on WebGPU and not on
+   *  WebGL2 — a COVERAGE gap. #2028: neither arm can composite a point twice —
+   *  `accumulateTilePoints` emits each source point once, from the deepest key in
+   *  the set carrying point data there. See renderFillsRhi's assignment site.
    *
    *  Skip when the layer hasn't opted into point rendering — PMTiles MVT
    *  layers like 'buildings' carry centroid Point features alongside polygons,
@@ -4193,35 +4323,20 @@ export class VectorTileRenderer {
       return
     }
 
-    // Read ECEF DSFUN stride-9: [ex_h,ey_h,ez_h, ex_l,ey_l,ez_l, feat_id, abs_lon,abs_lat]
-    // #722 S4 — thread SOURCE feature props for a data-driven size expression
-    // (fixes #17 size); featureProps is PER-TILE (fids collide across tiles),
-    // so resolved here, not after the loop. Constant-size layers pass undefined.
-    const wantsFeatProps = show.sizeExpr?.ast != null
-    for (const key of this.stableKeys) {
-      const tileData = this.source!.getTileData(key, sliceLayer)
-      if (!tileData?.pointVertices || tileData.pointVertices.length < 13) continue
-      const ptv = tileData.pointVertices
-      const featProps = wantsFeatProps ? tileData.featureProps : undefined
-      for (let i = 0; i < ptv.length; i += 13) {
-        pointRenderer.addTilePoint(
-          ptv[i],
-          ptv[i + 1],
-          ptv[i + 2], // ex_h, ey_h, ez_h
-          ptv[i + 3],
-          ptv[i + 4],
-          ptv[i + 5], // ex_l, ey_l, ez_l
-          ptv[i + 6], // feat_id
-          ptv[i + 7],
-          ptv[i + 8], // abs_lon, abs_lat (cull)
-          ptv[i + 9],
-          ptv[i + 10],
-          ptv[i + 11],
-          ptv[i + 12], // merc DSFUN mx_h,mx_l,my_h,my_l
-          featProps ? (featProps.get(ptv[i + 6]) ?? null) : null, // #722 S4 per-feature source props
-        )
-      }
-    }
+    // #2028 — one emission per source point per frame. `stableKeys` is an
+    // EVICTION set (neededKeys ∪ fallbackKeys ∪ protectedAncestors, repeated per
+    // world copy), never a partition, so iterating it submitted a feature twice
+    // at identical absolute coordinates and the alpha-blended point material
+    // composited both. `accumulateTilePoints` keeps the record from the deepest
+    // key in the set that actually carries point data there — the per-point form
+    // of #616's label ancestry shadow. See tile-point-emit.ts.
+    accumulateTilePoints(
+      this.stableKeys,
+      this.source!,
+      sliceLayer,
+      show.sizeExpr?.ast != null, // #722 S4 — a data-driven size wants featureProps
+      pointRenderer,
+    )
     pointRenderer.flushTilePointsRhi(
       pass,
       camera,
@@ -4436,7 +4551,10 @@ export class VectorTileRenderer {
     // this tile in the per-tile loop). Without this, an extruded
     // building's roof outline would get overwritten by a later tile's
     // wall fill at the same pixel.
-    const strokeQueue: { cached: GPUTile; slotOffset: number }[] = []
+    const strokeQueueTiles = this._strokeQueueTiles
+    const strokeQueueSlots = this._strokeQueueSlots
+    strokeQueueTiles.length = 0
+    strokeQueueSlots.length = 0
     // Per-call invariants shared by the per-tile light-rotation + clip_bounds
     // math below (the anchor math itself lives in tile-camera-anchor.ts).
     const DEG2RAD = Math.PI / 180
@@ -4844,7 +4962,10 @@ export class VectorTileRenderer {
         if ((isOitFill || wantsExtrude) && !useExtrudedPipe) {
           // strokes for this tile still queue below (never in the shell phase,
           // where drawStrokes is false) — only the fill is being skipped here.
-          if (drawStrokes) strokeQueue.push({ cached, slotOffset })
+          if (drawStrokes) {
+            strokeQueueTiles.push(cached)
+            strokeQueueSlots.push(slotOffset)
+          }
           continue
         }
         // Debug=overdraw: collapse the extruded path onto the
@@ -4901,7 +5022,8 @@ export class VectorTileRenderer {
         this.lineRenderer &&
         (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
       ) {
-        strokeQueue.push({ cached, slotOffset })
+        strokeQueueTiles.push(cached)
+        strokeQueueSlots.push(slotOffset)
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -4923,7 +5045,7 @@ export class VectorTileRenderer {
     // buffer; with DEPTH_READ_ONLY they don't disturb later layers'
     // depth tests, but their occlusion against THIS layer's own
     // 3D geometry is now correct regardless of tile iteration order.
-    if (strokeQueue.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
+    if (strokeQueueTiles.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
       // `_skipStrokeDrawForBundle` gates these two drawSegments call sites.
       // When set true by the bundle replay path, both calls are skipped —
       // the cached bundle's executeBundles already replays the stroke
@@ -4934,11 +5056,14 @@ export class VectorTileRenderer {
       // written, iterate the strokeQueue with each offset. Single-line
       // (default) draws once. The second pass uses the SAME segment
       // data — only the layer-slot uniform's offset_m differs.
-      const offsets =
-        lineLayerOffsetGap >= 0 ? [lineLayerOffset, lineLayerOffsetGap] : [lineLayerOffset]
+      const offsets = this._strokeOffsetsScratch
+      offsets.length = 0
+      offsets.push(lineLayerOffset)
+      if (lineLayerOffsetGap >= 0) offsets.push(lineLayerOffsetGap)
       for (const lo of offsets) {
-        for (let i = 0; i < strokeQueue.length; i++) {
-          const { cached, slotOffset } = strokeQueue[i]
+        for (let i = 0; i < strokeQueueTiles.length; i++) {
+          const cached = strokeQueueTiles[i]!
+          const slotOffset = strokeQueueSlots[i]!
           if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
             this.lineRenderer.drawSegments(
               pass,

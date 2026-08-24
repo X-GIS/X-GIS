@@ -1,6 +1,7 @@
 import type { MapboxSource } from './types'
 import { sanitizeId } from './utils'
 import { checkSourceBounds } from '../ir/source-bounds'
+import { isTileScheme, schemeRejectReason } from '../ir/source-scheme'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
@@ -126,26 +127,6 @@ export function convertSource(
     ;(src as { tiles?: unknown }).tiles = filtered.length > 0 ? filtered : undefined
   }
 
-  // Mapbox `scheme: "tms"` flips the Y axis (origin bottom-left vs the
-  // XYZ default top-left). X-GIS's tile selector assumes XYZ throughout
-  // — if a style declares TMS, every tile renders mirrored on Y. Stadia,
-  // Stamen, and older OSM mirrors ship TMS endpoints; modern Mapbox /
-  // MapLibre / OFM all use the default XYZ. Surface the mismatch so the
-  // user doesn't silently get an upside-down map.
-  if (src.scheme === 'tms') {
-    warnings.push(
-      `Source "${id}" declares scheme: "tms" but the X-GIS tile selector assumes XYZ (top-left origin) — tiles will render Y-flipped. Convert the URL template to XYZ form, or wait for native scheme support.`,
-    )
-  } else if (typeof src.scheme === 'string' && src.scheme !== 'xyz') {
-    // Mapbox spec accepts only "xyz" (default) or "tms". An unknown
-    // scheme value silently falls through to xyz with no diagnostic;
-    // surface so a typo like "XYZ" / "wms" / "TMS" is visible at
-    // compile time rather than a mysteriously-misoriented map.
-    warnings.push(
-      `Source "${id}" declares scheme: "${src.scheme.slice(0, 40)}" but Mapbox spec recognises only "xyz" (default) or "tms". Falling back to xyz; check the spelling.`,
-    )
-  }
-
   // ── Source-level `tileSize` / `maxzoom` / `minzoom` (#1983) ──────────
   //
   // The xgis grammar parses all three on any source block (ir/lower.ts `lowerSource`
@@ -215,6 +196,36 @@ export function convertSource(
           : 'nothing in that load path reads a spatial extent'
       warnings.push(
         `Source "${id}" declares bounds [${checked.join(', ')}]; not emitted for type "${String(src.type)}" — only raster / raster-dem carry a declared extent into the tile selector, and ${owner}.`,
+      )
+    }
+  }
+
+  // ── Source-level `scheme: "xyz" | "tms"` (#1985) ─────────────────────
+  //
+  // The row origin: `tms` numbers tile rows from the BOTTOM, so the request path
+  // substitutes `2^z − 1 − y` for `{y}` (`tileUrl`, data/src/tile-select-helpers.ts —
+  // MapLibre's rule verbatim). Emitted for `raster` / `raster-dem`, the two arms whose
+  // requests go through that builder. The vector family does NOT reach it: its URLs are
+  // built by a SECOND substitution in `data/src/vector-tile-loader.ts` that never sees a
+  // SourceDef, and a PMTiles archive is XYZ by specification — so a `scheme` there would
+  // be an emitted line nothing reads, the exact silent gap this replaces.
+  //
+  // `xyz` is the default and is deliberately NOT emitted: an explicit `scheme: xyz` line
+  // would mean the same thing as its absence on every source in the corpus. Validity is
+  // settled by `isTileScheme` — the SAME predicate `lowerSource` applies to a
+  // hand-authored block, so the two stages cannot disagree about the legal value set.
+  if (src.scheme !== undefined) {
+    if (!isTileScheme(src.scheme)) {
+      warnings.push(`Source "${id}" declares scheme ${schemeRejectReason(src.scheme)}.`)
+    } else if (src.scheme === 'tms' && consumesTileProps) {
+      tileProps.push('  scheme: tms')
+    } else if (src.scheme === 'tms') {
+      const owner =
+        src.type === 'vector' || src.type === 'tilejson' || src.type === 'pmtiles'
+          ? "this type's tiles are fetched through a separate substitution (data/src/vector-tile-loader.ts) that has no scheme branch — and a PMTiles archive is XYZ by specification. The tiles will render Y-flipped; point the source at an XYZ endpoint"
+          : 'nothing in that load path requests numbered tile rows at all'
+      warnings.push(
+        `Source "${id}" declares scheme: "tms"; not emitted for type "${String(src.type)}" — only raster / raster-dem carry a row origin into the request path, and ${owner}.`,
       )
     }
   }
@@ -405,7 +416,11 @@ export function convertSource(
       if (fromTiles && !isManifestUrl) {
         const hasZ = url.includes('{z}')
         const hasX = url.includes('{x}')
-        const hasY = url.includes('{y}')
+        // `{-y}` (the Leaflet/GDAL bottom-origin row) satisfies the row placeholder as of
+        // #1985 — `tileUrl` substitutes it — so a working TMS template must not be
+        // reported as missing `{y}`. The VECTOR arm above deliberately keeps the strict
+        // test: that path builds its URLs in vector-tile-loader.ts, which has no `{-y}`.
+        const hasY = url.includes('{y}') || url.includes('{-y}')
         if (!hasZ || !hasX || !hasY) {
           const missing = [!hasZ && '{z}', !hasX && '{x}', !hasY && '{y}']
             .filter(Boolean)
@@ -417,7 +432,7 @@ export function convertSource(
       }
       lines.push('  type: raster')
       lines.push(`  url: ${JSON.stringify(url)}`)
-      lines.push(...tileProps) // declared tileSize / maxzoom / minzoom (#1983) + bounds (#1984)
+      lines.push(...tileProps) // tileSize/maxzoom/minzoom (#1983) + bounds (#1984) + scheme (#1985)
     } else {
       lines.push('  // TODO: raster source missing url/tiles')
       warnings.push(`Raster source "${id}" has no URL.`)
@@ -437,7 +452,7 @@ export function convertSource(
       if (fromTiles && !isManifestUrl) {
         const hasZ = url.includes('{z}')
         const hasX = url.includes('{x}')
-        const hasY = url.includes('{y}')
+        const hasY = url.includes('{y}') || url.includes('{-y}') // `{-y}` counts (#1985)
         if (!hasZ || !hasX || !hasY) {
           const missing = [!hasZ && '{z}', !hasX && '{x}', !hasY && '{y}']
             .filter(Boolean)
@@ -449,7 +464,7 @@ export function convertSource(
       }
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
-      lines.push(...tileProps) // declared tileSize / maxzoom / minzoom (#1983) + bounds (#1984)
+      lines.push(...tileProps) // tileSize/maxzoom/minzoom (#1983) + bounds (#1984) + scheme (#1985)
       lines.push(
         '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
       )

@@ -5,6 +5,7 @@
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import type { SymbolDef } from './render-node'
 import type { SourceBounds } from './source-bounds'
+import type { TileRowScheme } from './source-scheme'
 import { rgbaToHex } from './render-node'
 import type { PaintShapes, PropertyShape, FillAntialiasValue } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
@@ -74,6 +75,10 @@ export interface LoadCommand {
    *  that does not overlap it, instead of requesting ocean tiles that can only 404.
    *  Undefined = unclipped, the pre-existing behaviour. See `SourceDef.bounds`. */
   bounds?: SourceBounds
+  /** SOURCE-level row origin, threaded from `SourceDef.scheme` (#1985). `tms` makes the
+   *  raster / raster-dem request path substitute `2^z − 1 − y` for `{y}`. Undefined =
+   *  `xyz`, the pre-existing behaviour. See `SourceDef.scheme`. */
+  scheme?: TileRowScheme
   /** `encoding: custom` elevation unpack factors (threaded from `SourceDef`):
    *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`. */
   redFactor?: number
@@ -316,9 +321,9 @@ export interface ShowCommand
    *  layers map here via the converter; xgis source uses
    *  `label-["..."]` utility or `label { ... }` sub-block. */
   label?: import('./render-node').LabelDef
-  /** Typed `PropertyShape<T>` bundle for every animatable / shape-able
-   *  paint axis. The flat `fill` / `stroke` / `opacity` / `strokeWidth`
-   *  / `size` fields above are RESOLVED views of the same data:
+  /** Typed `PropertyShape<T>` bundle for every animatable / shape-able paint axis. The flat
+   *  `fill` / `stroke` / `opacity` / `strokeWidth` / `size` fields above are RESOLVED views
+   *  of the same data:
    *  - `fill` / `stroke` carry the static-hex form used by shader
    *    uniform binding (no per-frame allocation for the common case).
    *  - `opacity` / `size` carry the per-frame resolved scalar that
@@ -394,14 +399,12 @@ export interface EmitOptions {
    *  flipping this on; defaults to `'manual'` for universal
    *  WebGPU-adapter compatibility. */
   enableScalarPaletteSampling?: boolean
-  /** P4-5 gate. When true, each ShowCommand's shaderVariant is
-   *  produced via `buildPerShowMergedVariant` — fill / stroke axes
-   *  that routed to compute get their fillExpr / strokeExpr replaced
-   *  by `unpack4x8unorm(compute_out_*[input.feat_id])`, the preamble
-   *  carries the matching `@group/@binding var<storage,read> ...`
-   *  decls, and the variant exposes `computeBindings` so the runtime
-   *  can wire the right output buffers per tile. When false (default),
-   *  the legacy variant is emitted unchanged. Runtime callers MUST
+  /** P4-5 gate. When true, each ShowCommand's shaderVariant is produced via
+   *  `buildPerShowMergedVariant` — fill / stroke axes that routed to compute get their
+   *  fillExpr / strokeExpr replaced by `unpack4x8unorm(compute_out_*[input.feat_id])`, the
+   *  preamble carries the matching `@group/@binding var<storage,read> ...` decls, and the
+   *  variant exposes `computeBindings` so the runtime can wire the right output buffers per
+   *  tile. When false (default), the legacy variant is emitted unchanged. Runtime callers MUST
    *  set this true ONLY after extending the polygon bind-group
    *  layout to include the compute-output bindings and feeding
    *  TileComputeResources.getOutBuffer() into the matching slots
@@ -446,6 +449,7 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     maxzoom: src.maxzoom,
     minzoom: src.minzoom,
     bounds: src.bounds,
+    scheme: src.scheme,
     refresh: src.refresh,
   }))
 
@@ -653,20 +657,16 @@ function emitShow(
 
 // ─── Composable per-concern field emitters (Tier-B B2) ─────────────
 //
-// Each returns the `Partial<ShowCommand>` slice for one paint concern,
-// carrying the exact flat keys (and the same lossy scalar fallbacks)
-// the monolithic emitShow literal used to inline. The spread-merge in
-// emitShow reassembles them into a byte-identical ShowCommand. The
-// SOLE faithfulness requirement is that no fallback ternary is dropped
-// or reordered relative to the former literal — verified by a
-// byte-identical IR diff over the fixture + synthetic corpus.
+// Each returns the `Partial<ShowCommand>` slice for one paint concern, carrying the exact flat
+// keys (and the same lossy scalar fallbacks) the monolithic emitShow literal used to inline. The
+// spread-merge in emitShow reassembles them into a byte-identical ShowCommand. The SOLE
+// faithfulness requirement is that no fallback ternary is dropped or reordered relative to the
+// former literal — verified by a byte-identical IR diff over the fixture + synthetic corpus.
 //
-// The return TYPE is the concrete concern interface (a stricter
-// subtype of `Partial<ShowCommand>`) rather than `Partial<ShowCommand>`
-// itself, so the spread-merge in emitShow keeps ShowCommand's REQUIRED
-// fields (`fill`, `stroke`, `strokeWidth`, `extrude`, …) provably
-// present — `Partial` would erase that and force a lossy cast at the
-// return site.
+// The return TYPE is the concrete concern interface (a stricter subtype of
+// `Partial<ShowCommand>`) rather than `Partial<ShowCommand>` itself, so the spread-merge in
+// emitShow keeps ShowCommand's REQUIRED fields (`fill`, `stroke`, `strokeWidth`, `extrude`, …)
+// provably present — `Partial` would erase that and force a lossy cast at the return site.
 
 /** Polygon fill paint fields. */
 function emitFillFields(node: RenderNode): FillPaint {

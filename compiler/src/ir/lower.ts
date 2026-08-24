@@ -12,6 +12,7 @@ import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindin
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { runFrontPasses } from './front-passes'
 import { lowerSourceBounds, type SourceBounds } from './source-bounds'
+import { lowerSourceScheme, type TileRowScheme } from './source-scheme'
 import {
   expandPresets,
   resolveStylePreset,
@@ -135,6 +136,7 @@ function lowerSource(
   let srcMaxzoom: number | undefined
   let srcMinzoom: number | undefined
   let bounds: SourceBounds | undefined
+  let scheme: TileRowScheme | undefined
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Seconds, positive; 0/absent = off. Undefined for every non-declaring source
    *  (byte-identical lowering — the source-loader-seam §9 gate). */
@@ -217,6 +219,11 @@ function lowerSource(
       // SOURCE-level spatial extent (#1984). An unusable box lowers to undefined, the
       // same silent-ignore rule the tile props above follow — see ./source-bounds.
       bounds = lowerSourceBounds(prop.value)
+    } else if (prop.name === 'scheme') {
+      // SOURCE-level row origin (#1985). Bare `tms` or quoted `"tms"`; an unknown value
+      // lowers to undefined = the xyz default, matching MapLibre — see ./source-scheme.
+      // Claimed here so it is RESERVED and cannot also leak into `options` below.
+      scheme = lowerSourceScheme(prop.value)
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
     } else if (prop.name === 'refresh') {
@@ -327,6 +334,7 @@ function lowerSource(
     maxzoom: srcMaxzoom,
     minzoom: srcMinzoom,
     bounds,
+    scheme,
     refresh,
   }
 }
@@ -590,23 +598,20 @@ function lowerLayer(
   let strokeTranslateYShape: TranslateShape | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
-  /** Per-feature / zoom-interpolated stroke-width AST. Populated from
-   *  `stroke-[<expr>]` bracket bindings when the expression is numeric
-   *  (Mapbox `paint.line-width: ["interpolate", …]` or per-feature
-   *  case/match). Stroke colour zoom-interpolation takes a parallel
-   *  path through `strokeColor` (kind: 'zoom-interpolated'). */
+  /** Per-feature / zoom-interpolated stroke-width AST. Populated from `stroke-[<expr>]`
+   *  bracket bindings when the expression is numeric (Mapbox `paint.line-width:
+   *  ["interpolate", …]` or per-feature case/match). Stroke colour zoom-interpolation takes
+   *  a parallel path through `strokeColor` (kind: 'zoom-interpolated'). */
   let strokeWidthExpr: import('./render-node').DataExpr | undefined
-  /** Per-feature stroke-colour AST. Populated from `stroke-[<expr>]`
-   *  whose binding's `extractMatchDefaultColor` returns a hex —
-   *  parallel to fill's data-driven kind. Mirror of the merge-pass
-   *  synthesised strokeColorExpr; the runtime line-renderer's worker
-   *  evaluates this against each feature and packs RGBA8 into the
-   *  segment buffer's `color_packed` slot. */
+  /** Per-feature stroke-colour AST. Populated from `stroke-[<expr>]` whose binding's
+   *  `extractMatchDefaultColor` returns a hex — parallel to fill's data-driven kind. Mirror
+   *  of the merge-pass synthesised strokeColorExpr; the runtime line-renderer's worker
+   *  evaluates this against each feature and packs RGBA8 into the segment buffer's
+   *  `color_packed` slot. */
   let strokeColorExpr: import('./render-node').DataExpr | undefined
-  /** Pure zoom-only stroke-width stops — populated when the binding's
-   *  expression is a `interpolate(zoom, …)` / `interpolate_exp(zoom,
-   *  base, …)` with no feature-prop dependency. Routed through
-   *  `stroke.widthZoomStops` so the renderer recomputes width per
+  /** Pure zoom-only stroke-width stops — populated when the binding's expression is a
+   *  `interpolate(zoom, …)` / `interpolate_exp(zoom, base, …)` with no feature-prop
+   *  dependency. Routed through `stroke.widthZoomStops` so the renderer recomputes width per
    *  frame from camera zoom (avoids the tile-bake staleness). */
   let strokeWidthZoomStops: ZoomStop<number>[] | undefined
   let strokeWidthZoomStopsBase: number | undefined
@@ -894,12 +899,10 @@ function lowerLayer(
 
       // ── Modifier items ──
       if (ctx.mod) {
-        // STRICT: detect the deprecated `z<N>:` zoom-modifier shape.
-        // Until f2f8929 this meant "apply at zoom N"; afterwards `z8`
-        // is just an identifier the lower pass treats as a feature-
-        // property predicate, which silently always-fails on real
-        // data. We fail loud here so the issue surfaces in CI / on
-        // the /convert page instead of producing wrong output.
+        // STRICT: detect the deprecated `z<N>:` zoom-modifier shape. Until f2f8929 this meant
+        // "apply at zoom N"; afterwards `z8` is just an identifier the lower pass treats as a
+        // feature-property predicate, which silently always-fails on real data. We fail loud
+        // here so the issue surfaces in CI / on the /convert page instead of wrong output.
         if (/^z\d+$/.test(ctx.mod)) {
           const zoomLevel = ctx.mod.slice(1)
           diagnostics.push({
@@ -917,14 +920,12 @@ function lowerLayer(
           })
           continue
         }
-        // Data modifier: friendly:fill-green-500
-        // (Zoom-driven values used to live behind `zN:opacity-…`
-        // modifiers; they're now expressed as `opacity-[interpolate(
-        // zoom, …)]` and lowered in the binding handler.)
-        // Only `fill-*` has a modifier handler (MODIFIER_HANDLERS in
-        // lower-bindings-registry.ts) — every other utility used to fall
-        // through here silently (zero diagnostics), so a doc example like
-        // `hover:opacity-100` compiled clean into a no-op. Fail loud instead.
+        // Data modifier: friendly:fill-green-500 (Zoom-driven values used to live behind
+        // `zN:opacity-…` modifiers; they're now expressed as `opacity-[interpolate(zoom, …)]`
+        // and lowered in the binding handler.) Only `fill-*` has a modifier handler
+        // (MODIFIER_HANDLERS in lower-bindings-registry.ts) — every other utility used to fall
+        // through here silently (zero diagnostics), so a doc example like `hover:opacity-100`
+        // compiled clean into a no-op. Fail loud instead.
         if (dispatch(MODIFIER_HANDLERS, ctx) === 'none') {
           diagnostics.push({
             severity: 'error',
@@ -1133,10 +1134,9 @@ function lowerLayer(
 
   // ── PR 3: build animated fill/stroke/width/size/dashOffset ──
   //
-  // Each list is only promoted if the keyframe block actually set the
-  // corresponding property at ≥2 frames. A single stop wouldn't animate
-  // anything — we'd just hold that value forever — so that case
-  // degenerates to a constant and we skip the promotion.
+  // Each list is only promoted if the keyframe block actually set the corresponding property
+  // at ≥2 frames. A single stop wouldn't animate anything — we'd just hold that value forever
+  // — so that case degenerates to a constant and we skip the promotion.
 
   if (fillTimeStops.length >= 2) {
     fillTimeStops.sort((a, b) => a.timeMs - b.timeMs)
