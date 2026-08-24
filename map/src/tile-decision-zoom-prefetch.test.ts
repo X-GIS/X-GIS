@@ -1,32 +1,33 @@
-// Differential extraction test for `computeZoomDirectionPrefetchKeys`
-// (engine/tile-decision.ts) — the Tier-2 zoom-direction prefetch tile-set
-// math lifted VERBATIM out of VectorTileRenderer.render().
+// Differential test for `computeZoomDirectionPrefetchKeys`
+// (map/src/tile-decision.ts) — the Tier-2 zoom-direction prefetch tile-set
+// math, originally lifted VERBATIM out of VectorTileRenderer.render().
 //
-// The extraction MUST be byte-faithful: same key set, same order, same
-// empties, across every direction/route/pitch branch the inline block
-// hit. We pin that by re-implementing the ORIGINAL inline block here
-// (`inlineReference`, copied from the pre-extraction render() source)
-// and asserting the extracted fn returns the EXACT same array, driven by
-// the same live `Camera`, the same real selectors, and the same
-// `isCached` predicate.
+// #2013 moved the flat route from the legacy `visibleTilesFrustum`/
+// `Sampled` pair to `visibleTilesSSE` — the same move the readiness gate
+// made (#1078), for the same two reasons: the exact frustum walk costs up
+// to ~66 ms at pitch ≥ 60 (and the block now runs MID-GESTURE since the
+// cameraIdle un-gate), and it emits a DIFFERENT tile set than the SSE
+// drawing selection, prefetching tiles the renderer never asks for. The
+// reference here (`inlineReference`) therefore pins the SSE route; a
+// dedicated assertion below proves the route genuinely CHANGED (the SSE
+// set diverges from the legacy frustum set at high pitch).
 //
-// Why a differential (not golden literals): the frustum selectors call
+// Why a differential (not golden literals): the selectors call
 // `camera.getRTCMatrix` / `unprojectToZ0` (pure matrix math, no GPU), so
 // both the reference and the SUT consume the identical camera and must
-// agree key-for-key. If the extraction dropped, reordered, or re-routed
+// agree key-for-key. If the SUT dropped, reordered, or re-routed
 // any key, `inlineReference` and `computeZoomDirectionPrefetchKeys`
 // diverge and the deep-equal fails.
 //
-// FAIL-BEFORE: established by perturbing the SUT (e.g. swapping the
-// `pitch < 30` selector routing, or flipping the `!isCached` skip to
-// `isCached`) — every such mutation makes at least one scenario's array
-// differ from `inlineReference`, turning the suite RED. Verified locally
-// before finalizing (see the executor report).
+// FAIL-BEFORE: established by perturbing the SUT (e.g. re-routing the
+// flat branch back to the frustum pair, or flipping the `!isCached` skip
+// to `isCached`) — every such mutation makes at least one scenario's
+// array differ from `inlineReference`, turning the suite RED.
 
 import { describe, expect, it } from 'vitest'
 import { tileKey } from '@xgis/compiler'
 import { Camera } from './camera'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
+import { visibleTilesFrustum, visibleTilesSSE, makeTileCoord } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
 import { routeToSphereSelector } from '@xgis/geo'
@@ -58,11 +59,11 @@ function makeCam(
   return c
 }
 
-/** EXACT copy of the pre-extraction inline render() block (former VTR
- *  lines ~3252-3306), minus the `cameraIdle && frameCount%6` guard and
- *  the `this.source.prefetchTiles(...)` side effect — those stay inline
- *  at the call site and are out of scope for this math. Returns the
- *  `prefetchKeys` array the old block would have built. */
+/** Reference re-implementation of the Tier-2 block's math (direction
+ *  thresholds + route dispatch + isCached filter), minus the
+ *  `frameCount % 6` throttle and the `this.source.prefetchTiles(...)`
+ *  side effect — those stay inline at the call site and are out of
+ *  scope for this math. Flat route = `visibleTilesSSE` (#2013). */
 function inlineReference(
   camera: Camera,
   currentZ: number,
@@ -100,25 +101,18 @@ function inlineReference(
           camera.bearing ?? 0,
         ).map((t) => makeTileCoord(t.z, t.x, t.y, 0))
       })()
-    : (camera.pitch ?? 0) < 30
-      ? visibleTilesFrustumSampled(
-          camera,
-          selectorProj,
-          prefetchZ,
-          canvasWidth,
-          canvasHeight,
-          offsetMarginPx,
-          dpr,
-        )
-      : visibleTilesFrustum(
-          camera,
-          selectorProj,
-          prefetchZ,
-          canvasWidth,
-          canvasHeight,
-          offsetMarginPx,
-          dpr,
-        )
+    : visibleTilesSSE(
+        camera,
+        selectorProj,
+        prefetchZ,
+        canvasWidth,
+        canvasHeight,
+        offsetMarginPx,
+        dpr,
+        {
+          farTargetBoost: 1,
+        },
+      )
   const prefetchKeys: number[] = []
   for (const t of prefetchTiles) {
     const k = tileKey(t.z, t.x, t.y)
@@ -210,14 +204,20 @@ describe('computeZoomDirectionPrefetchKeys — byte-faithful extraction of the V
     expect(got.length).toBeGreaterThan(0)
   })
 
-  it('high-pitch flat route (pitch > 30 → exact frustum, not sampled): matches inline', () => {
-    // pitch 45 > 30 → the inline block uses visibleTilesFrustum (exact),
-    // NOT visibleTilesFrustumSampled. If the extraction crossed the 30
-    // threshold the wrong way, the arrays diverge.
+  it('high-pitch flat route: matches the SSE reference AND diverges from the legacy frustum set', () => {
+    // #2013 route-change pin. At pitch 45 the SSE selector's mixed-LOD
+    // emission differs from the legacy exact-frustum enumeration — if the
+    // SUT silently reverted to the frustum pair, the first assertion
+    // breaks; if the two selectors ever converged, the second breaks and
+    // this pin needs re-examination (it would no longer prove the route).
     const cam = makeCam(8.7, 45, false)
     const { ref, got } = bothPaths({ camera: cam, currentZ: 8, selectorProj: mercatorProj })
     expect(got).toEqual(ref)
     expect(got.length).toBeGreaterThan(0)
+    const legacy = visibleTilesFrustum(cam, mercatorProj, 9, W, H, OFFSET_MARGIN_PX, DPR).map((t) =>
+      tileKey(t.z, t.x, t.y),
+    )
+    expect(got).not.toEqual(legacy)
   })
 
   it('non-mercator flat selectorProj (equirectangular) zoom-in: matches inline + non-empty', () => {

@@ -864,9 +864,23 @@ class LabelPass implements RenderPass {
       ) {
         labelReplay = _postSkip.replayOut
       }
+      // #1177/#2013 — on an S16 HIT frame the dispatch loop is skipped via the
+      // loop condition (not an `if` block, to avoid re-indenting the body):
+      // prepare() is skipped at the stage-prepare guard below, so everything
+      // the loop queues is dropped unconsumed by stage.reset()/iStage.reset()
+      // — the loop's only hit-frame effect was wasted CPU (applyFeatureExprs +
+      // per-anchor/per-vertex projectMercAny + addLabel). The visible frame
+      // replays the stages' persistent draws through labelReplay. The only
+      // skip-state write inside the loop (preparedStrideWant) is already
+      // miss-gated. _labelDispatchLoopRuns counts INSIDE the body (first
+      // iteration), not beside the predicate, so the zoom-skip gate's
+      // loopRuns === misses assertion goes red if the guard is ever removed
+      // while the counter survives — it measures the skip itself, not the
+      // intent (frame time alone cannot).
       // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
-      for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
+      for (let _showIdx = 0; !canSkipLabelPrepare && _showIdx < labelShows.length; _showIdx++) {
         const show = labelShows[_showIdx]!
+        if (_showIdx === 0) host._labelDispatchLoopRuns++
         // Per-show monotonic key for POINT-label text+icon pairing — mirrors
         // _lineLabelSeq (iter-176). A STABLE per-instance key; replaces the
         // old rounded-screen-coords pairKey whose sub-pixel camera drift
