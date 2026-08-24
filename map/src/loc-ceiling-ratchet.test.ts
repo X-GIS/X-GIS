@@ -233,7 +233,14 @@ const CEILINGS: Record<string, number> = {
   // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
   // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
   // The file was AT its ceiling, so the fix could not have been written in place.
-  'map/src/render/vector-tile-renderer.ts': 4961,
+  // 4961→4990 (#2024, merge union): the globe virtual-overzoom drape. The
+  // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
+  // at birth); the +29 kept here is the irreducible composition wiring — the
+  // dispatch call with its collaborator closure (uploadResident needs
+  // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
+  // (the bake matrix is this file's state), and one import. Deltas are disjoint
+  // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
+  'map/src/render/vector-tile-renderer.ts': 4990,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1130,7 +1137,12 @@ const CEILINGS: Record<string, number> = {
   // rationale comments for a rename whose reason is invisible from the token.
   // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
   // segment), so the import list carries BOTH names — one structural line, zero logic.
-  'map/src/shaders/dsl/line.ts': 1543,
+  // 1543→1527 (#1496): the seam-crossing segment cull lands +15 in vs_line,
+  // paid for by extracting finalize_corner + pattern_unit_to_m to
+  // line-corner.ts (TILE lanes as parameters; a one-line adapter keeps the
+  // call sites). Net shrink banked per the shrink-only rule. MEASURED
+  // post-prettier.
+  'map/src/shaders/dsl/line.ts': 1527,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio

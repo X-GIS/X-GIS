@@ -85,6 +85,7 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { bakesVectorDrape } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
+import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -864,6 +865,11 @@ export class VectorTileRenderer {
     sizePx: number,
     /** #1222 zoom-bucket stroke-width compensation (VectorDrapeRenderer); 1 = bake-native. */
     strokeWidthScale = 1,
+    /** #2024 — bake only this sub-rect of the tile-local Mercator frame (origin
+     *  = tile SW corner, metres): the virtual overzoom sub-tile window, so a
+     *  512px bake keeps native texel density past the source maxLevel. Absent =
+     *  the whole tile (byte-identical to the pre-#2024 bake). */
+    window?: { ox: number; oy: number; extent: number },
   ): RhiTexture | null {
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
     if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
@@ -882,15 +888,21 @@ export class VectorTileRenderer {
     this.ensureUniformRing()
     const mat = this.ensureFillBakeMaterialRhi()
 
-    // tile-local ortho: [0, E]² → NDC, north-up, z ≡ 0 (colour-only, no depth).
-    // Column-major; the zero z-row neutralizes the VS's zPlane (0 for a flat fill
-    // anyway), so clip.z = 0 for every vertex regardless of tile-buffer overspill.
+    // tile-local ortho: [wx, wx+we]×[wy, wy+we] → NDC, north-up, z ≡ 0 (colour-
+    // only, no depth). Default window = the whole tile ([0, E]² — byte-identical
+    // to the pre-#2024 matrix); a #2024 overzoom window scales/offsets the same
+    // ortho so the virtual sub-tile fills the full bake target. Column-major;
+    // the zero z-row neutralizes the VS's zPlane (0 for a flat fill anyway), so
+    // clip.z = 0 for every vertex regardless of tile-buffer overspill.
     const E = TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom)
+    const wx = window?.ox ?? 0
+    const wy = window?.oy ?? 0
+    const we = window?.extent ?? E
     const mvp = new Float32Array(16)
-    mvp[0] = 2 / E
-    mvp[5] = 2 / E
-    mvp[12] = -1
-    mvp[13] = -1
+    mvp[0] = 2 / we
+    mvp[5] = 2 / we
+    mvp[12] = -1 - (2 * wx) / we
+    mvp[13] = -1 - (2 * wy) / we
     mvp[15] = 1
 
     // Tile origin from the single anchor authority (#1044) — the bake camera
@@ -1020,7 +1032,7 @@ export class VectorTileRenderer {
         pass,
         cached,
         slotOffset,
-        E / sizePx,
+        we / sizePx,
         this._bakeStroke,
         this._linePatternActiveForShow,
         strokeWidthScale,
@@ -3497,12 +3509,28 @@ export class VectorTileRenderer {
       // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
       // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
       this._drapeStrokes = this._bakeStrokeActive
+      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
+      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
+      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
+      const drapeOverzoom = computeDrapeOverzoom({
+        camera,
+        projType,
+        currentZ,
+        cssWidth: canvasWidth / dpr,
+        cssHeight: canvasHeight / dpr,
+        source: this.source,
+        sliceLayer,
+        layerCache: this.getOrCreateLayerCache(sliceLayer),
+        uploadResident: (parentKey) =>
+          this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
+      })
       this._drape.renderGlobeFills(
         rhiPass,
         frame,
         projType,
         projCenterLon,
         projCenterLat,
+        camera,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
         strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
@@ -3512,6 +3540,7 @@ export class VectorTileRenderer {
         worldOffDeg,
         this.getOrCreateLayerCache(sliceLayer),
         this,
+        drapeOverzoom,
       )
     }
 
