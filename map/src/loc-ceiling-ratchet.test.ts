@@ -230,14 +230,17 @@ const CEILINGS: Record<string, number> = {
   // probes the same far-field notch the drawing selection runs at), and the
   // child-fallback fetch-frontier push (covered is not loaded — without it the
   // deeper #2013 stretch let a view settle permanently on stretched children).
-  // 4976→5005 (#2024, merge with #2013): the globe virtual-overzoom drape. The
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  // 4961→4990 (#2024, merge union): the globe virtual-overzoom drape. The
   // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
   // at birth); the +29 kept here is the irreducible composition wiring — the
   // dispatch call with its collaborator closure (uploadResident needs
   // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
-  // (the bake matrix is this file's state), and one import. Both deltas are
-  // disjoint (+19 #2013, +29 #2024 = 4957+48). MEASURED post-merge.
-  'map/src/render/vector-tile-renderer.ts': 5005,
+  // (the bake matrix is this file's state), and one import. Deltas are disjoint
+  // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
+  'map/src/render/vector-tile-renderer.ts': 4990,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
