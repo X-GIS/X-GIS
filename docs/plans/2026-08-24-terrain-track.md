@@ -239,6 +239,19 @@ The campaign session (x-gis) is actively merging converter/source work.
 #1984's PR (source `bounds`) has merged. Phases 1, 2 and 4's converter half need
 neither file; Phase 3 needs both and is gated on that merge.
 
+**State as of `f0e89d8` (2026-08-24), from refs rather than from the PR list:**
+no remote branch matches #1984 or `bounds`, and `origin/main`'s tip is #2005
+(#1983). **#1984 has NOT merged — the freeze on both files stands.**
+
+**Expected collision:** #1984's landing zone is `convert/sources.ts`, where
+`bounds` is today validate-and-warn-only (`:186-215`, deliberately mirroring the
+zoom-bound gap). That is the SAME file Phase 1 edits, ~280 lines above Phase 1's
+hunk. A textual conflict is unlikely but a semantic one is not: both changes turn
+a warn-only source property into an emitted one, so whichever lands second should
+re-read the other's emit shape rather than assume its own. Re-measure the
+`sources.ts` LOC row after that merge — the risk table's 121-line headroom is
+computed at `f0e89d8` and #1984 will consume some of it.
+
 ## Open decisions (deliberately not resolved here — each belongs in its issue)
 
 1. `["elevation"]` on a not-yet-loaded DEM tile: sentinel + warn, or 0?
