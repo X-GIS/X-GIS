@@ -117,7 +117,8 @@ void main() {
   vec2 _lc1 = df64_add(_cse2, vec2(_v4, 0.0));
   DF64Vec2 _v6 = DF64Vec2(vec2(_lc0.x, _lc1.x), vec2(_lc0.y, _lc1.y));
   vec2 _cse7 = vec2(u.st_a.hi.x, u.st_a.lo.x);
-  vec2 _cse8 = vec2(0.0, 0.0);
+  float _cse12 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse8 = vec2(_cse12, _cse12);
   vec2 _cse3 = df64_add(_cse7, _cse8);
   vec2 _cse9 = vec2(u.st_a.hi.y, u.st_a.lo.y);
   vec2 _cse4 = df64_add(_cse9, _cse8);

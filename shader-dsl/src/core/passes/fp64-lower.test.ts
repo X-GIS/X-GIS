@@ -85,8 +85,15 @@ describe('rewrite shapes', () => {
     // df64_div/df64_sub cancel on it — the #915 loaded-lo defense, as for fract):
     // `a` is laundered through df64_add(a, 0) before it reaches sin/cos (the CSE
     // shares the one renorm between the two calls).
+    //
+    // The zero is spelled through the optBarrier bitcast round-trip, not as a bare
+    // `0.0` — a literal there is foldable, and `opt/member-fold.ts` resolving it back
+    // out of the vec2 is what deletes the twoSum this renorm exists to run. Both
+    // components CSE to one binding.
     const wgsl = emitModule(module({ funcs: [k] }))
-    expect(wgsl).toContain('df64_add(a, vec2<f32>(0.0, 0.0))')
+    expect(wgsl).toMatch(/let (\w+) = bitcast<f32>\(bitcast<u32>\(0\.0\)\);/)
+    const zero = /let (\w+) = bitcast<f32>\(bitcast<u32>\(0\.0\)\);/.exec(wgsl)![1]!
+    expect(wgsl).toContain(`df64_add(a, vec2<f32>(${zero}, ${zero}))`)
     expect(wgsl).toMatch(/\bdf64_sin\(/)
     expect(wgsl).toMatch(/\bdf64_cos\(/)
   })

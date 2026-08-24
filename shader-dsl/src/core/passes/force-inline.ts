@@ -34,17 +34,30 @@
 // `volatile` rule: inlining a function does not make a volatile expression inside it
 // foldable. `force-inline.test.ts` pins it.
 //
-// WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE, measured rather than assumed.
-// `renormForCancel` (fp64-lower.ts) launders a LOADED lo into a computed one by adding a
-// df64 ZERO ahead of a cancelling op, and it is spelled as a df64_ call precisely so the
-// optimizer cannot fold it (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that
-// spelling, so what holds afterwards was checked directly: the zero reaches the add as
-// `_cseN.y`, a member of a CSE-hoisted LET, so deleting the add would take BOTH
-// construct-propagation into the member AND member-of-construct folding (gcc's scalar
-// replacement of aggregates). Neither pass exists here; adding member-of-construct folding
-// alone was tried against the flattened output and changed nothing. The ONE is a texel
-// fetch, which nothing folds at all. If both passes are ever written, the df64 zero wants
-// a real barrier (`optBarrier`) rather than the shape it happens to have.
+// WHAT PROTECTS THE RENORM AFTER ITS CALL IS GONE. `renormForCancel` (fp64-lower.ts)
+// launders a LOADED lo into a computed one by adding a df64 ZERO ahead of a cancelling
+// op, and it is spelled as a df64_ call precisely so the optimizer cannot fold it
+// (#915 — Apple sub, Blackwell WebGL2 div). Inlining removes that spelling, so the
+// protection has to come from the ADDEND instead.
+//
+// It now does, BY CONSTRUCTION: the zero is `vec2(optBarrier(0), optBarrier(0))`, a
+// bitcast round-trip no fold can see through. It used to be a bare `vec2(0, 0)`, and
+// what held then was an ACCIDENT — the zero reached the add as `_cseN.y`, a member of a
+// CSE-hoisted let, and no pass folded a member of a construct. `opt/member-fold.ts` is
+// now exactly that pass, and it was measured breaking the guard before the barrier
+// landed: `_cseN.y` resolves to the literal `0.0`, const-prop carries it into the
+// twoSum's `s = a + 0`, and the pre-existing `x + 0 -> x` identity deletes the add. On
+// the a/b division kernel that is 408 arithmetic ops -> 400, while the `_fp64` texel
+// read SURVIVES (1 -> 1) — so a gate that only checks the guard binding passes straight
+// through it. Two things catch it now: the op-count ratchet below, and the cut in
+// `opt/member-fold.test.ts` that strips the barrier and requires the drop to reappear.
+//
+// THIS PASS APPLIES THAT FOLD, and is the only thing that does — it is not in O2. The
+// round-trips it removes live inside df64 helper bodies, so the default emit has exactly
+// zero of them and wiring it there would perturb every snapshotted byte for nothing. Here
+// it fires 2,632 times on the flattened example corpus (31 under 'size-win') and takes it
+// from 15,303 arithmetic ops to 14,619 — the single largest remaining gcc -O2 gap, closed
+// where it actually exists.
 //
 // WHAT NEITHER STRENGTH CAN PROMISE. The barrier question this reopens is a DRIVER
 // question, and a correctly-rounded CPU oracle (and SwiftShader) is structurally blind
@@ -53,7 +66,7 @@
 // flavour flat does not change that.
 
 import type { ModuleDecl, Expr } from '../ir/index.js'
-import { mapStmt, deadFnElim } from './opt/index.js'
+import { mapStmt, deadFnElim, memberFold } from './opt/index.js'
 import { inlineLinearAll } from './inline-linear.js'
 
 /** How far {@link forceInline} unlocks `FuncDecl.opaque`.
@@ -86,7 +99,7 @@ export function forceInline(m: ModuleDecl, strength: ForceInlineStrength = 'size
   if (strength === 'all') {
     const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) }
     const inlined = inlineLinearAll(opened)
-    return inlined === opened ? m : deadFnElim(inlined)
+    return inlined === opened ? m : deadFnElim(memberFold(inlined))
   }
 
   // 'size-win': unlock only the single-call helpers, and re-lock the survivors. Removing
@@ -115,7 +128,7 @@ export function forceInline(m: ModuleDecl, strength: ForceInlineStrength = 'size
   // own identity contract, one level up).
   if (!moved) {
     const plain = inlineLinearAll(cur)
-    return plain === cur ? m : deadFnElim(plain)
+    return plain === cur ? m : deadFnElim(memberFold(plain))
   }
-  return deadFnElim(cur)
+  return deadFnElim(memberFold(cur))
 }
