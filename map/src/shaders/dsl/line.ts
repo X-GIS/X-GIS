@@ -204,6 +204,10 @@ const TILE = uniformStruct(
     _pad_tile_ecef_center_l: vec4fT,
     _pad_cam_ecef_center_h: vec4fT,
     _pad_cam_ecef_center_l: vec4fT,
+    // #2042 INC-6 — mirror polygon Uniforms' appended Mercator anchors
+    // (tile_origin_merc_hl / cam_merc_center_hl). SIZE-only, same as above.
+    _pad_tile_origin_merc_hl: vec4fT,
+    _pad_cam_merc_center_hl: vec4fT,
   },
 )
 

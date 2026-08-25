@@ -16,7 +16,8 @@
 // the INC-4 shader will read.
 //
 // Field-by-field provenance (all copied from polygonU, same semantics):
-//   tile_origin_merc   — worldOff-shifted tile origin (Mercator m); PER COPY.
+//   tile_origin_merc_hl — worldOff-shifted tile origin (Mercator m, hi/lo);
+//                        PER COPY.
 //   tile_extent_m      — tile extent (Mercator m at the equator).
 //   tile_dequant_scale — quantised-vertex dequant scale.
 //   tile_dequant_half  — quantised-vertex dequant half-range.
@@ -29,19 +30,22 @@
 // (`_pad0` keeps the three dequant scalars + extent on one 16-byte row —
 //  reflect-derived like every layout in this repo, never a literal offset.)
 
-import { uniformStruct, vec2fT, vec4fT, f32T } from '@xgis/shader-dsl'
+import { uniformStruct, vec4fT, f32T } from '@xgis/shader-dsl'
 
 export const tileBlockU = uniformStruct(
   'TileBlock',
   { group: 0, binding: 7, as: 'tile' },
   {
-    tile_origin_merc: vec2fT,
+    // #2042 INC-6 — the worldOff-shifted tile origin as a DSFUN hi/lo pair
+    // (.xy hi, .zw lo): the split's flat-arm recombination needs the low
+    // bits the legacy single-f32 tile_origin_merc lane lacks. The legacy
+    // lane retires with the rebind; this pair (its .xy IS that value) is
+    // the TileBlock representation from day one.
+    tile_origin_merc_hl: vec4fT,
     tile_extent_m: f32T,
     tile_dequant_scale: f32T,
     tile_dequant_half: f32T,
     _pad0: f32T,
-    _pad1: f32T,
-    _pad2: f32T,
     clip_bounds: vec4fT,
     tile_ecef_center_h: vec4fT,
     tile_ecef_center_l: vec4fT,
