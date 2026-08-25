@@ -70,6 +70,24 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
    `(slice, tileKey, copy, clipTarget)`; write at upload; free on evict (hook beside
    the existing arena-compaction bundle-invalidate seam). Gate: allocator unit suite +
    leak assert (alloc count == live tiles) + full render gates.
+   _Implementation notes (as landed):_
+   - **clipTarget resolved by EXCLUSION, not by key.** A fallback-clip draw's
+     `clip_bounds` depends on WHICH visible descendant clips it (`visibleKey`) — an
+     unbounded draw-time key space, not a binary lane. Clipped draws therefore keep
+     the per-frame ring slot permanently; the arena covers UNCLIPPED draws only and
+     its `clip_bounds` lane is always the −1e30 sentinel. (The original
+     "(fallback, visible)-PAIR static" self-critique underestimated the fan-out: one
+     parent can clip to N descendants in one frame.)
+   - **Free seam = the existing `${tileKey}:${sourceLayer}` release hook** VTR already
+     injects into every GpuTileStore evict/drop/supersede path — zero store changes.
+     `resetForReupload` (which bypasses the hook) pairs with a wholesale `resetAll()`.
+   - **Write at first unclipped draw**, not upload: worldCopy is a draw-time fact.
+     Lanes cover copies −2..+2; an exotic copy returns −1 and stays on the ring.
+   - **WebGPU main path only** for now; the WebGL2 twin's write-volume win is
+     re-decided at INC-4 (no retained-command consumer there).
+   - `tileBlockU` (map/src/shaders/dsl/tile-block.ts, group 0 binding 7 reserved) is
+     the single layout authority; `tile-uniform-arena.test.ts`'s parity suite pins its
+     bytes equal to the same-named polygonU lanes, making INC-4 a pure rebind.
 3. **INC-3 — ShowBlock.** `showIdx × slotSize` addressing; per-frame writes = shows
    only. Gate: zoom-interp paint tests (vtr-continuous-zoom family) + §5.
 4. **INC-4 — draw path rebind + key simplification.** Bind the three ranges; delete

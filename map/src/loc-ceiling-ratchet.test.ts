@@ -252,7 +252,12 @@ const CEILINGS: Record<string, number> = {
   // anchor staging (one helper, three per-tile call sites) + the §5 witness
   // skew hook, behind the __XGIS_RTC_RECOMBINE flag. Shrinks back at INC-4/5
   // when the legacy cam_ecef_off writes and the per-tile re-walk retire.
-  'map/src/render/vector-tile-renderer.ts': 5128,
+  // 5128→5172 (#2042 INC-2): TileUniformArena wiring — the field + release-
+  // hook line + the per-tile ensureSlot call + the sliceLayer trailing param
+  // threaded through six renderTileKeys call sites + flush/reset/destroy
+  // pairing. The arena itself lives in tile-uniform-arena.ts (180 LOC, its
+  // own file); this is only the seam. Shrinks at INC-5 with the re-walk.
+  'map/src/render/vector-tile-renderer.ts': 5172,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
