@@ -1216,7 +1216,11 @@ const CEILINGS: Record<string, number> = {
   // The arm closes over base/isStart/sego, so it lives with the VS builder
   // rather than extracting; the growth is comment-heavy by design — a wrong
   // justification here is what a later reader would build on.
-  'map/src/shaders/dsl/line.ts': 1641,
+  // 1641→1651: the measured before/after (1.17e3 m → 2.1e-1 m, from
+  // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
+  // PACKED while the shader recombines in f32 — the distinction a later reader
+  // would otherwise have to rediscover from a failing tolerance.
+  'map/src/shaders/dsl/line.ts': 1651,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio

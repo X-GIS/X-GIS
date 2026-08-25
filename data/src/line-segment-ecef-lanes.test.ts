@@ -17,6 +17,14 @@ const verts2f32 = (v: number[]): Float32Array => new Float32Array(v)
 // EXTENDED endpoint the Mercator slots describe, not the pre-bridge input).
 // Inputs are shaped like the real caller's (stride-10 DSFUN tile-local, a
 // real z2 Korea tile origin) — not offset-0 toys (§12).
+//
+// SCOPE, precisely: these assertions reconstruct `hi + lo` in JS f64, which is
+// exact, so what they validate is the PACKING. The shader recombines the same
+// pair in f32, whose floor is the ulp at the RTC magnitude (~1 m on a z2 parent,
+// ~0.15 mm at z14) — the same recombination the polygon fill arm performs, which
+// is why fill and stroke stay registered to each other. That GPU-side half is
+// covered by playground/e2e/_line-ecef-lane-parity.spec.ts; do not read a
+// sub-µm result here as a claim about what the GPU reconstructs.
 
 const { A, E2 } = WGS84
 

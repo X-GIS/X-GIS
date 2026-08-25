@@ -267,6 +267,7 @@ test.describe('#2089 line ECEF lanes — GPU corner ≡ CPU f64 truth', () => {
       Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!)
 
     let worstEndpointNew = 0
+    let worstUlpBound = 0
     let worstEndpointOld = 0
     let worstCornerExcess = 0
     let worstCornerLabel = ''
@@ -275,6 +276,9 @@ test.describe('#2089 line ECEF lanes — GPU corner ≡ CPU f64 truth', () => {
       const gpuNew = [res.out[o]!, res.out[o + 1]!, res.out[o + 2]!]
       const gpuOld = [res.out[o + 3]!, res.out[o + 4]!, res.out[o + 5]!]
       const m = meta[i]!
+      const rtcMag = Math.hypot(...endpointTruth[i]!)
+      const ulpBound = 2 * Math.pow(2, Math.floor(Math.log2(Math.max(rtcMag, 1))) - 23)
+      worstUlpBound = Math.max(worstUlpBound, ulpBound)
       if (m.offLen === 0) {
         // ENDPOINT: the registration claim. NEW must be the f64 truth (it IS the
         // lanes); OLD carries the f32 chain's error at the same point.
@@ -295,20 +299,32 @@ test.describe('#2089 line ECEF lanes — GPU corner ≡ CPU f64 truth', () => {
       }
     }
 
-    // The migration's whole claim, in one number: the endpoint is the f64 truth.
+    // The endpoint bound is DERIVED, and deriving it corrected a claim: the
+    // lanes are f64-exact as PACKED, but the shader recombines them as an f32
+    // `h + l`, so the reachable precision is the f32 ulp AT THE RTC MAGNITUDE —
+    // 1 m on this z2 parent (|rtc| ≈ 3.5e6 m), ~0.15 mm on a z14 tile. That is
+    // the same discipline the polygon fill arm uses (`pos_h + pos_l`), which is
+    // exactly the point: fill and stroke carry the SAME residual, so they stay
+    // registered to each other. An earlier draft of this gate asserted 1 mm and
+    // failed at 0.21 m — the assertion was unphysical, not the code.
     expect(
       worstEndpointNew,
-      `#2089 lane endpoint drifted from f64 truth: ${worstEndpointNew.toExponential(3)} m`,
-    ).toBeLessThan(1e-3)
+      `#2089 lane endpoint drifted beyond the f32 recombination ulp: ${worstEndpointNew.toExponential(3)} m > ${worstUlpBound.toExponential(3)} m`,
+    ).toBeLessThanOrEqual(worstUlpBound)
 
     // TEETH — the arm this replaced is measurably displaced at the SAME points,
     // so a shader that quietly went back to re-deriving cannot pass this file.
     // (SwiftShader's transcendentals make this far larger; the bound is set to
     // hold on real hardware too, where the f32 input ulp alone is ~1 m.)
+    // TEETH, as a RATIO so the claim scales with the fixture rather than being a
+    // number someone has to re-tune: the arm this replaced must be orders worse
+    // at the same points. Measured here (SwiftShader, z2 parent): 1.17e3 m vs
+    // 2.1e-1 m — a factor of ~5500. On real hardware the old arm's floor is the
+    // f32 input ulp (~1 m), still far outside the new arm's ulp bound.
     expect(
       worstEndpointOld,
-      `pre-#2089 arm should be displaced at the endpoint (gate has no teeth): ${worstEndpointOld.toExponential(3)} m`,
-    ).toBeGreaterThan(0.1)
+      `pre-#2089 arm should be displaced at the endpoint (gate has no teeth): old=${worstEndpointOld.toExponential(3)} m vs new=${worstEndpointNew.toExponential(3)} m`,
+    ).toBeGreaterThan(Math.max(50 * worstEndpointNew, 0.5))
 
     // The documented approximations, held to their own closed form.
     expect(
@@ -317,8 +333,9 @@ test.describe('#2089 line ECEF lanes — GPU corner ≡ CPU f64 truth', () => {
     ).toBeLessThanOrEqual(0)
 
     console.log(
-      `[lane-parity] endpoint new=${worstEndpointNew.toExponential(2)} m, old=${worstEndpointOld.toExponential(2)} m, ` +
-        `corner worst-excess=${worstCornerExcess.toExponential(2)} m (software=${SOFTWARE_GPU})`,
+      `[lane-parity] endpoint new=${worstEndpointNew.toExponential(2)} m (ulp bound ${worstUlpBound.toExponential(2)}), ` +
+        `old=${worstEndpointOld.toExponential(2)} m, corner worst-excess=${worstCornerExcess.toExponential(2)} m ` +
+        `(software=${SOFTWARE_GPU})`,
     )
   })
 })

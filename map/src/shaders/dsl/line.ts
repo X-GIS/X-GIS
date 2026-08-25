@@ -1131,6 +1131,16 @@ export const vsLine = fn(
     // RADIUS (δφ · 6.4e6 m — up to ~512 m of position error); the new form
     // multiplies the SAME δφ only by |off|, the corner offset. That change of
     // multiplicand, not any change of formula, is the whole migration.
+    // MEASURED end-to-end by _line-ecef-lane-parity.spec.ts on the #2053 z2
+    // parent (SwiftShader): endpoint error 1.17e3 m before, 2.1e-1 m after.
+    //
+    // What the lanes do NOT buy, stated so nobody claims it later: the values are
+    // f64-exact as PACKED, but this shader recombines them as an f32 `h + l`, so
+    // the floor is the f32 ulp AT THE RTC MAGNITUDE — ~1 m on a z2 parent,
+    // ~0.15 mm at z14. That is the same recombination the polygon fill arm does
+    // (`pos_h + pos_l`), and the sameness is the point: fill and stroke carry the
+    // identical residual, so they stay registered to each other, which is the
+    // property #2053 is about.
     //
     // The corner OFFSET (join/miter/cap/width math — tile-local Mercator metres,
     // unchanged) rides an ENU tangent-plane rotation at the endpoint: physical
