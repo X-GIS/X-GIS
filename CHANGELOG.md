@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 0ffea948ddbad98f442c62ca951a6b27d4168c6a
+  Generated from: d9e1a1212641d3fdb655b002cee536a310ee0443
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 0ffea948ddba
+    bun scripts/emit-changelog.ts --since d9e1a1212641
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** #2042 INC-5 — walk-skip: arena-resident tiles bypass the per-tile pack ([#2083](https://github.com/X-GIS/X-GIS/pull/2083)) `d9e1a12`
 - **compiler:** CJK vertical P1 — text-writing-mode wires to LabelDef.writingMode, zero pixels (#2051) ([#2078](https://github.com/X-GIS/X-GIS/pull/2078)) `0ffea94`
 - **compiler/convert:** emit raster-dem encoding (+ custom unpack factors) — the one missing hop (#2003) ([#2066](https://github.com/X-GIS/X-GIS/pull/2066)) `bbc58f0`
 - **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
