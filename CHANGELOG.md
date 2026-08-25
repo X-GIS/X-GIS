@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 4f9af247520d9ada02793edfa986bdd04b1e9209
+  Generated from: 0bf3cd0ad9378146466e2cdb482a1b70cd54b27b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 4f9af247520d
+    bun scripts/emit-changelog.ts --since 0bf3cd0ad937
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **line:** position the globe line VS from CPU-exact ECEF endpoint lanes ([#2089](https://github.com/X-GIS/X-GIS/pull/2089)) `0bf3cd0`
 - **map/text:** D1 INC-4 — curved line labels walk the label plane and draw through a pivoted ground basis (#2012) ([#2092](https://github.com/X-GIS/X-GIS/pull/2092)) `65b1319`
 - **map:** #2042 INC-5b — ring-free bundle keys drop the live ringCursor for a sentinel ([#2098](https://github.com/X-GIS/X-GIS/pull/2098)) `e26ba5d`
 - **map:** #2042 INC-4d — per-style fill split twins (the compiled-style class) ([#2090](https://github.com/X-GIS/X-GIS/pull/2090)) `11b23e4`
