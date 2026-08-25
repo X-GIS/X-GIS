@@ -119,4 +119,20 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
       .sort((a, b) => a - b)
     expect(bindings).toEqual([0, 1, 2, 4, 5, 6])
   })
+
+  it('#2042 INC-4b — split-bind layout: Tile(7) + Show(10) dynamic, Frame(11) plain, no legacy overlap', () => {
+    const entries = FrameRenderer.SPLIT_FILL_LAYOUT_ENTRIES
+    // Declaration ORDER is load-bearing, not just the set: recordFillDraw
+    // passes [tileOff, showOff] and WebGPU applies dynamic offsets in
+    // INCREASING BINDING order — a renumber that breaks 7 < 10 silently
+    // swaps the two offsets under every split draw.
+    expect(entries.map((e) => e.binding)).toEqual([7, 10, 11])
+    expect(entries.map((e) => e.buffer?.hasDynamicOffset === true)).toEqual([true, true, false])
+    expect(entries.every((e) => e.buffer?.type === 'uniform')).toBe(true)
+    // The split family must never collide with (or edit) the shared legacy
+    // layouts — the INC-4 recon corollary that keeps the 18 legacy
+    // bind-group sites untouched.
+    const legacy = new Set(FrameRenderer.getFeatureLayoutEntries().map((e) => e.binding))
+    for (const e of entries) expect(legacy.has(e.binding), `binding ${e.binding}`).toBe(false)
+  })
 })

@@ -33,6 +33,7 @@ import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
 import { TileUniformArena } from './tile-uniform-arena'
+import { UniformSplitBind } from './uniform-split-bind'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import {
   recordFillDraw,
@@ -325,6 +326,11 @@ export class VectorTileRenderer {
    *  _releaseTileHook. Nothing binds them until INC-4. Lazy device provider —
    *  `this.rhi` is assigned in the ctor body, after field initializers. */
   private readonly _tileUniforms = new TileUniformArena(() => this.rhi)
+  /** #2042 INC-4b — the split-bind write path (show arena + frame block +
+   *  the native three-range bind group). Constructed in the ctor body (needs
+   *  ctx.device); null until then, and inert until setFillRhi hands it the
+   *  factory's split layout (which only exists under __XGIS_SPLIT_BIND). */
+  private _splitBind: UniformSplitBind | null = null
   /** #599 I2 — dedicated pack block for bakeTileToTexture so the mid-render bake
    *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
    *  the same show's stroke draw reads after the drape). */
@@ -460,6 +466,15 @@ export class VectorTileRenderer {
     // #717 dual-instance mirror; released in destroy(). See fill-rhi-slot.ts.
     mirrorFillRhi(state)
     this._fillRhi = state
+    // #2042 INC-4b — hand the factory's split layout to the bind path.
+    if (state?.split) this._splitBind?.setLayout(state.split.layout)
+  }
+
+  /** #2042 INC-4b — a split-range buffer was (re)created: retire the split
+   *  bind group and every recorded bundle (stale-capture UAF class). */
+  private _onSplitRebind(): void {
+    this._splitBind?.invalidateBindGroup()
+    this.bundleCache.invalidateAll()
   }
 
   /** Data-driven feature buffer + per-tile feature bind groups + compute
@@ -482,6 +497,19 @@ export class VectorTileRenderer {
     this.rhi = ctx.rhi
     this._store = new GpuTileStore(ctx.device, ctx.rhi)
     this._bindGroups = new BindGroupRegistry(ctx.device)
+    // #2042 INC-4b — split-bind write path + the single rebind wire: either
+    // arena's buffer (re)creation retires the split bind group AND every
+    // recorded bundle (a bundle baked against a retired buffer must never
+    // replay). unwrapBuffer is only reached when a split layout exists,
+    // which the factory builds on WebGPU alone — never on the WebGL2 boot.
+    this._splitBind = new UniformSplitBind(
+      () => this.rhi,
+      this._tileUniforms,
+      ctx.device,
+      (b) => (this.rhi as WebGpuDevice).unwrapBuffer(b),
+      () => this._onSplitRebind(),
+    )
+    this._tileUniforms.setOnGrow(() => this._onSplitRebind())
     // Renderer-side GPU upload pipeline (priority queue + per-frame cap +
     // stale-cancel + the SINGLE sync/async tile-upload dispatch body). Holds
     // no VTR back-reference — every dependency arrives through this host
@@ -1809,6 +1837,11 @@ export class VectorTileRenderer {
     // Bounded: the retired pool tops out at log2(maxCap) buffers (a
     // handful, ~MB-scale transient).
     this.uniformRing?.takeRetired()
+    // #2042 INC-4b prep — the tile arena's grow-retired buffers follow the
+    // same drop-refs discipline (same bind-group-capture hazard, same log2
+    // bound); without this drain the arena pins every outgrown buffer forever.
+    this._tileUniforms.takeRetired()
+    this._splitBind?.takeRetired()
     // Tile-buffer eviction is DEFERRED to the start of the next frame.
     // The bucket scheduler calls render() multiple times per frame, so an
     // eviction in call N could destroy buffers still bound by encoded-but-
@@ -2006,6 +2039,16 @@ export class VectorTileRenderer {
     B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
     B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
     B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
+    // #2042 INC-6 — the flat-arm Mercator anchors (.xy hi, .zw lo; same
+    // flag, same skew witness — the skew moves flat geometry iff the
+    // Mercator recombination is live, mirroring the ECEF witness on globe).
+    B.set.tile_origin_merc_hl(
+      anchor.tileMercXH + skew,
+      anchor.tileMercYH,
+      anchor.tileMercXL,
+      anchor.tileMercYL,
+    )
+    B.set.cam_merc_center_hl(anchor.camMercXH, anchor.camMercYH, anchor.camMercXL, anchor.camMercYL)
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given
@@ -2026,6 +2069,8 @@ export class VectorTileRenderer {
     // #2042 INC-2 — persistent TileBlock slots ride the same flush cadence
     // (no-op when no tile was newly packed since the last call).
     this._tileUniforms.flush()
+    // #2042 INC-4b — ShowBlock slots likewise (no-op unless split draws ran).
+    this._splitBind?.flush()
   }
 
   /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
@@ -2263,6 +2308,7 @@ export class VectorTileRenderer {
 
     this.uniformRing?.destroy()
     this._tileUniforms.destroy()
+    this._splitBind?.destroy()
     this.uniformRing = null
     // #599 I3 — free the globe vector-drape baked-fill textures.
     this._drape?.destroy()
@@ -4442,6 +4488,9 @@ export class VectorTileRenderer {
      *  depth-tested, colour-REPLACE draw into the shell pass's offscreen target
      *  instead of the per-draw front-shell pair. */
     extrudeShell = false,
+    /** #2042 INC-4b — the resolved split-bind draw (three-range bind group +
+     *  [tile, show] dynamic offsets); null keeps the legacy single-block bind. */
+    splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null,
   ): void {
     if (this._skipFillDrawForBundle) return
     // DIAGNOSTIC ONLY — `window.__xgisMaxTiles` caps the actual fill DRAWS per
@@ -4470,6 +4519,7 @@ export class VectorTileRenderer {
       bindZBuffer,
       translucentFrontShell,
       extrudeShell,
+      splitBind,
     )
   }
 
@@ -5050,6 +5100,37 @@ export class VectorTileRenderer {
           : useExtrudedPipe
             ? fillPipelineExtruded!
             : fillPipeline
+        // #2042 INC-4b — resolve the split-bind draw for a qualifying fill:
+        // default flat fill (not extrude / overdraw), unclipped, arena-
+        // resident world copy. The span-copy write path lifts the show/frame
+        // lanes from the live legacy frameBlock bytes (byte-parity by
+        // construction — the same packer wrote them); recordFillDraw routes
+        // the draw through the split twins when non-null. Deliberately NOT
+        // gated on _skipFillDrawForBundle: a replayed bundle's split draws
+        // read these buffers, so the per-frame content refresh must run
+        // whether or not new commands are recorded.
+        let splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null
+        if (
+          this._fillRhi?.split &&
+          this._splitBind &&
+          !useExtrudedPipe &&
+          visibleKey < 0 &&
+          sliceLayer !== '' &&
+          !isOverdrawActive(this.rhi.caps)
+        ) {
+          const tileOff = this._tileUniforms.offsetOf(sliceLayer, key, worldOff)
+          if (tileOff >= 0) {
+            const showOff = this._splitBind.syncShow(
+              this.frameBlock.buffer,
+              sliceLayer,
+              this.currentPickId & 0xffff,
+              this.frameCount,
+            )
+            this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+            const bg = this._splitBind.bindGroup()
+            if (bg) splitBind = { bg, tileOff, showOff }
+          }
+        }
         // Bundle-compatible draw recording extracted to `recordTileFill`.
         // The 6 GPU commands below (setPipeline, setBindGroup,
         // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
@@ -5074,6 +5155,7 @@ export class VectorTileRenderer {
               !isOverdrawActive(this.rhi.caps) &&
               this._extrudeTranslucentFrontShell,
             /* extrudeShell */ isOitFill && useExtrudedPipe,
+            splitBind,
           )
         }
       }

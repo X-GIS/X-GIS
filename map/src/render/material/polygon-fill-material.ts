@@ -82,6 +82,18 @@ export interface FillRhiState {
     extrudedWrite: RhiPipelineHandle
     extrudedTest: RhiPipelineHandle
   } | null
+  /** #2042 INC-4b — the split-bind (Frame/Show/Tile) twins of the DEFAULT
+   *  flat/ground pair, built from the derived split module against the
+   *  factory's split layout (bindings 7/10/11; behind `__XGIS_SPLIT_BIND`).
+   *  When present AND the caller resolved a split draw (arena-resident
+   *  offsets + bind group), recordFillDraw executes these twins instead of
+   *  flat/ground — same variant, `[tileOff, showOff]` dynamic offsets.
+   *  null = every draw keeps the legacy single-block path. */
+  split: {
+    flat: Material
+    ground: Material
+    layout: GPUBindGroupLayout
+  } | null
 }
 
 export interface FillMaterialInputs {
@@ -551,6 +563,12 @@ export function recordFillDraw(
    *  Mutually exclusive with `translucentFrontShell` — the shell IS the
    *  layer-wide form of that two-draw, so running both would blend twice. */
   extrudeShell = false,
+  /** #2042 INC-4b — the split-bind draw, resolved by the caller: the native
+   *  three-range bind group + the [tile, show] dynamic offsets (ascending
+   *  binding order 7 < 10; frame binds plain at 11). Non-null ONLY for a
+   *  qualifying draw (default flat fill, unclipped, arena-resident copy);
+   *  ignored unless the matched twin is the default flat/ground pair. */
+  splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null,
 ): void {
   // #717 — the draw-side VTR instance can have _fillRhi still null (the site's Astro island splits
   // the VTR module: setFillRhi(present) lands on one instance, the draw runs on another). Recover
@@ -682,6 +700,27 @@ export function recordFillDraw(
         },
         count: cached.indexCount,
         indexed: true,
+      }
+      // #2042 INC-4b — the split-bind rebind: a qualifying default flat/ground
+      // fill executes the SPLIT twin (FrameBlock 11 / ShowBlock 10 / TileBlock 7)
+      // instead of the legacy single-block twin — same variant/stencil family,
+      // same geometry, different uniform addressing. Gated to the default pair:
+      // per-style, pattern, and extrude twins keep the legacy path (the INC-4b
+      // first-slice scope). The two diag counters keep the total honest AND
+      // give the §5 gate its executed-mechanism witness.
+      if (splitBind && eff.split && !bindZBuffer && (mat === eff.flat || mat === eff.ground)) {
+        const sMat = mat === eff.flat ? eff.split.flat : eff.split.ground
+        const draws = executeItems(sMat, rhiPass, [
+          {
+            ...item,
+            bindGroups: [wrapWebGpuBindGroup(splitBind.bg)],
+            dynamicOffsets: [[splitBind.tileOff, splitBind.showOff]],
+          },
+        ])
+        const gs = globalThis as { __xgisVtrSplitDraws?: number }
+        gs.__xgisVtrSplitDraws = (gs.__xgisVtrSplitDraws ?? 0) + draws
+        g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + draws
+        return
       }
       let draws: number
       if (extrudeShell) {

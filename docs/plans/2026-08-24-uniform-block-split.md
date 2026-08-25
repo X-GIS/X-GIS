@@ -108,6 +108,79 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
    keep the alloc-count invariant one release as a canary, then retire it. Gate:
    `_bundle-replay-parity-gate` (unchanged — it is layout-blind) + the fail-before
    probe re-run to show the invariant is now unreachable-by-construction.
+   _Re-sliced after the descriptor-surface recon (verified facts on #2042):_
+   - **INC-4a (landed) — split-mode emit by IR DERIVATION.** The polygon entry
+     functions are top-level consts whose IR builds once at import (module-scope
+     eagerness), so a mode variable cannot reach them; instead
+     `polygon-split.ts` derives the split module FROM the assembled legacy module:
+     rewrite `member(bindingRef('u'), f)` chains and compiler-spliced dotted
+     `varref`s (`u.zoom`) by the partition (destination sets read from the three
+     block declarations — no second authority), swap the struct + binding decls,
+     and rewrite the RETIRED lanes to their derived equivalents (`cam_ecef_off_*`
+     → anchors-difference with the relocated `.w` flag from ShowBlock; `cam_h/l`
+     → Mercator recombination; `tile_origin_merc` → `_hl.xy`) so the legacy
+     flag-selects survive with BOTH arms equivalent — correct under either flag,
+     no fragile select-matching. Unmapped `u` reads THROW at build. Gates:
+     structure suite (no `u.` survivor, three blocks at 11/10/7, legacy leak-free)
+     - Tint compile of the split module in `_wgsl-compile-gate`. WGSL-only by
+       scope; nothing binds it yet.
+   - **INC-4b — split pipeline family behind `__XGIS_SPLIT_BIND`.** NEW layouts +
+     pipelines (never edits to the shared `mr-*BindGroupLayout`s — those drag in
+     every MapRenderer bind-group site), split bind groups in
+     bind-group-registry/feature-data-binder with the tile-arena onGrow →
+     rebuild + bundle-invalidate hook, Show/Frame write paths, `[tileOff,
+showOff]` threading through `recordFillDraw` (ascending 7 < 10 < 11 keeps
+     WebGPU's offset-order rule trivial), §5 legacy-vs-split A/B. Strokes keep
+     ring staging transitionally (line shader legacy).
+
+     IMPLEMENTED (PR pending): the write path is a **span-copy, not a re-pack**
+     (`uniform-split-bind.ts`): at the first qualifying draw per frame the
+     frame-class lanes are COPIED from the live legacy `frameBlock` bytes into
+     a plain 512-B FrameBlock buffer, and per show into a persistent
+     `show-uniform-arena` slot (slot per `pickId & 0xffff`, refreshed once per
+     frameCount) — byte-parity by construction since the SAME packer wrote the
+     source; the span tables derive from the block declarations' reflected
+     offsets (relocated flag lanes read the retiring vec4s' `.w` bytes).
+     Factory half: `SPLIT_FILL_LAYOUT_ENTRIES` (7 dyn / 10 dyn / 11 plain,
+     drift-test-pinned; hasDynamicOffset is inexpressible through the RHI
+     reflect adapter, so the layout is native) + split flat/ground twins built
+     from `emitPolygonSplitWgsl` via the ordinary `buildFlatFillMaterials`,
+     surfaced as `FillRhiState.split`. Draw half: `recordFillDraw` executes the
+     split twin when the caller resolved arena residency AND the matched twin
+     is the default flat/ground pair — per-style, pattern, extrude, and
+     clip-fallback draws keep the legacy bind (first-slice scope). The
+     `_skipFillDrawForBundle` replay still runs the sync block, so replayed
+     bundles read refreshed split content (the same discipline that keeps ring
+     slots fresh under replay). Witnesses: `__xgisVtrSplitDraws` counter +
+     `__XGIS_SPLIT_BIND_SKEW` (inverts the staged ShowBlock fill colour) in
+     `_split-bind-parity-gate.spec.ts` (4 arms: legacy / split / split+skew
+     must move / legacy+skew must be inert).
+
+     TWO REAL DEFECTS the gate caught before first green (both now unit-pinned):
+     1. **Show-slot aliasing** — a data-driven paint lowered on the CPU
+        (demotiles countries-fill `match()`) fans ONE style layer into
+        per-filter-bucket sub-shows that share the layer's pickId but carry
+        different fill colours; keyed on `pickId & 0xffff` alone, the first
+        bucket's copy stamped the frame and every bucket drew its colour.
+        Show identity is now (sliceLayer, pickId) — the slice key carries the
+        filter hash (uniform-split-bind.test.ts pins the aliasing).
+     2. **Rewrite-walker identity break** — the first `rewriteExprsInFunc`
+        (mapStmt/mapExpr composition) cloned shared Expr objects per
+        OCCURRENCE; the optimizer's auto-var pass correlates a mutable
+        value's declaration/assignments/reads by OBJECT IDENTITY (its header
+        says so), so one shared position var fissioned into `_av0.._av4`,
+        every read collapsed to the zero initializer, and split vertices all
+        landed at (0,0,0,0) — valid draws, EMPTY frames, no validation
+        error, and the ShowBlock-skew witness read ZERO pixels (which is the
+        witness doing its job: it refused to certify a dead read). The
+        walker now guarantees identity by construction (unchanged subtrees
+        return the ORIGINAL objects; a changed shared subtree maps to ONE
+        new object via a per-function memo) — rename-varrefs.test.ts pins
+        the contract, polygon-split-emit.test.ts pins the derived module's
+        auto-var count equal to legacy's.
+
+   - **INC-4c — line split, then the walk deletion + `ringCursor` retirement
+     move to INC-5 as planned.**
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
    ~0.19 toward the selection+key floor; record on #1190 and re-scope the issue.
 6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`

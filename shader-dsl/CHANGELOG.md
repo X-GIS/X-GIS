@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: f4a767d6efd3168b08aaee4951cddde7aa37a810
+  Generated from: 2536fd733c8c5215d637b42738b1f98b871ebd75
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since f4a767d6efd3
+    bun scripts/emit-changelog.ts --path shader-dsl --since 2536fd733c8c
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,9 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **map/shader-dsl:** #2042 INC-4b — split-bind fill family behind __XGIS_SPLIT_BIND ([#2070](https://github.com/X-GIS/X-GIS/pull/2070)) `2536fd7`
+- **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
+- **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
 - unlock fp64 inlining — barrier the renorm zero, ship the member-of-construct fold, and expose it on the site ([#1972](https://github.com/X-GIS/X-GIS/pull/1972)) `22889e6`
 - **shader-dsl:** optBarrier, forceInline, and the gcc -O2 identity gap ([#1969](https://github.com/X-GIS/X-GIS/pull/1969)) `510010f`
 - **shader-dsl:** the webgpu tier of createComputeRunner ([#1957](https://github.com/X-GIS/X-GIS/pull/1957)) `09dcb28`
