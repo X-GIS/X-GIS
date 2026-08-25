@@ -1,6 +1,6 @@
-// ═══ forceInline compile gate: the flattened df64 output is real, compilable WGSL ═══
+// ═══ inline compile gate: the flattened df64 output is real, compilable WGSL ═══
 //
-// `forceInline({ strength: 'all' })` unlocks `FuncDecl.opaque` so the df64 library is
+// `inline({ opaque: 'all' })` unlocks `FuncDecl.opaque` so the df64 library is
 // inlined and tree-shaken away. That trades a 9-15 function call graph for ONE flat
 // entry body and, measured on this corpus, 5.1x to 27.2x the bytes — fp64-sine-sweep
 // goes 6,266 B to 170,419 B. A unit test can assert the df64_* declarations are gone; it
@@ -8,7 +8,7 @@
 //
 // So this compiles every fp64 example, under BOTH strengths, on the real Tint the other
 // e2e use (SwiftShader WebGPU under XGIS_SOFTWARE_GPU=1) and requires zero
-// error-severity messages. Two arms, because they fail differently: 'size-win' is a
+// error-severity messages. Two arms, because they fail differently: 'single-call' is a
 // small edit to a working shader, 'all' is a 170 KB single function — exactly the shape
 // that finds a compiler's expression-depth or function-size limit.
 //
@@ -23,7 +23,7 @@ import { test, expect } from '@playwright/test'
 // @xgis/* workspace alias does not resolve here — see _wgsl-compile-gate.spec.ts.
 import { examples } from '../../shader-dsl/examples/index'
 import { emitModule, emitGlslModule, reflect } from '../../shader-dsl/src/index'
-import { forceInline } from '../../shader-dsl/src/emit-prod'
+import { inline } from '../../shader-dsl/src/emit-prod'
 
 interface Variant {
   name: string
@@ -34,10 +34,10 @@ interface Variant {
 function fp64Variants(): Variant[] {
   const out: Variant[] = []
   for (const ex of examples.filter((e) => e.id.startsWith('fp64-'))) {
-    for (const strength of ['size-win', 'all'] as const) {
-      const wgsl = emitModule(ex.module, { plugins: [forceInline({ strength })] })
+    for (const opaque of ['single-call', 'all'] as const) {
+      const wgsl = emitModule(ex.module, { plugins: [inline({ opaque })] })
       out.push({
-        name: `${ex.id} [${strength}]`,
+        name: `${ex.id} [${opaque}]`,
         wgsl,
         df64Left: [...wgsl.matchAll(/^fn (df64_\w+)/gm)].length,
       })
@@ -56,12 +56,12 @@ function fp64Variants(): Variant[] {
 // values, software rasteriser.
 //
 // WHY THE df64-COUNT ASSERTION LEADS. A zero-pixel diff is exactly what a NO-OP produces
-// too, so on its own it would pass whether or not forceInline did anything — §12's
+// too, so on its own it would pass whether or not inline did anything — §12's
 // "assertion that failed either way". The emit-side check that every df64_ declaration is
 // gone is what makes the pixel equality mean something.
 const RENDER_N = 256
 
-test.describe('forceInline render parity (the flattened shader draws the same frame)', () => {
+test.describe('inline render parity (the flattened shader draws the same frame)', () => {
   test('every fp64 example renders byte-identically with the df64 call graph flattened', async ({
     page,
   }) => {
@@ -75,7 +75,7 @@ test.describe('forceInline render parity (the flattened shader draws the same fr
     const vacuous: string[] = []
     for (const ex of fp64) {
       // The mechanism must actually fire, or the pixel equality below is vacuous.
-      const flatWgsl = emitModule(ex.module, { plugins: [forceInline({ strength: 'all' })] })
+      const flatWgsl = emitModule(ex.module, { plugins: [inline({ opaque: 'all' })] })
       if (/^fn df64_/m.test(flatWgsl)) vacuous.push(ex.id)
 
       const src = (plugins: unknown[]) => ({
@@ -91,26 +91,26 @@ test.describe('forceInline render parity (the flattened shader draws the same fr
         })
 
       const base = await shot(src([]))
-      for (const strength of ['size-win', 'all'] as const) {
-        const got = await shot(src([forceInline({ strength })]))
+      for (const opaque of ['single-call', 'all'] as const) {
+        const got = await shot(src([inline({ opaque })]))
         if (base.err || got.err) {
-          drifted.push(`${ex.id} [${strength}]: ${base.err ?? got.err}`)
+          drifted.push(`${ex.id} [${opaque}]: ${base.err ?? got.err}`)
           continue
         }
         let n = 0
         for (let i = 0; i < base.px!.length; i++) if (base.px![i] !== got.px![i]) n++
-        if (n > 0) drifted.push(`${ex.id} [${strength}]: ${Math.ceil(n / 4)} px differ`)
+        if (n > 0) drifted.push(`${ex.id} [${opaque}]: ${Math.ceil(n / 4)} px differ`)
       }
     }
     expect(
       vacuous,
-      `forceInline('all') left df64_* standing — the pixel arm would be vacuous`,
+      `inline({ opaque: 'all' }) left df64_* standing — the pixel arm would be vacuous`,
     ).toEqual([])
     expect(drifted, `flattening moved pixels:\n${drifted.join('\n')}`).toEqual([])
   })
 })
 
-test.describe('forceInline compile gate (flattened df64 compiles on a GPU)', () => {
+test.describe('inline compile gate (flattened df64 compiles on a GPU)', () => {
   test('every fp64 example compiles under both strengths, with zero errors', async ({ page }) => {
     test.setTimeout(180_000)
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
@@ -121,7 +121,7 @@ test.describe('forceInline compile gate (flattened df64 compiles on a GPU)', () 
     // library — otherwise this would just be re-compiling the shipped shaders.
     expect(variants.length, 'no fp64 variants enumerated').toBeGreaterThanOrEqual(20)
     for (const v of variants.filter((x) => x.name.endsWith('[all]'))) {
-      expect(v.df64Left, `${v.name} still declares df64_* — forceInline did not fire`).toBe(0)
+      expect(v.df64Left, `${v.name} still declares df64_* — inline did not fire`).toBe(0)
       expect(v.wgsl.length, `${v.name} emitted trivial WGSL`).toBeGreaterThan(1000)
     }
 

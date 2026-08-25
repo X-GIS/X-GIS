@@ -414,7 +414,7 @@ SourceLoc
 summarize
 ```
 
-## `./emit-prod` — 19 exports
+## `./emit-prod` — 18 exports
 
 ```
 aliasShaderTypes
@@ -423,9 +423,8 @@ DecodedName
 decodeShaderLog
 EmitOptions
 EmitPlugin
-forceInline
-ForceInlineStrength
 inline
+InlineOpaque
 invertRenames
 mangle
 mangleModule
@@ -666,7 +665,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 411 definitions
+## Shapes — 410 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -980,7 +979,7 @@ src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValu
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
-src/core/passes/force-inline.ts#ForceInlineStrength  type  "all" | "size-win"
+src/core/passes/force-inline.ts#InlineOpaque  type  "all" | "keep" | "single-call"
 src/core/passes/fp64-lower.ts#Fp64Flavor  type  "float" | "integer"
 src/core/passes/fp64-lower.ts#Fp64LowerOptions  interface  { flavor?: Fp64Flavor }
 src/core/passes/fp64-lower.ts#fp64Lower  function  (m: ModuleDecl, opts?: Fp64LowerOptions) => ModuleDecl
@@ -1074,8 +1073,7 @@ src/core/variant-link.ts#WgslValidator  interface  { createShaderModule: (descri
 src/core/variant-link.ts#linkVariants  function  <A extends Record<string, readonly unknown[]>>(gl: GlLinker<unknown, unknown>, family: VariantFamily<A>, opts?: EmitOptions) => readonly VariantLinkResult[]
 src/core/variant-link.ts#validateVariantsWgsl  function  <A extends Record<string, readonly unknown[]>>(device: WgslValidator<unknown>, family: VariantFamily<A>, opts?: EmitOptions) => Promise<readonly VariantWgslResult[]>
 src/emit-prod.ts#aliasTypes  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin
-src/emit-prod.ts#forceInline  function  (opts?: { strength?: ForceInlineStrength; }) => EmitPlugin
-src/emit-prod.ts#inline  function  () => EmitPlugin
+src/emit-prod.ts#inline  function  (opts?: { opaque?: InlineOpaque; }) => EmitPlugin
 src/emit-prod.ts#mangle  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin
 src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]
