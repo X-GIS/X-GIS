@@ -5122,6 +5122,7 @@ export class VectorTileRenderer {
           if (tileOff >= 0) {
             const showOff = this._splitBind.syncShow(
               this.frameBlock.buffer,
+              sliceLayer,
               this.currentPickId & 0xffff,
               this.frameCount,
             )

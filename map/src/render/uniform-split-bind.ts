@@ -19,10 +19,16 @@
 // reflected field offsets (the exact mapping uniform-split-partition.test.ts
 // pins exhaustive + byte-compatible), so a struct change reflows them.
 //
-// Show addressing: slot per show identity (pickId & 0xffff — the style
-// declaration index), allocated on first use and NEVER freed — a style
-// change reassigns indices from 0, so stale slots are simply overwritten on
-// their next use (bounded by the max simultaneous layer count, ≤ 0xffff).
+// Show addressing: slot per (sliceLayer, pickId & 0xffff), allocated on
+// first use and NEVER freed — a style change reassigns indices from 0, so
+// stale slots are simply overwritten on their next use (bounded by the
+// distinct (slice, layer) pairs the style produces). The pickId alone is NOT
+// a sufficient identity: a data-driven paint lowered on the CPU (demotiles'
+// countries-fill match()) fans ONE style layer out into per-filter-bucket
+// sub-shows that share the layer's pickId but carry DIFFERENT paint lanes —
+// measured as every country painting the first bucket's colour. The slice
+// key carries the filter hash, so (slice, pickId) separates them; the same
+// pairing distinguishes two layers sharing one slice.
 //
 // Bind-group lifecycle: any of the three buffers being (re)created retires
 // the cached bind group (a bundle baked against a retired buffer must never
@@ -102,8 +108,10 @@ export class UniformSplitBind {
   private showBindSize = 0
   private showFillColorOff = 0
   private frameStamp = -1
-  private readonly showStamp = new Map<number, number>()
-  private readonly showSlot = new Map<number, number>()
+  /** slice → pickId-low → persistent slot + frame stamp (see header: the
+   *  slice half of the key is what separates one layer's lowered filter
+   *  buckets; mirrors the tile arena's nested-map shape). */
+  private readonly shows = new Map<string, Map<number, { slot: number; stamp: number }>>()
   /** Native bind-group half — WebGPU main path only, mirroring the arena's
    *  INC-2 scope. `layout` arrives via setFillRhi (the factory's split
    *  layout); null keeps every accessor inert. */
@@ -180,17 +188,22 @@ export class UniformSplitBind {
     this.rhi().writeBuffer(this.frameBuf, 0, this.frameScratch!)
   }
 
-  /** Copy the show-class lanes into the show's persistent slot ONCE per
-   *  frame; returns the slot's byte offset (binding 10's dynamic offset). */
-  syncShow(legacy: ArrayBuffer, showIdx: number, frame: number): number {
+  /** Copy the show-class lanes into the (slice, show)'s persistent slot ONCE
+   *  per frame; returns the slot's byte offset (binding 10's dynamic offset). */
+  syncShow(legacy: ArrayBuffer, sliceLayer: string, showIdx: number, frame: number): number {
     const arena = this.ensureShowArena()
-    let slot = this.showSlot.get(showIdx)
-    if (slot === undefined) {
-      slot = arena.alloc()
-      this.showSlot.set(showIdx, slot)
+    let inner = this.shows.get(sliceLayer)
+    if (!inner) {
+      inner = new Map()
+      this.shows.set(sliceLayer, inner)
     }
-    if (this.showStamp.get(showIdx) !== frame) {
-      this.showStamp.set(showIdx, frame)
+    let e = inner.get(showIdx)
+    if (!e) {
+      e = { slot: arena.alloc(), stamp: -1 }
+      inner.set(showIdx, e)
+    }
+    if (e.stamp !== frame) {
+      e.stamp = frame
       const src = new Uint8Array(legacy)
       const dst = this.showScratch!
       for (const s of this.showSpans!) dst.set(src.subarray(s.src, s.src + s.size), s.dst)
@@ -202,9 +215,9 @@ export class UniformSplitBind {
         f32[0] = 1 - f32[0]!
         f32[1] = 1 - f32[1]!
       }
-      arena.stage(slot, dst.buffer as ArrayBuffer)
+      arena.stage(e.slot, dst.buffer as ArrayBuffer)
     }
-    return arena.byteOffset(slot)
+    return arena.byteOffset(e.slot)
   }
 
   /** The factory's split bind-group layout (setFillRhi). A layout change
@@ -268,8 +281,7 @@ export class UniformSplitBind {
     this.showArena = null
     if (this.frameBuf) this.rhi().destroyBuffer(this.frameBuf)
     this.frameBuf = null
-    this.showSlot.clear()
-    this.showStamp.clear()
+    this.shows.clear()
     this.frameStamp = -1
     this.bg = null
   }

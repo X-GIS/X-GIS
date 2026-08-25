@@ -20,8 +20,16 @@
 //     staged ShowBlock fill colour R/G) → the frame MUST change massively —
 //     proves the fragment actually READS the ShowBlock bytes through the
 //     split bind, not the legacy ring;
-//   • LEGACY + skew → byte-identical — the hook lives inside syncShow,
-//     which never runs without split materials.
+//   • LEGACY + skew → identical — the hook lives inside syncShow, which
+//     never runs without split materials.
+//
+// This gate already caught two real defects before first green: the show-
+// slot aliasing (one pickId shared by a lowered match()'s filter buckets —
+// every country painted one bucket's colour) and the rewrite-walker identity
+// break (auto-var fission collapsed the position var to its zero initializer
+// — split vertices all at (0,0,0,0): valid draws, EMPTY frames, no
+// validation error). Both are pinned in unit suites now; this gate is the
+// end-to-end tripwire.
 //
 // UNLIKE the RTC gate's flag, `__XGIS_SPLIT_BIND` is read ONCE, at
 // PipelineFactory.build() (the split layout + Material twins are built or
@@ -30,14 +38,19 @@
 // So each arm gets a FRESH BROWSER CONTEXT with its own addInitScript —
 // no stacking, flag present before the first byte of app code runs.
 //
-// Scene/settle harness otherwise mirrors _rtc-recombine-parity-gate.spec.ts
-// (committed demotiles mirror, zoom < 2 band, idle-event settle, full-script
-// warmup per arm, fixed-point wiggle+idle rounds, clipped page.screenshot).
+// Capture + settle follow the capture-canvas skill: chrome-free
+// `captureMapFrame` (capture: 'clip' — whole-world low-zoom views are the
+// #1802 element-stability hang trigger), `awaitMapIdle` asserted after every
+// camera change, and a BOUNDED consecutive-capture stability loop instead of
+// sleeps (two equal hashes = the frame is at its terminal state; the bound
+// fails the spec rather than freezing a mid-animation frame into a
+// "converged" measurement).
 
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { PNG } from 'pngjs'
+import { captureMapFrame, awaitMapIdle } from './helpers/visual'
 
 const SCRIPT: ReadonlyArray<{ bearing: number; zoom: number; pitch: number }> = [
   { bearing: 0, zoom: 1.5, pitch: 0 },
@@ -54,9 +67,6 @@ const MAX_DIFF_PX = 12
 
 type Arm = { split: boolean; skew: boolean }
 
-let _clip: { x: number; y: number; width: number; height: number } | null = null
-let _stepIdx = 0
-
 interface ArmHandle {
   page: Page
   errors: string[]
@@ -67,7 +77,7 @@ async function bootArm(browser: Browser, baseURL: string, arm: Arm): Promise<Arm
   const ctx = await browser.newContext({
     baseURL,
     ignoreHTTPSErrors: true,
-    viewport: { width: 288, height: 160 },
+    viewport: { width: 512, height: 320 },
     reducedMotion: 'reduce',
   })
   const page = await ctx.newPage()
@@ -86,31 +96,60 @@ async function bootArm(browser: Browser, baseURL: string, arm: Arm): Promise<Arm
   await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1#1.5/20/140`, {
     waitUntil: 'domcontentloaded',
   })
-  console.log(`[split-parity] boot(${JSON.stringify(arm)}): navigated, waiting ready`)
-  await page.waitForFunction(
-    () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
-    null,
-    { timeout: 240_000 },
-  )
-  await page.waitForTimeout(8_000) // cold-start tile + glyph cascade
-  for (const step of SCRIPT) await stepAndSettle(page, step, /* warmup */ true)
+  console.log(`[split-parity] boot(${JSON.stringify(arm)}): navigated, load-settling`)
+  // Ready + tile/glyph load quiesce + chrome hide, in one call — no sleeps.
+  await captureMapFrame(page, { readyTimeoutMs: 240_000, capture: 'clip' })
+  // Full-script warmup in EVERY arm (identical histories → comparable frames).
+  for (const step of SCRIPT) await applyStep(page, step)
   return { page, errors, close: () => ctx.close() }
 }
 
-async function shot(page: Page): Promise<{ hash: string; png: Buffer }> {
-  if (!_clip) {
-    const box = await page.locator('#xg-canv, canvas').first().boundingBox()
-    if (!box) throw new Error('canvas has no bounding box')
-    _clip = {
-      x: Math.max(0, Math.floor(box.x)),
-      y: Math.max(0, Math.floor(box.y)),
-      width: Math.floor(box.width),
-      height: Math.floor(box.height),
+async function applyStep(
+  page: Page,
+  step: { bearing: number; zoom: number; pitch: number },
+): Promise<void> {
+  await page.evaluate((s) => {
+    const m = (
+      window as unknown as {
+        __xgisMap: {
+          getCamera: () => { bearing: number; pitch: number }
+          setZoom: (z: number) => void
+          invalidate: () => void
+        }
+      }
+    ).__xgisMap
+    const cam = m.getCamera()
+    cam.bearing = s.bearing
+    cam.pitch = s.pitch
+    m.setZoom(s.zoom)
+    m.invalidate()
+  }, step)
+  expect(await awaitMapIdle(page, 220_000), 'map did not idle after camera step').toBe('idle')
+}
+
+let _stepIdx = 0
+
+/** Apply one pose, settle on `idle`, then capture until two CONSECUTIVE
+ *  captures hash-equal (terminal-state frame — per-frame animations advance
+ *  with rendered frames, and each capture's quiesce pumps them; the bound
+ *  fails loud instead of freezing a transient into a measurement). */
+async function stepAndCapture(
+  page: Page,
+  step: { bearing: number; zoom: number; pitch: number },
+): Promise<{ hash: string; png: Buffer }> {
+  const stepIdx = _stepIdx++
+  await applyStep(page, step)
+  let prev = ''
+  for (let round = 0; round < 8; round++) {
+    const png = await captureMapFrame(page, { capture: 'clip' })
+    const hash = createHash('sha256').update(png).digest('hex')
+    if (hash === prev) {
+      console.log(`[split-parity] step ${stepIdx} stable after ${round + 1} captures`)
+      return { hash, png }
     }
-    console.log(`[split-parity] clip=${JSON.stringify(_clip)}`)
+    prev = hash
   }
-  const png = await page.screenshot({ clip: _clip, animations: 'disabled', timeout: 120_000 })
-  return { hash: createHash('sha256').update(png).digest('hex'), png }
+  throw new Error(`step ${stepIdx}: no stable frame in 8 captures (last ${prev.slice(0, 12)})`)
 }
 
 function pixelDiff(a: Buffer, b: Buffer): { count: number; maxDelta: number } {
@@ -131,100 +170,9 @@ function pixelDiff(a: Buffer, b: Buffer): { count: number; maxDelta: number } {
   return { count, maxDelta }
 }
 
-/** Apply one script step; settle via the map 'idle' event, then run
- *  fixed-point wiggle+idle rounds until the hash repeats (arm content-
- *  history divergence — see the RTC gate's measured rationale). */
-async function stepAndSettle(
-  page: Page,
-  step: { bearing: number; zoom: number; pitch: number },
-  warmup = false,
-): Promise<{ hash: string; png: Buffer }> {
-  const stepIdx = _stepIdx++
-  console.log(
-    `[split-parity] step ${stepIdx}${warmup ? ' (warmup)' : ''} apply ${JSON.stringify(step)}`,
-  )
-  await page.evaluate(
-    async ({ s, timeoutMs }) => {
-      const m = (
-        window as unknown as {
-          __xgisMap: {
-            getCamera: () => { bearing: number; pitch: number }
-            setZoom: (z: number) => void
-            invalidate: () => void
-            on: (t: string, cb: () => void) => unknown
-          }
-        }
-      ).__xgisMap
-      await new Promise<void>((res, rej) => {
-        const t = setTimeout(() => rej(new Error(`idle timeout after ${timeoutMs}ms`)), timeoutMs)
-        m.on('idle', () => {
-          clearTimeout(t)
-          res()
-        })
-        const cam = m.getCamera()
-        cam.bearing = s.bearing
-        cam.pitch = s.pitch
-        m.setZoom(s.zoom)
-        m.invalidate()
-      })
-    },
-    { s: step, timeoutMs: 220_000 },
-  )
-  if (warmup) return { hash: '', png: Buffer.alloc(0) }
-  let prev = ''
-  let s1: { hash: string; png: Buffer } | null = null
-  for (let round = 0; round < 8; round++) {
-    await page.evaluate(async (baseBearing: number) => {
-      const m = (
-        window as unknown as {
-          __xgisMap: { getCamera: () => { bearing: number }; invalidate: () => void }
-        }
-      ).__xgisMap
-      const cam = m.getCamera()
-      for (let i = 0; i < 6; i++) {
-        cam.bearing = baseBearing + (i % 2 === 0 ? 2 : -2)
-        m.invalidate()
-        await Promise.race([
-          new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),
-          new Promise<void>((r) => setTimeout(r, 20_000)),
-        ])
-      }
-      cam.bearing = baseBearing
-      m.invalidate()
-    }, step.bearing)
-    await page.evaluate(async (timeoutMs: number) => {
-      const m = (
-        window as unknown as {
-          __xgisMap: { on: (t: string, cb: () => void) => unknown; invalidate: () => void }
-        }
-      ).__xgisMap
-      await new Promise<void>((res, rej) => {
-        const t = setTimeout(
-          () => rej(new Error(`re-idle timeout after ${timeoutMs}ms`)),
-          timeoutMs,
-        )
-        m.on('idle', () => {
-          clearTimeout(t)
-          res()
-        })
-        m.invalidate()
-      })
-    }, 220_000)
-    s1 = await shot(page)
-    if (s1.hash === prev) {
-      console.log(`[split-parity] step ${stepIdx} fixed point after ${round + 1} rounds`)
-      return s1
-    }
-    prev = s1.hash
-  }
-  throw new Error(
-    `step ${stepIdx}: no fixed point in 8 wiggle+idle rounds (last ${prev.slice(0, 12)})`,
-  )
-}
-
 async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
   const out: { hash: string; png: Buffer }[] = []
-  for (const step of SCRIPT) out.push(await stepAndSettle(page, step))
+  for (const step of SCRIPT) out.push(await stepAndCapture(page, step))
   return out
 }
 
@@ -235,7 +183,6 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
   browser,
 }, testInfo) => {
   test.setTimeout(2_100_000)
-  _clip = null
   _stepIdx = 0
   const baseURL = testInfo.project.use.baseURL
   if (!baseURL) throw new Error('project baseURL missing — per-arm contexts need it')
@@ -251,15 +198,14 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
   const split = await runScript(armB.page)
   const splitDraws = await splitDrawCount(armB.page)
 
-  // Arm C — split + ShowBlock skew witness: single pose on ARM B's page
-  // family (fresh context; must move massively vs arm B's step 0).
+  // Arm C — split + ShowBlock skew witness (fresh context; single pose).
   const armC = await bootArm(browser, baseURL, { split: true, skew: true })
-  const splitSkew = await stepAndSettle(armC.page, SCRIPT[0]!)
+  const splitSkew = await stepAndCapture(armC.page, SCRIPT[0]!)
 
-  // Arm D — legacy + skew: single pose, must be byte-identical to arm A
-  // (the hook lives inside syncShow — unreachable without split materials).
+  // Arm D — legacy + skew: must equal arm A (the hook is unreachable
+  // without split materials).
   const armD = await bootArm(browser, baseURL, { split: false, skew: true })
-  const legacySkew = await stepAndSettle(armD.page, SCRIPT[0]!)
+  const legacySkew = await stepAndCapture(armD.page, SCRIPT[0]!)
 
   // ── Verdicts ──
   for (const [name, arm] of [
@@ -313,14 +259,15 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
       'ShowBlock slot (dead bind or wrong offset); the A/B above is vacuous',
   ).toBeGreaterThan(100)
 
-  // Legacy immunity: the skew hook cannot leak into the legacy path.
-  console.log(
-    `[split-parity] witness LEGACY+skew vs LEGACY: legacy=${legacy[0]!.hash.slice(0, 12)} skew=${legacySkew.hash.slice(0, 12)}`,
-  )
+  // Legacy immunity: the skew hook cannot leak into the legacy path. Bounded
+  // diff (not hash) — arms are separate contexts, so ulp-benign variation is
+  // possible; a leak inverts fill colours = thousands of pixels.
+  const ld = pixelDiff(legacy[0]!.png, legacySkew.png)
+  console.log(`[split-parity] witness LEGACY+skew vs LEGACY: count=${ld.count} maxΔ=${ld.maxDelta}`)
   expect(
-    legacySkew.hash,
+    ld.count,
     'LEGACY + skew changed the frame — the skew hook is reachable without split materials',
-  ).toBe(legacy[0]!.hash)
+  ).toBeLessThanOrEqual(MAX_DIFF_PX)
 
   await armB.close()
   await armC.close()

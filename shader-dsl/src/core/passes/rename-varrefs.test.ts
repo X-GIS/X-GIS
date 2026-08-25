@@ -53,3 +53,55 @@ describe('renameVarrefsInFunc', () => {
     expect(renameVarrefsInFunc(f, route)).toBe(f)
   })
 })
+
+describe('rewriteExprsInFunc — the identity contract (#2042 INC-4b vanished-fills)', () => {
+  // auto-vars (opt) correlates a mutable value's declaration, assignments,
+  // and reads by Expr OBJECT identity. The first walker cloned every
+  // ancestor of a change PER OCCURRENCE: one shared assign-target/read
+  // object became N clones, auto-vars minted a var per clone, and every
+  // read collapsed to the initializer — split-draw vertices all landed at
+  // (0,0,0,0). These pins make that regression impossible to reintroduce
+  // silently.
+  it('an UNCHANGED shared subtree keeps its object identity at every occurrence', async () => {
+    const { rewriteExprsInFunc } = await import('./rename-varrefs.js')
+    // shared: the construct object both an assign target and a read embed.
+    const shared: Expr = { op: 'construct', type: F32, args: [lit1] } as unknown as Expr
+    const read: Expr = { op: 'call', type: F32, fn: 'sin', args: [shared] } as unknown as Expr
+    const body: Stmt[] = [
+      { s: 'assign', target: shared, expr: vr('u.zoom') } as unknown as Stmt,
+      { s: 'return', expr: read } as Stmt,
+    ]
+    const out = rewriteExprsInFunc(fnWith(body), (x) =>
+      x.op === 'varref' && x.name === 'u.zoom' ? { ...x, name: 'frame.zoom' } : x,
+    )
+    const outAssign = out.body[0] as unknown as { target: Expr; expr: Expr }
+    const outReturn = out.body[1] as unknown as { expr: { args: Expr[] } }
+    // the rename landed…
+    expect((outAssign.expr as { name?: string }).name).toBe('frame.zoom')
+    // …and the UNTOUCHED shared object is still the ORIGINAL, everywhere.
+    expect(outAssign.target).toBe(shared)
+    expect(outReturn.expr.args[0]).toBe(shared)
+  })
+
+  it('a CHANGED shared subtree maps to ONE new object, reused at every occurrence', async () => {
+    const { rewriteExprsInFunc } = await import('./rename-varrefs.js')
+    const shared: Expr = {
+      op: 'construct',
+      type: F32,
+      args: [vr('u.zoom')],
+    } as unknown as Expr
+    const wrapA: Expr = { op: 'call', type: F32, fn: 'sin', args: [shared] } as unknown as Expr
+    const wrapB: Expr = { op: 'call', type: F32, fn: 'cos', args: [shared] } as unknown as Expr
+    const body: Stmt[] = [
+      { s: 'let', name: 'a', expr: wrapA } as Stmt,
+      { s: 'return', expr: wrapB } as Stmt,
+    ]
+    const out = rewriteExprsInFunc(fnWith(body), (x) =>
+      x.op === 'varref' && x.name === 'u.zoom' ? { ...x, name: 'frame.zoom' } : x,
+    )
+    const a = (out.body[0] as unknown as { expr: { args: Expr[] } }).expr.args[0]
+    const b = (out.body[1] as unknown as { expr: { args: Expr[] } }).expr.args[0]
+    expect(a).not.toBe(shared) // it WAS rewritten (contains the renamed read)
+    expect(a).toBe(b) // …into ONE object shared by both occurrences
+  })
+})

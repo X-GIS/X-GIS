@@ -101,7 +101,7 @@ describe('UniformSplitBind — span-copy byte parity (the INC-4b rebind contract
     const polyB = seedPolygon()
     const poly = new Uint8Array(polyB.buffer)
 
-    const showOff = split.syncShow(polyB.buffer, 3, 1)
+    const showOff = split.syncShow(polyB.buffer, 'countries', 3, 1)
     split.syncFrame(polyB.buffer, 1)
     split.flush()
     expect(showOff).toBe(0)
@@ -150,18 +150,44 @@ describe('UniformSplitBind — span-copy byte parity (the INC-4b rebind contract
     split.syncFrame(polyB.buffer, 8)
     expect(frameBuf.writes, 'next frame → refreshed').toBe(2)
 
-    const o1 = split.syncShow(polyB.buffer, 0, 7)
+    const o1 = split.syncShow(polyB.buffer, 'water', 0, 7)
     split.flush()
     const showBuf = byLabel('show-uniform-arena')!
     const w1 = showBuf.writes
-    split.syncShow(polyB.buffer, 0, 7)
+    split.syncShow(polyB.buffer, 'water', 0, 7)
     split.flush()
-    expect(showBuf.writes, 'same (show, frame) → no re-stage, flush no-ops').toBe(w1)
+    expect(showBuf.writes, 'same (slice, show, frame) → no re-stage, flush no-ops').toBe(w1)
     // Distinct shows get distinct 256-aligned slots; same show keeps its slot.
-    const o2 = split.syncShow(polyB.buffer, 1, 7)
+    const o2 = split.syncShow(polyB.buffer, 'water', 1, 7)
     expect(o2).not.toBe(o1)
     expect(o2 % 256).toBe(0)
-    expect(split.syncShow(polyB.buffer, 0, 8)).toBe(o1)
+    expect(split.syncShow(polyB.buffer, 'water', 0, 8)).toBe(o1)
+  })
+
+  it('lowered filter buckets sharing one pickId get DISTINCT slots (the demotiles aliasing)', () => {
+    // The §5 gate caught this live: a data-driven paint lowered on the CPU
+    // (countries-fill match()) fans one style layer into per-filter-bucket
+    // sub-shows that SHARE the layer's pickId but carry different fill
+    // colours. Keyed on pickId alone, the first bucket's copy stamped the
+    // frame and every other bucket drew its colour. The slice key (which
+    // carries the filter hash) must separate them.
+    const { device, byLabel } = makeDevice()
+    const split = makeSplit(device)
+    const polyB = seedPolygon()
+    const showB = uniformBlock(showBlockU)
+    const colorOff = showB.fieldOffset('fill_color' as never)
+
+    polyB.set.fill_color(0.9, 0.1, 0.1, 1) // bucket A's colour
+    const oA = split.syncShow(polyB.buffer, 'countries:bucketA', 7, 1)
+    polyB.set.fill_color(0.1, 0.9, 0.1, 1) // bucket B — same pickId, other slice
+    const oB = split.syncShow(polyB.buffer, 'countries:bucketB', 7, 1)
+    split.flush()
+    expect(oB, 'same pickId + different slice must not alias one slot').not.toBe(oA)
+    const staged = byLabel('show-uniform-arena')!.bytes
+    const a = new Float32Array(staged.buffer, oA + colorOff, 4)
+    const b = new Float32Array(staged.buffer, oB + colorOff, 4)
+    expect([a[0], a[1]]).toEqual([Math.fround(0.9), Math.fround(0.1)])
+    expect([b[0], b[1]]).toEqual([Math.fround(0.1), Math.fround(0.9)])
   })
 
   it('the §5 skew witness flips the staged fill colour (no dead witness)', () => {
@@ -171,7 +197,7 @@ describe('UniformSplitBind — span-copy byte parity (the INC-4b rebind contract
     try {
       const split = makeSplit(device)
       g.__XGIS_SPLIT_BIND_SKEW = true
-      split.syncShow(polyB.buffer, 0, 1)
+      split.syncShow(polyB.buffer, 'water', 0, 1)
       split.flush()
       const showB = uniformBlock(showBlockU)
       const off = showB.fieldOffset('fill_color' as never)
