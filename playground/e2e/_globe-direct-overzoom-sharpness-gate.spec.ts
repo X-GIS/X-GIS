@@ -37,8 +37,12 @@
 // upload/load counters decide, and a non-zero residual FAILS.
 
 import { test, expect, type Page } from '@playwright/test'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { captureMapFrame } from './helpers/visual'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
 
 // Verbatim from _globe-drape-overzoom-gate.spec.ts — same source, same layer,
 // same fill, so the coast profile below measures the same edge it did.
@@ -62,11 +66,26 @@ const STYLE = [
 const CENTER = { lon: 20.07, lat: 32.17 }
 const ZOOM = 15.3
 
-/** Selection zooms below this keep the bake→drape (geo/src/projections-table.ts:
- *  305). A source whose maxLevel clamps currentZ under it can never reach the
- *  direct path from any camera — that is a valid engine state, not a failure,
- *  so the spec skips instead of asserting into it. */
-const GLOBE_DIRECT_MIN_SELECTION_Z = 10
+/** Selection zooms below this keep the bake→drape. A source whose maxLevel
+ *  clamps currentZ under it can never reach the direct path from any camera —
+ *  a valid engine state, not a failure, so the spec skips rather than asserting
+ *  into it.
+ *
+ *  READ FROM THE ENGINE SOURCE, never mirrored: a spec that hard-codes the
+ *  ceiling is a second authority for it, and the two drift silently the day the
+ *  constant moves (CLAUDE.md §12). The engine module cannot be imported here —
+ *  raw-Node spec transpilation does not resolve its `@xgis/shared` import — so
+ *  the literal is parsed out of the file instead, and a parse failure is loud.
+ *
+ *  Called from the test BODY, never at module scope: a module-scope read that
+ *  throws aborts collection for every spec in the suite (#1638). */
+function readGlobeDirectMinSelectionZ(): number {
+  const src = readFileSync(join(HERE, '../../geo/src/projections-table.ts'), 'utf8')
+  const m = /export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)/.exec(src)
+  if (!m)
+    throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from geo/src/projections-table.ts')
+  return Number(m[1])
+}
 
 /** The original gate's windowed-bake bound. The direct path is sharper than any
  *  bake by construction (it magnifies geometry, not texels), so holding it to
@@ -287,6 +306,7 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than
   expect(names.length, 'no vt source — the inline style never took').toBeGreaterThan(0)
 
   const maxLevel = Math.max(...names.map((k) => direct[k].maxLevel))
+  const GLOBE_DIRECT_MIN_SELECTION_Z = readGlobeDirectMinSelectionZ()
   test.skip(
     maxLevel < GLOBE_DIRECT_MIN_SELECTION_Z,
     `source maxLevel ${maxLevel} clamps currentZ below GLOBE_DIRECT_MIN_SELECTION_Z ` +

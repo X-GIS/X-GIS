@@ -287,10 +287,22 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
  *  Camera zoom Z CANCELS: C/B = 128π·2^(−z). So the verdict depends on the
  *  TILE zoom alone, and direct wins for every z ≥ ceil(log2(128π)) = 9 — at
  *  EVERY camera zoom, which is why this is a selection-zoom gate and not a
- *  camera-zoom one. The globe selector's coarsest PRIMARY leaf is currentZ−1
- *  (globe-visible-tiles.ts:474 descends only while `tz < floor(desiredZ)`),
- *  so the coarsest tile the gate must cover at selection zoom S is S−1; the
- *  threshold on currentZ is therefore 9 + 1 = 10.
+ *  camera-zoom one.
+ *
+ *  MAPPING TILE z ONTO currentZ. `currentZ = floor(cameraZoom)`, clamped to the
+ *  source maxLevel (tile-selection-cache.ts:51, :377/:387 — plain `floor` for
+ *  MapLibre vector-source parity, reverted there from `+0.7` on 2026-05-15).
+ *  The globe selector runs with `selMaxZ = currentZ` and force-descends the
+ *  focal tile to that max (globe-visible-tiles.ts:434), so the tiles under the
+ *  camera centre are drawn AT currentZ — the threshold is therefore the
+ *  crossover itself, 9, with no off-by-one. Horizon tiles come in coarser
+ *  (`tz < floor(desiredZ)`, :474) and would prefer the drape on the worst-case
+ *  C, but they are limb-foreshortened into few pixels while the focal set owns
+ *  the frame, and a frame cannot mix the two paths without a seam.
+ *
+ *  Getting this mapping wrong is what a `round`-based reading of currentZ cost
+ *  once: at the #2093 report camera (zoom 9.70 → currentZ 9) a ceiling of 10
+ *  left the drape running — measured, on the fix itself, before this correction.
  *
  *  currentZ is a HYSTERESED zoom bucket (tile-selection-cache.ts:368-390), so
  *  the switch cannot flap on a camera hovering at the boundary, and it is then
@@ -302,7 +314,7 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
  *
  *  Ellipsoid flattening moves the crossover by <0.01 of a zoom level —
  *  irrelevant to an integer threshold. */
-export const GLOBE_DIRECT_MIN_SELECTION_Z = 10
+export const GLOBE_DIRECT_MIN_SELECTION_Z = 9
 
 /** Whether the bake→drape path still wins at this selection zoom (#2093 F1).
  *  See GLOBE_DIRECT_MIN_SELECTION_Z for the chord-sagitta-vs-bake-texel

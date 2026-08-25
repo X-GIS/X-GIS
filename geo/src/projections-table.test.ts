@@ -248,15 +248,29 @@ describe('PROJECTIONS table', () => {
 describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () => {
   const TILE_PX = 512 // world-scale.ts:24
 
-  it('=== the chord-sagitta crossover, +1 for the currentZ−1 primary leaf', () => {
+  it('=== the chord-sagitta crossover, mapped 1:1 onto currentZ', () => {
     // Sagitta of a tile-wide chord = span·θ/8 = (TILE_PX·2^(Z−z))·(2π·2^−z)/8
     //                              = (TILE_PX·2π/8)·2^(Z−2z) = 128π·2^(Z−2z) CSS px.
     // One bake texel = 2^(Z−z) CSS px. Their ratio is 128π·2^−z, so the direct arm
-    // wins from TILE zoom ceil(log2(128π)) = 9 upward. The globe selector's coarsest
-    // PRIMARY leaf is currentZ−1 (globe-visible-tiles.ts:474 descends only while
-    // `tz < floor(desiredZ)`), so the threshold ON currentZ is that + 1.
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((TILE_PX * 2 * Math.PI) / 8)) + 1)
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(10)
+    // wins from TILE zoom ceil(log2(128π)) = 9 upward. `currentZ` is floor(cameraZoom)
+    // (tile-selection-cache.ts:51) and the globe selector force-descends the FOCAL
+    // tile to selMaxZ = currentZ (globe-visible-tiles.ts:434), so the tiles under the
+    // camera centre are drawn AT currentZ — the threshold maps 1:1, no off-by-one.
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((TILE_PX * 2 * Math.PI) / 8)))
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(9)
+  })
+
+  it('covers the #2093 report cameras (zoom 9.70 and 21.10 both go direct)', () => {
+    // The regression this pins: a `round`-based reading of currentZ once put the
+    // ceiling at 10, and zoom 9.70 → floor → currentZ 9 kept draping — the exact
+    // camera the issue was filed for. Both report cameras must route direct, and
+    // the globe overview must keep its great-circle drape.
+    const currentZOf = (cameraZoom: number, sourceMaxLevel: number): number =>
+      Math.min(Math.floor(cameraZoom), sourceMaxLevel)
+    expect(drapesAtSelectionZ(currentZOf(9.7, 14)), '#2093 native-zoom camera').toBe(false)
+    expect(drapesAtSelectionZ(currentZOf(21.1, 14)), '#2093 deep-overzoom camera').toBe(false)
+    expect(drapesAtSelectionZ(currentZOf(2, 14)), 'globe overview keeps the drape').toBe(true)
+    expect(drapesAtSelectionZ(currentZOf(9.7, 2)), 'maxzoom-2 source keeps the drape').toBe(true)
   })
 
   it('the blur-vs-sagitta verdict is INDEPENDENT of camera zoom (Z cancels)', () => {
@@ -277,8 +291,8 @@ describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () 
     }
   })
 
-  it('drapesAtSelectionZ() switches exactly at the ceiling (9 drapes, 10 goes direct)', () => {
-    expect(drapesAtSelectionZ(9), 'below the ceiling the great-circle hug is worth its blur').toBe(
+  it('drapesAtSelectionZ() switches exactly at the ceiling (8 drapes, 9 goes direct)', () => {
+    expect(drapesAtSelectionZ(8), 'below the ceiling the great-circle hug is worth its blur').toBe(
       true,
     )
     expect(
