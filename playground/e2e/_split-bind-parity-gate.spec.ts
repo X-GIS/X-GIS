@@ -60,10 +60,20 @@ const SCRIPT: ReadonlyArray<{ bearing: number; zoom: number; pitch: number }> = 
   { bearing: 25, zoom: 1.5, pitch: 0 },
 ]
 
-/** Legacy-vs-split budget: the ulp-flip envelope (same rationale + number as
- *  the RTC gate — a wrong span offset or swapped dynamic offset moves whole
- *  fills, thousands of pixels). */
+/** Legacy-vs-split budgets. A wrong span offset / swapped dynamic offset /
+ *  dead bind moves WHOLE draws — thousands of pixels at saturated deltas —
+ *  so the discriminator is two-tier:
+ *  - up to MAX_DIFF_PX pixels may differ at any amplitude (the fill-only
+ *    ulp envelope, the RTC gate's number);
+ *  - beyond that, up to MAX_DIFF_PX_SOFT may differ ONLY at low amplitude
+ *    (≤ MAX_SOFT_DELTA per channel). INC-4c measured why: strokes are
+ *    all-edge, and the in-VS recombination's ≤2.95e-4-px divergence flips
+ *    SDF edge coverage by a few LSBs — 25 px at maxΔ 6 on the mirror scene,
+ *    0.0% above the pixeldiff skill's own threshold of 8. A real bind bug
+ *    cannot hide here: it saturates deltas and blows both bounds. */
 const MAX_DIFF_PX = 12
+const MAX_DIFF_PX_SOFT = 96
+const MAX_SOFT_DELTA = 16
 
 type Arm = { split: boolean; skew: boolean }
 
@@ -259,11 +269,14 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
       writeFileSync(ps, split[i]!.png)
       console.log(`[split-parity] saved failing frames: ${pl} ${ps}`)
     }
+    const withinHard = d.count <= MAX_DIFF_PX
+    const withinSoft = d.count <= MAX_DIFF_PX_SOFT && d.maxDelta <= MAX_SOFT_DELTA
     expect(
-      d.count,
-      `step ${i}: legacy↔split pixel diff ${d.count} > ${MAX_DIFF_PX} (maxΔ=${d.maxDelta}) — ` +
-        'beyond the ulp envelope; the rebind reads different bytes (span table, offsets, or bind order)',
-    ).toBeLessThanOrEqual(MAX_DIFF_PX)
+      withinHard || withinSoft,
+      `step ${i}: legacy↔split pixel diff count=${d.count} maxΔ=${d.maxDelta} — beyond the ` +
+        `ulp envelope (≤${MAX_DIFF_PX} any-amplitude, or ≤${MAX_DIFF_PX_SOFT} at maxΔ≤${MAX_SOFT_DELTA}); ` +
+        'the rebind reads different bytes (span table, offsets, or bind order)',
+    ).toBe(true)
   }
 
   // Executed-mechanism witness half 2: the fragment READS the ShowBlock
