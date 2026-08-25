@@ -6,7 +6,7 @@ import { fp64Lower } from './fp64-lower.js'
 import { fixpoint, mapModuleExprs } from './opt/index.js'
 import { splitF64 } from '../fp64/df64-lib.js'
 import { forceInline } from './force-inline.js'
-import { forceInline as forceInlinePlugin } from '../../emit-prod.js'
+import { inline as inlinePlugin } from '../../emit-prod.js'
 import { emitModule } from '../../index.js'
 import type { EmitPlugin } from '../emit.js'
 
@@ -72,7 +72,7 @@ const guarded = module({
 const FLATTENED_OPS = 408
 
 const BASE = fixpoint(fp64Lower(kernel))
-const SIZE_WIN = forceInline(BASE, 'size-win')
+const SIZE_WIN = forceInline(BASE, 'single-call')
 const ALL = forceInline(BASE, 'all')
 
 const df64Count = (m: ModuleDecl): number =>
@@ -91,7 +91,7 @@ describe('forceInline — unlocking `opaque` removes the df64 library', () => {
     expect(df64Count(ALL)).toBe(0)
   })
 
-  it("'size-win' removes some but leaves the multi-call helpers standing", () => {
+  it("'single-call' removes some but leaves the multi-call helpers standing", () => {
     expect(df64Count(SIZE_WIN)).toBeLessThan(df64Count(BASE))
     expect(df64Count(SIZE_WIN)).toBeGreaterThan(0)
   })
@@ -99,7 +99,7 @@ describe('forceInline — unlocking `opaque` removes the df64 library', () => {
   it('leaves a module with no opaque helper to plain inlining (identity when nothing inlines)', () => {
     const plain = module({ funcs: [fn('k', { x: f32T }, f32T, ({ x }, b) => b.ret(x.add(1)))] })
     expect(forceInline(plain, 'all')).toBe(plain)
-    expect(forceInline(plain, 'size-win')).toBe(plain)
+    expect(forceInline(plain, 'single-call')).toBe(plain)
   })
 })
 
@@ -116,13 +116,11 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
 
   it('the baseline reads the opaque ONE, and the flattened body still does', () => {
     expect(wgslOf([]).match(GUARD)?.length ?? 0).toBeGreaterThan(0)
-    expect(
-      wgslOf([forceInlinePlugin({ strength: 'all' })]).match(GUARD)?.length ?? 0,
-    ).toBeGreaterThan(0)
+    expect(wgslOf([inlinePlugin({ opaque: 'all' })]).match(GUARD)?.length ?? 0).toBeGreaterThan(0)
   })
 
   it('the df64 call graph is gone, yet the guard binding is not', () => {
-    const flat = wgslOf([forceInlinePlugin({ strength: 'all' })])
+    const flat = wgslOf([inlinePlugin({ opaque: 'all' })])
     expect(flat).not.toMatch(/^fn df64_/m) // every helper inlined away…
     expect(flat).toMatch(/_fp64/) // …and the guard it carried is still read
   })
@@ -158,7 +156,7 @@ describe('forceInline — the fast-math guard survives the flattening', () => {
 
 describe('forceInline — df64 known answers survive both strengths, bit for bit', () => {
   const arms: [string, ModuleDecl][] = [
-    ['size-win', SIZE_WIN],
+    ['single-call', SIZE_WIN],
     ['all', ALL],
   ]
   const base = f32Oracle(BASE)
@@ -224,7 +222,7 @@ describe('forceInline(all) over the example corpus', () => {
       )
       let wgsl: string
       try {
-        wgsl = emitModule(ex.module, { plugins: [forceInlinePlugin({ strength: 'all' })] })
+        wgsl = emitModule(ex.module, { plugins: [inlinePlugin({ opaque: 'all' })] })
       } catch {
         continue // not every example emits standalone; the parity gate covers those
       }

@@ -17,12 +17,12 @@
 // known-answer gate (force-inline.test.ts) pins that end-to-end under a
 // correctly-rounding-f32 oracle rather than leaving it as an argument.
 //
-// WHY IT IS STILL OPT-IN, AND WHY 'size-win' IS THE DEFAULT. Two costs, both measured:
+// WHY IT IS STILL OPT-IN, AND WHY 'single-call' IS THE DEFAULT. Two costs, both measured:
 //   • BYTES. df64 helpers are called from many sites, so 'all' duplicates each body per
 //     site: 5.1x to 27.2x on the fp64 corpus (fp64-sine-sweep 6,266 B -> 170,419 B).
 //   • DRIVERS. `core/fp64/flavor-select.ts` already records that FXC's compile cost on
 //     the FULLY-INLINED df64 bodies can TDR on ANGLE-D3D11. 'all' walks into that.
-// 'size-win' unlocks only helpers with exactly ONE call site, where removing the decl
+// 'single-call' unlocks only helpers with exactly ONE call site, where removing the decl
 // and its single call is a strict size win and nothing is duplicated — measured −5% to
 // +8% bytes for 2-5 fewer functions per example.
 //
@@ -55,7 +55,7 @@
 // THIS PASS APPLIES THAT FOLD, and is the only thing that does — it is not in O2. The
 // round-trips it removes live inside df64 helper bodies, so the default emit has exactly
 // zero of them and wiring it there would perturb every snapshotted byte for nothing. Here
-// it fires 2,632 times on the flattened example corpus (31 under 'size-win') and takes it
+// it fires 2,632 times on the flattened example corpus (31 under 'single-call') and takes it
 // from 15,303 arithmetic ops to 14,619 — the single largest remaining gcc -O2 gap, closed
 // where it actually exists.
 //
@@ -69,11 +69,13 @@ import type { ModuleDecl, Expr } from '../ir/index.js'
 import { mapStmt, deadFnElim, memberFold } from './opt/index.js'
 import { inlineLinearAll } from './inline-linear.js'
 
-/** How far {@link forceInline} unlocks `FuncDecl.opaque`.
- *  • `'size-win'` — only helpers with exactly ONE call site (no body is duplicated).
+/** How far `inline({ opaque })` unlocks `FuncDecl.opaque`. Spelled as inline code
+ *  rather than a `{@link}`: the internal pass is not published in the API reference,
+ *  and a link a reader cannot follow is a permanent typedoc warning.
+ *  • `'single-call'` — only helpers with exactly ONE call site (no body is duplicated).
  *  • `'all'` — every opaque helper, so the df64 library leaves the output entirely,
  *    at 5-27x the emitted bytes and the ANGLE-D3D11 compile-cost risk noted above. */
-export type ForceInlineStrength = 'size-win' | 'all'
+export type InlineOpaque = 'keep' | 'single-call' | 'all'
 
 /** Call sites of `name` across every fn body in the module. */
 function countCalls(m: ModuleDecl, name: string): number {
@@ -92,17 +94,18 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  Opacity is re-applied from a set captured BEFORE the first round, never from a
  *  `df64_` NAME test — a name test is exactly what #1926 removed, because `mangle`
  *  renames the library and the invariant then held or not depending on plugin order. */
-export function forceInline(m: ModuleDecl, strength: ForceInlineStrength = 'size-win'): ModuleDecl {
+export function forceInline(m: ModuleDecl, policy: InlineOpaque = 'keep'): ModuleDecl {
+  if (policy === 'keep') return inlineLinearAll(m)
   const locked = new Set(m.funcs.filter((f) => f.opaque === true).map((f) => f.name))
   if (locked.size === 0) return inlineLinearAll(m)
 
-  if (strength === 'all') {
+  if (policy === 'all') {
     const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) }
     const inlined = inlineLinearAll(opened)
     return inlined === opened ? m : deadFnElim(memberFold(inlined))
   }
 
-  // 'size-win': unlock only the single-call helpers, and re-lock the survivors. Removing
+  // 'single-call': unlock only the one-call-site helpers, and re-lock the survivors. Removing
   // one helper can drop another's count to 1, so this repeats until it stops finding any.
   let cur = m
   let moved = false
