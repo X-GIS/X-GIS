@@ -17,6 +17,7 @@ import type {
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
+import { emitLineSplitWgsl } from '../../shaders/dsl/line-split'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { lineGlslId, lineWgslId } from '../../shaders/baked/ids'
 import { glslFor, readsWgsl, wgslFor } from './wgsl-for'
@@ -61,6 +62,12 @@ export interface LineBatch {
   layerOffset: number
   pattern: boolean
   segmentCount: number
+  /** #2042 INC-4c — the split-bind stroke draw: when present (and a split
+   *  layout was provided), `tileBG` IS the three-range split bind group and
+   *  the group-0 dynamic offsets are `[tileOff, showOff]` (bindings 7 < 10;
+   *  `tileOffset` above is ignored). Pattern strokes never set this — the
+   *  split layout carries no sprite bindings. */
+  split?: { tileOff: number; showOff: number } | null
 }
 
 export class LineDraper {
@@ -72,9 +79,13 @@ export class LineDraper {
     this._pickMaterial?.destroy()
     this._maxMaterial?.destroy()
     this._bakeMaterial?.destroy()
+    this._splitMaterial?.destroy()
+    this._splitPickMaterial?.destroy()
     this._pickMaterial = undefined
     this._maxMaterial = undefined
     this._bakeMaterial = undefined
+    this._splitMaterial = undefined
+    this._splitPickMaterial = undefined
   }
 
   private readonly material: Material // non-pick: single colour target, fs_line / fs_line_pattern
@@ -96,6 +107,56 @@ export class LineDraper {
   // attachment (the bake pass supplies depth24plus-stencil8), and 'always' makes it an inert no-op
   // (never tested, never written) so overlapping segments composite by draw order. LAZY.
   private _bakeMaterial?: Material
+  // #2042 INC-4c — the split-bind (Frame/Show/Tile) stroke twins, built from
+  // the derived line-split module against the factory's split layout. LAZY,
+  // WebGPU-only (a split layout only exists there), solid strokes only (the
+  // split layout has no sprite bindings — pattern stays legacy).
+  private _splitMaterial?: Material
+  private _splitPickMaterial?: Material
+  private _splitLayout: GPUBindGroupLayout | null = null
+
+  /** Provide (or replace) the split group-0 layout. Replacing retires the
+   *  lazily-built split materials so the next draw rebuilds against it. */
+  setSplitLayout(layout: GPUBindGroupLayout): void {
+    if (this._splitLayout === layout) return
+    this._splitLayout = layout
+    this._splitMaterial?.destroy()
+    this._splitPickMaterial?.destroy()
+    this._splitMaterial = undefined
+    this._splitPickMaterial = undefined
+  }
+
+  private splitMat(pick: boolean): Material {
+    const cached = pick ? this._splitPickMaterial : this._splitMaterial
+    if (cached) return cached
+    const m = new Material(this.rhi, {
+      shader: emitLineSplitWgsl(this.variant, pick),
+      vsEntry: 'vs_line',
+      fsEntry: 'fs_line',
+      format: this.format as 'bgra8unorm',
+      sampleCount: this.sampleCount,
+      groups: [
+        wrapWebGpuBindGroupLayout(this._splitLayout!),
+        wrapWebGpuBindGroupLayout(this.layerLayout),
+      ],
+      colorTargets: pick
+        ? [
+            { format: this.format as 'bgra8unorm', blend: 'alpha' },
+            { format: 'rg32uint', writeMask: 0 }, // #1215 — same masking as the legacy pick twin
+          ]
+        : [{ format: this.format as 'bgra8unorm', blend: 'alpha' }],
+      variants: [
+        {
+          depthWrite: false,
+          depthCompare: 'less-equal',
+          label: pick ? 'line-pipeline-split-pick-rhi' : 'line-pipeline-split-rhi',
+        },
+      ],
+    })
+    if (pick) this._splitPickMaterial = m
+    else this._splitMaterial = m
+    return m
+  }
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -281,6 +342,24 @@ export class LineDraper {
     b: LineBatch,
     mode: 'opaque' | 'pick' | 'max' | 'bake' = 'opaque',
   ): void {
+    // #2042 INC-4c — the split-bind stroke: three-range group 0 with
+    // [tileOff, showOff] dynamic offsets (bindings 7 < 10). Opaque/pick
+    // solid strokes only; max/bake and pattern keep the legacy bind.
+    if (b.split && this._splitLayout && !b.pattern && (mode === 'opaque' || mode === 'pick')) {
+      const draws = executeItems(this.splitMat(mode === 'pick'), pass, [
+        {
+          variant: 0,
+          bindGroups: [b.tileBG, b.layerBG],
+          dynamicOffsets: [[b.split.tileOff, b.split.showOff], [b.layerOffset]],
+          count: 6,
+          indexed: false,
+          instanceCount: b.segmentCount,
+        },
+      ])
+      const g = globalThis as { __xgisVtrSplitStrokeDraws?: number }
+      g.__xgisVtrSplitStrokeDraws = (g.__xgisVtrSplitStrokeDraws ?? 0) + draws
+      return
+    }
     const material =
       mode === 'pick'
         ? (this._pickMaterial ??= this.buildMaterial(true))

@@ -263,10 +263,17 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
   // WGSL-only key-shape question as emitExtrudeShellComposeWgsl above; decide
   // both together, do not bake speculatively now.
   buildPolygonSplitModule:
-    '#2042 INC-4a — unconsumed until the INC-4b pipeline family; nothing to bake yet',
+    '#2042 INC-4a/4b — consumed live by pipeline-factory behind __XGIS_SPLIT_BIND; ' +
+    'WGSL-only by scope, so baking waits on the WGSL-only key shape',
   emitPolygonSplitWgsl:
-    '#2042 INC-4a — unconsumed until the INC-4b pipeline family; WGSL-only by scope ' +
-    '(the split rebind is WebGPU-only), so baking also waits on the WGSL-only key shape',
+    '#2042 INC-4a/4b — consumed live by pipeline-factory behind __XGIS_SPLIT_BIND; ' +
+    'WGSL-only by scope (the split rebind is WebGPU-only), baking waits on the key shape',
+  buildLineSplitModule:
+    '#2042 INC-4c — consumed live by line-material behind the split layout; ' +
+    'WGSL-only by scope, same key-shape question as the polygon twins above',
+  emitLineSplitWgsl:
+    '#2042 INC-4c — consumed live by line-material behind the split layout; ' +
+    'WGSL-only by scope (the split rebind is WebGPU-only), baking waits on the key shape',
 }
 
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {

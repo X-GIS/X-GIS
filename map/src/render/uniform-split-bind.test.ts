@@ -206,6 +206,12 @@ describe('UniformSplitBind — span-copy byte parity (the INC-4b rebind contract
       const src = new Float32Array(polyB.buffer, polyB.fieldOffset('fill_color' as never), 2)
       expect(stagedRG[0]).toBeCloseTo(1 - src[0]!, 5)
       expect(stagedRG[1]).toBeCloseTo(1 - src[1]!, 5)
+      // #2042 INC-4c — the stroke lane flips too (the stroke-read witness).
+      const sOff = showB.fieldOffset('stroke_color' as never)
+      const stagedS = new Float32Array(staged.buffer, sOff, 2)
+      const srcS = new Float32Array(polyB.buffer, polyB.fieldOffset('stroke_color' as never), 2)
+      expect(stagedS[0]).toBeCloseTo(1 - srcS[0]!, 5)
+      expect(stagedS[1]).toBeCloseTo(1 - srcS[1]!, 5)
     } finally {
       delete g.__XGIS_SPLIT_BIND_SKEW
     }
