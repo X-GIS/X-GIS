@@ -182,6 +182,15 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
       ;(globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF = true
     })
   }
+  // #2042 INC-5 A/B arm: `XGIS_SPLIT_BIND=1` enables the three-range
+  // split bind (and with it the per-tile walk-skip), so the sweep can
+  // measure the encode slope flag-OFF vs flag-ON on one commit. The
+  // factory reads the flag ONCE at build() → must be set pre-boot.
+  if (process.env.XGIS_SPLIT_BIND === '1') {
+    await page.addInitScript(() => {
+      ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = true
+    })
+  }
 
   const rows: Array<{
     n: number
@@ -194,9 +203,110 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
 
   for (const n of [8, 32, 128]) {
     const layers = await bootAt(page, n)
-    const frames = (await runSweep(page, 8000)).slice(2)
+    // ── Steady-state gate (#2042 INC-5) ── the fixed 6 s settle measured
+    // WARMUP on SwiftShader: at n=128 the first frame (uploads + pipeline
+    // compiles + arena-growth invalidateAll storms + clip-fallback draws)
+    // takes 20-40 s, so the old 8 s window held 0-2 frames, all records —
+    // the read slope was the record path, not navigation. Gate instead on
+    // bundleMisses convergence: invalidate a probe frame each poll and
+    // wait until three consecutive polls add no misses (bundles replay).
+    const steady = await (async () => {
+      // A poll only counts when at least one rAF tick landed since the
+      // previous poll — under SwiftShader backpressure rAF stalls for
+      // seconds, and an unchanged miss count with NO frames in between
+      // says nothing (the poller-zero lesson).
+      await page.evaluate(() => {
+        const w = window as unknown as { __sweepTicks?: number }
+        if (w.__sweepTicks === undefined) {
+          w.__sweepTicks = 0
+          const tick = (): void => {
+            w.__sweepTicks = (w.__sweepTicks ?? 0) + 1
+            requestAnimationFrame(tick)
+          }
+          requestAnimationFrame(tick)
+        }
+      })
+      let last = -1
+      let lastTicks = -1
+      let stable = 0
+      const t0 = Date.now()
+      while (Date.now() - t0 < 240_000) {
+        await page.evaluate(() => {
+          ;(window as unknown as { __xgisMap: { invalidate: () => void } }).__xgisMap.invalidate()
+        })
+        await page.waitForTimeout(1_500)
+        const s = await page.evaluate(() => ({
+          misses:
+            (window as unknown as { __xgisMap?: { stats?: { bundleMisses: number } } }).__xgisMap
+              ?.stats?.bundleMisses ?? -1,
+          ticks: (window as unknown as { __sweepTicks?: number }).__sweepTicks ?? 0,
+        }))
+        if (s.ticks === lastTicks) continue
+        lastTicks = s.ticks
+        if (s.misses === last) {
+          if (++stable >= 3) return { ok: true, waitedMs: Date.now() - t0, misses: s.misses }
+        } else {
+          stable = 0
+          last = s.misses
+        }
+      }
+      return { ok: false, waitedMs: Date.now() - t0, misses: last }
+    })()
+    console.log(`[encode-sweep] n=${n} steady=${JSON.stringify(steady)}`)
+    // Zero the mechanism counters + snapshot bundle stats so the printed
+    // diagnostics cover EXACTLY the measured window.
+    const base = await page.evaluate(() => {
+      const g = globalThis as {
+        __xgisVtrSplitDraws?: number
+        __xgisVtrWalkSkips?: number
+        __xgisVtrFillRhiDraws?: number
+      }
+      g.__xgisVtrSplitDraws = 0
+      g.__xgisVtrWalkSkips = 0
+      g.__xgisVtrFillRhiDraws = 0
+      const s = (
+        window as unknown as {
+          __xgisMap?: {
+            stats?: { bundleHits: number; bundleMisses: number; bundleEvictions: number }
+          }
+        }
+      ).__xgisMap?.stats
+      return { h: s?.bundleHits ?? 0, m: s?.bundleMisses ?? 0, e: s?.bundleEvictions ?? 0 }
+    })
+    // Window scaled to N: SwiftShader steady frames at n=128 run seconds
+    // each; a longer window keeps ≥5 sampled frames per N.
+    const windowMs = Math.max(10_000, n * 300)
+    const frames = (await runSweep(page, windowMs)).slice(2)
     const phases = await readPhases(page)
     const enc = phases.find((p) => p.name === 'frame.encode')
+    // #2042 INC-5 diagnostics — attribute a slope change before believing it:
+    // bundle hit/miss separates "steady replay but slow walk" from a
+    // re-record storm; the split/skip counters say which mechanism ran.
+    const diag = await page.evaluate((b) => {
+      const g = globalThis as {
+        __xgisVtrSplitDraws?: number
+        __xgisVtrWalkSkips?: number
+        __xgisVtrFillRhiDraws?: number
+      }
+      const s = (
+        window as unknown as {
+          __xgisMap?: {
+            stats?: { bundleHits: number; bundleMisses: number; bundleEvictions: number }
+          }
+        }
+      ).__xgisMap?.stats
+      return {
+        splitFills: g.__xgisVtrSplitDraws ?? 0,
+        walkSkips: g.__xgisVtrWalkSkips ?? 0,
+        fillDraws: g.__xgisVtrFillRhiDraws ?? 0,
+        bundleHits: (s?.bundleHits ?? 0) - b.h,
+        bundleMisses: (s?.bundleMisses ?? 0) - b.m,
+        bundleEvictions: (s?.bundleEvictions ?? 0) - b.e,
+      }
+    }, base)
+    console.log(
+      `[encode-sweep] n=${n} windowMs=${windowMs} frames=${frames.length} diag=${JSON.stringify(diag)}`,
+    )
     rows.push({
       n,
       layers,

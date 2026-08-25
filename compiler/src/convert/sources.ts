@@ -2,6 +2,7 @@ import type { MapboxSource } from './types'
 import { sanitizeId } from './utils'
 import { checkSourceBounds } from '../ir/source-bounds'
 import { isTileScheme, schemeRejectReason } from '../ir/source-scheme'
+import { convertSourceCluster } from './sources-cluster'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
@@ -468,17 +469,48 @@ export function convertSource(
       lines.push(
         '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
       )
-      // Mapbox raster-dem encoding: 'mapbox' (default — RGB-packed
-      // elevation à la Terrain RGB) vs 'terrarium' (Mapzen / Stamen
-      // alternative encoding). 'custom' uses redFactor/greenFactor/
-      // blueFactor/baseShift. Surface non-default encodings so the
-      // Batch-4 hillshade renderer can match the source's pack rule
-      // instead of assuming Mapbox-RGB.
-      const dem = src as { encoding?: unknown }
+      // Mapbox raster-dem elevation encoding (#2003): 'mapbox' (default — RGB-packed
+      // elevation à la Terrain RGB) / 'terrarium' (Mapzen / Stamen alternative encoding) /
+      // 'custom' (redFactor/greenFactor/blueFactor/baseShift). The runtime decode already
+      // threads all three end to end — grammar (ir/lower.ts), interpreter, source-manager,
+      // and demUnpack() (map/src/render/hillshade-renderer.ts) — so the converter was the
+      // one missing hop: without it every non-mapbox DEM decoded with the mapbox formula
+      // regardless of its real pack (saturated-garbage elevation for e.g. a Mapzen/
+      // Terrarium source). 'mapbox' is the runtime default and stays emit-omitted —
+      // byte-identical to a source that declares no encoding at all.
+      const dem = src as {
+        encoding?: unknown
+        redFactor?: unknown
+        greenFactor?: unknown
+        blueFactor?: unknown
+        baseShift?: unknown
+      }
       if (typeof dem.encoding === 'string' && dem.encoding !== 'mapbox') {
-        warnings.push(
-          `raster-dem source "${id}" uses non-default encoding="${dem.encoding}" — when hillshade lands, the renderer needs the matching pack formula (mapbox=(R*256+G+B/256)*0.1-10000; terrarium=R*256+G+B/256-32768).`,
-        )
+        if (dem.encoding === 'terrarium') {
+          lines.push('  encoding: terrarium')
+        } else if (dem.encoding === 'custom') {
+          lines.push('  encoding: custom')
+          // Only a non-negative finite number lowers: lowerSource matches a bare
+          // NumberLiteral for each factor (mirrors the emittableZoom rule above) — a
+          // negative value parses as a UnaryExpr and would round-trip to nothing. A lane
+          // left out (or unusable) falls back to the mapbox factor for that lane —
+          // demUnpack()'s documented behaviour — so a partial custom pack (e.g. only
+          // redFactor) is a legitimate style, not an error.
+          const factor = (v: unknown): number | undefined =>
+            typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
+          const redFactor = factor(dem.redFactor)
+          const greenFactor = factor(dem.greenFactor)
+          const blueFactor = factor(dem.blueFactor)
+          const baseShift = factor(dem.baseShift)
+          if (redFactor !== undefined) lines.push(`  redFactor: ${redFactor}`)
+          if (greenFactor !== undefined) lines.push(`  greenFactor: ${greenFactor}`)
+          if (blueFactor !== undefined) lines.push(`  blueFactor: ${blueFactor}`)
+          if (baseShift !== undefined) lines.push(`  baseShift: ${baseShift}`)
+        } else {
+          warnings.push(
+            `raster-dem source "${id}" declares encoding="${dem.encoding}" — neither "terrarium" nor "custom" nor the default "mapbox"; not emitted, so the runtime falls back to the mapbox pack formula (demUnpack()'s own fallback for any unrecognised encoding).`,
+          )
+        }
       }
       warnings.push(
         `Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`,
@@ -488,32 +520,15 @@ export function convertSource(
       warnings.push(`raster-dem source "${id}" has no URL.`)
     }
   } else if (src.type === 'geojson') {
-    // Mapbox cluster fields (`cluster: true` etc.) instruct MapLibre
-    // to KDBush-cluster the point features client-side. X-GIS has no
-    // clustering pipeline today, so a style authoring point clusters
-    // gets unclustered points — visible as crowded marker pile-ups
-    // where MapLibre would show one numbered super-marker. Warn so
-    // the gap is visible.
-    const clusterCfg = src as {
-      cluster?: unknown
-      clusterRadius?: unknown
-      clusterMaxZoom?: unknown
-      clusterMinPoints?: unknown
-      clusterProperties?: unknown
-    }
-    // Treat null the same as undefined per Mapbox spec — both mean
-    // "field omitted" and shouldn't trigger the cluster warning.
-    if (
-      clusterCfg.cluster === true ||
-      (clusterCfg.clusterRadius !== undefined && clusterCfg.clusterRadius !== null) ||
-      (clusterCfg.clusterMaxZoom !== undefined && clusterCfg.clusterMaxZoom !== null) ||
-      (clusterCfg.clusterMinPoints !== undefined && clusterCfg.clusterMinPoints !== null) ||
-      (clusterCfg.clusterProperties !== undefined && clusterCfg.clusterProperties !== null)
-    ) {
-      warnings.push(
-        `GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`,
-      )
-    }
+    // ── Source-level point clustering (#2050) ────────────────────────
+    //
+    // Mapbox `cluster` + its four tuning fields instruct MapLibre to aggregate the point
+    // features into supercluster hierarchies. They now REACH the IR: `convertSourceCluster`
+    // renders the source-block lines (and every diagnostic for a value that cannot be
+    // carried), `lowerSource` claims the same five keys through the shared `CLUSTER_KEY`
+    // table, and P2/P3 of the clustering track build the index that reads them. The lines
+    // are appended at the END of this arm, after the type/url/data emit.
+    const clusterLines = convertSourceCluster(id, src, warnings)
     // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
     // simplification), `buffer` (tile-clip padding), `lineMetrics`
     // (line-progress accessor for line-gradient), `maxzoom`,
@@ -616,6 +631,7 @@ export function convertSource(
         `GeoJSON source "${id}" data field must be a URL string or inline object; got ${typeof data}.`,
       )
     }
+    lines.push(...clusterLines) // cluster / clusterRadius / … (#2050)
   } else if (src.type === 'image' || src.type === 'video') {
     lines.push(`  // SKIPPED: ${src.type} source not yet supported by X-GIS engine`)
     warnings.push(

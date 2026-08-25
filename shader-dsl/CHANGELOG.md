@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 2536fd733c8c5215d637b42738b1f98b871ebd75
+  Generated from: d9e1a1212641d3fdb655b002cee536a310ee0443
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 2536fd733c8c
+    bun scripts/emit-changelog.ts --path shader-dsl --since d9e1a1212641
 -->
 
 # Changelog — shader-dsl
@@ -23,8 +23,13 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 ### 2026-08
 
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** fold forceInline into inline({ opaque }) — one factory, one axis ([#2071](https://github.com/X-GIS/X-GIS/pull/2071)) `9ae788c`
+
 #### feat
 
+- **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
 - **map/shader-dsl:** #2042 INC-4b — split-bind fill family behind __XGIS_SPLIT_BIND ([#2070](https://github.com/X-GIS/X-GIS/pull/2070)) `2536fd7`
 - **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
 - **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`

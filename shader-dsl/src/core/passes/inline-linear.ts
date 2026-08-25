@@ -513,11 +513,17 @@ const CLEANUP: readonly OptPass[] = LEVEL_PASSES.O1
 /** Inline EVERY safely-inlinable helper — single-return via the proven inlineFn,
  *  then linear multi-statement via inlineLinearFn — until none remain, then clean
  *  up the duplication that created (`CLEANUP`). Pure (module -> module);
- *  `@xgis/shader-dsl/emit-prod`'s inline() plugin. */
-export function inlineLinearAll(m: ModuleDecl): ModuleDecl {
+ *  `@xgis/shader-dsl/emit-prod`'s inline() plugin.
+ *
+ *  `counter` is the lift-temp uniquifier, and it defaults to a FRESH one — correct for a
+ *  single call, and wrong for a SEQUENCE. A caller that inlines in several passes over the
+ *  same module (force-inline.ts's budgeted path does, one helper at a time) must thread ONE
+ *  counter through them all: otherwise every call restarts at `_inl0_`, two rounds bind the
+ *  same temp name, and the module comes out with an unbound reference — `unbound _inl1_ret`
+ *  from the CPU oracle, caught by the df64 known-answer arms rather than by anything static. */
+export function inlineLinearAll(m: ModuleDecl, counter: { n: number } = { n: 0 }): ModuleDecl {
   if (m.funcs.some((f) => bodyHasRaw(f.body))) return m
   let cur = m
-  const counter = { n: 0 }
   // Each step removes exactly one helper, so the fn count bounds the loop.
   for (let i = 0; i <= m.funcs.length; i++) {
     const single = cur.funcs.find((f) => isInlinable(cur, f, false))

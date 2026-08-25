@@ -31,6 +31,17 @@ export const CAMERA_ZOOM_KEY = '$zoom' as const
  *  tileZoom. */
 export const CAMERA_PITCH_KEY = '$pitch' as const
 
+/** Reserved key for the RUNNING AGGREGATE of one `clusterProperties` key — Mapbox
+ *  `["accumulated"]` (#2050). The evaluator's `accumulated` identifier resolves to
+ *  `props[ACCUMULATED_KEY]`, the same injection contract `zoom` / `pitch` have.
+ *  A `clusterProperties` reduce is `accumulated <op> ["get", key]`: the reserved key
+ *  carries the value merged so far while the ordinary props bag carries the INCOMING
+ *  mapped values, so the two operands cannot collide. The injector is the cluster
+ *  index's merge step (design §4.3, T3 P2/P3 — `compiler/src/tiler/cluster/`, running
+ *  inside `data/src/workers/geojson-tiling-worker.ts`); every other eval site leaves it
+ *  absent and `["accumulated"]` resolves to null there, as `["pitch"]` does off-camera. */
+export const ACCUMULATED_KEY = '$accumulated' as const
+
 /** Reserved key PREFIX for a declared `input`'s live value (#1539) —
  *  `props[INPUT_KEY_PREFIX + name]`. The evaluator's `InputRef` node
  *  (resolved from a bare identifier by ir/resolve-inputs.ts before
@@ -82,6 +93,7 @@ export function normalizeGeometryType(t: string | undefined): string | undefined
 export type ReservedKey =
   | typeof CAMERA_ZOOM_KEY
   | typeof CAMERA_PITCH_KEY
+  | typeof ACCUMULATED_KEY
   | typeof FEATURE_ID_KEY
   | typeof GEOMETRY_TYPE_KEY
   | typeof GEOMETRY_KEY
@@ -108,6 +120,9 @@ export function makeEvalProps(opts: {
   /** Camera pitch in degrees — exposed to Mapbox `["pitch"]`. Only the
    *  render-path eval sites supply it; absent at worker/decode time. */
   cameraPitch?: number
+  /** Running aggregate for one `clusterProperties` key — exposed to Mapbox
+   *  `["accumulated"]` (#2050). Only the cluster-index merge step supplies it. */
+  accumulated?: unknown
   /** Stable feature ID — exposed via `["id"]` / `["get","$featureId"]`. */
   featureId?: string | number
   /** GeoJSON geometry type — exposed via `["geometry-type"]`. */
@@ -142,6 +157,7 @@ export function makeEvalProps(opts: {
   const out: Record<string, unknown> = { ...safeProps }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
   if (opts.cameraPitch !== undefined) out[CAMERA_PITCH_KEY] = opts.cameraPitch
+  if (opts.accumulated !== undefined) out[ACCUMULATED_KEY] = opts.accumulated
   if (opts.featureId !== undefined) out[FEATURE_ID_KEY] = opts.featureId
   if (opts.geometryType !== undefined) {
     out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)

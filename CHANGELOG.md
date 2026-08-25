@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2536fd733c8c5215d637b42738b1f98b871ebd75
+  Generated from: d9e1a1212641d3fdb655b002cee536a310ee0443
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2536fd733c8c
+    bun scripts/emit-changelog.ts --since d9e1a1212641
 -->
 
 # Changelog
@@ -24,9 +24,18 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 #### ⚠ BREAKING CHANGES
 
 - **map,rhi:** **BREAKING** delete the forced-WebGL2 twin frame — Track A1 complete ([#1544](https://github.com/X-GIS/X-GIS/pull/1544)) `6ffe514`
+- **shader-dsl:** **BREAKING** fold forceInline into inline({ opaque }) — one factory, one axis ([#2071](https://github.com/X-GIS/X-GIS/pull/2071)) `9ae788c`
 
 #### feat
 
+- **map:** #2042 INC-5 — walk-skip: arena-resident tiles bypass the per-tile pack ([#2083](https://github.com/X-GIS/X-GIS/pull/2083)) `d9e1a12`
+- **compiler:** CJK vertical P1 — text-writing-mode wires to LabelDef.writingMode, zero pixels (#2051) ([#2078](https://github.com/X-GIS/X-GIS/pull/2078)) `0ffea94`
+- **compiler/convert:** emit raster-dem encoding (+ custom unpack factors) — the one missing hop (#2003) ([#2066](https://github.com/X-GIS/X-GIS/pull/2066)) `bbc58f0`
+- **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
+- **compiler:** clustering P1 — cluster options through grammar/IR/converter, ["accumulated"] becomes a reserved evaluator key (#2050) ([#2077](https://github.com/X-GIS/X-GIS/pull/2077)) `ed5117f`
+- **map/text:** D1 INC-1 — forward-Jacobian ratio ground basis replaces the pitch-0 screen-anchor unprojection (#2012) ([#2060](https://github.com/X-GIS/X-GIS/pull/2060)) `7eb1462`
+- **map:** #2042 INC-4c — split-bind stroke family (line three-range rebind) ([#2080](https://github.com/X-GIS/X-GIS/pull/2080)) `0b0df2e`
+- **playground:** in-page measure harness (?measure=) + measure-harness skill ([#2072](https://github.com/X-GIS/X-GIS/pull/2072)) `dee1dc8`
 - **map/shader-dsl:** #2042 INC-4b — split-bind fill family behind __XGIS_SPLIT_BIND ([#2070](https://github.com/X-GIS/X-GIS/pull/2070)) `2536fd7`
 - **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
 - **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
@@ -224,6 +233,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map:** T5 P0 — extract the top-level style root family from map.ts into style-top-level.ts (#2052) ([#2076](https://github.com/X-GIS/X-GIS/pull/2076)) `a680c43`
 - **rhi-webgpu:** derive bind-group visibility from BindEntry.stages ([#1917](https://github.com/X-GIS/X-GIS/pull/1917)) `deb5dfa`
 - **geo,map:** latToMercatorY authority; five packers stop re-spelling it ([#1831](https://github.com/X-GIS/X-GIS/pull/1831)) `56c6f47`
 - **map/camera:** Camera.setProjection owns the projection promotion (#1506) ([#1784](https://github.com/X-GIS/X-GIS/pull/1784)) `ba1caf1`
@@ -262,6 +272,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** re-pin the polygon arm-revert tokens to the #2042 INC-6 flag-selected cam_rel Lets (#2073) ([#2074](https://github.com/X-GIS/X-GIS/pull/2074)) `e4b1d39`
 - **playground:** capture-canvas skill — chrome-free, event-driven map capture for e2e specs ([#2062](https://github.com/X-GIS/X-GIS/pull/2062)) `6ccae6c`
 - **e2e:** make the dateline gate name which failure it saw ([#1981](https://github.com/X-GIS/X-GIS/pull/1981)) `7732050`
 - **e2e:** converge the #1248 size gate instead of sleeping 2000ms ([#1970](https://github.com/X-GIS/X-GIS/pull/1970)) `994015a`
