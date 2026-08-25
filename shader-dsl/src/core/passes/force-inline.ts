@@ -66,7 +66,7 @@
 // flavour flat does not change that.
 
 import type { ModuleDecl, Expr } from '../ir/index.js'
-import { mapStmt, deadFnElim, memberFold } from './opt/index.js'
+import { mapStmt, mapModuleExprs, deadFnElim, memberFold } from './opt/index.js'
 import { inlineLinearAll } from './inline-linear.js'
 
 /** How far `inline({ opaque })` unlocks `FuncDecl.opaque`. Spelled as inline code
@@ -76,6 +76,42 @@ import { inlineLinearAll } from './inline-linear.js'
  *  • `'all'` — every opaque helper, so the df64 library leaves the output entirely,
  *    at 5-27x the emitted bytes and the ANGLE-D3D11 compile-cost risk noted above. */
 export type InlineOpaque = 'keep' | 'single-call' | 'all'
+
+/** One unlock decision, in the shape gcc's `-fopt-info-inline` reports:
+ *  what was considered, what it cost, and where that left the unit. */
+export interface InlineDecision {
+  /** The opaque helper considered. */
+  readonly fn: string
+  /** Call sites it had when considered — the copies inlining would make. */
+  readonly callSites: number
+  /** Module IR-op count AFTER this decision (unchanged when it was refused). */
+  readonly ops: number
+  /** `ops` over the count before any unlocking. 1 = no growth, 27 = 27x. */
+  readonly growth: number
+  readonly inlined: boolean
+  /** `over-budget` — inlining it would push growth past `maxGrowth`.
+   *  `not-inlinable` — unlocking changed nothing; some other exclusion holds
+   *  (see `preludeBlocker` in inline-linear.ts). */
+  readonly reason: 'inlined' | 'over-budget' | 'not-inlinable'
+}
+
+export interface InlineOpaqueOpts {
+  /** Cap on how far the whole module's IR-op count may grow while unlocking,
+   *  as a multiplier. Omitted = UNLIMITED, which is the shipped behaviour and
+   *  the path this option must not perturb: with no budget the `'all'` policy
+   *  still opens every helper in ONE batch, exactly as before. A budget switches
+   *  to unlocking one helper at a time, cheapest first, so the two cannot emit
+   *  identical bytes and only the budgeted path is new.
+   *
+   *  This is the knob gcc spells `--param inline-unit-growth` (default 40, i.e.
+   *  +40%). The default here is deliberately the opposite — unbounded — because
+   *  the goal is OBFUSCATION, where flattening everything is the point rather
+   *  than a cost to be contained. */
+  readonly maxGrowth?: number
+  /** Out-param: push a {@link InlineDecision} per helper considered. Same
+   *  idiom as `mangle({ renames })`. */
+  readonly report?: InlineDecision[]
+}
 
 /** Call sites of `name` across every fn body in the module. */
 function countCalls(m: ModuleDecl, name: string): number {
@@ -94,15 +130,134 @@ function countCalls(m: ModuleDecl, name: string): number {
  *  Opacity is re-applied from a set captured BEFORE the first round, never from a
  *  `df64_` NAME test — a name test is exactly what #1926 removed, because `mangle`
  *  renames the library and the invariant then held or not depending on plugin order. */
-export function forceInline(m: ModuleDecl, policy: InlineOpaque = 'keep'): ModuleDecl {
+/** Every Expr node in the module, counted through the SAME walker the passes
+ *  rewrite with (`mapModuleExprs`), so the budget cannot drift from what the
+ *  optimizer actually sees. This is the analogue of gcc's "insns". */
+function moduleOps(m: ModuleDecl): number {
+  let n = 0
+  mapModuleExprs(m, (e) => {
+    n++
+    return e
+  })
+  return n
+}
+
+/** Unlock `names` in `m`, inline, clean up, and re-lock whatever of `locked`
+ *  survived — the step both the batch and the budgeted path are built from. */
+function unlockAndInline(
+  m: ModuleDecl,
+  names: ReadonlySet<string>,
+  locked: ReadonlySet<string>,
+  counter: { n: number },
+): ModuleDecl | undefined {
+  const opened = {
+    ...m,
+    funcs: m.funcs.map((f) => (names.has(f.name) ? { ...f, opaque: false } : f)),
+  }
+  const inlined = inlineLinearAll(opened, counter)
+  if (inlined === opened) return undefined // nothing moved
+  const cleaned = deadFnElim(memberFold(inlined))
+  return {
+    ...cleaned,
+    funcs: cleaned.funcs.map((f) => (locked.has(f.name) ? { ...f, opaque: true } : f)),
+  }
+}
+
+export function forceInline(
+  m: ModuleDecl,
+  policy: InlineOpaque = 'keep',
+  opts?: InlineOpaqueOpts,
+): ModuleDecl {
   if (policy === 'keep') return inlineLinearAll(m)
   const locked = new Set(m.funcs.filter((f) => f.opaque === true).map((f) => f.name))
   if (locked.size === 0) return inlineLinearAll(m)
 
   if (policy === 'all') {
-    const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) }
-    const inlined = inlineLinearAll(opened)
-    return inlined === opened ? m : deadFnElim(memberFold(inlined))
+    // UNBUDGETED — the shipped path, left byte-for-byte alone: one batch unlock.
+    if (opts?.maxGrowth === undefined) {
+      const opened = { ...m, funcs: m.funcs.map((f) => ({ ...f, opaque: false })) }
+      const inlined = inlineLinearAll(opened)
+      if (inlined === opened) return m
+      const out = deadFnElim(memberFold(inlined))
+      // The batch has no per-helper steps to narrate, but a `report` that came
+      // back EMPTY would read as "nothing was inlined" — the exact wrong answer
+      // when everything was. So report the outcome per helper instead: one entry
+      // each, with the unit's single end-state growth.
+      if (opts?.report) {
+        const survived = new Set(out.funcs.map((f) => f.name))
+        const ops = moduleOps(out)
+        const growth = ops / moduleOps(m)
+        for (const name of locked) {
+          opts.report.push({
+            fn: name,
+            callSites: countCalls(m, name),
+            ops,
+            growth,
+            inlined: !survived.has(name),
+            reason: survived.has(name) ? 'not-inlinable' : 'inlined',
+          })
+        }
+      }
+      return out
+    }
+    // BUDGETED — one helper at a time, CHEAPEST FIRST. "Cheapest" is call-site
+    // count: a one-call helper duplicates nothing when it goes, so the ordering
+    // generalises the 'single-call' policy rather than inventing a second rule.
+    // Recomputed every round, because removing one helper changes another's
+    // count. gcc's IPA inliner keys its priority queue the same way — on the
+    // growth a candidate would cause, not on source order.
+    const base = moduleOps(m)
+    const budget = opts.maxGrowth
+    const skip = new Set<string>()
+    // ONE counter across every round — see inlineLinearAll's header. A fresh counter per
+    // round makes two rounds bind the same `_inlN_` temps and the module comes out broken.
+    const counter = { n: 0 }
+    let cur = m
+    for (let round = 0; round < locked.size; round++) {
+      const remaining = cur.funcs.filter((f) => f.opaque === true && !skip.has(f.name))
+      if (remaining.length === 0) break
+      const pick = remaining
+        .map((f) => ({ f, calls: countCalls(cur, f.name) }))
+        .sort((a, b) => a.calls - b.calls || (a.f.name < b.f.name ? -1 : 1))[0]!
+      const next = unlockAndInline(cur, new Set([pick.f.name]), locked, counter)
+      if (next === undefined) {
+        skip.add(pick.f.name)
+        opts.report?.push({
+          fn: pick.f.name,
+          callSites: pick.calls,
+          ops: moduleOps(cur),
+          growth: moduleOps(cur) / base,
+          inlined: false,
+          reason: 'not-inlinable',
+        })
+        continue
+      }
+      const ops = moduleOps(next)
+      if (ops / base > budget) {
+        // Refused, and the NEXT candidate is still tried: cheapest-first makes a
+        // later fit unlikely, but deadFnElim can shrink the unit under it.
+        skip.add(pick.f.name)
+        opts.report?.push({
+          fn: pick.f.name,
+          callSites: pick.calls,
+          ops: moduleOps(cur),
+          growth: moduleOps(cur) / base,
+          inlined: false,
+          reason: 'over-budget',
+        })
+        continue
+      }
+      cur = next
+      opts.report?.push({
+        fn: pick.f.name,
+        callSites: pick.calls,
+        ops,
+        growth: ops / base,
+        inlined: true,
+        reason: 'inlined',
+      })
+    }
+    return cur === m ? m : cur
   }
 
   // 'single-call': unlock only the one-call-site helpers, and re-lock the survivors. Removing
