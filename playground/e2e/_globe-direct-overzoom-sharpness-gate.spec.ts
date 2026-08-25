@@ -21,6 +21,15 @@
 //           puts currentZ at/above the ceiling. If the runtime maxLevel is ≤ 9
 //           the ceiling cannot be reached from this camera and the spec SKIPS,
 //           naming that: a vacuous pass would be #996 all over again.
+//           PER SOURCE, not across sources: the ceiling is SOURCE-CLAMPED, and
+//           this scene carries a second, synthetic `world__polar_cap` source at
+//           maxLevel 0 that KEEPS the drape at every camera zoom — by the
+//           derivation, not against it. Every assertion here is therefore scoped
+//           to the sources whose own maxLevel reaches the ceiling. That scoping
+//           is load-bearing twice over: unscoped, the CAUSE accuses the fix of
+//           doing what it documents, and the SEVER arm below becomes vacuous
+//           (the polar cap drapes in both arms, so "some source drapes" is true
+//           whether or not the override is wired).
 //   EFFECT  the coast soft-band metric the original gate defined, held to the
 //           bound the original used for the WINDOWED bake (0.20). The direct
 //           path magnifies geometry, so it must be at least as sharp as the
@@ -315,7 +324,24 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than
       `overzoom — correctly still owns this route; _globe-drape-overzoom-gate covers it.`,
   )
 
-  const stillDraping = names.filter((k) => direct[k].drapeGlobeFills)
+  // PER SOURCE, not across sources. The ceiling is SOURCE-CLAMPED (currentZ is
+  // `min(floor(cameraZoom), source.maxLevel)` — projections-table.ts:309-313), so
+  // only a source whose OWN maxLevel reaches it can go direct at this camera. The
+  // `dark` demo also carries a synthetic `world__polar_cap` at maxLevel 0, which
+  // therefore KEEPS the drape at every camera zoom — that is the derivation
+  // working, not failing, and judging it against the direct claim accuses the fix
+  // of doing exactly what it documents. The scalar `maxLevel` above only decides
+  // whether ANY source can reach the ceiling (the skip); every assertion below is
+  // scoped to the sources that actually do.
+  const ceilingReaching = names.filter((k) => direct[k].maxLevel >= GLOBE_DIRECT_MIN_SELECTION_Z)
+  expect(
+    ceilingReaching,
+    `no source here has maxLevel ≥ ${GLOBE_DIRECT_MIN_SELECTION_Z}, so nothing below would be a ` +
+      `statement about the ceiling. sources: ` +
+      names.map((k) => `${k}{maxLevel:${direct[k].maxLevel}}`).join(' '),
+  ).not.toEqual([])
+
+  const stillDraping = ceilingReaching.filter((k) => direct[k].drapeGlobeFills)
   expect(
     stillDraping.map(
       (k) =>
@@ -365,21 +391,26 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than
   ).toBe(0)
 
   const draped = await dumpSources(page)
-  const drapingNow = Object.keys(draped).filter((k) => draped[k].drapeGlobeFills)
+  // Scoped to `ceilingReaching` for the same reason the CAUSE was, but here the
+  // scoping is what gives the assertion any information at all: the sub-ceiling
+  // `world__polar_cap` drapes in BOTH arms, so an unscoped "some source drapes"
+  // is true whether or not the override is wired, and would green a severed
+  // lever (§12 — an assertion must DISTINGUISH the states it tests).
+  const drapingNow = ceilingReaching.filter((k) => draped[k]?.drapeGlobeFills)
   expect(
     drapingNow,
-    `__XGIS_FORCE_VECTOR_DRAPE is set but no source reports _drapeGlobeFills — the override at ` +
-      `vector-tile-renderer.ts:3621 is not wired, so the two arms below are the same arm and ` +
-      `the comparison proves nothing. sources: ` +
-      Object.keys(draped)
+    `__XGIS_FORCE_VECTOR_DRAPE is set but no source ABOVE the ceiling reports _drapeGlobeFills — ` +
+      `the override at vector-tile-renderer.ts:3621 is not wired, so the two arms below are the ` +
+      `same arm and the comparison proves nothing. above-ceiling sources: ` +
+      ceilingReaching
         .map(
           (k) =>
-            `${k}{fills:${draped[k].drapeGlobeFills},baked:${draped[k].bakedCount},` +
-            `virtual:${draped[k].virtualBakedCount}}`,
+            `${k}{fills:${draped[k]?.drapeGlobeFills},baked:${draped[k]?.bakedCount},` +
+            `virtual:${draped[k]?.virtualBakedCount}}`,
         )
         .join(' '),
   ).not.toEqual([])
-  const bakedTotal = Object.keys(draped).reduce((acc, k) => acc + draped[k].bakedCount, 0)
+  const bakedTotal = ceilingReaching.reduce((acc, k) => acc + (draped[k]?.bakedCount ?? 0), 0)
   expect(
     bakedTotal,
     'the drape flag is on but the bake cache is empty — nothing was baked, so a softer coast ' +
