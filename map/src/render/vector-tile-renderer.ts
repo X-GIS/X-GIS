@@ -4692,13 +4692,29 @@ export class VectorTileRenderer {
     // draw this call emits must be split-bound for the per-tile pack + ring
     // stage to be skippable — split state live, a real slice, the primary
     // (unclipped) path, the constant-fill base layout, no pattern (fill OR
-    // line), no per-feature extrude, DEFAULT strokes only (a composer line
-    // variant may carry preamble bindings the split layout lacks), not the
-    // translucent MAX pass (its strokes read ring slots), no overdraw. The
-    // first tile still runs the FULL pack (it seeds the show/frame lanes the
-    // span-copy lifts); later arena-resident tiles skip everything.
-    const splitWalkSkip =
+    // line), no per-feature extrude, DEFAULT strokes only when strokes draw
+    // at all (a composer line variant may carry preamble bindings the split
+    // layout lacks), not the translucent MAX pass (its strokes read ring
+    // slots), no overdraw. The first tile still runs the FULL pack (it seeds
+    // the show/frame lanes the span-copy lifts); later arena-resident tiles
+    // skip everything.
+    // #2042 INC-4d — fills are split-capable when the call's pipeline is one
+    // of the DEFAULT flat/ground pipes (the INC-4b twins) or a per-style
+    // pipeline with an ELIGIBLE split twin — resolved (and lazily built, a
+    // few ms once per style) by the factory; null = ineligible (extra
+    // group-0 bindings / out-of-partition reads) and the call keeps the
+    // legacy walk.
+    const splitPipes = this._fillRhi?.pipes
+    const splitFillsCapable =
       this._fillRhi?.split != null &&
+      ((splitPipes != null &&
+        (fillPipeline === splitPipes.write ||
+          fillPipeline === splitPipes.test ||
+          fillPipeline === splitPipes.groundWrite ||
+          fillPipeline === splitPipes.groundTest)) ||
+        this._fillRhi.split.perStyleTwin?.(fillPipeline) != null)
+    const splitWalkSkip =
+      splitFillsCapable &&
       this._splitBind != null &&
       sliceLayer !== '' &&
       visibleKeysForClip === null &&
@@ -4707,7 +4723,9 @@ export class VectorTileRenderer {
       !this._linePatternActiveForShow &&
       this.currentExtrudeMode !== 'per-feature' &&
       !translucentLines &&
-      lineVariant == null &&
+      (!drawStrokes ||
+        lineVariant == null ||
+        this.lineRenderer?.splitStrokeEligible(lineVariant) === true) &&
       !isOverdrawActive(this.rhi.caps)
     this._lastWalkRingFree = splitWalkSkip
     let packedOnce = false

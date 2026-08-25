@@ -123,5 +123,18 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     // bundle recorded 2").
     expect(src).toContain('this._lastWalkRingFree = splitWalkSkip')
     expect(src).toMatch(/if \(_inv && !this\._lastWalkRingFree\) \{/)
+    // #2042 INC-4d — the qualification's fill term must be capability-based
+    // (default pipes OR an eligible per-style twin), and the stroke clause
+    // must consult the draper's derivation verdict — NOT a bare
+    // `lineVariant == null` (which excluded every compiled show: constant
+    // paints inline as preamble consts, so all converted-style fills are
+    // per-style; the class the walk-skip exists for).
+    expect(src).toContain('const splitFillsCapable =')
+    const cap = src.indexOf('const splitFillsCapable =')
+    const capBody = src.slice(cap, cap + 600)
+    expect(capBody).toContain('perStyleTwin')
+    expect(qualBody).toContain('splitFillsCapable')
+    expect(qualBody).toContain('splitStrokeEligible(lineVariant)')
+    expect(qualBody).toContain('!drawStrokes ||')
   })
 })
