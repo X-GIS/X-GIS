@@ -1032,7 +1032,22 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2167,
+  // 2167→2166 (#2012 INC-5): TWO extractions pay for the pitched size correction,
+  // and the file had ZERO headroom to pay it from. (1) `labelSizePx` — authored
+  // size × DPR × the 1/64-quantised perspective factor — moved to text-stage-
+  // helpers.ts, taking the #1081 rationale and the layout-cache contract with it.
+  // It is exactly the arithmetic INC-5 makes SHARED: the point loop has folded a
+  // perspective factor in since #1081 and the curved loop now does too, and two
+  // copies are two chances to quantise one and not the other (the cache is keyed on
+  // the result, so the un-quantised arm would thrash on every frame of a tilt).
+  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5
+  // showed was hand-written on BOTH sides of the stage boundary plus once more as
+  // the dispatch's reused holder: adding one field meant editing three copies of
+  // one shape, so it becomes one named type in text-stage-types.ts. What GREW here
+  // is only the two loops' one-line size derivation and their reasoning. The
+  // ceiling drops to the measured post-prettier size rather than being left slack:
+  // headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2166,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

@@ -103,9 +103,9 @@ describe('D1 INC-1 producer — the spec chain decides who gets a basis', () => 
   it('offers one to a LINE-placed label with nothing authored — the default path', () => {
     // auto → text-rotation-alignment → map for line placement. This is the set
     // the user actually sees standing upright: road names, waterway names, shields.
-    const basis = producerFor(cam)(def({ placement: 'line' }), ...at)
-    expect(basis).toBeDefined()
-    expect(basis!.every(Number.isFinite)).toBe(true)
+    const align = producerFor(cam)(def({ placement: 'line' }), ...at)
+    expect(align).toBeDefined()
+    expect(align!.basis.every(Number.isFinite)).toBe(true)
   })
 
   it('offers one to a point label that authors pitch-alignment map', () => {
@@ -189,7 +189,7 @@ describe('D1 INC-1 producer — the far field is where the basis must NOT go mis
     let prev = Infinity
     for (const sy of [H / 2, H / 2 - 100, H / 2 - 200, H / 2 - 300]) {
       const ll = cam.unprojectToLonLat(W / 2, sy, W, H, DPR)!
-      const b = produce(d, ll[0], ll[1])!
+      const b = produce(d, ll[0], ll[1])!.basis
       const det = b[0] * b[3] - b[1] * b[2]
       expect(det, `sy=${sy}`).toBeLessThan(prev)
       prev = det
@@ -282,10 +282,15 @@ describe('D1 INC-1 — the basis replacement moves nothing else at the wired sit
         'exists for was never exercised',
     ).toBeGreaterThan(1)
     expect(
-      withBasis.anchors,
-      'the basis derivation moved the label anchors or their perspective scales — the ' +
-        'quantities the #1358 phase origin and the placement are measured from',
-    ).toEqual(without.anchors)
+      withBasis.anchors.map((a) => [a[0], a[1]]),
+      'the basis derivation moved the label ANCHORS — the quantities the #1358 phase ' +
+        'origin and the placement are measured from',
+    ).toEqual(without.anchors.map((a) => [a[0], a[1]]))
+    // The label's own perspective scale is the ONE thing that legitimately differs,
+    // and it does so from #2012 INC-5 onward — see the INC-5 block below, which
+    // asserts the direction rather than merely tolerating the difference. Before
+    // INC-5 this comparison included slot 3 and passed; the narrowing is the
+    // behaviour change, recorded here so it cannot be widened back by accident.
     expect(
       withBasis.icons,
       'the basis derivation moved the paired icon anchors or their perspective scales',
@@ -316,7 +321,7 @@ describe('D1 INC-1 — the basis replacement moves nothing else at the wired sit
     const coupled = run((projectors) => (_d, lon, lat) => {
       projectors.projectLonLat(lon + 1, lat)
       projectors.projectLonLat(lon, lat + 20)
-      return [1, 0, 0, 0.5]
+      return { basis: [1, 0, 0, 0.5], sizeScale: 1 }
     })
     expect(
       coupled.psAfter,
@@ -375,7 +380,7 @@ describe('D1 INC-1 producer — degenerate inputs withhold rather than corrupt',
     const produce = producerFor(cam)
     for (const size of [0, -3, NaN, Infinity]) {
       const b = produce(def({ placement: 'line', size } as Partial<LabelDef>), ...at)
-      if (b !== undefined) expect(b.every(Number.isFinite)).toBe(true)
+      if (b !== undefined) expect(b.basis.every(Number.isFinite)).toBe(true)
     }
   })
 })
@@ -406,10 +411,10 @@ describe('D1 INC-1 producer — the azimuthal discs are reachable now, and only 
     it(`projType ${projType}: a basis under pitch, none at pitch 0`, () => {
       const b = producerFor(discCamera(projType, 60))(def({ placement: 'line' }), ...at)
       expect(b, `no basis for projType ${projType} — the disc is out of scope again`).toBeDefined()
-      expect(b!.every(Number.isFinite)).toBe(true)
+      expect(b!.basis.every(Number.isFinite)).toBe(true)
       // Non-vacuity: a real tilt, not a rounding-noise basis that slipped past
       // `isIdentityBasis`.
-      expect(b![3]).toBeLessThan(0.9)
+      expect(b!.basis[3]).toBeLessThan(0.9)
       expect(
         producerFor(discCamera(projType, 0))(def({ placement: 'line' }), ...at),
       ).toBeUndefined()
@@ -427,5 +432,89 @@ describe('D1 INC-1 producer — the azimuthal discs are reachable now, and only 
     cam.globeOrtho = true
     cam.azimuthalProjType = 3
     expect(globeProducerFor(cam)(def({ placement: 'line' }), ...at)).toBeUndefined()
+  })
+})
+
+// ═══ D1 INC-5 — which BRANCH of the perspective size correction each symbol gets
+//
+// The formula itself is proved over its domain in text/ground-basis.test.ts. What
+// this owes is the WIRING, and specifically the discrimination the formula cannot
+// make on its own: a ground-aligned LABEL must receive the map branch, its paired
+// ICON must keep the viewport branch (icon-pitch-alignment is ADR-0012 D3 and is
+// not wired), and a billboarded label must be untouched. Driven through
+// `dispatchPointLabel` against the REAL projector family, so the numbers are the
+// ones a frame actually produces.
+describe('D1 INC-5 — the point arm hands the LABEL the map branch and the ICON the viewport one', () => {
+  const AT: [number, number] = [CENTER_LON + 0.004, CENTER_LAT + 0.003]
+
+  function emit(pitch: number, produce: ReturnType<typeof makeGroundBasisFor> | undefined) {
+    const cam = new Camera(CENTER_LON, CENTER_LAT, 0)
+    cam.pitch = pitch
+    const projectors = makeLabelProjectors(
+      cam.getViewForProjection(cam.projType, W, H, DPR).matrix,
+      W,
+      H,
+      { ...flatFor(cam), visibleWorldCopies: [0] },
+    )
+    const labels: Array<number | undefined> = []
+    const icons: Array<number | undefined> = []
+    const bases: Array<ArrayLike<number> | undefined> = []
+    dispatchPointLabel({ type: 'Point' }, {}, ...AT, {
+      applyFeatureExprs: () => def({ placement: 'line' }),
+      projectLonLatCopies: projectors.projectLonLatCopies,
+      addLabel: (_v, _p, _x, _y, _d, _f, _ln, _pk, _cid, ps, basis) => {
+        labels.push(ps)
+        bases.push(basis)
+      },
+      dispatchIcon: (_d, _x, _y, _t, _pk, _c, _props, ps) => icons.push(ps),
+      layerName: 'probe',
+      nextPairKey: () => 'k',
+      groundBasisFor: produce ?? (() => undefined),
+    })
+    return { labels, icons, bases }
+  }
+
+  it('a ground-aligned label is sized on the MAP branch — above 1, where #1081 caps at 1', () => {
+    // The anchor sits ABOVE the camera centre at pitch 60, so it is FARTHER than
+    // the centre: the map branch grows it, the viewport branch would shrink it, and
+    // forcing 1 (what shipped before) would land exactly between the two. All three
+    // states are distinguishable in this one number, which is the point.
+    const cam = new Camera(CENTER_LON, CENTER_LAT, 0)
+    cam.pitch = 60
+    const out = emit(60, producerFor(cam))
+    expect(out.bases[0], 'no basis at pitch 60 — the gate below would be vacuous').toBeDefined()
+    expect(out.labels[0]!).toBeGreaterThan(1)
+    // And it is exactly the formula, not a number that merely happens to exceed 1.
+    expect(out.labels[0]!).toBeLessThanOrEqual(4)
+  })
+
+  it('the paired ICON keeps the viewport branch — at or below 1, never grown', () => {
+    const cam = new Camera(CENTER_LON, CENTER_LAT, 0)
+    cam.pitch = 60
+    const out = emit(60, producerFor(cam))
+    expect(out.icons[0]!).toBeLessThanOrEqual(1)
+    expect(out.icons[0]!).toBeGreaterThanOrEqual(0.5)
+    // The two symbols at ONE anchor now carry DIFFERENT numbers. If a future edit
+    // collapses them onto one, this is the assertion that notices.
+    expect(out.icons[0]).not.toBe(out.labels[0])
+  })
+
+  it('a billboarded label is untouched — the viewport branch, exactly as before', () => {
+    const out = emit(60, undefined)
+    expect(out.bases[0]).toBeUndefined()
+    expect(out.labels[0]).toBe(out.icons[0])
+    expect(out.labels[0]!).toBeLessThanOrEqual(1)
+  })
+
+  it('an UNPITCHED frame is bit-identical whether or not the producer is wired', () => {
+    // The no-regression rung: at pitch 0 the basis is withheld, so the label falls
+    // back to the viewport branch and nothing about the frame can differ.
+    const cam = new Camera(CENTER_LON, CENTER_LAT, 0)
+    cam.pitch = 0
+    const wired = emit(0, producerFor(cam))
+    const bare = emit(0, undefined)
+    expect(wired.bases[0]).toBeUndefined()
+    expect(wired.labels).toEqual(bare.labels)
+    expect(wired.icons).toEqual(bare.icons)
   })
 })
