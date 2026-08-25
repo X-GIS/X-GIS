@@ -47,6 +47,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Two point-label layers over the SAME anchors (#777 IV3-a): `label-pitch-alignment-map` lies in the ground plane, `label-pitch-alignment-viewport` stays an upright billboard. Purpose-built because point labels resolve to viewport by DEFAULT and no real basemap authors the property, so the ground basis has nothing to act on elsewhere. §5 probe: pitch>0 must make the two arms diverge; at pitch 0 they must be identical (the basis is the identity there and is withheld, so the ground arm takes exactly the billboard path).',
     source: load('fixture-label-pitch-alignment.xgis'),
   },
+  fixture_curved_label_ground: {
+    name: 'Fixture: curved line labels, ground plane vs billboard',
+    tag: 'fixture',
+    description:
+      'Two CURVED (tangent-rotated) line-label layers over the SAME lines (#2012 INC-4): `label-pitch-alignment-map` walks the LABEL PLANE and lies in it, `label-pitch-alignment-viewport` walks the screen and stands up. Purpose-built so the D1 payload has an OFFLINE §5 witness — the resolving layers on a real basemap are road names, which need the network. Geometry is pushed with setSourceData after run(). §5 probe: pitch>0 must make the two arms diverge in glyph SPACING as well as quad shape; at pitch 0 they must be hash-identical (the pitch-0 twin of the polyline is the polyline, the basis is the identity and is withheld).',
+    source: load('fixture-curved-label-ground.xgis'),
+  },
   fixture_format_image: {
     name: 'Fixture: inline image in label text (local sprite)',
     tag: 'fixture',

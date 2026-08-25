@@ -31,7 +31,7 @@ import { xlog } from '@xgis/shared'
 // world-copy arms), NOT the Mercator-metre WORLD_MERC constant — conceptually
 // it is the projected-x circumference. (Numerically WORLD_MERC ≈ this value,
 // but they are kept distinct so the non-merc copy offset tracks project_geom.)
-const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
+export const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
 
 /** Report BOTH outcomes of a popped validation scope (#1046 F4 — the promise
  *  comes from `RhiDevice.popValidationScope`, message-or-null). Fire-and-forget
