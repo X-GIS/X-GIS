@@ -275,7 +275,13 @@ const CEILINGS: Record<string, number> = {
   // parallel array + its two pushes, and the stroke-emit split resolve +
   // per-tile bind selection threaded through both drawSegments calls.
   // Shrinks at INC-5 with the re-walk deletion.
-  'map/src/render/vector-tile-renderer.ts': 5303,
+  // 5303→5379 (#2042 INC-5): the walk-skip — per-call splitWalkSkip
+  // qualification, the per-tile skip block (arena-resident tiles bypass the
+  // whole pack + ring alloc/stage after the first tile seeds the show/frame
+  // lanes), the pack block wrapped in if(!skipPack), the __xgisVtrWalkSkips
+  // executed-mechanism witness, and the _lastWalkRingFree exemption of the
+  // bundle-hit ring-alloc invariant (vacuous under a ring-reader-free walk).
+  'map/src/render/vector-tile-renderer.ts': 5379,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
