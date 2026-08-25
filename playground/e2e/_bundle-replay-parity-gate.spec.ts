@@ -310,6 +310,23 @@ test('#1190 — bundled frames are byte-identical to direct frames across an int
   // The invariant net: a hit re-walk that no longer matches the baked
   // offsets throws in-page — surface it as this gate's failure.
   expect(pageErrors, `page errors during parity run:\n${pageErrors.join('\n')}`).toEqual([])
+  // WITHIN-ARM idempotence (#2116). SCRIPT[1] and SCRIPT[4] are the SAME camera, and this
+  // fixture was chosen precisely because its tiles have terminal content, so one camera has
+  // ONE settled frame — see the header. Cross-arm equality cannot see a settle that fires
+  // early, because both arms then sample at the same wrong point and agree; this can. It is
+  // also the cheaper net: when `idle` stopped covering in-flight glyph ranges the OFF arm
+  // alone already disagreed with itself (step 1 vs step 4) before any arm comparison ran.
+  for (const [arm, hs] of [
+    ['off', offHashes],
+    ['on', onHashes],
+  ] as const) {
+    expect(
+      hs[4],
+      `${arm} arm settled to two different frames for the SAME camera ` +
+        `${JSON.stringify(SCRIPT[1])} — step 1 ${hs[1]?.slice(0, 12)} vs step 4 ` +
+        `${hs[4]?.slice(0, 12)}. The settle signal fired before the frame converged.`,
+    ).toBe(hs[1])
+  }
   // Vacuity guard — bundling must actually engage on the ON arm.
   expect(stats.hits, 'bundle path never HIT on the ON arm — gate is vacuous').toBeGreaterThan(0)
   // The §5 verdict: every step byte-identical between arms.
