@@ -21,7 +21,9 @@ import {
   type TileSourceMeta,
   type BackendTileResult,
 } from '../tile-source'
+
 import type { VirtualCatalog } from '../tile-types'
+import type { CompiledTile } from '@xgis/compiler'
 
 const MAX_INFLIGHT = 32
 
@@ -68,8 +70,24 @@ export class VirtualCatalogAdapter implements TileSource {
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)
-    this.catalog
-      .fetcher(z, x, y)
+    // #2091 — nothing the fetcher does may strand the key in `loadingTiles`:
+    // a SYNCHRONOUS throw escaped before .then/.catch attached, so the release
+    // below never ran and `hasPendingLoads()` stayed true for the session —
+    // starving the `idle` event (whose predicate folds pending source work)
+    // and every consumer gated on first-idle. `Promise.resolve` also covers a
+    // fetcher that returns a NON-THENABLE (a hand-written or mistyped
+    // implementation): without it, `.then` would throw here and strand the key
+    // the same way. A released key is re-requested on a later frame, exactly
+    // as it is after an async rejection — same semantics for both shapes.
+    let pending: Promise<CompiledTile | null>
+    try {
+      pending = Promise.resolve(this.catalog.fetcher(z, x, y))
+    } catch (err) {
+      sink.releaseLoading(key)
+      xlog.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)
+      return
+    }
+    pending
       .then((tile) => {
         sink.releaseLoading(key)
         sink.acceptResult(

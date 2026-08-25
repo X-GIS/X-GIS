@@ -262,6 +262,12 @@ The rules that remain, and WHY:
   the machine before. One such job + light/medium work in parallel is fine.
 - Everything else runs CONCURRENTLY with a background gate: recon, design, code edits,
   docs/issue records, single-file tests, patch preparation for the next increment.
+- **But never EDIT REPO SOURCES a running browser gate is serving.** The e2e gates run
+  against the Vite dev server, so a save mid-run hot-reloads the page and kills the
+  in-flight `page.evaluate` (`Execution context was destroyed, most likely because of a
+navigation`) — a green-looking pipeline that actually measured a moving tree. Paid for
+  2026-08-25: a comment-only edit during a gate's boot invalidated a 37-minute run.
+  Prepare edits as patches while a browser gate is in flight; apply them after it exits.
 
 **And NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
 verification `run_in_background`, then IMMEDIATELY continue the NEXT work item — including
