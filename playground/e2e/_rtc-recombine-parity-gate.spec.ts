@@ -34,6 +34,7 @@
 // broken across arm navigations).
 
 import { test, expect, type Page } from '@playwright/test'
+import { hideDemoChrome } from './helpers/visual'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { PNG } from 'pngjs'
@@ -101,6 +102,15 @@ async function bootArm(page: Page, arm: Arm, globe: boolean): Promise<void> {
     skew: (globalThis as { __XGIS_RTC_RECOMBINE_SKEW?: unknown }).__XGIS_RTC_RECOMBINE_SKEW,
   }))
   console.log(`[rtc-parity] page flags: ${JSON.stringify(flags)}`)
+  // The measured pixels must be MAP pixels. `page.screenshot({clip})` over the canvas box
+  // still catches every demo-chrome element that OVERLAPS that box — `DEMO_CHROME_IDS`
+  // (helpers/visual.ts) exists precisely because they do — and the saved failing frames
+  // proved it: the hash badge `#1.50/20.00000/140.00000` and the style title were inside
+  // the 288x55 clip, i.e. a large fraction of what this gate was hashing was DOM text whose
+  // rasterisation has nothing to do with the recombination under test. CLAUDE.md §5 forbids
+  // exactly this capture shape (owner-mandated 2026-08-25). Re-applied per arm because each
+  // arm re-navigates and the style mutation does not survive that.
+  console.log(`[rtc-parity] chromeHidden=${JSON.stringify(await hideDemoChrome(page))}`)
   await page.waitForTimeout(8_000) // cold-start tile + glyph cascade
   // Full-script warmup in EVERY arm (identical histories → comparable
   // settled frames; un-warmed first-visit glyph races measured in the
