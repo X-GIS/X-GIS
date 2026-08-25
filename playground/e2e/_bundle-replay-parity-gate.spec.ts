@@ -62,7 +62,22 @@ async function bootArm(page: Page, bundleOff: boolean): Promise<void> {
   // one-off step-0 deviation traced to first-pose content timing; reduced
   // motion removes the variable in BOTH arms identically.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1#1.5/20/140`, {
+  // `adaptive=0` is LOAD-BEARING for a hash-equality rung (#2116). The adaptive quality
+  // controller reads MEASURED rendered-frame intervals and moves the render down a ladder,
+  // so with it live the frame is a function of wall-clock — which a byte-identity gate has
+  // no tolerance to absorb. It is not a subtle blur either: measured on this exact scene
+  // under SwiftShader, the notch climbed 0 -> 3 -> 4 within the first two script steps and
+  // `adaptiveFarLodBoost` went 1 -> 4, i.e. the SELECTOR changed which tiles it asked for
+  // (`tile-selection-cache.ts:303`, `vector-tile-renderer.ts:4393`). The slower arm
+  // therefore settles to a different picture than the faster one, which is exactly the
+  // observed shape: bundles OFF (re-encoding every frame, cold HTTP cache) diverged run to
+  // run while bundles ON — byte-identical to the last known-green run — stayed stable.
+  //
+  // `?adaptive=0` is applied at MODULE LOAD (`engine/src/gpu/quality.ts:281`), before the
+  // first frame is sampled, so the controller never leaves notch 0. `?scenescale=` is NOT
+  // a substitute: it pins only the dpr half (`render-loop.ts:141`) and leaves the far-LOD
+  // boost live, so a gate using it would still be timing-dependent through tile selection.
+  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1&adaptive=0#1.5/20/140`, {
     waitUntil: 'domcontentloaded',
   })
   console.log(`[bundle-parity] boot(off=${bundleOff}): navigated, waiting ready`)
@@ -324,7 +339,12 @@ test('#1190 — bundled frames are byte-identical to direct frames across an int
       hs[4],
       `${arm} arm settled to two different frames for the SAME camera ` +
         `${JSON.stringify(SCRIPT[1])} — step 1 ${hs[1]?.slice(0, 12)} vs step 4 ` +
-        `${hs[4]?.slice(0, 12)}. The settle signal fired before the frame converged.`,
+        `${hs[4]?.slice(0, 12)}. The settled frame is not a pure function of the camera: ` +
+        `something in the render path read state that differed between the two visits. ` +
+        `First suspects, in the order they have actually bitten: the adaptive quality ` +
+        `notch (pinned here by ?adaptive=0 — check it is still on the URL), a settle ` +
+        `signal firing before an async resource landed, and load-order-dependent ` +
+        `selection. Compare the two arms' timings before assuming a bundle regression.`,
     ).toBe(hs[1])
   }
   // Vacuity guard — bundling must actually engage on the ON arm.
