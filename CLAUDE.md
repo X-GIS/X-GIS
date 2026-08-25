@@ -256,6 +256,14 @@ machine; running two at once has frozen the machine. Run them **sequentially** �
 wait for it to finish, then start the next. If one is already backgrounded, wait for its
 completion before launching another.
 
+**But NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
+verification `run_in_background`, then IMMEDIATELY continue the NEXT work item's non-heavy
+parts — recon, design, code edits, docs/issue records, targeted single-file tests. Ending a
+turn with "waiting for the gate result" delays the queued work the gate exists to protect;
+the completion notification re-enters the loop and the verdict is handled then. The
+one-heavy-process rule above still holds: queue the next HEAVY step behind the running one —
+everything else proceeds now.
+
 ## 8. Bug Fixing
 
 When the user reports a **freeze, crash, or broken behavior**, deliver an **actual fix — not

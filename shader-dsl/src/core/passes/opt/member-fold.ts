@@ -19,7 +19,7 @@
 // wrong numbers, and re-quoting them would have repeated the mistake):
 //
 //   fires, default emit                       0     — nothing to fold; df64 is still opaque
-//   fires, forceInline('size-win')           31
+//   fires, forceInline('single-call')           31
 //   fires, forceInline('all')             2,632
 //   arithmetic ops, flattened corpus     15,303 -> 14,619   (-684, -4.5%)
 //

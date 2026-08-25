@@ -78,12 +78,15 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     )
   })
 
-  it('the per-draw split resolve stays inside the qualifying gate (unclipped, non-extrude)', () => {
+  it('the per-tile split resolve stays inside the qualifying gate (unclipped, sliced)', () => {
+    // #2042 INC-4c hoisted the resolve to tile-loop scope so fills AND the
+    // stroke queue share it; the extrude exclusion moved to recordFillDraw's
+    // !bindZBuffer guard (asserted in its own suite), so the gate here is
+    // the tile-level pair: unclipped + a real slice identity.
     const at = src.indexOf('_tileUniforms.offsetOf(')
     expect(at, 'split residency lookup not found').toBeGreaterThan(0)
     const before = src.slice(Math.max(0, at - 700), at)
     expect(before).toContain('visibleKey < 0')
-    expect(before).toContain('!useExtrudedPipe')
     expect(before).toContain("sliceLayer !== ''")
   })
 })

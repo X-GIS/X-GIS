@@ -12,6 +12,7 @@ import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindin
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { runFrontPasses } from './front-passes'
 import { lowerSourceBounds, type SourceBounds } from './source-bounds'
+import { isSourceClusterProp, lowerSourceCluster } from './source-cluster'
 import { lowerSourceScheme, type TileRowScheme } from './source-scheme'
 import {
   expandPresets,
@@ -118,9 +119,8 @@ function lowerSource(
   let url = ''
   let layers: string[] | undefined
   let crs: string | undefined
-  /** Inline GeoJSON embedded via `data: {...}`. Converted from the
-   *  ObjectLiteral AST to a plain JS object; the runtime seeds it
-   *  instead of fetching `url`. */
+  /** Inline GeoJSON embedded via `data: {...}`. Converted from the ObjectLiteral AST to
+   *  a plain JS object; the runtime seeds it instead of fetching `url`. */
   let inlineData: unknown
   /** Non-reserved props for a custom `type` — collected into `SourceDef.options`
    *  (docs/architecture/source-loader-seam.md §5). Undefined for built-in sources. */
@@ -236,8 +236,7 @@ function lowerSource(
       // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block properties parse as a
       // full expression (parseBlockProperty), not a literal-only grammar, same reason
       // `astLiteralToJS` above unwraps `-` for inline `data:` literals. Unwrap it so a negative
-      // value reaches the non-negative check below with its real number instead of mis-reporting
-      // "not a number".
+      // value reaches the non-negative check below with a real number, not "not a number".
       if (
         refreshVal.kind === 'UnaryExpr' &&
         refreshVal.op === '-' &&
@@ -266,11 +265,11 @@ function lowerSource(
       }
       // 0 means "off", same as not declaring it — SourceDef.refresh stays undefined.
       if (refreshVal.value > 0) refresh = refreshVal.value
-    } else {
+    } else if (!isSourceClusterProp(prop.name)) {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
-      // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
-      // only genuinely custom fields reach here. Scalars + string-arrays only, so the
-      // `.xgis` source block stays serialisable.
+      // Reserved keys (type/url/data/layers/crs) are claimed by the branches above and the five
+      // `cluster*` keys by this guard (#2050), so only genuinely custom fields reach here.
+      // Scalars + string-arrays only, so the `.xgis` source block stays serialisable.
       let v: string | number | readonly string[] | undefined
       if (prop.value.kind === 'StringLiteral') v = prop.value.value
       else if (prop.value.kind === 'NumberLiteral') v = prop.value.value
@@ -336,6 +335,7 @@ function lowerSource(
     bounds,
     scheme,
     refresh,
+    ...lowerSourceCluster(stmt.properties),
   }
 }
 

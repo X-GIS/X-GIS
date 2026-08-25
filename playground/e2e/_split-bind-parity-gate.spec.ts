@@ -60,10 +60,22 @@ const SCRIPT: ReadonlyArray<{ bearing: number; zoom: number; pitch: number }> = 
   { bearing: 25, zoom: 1.5, pitch: 0 },
 ]
 
-/** Legacy-vs-split budget: the ulp-flip envelope (same rationale + number as
- *  the RTC gate — a wrong span offset or swapped dynamic offset moves whole
- *  fills, thousands of pixels). */
+/** Legacy-vs-split budgets, per amplitude CLASS. A wrong span offset /
+ *  swapped dynamic offset / dead bind moves WHOLE draws — hundreds-to-
+ *  thousands of pixels at saturated deltas — so the two bounds are:
+ *  - HIGH-amplitude pixels (Δ > MAX_SOFT_DELTA in any channel): ≤ MAX_DIFF_PX.
+ *    INC-4c measured why they exist at all: a dashed stroke's SDF coverage is
+ *    DISCRETE, so the recombination's ≤2.95e-4-px divergence can snap one
+ *    dash-dot edge sample across the coverage threshold — measured exactly
+ *    ONE such pixel (Δ113, a 55%-blend dot edge becoming full stroke) per
+ *    settled pose, isolated in the dotted-graticule region.
+ *  - TOTAL differing pixels: ≤ MAX_DIFF_PX_SOFT — the low-amplitude tail is
+ *    plain AA ulp noise (measured 19-25 px at Δ≤6; 0.0% of the frame above
+ *    the pixeldiff skill's own threshold of 8).
+ *  A real bind bug blows the high-amplitude bound by two orders. */
 const MAX_DIFF_PX = 12
+const MAX_DIFF_PX_SOFT = 96
+const MAX_SOFT_DELTA = 16
 
 type Arm = { split: boolean; skew: boolean }
 
@@ -156,22 +168,24 @@ async function stepAndCapture(
   throw new Error(`step ${stepIdx}: no stable frame in 8 captures (last ${prev.slice(0, 12)})`)
 }
 
-function pixelDiff(a: Buffer, b: Buffer): { count: number; maxDelta: number } {
+function pixelDiff(a: Buffer, b: Buffer): { count: number; highCount: number; maxDelta: number } {
   const pa = PNG.sync.read(a)
   const pb = PNG.sync.read(b)
   if (pa.width !== pb.width || pa.height !== pb.height)
     throw new Error(`size mismatch ${pa.width}x${pa.height} vs ${pb.width}x${pb.height}`)
   let count = 0
+  let highCount = 0
   let maxDelta = 0
   for (let i = 0; i < pa.data.length; i += 4) {
     let d = 0
     for (let c = 0; c < 4; c++) d = Math.max(d, Math.abs(pa.data[i + c]! - pb.data[i + c]!))
     if (d > 0) {
       count++
+      if (d > MAX_SOFT_DELTA) highCount++
       if (d > maxDelta) maxDelta = d
     }
   }
-  return { count, maxDelta }
+  return { count, highCount, maxDelta }
 }
 
 async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
@@ -180,8 +194,11 @@ async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
   return out
 }
 
-const splitDrawCount = (page: Page): Promise<number> =>
-  page.evaluate(() => (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0)
+const splitDrawCount = (page: Page): Promise<{ fills: number; strokes: number }> =>
+  page.evaluate(() => ({
+    fills: (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0,
+    strokes: (globalThis as { __xgisVtrSplitStrokeDraws?: number }).__xgisVtrSplitStrokeDraws ?? 0,
+  }))
 
 test('#2042 INC-4b — split-bind fills match legacy; the split path provably executes and is read', async ({
   browser,
@@ -220,13 +237,23 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
   ] as const) {
     expect(arm.errors, `arm ${name} page errors:\n${arm.errors.join('\n')}`).toEqual([])
   }
-  expect(legacyDraws, 'legacy arm recorded split draws — the flag gate leaks').toBe(0)
-  // Executed-mechanism witness half 1: the split branch actually drew.
   expect(
-    splitDraws,
-    'split arm recorded ZERO split draws — the rebind never engaged; the A/B below is vacuous',
+    legacyDraws.fills + legacyDraws.strokes,
+    'legacy arm recorded split draws — the flag gate leaks',
+  ).toBe(0)
+  // Executed-mechanism witness half 1: BOTH split families actually drew
+  // (#2042 INC-4b fills, INC-4c strokes).
+  expect(
+    splitDraws.fills,
+    'split arm recorded ZERO split FILL draws — the rebind never engaged; the A/B below is vacuous',
   ).toBeGreaterThan(0)
-  console.log(`[split-parity] splitDraws: legacy=${legacyDraws} split=${splitDraws}`)
+  expect(
+    splitDraws.strokes,
+    'split arm recorded ZERO split STROKE draws — the line rebind never engaged (INC-4c vacuous)',
+  ).toBeGreaterThan(0)
+  console.log(
+    `[split-parity] splitDraws: legacy=${JSON.stringify(legacyDraws)} split=${JSON.stringify(splitDraws)}`,
+  )
 
   expect(new Set(legacy.map((s) => s.hash)).size, 'reference frames all identical').toBeGreaterThan(
     1,
@@ -234,7 +261,9 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
 
   for (let i = 0; i < SCRIPT.length; i++) {
     const equal = legacy[i]!.hash === split[i]!.hash
-    const d = equal ? { count: 0, maxDelta: 0 } : pixelDiff(legacy[i]!.png, split[i]!.png)
+    const d = equal
+      ? { count: 0, highCount: 0, maxDelta: 0 }
+      : pixelDiff(legacy[i]!.png, split[i]!.png)
     console.log(
       `[split-parity] step ${i} ${JSON.stringify(SCRIPT[i])} legacy=${legacy[i]!.hash.slice(0, 12)} ` +
         `split=${split[i]!.hash.slice(0, 12)} ${equal ? 'EQUAL' : `DIFF count=${d.count} maxΔ=${d.maxDelta}`}`,
@@ -247,10 +276,11 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
       console.log(`[split-parity] saved failing frames: ${pl} ${ps}`)
     }
     expect(
-      d.count,
-      `step ${i}: legacy↔split pixel diff ${d.count} > ${MAX_DIFF_PX} (maxΔ=${d.maxDelta}) — ` +
-        'beyond the ulp envelope; the rebind reads different bytes (span table, offsets, or bind order)',
-    ).toBeLessThanOrEqual(MAX_DIFF_PX)
+      d.highCount <= MAX_DIFF_PX && d.count <= MAX_DIFF_PX_SOFT,
+      `step ${i}: legacy↔split pixel diff count=${d.count} (high-amplitude ${d.highCount}, ` +
+        `maxΔ=${d.maxDelta}) — beyond the ulp envelope (≤${MAX_DIFF_PX} at Δ>${MAX_SOFT_DELTA}, ` +
+        `≤${MAX_DIFF_PX_SOFT} total); the rebind reads different bytes (span table, offsets, or bind order)`,
+    ).toBe(true)
   }
 
   // Executed-mechanism witness half 2: the fragment READS the ShowBlock

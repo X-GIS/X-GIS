@@ -270,7 +270,12 @@ const CEILINGS: Record<string, number> = {
   // 5253→5254 (#2042 INC-4b fix): the sliceLayer argument threaded into
   // syncShow — the show-slot identity gained the slice half (the gate-caught
   // filter-bucket aliasing; see uniform-split-bind.ts's header).
-  'map/src/render/vector-tile-renderer.ts': 5254,
+  // 5254→5303 (#2042 INC-4c): the stroke split — the resolve hoisted to
+  // tile-loop scope (fills + strokes share it), the _strokeQueueTileOff
+  // parallel array + its two pushes, and the stroke-emit split resolve +
+  // per-tile bind selection threaded through both drawSegments calls.
+  // Shrinks at INC-5 with the re-walk deletion.
+  'map/src/render/vector-tile-renderer.ts': 5303,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -795,7 +800,16 @@ const CEILINGS: Record<string, number> = {
   // 5623→5630 (#1177/#2013): the `_labelDispatchLoopRuns` counter + its rationale and
   // the `loopRuns` field in getLabelDispatchStats — the observable the zoom-skip gate
   // asserts the dispatch-loop skip on (measure the skip, not the frame time).
-  'map/src/map.ts': 5630,
+  // 5630→5462 (#2052, T5 sky/fog Phase 0): the top-level style ROOT family moved to
+  // style-top-level.ts — the `background { fill / opacity / pattern }` block parse (and the
+  // two lexer helpers only it used), plus the validate halves of setLight / setAtmosphere.
+  // map.ts keeps the composition-root wiring only IT can write: the `_destroyed` guard,
+  // the private `_dirty.tag(STYLE)`, and `invalidate()`. `setBackgroundFill` deliberately
+  // did NOT move — its body reaches map.ts PRIVATE members (`_syntheticBackend`,
+  // `_installSyntheticEarthSurfaceSource`) and setBackgroundFill-lifecycle.test.ts pins its
+  // text to THIS file. Pure extraction, no behaviour line. LOWERED by the extracted count
+  // per the doc's Phase 0 mandate — headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/map.ts': 5462,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
