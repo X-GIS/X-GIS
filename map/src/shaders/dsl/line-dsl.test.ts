@@ -96,6 +96,33 @@ describe('Phase-2 line shader — DSL emission', () => {
       expect(w).not.toContain('fn lonlat_to_ecef(')
     }
   })
+  it('#2089 globe position CONSUMES the CPU-exact ECEF lanes', () => {
+    // The product-count pin above proves z_lift rides an up axis; it does NOT
+    // prove where the POSITION came from. Reverting `baseEcefLanes` to an
+    // in-shader `atan(exp())` re-derivation keeps the six products, emits no
+    // `fn lonlat_to_ecef(` (the DSL would inline it), and would sail through
+    // every other gate — i.e. the PR's entire reason for existing could be
+    // undone silently. Pin the lane READS themselves: all twelve, both
+    // variants. (Names, not offsets — the byte offsets are locked by
+    // line-segment-struct-layout.test.ts against the CPU writer.)
+    const LANES = [
+      'e0x_h',
+      'e0y_h',
+      'e0z_h',
+      'e0x_l',
+      'e0y_l',
+      'e0z_l',
+      'e1x_h',
+      'e1y_h',
+      'e1z_h',
+      'e1x_l',
+      'e1y_l',
+      'e1z_l',
+    ]
+    for (const w of [noPick, pick])
+      for (const lane of LANES)
+        expect(w, `vs_line must read segments[].${lane}`).toContain(`.${lane}`)
+  })
   it('binds g0 tile + sprite + g1 layer + 3 storage<read>', () => {
     // Instance `u`, not `tile` (#1635): the composer splices compiler-generated
     // text that addresses the group(0) block as `u.<lane>`. The struct TAG stays

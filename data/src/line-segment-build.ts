@@ -4,7 +4,15 @@
 // this without dragging in WebGPU types / WGSL shaders. The runtime
 // LineRenderer class re-exports from here.
 
-import { WGS84, tileEcefCenterFromMerc } from '@xgis/shared'
+// The ECEF anchor comes from @xgis/compiler — the SAME `tileEcefCenterFromMerc`
+// that `packECEFPolygonVertices`' caller uses (compiler/src/tiler/vector-tiler.ts),
+// closing over the same module-level WGS84 A/E2 the packer's per-vertex forward
+// uses. @xgis/shared exports a same-named function that resolves its constants
+// through `activeBody()` instead; mixing the two would compute the anchor on one
+// body and the endpoints on another, so fill and stroke would no longer share one
+// position authority — which is the whole point of these lanes (#2089).
+import { WGS84 } from '@xgis/shared'
+import { tileEcefCenterFromMerc } from '@xgis/compiler'
 
 // ═══ Segment Buffer Layout ═══
 // 128 bytes per segment (stride 32 f32). Phase 1: p0, p1 only. Later
