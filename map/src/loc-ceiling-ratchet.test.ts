@@ -281,7 +281,10 @@ const CEILINGS: Record<string, number> = {
   // lanes), the pack block wrapped in if(!skipPack), the __xgisVtrWalkSkips
   // executed-mechanism witness, and the _lastWalkRingFree exemption of the
   // bundle-hit ring-alloc invariant (vacuous under a ring-reader-free walk).
-  'map/src/render/vector-tile-renderer.ts': 5379,
+  // 5379→5397 (#2042 INC-4d): splitFillsCapable (default pipes OR an
+  // eligible per-style split twin) + the stroke clause widened to
+  // split-eligible line variants (splitStrokeEligible).
+  'map/src/render/vector-tile-renderer.ts': 5397,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1187,7 +1190,11 @@ const CEILINGS: Record<string, number> = {
   // layout + twin build in build(), the two fields, and fillRhiState's
   // split hand-off. The factory is the layout/pipeline owner, so the
   // descriptor increment lands here by design.
-  'map/src/render/pipeline-factory.ts': 1553,
+  // 1553→1650 (#2042 INC-4d): the lazy per-style split twin registry —
+  // perStyleSplitTwin (emitted-interface eligibility + build-on-first-use),
+  // the two cache maps, the registerFillMaterials info capture, and
+  // fillRhiState's perStyleTwin hand-off.
+  'map/src/render/pipeline-factory.ts': 1650,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for

@@ -114,6 +114,15 @@ export class LineDraper {
   private _splitMaterial?: Material
   private _splitPickMaterial?: Material
   private _splitLayout: GPUBindGroupLayout | null = null
+  /** #2042 INC-4d — cached split-eligibility verdict for THIS draper's
+   *  variant: the derived line-split module must bind exactly the three
+   *  split ranges at group(0), and every lane it reads must be in the
+   *  Frame/Show/Tile partition (the rewriter throws otherwise). Ineligible
+   *  (or throwing) variants keep the legacy bind — and the walk-skip
+   *  qualification consults this BEFORE skipping packs, so their legacy
+   *  strokes always have a valid ring slot. Derivation only (no emit /
+   *  optimize / Material build) — cheap, once per draper. */
+  private _splitOk?: boolean
 
   /** Provide (or replace) the split group-0 layout. Replacing retires the
    *  lazily-built split materials so the next draw rebuilds against it. */
@@ -124,6 +133,37 @@ export class LineDraper {
     this._splitPickMaterial?.destroy()
     this._splitMaterial = undefined
     this._splitPickMaterial = undefined
+  }
+
+  /** #2042 INC-4d — can this draper's variant draw through the split bind?
+   *  See `_splitOk`. Null-variant drapers are always eligible (the shipped
+   *  INC-4c pair); variant drapers verify their EMITTED interface once —
+   *  the module statically declares the pattern sprite bindings (5/6) which
+   *  the emit prunes when unused, so the check reads the emitted WGSL's
+   *  group(0) set (must be ⊆ {7, 10, 11}), and a derivation that reads
+   *  outside the Frame/Show/Tile partition throws → ineligible. */
+  splitEligible(): boolean {
+    if (this._splitOk === undefined) {
+      if (this.variant === null) {
+        this._splitOk = true
+      } else {
+        try {
+          const wgsl = emitLineSplitWgsl(this.variant, false)
+          let ok = true
+          for (const m of wgsl.matchAll(/@group\(0\)\s*@binding\((\d+)\)/g)) {
+            const b = Number(m[1])
+            if (b !== 7 && b !== 10 && b !== 11) {
+              ok = false
+              break
+            }
+          }
+          this._splitOk = ok
+        } catch {
+          this._splitOk = false
+        }
+      }
+    }
+    return this._splitOk
   }
 
   private splitMat(pick: boolean): Material {
@@ -345,7 +385,13 @@ export class LineDraper {
     // #2042 INC-4c — the split-bind stroke: three-range group 0 with
     // [tileOff, showOff] dynamic offsets (bindings 7 < 10). Opaque/pick
     // solid strokes only; max/bake and pattern keep the legacy bind.
-    if (b.split && this._splitLayout && !b.pattern && (mode === 'opaque' || mode === 'pick')) {
+    if (
+      b.split &&
+      this._splitLayout &&
+      !b.pattern &&
+      (mode === 'opaque' || mode === 'pick') &&
+      this.splitEligible()
+    ) {
       const draws = executeItems(this.splitMat(mode === 'pick'), pass, [
         {
           variant: 0,
