@@ -72,6 +72,8 @@ import {
   deriveLabelBbox,
 } from './text-stage-helpers'
 import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
+import { walkCurvedGlyphs, invertGroundBasis } from './curved-glyph-walk'
+import { groundBasisAabb } from './ground-basis'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
 import { TextStageDiagnostics } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
@@ -497,7 +499,9 @@ export class TextStage {
    *  internCurvedPolyline so each per-polyline intern mints no new
    *  object. Overwritten on every call; the caller reads both slots
    *  immediately and never retains the holder itself. */
-  private readonly _internedPolyline: [Float32Array, Float32Array] = [
+  private readonly _internedPolyline: [Float32Array, Float32Array, Float32Array, Float32Array] = [
+    new Float32Array(0),
+    new Float32Array(0),
     new Float32Array(0),
     new Float32Array(0),
   ]
@@ -520,7 +524,15 @@ export class TextStage {
     srcX: Float32Array,
     srcY: Float32Array,
     count: number,
-  ): readonly [Float32Array, Float32Array] {
+    /** #2012 INC-4 — the LIVE screen twin of the run, interned into slots 2/3 of
+     *  the returned holder. Both pairs come from the SAME retained samples, so
+     *  interning them together is what keeps the index correspondence a property
+     *  of the code rather than of two call sites agreeing on a count. Omitted
+     *  (every viewport-aligned layer, every unpitched frame) → slots 2/3 keep
+     *  their previous contents and no arena space is spent. */
+    liveX?: Float32Array,
+    liveY?: Float32Array,
+  ): readonly [Float32Array, Float32Array, Float32Array, Float32Array] {
     bumpAlloc('text-stage.curved.polyline.FrameArena')
     const px = this._frameArena.allocF32(count)
     const py = this._frameArena.allocF32(count)
@@ -530,6 +542,16 @@ export class TextStage {
     }
     this._internedPolyline[0] = px
     this._internedPolyline[1] = py
+    if (liveX !== undefined && liveY !== undefined) {
+      const qx = this._frameArena.allocF32(count)
+      const qy = this._frameArena.allocF32(count)
+      for (let i = 0; i < count; i++) {
+        qx[i] = liveX[i]!
+        qy[i] = liveY[i]!
+      }
+      this._internedPolyline[2] = qx
+      this._internedPolyline[3] = qy
+    }
     return this._internedPolyline
   }
 
@@ -554,6 +576,17 @@ export class TextStage {
     lineId?: string,
     anchorDistancePx?: number,
     collisionId?: string,
+    /** #2012 INC-4 — present when the layer resolves to `text-pitch-alignment:
+     *  map` on a pitched flat frame. `polylineX/Y` is then the LABEL PLANE and
+     *  `liveX/liveY` its screen twin (see `PendingLineLabel.livePolylineX`);
+     *  `basis` may still be absent when it degenerated, in which case the label
+     *  keeps the plane cadence and billboards. The caller may reuse one holder —
+     *  the fields are copied out here. */
+    ground?: {
+      liveX: Float32Array
+      liveY: Float32Array
+      basis: ArrayLike<number> | undefined
+    },
   ): void {
     // #777 I-G — strip inline-image markers before curved shaping. Inline
     // images along a curved road are not laid out (the along-path sampler
@@ -590,6 +623,13 @@ export class TextStage {
       text: transformed,
       polylineX,
       polylineY,
+      ...(ground !== undefined
+        ? {
+            livePolylineX: ground.liveX,
+            livePolylineY: ground.liveY,
+            ...(ground.basis !== undefined ? { groundBasis: ground.basis } : {}),
+          }
+        : {}),
       centerOffsetPx,
       def,
       fontKey: fontKey ?? composeFontKey(def, this.opts.defaultFont),
@@ -1512,13 +1552,22 @@ export class TextStage {
     //
     // Shared per-phase scratches. Sized once across the curved-label
     // loop so we don't allocate `advances` / `cumLen` arrays per
-    // label. The per-label sample loop also targets a shared
-    // 3-element tuple instead of returning a fresh `{ x, y, angle }`
-    // closure result per glyph — that was the dominant GC source
-    // when many road labels project onto the same frame.
+    // label. The per-glyph walk itself lives in curved-glyph-walk.ts
+    // (#2012 INC-4) — a pure function of the two polylines, so the
+    // label-plane ↔ screen correspondence it applies gets a unit gate
+    // that can be severed on its own, and its extraction paid this
+    // file's LOC ceiling rather than a bump paying it.
     let _advanceScratch = new Float32Array(0)
     let _cumLenScratch = new Float32Array(0)
-    const _sampleOut: [number, number, number] = [0, 0, 0]
+    // Hoisted once per prepare(): the walk allocates its two per-glyph
+    // output arrays from THIS stage's frame arena — curved labels are
+    // never layout-cached (see the cache-store branch in the point
+    // loop), so an arena view's lifetime is prepare() → render within
+    // the frame — and the alloc counter must still name the call site.
+    const allocGlyphF32 = (len: number, tag: string): Float32Array => {
+      bumpAlloc(tag)
+      return this._frameArena.allocF32(len)
+    }
     // iter-265 — sub-phase drill. Curved-label loop covers ensure
     // String + per-glyph advance fill + cumulative length + keep
     // upright check + per-glyph sample (atan2 / Math.sin / Math.cos)
@@ -1560,169 +1609,69 @@ export class TextStage {
         totalAdvancePx += adv
       }
       totalAdvancePx += letterSpacingPx * Math.max(0, glyphs.length - 1)
-      // Cumulative polyline length + per-vertex distance for fast
-      // distance-to-position lookup.
+      // The polyline the glyph walk runs on, and — under
+      // `text-pitch-alignment: map` (#2012 INC-4) — its LIVE screen twin.
+      // Present ⇒ `polylineX/Y` is the LABEL PLANE: arc length, the fit
+      // test, `centerOffsetPx` and `text-max-angle` are then plane
+      // quantities (the space MapLibre lays line symbols out in) and each
+      // glyph is mapped back to the screen by the index correspondence.
+      // Absent ⇒ the twin IS the walk polyline and the walk is
+      // byte-identical to what it always did.
       const px = p.polylineX,
         py = p.polylineY
+      const qx = p.livePolylineX ?? px
+      const qy = p.livePolylineY ?? py
       const n = px.length
       if (n < 2) continue
       if (_cumLenScratch.length < n) {
         _cumLenScratch = new Float32Array(n * 2)
       }
-      const cumLen = _cumLenScratch
-      cumLen[0] = 0
-      for (let i = 1; i < n; i++) {
-        const dx = px[i]! - px[i - 1]!
-        const dy = py[i]! - py[i - 1]!
-        cumLen[i] = cumLen[i - 1]! + Math.sqrt(dx * dx + dy * dy)
-      }
-      const totalLineLen = cumLen[n - 1]!
-      // Skip when label can't fit — Mapbox drops it rather than truncate.
-      if (totalAdvancePx > totalLineLen) continue
-      let startS = p.centerOffsetPx - totalAdvancePx * 0.5
-      // #1793 — CLAMP (don't drop) when the label fits the line but the
-      // requested centre would push it past one end. The along-line lattice
-      // (place-labels-along-line.ts) picks `centerOffsetPx` by fixed world-
-      // anchored spacing, blind to the label's shaped width — on a run
-      // truncated by the viewport/tile edge (short world-spanning lines at
-      // low zoom, e.g. demotiles geolines) its one in-window stop can land
-      // within a few px of an end even though the run has hundreds of spare
-      // px elsewhere. Sliding the anchor inward keeps the full, untruncated
-      // label on the line the lattice already chose to label — this is a
-      // POSITION fix, not the truncation the check above still forbids.
-      if (startS < 0) startS = 0
-      else if (startS + totalAdvancePx > totalLineLen) startS = totalLineLen - totalAdvancePx
-
-      // Mapbox `text-keep-upright` (default true): when the label's
-      // overall direction would render text upside-down, flip the
-      // entire run by walking the polyline in reverse. Per-glyph
-      // flipping at the threshold caused adjacent glyphs across a
-      // 90°-tangent boundary to face opposite ways — visibly broken
-      // on roads with mild curves. Decide ONCE based on the tangent
-      // sampled at the label's centre; reverse the polyline walk
-      // direction if needed so all glyphs rotate coherently.
-      const keepUpright = p.def.keepUpright !== false
-      let walkReversed = false
-      if (keepUpright) {
-        // Sample tangent at label centre to gauge overall direction.
-        let cIdx = 0
-        const cs = p.centerOffsetPx
-        while (cIdx < n - 2 && cumLen[cIdx + 1]! < cs) cIdx++
-        const dxMid = px[cIdx + 1]! - px[cIdx]!
-        const dyMid = py[cIdx + 1]! - py[cIdx]!
-        const midAngle = Math.atan2(dyMid, dxMid)
-        if (midAngle > Math.PI / 2 || midAngle < -Math.PI / 2) {
-          walkReversed = true
-          // Mirror startS so glyph 0 still ends up at the same screen
-          // position the user expects — but now travelling toward the
-          // polyline's start instead of its end.
-          startS = totalLineLen - p.centerOffsetPx - totalAdvancePx * 0.5
-        }
-      }
-
-      // Sample point at distance `s` along the polyline — writes to
-      // `_sampleOut` shared tuple [x, y, angle] (no per-call object
-      // alloc). When walkReversed, distances are measured from the
-      // polyline END; the angle is flipped 180°.
-      let segIdx = 0
-      const sampleAt = (s: number): void => {
-        const sFwd = walkReversed ? totalLineLen - s : s
-        while (segIdx < n - 2 && cumLen[segIdx + 1]! < sFwd) segIdx++
-        while (segIdx > 0 && cumLen[segIdx]! > sFwd) segIdx--
-        const segLen = cumLen[segIdx + 1]! - cumLen[segIdx]!
-        const t = segLen > 0 ? (sFwd - cumLen[segIdx]!) / segLen : 0
-        const ax = px[segIdx]!,
-          ay = py[segIdx]!
-        const bx = px[segIdx + 1]!,
-          by = py[segIdx + 1]!
-        _sampleOut[0] = ax + (bx - ax) * t
-        _sampleOut[1] = ay + (by - ay) * t
-        let angle = Math.atan2(by - ay, bx - ax)
-        if (walkReversed) angle += Math.PI
-        _sampleOut[2] = angle
-      }
-      // iter-246 (Plan AAA B.2) — curved label per-glyph arrays via
-      // FrameArena. Curved labels are NOT stored in _layoutCache
-      // (only point labels are — see line ~1455 cache store branch),
-      // so the arena view's lifetime is purely prepare() → render
-      // within the same frame. Watermark resets at next beginFrame.
-      bumpAlloc('text-stage.curved.glyphOffsets.FrameArena')
-      const glyphOffsets = this._frameArena.allocF32(glyphs.length * 2)
-      bumpAlloc('text-stage.curved.glyphRotations.FrameArena')
-      const glyphRotations = this._frameArena.allocF32(glyphs.length)
-      // Per-glyph centre = startS + sum(prev advances) + currentAdvance/2.
-      // Vertical alignment: sample.y is the polyline anchor; the text
-      // renderer treats it as the glyph BASELINE (glyphs grow upward
-      // from there via bearingY). For along-path labels we want the
-      // VISUAL CENTRE of the glyph row sitting on the line — meaning
-      // the line passes through the cap-height midpoint, not under
-      // the descender. Shift each anchor PERPENDICULAR to the local
-      // tangent (so the offset still tracks curving roads / lat
-      // lines) by ~0.35 * sizePx, which puts the cap-height midpoint
-      // on the polyline for a typical Latin face. Earlier code used
-      // sample.y as-is and the glyph rendered ABOVE the line —
-      // visible on demotiles Tropic of Cancer / Equator labels and
-      // on OFM road labels that fall inside the road carriageway.
-      const verticalOffsetPx = sizePx * 0.4
-      // Mapbox `text-max-angle`: drop a label whose tangent deflection between two
-      // adjacent glyphs exceeds the threshold instead of rendering it folded. The
-      // gate used to require an AUTHORED value, but omitting the property is the
-      // norm (none of OFM Positron's five line-placed symbol layers set it), so it
-      // never ran on the style parity is measured against while MapLibre applied
-      // the spec default throughout. `??` keeps an authored 0.
-      const maxAngleRad = ((p.def.maxAngle ?? TEXT_MAX_ANGLE_DEFAULT_DEG) * Math.PI) / 180
-      let prevGlyphAngle = NaN
-      let angleGateRejected = false
-      let cursor = startS
-      let gminX = Infinity,
-        gmaxX = -Infinity,
-        gminY = Infinity,
-        gmaxY = -Infinity
-      for (let gi = 0; gi < glyphs.length; gi++) {
-        const adv = advances[gi]!
-        // Sample at the LEFT edge of the advance box, NOT its centre.
-        // The text-renderer's bearing application places the visible
-        // glyph's LEFT edge at `baseX + bearingX*scale`, so passing
-        // the polyline position at advance-box-left here yields the
-        // correct per-glyph anchor — `Tropic of Cancer` reads with
-        // even spacing.
-        // Sampling at the box centre (the pre-fix code) was off by
-        // `bearingX + glyphWidth/2` per glyph; since glyph widths
-        // vary, gap distance varied too — visible as "Tr o pi c of
-        // Cancer" with wide / narrow alternations.
-        sampleAt(cursor)
-        const sx = _sampleOut[0],
-          sy = _sampleOut[1],
-          sAngle = _sampleOut[2]
-        // Perpendicular shift: rotate (0, verticalOffsetPx) by the
-        // sample's tangent angle. cos/sin of (angle + 90°) =
-        // (-sin angle, cos angle). Multiply by the desired offset.
-        const perpX = -Math.sin(sAngle) * verticalOffsetPx
-        const perpY = Math.cos(sAngle) * verticalOffsetPx
-        glyphOffsets[gi * 2] = sx + perpX
-        glyphOffsets[gi * 2 + 1] = sy + perpY
-        glyphRotations[gi] = sAngle
-        if (!Number.isNaN(prevGlyphAngle)) {
-          // Wrap the tangent delta into [-π, π] before |·| so a seam
-          // crossing ±π (e.g. 179°→-179°) reads as a small 2° turn,
-          // not a spurious ~358° one.
-          let d = sAngle - prevGlyphAngle
-          d = Math.atan2(Math.sin(d), Math.cos(d))
-          if (Math.abs(d) > maxAngleRad) {
-            angleGateRejected = true
-            break
-          }
-        }
-        prevGlyphAngle = sAngle
-        if (sx < gminX) gminX = sx
-        if (sx > gmaxX) gmaxX = sx
-        if (sy < gminY) gminY = sy
-        if (sy > gmaxY) gmaxY = sy
-        cursor += adv + (gi < glyphs.length - 1 ? letterSpacingPx : 0)
-      }
-      // text-max-angle: a glyph-to-glyph deflection exceeded the
-      // authored threshold — Mapbox drops the whole label.
-      if (angleGateRejected) continue
+      // The basis is inverted ONCE per label: the walk writes each glyph's
+      // offset as the PRE-IMAGE of its live position, so the renderer's
+      // `pivot + basis·(offset − pivot)` reproduces the correspondence
+      // position exactly while the quad around it comes out foreshortened.
+      // A near-singular basis yields `undefined` and the label billboards,
+      // which is what it already does.
+      const basis = p.groundBasis
+      const basisInv = basis !== undefined ? invertGroundBasis(basis) : undefined
+      const walked = walkCurvedGlyphs({
+        px,
+        py,
+        qx,
+        qy,
+        n,
+        advances,
+        glyphCount: glyphs.length,
+        totalAdvancePx,
+        letterSpacingPx,
+        centerOffsetPx: p.centerOffsetPx,
+        // Vertical alignment: the sample point is the polyline anchor, and
+        // the renderer treats it as the glyph BASELINE (glyphs grow upward
+        // from there via bearingY). For along-path labels the VISUAL CENTRE
+        // of the glyph row must sit on the line, so each anchor shifts
+        // PERPENDICULAR to the local tangent (the offset then tracks curving
+        // roads / lat lines) by ~0.4 * sizePx, which puts the cap-height
+        // midpoint on the polyline for a typical Latin face. Using the
+        // sample as-is rendered the glyph ABOVE the line — visible on
+        // demotiles Tropic of Cancer / Equator and on OFM road labels that
+        // fall inside the road carriageway.
+        verticalOffsetPx: sizePx * 0.4,
+        keepUpright: p.def.keepUpright !== false,
+        // Mapbox `text-max-angle`: drop a label whose tangent deflection
+        // between two adjacent glyphs exceeds the threshold instead of
+        // rendering it folded. The gate used to require an AUTHORED value,
+        // but omitting the property is the norm (none of OFM Positron's five
+        // line-placed symbol layers set it), so it never ran on the style
+        // parity is measured against while MapLibre applied the spec default
+        // throughout. `??` keeps an authored 0.
+        maxAngleRad: ((p.def.maxAngle ?? TEXT_MAX_ANGLE_DEFAULT_DEG) * Math.PI) / 180,
+        ...(basisInv !== undefined ? { basisInv } : {}),
+        alloc: allocGlyphF32,
+        cumLen: _cumLenScratch,
+      })
+      // Did not fit the run, or text-max-angle rejected it — Mapbox drops
+      // the whole label either way.
+      if (walked === null) continue
       // Line labels reference the polyline directly — anchor is at
       // origin (0,0); per-glyph offsets are absolute screen coords
       // already (the renderer computes baseX = anchorX + offset[0]
@@ -1746,17 +1695,50 @@ export class TextStage {
         color: p.def.color ?? [0, 0, 0, 1],
         halo: haloOut,
         letterSpacingPx,
-        glyphOffsets,
-        glyphRotations,
+        glyphOffsets: walked.glyphOffsets,
+        glyphRotations: walked.glyphRotations,
         sdfRadius: this.opts.sdfRadius,
+        // #2012 INC-4 — lay the quads in the ground plane. The pivot is
+        // mandatory here: this draw's anchor is (0,0), so a basis pivoted on
+        // it would swing the road name around screen pixel (0,0)
+        // (design §1.4(c)). Omitted with the basis ⇒ the renderer skips the
+        // transform wholesale and these vertices stay bit-identical.
+        ...(basisInv !== undefined && basis !== undefined
+          ? { groundBasis: basis, groundBasisPivot: [walked.pivotX, walked.pivotY] as const }
+          : {}),
       }
-      const curvedBox = {
-        minX: gminX - halfH - padding,
-        minY: gminY - halfH - padding,
-        maxX: gmaxX + halfH + padding,
-        maxY: gmaxY + halfH + padding,
-      }
-      this._pairBadge.union(p.pairKey, (gminX + gmaxX) / 2, (gminY + gmaxY) / 2, curvedBox)
+      // The collision box must be the footprint of what is actually DRAWN.
+      // Both are built from the same offsets, through the same basis, about
+      // the same pivot — so the box tracks the quads by construction rather
+      // than by two formulas agreeing. A label that lies down while its box
+      // stays upright reserves the wrong footprint: it loses collisions it
+      // should win and blocks labels it should not.
+      const boxMinX = walked.minX - halfH - padding
+      const boxMinY = walked.minY - halfH - padding
+      const boxMaxX = walked.maxX + halfH + padding
+      const boxMaxY = walked.maxY + halfH + padding
+      const curvedBox =
+        basisInv !== undefined && basis !== undefined
+          ? groundBasisAabb(
+              [basis[0]!, basis[1]!, basis[2]!, basis[3]!],
+              walked.pivotX,
+              walked.pivotY,
+              boxMinX,
+              boxMinY,
+              boxMaxX,
+              boxMaxY,
+            )
+          : { minX: boxMinX, minY: boxMinY, maxX: boxMaxX, maxY: boxMaxY }
+      this._pairBadge.union(
+        p.pairKey,
+        basisInv !== undefined
+          ? (curvedBox.minX + curvedBox.maxX) / 2
+          : (walked.minX + walked.maxX) / 2,
+        basisInv !== undefined
+          ? (curvedBox.minY + curvedBox.maxY) / 2
+          : (walked.minY + walked.maxY) / 2,
+        curvedBox,
+      )
       shaped.push({
         layouts: [
           {
