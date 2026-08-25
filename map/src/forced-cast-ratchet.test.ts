@@ -120,6 +120,12 @@ const BASELINE: Record<string, number> = {
   'map/src/render/point-renderer.ts': 1,
   'map/src/render/projection-token.ts': 3,
   'map/src/render/tile-selection-cache.ts': 1,
+  // #2042 INC-4b — reflection-driven span tables: `fieldOffset(name as never)`
+  // over dynamically-enumerated field names (the typed key union cannot be
+  // proven from a runtime loop over struct.fields), plus the Uint8Array
+  // `.buffer as ArrayBuffer` at the arena stage seam (same cast the block
+  // packers carry). All confined to the copy-table builder + skew hook.
+  'map/src/render/uniform-split-bind.ts': 5,
   'map/src/render/vector-tile-renderer.ts': 2,
   'map/src/shaders/dsl/projections.ts': 2,
   'map/src/source-manager.ts': 5,

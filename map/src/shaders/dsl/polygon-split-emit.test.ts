@@ -90,6 +90,24 @@ describe('#2042 INC-4a — split-mode polygon emit', () => {
     )
   })
 
+  it('the derivation preserves auto-var identity (no var fission, no zero-collapse)', () => {
+    // The §5 gate caught this live: the first rewrite walker cloned shared
+    // Expr objects per occurrence, auto-vars minted a var PER CLONE
+    // (_av0.._av4 where legacy has _av0), every read matched no target and
+    // collapsed to the zero initializer — split-draw vertices all landed at
+    // (0,0,0,0): valid draws, empty frames, no validation error. Identity is
+    // now part of rewriteExprsInFunc's contract (rename-varrefs.test.ts);
+    // this is the derived-module half of the pin.
+    const legacy = emitPolygonWgsl(null, false)
+    const countAv = (s: string) => [...s.matchAll(/var _av\d+/g)].length
+    expect(
+      countAv(NULL_SPLIT),
+      'split emit minted a different auto-var count than legacy — Expr identity broke in the rewrite',
+    ).toBe(countAv(legacy))
+    // The position tail must consume the merged var, not a CSE'd constant.
+    expect(NULL_SPLIT).toMatch(/apply_log_depth\(_av\d+/)
+  })
+
   it('the legacy emit is untouched by the transform existing (no split leak)', () => {
     const legacy = emitPolygonWgsl(null, false)
     expect(legacy).toContain('struct Uniforms')
