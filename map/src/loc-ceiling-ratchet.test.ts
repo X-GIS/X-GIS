@@ -1242,7 +1242,19 @@ const CEILINGS: Record<string, number> = {
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
   // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
-  'map/src/shaders/dsl/line.ts': 1539,
+  // 1539→1641 (#2089): the 12 ECEF endpoint-lane struct fields, the lane/ENU
+  // corner construction that replaced the in-shader `ecefFromMerc` re-derivation,
+  // and the reviewed error-budget rationale the construction rests on (the
+  // spherical-vs-ellipsoidal cos(lat) residual, the exact-affine tangent-plane
+  // argument, and the δφ·|off| vs δφ·R statement of what the migration buys).
+  // The arm closes over base/isStart/sego, so it lives with the VS builder
+  // rather than extracting; the growth is comment-heavy by design — a wrong
+  // justification here is what a later reader would build on.
+  // 1641→1651: the measured before/after (1.17e3 m → 2.1e-1 m, from
+  // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
+  // PACKED while the shader recombines in f32 — the distinction a later reader
+  // would otherwise have to rediscover from a failing tolerance.
+  'map/src/shaders/dsl/line.ts': 1651,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1872,7 +1884,9 @@ const CEILINGS: Record<string, number> = {
   // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
   // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
   // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
-  'map/src/render/upload-coordinator.ts': 921,
+  // 921→923 (#2089): the tileOriginMerc argument at the two buildLineSegments
+  // call sites (the ECEF endpoint-lane pack anchor).
+  'map/src/render/upload-coordinator.ts': 923,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
@@ -1908,7 +1922,8 @@ const CEILINGS: Record<string, number> = {
   // geometry) instead of its array position, so data-driven paint stops reading
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
-  'compiler/src/tiler/vector-tiler.ts': 1601,
+  // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
+  'compiler/src/tiler/vector-tiler.ts': 1603,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
