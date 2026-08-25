@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: f4a767d6efd3168b08aaee4951cddde7aa37a810
+  Generated from: fe9bf32b0d86148140062ea01701258c7bcbf37d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since f4a767d6efd3
+    bun scripts/emit-changelog.ts --since fe9bf32b0d86
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** #2042 INC-6 — flat-arm Mercator cam-rel recombination behind the flag ([#2058](https://github.com/X-GIS/X-GIS/pull/2058)) `fe9bf32`
 - **map:** #2042 INC-3 — Show/Frame block declarations + the partition gate ([#2056](https://github.com/X-GIS/X-GIS/pull/2056)) `f4a767d`
 - **engine/map:** #2042 INC-2 — persistent TileBlock slot arena + lifecycle ([#2054](https://github.com/X-GIS/X-GIS/pull/2054)) `f94adc1`
 - **map:** #2042 INC-1 — in-VS RTC recombination behind a flag (uniform-split step 1) ([#2048](https://github.com/X-GIS/X-GIS/pull/2048)) `619368a`
