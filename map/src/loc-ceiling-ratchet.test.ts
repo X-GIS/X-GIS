@@ -829,7 +829,13 @@ const CEILINGS: Record<string, number> = {
   // the same question — a second place to decide "is the text finished?" is how #2091 /
   // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
   // MEASURED.
-  'map/src/map.ts': 5471,
+  // 5471→5482 (#2122): the sprite keep-alive, beside the glyph one #2120 added. Same
+  // authority for the same reason — `shouldRenderThisFrame` gates both rendering and
+  // `idle`, and a second place to decide "is this frame's async content finished?" is how
+  // that question has drifted three times already. Reads a deadlined probe rather than the
+  // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
+  // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  'map/src/map.ts': 5482,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1152,7 +1158,12 @@ const CEILINGS: Record<string, number> = {
   // run identity being derived on `text-rotation-alignment: viewport` layers, where
   // no consumer exists. The ceiling drops to the measured post-prettier size rather
   // than being left slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/render/passes/label-pass.ts': 1977,
+  // 1977→1986 (#2122): the URL-sprite `onLanded` gains `invalidate()` beside its existing
+  // `markLabelDirty()`, matching the sibling site (background-pattern-atlas.ts:36-41) —
+  // without it an atlas landing AFTER the keep-warm deadline re-preps labels but never
+  // re-arms the loop, so it paints nothing until the next interaction. 1 call + a brace
+  // pair + its 6-line reason. MEASURED.
+  'map/src/render/passes/label-pass.ts': 1986,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

@@ -59,11 +59,22 @@ export interface SpriteAtlasHostOptions {
 
 const HIGH_DPR_SUFFIX = '@2x'
 
+/** How long an outstanding sprite-atlas load keeps the render loop warm (#2122).
+ *  `safeFetch` (shared/src/safety.ts) carries NO timeout, so "warm while the atlas is
+ *  loading" without a deadline would let one sprite host that accepts a connection and
+ *  never answers pin the loop for the whole session — #2091's never-idle wedge, one
+ *  resource class over. Sized off the siblings rather than invented: the glyph in-flight
+ *  keep-warm holds 10 s (`text/sdf/pbf/glyph-pbf-cache.ts`) and the raster ledger abandons
+ *  a tile after ~10.5 s of retries. A late arrival still fires `onLanded` and still
+ *  upgrades the atlas — it just no longer holds the loop. */
+export const SPRITE_INFLIGHT_KEEP_WARM_MS = 10_000
+
 export class SpriteAtlasHost {
   private readonly spriteUrl: string
   private readonly fetchFn: typeof globalThis.fetch
   private readonly dpr: number
   private state: SpriteAtlasState = { status: 'idle' }
+  private loadStartedAt = 0
   private readonly readyPromise: Promise<void>
   private resolveReady: (() => void) | null = null
   private readonly onLanded?: () => void
@@ -91,6 +102,17 @@ export class SpriteAtlasHost {
 
   getState(): SpriteAtlasState {
     return this.state
+  }
+
+  /** True while the atlas load is outstanding AND still inside the keep-warm deadline
+   *  (#2122). The render loop reads this through `IconStage.hasPendingAtlasLoad()`, so a
+   *  frame whose icons / fill-patterns have not resolved yet cannot be reported `idle`.
+   *  Deliberately NOT `!isAtlasTerminal()`: that predicate answers the prepare-skip
+   *  question ("can icon resolution still change?") and is unbounded, which is the wedge
+   *  the constant above exists to close. */
+  hasPendingLoad(): boolean {
+    if (this.state.status !== 'loading') return false
+    return performance.now() - this.loadStartedAt <= SPRITE_INFLIGHT_KEEP_WARM_MS
   }
 
   /** Sync lookup. Returns the icon's metadata once the atlas is
@@ -170,6 +192,7 @@ export class SpriteAtlasHost {
       this.onLanded?.()
       return
     }
+    this.loadStartedAt = performance.now()
     this.state = { status: 'loading' }
     const tryLoad = async (suffix: string): Promise<void> => {
       const jsonUrl = `${this.spriteUrl}${suffix}.json`
