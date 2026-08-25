@@ -117,7 +117,7 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
 // network". The 47-spec #1349 census (8 local / 2 mixed / 37 network-blocked) is
 // reused verbatim for the specs it already covers instead of being re-derived.
 export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
-  // ---- CURATED -- individually researched (test.yml's own documented "NOT here" specs, the #1349 census exact matches, and specs whose header text resolves ambiguity explicitly). See the cited issue/PR in each reason. (35) ----
+  // ---- CURATED -- individually researched (test.yml's own documented "NOT here" specs, the #1349 census exact matches, and specs whose header text resolves ambiguity explicitly). See the cited issue/PR in each reason. (36) ----
   '_cold-start-perf.spec.ts':
     'mixed local+network cases (#1349 census: 2 of the 47 stability/perf specs) -- local + openfreemap/PMTiles cases in one file; needs splitting before any CI use (#1349)',
   '_convert-page-redesign.spec.ts':
@@ -128,6 +128,8 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'builds full RENDER pipelines and streams tiles through the same SwiftShader init that times out; candidate for CI once the GPUArena OOM PR lands (test.yml notes) -- local/pre-push for now',
   '_globe-ecef-render-position.spec.ts':
     "spec's own header: (SwiftShader) createRenderPipeline of a real vertex shader times out, and throws no WebGPU adapter (hardware GPU required -- do NOT run under SwiftShader) -- HARDWARE/PRE-PUSH GATE, not a GitHub-CI render-gate (mirrors _ws8-projection-field's carve-out)",
+  '_globe-positron-quality-probe.spec.ts':
+    'witness-construction PROBE for the #2086 globe native-zoom quality campaign -- measures drape vs direct vs mercator vs MapLibre arms on live OFM Positron (network-dependent, SwiftShader-scale multi-minute budgets); diagnostic measurement, not a pass/fail gate (the campaign closing gate lands separately, CI-registered)',
   '_high-pitch-flicker.spec.ts':
     'fixture-unblocked (#1349) but not CI-viable as a blocking SwiftShader gate -- measured SwiftShader throughput ~4 tiles/min needs ~15 min for full convergence at the bug camera (#1349 comment); belongs in the real-GPU/nightly bucket, not registered',
   '_host-retained-icons-perf.spec.ts':
