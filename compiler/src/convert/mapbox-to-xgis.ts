@@ -236,21 +236,25 @@ export function convertMapboxStyle(
   }
 
   const topLevelGaps: string[] = []
-  // sky (v2+ atmospheric haze / horizon gradient), lights (v3
-  // standard-style ambient + directional rig), models (v3 standard-
-  // style glTF 3D placements) — none implemented. Pre-fix the
+  // lights (v3 standard-style ambient + directional rig), models (v3
+  // standard-style glTF 3D placements) — none implemented. Pre-fix the
   // converter silently dropped them and the conversion-notes block
-  // gave no hint that an authored sky / lights setup wasn't carrying
+  // gave no hint that an authored lights setup wasn't carrying
   // through. Same surfacing pattern as fog / light / terrain.
   // `light` (v8 single directional light) is host-applied via
   // XGISMap.setLight() — same pattern as projection/camera — so it is NOT
   // listed here. `lights` (v3 standard-style ambient+directional rig) is a
   // different, unimplemented feature and stays warned.
+  // `sky` LEFT this list in T5 Phase 1 (#2052) for the same reason as
+  // `light`: the MapLibre sky root is host-applied via
+  // XGISMap.setAtmosphere({ sky }) (extractMapboxSky, mapbox-projection.ts).
+  // It is not silent, though — the sub-properties that phase does not carry
+  // get their own precise warning below, so a `partial` root reads as
+  // partial rather than as supported.
   const gapFields = [
     'fog',
     'lights',
     'terrain',
-    'sky',
     'transition',
     'imports',
     'models',
@@ -285,6 +289,28 @@ export function convertMapboxStyle(
   }
   if (topLevelGaps.length > 0) {
     warnings.push(`Top-level style fields ignored: ${topLevelGaps.join(', ')}`)
+  }
+
+  // #2052 T5 Phase 1 — the MapLibre `sky` root is now host-applied, but only its
+  // zenith-angle ramp (`sky-color` / `horizon-color` / `sky-horizon-blend`). The
+  // below-horizon fog trio and the global fade are later phases of the same design
+  // doc; name them individually so a `partial` root degrades with a precise,
+  // warning-backed note instead of looking supported.
+  if (style.sky !== undefined && style.sky !== null) {
+    const sky = style.sky
+    const authored =
+      typeof sky === 'object' && !Array.isArray(sky) ? Object.keys(sky as object) : []
+    const carried = ['sky-color', 'horizon-color', 'sky-horizon-blend']
+    const dropped = authored.filter((k) => !carried.includes(k))
+    if (dropped.length > 0) {
+      warnings.push(
+        `Top-level "sky" is partially applied: ${carried.join(' / ')} are host-applied ` +
+          `(XGISMap.setAtmosphere), but ${dropped.join(', ')} ${
+            dropped.length === 1 ? 'is' : 'are'
+          } not carried — the below-horizon fog band and the global sky fade are later ` +
+          `phases of the sky/fog work.`,
+      )
+    }
   }
 
   // #1977 — a `mapbox://` scheme sprite/glyphs URL requires the Mapbox API

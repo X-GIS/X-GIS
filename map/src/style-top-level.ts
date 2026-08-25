@@ -28,6 +28,9 @@ import { hexToRgba } from './feature-helpers'
 import {
   ATMOSPHERE_DEFAULT_INNER_COLOR,
   ATMOSPHERE_DEFAULT_OUTER_COLOR,
+  SKY_DEFAULT_COLOR,
+  SKY_DEFAULT_HORIZON_BLEND,
+  SKY_DEFAULT_HORIZON_COLOR,
 } from './render/atmosphere-uniform'
 import type * as AST from '@xgis/compiler'
 
@@ -47,11 +50,38 @@ export interface TopLevelLightPatch {
   color?: [number, number, number]
 }
 
-/** Top-level atmosphere/sky state (#1258), as the render host reads it. Single authority
- *  for the shape of `XGISMap._atmosphere`. */
+/** The MapLibre `sky` ROOT's zenith-angle ramp (#2052 T5 Phase 1), as the render host reads
+ *  it. A sub-block of the atmosphere rather than a field of its own because rows 1–3 of the
+ *  sky/fog design are ONE evaluator in one pass (design doc §1) — `sky` is #1258's own
+ *  deferred Phase 2, not a second feature, so it shares `_atmosphere`'s null-means-off gate
+ *  and costs `map.ts` nothing. */
+export interface TopLevelSky {
+  /** Straight-alpha RGBA at the ZENITH (MapLibre `sky-color`). */
+  color: [number, number, number, number]
+  /** Straight-alpha RGBA at the HORIZON — on the globe arm, the sphere limb
+   *  (MapLibre `horizon-color`). */
+  horizonColor: [number, number, number, number]
+  /** 0..1 — ramp width as a fraction of the limb→zenith arc (`sky-horizon-blend`). */
+  horizonBlend: number
+}
+
+/** Top-level atmosphere/sky state (#1258, #2052), as the render host reads it. Single
+ *  authority for the shape of `XGISMap._atmosphere`. */
 export interface TopLevelAtmosphere {
   innerColor: [number, number, number, number]
   outerColor: [number, number, number, number]
+  /** `null` = the style authored no `sky` root, and the fragment takes the pre-#2052 path
+   *  (see `sky_params.y` in shaders/dsl/atmosphere.ts — the frame stays bit-identical). */
+  sky: TopLevelSky | null
+}
+
+/** The sky half of `setAtmosphere`'s patch — every field optional, an omitted one falling
+ *  back to that property's own MapLibre spec default (same asymmetry as the atmosphere
+ *  colours below). */
+export interface TopLevelSkyPatch {
+  color?: [number, number, number, number]
+  horizonColor?: [number, number, number, number]
+  horizonBlend?: number
 }
 
 /** The patch `setAtmosphere` accepts — an omitted colour falls back to the MapLibre-ish
@@ -60,6 +90,8 @@ export interface TopLevelAtmosphere {
 export interface TopLevelAtmospherePatch {
   innerColor?: [number, number, number, number]
   outerColor?: [number, number, number, number]
+  /** #2052 — omitted or `null` leaves the sky ramp OFF (the limb glow alone). */
+  sky?: TopLevelSkyPatch | null
 }
 
 /** The slice of XGISMap the top-level roots write. Every member is non-private by the
@@ -127,11 +159,23 @@ export function applyLight(host: TopLevelStyleHost, light: TopLevelLightPatch | 
   }
 }
 
-/** #1258 — validate an atmosphere patch onto the host's `_atmosphere`. `null` turns the
- *  pass OFF; otherwise a malformed colour falls back to that colour's default rather than
- *  to the current value. Both colours are COPIED (`[...inner]`) so a caller mutating the
- *  array it passed in cannot reach into host state. Caller owns the destroyed guard, the
- *  dirty tag + invalidate. */
+/** An authored straight-alpha RGBA, or `fallback` when it is absent or malformed. Always
+ *  returns a fresh array, so a caller mutating what it passed in cannot reach into host
+ *  state. Four colours now share this rule (#1258's two + #2052's two) — one authority for
+ *  it rather than four copies of the same four-finite-numbers test. */
+function rgbaOrDefault(
+  value: [number, number, number, number] | undefined,
+  fallback: readonly [number, number, number, number],
+): [number, number, number, number] {
+  const ok = Array.isArray(value) && value.length === 4 && value.every((n) => Number.isFinite(n))
+  const src = ok ? value : fallback
+  return [src[0]!, src[1]!, src[2]!, src[3]!]
+}
+
+/** #1258 / #2052 — validate an atmosphere patch onto the host's `_atmosphere`. `null` turns
+ *  the pass OFF; otherwise a malformed colour falls back to that colour's default rather than
+ *  to the current value, and an omitted / `null` `sky` leaves the zenith ramp off. Caller owns
+ *  the destroyed guard, the dirty tag + invalidate. */
 export function applyAtmosphere(
   host: TopLevelStyleHost,
   atmosphere: TopLevelAtmospherePatch | null,
@@ -139,19 +183,25 @@ export function applyAtmosphere(
   if (atmosphere === null) {
     host._atmosphere = null
   } else {
-    const inner =
-      Array.isArray(atmosphere.innerColor) &&
-      atmosphere.innerColor.length === 4 &&
-      atmosphere.innerColor.every((n) => Number.isFinite(n))
-        ? atmosphere.innerColor
-        : ATMOSPHERE_DEFAULT_INNER_COLOR
-    const outer =
-      Array.isArray(atmosphere.outerColor) &&
-      atmosphere.outerColor.length === 4 &&
-      atmosphere.outerColor.every((n) => Number.isFinite(n))
-        ? atmosphere.outerColor
-        : ATMOSPHERE_DEFAULT_OUTER_COLOR
-    host._atmosphere = { innerColor: [...inner], outerColor: [...outer] }
+    const sky = atmosphere.sky
+    host._atmosphere = {
+      innerColor: rgbaOrDefault(atmosphere.innerColor, ATMOSPHERE_DEFAULT_INNER_COLOR),
+      outerColor: rgbaOrDefault(atmosphere.outerColor, ATMOSPHERE_DEFAULT_OUTER_COLOR),
+      sky:
+        sky === null || sky === undefined
+          ? null
+          : {
+              color: rgbaOrDefault(sky.color, SKY_DEFAULT_COLOR),
+              horizonColor: rgbaOrDefault(sky.horizonColor, SKY_DEFAULT_HORIZON_COLOR),
+              // Clamped to the spec's own `[0, 1]` range: the shader reads this as a fraction
+              // of the limb→zenith arc, so an out-of-range value is not a different look but a
+              // ramp that never completes (or completes before the limb).
+              horizonBlend:
+                typeof sky.horizonBlend === 'number' && Number.isFinite(sky.horizonBlend)
+                  ? Math.max(0, Math.min(1, sky.horizonBlend))
+                  : SKY_DEFAULT_HORIZON_BLEND,
+            },
+    }
   }
 }
 

@@ -1042,12 +1042,12 @@ export class XGISMap {
     this.invalidate()
   }
 
-  /** #1258 — set the top-level atmosphere/sky. Mirrors `setLight` / `setBackgroundFill`: a
-   *  top-level style concern threaded straight to the render host, not (yet) a style-spec
-   *  JSON property (Phase 2, per the issue). Pass `null` to turn it off (the frame reverts to
-   *  byte-identical pre-#1258); an options object with either colour omitted keeps the
-   *  MapLibre-ish default for that colour. Only ever visible on globe-class projections — see
-   *  `_atmosphere`'s own doc. */
+  /** #1258 / #2052 — set the top-level atmosphere/sky. Mirrors `setLight` / `setBackgroundFill`:
+   *  a top-level style concern threaded straight to the render host. Pass `null` to turn it off
+   *  (the frame reverts to byte-identical pre-#1258); an options object with either colour
+   *  omitted keeps the MapLibre-ish default for that colour, and `sky` carries the MapLibre
+   *  `sky` root's zenith ramp (omitted ⇒ off). Only ever visible on globe-class projections —
+   *  see `_atmosphere`'s own doc. */
   setAtmosphere(atmosphere: TopLevelAtmospherePatch | null): void {
     if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
     applyAtmosphere(this, atmosphere)

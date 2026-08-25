@@ -10,7 +10,11 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { XGISMap } from '@xgis/map'
 import { convertMapboxStyle } from '@xgis/compiler'
-import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
+import {
+  extractMapboxProjectionName,
+  extractMapboxLight,
+  extractMapboxSky,
+} from './mapbox-projection'
 
 // ── Style catalogue ─────────────────────────────────────────────────
 const STYLES: { id: string; label: string; url: string }[] = [
@@ -342,6 +346,10 @@ async function mountBoth(url: string): Promise<void> {
   // (MapLibre applies its own light natively from the same style).
   const styleLight = extractMapboxLight(styleJson)
   if (styleLight) xgMap.setLight(styleLight)
+  // #2052 T5 Phase 1 — the MapLibre `sky` root on the X-GIS pane (MapLibre draws its own
+  // sky natively from the same style, so this is the pane-parity leg of the same block).
+  const styleSky = extractMapboxSky(styleJson)
+  if (styleSky) xgMap.setAtmosphere?.({ sky: styleSky })
 
   // X-GIS → MapLibre sync loop (rAF poll; the engine has no event hook
   // for camera writes from the user's pointer driver).
