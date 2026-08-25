@@ -2024,6 +2024,64 @@ export class VectorTileRenderer {
     return this.uniformRing?.slotCursor() ?? -1
   }
 
+  /** #2042 INC-5/5b — the SINGLE ring-free authority: true iff a
+   *  renderTileKeys call with these inputs emits ONLY split-bound draws, so
+   *  (a) the walk-skip may bypass the per-tile pack + ring alloc/stage
+   *  (INC-5), and (b) the bundle key may replace the live `ringCursor` with
+   *  the -2 sentinel (INC-5b) — nothing baked reads a per-tile ring slot, so
+   *  the per-frame ring base is not a replay dependency. PR #2090's sweep
+   *  measured why (b) matters: with the live cursor, one tile's residency
+   *  transition shifted every downstream show's key and re-recorded the
+   *  whole frame (bundleMisses ≈ N shows per window).
+   *  Every input here is pinned by the bundle key (sliceLayer, phase,
+   *  pipeline labels; translucentBucket is constant-false on the bundle
+   *  path), so record and hit always agree on the verdict. Terms:
+   *  split state live + fills split-capable (default pipes OR an eligible
+   *  per-style twin, lazily built by the factory), a real slice, the primary
+   *  unclipped path, the constant-fill base layout, no fill/line pattern,
+   *  no per-feature extrude, not the translucent MAX pass, split-eligible
+   *  strokes when strokes draw at all, no overdraw. */
+  private _walkRingFree(
+    fillPipeline: RhiPipelineHandle,
+    fillBindGroupLayout: GPUBindGroupLayout,
+    phase: LayerDrawPhase,
+    translucentBucket: boolean,
+    visibleKeysForClip: number[] | null,
+    lineVariant: ShaderVariantInfo | null | undefined,
+    sliceLayer: string,
+  ): boolean {
+    const translucentLines = phase === 'strokes' && translucentBucket
+    const drawStrokes =
+      phase !== 'fills' &&
+      phase !== 'oit-fill' &&
+      !this._drapeStrokes &&
+      this.currentExtrudeMode !== 'per-feature'
+    const splitPipes = this._fillRhi?.pipes
+    const splitFillsCapable =
+      this._fillRhi?.split != null &&
+      ((splitPipes != null &&
+        (fillPipeline === splitPipes.write ||
+          fillPipeline === splitPipes.test ||
+          fillPipeline === splitPipes.groundWrite ||
+          fillPipeline === splitPipes.groundTest)) ||
+        this._fillRhi.split.perStyleTwin?.(fillPipeline) != null)
+    return (
+      splitFillsCapable &&
+      this._splitBind != null &&
+      sliceLayer !== '' &&
+      visibleKeysForClip === null &&
+      fillBindGroupLayout === this._bindGroups.baseLayout() &&
+      !this._patternUniformActive &&
+      !this._linePatternActiveForShow &&
+      this.currentExtrudeMode !== 'per-feature' &&
+      !translucentLines &&
+      (!drawStrokes ||
+        lineVariant == null ||
+        this.lineRenderer?.splitStrokeEligible(lineVariant) === true) &&
+      !isOverdrawActive(this.rhi.caps)
+    )
+  }
+
   /** #2042 INC-1 — stage the ABSOLUTE tile/camera ECEF anchors beside the
    *  legacy cam_ecef_off pair, so the polygon VS can recombine the RTC offset
    *  in-shader ((tileH − camH) + (tileL − camL); precision bound:
@@ -3847,7 +3905,25 @@ export class VectorTileRenderer {
           // its baked offsets pointed at foreign slots — the "mostly
           // empty canvas during interactive navigation" that kept the
           // bundle path disabled. See BundleKeyState field docs.
-          ringCursor: this._ringCursorForBundleKey(),
+          // #2042 INC-5b — a RING-FREE walk (every draw split-bound; see
+          // _walkRingFree) bakes no per-tile ring reader, so the live
+          // cursor is not a replay dependency there: keying it anyway made
+          // one tile's residency flip re-record every downstream show
+          // (PR #2090's sweep: bundleMisses ≈ N per window). The -2
+          // sentinel decouples ring-free shows from the frame's ring
+          // traffic; every _walkRingFree input is itself pinned by this
+          // key, so record and hit agree on the verdict.
+          ringCursor: this._walkRingFree(
+            mainFill,
+            bindGroupLayout,
+            phase,
+            translucentBucket,
+            null,
+            show.shaderVariant,
+            sliceLayer,
+          )
+            ? -2
+            : this._ringCursorForBundleKey(),
           lineLayerOffset,
           lineLayerOffsetGap,
         } as const satisfies BundleKeyState
@@ -4130,6 +4206,9 @@ export class VectorTileRenderer {
             // dynamic-offset base (it runs AFTER the primary walk, so
             // its base also moves with the primary's alloc count) and
             // the stroke draws' baked layer-slot offsets.
+            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
+            // walks pass visibleKeysForClip, which disqualifies ring-free
+            // by definition (their clip_bounds live in ring slots).
             ringCursor: this._ringCursorForBundleKey(),
             lineLayerOffset,
             lineLayerOffsetGap,
@@ -4688,45 +4767,21 @@ export class VectorTileRenderer {
     strokeQueueTiles.length = 0
     strokeQueueSlots.length = 0
     strokeQueueTileOff.length = 0
-    // #2042 INC-5 — the walk-skip qualification, decided ONCE per call: every
-    // draw this call emits must be split-bound for the per-tile pack + ring
-    // stage to be skippable — split state live, a real slice, the primary
-    // (unclipped) path, the constant-fill base layout, no pattern (fill OR
-    // line), no per-feature extrude, DEFAULT strokes only when strokes draw
-    // at all (a composer line variant may carry preamble bindings the split
-    // layout lacks), not the translucent MAX pass (its strokes read ring
-    // slots), no overdraw. The first tile still runs the FULL pack (it seeds
-    // the show/frame lanes the span-copy lifts); later arena-resident tiles
-    // skip everything.
-    // #2042 INC-4d — fills are split-capable when the call's pipeline is one
-    // of the DEFAULT flat/ground pipes (the INC-4b twins) or a per-style
-    // pipeline with an ELIGIBLE split twin — resolved (and lazily built, a
-    // few ms once per style) by the factory; null = ineligible (extra
-    // group-0 bindings / out-of-partition reads) and the call keeps the
-    // legacy walk.
-    const splitPipes = this._fillRhi?.pipes
-    const splitFillsCapable =
-      this._fillRhi?.split != null &&
-      ((splitPipes != null &&
-        (fillPipeline === splitPipes.write ||
-          fillPipeline === splitPipes.test ||
-          fillPipeline === splitPipes.groundWrite ||
-          fillPipeline === splitPipes.groundTest)) ||
-        this._fillRhi.split.perStyleTwin?.(fillPipeline) != null)
-    const splitWalkSkip =
-      splitFillsCapable &&
-      this._splitBind != null &&
-      sliceLayer !== '' &&
-      visibleKeysForClip === null &&
-      fillBindGroupLayout === this._bindGroups.baseLayout() &&
-      !this._patternUniformActive &&
-      !this._linePatternActiveForShow &&
-      this.currentExtrudeMode !== 'per-feature' &&
-      !translucentLines &&
-      (!drawStrokes ||
-        lineVariant == null ||
-        this.lineRenderer?.splitStrokeEligible(lineVariant) === true) &&
-      !isOverdrawActive(this.rhi.caps)
+    // #2042 INC-5/5b — the walk-skip qualification, decided ONCE per call
+    // through the SINGLE ring-free authority (_walkRingFree): the bundle-key
+    // builder consults the same predicate to key ring-free walks with the
+    // ringCursor sentinel, so the two must never drift. The first tile still
+    // runs the FULL pack (it seeds the show/frame lanes the span-copy
+    // lifts); later arena-resident tiles skip everything.
+    const splitWalkSkip = this._walkRingFree(
+      fillPipeline,
+      fillBindGroupLayout,
+      phase,
+      translucentBucket,
+      visibleKeysForClip,
+      lineVariant,
+      sliceLayer,
+    )
     this._lastWalkRingFree = splitWalkSkip
     let packedOnce = false
     // Per-call invariants shared by the per-tile light-rotation + clip_bounds

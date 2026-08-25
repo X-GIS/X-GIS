@@ -370,15 +370,36 @@ bundles whose baked commands could have replayed verbatim. Design:
   record-side counters (177 split fills over a 36-minute two-arm run)
   suggest records are already rare at steady state; if re-records are
   <1/frame, INC-5b is not worth its key-shape risk (record the negative
-  result here and close it). `cam_h/cam_l`
-  are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
-  restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
-  absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
-  `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
-  the VS derives `rel = cam − origin` behind a flag, with its own
-  rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
-  keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
-  static at INC-4/5).
+  result here and close it).
+
+_INC-5b measured (PR #2090's sweep) — the coupling is REAL and dominant:_ the ON
+arm's n=32/128 windows logged bundleMisses ≈ N shows (one re-record per show per
+window) with encode 159-185 ms where OFF's pure-replay windows sat at
+5.2-5.4 ms — one tile's residency transition changes that show's ring alloc
+count under walk-skip, and the live `ringCursor` shifts every downstream show's
+key. Promoted from measure-first to REQUIRED.
+
+_INC-5b implemented (2026-08-25):_ the qualification extracted into the SINGLE
+ring-free authority `VTR._walkRingFree` (renderTileKeys' `splitWalkSkip`
+delegates; `_lastWalkRingFree` still published per call), and the PRIMARY
+bundle key's `ringCursor` becomes the `-2` sentinel when the walk is ring-free
+(fallback-clip keys always use the live cursor — clip walks never qualify).
+Soundness: every `_walkRingFree` input is pinned by the key itself (sliceLayer,
+phase, pipeline labels; translucentBucket is constant-false on the bundle
+path), so record and hit agree on the verdict; the ring-alloc invariant
+exemption (INC-5's `_lastWalkRingFree`) already carries the baked-offsets
+argument. Verification: sweep ON steady windows must show misses ≈ 0 with
+walkSkips > 0 (the coupling gone), and both parity gates stay green.
+
+6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
+   are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
+   restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
+   absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
+   `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
+   the VS derives `rel = cam − origin` behind a flag, with its own
+   rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
+   keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
+   static at INC-4/5).
 
 ## Self-critique (architect pass, recorded so the author cannot skip them)
 
