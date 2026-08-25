@@ -71,8 +71,23 @@ async function bootArm(page: Page, arm: Arm, globe: boolean): Promise<void> {
   // scene became meaningful at INC-6: its Mercator cam-rel recombination is
   // what the flat test below exercises (the skew hook moves BOTH anchors'
   // X, so each scene's witness bites on its own arm).
+  // `adaptive=0` is load-bearing for a BOUNDED-PIXEL-DIFF rung, for the same reason
+  // `_bundle-replay-parity-gate` needs it (#2116): the adaptive quality controller reads
+  // MEASURED rendered-frame intervals and moves the render down a ladder, so the frame is a
+  // function of wall-clock and the two arms — which boot separately, one on a cold HTTP
+  // cache — can land on different notches. Measured on this scene: notch 0 -> 3 -> 4 and
+  // `adaptiveFarLodBoost` 1 -> 4 within two script steps.
+  //
+  // Attribution, one cut at a time (§12). With the chrome hidden but the ladder still live,
+  // the flat step-0 diff was 3497 px / maxD 159 (down from 7448 / 129 with the chrome in the
+  // frame), and a +-3 px shift search found its MINIMUM at (0,0) — every translation made it
+  // worse. So the residue is NOT a moved geometry, which is what a wrong recombined offset
+  // would look like and what this spec's error message asserts. It is a whole-frame
+  // resample: the diff sits on all 55 rows and 287 of 288 columns at ~25 px/row, with a
+  // spike on the one thin dashed feature (rows 11-14: 223/265/270/195). That is the ladder's
+  // dpr notch, not arithmetic.
   await page.goto(
-    `/demo.html?id=import_maplibre_mirror${globe ? '&proj=globe' : ''}&e2e=1&msaa=1#1.5/20/140`,
+    `/demo.html?id=import_maplibre_mirror${globe ? '&proj=globe' : ''}&e2e=1&msaa=1&adaptive=0#1.5/20/140`,
     { waitUntil: 'domcontentloaded' },
   )
   console.log(`[rtc-parity] boot(${JSON.stringify(arm)}): navigated, waiting ready`)
