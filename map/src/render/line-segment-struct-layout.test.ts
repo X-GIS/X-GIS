@@ -74,8 +74,11 @@ describe('LineSegment storage-struct layout (CPU writer ↔ WGSL reader)', () =>
     expect(wgslStride).toBe(LINE_SEGMENT_STRIDE_BYTES)
   })
 
-  it('both sides are 80 B / 20 floats', () => {
-    expect(wgslStride).toBe(80)
-    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(80)
+  // #2089 grew both sides together (unlike 2d.1A's CPU-only append): slots
+  // 20-31 are the per-endpoint CPU-exact ECEF RTC DSFUN lanes the globe
+  // vs_line positions from.
+  it('both sides are 128 B / 32 floats', () => {
+    expect(wgslStride).toBe(128)
+    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(128)
   })
 })

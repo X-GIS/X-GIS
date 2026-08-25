@@ -4,12 +4,14 @@
 // this without dragging in WebGPU types / WGSL shaders. The runtime
 // LineRenderer class re-exports from here.
 
-// ═══ Segment Buffer Layout ═══
-// 80 bytes per segment (stride 20 f32). Phase 1: p0, p1 only. Later
-// phases added prev/next tangents, arc_start, line_length, then
-// per-feature overrides.
+import { WGS84, tileEcefCenterFromMerc } from '@xgis/shared'
 
-// DSFUN segment layout (stride 20 f32 = 80 bytes):
+// ═══ Segment Buffer Layout ═══
+// 128 bytes per segment (stride 32 f32). Phase 1: p0, p1 only. Later
+// phases added prev/next tangents, arc_start, line_length, per-feature
+// overrides, then the CPU-exact ECEF endpoint lanes (#2089).
+
+// DSFUN segment layout (stride 32 f32 = 128 bytes):
 //   [0-1]   p0_h (vec2<f32>)        — tile-local Mercator meters, high pair
 //   [2-3]   p1_h (vec2<f32>)
 //   [4-5]   p0_l (vec2<f32>)        — low pair
@@ -30,9 +32,20 @@
 //                                      that the worker resolves per
 //                                      feature.
 //   [18]    color_packed (u32 bit-pattern stored in f32 slot)
-//   [19]    _pad19 (f32)            — vec4 alignment fill; matches the WGSL
-//                                      `struct LineSegment` (20 f32 = 80 B,
-//                                      std430). vs_line reads all 20 floats.
+//   [19]    _pad19 (f32)            — alignment fill (kept so slots 0-19 stay
+//                                      byte-identical to the pre-#2089 layout)
+//   [20-25] e0 ECEF RTC DSFUN       — e0x_h, e0y_h, e0z_h, e0x_l, e0y_l, e0z_l
+//   [26-31] e1 ECEF RTC DSFUN       — e1x_h, e1y_h, e1z_h, e1x_l, e1y_l, e1z_l
+//
+// Slots 20-31 (#2089) carry each endpoint's WGS84-ellipsoid ECEF, relative to
+// the tile's ECEF anchor (`tileEcefCenterFromMerc(tileOriginMerc)` — the SAME
+// anchor + forward math `packECEFPolygonVertices` uses, so fill and stroke
+// share one position authority), DSFUN-split hi/lo per axis. Computed here in
+// CPU f64 so the globe vs_line positions endpoints WITHOUT the in-shader f32
+// `atan(exp())` re-derivation (whose ~1.7 m abs-Mercator input granularity +
+// f32 transcendental error — ~0.5 km on SwiftShader, #2025 — misregistered
+// strokes against fills, #2053). Matches the WGSL `struct LineSegment`
+// (32 f32 = 128 B, std430) — line-segment-struct-layout.test.ts locks the two.
 //
 // The shader subtracts (p0_h - cam_h) + (p0_l - cam_l) to cancel tile-origin
 // magnitude and recover camera-relative meters with f64-equivalent precision.
@@ -46,7 +59,7 @@
 // outline used a single uniform value (the layer's fallback) and
 // floated mid-wall on tall / short buildings. 0 = stay on the ground
 // (default for non-extruded layers).
-export const LINE_SEGMENT_STRIDE_F32 = 20
+export const LINE_SEGMENT_STRIDE_F32 = 32
 export const LINE_SEGMENT_STRIDE_BYTES = LINE_SEGMENT_STRIDE_F32 * 4
 
 /**
@@ -129,7 +142,16 @@ const DEFAULT_BUILD_MITER_LIMIT = 4.0
 export function buildLineSegments(
   vertices: Float32Array,
   indices: Uint32Array,
-  stride: 5 | 6 | 10 = 5,
+  stride: 5 | 6 | 10,
+  /** Tile origin (SW corner) in ABSOLUTE Mercator metres — the SAME origin the
+   *  vertices were made tile-local against at pack time (primary world, no
+   *  worldOff; ECEF is world-copy-independent). Enables the #2089 CPU-exact
+   *  ECEF endpoint lanes (slots 20-31): anchor = tileEcefCenterFromMerc(origin),
+   *  per-endpoint WGS84 forward in f64 — one position authority with the
+   *  polygon packer. Pass `null` ONLY for flat-only/test callers: the ECEF
+   *  lanes are then zero, which on the globe collapses every endpoint onto the
+   *  tile anchor (loudly wrong by design, never subtly offset). */
+  tileOriginMerc: readonly [number, number] | null,
   /** Tile width/height in Mercator METERS — used to detect chain ends that
    *  sit on a tile boundary and treat them as virtual joins (same-direction
    *  tangent) so the SDF shader emits no cap there. Adjacent tiles' segments
@@ -332,6 +354,39 @@ export function buildLineSegments(
   const splitHigh = (v: number): number => Math.fround(v)
   const splitLow = (v: number): number => Math.fround(v - Math.fround(v))
 
+  // ── #2089 ECEF endpoint lanes (slots 20-31) ──
+  // Anchor + per-endpoint forward mirror `packECEFPolygonVertices` exactly
+  // (same shared WGS84 A/E2, same inverse-Mercator → ellipsoidal-ECEF chain),
+  // so fill and stroke share one CPU-f64 position authority; the DSFUN split
+  // keeps the residual sub-µm at every tile zoom. The globe vs_line reads
+  // these instead of re-deriving ECEF through f32 `atan(exp())` (#2053/#2025).
+  const { A, E2 } = WGS84
+  const anchor = tileOriginMerc
+    ? tileEcefCenterFromMerc(tileOriginMerc[0], tileOriginMerc[1])
+    : null
+  const writeEcefLanes = (localMx: number, localMy: number, slot: number): void => {
+    if (!anchor || !tileOriginMerc) return
+    const mx = localMx + tileOriginMerc[0]
+    const my = localMy + tileOriginMerc[1]
+    const lonRad = mx / A
+    const latRad = 2 * Math.atan(Math.exp(my / A)) - Math.PI / 2
+    const sinLat = Math.sin(latRad)
+    const cosLat = Math.cos(latRad)
+    const N = A / Math.sqrt(1 - E2 * sinLat * sinLat)
+    const rx = N * cosLat * Math.cos(lonRad) - anchor[0]
+    const ry = N * cosLat * Math.sin(lonRad) - anchor[1]
+    const rz = N * (1 - E2) * sinLat - anchor[2]
+    const rxH = Math.fround(rx)
+    const ryH = Math.fround(ry)
+    const rzH = Math.fround(rz)
+    out[slot] = rxH
+    out[slot + 1] = ryH
+    out[slot + 2] = rzH
+    out[slot + 3] = Math.fround(rx - rxH)
+    out[slot + 4] = Math.fround(ry - ryH)
+    out[slot + 5] = Math.fround(rz - rzH)
+  }
+
   for (let i = 0; i < segCount; i++) {
     const a = indices[i * 2]
     const b = indices[i * 2 + 1]
@@ -361,6 +416,14 @@ export function buildLineSegments(
     const p0y = a_myH + a_myL
     const p1x = b_mxH + b_mxL
     const p1y = b_myH + b_myL
+
+    // Final (post-#1245-bridge) endpoint positions — the ECEF lanes must
+    // describe the SAME point the Mercator DSFUN slots do, so the bridge
+    // branches below update these alongside slots 0-7.
+    let f0x = p0x
+    let f0y = p0y
+    let f1x = p1x
+    let f1y = p1y
 
     const segDxBuild = p1x - p0x
     const segDyBuild = p1y - p0y
@@ -422,6 +485,8 @@ export function buildLineSegments(
         out[off + 4] = splitLow(ex)
         out[off + 1] = splitHigh(ey)
         out[off + 5] = splitLow(ey)
+        f0x = ex
+        f0y = ey
       }
     }
     out[off + 8] = prevTx
@@ -470,6 +535,8 @@ export function buildLineSegments(
         out[off + 6] = splitLow(ex)
         out[off + 3] = splitHigh(ey)
         out[off + 7] = splitLow(ey)
+        f1x = ex
+        f1y = ey
       }
     }
     out[off + 10] = nextTx
@@ -528,6 +595,11 @@ export function buildLineSegments(
     }
     // Slot 19 stays at the buffer's zero-init default — it's
     // pure WGSL alignment padding.
+
+    // #2089 — CPU-exact ECEF RTC DSFUN per endpoint (slots 20-31), from the
+    // FINAL endpoint positions (bridge applied), same authority as the fill.
+    writeEcefLanes(f0x, f0y, off + 20)
+    writeEcefLanes(f1x, f1y, off + 26)
   }
   return out
 }

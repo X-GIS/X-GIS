@@ -49,6 +49,8 @@ import {
   atan,
   exp,
   log,
+  sin,
+  cos,
   degrees,
   If,
   when,
@@ -96,7 +98,7 @@ import {
   PROJECTION_CONSTS,
   getGpuProjectionFuncs,
 } from './projections'
-import { ECEF_CONSTS, lonlatToEcef } from './ecef'
+import { ECEF_CONSTS } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, DEG2RAD } from './consts'
 import { finalizeCornerWith, patternUnitToM, type FinalizeCornerAdapter } from './line-corner'
@@ -278,6 +280,24 @@ const LineSegment = structDecl('LineSegment', {
   // shader bit-casts to u32 + unpack4x8unorm). Alpha=0 → use layer.color.
   color_packed: f32T,
   _pad19: f32T,
+  // #2089 — per-endpoint WGS84 ECEF RTC, DSFUN hi/lo per axis, CPU-f64-exact
+  // (buildLineSegments packs these against the SAME tileEcefCenterFromMerc
+  // anchor as the polygon fill). The globe vs_line positions endpoints from
+  // these lanes instead of re-deriving ECEF through f32 atan(exp()) — the
+  // #2053/#2025 fill↔stroke misregistration source. Scalar f32 fields keep
+  // std430 offsets byte-identical to the CPU writer (no vec3 16-B alignment).
+  e0x_h: f32T,
+  e0y_h: f32T,
+  e0z_h: f32T,
+  e0x_l: f32T,
+  e0y_l: f32T,
+  e0z_l: f32T,
+  e1x_h: f32T,
+  e1y_h: f32T,
+  e1z_h: f32T,
+  e1x_l: f32T,
+  e1y_l: f32T,
+  e1z_l: f32T,
 })
 
 const ShapeDesc = structDecl('ShapeDesc', {
@@ -1087,56 +1107,97 @@ export const vsLine = fn(
     // Globe overwrites cornerLocal AND world_local together (unchanged behaviour).
     const worldLocalOut = Var(base.add(offset))
 
-    // ── ECEF-RTC corner reconstruction (Phase 2 PR 2d.1C) ────────────────
+    // ── ECEF-RTC corner from CPU-exact endpoint lanes (#2089) ────────────
     //
     // Hybrid VS: emit clip via `u.mvp * vec4(ecef_rtc, 1)` while still emitting `world_local` as
     // tile-local Mercator metres for the FS distance / clip / backface / pattern math
     // (`compute_line_color` reads `world_local` at 6 sites — backface cull, clip-bounds, segment
     // dist, bevel/cap geometry, rim alpha, pattern repeat). The Mercator path is unchanged; only
-    // the clip transform swaps from `u.mvp * project_geom(corner)` to `u.mvp * ecef_rtc(corner)`.
+    // the clip transform swaps.
     //
-    // Math chain:
-    //   1. corner abs Mercator = cornerLocal + tile_origin_merc
-    //   2. inverse Mercator     → (abs_lon_rad, abs_lat_rad)
-    //   3. WGS84 forward ECEF   → ecef_corner
-    //   4. tile ECEF center same chain on tile_origin_merc
-    //   5. ecef_rtc             = ecef_corner - tile_ecef_center
-    //   6. clip                 = u.mvp * vec4(ecef_rtc, 1)
+    // POSITION comes from the segment's ECEF RTC DSFUN lanes (slots 20-31 —
+    // CPU f64, packed by buildLineSegments against the SAME
+    // `tileEcefCenterFromMerc` anchor the polygon packer uses), so fill and
+    // stroke share ONE position authority. The pre-#2089 form (PR 2d.1C's
+    // hybrid option b) re-derived ECEF in-shader via f32 `atan(exp())` on f32
+    // ABSOLUTE Mercator: ~1.7 m input granularity (ulp at 1.4e7 m) plus the
+    // driver's f32 transcendental error (~0.5 km on SwiftShader — #2025),
+    // landing as a whole-tile line-vs-fill shift amplified 2^Δz at overzoom
+    // (#2053's measured misregistration).
     //
-    // Mirrors the polygon ECEF VS (vs_main_ecef) contract: the runtime builds `u.mvp` (ECEF-MVP)
-    // once per frame and the per-tile vertices are RTC-relative to the tile ECEF center. The WGS84
-    // forward is the shared `lonlat_to_ecef` primitive (ecef.ts) — the same one the raster VS calls
-    // — so the constants (WGS84_A / WGS84_E2) live in one place. NB: the shared WGS84_E2
-    // (0.0066943799901975955) is f32-equal to the former inline literal (0.006694379990197561) —
-    // both truncate to the same f32, so this is not a precision regression despite the differing
-    // source digits. Per-vertex cost:
-    // 2 sin + 2 cos + 1 sqrt (inside lonlat_to_ecef) + 1 tan + 1 exp — modest on
-    // modern GPUs and isolated to the line VS.
+    // The corner OFFSET (join/miter/cap/width math — tile-local Mercator
+    // metres, unchanged) rides an ENU tangent-plane rotation at the endpoint:
+    // physical (e, n) = offMerc · cos(lat) (Web Mercator is conformal — BOTH
+    // axes carry the sec(lat) stretch), and height rides the geodetic up axis
+    // (same frame as the CPU lonLatToECEF roof-ring lift). The frame's lon/lat
+    // may use the f32 inverse-Mercator chain: it only ROTATES a ≤10²-m offset,
+    // so ~3e-7 rad of angle error lands sub-µm. The tangent-plane corner
+    // departs the ellipsoid by |off|²/2R — metres only for z≲3 cover-quads
+    // tens of km across, where the quad merely COVERS (the FS SDF shapes the
+    // stroke from world_local); at overzoom offsets it is nm-µm.
 
     const earthR = EARTH_R
     const pi = PI
-
-    // Helper: build local ECEF for an absolute Mercator (x_m, y_m) input via the
-    // shared `lonlat_to_ecef(lon, lat, height)` (same as the raster VS path).
-    // `height` lifts along the GEODETIC NORMAL — the frame the CPU lonLatToECEF
-    // uses for the extruded roof ring (polygon-mesh.ts). The previous form added
-    // z_lift to ECEF Z AFTER conversion (polar axis), displacing extruded
-    // outlines h·cos(lat) north + h·(1−sin lat) below the roof (~37 px at z16).
     type FNode = ReadonlyNode<'f32'>
-    const ecefFromMerc = (
-      _builder: unknown,
-      _name: string,
-      absMercX: FNode,
-      absMercY: FNode,
-      height: FNode = f32(0),
-    ): Node<'vec3<f32>'> => {
-      const lonRad = toF32(absMercX.div(earthR))
+
+    // Endpoint ECEF RTC from the CPU-exact DSFUN lanes (two-add recombine —
+    // the polygon vs_main_ecef discipline). Follows `base` (p0 for quad-start
+    // corners, p1 for quad-end corners): lanes e0 ↔ p0, e1 ↔ p1.
+    const baseEcefLanes = (): Node<'vec3<f32>'> => {
+      const h = vec3(
+        select(isStart, sego.e0x_h, sego.e1x_h),
+        select(isStart, sego.e0y_h, sego.e1y_h),
+        select(isStart, sego.e0z_h, sego.e1z_h),
+      )
+      const l = vec3(
+        select(isStart, sego.e0x_l, sego.e1x_l),
+        select(isStart, sego.e0y_l, sego.e1y_l),
+        select(isStart, sego.e0z_l, sego.e1z_l),
+      )
+      return Let(h.add(l)) as Node<'vec3<f32>'>
+    }
+
+    // ENU frame at the base endpoint (call once per branch; the Lets emit at
+    // the call site so the flat arm never pays for them).
+    const globeFrame = () => {
+      const tileOriginG = TILE.field.tile_origin_merc
+      const absX = toF32(base.x.add(tileOriginG.x))
+      const absY = toF32(base.y.add(tileOriginG.y))
+      const lonRad = toF32(absX.div(earthR))
       const latRad = toF32(
         f32(2)
-          .mul(atan(exp(absMercY.div(earthR))))
+          .mul(atan(exp(absY.div(earthR))))
           .sub(pi.div(2)),
       )
-      return lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height }) as Node<'vec3<f32>'>
+      return {
+        sinLon: Let(sin(lonRad)),
+        cosLon: Let(cos(lonRad)),
+        sinLat: Let(sin(latRad)),
+        cosLat: Let(cos(latRad)),
+        baseEcef: baseEcefLanes(),
+      }
+    }
+    type GlobeFrame = ReturnType<typeof globeFrame>
+
+    // Corner ECEF RTC = endpoint lanes + ENU-rotated (offMerc, height).
+    const globeCornerEcef = (
+      fr: GlobeFrame,
+      offMerc: Node<'vec2<f32>'>,
+      height: FNode,
+    ): Node<'vec3<f32>'> => {
+      const e = offMerc.x.mul(fr.cosLat)
+      const n = offMerc.y.mul(fr.cosLat)
+      const ex = fr.sinLon
+        .neg()
+        .mul(e)
+        .add(fr.sinLat.neg().mul(fr.cosLon).mul(n))
+        .add(fr.cosLat.mul(fr.cosLon).mul(height))
+      const ey = fr.cosLon
+        .mul(e)
+        .add(fr.sinLat.neg().mul(fr.sinLon).mul(n))
+        .add(fr.cosLat.mul(fr.sinLon).mul(height))
+      const ez = fr.cosLat.mul(n).add(fr.sinLat.mul(height))
+      return fr.baseEcef.add(vec3(ex, ey, ez)) as Node<'vec3<f32>'>
     }
 
     // Camera-relative RTC offset (tileEcefCenter − cameraCenter), DSFUN hi+lo,
@@ -1207,26 +1268,17 @@ export const vsLine = fn(
         })
       }).else(() => {
         // ── GLOBE / 3D ECEF (projType ≥ 7) — unchanged screen-width clamp ──
-        // Pre-clamp draft via ECEF round-trip on the candidate corner (matches
-        // polygon convention). May only GROW the quad to counter perspective
-        // foreshortening — never SHRINK it (max(.,1)); a quad smaller than the
-        // base (w/2+aa)·mpp offset clips the FS coverage and renders too thin.
-        const tileOrigin = TILE.field.tile_origin_merc
-        const tileAbsX = toF32(tileOrigin.x)
-        const tileAbsY = toF32(tileOrigin.y)
-        const tileEcef = ecefFromMerc(null, 'clamp_tile', tileAbsX, tileAbsY)
-        const baseAbsX = toF32(base.x.add(tileOrigin.x))
-        const baseAbsY = toF32(base.y.add(tileOrigin.y))
-        // z_lift rides INTO lonlat_to_ecef as geodetic height (tileEcef anchor
+        // Pre-clamp draft on the lane-exact endpoint + ENU offset (#2089;
+        // matches polygon convention). May only GROW the quad to counter
+        // perspective foreshortening — never SHRINK it (max(.,1)); a quad
+        // smaller than the base (w/2+aa)·mpp offset clips the FS coverage and
+        // renders too thin. z_lift rides the geodetic up axis (the lane anchor
         // stays height-0 = the polygon tile_ecef_center RTC frame).
-        const baseEcef = ecefFromMerc(null, 'clamp_base', baseAbsX, baseAbsY, zLift)
-        const baseRtc = baseEcef.sub(tileEcef)
-        const centerClip = transformMat4(mvp, vec4(addCamOff(baseRtc as Node<'vec3<f32>'>), 1))
-        const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin.x)))
-        const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin.y)))
-        const cornerEcef = ecefFromMerc(null, 'clamp_corner', cornerAbsX, cornerAbsY, zLift)
-        const cornerRtc = cornerEcef.sub(tileEcef)
-        const cornerClip = transformMat4(mvp, vec4(addCamOff(cornerRtc as Node<'vec3<f32>'>), 1))
+        const fr = globeFrame()
+        const baseRtc = globeCornerEcef(fr, vec2(0, 0), zLift)
+        const centerClip = transformMat4(mvp, vec4(addCamOff(baseRtc), 1))
+        const cornerRtc = globeCornerEcef(fr, cornerLocal.sub(base), zLift)
+        const cornerClip = transformMat4(mvp, vec4(addCamOff(cornerRtc), 1))
         const centerXY = Let(vec2(centerClip.x, centerClip.y))
         const cornerXY = Let(vec2(cornerClip.x, cornerClip.y))
         const centerNdc = Let(centerXY.div(max(abs(centerClip.w), 1e-6)).mul(sign(centerClip.w)))
@@ -1245,11 +1297,11 @@ export const vsLine = fn(
     // Final corner → clip. Flat Mercator (proj_params.x < 0.5) feeds the flat
     // 2D-plane MVP directly — cornerLocal is ALREADY camera-relative Mercator
     // metres (line_endpoint subtracted the camera for proj<0.5), so no ECEF
-    // round-trip / addCamOff. 3D / globe keeps the WGS84-ECEF chain (cornerLocal
-    // is tile-local there). u.mvp is the matching matrix (getViewForProjection);
-    // zLift is the outline/extrude lift. world_local stays cornerLocal so the
-    // FS distance / clip-bounds math is unchanged.
-    const tileOrigin2 = TILE.field.tile_origin_merc
+    // round-trip / addCamOff. 3D / globe positions from the ECEF endpoint
+    // lanes + ENU corner offset (#2089; cornerLocal is tile-local there).
+    // u.mvp is the matching matrix (getViewForProjection); zLift is the
+    // outline/extrude lift. world_local stays cornerLocal so the FS distance /
+    // clip-bounds math is unchanged.
     const mvp = TILE.field.mvp
     const zLift = sego.z_lift_m
     const projParamsF = TILE.field.proj_params
@@ -1276,18 +1328,14 @@ export const vsLine = fn(
         })
       })
     }).else(() => {
-      const tileAbsX = toF32(tileOrigin2.x)
-      const tileAbsY = toF32(tileOrigin2.y)
-      const tileEcef = ecefFromMerc(null, 'final_tile', tileAbsX, tileAbsY)
-      const cornerAbsX = Let(toF32(cornerLocal.x.add(tileOrigin2.x)))
-      const cornerAbsY = Let(toF32(cornerLocal.y.add(tileOrigin2.y)))
-      // z_lift = geodetic height inside lonlat_to_ecef (matches the CPU
-      // lonLatToECEF roof-ring lift); the tile anchor stays height-0.
-      const cornerEcef = ecefFromMerc(null, 'final_corner', cornerAbsX, cornerAbsY, zLift)
-      const ecefRtc = cornerEcef.sub(tileEcef)
+      // #2089 — lane-exact endpoint + ENU-rotated corner offset; z_lift =
+      // geodetic height (matches the CPU lonLatToECEF roof-ring lift); the
+      // lane anchor stays height-0.
+      const fr = globeFrame()
+      const ecefRtc = globeCornerEcef(fr, cornerLocal.sub(base), zLift)
       // Camera-relative RTC — without addCamOff, line projects vertex−
       // tileEcefCenter and collapses toward each tile's origin.
-      const ecefCam = addCamOff(ecefRtc as Node<'vec3<f32>'>)
+      const ecefCam = addCamOff(ecefRtc)
       clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
     })
     // Mapbox fill-translate for POLYGON OUTLINES: a fill's outline draws through
