@@ -2006,6 +2006,16 @@ export class VectorTileRenderer {
     B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
     B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
     B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
+    // #2042 INC-6 — the flat-arm Mercator anchors (.xy hi, .zw lo; same
+    // flag, same skew witness — the skew moves flat geometry iff the
+    // Mercator recombination is live, mirroring the ECEF witness on globe).
+    B.set.tile_origin_merc_hl(
+      anchor.tileMercXH + skew,
+      anchor.tileMercYH,
+      anchor.tileMercXL,
+      anchor.tileMercYL,
+    )
+    B.set.cam_merc_center_hl(anchor.camMercXH, anchor.camMercYH, anchor.camMercXL, anchor.camMercYL)
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given

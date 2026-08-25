@@ -257,7 +257,9 @@ const CEILINGS: Record<string, number> = {
   // threaded through six renderTileKeys call sites + flush/reset/destroy
   // pairing. The arena itself lives in tile-uniform-arena.ts (180 LOC, its
   // own file); this is only the seam. Shrinks at INC-5 with the re-walk.
-  'map/src/render/vector-tile-renderer.ts': 5172,
+  // 5172→5182 (#2042 INC-6): the two Mercator-anchor writes in
+  // _writeRtcAnchors (tile_origin_merc_hl carries the same skew witness).
+  'map/src/render/vector-tile-renderer.ts': 5182,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1162,7 +1164,8 @@ const CEILINGS: Record<string, number> = {
   // 1527→1535 (#2042 INC-1): the four `_pad_*_ecef_center_*` size-mirror pads
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
-  'map/src/shaders/dsl/line.ts': 1535,
+  // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
+  'map/src/shaders/dsl/line.ts': 1539,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1205,7 +1208,10 @@ const CEILINGS: Record<string, number> = {
   // the recombine-flag contract doc) + the flag-selected rtc_off_h/l Let pair
   // in the projection ladder's 3D arm. Shrinks at INC-4 when the legacy
   // cam_ecef_off fields and the select retire. MEASURED post-prettier.
-  'map/src/shaders/dsl/polygon.ts': 1540,
+  // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
+  // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
+  // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
+  'map/src/shaders/dsl/polygon.ts': 1577,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -1574,7 +1580,8 @@ const CEILINGS: Record<string, number> = {
   // comments' prettier-reflow saved a couple lines back. Measured post-hook.
   // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
   // full-struct write() completeness net requires. MEASURED post-prettier.
-  'map/src/render/renderer.ts': 1009,
+  // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
+  'map/src/render/renderer.ts': 1011,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —

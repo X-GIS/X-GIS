@@ -126,7 +126,12 @@ describe('TileUniformArena — TileBlock ↔ polygonU byte parity (the INC-4 con
     // Right side: polygonU packed through the SAME setters VTR's per-tile
     // walk uses today (vector-tile-renderer renderTileKeys), same inputs.
     const polyB = uniformBlock(polygonU)
-    polyB.set.tile_origin_merc(ANCHOR.tileMercX, ANCHOR.tileMercY)
+    polyB.set.tile_origin_merc_hl(
+      ANCHOR.tileMercXH,
+      ANCHOR.tileMercYH,
+      ANCHOR.tileMercXL,
+      ANCHOR.tileMercYL,
+    )
     polyB.set.tile_extent_m(EXTENT)
     polyB.set.tile_dequant_scale(DQ_SCALE)
     polyB.set.tile_dequant_half(DQ_HALF)
@@ -136,7 +141,7 @@ describe('TileUniformArena — TileBlock ↔ polygonU byte parity (the INC-4 con
     const poly = new Uint8Array(polyB.buffer)
 
     const SPANS: ReadonlyArray<[field: string, bytes: number]> = [
-      ['tile_origin_merc', 8],
+      ['tile_origin_merc_hl', 16],
       ['tile_extent_m', 4],
       ['tile_dequant_scale', 4],
       ['tile_dequant_half', 4],

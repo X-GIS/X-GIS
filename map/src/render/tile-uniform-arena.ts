@@ -112,13 +112,16 @@ export class TileUniformArena {
     // Full-struct write (compile-time completeness — the #600 net): every
     // TileBlock lane is established here, once, from tile-static inputs.
     B.write({
-      tile_origin_merc: [anchor.tileMercX, anchor.tileMercY],
+      tile_origin_merc_hl: [
+        anchor.tileMercXH,
+        anchor.tileMercYH,
+        anchor.tileMercXL,
+        anchor.tileMercYL,
+      ],
       tile_extent_m: tileExtentM,
       tile_dequant_scale: dequantScale,
       tile_dequant_half: dequantHalf,
       _pad0: 0,
-      _pad1: 0,
-      _pad2: 0,
       clip_bounds: [-1e30, 0, 0, 0], // sentinel — unclipped draws only (header)
       tile_ecef_center_h: [anchor.tileEcefXH, anchor.tileEcefYH, anchor.tileEcefZH, 0],
       tile_ecef_center_l: [anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0],
