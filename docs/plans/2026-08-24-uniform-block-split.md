@@ -349,15 +349,36 @@ splitStrokeEligible(lineVariant)`, and 'all'-phase per-style shows
   TileBlock arena — misaddressing collapses geometry); the default-class
   gate keeps the skew witness for show-lane reads.
 
-6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
-   are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
-   restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
-   absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
-   `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
-   the VS derives `rel = cam − origin` behind a flag, with its own
-   rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
-   keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
-   static at INC-4/5).
+5e. **INC-5b — retire `ringCursor` from ring-free bundle keys (design, 2026-08-25).**
+Post-INC-4d, a ring-free walk's bundle bakes NO per-tile ring reader, yet its
+`BundleKeyState.ringCursor` still pins the per-frame ring base — so any
+alloc-count change in an EARLIER show (residency transition, a non-qualified
+show's tile churn) shifts every later ring-free show's key and re-records
+bundles whose baked commands could have replayed verbatim. Design:
+
+- When the walk qualified (`_lastWalkRingFree`), build the key with a
+  `ringCursor: -2` sentinel ("address-free") instead of the live cursor.
+  Key equality ⇒ identical qualification inputs (all key'd) ⇒ record and
+  hit agree on the sentinel; a call that LOSES qualification changes the
+  key naturally (cursor reappears).
+- The ring-alloc invariant stays exempted for these walks (INC-5's
+  `_lastWalkRingFree` — same soundness argument, now load-bearing for
+  addressing too).
+- Measure BEFORE building: instrument bundle re-record counts per frame
+  on the sweep + a zoom-churn scenario, OFF vs ON, to see whether
+  cross-show re-record coupling is a real cost — the gate4 run's
+  record-side counters (177 split fills over a 36-minute two-arm run)
+  suggest records are already rare at steady state; if re-records are
+  <1/frame, INC-5b is not worth its key-shape risk (record the negative
+  result here and close it). `cam_h/cam_l`
+  are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
+  restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
+  absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
+  `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
+  the VS derives `rel = cam − origin` behind a flag, with its own
+  rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
+  keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
+  static at INC-4/5).
 
 ## Self-critique (architect pass, recorded so the author cannot skip them)
 
