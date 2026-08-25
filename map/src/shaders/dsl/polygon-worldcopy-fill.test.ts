@@ -261,7 +261,10 @@ describe('Mercator world-copy fill-gap — emitted WGSL string companion', () =>
     expect(extruded).toMatch(
       /_av0 = \(u\.mvp \* vec4<f32>\((\w+)\.x, \1\.y, (?!0\.0,)[^,]+, 1\.0\)\);/,
     )
-    expect(extruded).toMatch(/= \(\(local_merc - u\.cam_h\) - u\.cam_l\);/)
+    // #2042 INC-6: the cam pair is the flag-selected `cam_rel_h/l` Let
+    // (legacy u.cam_h/u.cam_l when the flag is off); the IMPLICIT world
+    // copy property under test is unchanged — no explicit worldOff add.
+    expect(extruded).toMatch(/= \(\(local_merc - cam_rel_h\) - cam_rel_l\);/)
   })
 
   it('does NOT perturb the non-Mercator (flat_rel) arm', () => {
