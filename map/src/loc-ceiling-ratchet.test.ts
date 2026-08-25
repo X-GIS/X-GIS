@@ -261,7 +261,16 @@ const CEILINGS: Record<string, number> = {
   // _writeRtcAnchors (tile_origin_merc_hl carries the same skew witness).
   // 5182→5186 (#2042 INC-4b prep): the tile-arena grow-retired drain beside
   // the ring drain (leak fix — the arena pinned every outgrown buffer).
-  'map/src/render/vector-tile-renderer.ts': 5186,
+  // 5186→5253 (#2042 INC-4b): the split-bind wiring — ctor construction +
+  // rebind wire, setFillRhi layout hand-off, the per-draw split resolve in
+  // renderTileKeys (qualify + offsets), recordTileFill's trailing param, and
+  // the flush/drain/destroy pairings. The write path itself lives in
+  // uniform-split-bind.ts (276 LOC, its own file); this is only the seam.
+  // Shrinks at INC-5 with the re-walk deletion.
+  // 5253→5254 (#2042 INC-4b fix): the sliceLayer argument threaded into
+  // syncShow — the show-slot identity gained the slice half (the gate-caught
+  // filter-bucket aliasing; see uniform-split-bind.ts's header).
+  'map/src/render/vector-tile-renderer.ts': 5254,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1134,7 +1143,12 @@ const CEILINGS: Record<string, number> = {
   // with the chain's RHI re-origination — win banked.
   // 1568→1496 (#1568): the ShaderVariantInfo→WGSL choke point + its memo moved to
   // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
-  'map/src/render/pipeline-factory.ts': 1496,
+  // 1496→1553 (#2042 INC-4b): the split-bind fill family — the
+  // SPLIT_FILL_LAYOUT_ENTRIES static (drift-test-pinned), the flag-gated
+  // layout + twin build in build(), the two fields, and fillRhiState's
+  // split hand-off. The factory is the layout/pipeline owner, so the
+  // descriptor increment lands here by design.
+  'map/src/render/pipeline-factory.ts': 1553,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for

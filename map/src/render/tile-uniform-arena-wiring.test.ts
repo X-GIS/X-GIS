@@ -56,3 +56,34 @@ describe('VTR wires TileUniformArena at all six lifecycle points (#2042 INC-2)',
     expect(window).not.toContain('destroyBuffer')
   })
 })
+
+describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', () => {
+  it('flush / drain / destroy pair with the arena wiring; setFillRhi hands off the layout', () => {
+    // Same static-scan rationale as the arena gate above: a refactor that
+    // drops one of these leaves split draws reading stale or leaked state
+    // with no compile error.
+    expect(src).toMatch(/flushUniformStaging\(\): void \{[\s\S]{0,500}?_splitBind\?\.flush\(\)/)
+    const ringDrain = src.indexOf('uniformRing?.takeRetired()')
+    expect(src.slice(ringDrain, ringDrain + 500)).toContain('_splitBind?.takeRetired()')
+    expect(src).toContain('_splitBind?.destroy()')
+    expect(src).toMatch(
+      /setFillRhi\(state[\s\S]{0,400}?_splitBind\?\.setLayout\(state\.split\.layout\)/,
+    )
+    // Both grow wires reach the single rebind handler (bind-group retire +
+    // bundle invalidation): the tile arena's via setOnGrow, and the handler
+    // itself must invalidate BOTH.
+    expect(src).toContain('_tileUniforms.setOnGrow(() => this._onSplitRebind())')
+    expect(src).toMatch(
+      /_onSplitRebind\(\): void \{[\s\S]{0,200}?invalidateBindGroup\(\)[\s\S]{0,200}?bundleCache\.invalidateAll\(\)/,
+    )
+  })
+
+  it('the per-draw split resolve stays inside the qualifying gate (unclipped, non-extrude)', () => {
+    const at = src.indexOf('_tileUniforms.offsetOf(')
+    expect(at, 'split residency lookup not found').toBeGreaterThan(0)
+    const before = src.slice(Math.max(0, at - 700), at)
+    expect(before).toContain('visibleKey < 0')
+    expect(before).toContain('!useExtrudedPipe')
+    expect(before).toContain("sliceLayer !== ''")
+  })
+})
