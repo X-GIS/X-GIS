@@ -160,6 +160,13 @@ describe('#2091 — the readiness gate cannot pin an unreachable target', () => 
     // Pre-fix: starved timer, currentZ still 0 — a 2-LOD difference in the
     // tiles actually drawn.
     expect(sel!.currentZ, 'the 5 s readiness net stayed starved above maxLevel').toBe(2)
+    // And assert it at the layer that actually feeds the renderer: the SELECTED
+    // TILE SET, not just the scalar. Pre-fix this frame selected z0 tiles
+    // (one root tile); post-fix it selects z2 tiles. Anything downstream —
+    // which keys are fetched, which geometry is drawn — follows from this set,
+    // so pinning it here is the render-input assertion the scalar alone is not.
+    const drawnLods = [...new Set(sel!.tiles.map((t) => t.z))].sort()
+    expect(drawnLods, 'the drawn tile LODs did not move with the gate').toEqual([2])
   })
 
   it('a maxLevel-0 source at camera zoom 3 settles: no pending advance, loop can idle', () => {
