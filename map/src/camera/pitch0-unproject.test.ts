@@ -15,7 +15,8 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { Pitch0Unprojector } from './pitch0-unproject'
+import { Pitch0Unprojector, makeGroundProjector, type FlatGroundView } from './pitch0-unproject'
+import { makeLabelProjectors } from '../render-loop-helpers'
 
 const W = 900,
   H = 700,
@@ -146,14 +147,125 @@ describe('#777 IV3 — Pitch0Unprojector: the cache invalidates on everything bu
   })
 })
 
-describe('#777 IV3 — Pitch0Unprojector: out-of-scope projections yield no basis input', () => {
-  // The honest degradation: no pitch-0 lon/lat under the azimuthal discs or the
-  // globe ⇒ `groundBasisAt` returns null ⇒ the label billboards, exactly as today.
+describe('#777 IV3 — Pitch0Unprojector: out-of-scope projections yield no UNPROJECTION', () => {
+  // The inverse's scope, unchanged. D1 INC-1 no longer routes the basis through
+  // it — a forward Jacobian ratio needs no inverse, which is exactly how the
+  // azimuthal discs came into scope — but `unprojectToLonLat` is still the
+  // authority for "what lon/lat is under this unpitched pixel" and still says
+  // null here.
   for (const projType of [3, 4, 5, 7]) {
     it(`returns null for projType ${projType}`, () => {
       const cam = new Camera(0, 0, 5)
       cam.projType = projType
       expect(new Pitch0Unprojector().unprojectToLonLat(cam, W / 2, H / 2, W, H, DPR)).toBeNull()
+    })
+  }
+})
+
+describe('D1 INC-1 — Pitch0Unprojector.matrix: the FORWARD half of the same pair', () => {
+  it('is the live matrix element for element at pitch 0, and differs once pitched', () => {
+    // The property the whole identity-at-pitch-0 rung rests on, asserted on the
+    // FORWARD matrix this time: `groundBasisAt` composes two projectors built
+    // from these two matrices, so "same matrix ⇒ same function ⇒ exact identity"
+    // is only true if this holds. The pitched half is the non-vacuity: without
+    // it, "return the live matrix" would green the first assertion.
+    const cam = new Camera(500_000 / 1e5, -20, 7)
+    cam.bearing = 61
+    cam.pitch = 0
+    expect(copy(new Pitch0Unprojector().matrix(cam, W, H, DPR))).toEqual(
+      copy(cam.getViewForProjection(0, W, H, DPR).matrix),
+    )
+    cam.pitch = 55
+    expect(copy(new Pitch0Unprojector().matrix(cam, W, H, DPR))).not.toEqual(
+      copy(cam.getViewForProjection(0, W, H, DPR).matrix),
+    )
+  })
+
+  it('shares one build with matrixInverse — a pure tilt is a HIT, a zoom a MISS', () => {
+    // `matrix` and `matrixInverse` are two readers of one build. If either drove
+    // its own cache the two could describe different cameras inside one frame,
+    // and the basis would compose a forward from before the zoom with an inverse
+    // from after it. Asserted on ZOOM, not on a pan: the flat MVP is RTC and
+    // carries no camera-centre translate, so a pan leaves it untouched (the
+    // describe above says the same, and tests the pan through the compose).
+    const cam = new Camera(0, 0, 6)
+    const p0 = new Pitch0Unprojector()
+    const before = copy(p0.matrix(cam, W, H, DPR))
+    cam.pitch = 42
+    expect(copy(p0.matrix(cam, W, H, DPR))).toEqual(before)
+    // Cross-reader: the INVERSE is fetched first after the zoom, so a `matrix`
+    // that read a cache of its own would still be serving the stale build.
+    cam.zoom += 1
+    p0.matrixInverse(cam, W, H, DPR)
+    expect(copy(p0.matrix(cam, W, H, DPR))).not.toEqual(before)
+    expect(copy(p0.matrix(cam, W, H, DPR))).toEqual(
+      copy(new Pitch0Unprojector().matrix(cam, W, H, DPR)),
+    )
+  })
+})
+
+// The composition parity gate. `makeGroundProjector` re-states the flat arm's
+// lon/lat → rtc → NDC → screen chain so it can drop the VIEWPORT cull that would
+// withhold the basis from the far field (NEEDS-PROBE 1, measured in that
+// function's header). Re-stating it is only safe while it stays the SAME chain,
+// so this asserts the two agree wherever the culled one answers — for every
+// flat projType, at pitch and unpitched. A drift in either composition fails it.
+describe('D1 INC-1 — makeGroundProjector agrees with makeLabelProjectors where both answer', () => {
+  for (const projType of [0, 1, 2, 3, 4, 5, 6]) {
+    it(`projType ${projType}`, () => {
+      let compared = 0
+      let culledOnly = 0
+      for (const pitch of [0, 45, 65]) {
+        for (const zoom of [2, 9, 15]) {
+          const cam = new Camera(11, 31, zoom)
+          cam.projType = projType
+          cam.bearing = 24
+          cam.pitch = pitch
+          const flat: FlatGroundView = {
+            projType,
+            ccx: cam.centerX,
+            ccy: cam.centerY,
+            centerLon: 11,
+            centerLat: 31,
+          }
+          const mvp = cam.getViewForProjection(projType, W, H, DPR).matrix
+          const culled = makeLabelProjectors(mvp, W, H, {
+            ...flat,
+            visibleWorldCopies: [0],
+          }).projectLonLat
+          const free = makeGroundProjector(mvp, W, H, flat)
+          for (let dLon = -40; dLon <= 40; dLon += 5) {
+            for (let dLat = -30; dLat <= 30; dLat += 5) {
+              const a = culled(11 + dLon, 31 + dLat)
+              const ax = a ? a[0] : NaN
+              const ay = a ? a[1] : NaN
+              const b = free(11 + dLon, 31 + dLat)
+              if (a === null) {
+                if (b !== null) culledOnly++
+                continue
+              }
+              expect(b, `projType=${projType} pitch=${pitch} z=${zoom} d=${dLon},${dLat}`).not.toBe(
+                null,
+              )
+              // Bit-for-bit: the same arithmetic in the same order, so anything
+              // but equality means the two chains have drifted.
+              expect([b![0], b![1]], `projType=${projType} pitch=${pitch} z=${zoom}`).toEqual([
+                ax,
+                ay,
+              ])
+              compared++
+            }
+          }
+        }
+      }
+      // Non-vacuity, both ways: the lattice must actually reach points the culled
+      // projector answers for, AND points it rejects while the cull-free one
+      // answers — otherwise "cull-free" would be an untested claim.
+      expect(compared, 'the lattice found no commonly-projectable points').toBeGreaterThan(50)
+      expect(
+        culledOnly,
+        'the cull-free projector never answered where the culled one did not',
+      ).toBeGreaterThan(0)
     })
   }
 })

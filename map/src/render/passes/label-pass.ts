@@ -609,6 +609,12 @@ class LabelPass implements RenderPass {
       // clamped to that bound upstream). projMercatorCpu returns a fresh
       // tuple per call (no shared scratch), so there is no aliasing hazard.
       const camMerc = projMercatorCpu(centerLon, centerLat)
+      // Named rather than inlined so the ground basis composes against the SAME
+      // projection constants the anchors were placed with — one object, two
+      // projectors, no way for them to drift into different frames.
+      const flatArgs = isFlatProj
+        ? { projType, ccx: camMerc[0], ccy: camMerc[1], centerLon, centerLat, visibleWorldCopies }
+        : undefined
       const {
         projectMerc,
         projectLonLat,
@@ -620,16 +626,7 @@ class LabelPass implements RenderPass {
         labelView.matrix,
         w,
         h,
-        isFlatProj
-          ? {
-              projType,
-              ccx: camMerc[0],
-              ccy: camMerc[1],
-              centerLon,
-              centerLat,
-              visibleWorldCopies,
-            }
-          : undefined,
+        flatArgs,
         labelView.eye,
         // Globe RTC focus: the matrix is focus-relative, so the ECEF label
         // projector must anchor against the same camera focus the geometry
@@ -639,15 +636,19 @@ class LabelPass implements RenderPass {
       )
 
       // #777 IV3 — the ground-basis producer for `text-pitch-alignment: map`.
-      // Built here because it composes the SAME `projectLonLat` the anchors were
-      // placed with; pairing it with any other projector would put the quad in a
-      // different frame from its own anchor.
+      // Built here because it composes the SAME matrix and projection constants
+      // the anchors were placed with; pairing it with any other frame would put
+      // the quad in a different one from its own anchor. `pitch0` is per-HOST (it
+      // owns a matrix/inverse pair whose cache exists so a pure tilt is a hit).
       let pitch0 = this._pitch0ByHost.get(host)
       if (pitch0 === undefined) {
         pitch0 = new Pitch0Unprojector()
         this._pitch0ByHost.set(host, pitch0)
       }
-      const groundBasisFor = makeGroundBasisFor(host.camera, w, h, projectLonLat, pitch0)
+      // The pair the basis is a RATIO of: this frame's matrix and its pitch-0 twin.
+      const liveMvp = labelView.matrix
+      const p0Mvp = pitch0.matrix(host.camera, w, h, dpr)
+      const groundBasisFor = makeGroundBasisFor(host.camera, liveMvp, p0Mvp, w, h, flatArgs)
 
       // (a) Imperative overlays
       for (const ov of host.overlays) {
@@ -1172,7 +1173,6 @@ class LabelPass implements RenderPass {
                 layerName: labelLayerName,
                 nextPairKey: () => pointLabelPairKey(labelLayerName, _pointLabelSeq++),
                 groundBasisFor,
-                dpr,
               })
             }
           }
