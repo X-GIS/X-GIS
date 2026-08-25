@@ -102,12 +102,16 @@ interface SettleResult {
   residualLoads: number
 }
 
-// Generous, matching measure-harness.ts's positron-quality scenario budget: an
-// orchestrator review of the first pass found globe-9.70 with 288 pending uploads
-// STILL residual after 150s (mercator cells: 0 same run) — the #2053 upload-backlog
-// class, a half-loaded frame, not a converged one. 10 minutes is the ceiling to try
-// before a cell/arm is reported unreliable rather than presented as drape truth.
-const DRAIN_BUDGET_MS = 600_000
+// #2053 upload-backlog guard (a half-loaded frame is not a converged one) — same
+// concern measure-harness.ts's positron-quality scenario budgets for, at 600s/cell.
+// Family F runs a SEPARATE ceiling: Family M already re-ran at the full 600s and is
+// the authoritative convergence source (globe-9.70 measured residual even at 600s —
+// see the report's UNRELIABLE flag on that cell; globe-21.10/merc-9.70/merc-21.10 all
+// converged well under 300s). 300s here is the pragmatic Family F ceiling — three
+// drain calls plus two compare.html settles per camera test otherwise risks the
+// session's own execution-time ceiling before Family F's frames (its actual
+// deliverable) are even captured. A residual here is still recorded, never hidden.
+const DRAIN_BUDGET_MS = 300_000
 
 function demoUrl(hash: string, opts: { proj?: 'globe' } = {}): string {
   const params = new URLSearchParams({ id: DEMO_ID, e2e: '1', adaptive: '0' })
@@ -473,13 +477,13 @@ test.describe('Family F — full frames + state dumps', () => {
       // globe auto-transitions to mercator above ~z6 (compare-runner.ts), and both
       // cameras are well past that, so the ML pane is expected mercator either way.
       await gotoCompare(page, compareUrl(cam.hash, { proj: 'globe' }))
-      const settleGlobe = await settleComparePanes(page, 300_000)
+      const settleGlobe = await settleComparePanes(page, 180_000)
       const panesGlobe = page.locator('#panes .pane')
       writeFileSync(join(OUT, `ml-${cam.id}.png`), await panesGlobe.nth(0).screenshot())
       writeFileSync(join(OUT, `xg-globe-pane-${cam.id}.png`), await panesGlobe.nth(1).screenshot())
 
       await gotoCompare(page, compareUrl(cam.hash))
-      const settleMerc = await settleComparePanes(page, 300_000)
+      const settleMerc = await settleComparePanes(page, 180_000)
       const panesMerc = page.locator('#panes .pane')
       writeFileSync(join(OUT, `xg-merc-pane-${cam.id}.png`), await panesMerc.nth(1).screenshot())
 
