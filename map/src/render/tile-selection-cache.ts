@@ -427,13 +427,6 @@ export class TileSelectionCache {
         cz = target
         this._czPendingAdvance = null
       }
-      // #2091 — invariant: a pending advance exists only while one is WANTED,
-      // so a flag armed on an earlier frame (camera crossed up, then came back
-      // into the hysteresis band) cannot outlive its transition. The
-      // step-by-step climb is unaffected: `zoomingIn` holds every frame of a
-      // climb, so `wantAdvance` stays true until cz reaches target.
-      if (!wantAdvance) this._czPendingAdvance = null
-
       // Per-layer minzoom skip: layers like protomaps `roads` (z≥6)
       // and `buildings` (z≥14) carry no features below their minzoom.
       // When the gate's step LOD is below that floor, no fetch will
