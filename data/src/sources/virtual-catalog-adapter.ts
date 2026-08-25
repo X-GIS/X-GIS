@@ -70,15 +70,18 @@ export class VirtualCatalogAdapter implements TileSource {
     const [z, x, y] = tileKeyUnpack(key)
     const sink = this.sink
     sink.trackLoading(key)
-    // #2091 — the fetcher call must not be able to strand the key in
-    // `loadingTiles`: a SYNCHRONOUS throw escapes before .then/.catch
-    // attach, so the release below never ran and `hasPendingLoads()`
-    // stayed true for the session — starving the `idle` event (whose
-    // predicate folds pending source work) and every consumer gated on
-    // first-idle. Both failure shapes now release the slot.
+    // #2091 — nothing the fetcher does may strand the key in `loadingTiles`:
+    // a SYNCHRONOUS throw escaped before .then/.catch attached, so the release
+    // below never ran and `hasPendingLoads()` stayed true for the session —
+    // starving the `idle` event (whose predicate folds pending source work)
+    // and every consumer gated on first-idle. `Promise.resolve` also covers a
+    // fetcher that returns a NON-THENABLE (a hand-written or mistyped
+    // implementation): without it, `.then` would throw here and strand the key
+    // the same way. A released key is re-requested on a later frame, exactly
+    // as it is after an async rejection — same semantics for both shapes.
     let pending: Promise<CompiledTile | null>
     try {
-      pending = this.catalog.fetcher(z, x, y)
+      pending = Promise.resolve(this.catalog.fetcher(z, x, y))
     } catch (err) {
       sink.releaseLoading(key)
       xlog.error('[virtual-catalog fetch]', (err as Error)?.stack ?? err)

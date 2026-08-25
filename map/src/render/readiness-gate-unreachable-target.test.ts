@@ -18,7 +18,7 @@
 // Fail-before: with maxLevel 0 and the camera at zoom 3 the flag is non-null
 // on every frame after the first; fixed, it is null and the loop can idle.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Camera } from '../camera'
 import { TileSelectionCache } from './tile-selection-cache'
 import { keepLoopWarm } from '../render-loop-keep-warm'
@@ -33,17 +33,26 @@ const MARGIN = 2
 const NO_STATS = { setGlobeTilesSelected: () => {} } as unknown as FrameDrawStats
 
 /** Catalog that has NOTHING cached and stops at `maxLevel` — the shape of the
- *  synthetic earth surface (maxLevel 0) that ships in globe/background scenes. */
-function shallowCatalog(maxLevel: number): TileCatalog {
-  return {
+ *  synthetic earth surface (maxLevel 0) that ships in globe/background scenes.
+ *  Records every prefetch so a test can assert the gate stopped probing LODs
+ *  the source does not have (the observable a flag-only "fix" leaves untouched). */
+function shallowCatalog(maxLevel: number): {
+  source: TileCatalog
+  prefetched: number[]
+} {
+  const prefetched: number[] = []
+  const source = {
     maxLevel,
     getLayerZoomRange: () => null,
     hasEntryInIndex: () => false,
     hasData: () => true,
     hasTileData: () => false,
-    prefetchTiles: () => {},
+    prefetchTiles: (keys: number[]) => {
+      prefetched.push(...keys)
+    },
     indexGeneration: () => 0,
   } as unknown as TileCatalog
+  return { source, prefetched }
 }
 
 function flatCam(zoom: number): Camera {
@@ -52,14 +61,31 @@ function flatCam(zoom: number): Camera {
   return c
 }
 
+/** `maxLevel` (the selectForFrame PARAMETER, a per-show sub-tile ceiling) is
+ *  deliberately passed HIGHER than `source.maxLevel` so a test cannot pass by
+ *  confusing the two — the gate's reachability question is about the SOURCE. */
 function drive(
   cache: TileSelectionCache,
   cam: Camera,
   frameId: number,
   source: TileCatalog,
-  maxLevel: number,
+  paramMaxLevel = 22,
 ): void {
-  cache.selectForFrame(cam, 0, 0, 0, W, H, DPR, frameId, source, '', MARGIN, maxLevel, NO_STATS)
+  cache.selectForFrame(
+    cam,
+    0,
+    0,
+    0,
+    W,
+    H,
+    DPR,
+    frameId,
+    source,
+    '',
+    MARGIN,
+    paramMaxLevel,
+    NO_STATS,
+  )
 }
 
 /** The real consumer: `keepLoopWarm` with every OTHER signal quiet, so the
@@ -80,15 +106,71 @@ function loopWarm(cache: TileSelectionCache): boolean {
 }
 
 describe('#2091 — the readiness gate cannot pin an unreachable target', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('THE BEHAVIOUR DELTA: a camera moving above source.maxLevel no longer starves the 5 s net', () => {
+    // Recorded deliberately — this diff is NOT render-neutral, and an
+    // adversarial review pass caught the author claiming it was.
+    //
+    // The gate re-arms its timer whenever `target` CHANGES:
+    //     if (!this._czPendingAdvance || this._czPendingAdvance.target !== target)
+    // Pre-fix `target` was floor(z), so a camera crossing integer zooms ABOVE
+    // `source.maxLevel` reset `since` on every crossing and the 5 s safety net
+    // — the one whose comment promises "after 5 s of holding, advance anyway so
+    // the user isn't stuck on a permanently-stale LOD" — could never fire. The
+    // LOD stayed pinned at the pre-transition level for as long as the gesture
+    // continued. Post-fix `target` is `min(floor(z), maxLevel)`, constant across
+    // those crossings, so the net fires and the LOD climbs to the source's
+    // ceiling. Same END state once tiles are ready; different DRAWN LOD while
+    // they are not. This is the documented intent being restored, not a
+    // regression — but it IS an observable change, so it is pinned here.
+    let clock = 1_000
+    vi.spyOn(performance, 'now').mockImplementation(() => clock)
+    const cache = new TileSelectionCache()
+    const { source } = shallowCatalog(2) // archive stops at z2
+    // Anchor at z0 so the gate (not the >4-LOD bulk-jump branch) owns the climb.
+    drive(cache, flatCam(0), 1, source)
+    // Camera crosses 3 -> 4 -> 3 -> 4 with 2 s between frames: pre-fix every
+    // crossing changed `target` (3,4,3,4) and reset the timer; post-fix target
+    // is 2 throughout, so 5 s of holding actually elapses.
+    const zs = [3, 4, 3, 4, 3, 4]
+    zs.forEach((z, i) => {
+      clock += 2_000
+      drive(cache, flatCam(z), i + 2, source)
+    })
+    const sel = cache.selectForFrame(
+      flatCam(4),
+      0,
+      0,
+      0,
+      W,
+      H,
+      DPR,
+      99,
+      source,
+      '',
+      MARGIN,
+      22,
+      NO_STATS,
+    )
+    expect(sel).not.toBeNull()
+    // Post-fix: the net fired and the LOD reached the archive ceiling.
+    // Pre-fix: starved timer, currentZ still 0 — a 2-LOD difference in the
+    // tiles actually drawn.
+    expect(sel!.currentZ, 'the 5 s readiness net stayed starved above maxLevel').toBe(2)
+  })
+
   it('a maxLevel-0 source at camera zoom 3 settles: no pending advance, loop can idle', () => {
     const cache = new TileSelectionCache()
-    const source = shallowCatalog(0)
+    const { source } = shallowCatalog(0)
     // Frame 1 anchors the hysteresis (the gate is inert while _hysteresisZ < 0).
-    drive(cache, flatCam(3), 1, source, 0)
+    drive(cache, flatCam(3), 1, source)
     // Frames 2..6 — a STATIC camera. Pre-fix, frame 2 armed the flag
     // (target 3 > cz 0) and no later frame could clear it, because the
     // post-gate clamp put cz back to 0 every time.
-    for (let f = 2; f <= 6; f++) drive(cache, flatCam(3), f, source, 0)
+    for (let f = 2; f <= 6; f++) drive(cache, flatCam(3), f, source)
 
     expect(
       cache._czPendingAdvance,
@@ -97,13 +179,30 @@ describe('#2091 — the readiness gate cannot pin an unreachable target', () => 
     expect(loopWarm(cache), 'the render loop stays warm forever, so idle never fires').toBe(false)
   })
 
+  it('and it stops PROBING LODs the source does not have (kills the flag-only mutant)', () => {
+    // Non-vacuity guard, added after an adversarial review pass found a mutant
+    // that survives the assertions above: keep the unreachable target and just
+    // null the flag in the hold branch. That mutant leaves the gate running a
+    // full readiness walk + prefetch at step = maxLevel + 1 EVERY frame —
+    // selecting tiles the archive cannot serve. The real fix (a reachable
+    // target) never enters the block, so nothing is probed.
+    const cache = new TileSelectionCache()
+    const { source, prefetched } = shallowCatalog(0)
+    drive(cache, flatCam(3), 1, source)
+    for (let f = 2; f <= 6; f++) drive(cache, flatCam(3), f, source)
+    expect(
+      prefetched,
+      'the gate kept prefetching step LODs above the source maxLevel (#2091)',
+    ).toEqual([])
+  })
+
   it('a reachable climb still gates step-by-step (the fix does not disarm the gate)', () => {
     const cache = new TileSelectionCache()
     // maxLevel 10 — target 3 IS reachable, and nothing is cached, so the gate
     // must HOLD (a pending advance is exactly what should be armed here).
-    const source = shallowCatalog(10)
-    drive(cache, flatCam(0), 1, source, 10)
-    drive(cache, flatCam(3), 2, source, 10)
+    const { source } = shallowCatalog(10)
+    drive(cache, flatCam(0), 1, source)
+    drive(cache, flatCam(3), 2, source)
     expect(
       cache._czPendingAdvance,
       'a real, reachable transition must still arm the gate',
