@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6864afd8bf459dd03511a46196f859b36381f676
+  Generated from: 4f9af247520d9ada02793edfa986bdd04b1e9209
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6864afd8bf45
+    bun scripts/emit-changelog.ts --since 4f9af247520d
 -->
 
 # Changelog
@@ -249,6 +249,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- record the four lessons #2120 paid for, and correct the #2103 taxonomy ([#2124](https://github.com/X-GIS/X-GIS/pull/2124)) `4f9af24`
 - **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
 - **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
 - **plans:** GeoJSON clustering design — cluster options, synthetic properties, ["accumulated"] (ADR-0012 T3 track) ([#2033](https://github.com/X-GIS/X-GIS/pull/2033)) `90b097b`
