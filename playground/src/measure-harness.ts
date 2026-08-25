@@ -160,9 +160,16 @@ const SCENARIOS: Record<string, Scenario> = {
     rows: [0.33, 0.5, 0.66],
     strokes: POSITRON_STROKES,
     fills: POSITRON_FILLS,
-    // Generous: SwiftShader globe cells took 120s on the demotiles scenario above;
-    // z21.1 overzoom additionally pays the #2024 virtual-bake dispatch per tile.
-    convergeBudgetMs: 150_000,
+    // 600s (was 150s — raised 2026-08-25 after orchestrator review): a first run
+    // measured globe-9.70 with 288 pending uploads STILL residual at 150s and
+    // globe-21.10 with 37-68 (mercator cells: 0 residual same run) — the #2053
+    // upload-backlog class ("the map fossilized half-loaded"), not a converged
+    // frame. Positron is ~35 layers; the busy z9.7 camera (z9-majority + z10-focal-
+    // column tile selection, background facts) has far more to upload than the
+    // demotiles scenario's single-layer cells ever did. Cells that still carry a
+    // residual after this budget are reported as such (never hidden) — see
+    // `drapeState` below for the accompanying cause-assertion.
+    convergeBudgetMs: 600_000,
   },
 }
 
@@ -185,6 +192,17 @@ interface CellReport {
   convergedMs: number
   residualPendingUploads: number
   residualPendingLoads: number
+  /** Cause-assertion for a drape A/B (e.g. `__XGIS_DISABLE_VECTOR_DRAPE`): the LIVE
+   *  `_drapeGlobeFills`/`_drapeStrokes`/baked-key-count per vtSource at read time, so
+   *  a report can be checked for "did the lever actually flip" instead of inferred
+   *  from pixels alone (§12 — an assertion that never distinguishes the states it
+   *  tests is worthless; this makes the mechanism itself part of the report). Present
+   *  on every cell/scenario — cheap, and a `false`/`0` everywhere off the globe is
+   *  itself the expected control reading, not a hole in the data. */
+  drapeState: Record<
+    string,
+    { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }
+  >
   rows: RowMeasure[]
 }
 
@@ -217,7 +235,7 @@ type MapLike = {
   vtSources?: Map<
     string,
     {
-      renderer: { getPendingUploadCount?: () => number }
+      renderer: Record<string, unknown> & { getPendingUploadCount?: () => number }
       source: { getPendingLoadCount?: () => number }
     }
   >
@@ -236,6 +254,31 @@ function pendingCounts(m: MapLike): { uploads: number; loads: number } {
     }
   }
   return { uploads, loads }
+}
+
+/** Cause-assertion recipe from _globe-drape-overzoom-gate.spec.ts:136-149 —
+ *  `renderer['_drapeGlobeFills']` / `['_drapeStrokes']` / baked-key count — read
+ *  fresh at report time so a scenario A/B (e.g. `__XGIS_DISABLE_VECTOR_DRAPE`)
+ *  can be checked for whether the lever actually moved, not inferred from pixels. */
+function captureDrapeState(
+  m: MapLike,
+): Record<string, { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }> {
+  const out: Record<
+    string,
+    { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }
+  > = {}
+  if (m.vtSources) {
+    for (const [name, entry] of m.vtSources) {
+      const r = entry.renderer
+      const drape = r['_drape'] as { baked?: Map<string, unknown> } | undefined
+      out[name] = {
+        drapeGlobeFills: r['_drapeGlobeFills'] === true,
+        drapeStrokes: r['_drapeStrokes'] === true,
+        bakedCount: drape?.baked?.size ?? 0,
+      }
+    }
+  }
+  return out
 }
 
 /** Converge: source work drained AND upload/load counters at zero for 5
@@ -423,6 +466,7 @@ export async function runMeasureHarness(params: URLSearchParams): Promise<void> 
     await nextFrame()
     const convergedMs = await converge(m, sc.convergeBudgetMs)
     const residual = pendingCounts(m)
+    const drapeState = captureDrapeState(m)
     // Compose the frame the reader sees, then read it back.
     m.invalidate?.()
     await nextFrame()
@@ -436,12 +480,16 @@ export async function runMeasureHarness(params: URLSearchParams): Promise<void> 
       convergedMs,
       residualPendingUploads: residual.uploads,
       residualPendingLoads: residual.loads,
+      drapeState,
       rows,
     })
     const regs = rows.map((r) => r.registrationCss).filter((v): v is number => v !== null)
+    const drapeSummary = Object.entries(drapeState)
+      .map(([n, s]) => `${n}:fills=${s.drapeGlobeFills}/baked=${s.bakedCount}`)
+      .join(' ')
     ui.line(
       `  converged ${convergedMs}ms (residual up=${residual.uploads} ld=${residual.loads}) · ` +
-        `reg=[${regs.join(', ')}]px · runs=${rows.map((r) => r.runs.length).join('/')}`,
+        `drape[${drapeSummary}] · reg=[${regs.join(', ')}]px · runs=${rows.map((r) => r.runs.length).join('/')}`,
     )
   }
 

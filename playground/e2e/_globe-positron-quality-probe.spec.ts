@@ -55,7 +55,14 @@ type Win = Window & {
   __xgisMeasureDone?: boolean
   __xgisMeasureReport?: unknown
   __xgisMap?: {
-    vtSources?: Map<string, { renderer: Record<string, unknown> }>
+    invalidate?: () => void
+    vtSources?: Map<
+      string,
+      {
+        renderer: Record<string, unknown> & { getPendingUploadCount?: () => number }
+        source: { getPendingLoadCount?: () => number }
+      }
+    >
   }
   __xgisSnapshot?: () => Promise<{
     sources?: Record<string, { tiles?: Array<{ z: number; x: number; y: number }> }>
@@ -77,15 +84,30 @@ interface ArmDump {
   >
 }
 type TileHistogram = Record<string, Record<number, number>>
+interface DrainResult {
+  convergedMs: number
+  residualUploads: number
+  residualLoads: number
+}
 interface ArmResult {
   state: ArmDump
   tiles: TileHistogram
+  drain: DrainResult
 }
 interface SettleResult {
   ok: boolean
   polls: number
   lastKey: string
+  residualUploads: number
+  residualLoads: number
 }
+
+// Generous, matching measure-harness.ts's positron-quality scenario budget: an
+// orchestrator review of the first pass found globe-9.70 with 288 pending uploads
+// STILL residual after 150s (mercator cells: 0 same run) — the #2053 upload-backlog
+// class, a half-loaded frame, not a converged one. 10 minutes is the ceiling to try
+// before a cell/arm is reported unreliable rather than presented as drape truth.
+const DRAIN_BUDGET_MS = 600_000
 
 function demoUrl(hash: string, opts: { proj?: 'globe' } = {}): string {
   const params = new URLSearchParams({ id: DEMO_ID, e2e: '1', adaptive: '0' })
@@ -160,6 +182,54 @@ async function dumpArmState(page: Page): Promise<ArmDump> {
   })
 }
 
+// Drain the GPU-upload backlog before trusting a captured frame (§12 — "the map
+// fossilized half-loaded"; captureMapFrame's own quiesce (capture-canvas skill)
+// waits for `hasPendingSourceWork()` to clear but never actively `invalidate()`s to
+// force draining, so a render-on-demand engine can idle with uploads still pending
+// and captureCanvas's OWN internal poll times out silently rather than failing loud).
+// Mirrors measure-harness.ts's converge()/pendingCounts() exactly — same methodology,
+// same residual semantics — so Family F frames and Family M's measure-harness rows
+// are comparable statements about the SAME kind of converged state. Residuals are
+// RETURNED, never hidden: a non-zero residual means the frame that follows is not
+// the converged frame, and the caller decides whether to still capture it (recording
+// the residual) or treat it as unreliable.
+async function drainUploads(page: Page, budgetMs: number): Promise<DrainResult> {
+  return page.evaluate(async (budget) => {
+    const w = window as unknown as Win
+    const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+    const counts = (): { uploads: number; loads: number } => {
+      let uploads = 0
+      let loads = 0
+      const vt = w.__xgisMap?.vtSources
+      if (vt) {
+        for (const [, entry] of vt) {
+          uploads += entry.renderer.getPendingUploadCount?.() ?? 0
+          loads += entry.source.getPendingLoadCount?.() ?? 0
+        }
+      }
+      return { uploads, loads }
+    }
+    const t0 = performance.now()
+    let stable = 0
+    while (performance.now() - t0 < budget) {
+      const { uploads, loads } = counts()
+      const busy = uploads > 0 || loads > 0
+      stable = busy ? 0 : stable + 1
+      if (stable >= 5) break
+      if (busy) w.__xgisMap?.invalidate?.()
+      await nextFrame()
+      await sleep(30)
+    }
+    const final = counts()
+    return {
+      convergedMs: Math.round(performance.now() - t0),
+      residualUploads: final.uploads,
+      residualLoads: final.loads,
+    }
+  }, budgetMs)
+}
+
 // window.__xgisSnapshot() (map/src/diagnostics.ts captureMapSnapshot) — sources[name]
 // .tiles is the same {z,x,y} list the engine actually selected/resident this frame.
 async function tileZHistogram(page: Page): Promise<TileHistogram> {
@@ -178,11 +248,16 @@ async function tileZHistogram(page: Page): Promise<TileHistogram> {
 
 // Settle compare.html WITHOUT sleeps (capture-canvas skill): Playwright's own
 // `polling` option re-invokes this predicate every 300ms (its own budget, not a
-// `waitForTimeout`) until BOTH MapLibre reports `loaded()` (+ `areTilesLoaded()`
-// when present) AND the X-GIS tile-key string (from __xgisSnapshot, the same
-// source tileZHistogram reads) has been byte-identical for 3 consecutive polls.
-// State lives on `window.__xgisPositronProbe` because the predicate is
-// re-evaluated fresh each poll and has no closure across polls otherwise.
+// `waitForTimeout`) until ALL of: (i) MapLibre reports `loaded()` (+ `areTilesLoaded()`
+// when present); (ii) the X-GIS tile-key string (from __xgisSnapshot, the same source
+// tileZHistogram reads) has been byte-identical for 3 consecutive polls; (iii) the
+// X-GIS pane's GPU-upload backlog is drained (same #2053 half-loaded-frame concern
+// drainUploads guards for demo.html — a compare.html pane goes through the SAME
+// VectorTileRenderer upload pipeline). State lives on `window.__xgisPositronProbe`
+// because the predicate is re-evaluated fresh each poll and has no closure across
+// polls otherwise; it also actively `invalidate()`s while uploads are pending, same
+// as drainUploads/measure-harness's converge(), so a render-on-demand engine doesn't
+// idle before the backlog is actually drained.
 async function settleComparePanes(page: Page, budgetMs: number): Promise<SettleResult> {
   await page.evaluate(() => {
     delete (window as unknown as { __xgisPositronProbe?: unknown }).__xgisPositronProbe
@@ -200,6 +275,17 @@ async function settleComparePanes(page: Page, budgetMs: number): Promise<SettleR
           !!ml &&
           ml.loaded?.() === true &&
           (typeof ml.areTilesLoaded !== 'function' || ml.areTilesLoaded() === true)
+        let uploads = 0
+        let loads = 0
+        const vt = w.__xgisMap?.vtSources
+        if (vt) {
+          for (const [, entry] of vt) {
+            uploads += entry.renderer.getPendingUploadCount?.() ?? 0
+            loads += entry.source.getPendingLoadCount?.() ?? 0
+          }
+        }
+        const uploadsIdle = uploads === 0 && loads === 0
+        if (!uploadsIdle) w.__xgisMap?.invalidate?.()
         const snap = w.__xgisSnapshot ? await w.__xgisSnapshot() : null
         const key = snap
           ? Object.entries(snap.sources ?? {})
@@ -216,7 +302,9 @@ async function settleComparePanes(page: Page, budgetMs: number): Promise<SettleR
         st.polls++
         st.stable = key !== '' && key === st.lastKey ? st.stable + 1 : key !== '' ? 1 : 0
         st.lastKey = key
-        return mlOk && st.stable >= 3
+        ;(st as { residualUploads?: number; residualLoads?: number }).residualUploads = uploads
+        ;(st as { residualUploads?: number; residualLoads?: number }).residualLoads = loads
+        return mlOk && st.stable >= 3 && uploadsIdle
       },
       null,
       { timeout: budgetMs, polling: 300 },
@@ -228,11 +316,23 @@ async function settleComparePanes(page: Page, budgetMs: number): Promise<SettleR
     () =>
       (
         window as unknown as {
-          __xgisPositronProbe?: { lastKey: string; stable: number; polls: number }
+          __xgisPositronProbe?: {
+            lastKey: string
+            stable: number
+            polls: number
+            residualUploads?: number
+            residualLoads?: number
+          }
         }
       ).__xgisPositronProbe ?? null,
   )
-  return { ok, polls: dbg?.polls ?? 0, lastKey: dbg?.lastKey ?? '' }
+  return {
+    ok,
+    polls: dbg?.polls ?? 0,
+    lastKey: dbg?.lastKey ?? '',
+    residualUploads: dbg?.residualUploads ?? -1,
+    residualLoads: dbg?.residualLoads ?? -1,
+  }
 }
 
 // Steps 1-3 of Family F: globe-stock / globe-direct / mercator frame + state, shared
@@ -244,11 +344,13 @@ async function captureThreeArms(
 ): Promise<{ globeStock: ArmResult; globeDirect: ArmResult; merc: ArmResult }> {
   // 1. globe stock
   await gotoDemo(page, demoUrl(hash, { proj: 'globe' }))
+  const globeStockDrain = await drainUploads(page, DRAIN_BUDGET_MS)
   const globeStockPng = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   writeFileSync(join(OUT, `globe-stock-${suffix}.png`), globeStockPng)
   const globeStock: ArmResult = {
     state: await dumpArmState(page),
     tiles: await tileZHistogram(page),
+    drain: globeStockDrain,
   }
 
   // 2. globe direct — SAME page, live-toggled (the _globe-vector-line-drape.spec.ts /
@@ -265,11 +367,19 @@ async function captureThreeArms(
     ;(globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE = true
     ;(window as unknown as Win).__xgisMap?.invalidate?.()
   })
+  // The toggle only affects tiles baked/drawn AFTER it flips — the stock capture above
+  // already fully drained (uploads are DONE, not just resident), so this re-drain is
+  // mostly cheap; it also re-proves the mechanism actually moved the pending count
+  // (a flag that silently failed to reach the page would drain instantly here too,
+  // which is exactly why drapeState — read next, in dumpArmState — is the real
+  // cause-assertion, not this timing).
+  const globeDirectDrain = await drainUploads(page, DRAIN_BUDGET_MS)
   const globeDirectPng = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   writeFileSync(join(OUT, `globe-direct-${suffix}.png`), globeDirectPng)
   const globeDirect: ArmResult = {
     state: await dumpArmState(page),
     tiles: await tileZHistogram(page),
+    drain: globeDirectDrain,
   }
   // Clear it before the mercator/pitch60 steps — mercator never consults the flag
   // (bakesVectorDrape gates on globe/sphere projections only) but a later globe-stock
@@ -280,9 +390,14 @@ async function captureThreeArms(
 
   // 3. mercator control (no proj= — vectors render direct on mercator either way)
   await gotoDemo(page, demoUrl(hash))
+  const mercDrain = await drainUploads(page, DRAIN_BUDGET_MS)
   const mercPng = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   writeFileSync(join(OUT, `merc-${suffix}.png`), mercPng)
-  const merc: ArmResult = { state: await dumpArmState(page), tiles: await tileZHistogram(page) }
+  const merc: ArmResult = {
+    state: await dumpArmState(page),
+    tiles: await tileZHistogram(page),
+    drain: mercDrain,
+  }
 
   return { globeStock, globeDirect, merc }
 }
@@ -295,7 +410,11 @@ test.describe('Family M — measure-harness positron-quality runs', () => {
       test.use({ deviceScaleFactor: dpr })
       for (const arm of ['stock', 'direct'] as const) {
         test(`positron-quality measure — ${arm} dpr${dpr}`, async ({ page }) => {
-          test.setTimeout(900_000)
+          // 45min (was 15min): measure-harness's own convergeBudgetMs for this
+          // scenario is 600s/cell × 4 cells worst case (raised 2026-08-25 — a first
+          // pass measured globe cells still carrying a 288/37-upload residual after
+          // 150s while mercator cells converged at 0; see measure-harness.ts).
+          test.setTimeout(2_700_000)
           const errors: string[] = []
           attachErrorCollector(page, errors)
           await installOfflineProxy(page, { cacheDir: NET_CACHE })
@@ -312,7 +431,7 @@ test.describe('Family M — measure-harness positron-quality runs', () => {
           await page.waitForFunction(
             () => (window as unknown as Win).__xgisMeasureDone === true,
             null,
-            { timeout: 850_000 },
+            { timeout: 2_600_000 },
           )
           const report = await page.evaluate(() => (window as unknown as Win).__xgisMeasureReport)
           const outPath = join(OUT, `measure-${arm}-dpr${dpr}.json`)
@@ -333,7 +452,9 @@ test.describe('Family M — measure-harness positron-quality runs', () => {
 test.describe('Family F — full frames + state dumps', () => {
   for (const cam of CAMERAS) {
     test(`frames + state @ ${cam.id}`, async ({ page }) => {
-      test.setTimeout(900_000)
+      // 45min (was 15min) — three drainUploads() calls up to 10min each (stock/
+      // direct/merc) plus two compare.html settles; see DRAIN_BUDGET_MS.
+      test.setTimeout(2_700_000)
       const errors: string[] = []
       attachErrorCollector(page, errors)
       await installOfflineProxy(page, { cacheDir: NET_CACHE })
@@ -352,13 +473,13 @@ test.describe('Family F — full frames + state dumps', () => {
       // globe auto-transitions to mercator above ~z6 (compare-runner.ts), and both
       // cameras are well past that, so the ML pane is expected mercator either way.
       await gotoCompare(page, compareUrl(cam.hash, { proj: 'globe' }))
-      const settleGlobe = await settleComparePanes(page, 120_000)
+      const settleGlobe = await settleComparePanes(page, 300_000)
       const panesGlobe = page.locator('#panes .pane')
       writeFileSync(join(OUT, `ml-${cam.id}.png`), await panesGlobe.nth(0).screenshot())
       writeFileSync(join(OUT, `xg-globe-pane-${cam.id}.png`), await panesGlobe.nth(1).screenshot())
 
       await gotoCompare(page, compareUrl(cam.hash))
-      const settleMerc = await settleComparePanes(page, 120_000)
+      const settleMerc = await settleComparePanes(page, 300_000)
       const panesMerc = page.locator('#panes .pane')
       writeFileSync(join(OUT, `xg-merc-pane-${cam.id}.png`), await panesMerc.nth(1).screenshot())
 
@@ -394,7 +515,7 @@ test.describe('Family F — full frames + state dumps', () => {
   test.describe('dpr2 repeat — 9.70 only', () => {
     test.use({ deviceScaleFactor: 2 })
     test('frames @ 9.70 dpr2', async ({ page }) => {
-      test.setTimeout(900_000)
+      test.setTimeout(2_700_000)
       const errors: string[] = []
       attachErrorCollector(page, errors)
       await installOfflineProxy(page, { cacheDir: NET_CACHE })
