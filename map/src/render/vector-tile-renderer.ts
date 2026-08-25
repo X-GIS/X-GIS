@@ -3858,6 +3858,11 @@ export class VectorTileRenderer {
           ringCursor: this._ringCursorForBundleKey(),
           lineLayerOffset,
           lineLayerOffsetGap,
+          // #2093 — these SELECT what the bundle records (`drawFills` /
+          // `drawStrokes`); nothing else in the key separates the two arms.
+          // Full derivation: the BundleKeyState field docs.
+          drapeGlobeFills: this._drapeGlobeFills,
+          drapeStrokes: this._drapeStrokes,
         } as const satisfies BundleKeyState
         const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
@@ -4133,6 +4138,10 @@ export class VectorTileRenderer {
             ringCursor: this._ringCursorForBundleKey(),
             lineLayerOffset,
             lineLayerOffsetGap,
+            // #2093 — mirror of the primary site. The #1076 fallback dispatch
+            // PINS both false above; the key follows the field, not a literal.
+            drapeGlobeFills: this._drapeGlobeFills,
+            drapeStrokes: this._drapeStrokes,
           } as const satisfies BundleKeyState
           const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
           const fbDesc: BundleEncodeDescriptor = {

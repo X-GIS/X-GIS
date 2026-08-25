@@ -273,21 +273,32 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
  *  DERIVATION. The drape trades BLUR for great-circle HUG, so compare the two
  *  errors in CSS px at camera zoom Z for a tile of zoom z:
  *
- *    - HUG (what the direct arm loses): a tile-clipped edge is drawn as a
- *      CHORD under the sphere. Its sagitta over the tile's angular width
- *      2π·2^-z is C = 128π·2^(Z−2z) CSS px — the tile spans TILE_PX·2^(Z−z) =
- *      512·2^(Z−z) px (TILE_PX, world-scale.ts:24) and sags by ~(1/8)·span·
- *      (angular width) = 512·2^(Z−z)·(2π·2^-z)/8.
- *    - BLUR (what the drape pays): one bake texel is B = 2^(Z−z) CSS px
- *      (a 512px bake of a 512-px-per-tile-at-z quad). That texel is BOTH the
- *      drape's resolution floor AND its whole AA feather band — the bake runs
- *      at dpr=1 with mpp = tileExtent/512, so line.ts's `halfAa = 0.5/dpr`
- *      (:899) feather is one bake texel wide and is magnified with it.
+ *  Write `span = TILE_PX·2^(Z−z)` for the tile's on-screen width in CSS px
+ *  (TILE_PX, world-scale.ts:24). Both errors are that span times something:
  *
- *  Camera zoom Z CANCELS: C/B = 128π·2^(−z). So the verdict depends on the
- *  TILE zoom alone, and direct wins for every z ≥ ceil(log2(128π)) = 9 — at
- *  EVERY camera zoom, which is why this is a selection-zoom gate and not a
- *  camera-zoom one.
+ *    - HUG (what the direct arm loses): a tile-clipped edge is drawn as a
+ *      CHORD under the sphere, sagging over the tile's angular width 2π·2^-z
+ *      by ~(1/8)·span·(angular width), i.e. C = (TILE_PX·π/4)·2^(Z−2z) CSS px.
+ *    - BLUR (what the drape pays): the tile bakes to BAKE_PX texels across
+ *      (vector-drape-renderer.ts:55), so one texel is B = span/BAKE_PX CSS px.
+ *      That texel is BOTH the drape's resolution floor AND its whole AA feather
+ *      band — the bake runs at dpr=1 with mpp = tileExtent/BAKE_PX, so line.ts's
+ *      `halfAa = 0.5/dpr` (:899) feather is one bake texel wide and magnifies
+ *      with it.
+ *
+ *  Camera zoom Z CANCELS, and so does TILE_PX — it scales the span, which is
+ *  the numerator of BOTH errors: C/B = (BAKE_PX·π/4)·2^(−z). So the verdict
+ *  depends on the TILE zoom alone, and direct wins for every
+ *  z ≥ ceil(log2(BAKE_PX·π/4)) = ceil(log2(128π)) = 9 — at EVERY camera zoom,
+ *  which is why this is a selection-zoom gate and not a camera-zoom one.
+ *
+ *  THE CROSSOVER IS GOVERNED BY BAKE_PX, NOT BY TILE_PX. Today the two are both
+ *  512, so `TILE_PX·2π/8` happens to give the same 128π — a coincidence, not a
+ *  derivation. Anything that changes the drape's bake resolution MOVES this
+ *  constant (halving BAKE_PX → 8, doubling → 10), and #2094 proposes exactly
+ *  that (dpr-aware bake density). The drift is caught by the BAKE_PX pin in
+ *  map/src/render/globe-direct-ceiling-selection.test.ts, which is where a
+ *  reader who changes BAKE_PX will be sent.
  *
  *  MAPPING TILE z ONTO currentZ. `currentZ = floor(cameraZoom)`, clamped to the
  *  source maxLevel (tile-selection-cache.ts:51, :377/:387 — plain `floor` for

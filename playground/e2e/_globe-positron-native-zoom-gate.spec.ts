@@ -14,18 +14,33 @@
 // This gate is the campaign's closing statement at the REPORTED camera, in the
 // §12 cause → effect → sever order:
 //
-//   1. CAUSE   every vt source renders DIRECT this frame (`_drapeGlobeFills` and
-//              `_drapeStrokes` false) and bakes ZERO NEW keys across a forced
-//              repaint — the mechanism, asserted before any pixel.
+//   1. CAUSE   every CEILING-REACHING vt source renders DIRECT this frame
+//              (`_drapeGlobeFills` and `_drapeStrokes` false) and bakes ZERO NEW
+//              keys across a forced repaint — the mechanism, asserted before any
+//              pixel. PER SOURCE, never across sources: the ceiling is SOURCE-
+//              CLAMPED, and this scene carries a synthetic
+//              `__synthetic_earth_surface__` source at maxLevel 0 (map.ts) that
+//              KEEPS the drape at every camera zoom — by the derivation, not
+//              against it, so judging it against the direct claim accuses the fix
+//              of doing exactly what it documents (observed: "globe-after still
+//              bakes→drapes: __synthetic_earth_surface__ … maxLevels:
+//              openmaptiles:14 __synthetic_earth_surface__:0"). The scoped set is
+//              itself asserted NON-EMPTY, so the scoping can never become the
+//              escape hatch that makes the gate vacuous.
 //   2. EFFECT  the frame's own stroke edges are native-sharp: the 10-90%
 //              intensity ramp across a road/boundary edge, measured
 //              PERPENDICULAR to the edge, and the styled width recovered as the
 //              50%-crossing span (FWHM).
 //   3. SEVER   the same URL with `__XGIS_FORCE_VECTOR_DRAPE` holding the drape
 //              above the ceiling. The lever is PROVEN flipped (in-page flag +
-//              `_drapeGlobeFills` true + baked keys > 0) BEFORE its softer ramp
-//              is asserted — an A/B whose arms cannot be told apart is the trap
-//              this repo paid for in `_adaptive-quality-ladder-gate` (§12).
+//              `_drapeGlobeFills` true on a CEILING-REACHING source + baked keys
+//              > 0) BEFORE its softer ramp is asserted — an A/B whose arms cannot
+//              be told apart is the trap this repo paid for in
+//              `_adaptive-quality-ladder-gate` (§12). The same scoping is what
+//              gives THIS arm its information: the sub-ceiling synthetic source
+//              drapes in BOTH arms, so an unscoped "some source drapes" is true
+//              whether or not the override is wired, and would green a severed
+//              lever.
 //   4. PARITY  the globe-direct frame vs the mercator frame at the same camera,
 //              on STRUCTURE only — top-decile gradient energy and per-class
 //              painted-pixel fraction. Deliberately NOT registration: SwiftShader
@@ -39,7 +54,7 @@
 // blank" into "N remote assets 404'd" instead of a mystery.
 
 import { test, expect, type Page } from '@playwright/test'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captureMapFrame, type RGB } from './helpers/visual'
@@ -66,6 +81,27 @@ const WHITE: RGB = [255, 255, 255] // motorway inner fill
 /** Styled CSS widths at z9.7, from the campaign's style read. */
 const STYLED_CSS_PX: Record<string, number> = { boundary: 2.41, casing: 3.84 }
 
+/** Selection zooms below this keep the bake→drape. Only a source whose OWN
+ *  `maxLevel` reaches it can go direct at this camera, so it is what scopes every
+ *  drape assertion below.
+ *
+ *  READ FROM THE ENGINE SOURCE, never mirrored: a spec that hard-codes the ceiling
+ *  is a second authority for it, and the two drift silently the day the constant
+ *  moves (CLAUDE.md §12). The engine module cannot be imported here — raw-Node spec
+ *  transpilation does not resolve its `@xgis/shared` import — so the literal is
+ *  parsed out of the file instead, and a parse failure is loud.
+ *
+ *  Called from a test BODY, never at module scope: a module-scope read that throws
+ *  aborts collection for every spec in the suite (#1638). Same helper, same reason,
+ *  as `_globe-direct-overzoom-sharpness-gate.spec.ts`. */
+function readGlobeDirectMinSelectionZ(): number {
+  const src = readFileSync(join(HERE, '../../geo/src/projections-table.ts'), 'utf8')
+  const m = /export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)/.exec(src)
+  if (!m)
+    throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from geo/src/projections-table.ts')
+  return Number(m[1])
+}
+
 // ── Thresholds (every one justified in the report; measured numbers are printed
 //    on both the pass and fail paths so a re-calibration never needs a re-run) ──
 //
@@ -91,9 +127,21 @@ const WIDTH_TOL = 0.15
  *  halves it. 25% separates those two regimes without pretending the two
  *  projections show the identical pixels. */
 const GRADIENT_TOL = 0.25
-/** Per-class painted-pixel fraction, in PERCENTAGE POINTS. Coarse on purpose:
- *  it is a "the same map is on screen" structural check, not a parity metric. */
-const CLASS_FRACTION_TOL_PP = 0.1
+/** Per-class painted-pixel drift bound, in PERCENTAGE POINTS of the frame — the
+ *  unit the comparison below is actually done in (`(globeFrac − mercFrac) * 100`)
+ *  and the unit the failure message already reports. Coarse on purpose: it is a
+ *  "the same map is on screen" structural check, not a parity metric, and the
+ *  failure it exists to catch is a WHOLE LAYER vanishing from one projection (the
+ *  #2093 drape dropped a landuse polygon from 27.25% of the frame to 0.01%), not a
+ *  few tenths of a point of curvature-driven extent difference.
+ *
+ *  NOTE, deliberately left as-is: at 10 pp this bound cannot catch a SMALL class
+ *  disappearing (a 1%-of-frame class vanishing moves it by 1 pp). Tightening it
+ *  needs a measured baseline from a run of this spec, and this spec cannot run in
+ *  the cloud container (no egress + a convergence SwiftShader does not reach), so
+ *  the number is preserved exactly as it behaved before the unit was made
+ *  explicit rather than re-calibrated from a guess. */
+const CLASS_FRACTION_TOL_PP = 10
 /** Non-vacuity floor — a median over fewer distinct edges is not a measurement.
  *  Distinct EDGES, not rows: one long road contributes hundreds of rows. */
 const MIN_DISTINCT_EDGES = 3
@@ -210,6 +258,25 @@ async function dumpSources(page: Page): Promise<Record<string, SourceState>> {
     }
     return out
   })
+}
+
+/** The sources whose own `maxLevel` can reach the ceiling — the only ones the
+ *  #2093 direct claim is about, because `currentZ` is source-clamped. Every
+ *  caller asserts the result NON-EMPTY: an empty scope would turn the assertions
+ *  that follow into statements about nothing. */
+function ceilingReachingSources(state: Record<string, SourceState>, ceiling: number): string[] {
+  return Object.keys(state).filter((k) => state[k].maxLevel >= ceiling)
+}
+
+/** One-line source dump for a failure message — names + maxLevel + drape state. */
+function describeSources(state: Record<string, SourceState>): string {
+  return Object.keys(state)
+    .map(
+      (k) =>
+        `${k}{maxLevel:${state[k].maxLevel},fills:${state[k].drapeGlobeFills},` +
+        `strokes:${state[k].drapeStrokes},baked:${state[k].bakedKeys.length}}`,
+    )
+    .join(' ')
 }
 
 /** Force `frames` repaints on a render-on-demand engine. No `waitForTimeout`:
@@ -643,23 +710,40 @@ test('#2093 — Positron on the globe @ z9.7 renders DIRECT, with native-sharp s
       `${net.length ? `: ${net.join(' | ')}` : ''}`,
   ).toBeGreaterThan(0)
 
-  const draping = names.filter((k) => after[k].drapeGlobeFills || after[k].drapeStrokes)
+  // PER SOURCE, not across sources. `currentZ` is `min(floor(cameraZoom),
+  // source.maxLevel)`, so only a source whose OWN maxLevel reaches the ceiling can
+  // go direct at this camera. This scene also carries the synthetic
+  // `__synthetic_earth_surface__` at maxLevel 0, which therefore KEEPS the drape at
+  // every camera zoom — the derivation working, not failing. Judging it against the
+  // direct claim accuses the fix of doing exactly what it documents.
+  const ceiling = readGlobeDirectMinSelectionZ()
+  const ceilingReaching = ceilingReachingSources(after, ceiling)
+  expect(
+    ceilingReaching,
+    `no source here has maxLevel ≥ ${ceiling}, so nothing below would be a statement about ` +
+      `the #2093 ceiling — the scoping would be the escape hatch instead of the correction. ` +
+      `sources: ${describeSources(after)}`,
+  ).not.toEqual([])
+
+  const draping = ceilingReaching.filter((k) => after[k].drapeGlobeFills || after[k].drapeStrokes)
   expect(
     draping.map((k) => `${k}{fills:${after[k].drapeGlobeFills},strokes:${after[k].drapeStrokes}}`),
-    `these sources still bake→drape at currentZ ≥ GLOBE_DIRECT_MIN_SELECTION_Z. The #2093 ` +
-      `LOD ceiling (geo/src/projections-table.ts:305, wired at vector-tile-renderer.ts:3615) ` +
-      `is not reached for them. maxLevels: ` +
-      names.map((k) => `${k}:${after[k].maxLevel}`).join(' '),
+    `these ceiling-reaching sources still bake→drape at currentZ ≥ ` +
+      `GLOBE_DIRECT_MIN_SELECTION_Z (${ceiling}). The #2093 LOD ceiling ` +
+      `(geo/src/projections-table.ts:305, wired at vector-tile-renderer.ts:3615) is not ` +
+      `reached for them. sources: ${describeSources(after)}`,
   ).toEqual([])
 
-  const newKeys = names.flatMap((k) => {
+  // Scoped for the same reason: a sub-ceiling source is SUPPOSED to keep baking,
+  // so its new keys are not evidence of anything about the direct arm.
+  const newKeys = ceilingReaching.flatMap((k) => {
     const seen = new Set(before[k]?.bakedKeys ?? [])
     return after[k].bakedKeys.filter((key) => !seen.has(key)).map((key) => `${k}:${key}`)
   })
   expect(
     newKeys.slice(0, 20),
-    'the direct path baked NEW drape textures across a forced 30-frame repaint — the flags ' +
-      'above say direct while the bake cache says otherwise, so one of them is lying',
+    'a ceiling-reaching source baked NEW drape textures across a forced 30-frame repaint — ' +
+      'its flags above say direct while its bake cache says otherwise, so one of them is lying',
   ).toEqual([])
 
   // ── EFFECT ─────────────────────────────────────────────────────────────────
@@ -749,20 +833,33 @@ test('#2093 sever — holding the drape above the ceiling softens the same edges
     names.length,
     'no vt source on the page — the Positron style never loaded',
   ).toBeGreaterThan(0)
-  const drapingNames = names.filter((k) => state[k].drapeGlobeFills)
+  // Scoped to the CEILING-REACHING sources, and here the scoping is what gives the
+  // assertion any information at all: the sub-ceiling `__synthetic_earth_surface__`
+  // (maxLevel 0) drapes in BOTH arms, so an unscoped "some source drapes" is true
+  // whether or not the override is wired — it would green a severed lever, which is
+  // precisely the `_adaptive-quality-ladder-gate` trap (§12: an assertion must
+  // DISTINGUISH the states it tests).
+  const ceiling = readGlobeDirectMinSelectionZ()
+  const ceilingReaching = ceilingReachingSources(state, ceiling)
+  expect(
+    ceilingReaching,
+    `no source here has maxLevel ≥ ${ceiling}, so the override has nothing to hold above the ` +
+      `ceiling and this arm cannot differ from the direct arm. sources: ${describeSources(state)}`,
+  ).not.toEqual([])
+
+  const drapingNames = ceilingReaching.filter((k) => state[k].drapeGlobeFills)
   expect(
     drapingNames,
-    `__XGIS_FORCE_VECTOR_DRAPE is set but no source reports _drapeGlobeFills — the override at ` +
-      `vector-tile-renderer.ts:3621 is not wired, so this arm proves nothing. sources: ` +
-      names
-        .map((k) => `${k}{fills:${state[k].drapeGlobeFills},baked:${state[k].bakedKeys.length}}`)
-        .join(' '),
+    `__XGIS_FORCE_VECTOR_DRAPE is set but no source ABOVE the ceiling reports ` +
+      `_drapeGlobeFills — the override at vector-tile-renderer.ts:3621 is not wired, so this ` +
+      `arm is a second copy of the direct arm and proves nothing. sources: ` +
+      describeSources(state),
   ).not.toEqual([])
-  const bakedTotal = names.reduce((acc, k) => acc + state[k].bakedKeys.length, 0)
+  const bakedTotal = ceilingReaching.reduce((acc, k) => acc + state[k].bakedKeys.length, 0)
   expect(
     bakedTotal,
-    'the drape flag is on but the bake cache is empty — no texture was ever baked, so the ' +
-      'softer edges below would not be the drape',
+    'the drape flag is on above the ceiling but that source baked nothing — no texture was ' +
+      'ever baked for it, so the softer edges below would not be the drape',
   ).toBeGreaterThan(0)
 
   // ── EFFECT ─────────────────────────────────────────────────────────────────
@@ -846,13 +943,19 @@ test('#2093 — the globe-direct frame carries mercator-class structure at the s
   expect(ratio).toBeLessThanOrEqual(1 + GRADIENT_TOL)
 
   const classNames = Object.keys(merc.perClass)
+  // Percentage POINTS on both sides of the comparison — `pixelFraction` is a
+  // fraction of the frame, so the difference is scaled to pp before it meets a
+  // pp-denominated bound.
   const drift = classNames
-    .map((k) => ({ k, d: globe.perClass[k].pixelFraction - merc.perClass[k].pixelFraction }))
-    .filter((e) => Math.abs(e.d) > CLASS_FRACTION_TOL_PP)
+    .map((k) => ({
+      k,
+      dPp: (globe.perClass[k].pixelFraction - merc.perClass[k].pixelFraction) * 100,
+    }))
+    .filter((e) => Math.abs(e.dPp) > CLASS_FRACTION_TOL_PP)
   expect(
-    drift.map((e) => `${e.k}:${(e.d * 100).toFixed(2)}pp`),
+    drift.map((e) => `${e.k}:${e.dPp.toFixed(2)}pp`),
     `per-class painted-pixel fraction drifted more than ` +
-      `${(CLASS_FRACTION_TOL_PP * 100).toFixed(0)} percentage points between the globe and ` +
+      `${CLASS_FRACTION_TOL_PP.toFixed(0)} percentage points between the globe and ` +
       `mercator frames — the two projections are no longer drawing the same map. ` +
       classNames
         .map(

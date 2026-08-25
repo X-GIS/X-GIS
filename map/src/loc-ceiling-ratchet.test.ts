@@ -282,7 +282,14 @@ const CEILINGS: Record<string, number> = {
   // chord-sagitta-vs-bake-texel derivation lives with the constant in
   // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_SELECTION_Z), so this file
   // gains only the call-site seam.
-  'map/src/render/vector-tile-renderer.ts': 5311,
+  // 5311→5320 (#2093 E1): the two drape flags added as cells of BOTH bundle
+  // cache keys (primary + fallback) — 4 property lines + 5 of pointer comment.
+  // They SELECT what a bundle records (`drawFills` / `drawStrokes`) and the
+  // ceiling made them zoom-dependent, so a key that omits them lets a direct-arm
+  // bundle replay its fill draws over the drape. Irreducible: the contract is
+  // one property per key literal (`satisfies BundleKeyState`), and the full
+  // derivation lives with the fields in _cache/bundle-cache-key.ts, not here.
+  'map/src/render/vector-tile-renderer.ts': 5320,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

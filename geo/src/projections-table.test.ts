@@ -13,6 +13,7 @@ import {
   drapesAtSelectionZ,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
+import { TILE_PX } from './world-scale'
 
 // The PROJECTIONS table is the SINGLE SOURCE OF TRUTH (authority flip, P1):
 // the world-copy / sphere-routing predicates now DERIVE from these rows.
@@ -246,47 +247,87 @@ describe('PROJECTIONS table', () => {
 // the crossover is a property of the TILE zoom alone — which is what makes a
 // single selection-zoom integer a legitimate gate rather than a tuned constant.
 describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () => {
-  const TILE_PX = 512 // world-scale.ts:24
+  // One drape bake texture is BAKE_PX square (map/src/render/vector-drape-
+  // renderer.ts:55 `const BAKE_PX = 512`). MIRRORED here, never imported: map
+  // depends on geo, never the reverse. The mirror is pinned equal to its
+  // authority by map/src/render/globe-direct-ceiling-selection.test.ts — the
+  // mirror + drift-gate pattern MERCATOR_POLE_LIMIT already uses above.
+  const BAKE_PX = 512
+
+  /** Chord sagitta of a tile-wide edge at TILE zoom `z`, in CSS px at camera
+   *  zoom `Z`: span·θ/8, where the tile spans `TILE_PX·2^(Z−z)` CSS px
+   *  (world-scale.ts — the zoom↔pixel anchor) and subtends `2π·2^−z`. */
+  const sagittaPx = (Z: number, z: number): number =>
+    (TILE_PX * 2 ** (Z - z) * (2 * Math.PI * 2 ** -z)) / 8
+  /** One bake texel of that same tile, in the same CSS px — its on-screen span
+   *  spread over the BAKE_PX-wide bake. This is BOTH the drape's resolution
+   *  floor AND its whole AA feather band (the bake runs at dpr=1). */
+  const bakeTexelPx = (Z: number, z: number): number => (TILE_PX * 2 ** (Z - z)) / BAKE_PX
 
   it('=== the chord-sagitta crossover, mapped 1:1 onto currentZ', () => {
-    // Sagitta of a tile-wide chord = span·θ/8 = (TILE_PX·2^(Z−z))·(2π·2^−z)/8
-    //                              = (TILE_PX·2π/8)·2^(Z−2z) = 128π·2^(Z−2z) CSS px.
-    // One bake texel = 2^(Z−z) CSS px. Their ratio is 128π·2^−z, so the direct arm
-    // wins from TILE zoom ceil(log2(128π)) = 9 upward. `currentZ` is floor(cameraZoom)
-    // (tile-selection-cache.ts:51) and the globe selector force-descends the FOCAL
-    // tile to selMaxZ = currentZ (globe-visible-tiles.ts:434), so the tiles under the
-    // camera centre are drawn AT currentZ — the threshold maps 1:1, no off-by-one.
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((TILE_PX * 2 * Math.PI) / 8)))
+    // C/B = (BAKE_PX·π/4)·2^−z. `TILE_PX` CANCELS — it scales the tile's
+    // on-screen span, which is the numerator of BOTH errors — so the crossover
+    // is set by the BAKE resolution alone and the direct arm wins from TILE zoom
+    // ceil(log2(BAKE_PX·π/4)) = 9 upward. (The BAKE_PX mirror above is pinned to
+    // vector-drape-renderer.ts by the map-side gate; this file may not import it.)
+    // `currentZ` is floor(cameraZoom) clamped to the source maxLevel, and the
+    // globe selector force-descends the FOCAL tile to selMaxZ = currentZ
+    // (globe-visible-tiles.ts:434), so the tiles under the camera centre are
+    // drawn AT currentZ — the threshold maps 1:1, no off-by-one.
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((BAKE_PX * Math.PI) / 4)))
     expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(9)
   })
 
-  it('covers the #2093 report cameras (zoom 9.70 and 21.10 both go direct)', () => {
-    // The regression this pins: a `round`-based reading of currentZ once put the
-    // ceiling at 10, and zoom 9.70 → floor → currentZ 9 kept draping — the exact
-    // camera the issue was filed for. Both report cameras must route direct, and
-    // the globe overview must keep its great-circle drape.
-    const currentZOf = (cameraZoom: number, sourceMaxLevel: number): number =>
-      Math.min(Math.floor(cameraZoom), sourceMaxLevel)
-    expect(drapesAtSelectionZ(currentZOf(9.7, 14)), '#2093 native-zoom camera').toBe(false)
-    expect(drapesAtSelectionZ(currentZOf(21.1, 14)), '#2093 deep-overzoom camera').toBe(false)
-    expect(drapesAtSelectionZ(currentZOf(2, 14)), 'globe overview keeps the drape').toBe(true)
-    expect(drapesAtSelectionZ(currentZOf(9.7, 2)), 'maxzoom-2 source keeps the drape').toBe(true)
+  it('covers the #2093 report cameras (their selection zooms both go direct)', () => {
+    // This file owns the PREDICATE half only. The CAMERA → currentZ half — that
+    // zoom 9.70 on a maxLevel-14 source really resolves to 9, and 21.10 to 14 —
+    // is driven through the production `TileSelectionCache.selectForFrame` in
+    // map/src/render/globe-direct-ceiling-selection.test.ts. Reimplementing
+    // `min(floor(cameraZoom), maxLevel)` here would be a SECOND AUTHORITY for a
+    // derivation geo cannot reach (map → geo, never the reverse), green by
+    // construction whatever the engine actually computes.
+    expect(drapesAtSelectionZ(9), '#2093 native-zoom camera: zoom 9.70 → currentZ 9').toBe(false)
+    expect(
+      drapesAtSelectionZ(14),
+      '#2093 deep-overzoom camera: zoom 21.10 on a maxLevel-14 source → currentZ 14',
+    ).toBe(false)
+    expect(
+      drapesAtSelectionZ(2),
+      'currentZ 2 — the globe overview, and equally zoom 9.70 on a maxzoom-2 source — keeps ' +
+        'the great-circle drape and its #2024 windowed overzoom',
+    ).toBe(true)
   })
 
   it('the blur-vs-sagitta verdict is INDEPENDENT of camera zoom (Z cancels)', () => {
-    // The whole justification for gating on the SELECTION zoom is that the camera
-    // zoom Z drops out of C/B. Sweep Z across the usable range (incl. fractional
-    // camera zooms) — every Z must produce the SAME per-tile-zoom verdict, and the
-    // sign flip must sit between z=8 and z=9.
+    // Two claims, in premise → conclusion order (§12: assert the CAUSE before the
+    // EFFECT, so a red run names the half that broke).
+    //
+    //   1. Z-INDEPENDENCE. The whole justification for gating on the SELECTION
+    //      zoom is that the camera zoom drops out of C/B. Every Z must reproduce
+    //      the verdict computed at the reference Z.
+    //   2. THE CONSTANT. The analytic sagitta-vs-texel comparison is the ORACLE;
+    //      `drapesAtSelectionZ` — i.e. GLOBE_DIRECT_MIN_SELECTION_Z — is the thing
+    //      under test. A wrong ceiling reddens this sweep, which is what makes it
+    //      a gate rather than a restatement of JavaScript's Math.
+    const REF_Z = 0
     for (const Z of [2, 9.7, 15.3, 21.1]) {
       for (let z = 2; z <= 14; z++) {
-        const C = 128 * Math.PI * 2 ** (Z - 2 * z) // chord sagitta, CSS px
-        const B = 2 ** (Z - z) // one bake texel == the AA feather band, CSS px
+        const C = sagittaPx(Z, z)
+        const B = bakeTexelPx(Z, z)
         expect(
           C >= B,
-          `Z=${Z} z=${z}: sagitta ${C}px vs bake texel ${B}px — the drape-vs-direct ` +
-            `verdict must depend on the TILE zoom alone, never on the camera zoom.`,
-        ).toBe(z <= 8)
+          `Z=${Z} z=${z}: sagitta ${C}px vs bake texel ${B}px. FAILURE HERE MEANS the ` +
+            `drape-vs-direct verdict moved with the CAMERA zoom. C/B must reduce to ` +
+            `(BAKE_PX·π/4)·2^−z — a function of the TILE zoom alone — or gating the drape ` +
+            `on a single selection-zoom integer is not legitimate at all.`,
+        ).toBe(sagittaPx(REF_Z, z) >= bakeTexelPx(REF_Z, z))
+        expect(
+          drapesAtSelectionZ(z),
+          `z=${z} (measured at Z=${Z}): sagitta ${C}px vs bake texel ${B}px. FAILURE HERE ` +
+            `MEANS GLOBE_DIRECT_MIN_SELECTION_Z (${GLOBE_DIRECT_MIN_SELECTION_Z}) is not the ` +
+            `crossover its derivation claims — the drape is kept where its bake texel is ` +
+            `already wider than the chord it removes, or dropped where the chord still wins.`,
+        ).toBe(C >= B)
       }
     }
   })
