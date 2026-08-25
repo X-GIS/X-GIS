@@ -15,6 +15,7 @@ export type { Diagnostic }
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
 import type { SourceBounds } from './source-bounds'
+import type { SourceClusterFields } from './source-cluster'
 import type { TileRowScheme } from './source-scheme'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
@@ -55,11 +56,11 @@ export interface Scene {
 
 /**
  * A data source definition. The `raster-dem` DEM fields (encoding / tileSize / custom
- * unpack factors) live on {@link RasterDemSourceFields}, a sibling file (LOC ceiling).
- * The `coverage` ramp/range display axes are LAYER paint — {@link RenderNodeCoveragePaint}
- * on RenderNode (INC-D); a `coverage` source is data-only.
+ * unpack factors) live on {@link RasterDemSourceFields}, the point-clustering axes on
+ * {@link SourceClusterFields} — sibling files (LOC ceiling). The `coverage` ramp/range
+ * axes are LAYER paint ({@link RenderNodeCoveragePaint}, INC-D); a coverage source is data-only.
  */
-export interface SourceDef extends RasterDemSourceFields {
+export interface SourceDef extends RasterDemSourceFields, SourceClusterFields {
   name: string
   type: string // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string
@@ -607,7 +608,7 @@ export interface LabelDef {
    *  tangents without an angular gate); a style that doesn't author
    *  text-max-angle renders byte-identically. Batch 2. */
   maxAngle?: number
-  /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
+  /** Mapbox `text-writing-mode` — CJK vertical text. UNSET = horizontal (the spec default, byte-identical). Set to `vertical` when the style's ordered mode list CONTAINS `vertical`; ordering within that list is not yet honoured (T4 D7 P1, #2051). Layout consumes this in P2 — nothing reads it yet. */
   writingMode?: 'horizontal' | 'vertical'
   /** Mapbox `symbol-z-order` — per-feature draw + collision ordering
    *  policy. `auto` (default) resolves to `viewport-y` when no

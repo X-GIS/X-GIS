@@ -168,6 +168,22 @@ export const pitchHandler: ExprHandler = (v, warnings) => {
   return 'pitch'
 }
 
+export const accumulatedHandler: ExprHandler = (v, warnings) => {
+  // Mapbox `["accumulated"]` accessor → xgis bare `accumulated` identifier (#2050).
+  // Third member of the reserved-identifier family after `zoom` / `pitch`: the
+  // evaluator special-cases the name (eval/evaluator.ts) to read
+  // `props[ACCUMULATED_KEY]`, and the cluster index's merge step injects the running
+  // aggregate there while it evaluates a `clusterProperties` reduce. Everywhere else
+  // the key is absent and this resolves to null, which is what an `["accumulated"]`
+  // written OUTSIDE a clusterProperties reduce means — it aggregates nothing.
+  if (v.length !== 1) {
+    warnings.push(
+      `Malformed ["accumulated"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
+  }
+  return 'accumulated'
+}
+
 export const propertiesHandler: ExprHandler = (v, warnings) => {
   // Mapbox ["properties"] returns the WHOLE feature.properties object
   // (vs ["get", k] for one field). xgis has no object-literal accessor

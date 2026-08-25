@@ -104,7 +104,13 @@ export interface BundleKeyState {
    *  previously-undiagnosed "mostly empty canvas during interactive
    *  navigation" that kept the bundle path disabled. -1 = ring not yet
    *  created (no allocations possible → any recorded offsets start at
-   *  base 0 once it is; the first real frame keys with the true cursor). */
+   *  base 0 once it is; the first real frame keys with the true cursor).
+   *  -2 (#2042 INC-5b) = the walk is RING-FREE (every draw split-bound —
+   *  VTR._walkRingFree, whose inputs are all pinned by this key): nothing
+   *  baked reads a per-tile ring slot, so the live base is not a replay
+   *  dependency, and keying it anyway made one tile's residency flip
+   *  re-record every downstream show (PR #2090's sweep measured
+   *  bundleMisses ≈ N shows per window). */
   readonly ringCursor: number
 
   /** Layer-slot dynamic offset baked into the recorded stroke draws. */

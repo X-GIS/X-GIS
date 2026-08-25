@@ -29,7 +29,11 @@ import { mangleModule } from './core/passes/mangle.js'
 import { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
 import { aliasShaderTypes } from './core/emit-alias.js'
 import { pruneRedundantPrototypes } from './core/emit-prune.js'
-import { forceInline as inlineModule, type InlineOpaque } from './core/passes/force-inline.js'
+import {
+  forceInline as inlineModule,
+  type InlineOpaque,
+  type InlineDecision,
+} from './core/passes/force-inline.js'
 
 export type { EmitPlugin, EmitOptions } from './core/emit.js'
 export { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
@@ -37,7 +41,7 @@ export { aliasShaderTypes } from './core/emit-alias.js'
 export { pruneRedundantPrototypes } from './core/emit-prune.js'
 export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log.js'
 export { mangleModule, type MangleResult } from './core/passes/mangle.js'
-export type { InlineOpaque } from './core/passes/force-inline.js'
+export type { InlineOpaque, InlineDecision } from './core/passes/force-inline.js'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
  *  Renames the authored vocabulary — helper fns, plain structs, module consts
@@ -110,11 +114,35 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
  *  and requires bit-equality with the un-inlined module. What that CANNOT see is a
  *  driver's fast-math — see the pass header.
  *
+ *  BOUNDING IT. `maxGrowth` caps how far the module's IR-op count may grow while
+ *  unlocking, as a multiplier — gcc's `--param inline-unit-growth` (default 40, i.e.
+ *  +40%) in this codebase's units. Omitted is UNLIMITED, and deliberately so: the
+ *  goal here is obfuscation, where flattening everything is the point rather than a
+ *  cost to contain. Set it when the 5-27x is not worth paying. With a budget, helpers
+ *  are unlocked one at a time CHEAPEST FIRST (fewest call sites — a one-call helper
+ *  duplicates nothing), which generalises `'single-call'` rather than adding a second
+ *  rule; without one, `'all'` still opens every helper in a single batch exactly as
+ *  before, so no existing output moves.
+ *
+ *  `report` is an out-param array, the same idiom as `mangle({ renames })`: it
+ *  receives one {@link InlineDecision} per helper considered — call sites, resulting
+ *  op count, growth so far, and whether it was inlined, refused as `over-budget`, or
+ *  found `not-inlinable`. That is the `-fopt-info-inline` half; without it a budget
+ *  silently drops helpers and the output gives no account of which.
+ *
  *  Opt-in: NOT part of the obfuscate() preset, so no existing output changes. Runs in
  *  the IR stage, so place it before mangle() in the array. */
-export function inline(opts?: { opaque?: InlineOpaque }): EmitPlugin {
+export function inline(opts?: {
+  opaque?: InlineOpaque
+  maxGrowth?: number
+  report?: InlineDecision[]
+}): EmitPlugin {
   const opaque = opts?.opaque ?? 'keep'
-  return { name: 'inline', transformIR: (m) => inlineModule(m, opaque) }
+  return {
+    name: 'inline',
+    transformIR: (m) =>
+      inlineModule(m, opaque, { maxGrowth: opts?.maxGrowth, report: opts?.report }),
+  }
 }
 
 /** Type-name aliasing plugin: gives each heavily-used TYPE a one-character name

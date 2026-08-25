@@ -250,19 +250,30 @@ waived — the blast-radius sweep a text search misses is then the reader's job.
 
 ## 7. Build & Test Discipline
 
-**Never run more than one heavy background process concurrently.** vitest, `tsc --build
---force`, `bun run build`, GPU/headed verification, and `astro build` each saturate the
-machine; running two at once has frozen the machine. Run them **sequentially** — start one,
-wait for it to finish, then start the next. If one is already backgrounded, wait for its
-completion before launching another.
+**Parallelize by default; serialize only where it corrupts results (owner-refined
+2026-08-25).** The old blanket "one heavy process at a time" over-serialized the pipeline.
+The rules that remain, and WHY:
 
-**But NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
-verification `run_in_background`, then IMMEDIATELY continue the NEXT work item's non-heavy
-parts — recon, design, code edits, docs/issue records, targeted single-file tests. Ending a
-turn with "waiting for the gate result" delays the queued work the gate exists to protect;
-the completion notification re-enters the loop and the verdict is handled then. The
-one-heavy-process rule above still holds: queue the next HEAVY step behind the running one —
-everything else proceeds now.
+- **A TIMING MEASUREMENT owns the machine.** While a perf sweep / benchmark is running,
+  do not co-run other compute — contention corrupts the measured quantity itself. This is
+  instrument integrity, not ritual.
+- **Do not co-run two MAXIMALLY heavy jobs** (two of: full vitest, `tsc --build --force`,
+  `bun run build`, a SwiftShader render gate, `astro build`) — that combination has frozen
+  the machine before. One such job + light/medium work in parallel is fine.
+- Everything else runs CONCURRENTLY with a background gate: recon, design, code edits,
+  docs/issue records, single-file tests, patch preparation for the next increment.
+- **But never EDIT REPO SOURCES a running browser gate is serving.** The e2e gates run
+  against the Vite dev server, so a save mid-run hot-reloads the page and kills the
+  in-flight `page.evaluate` (`Execution context was destroyed, most likely because of a
+navigation`) — a green-looking pipeline that actually measured a moving tree. Paid for
+  2026-08-25: a comment-only edit during a gate's boot invalidated a 37-minute run.
+  Prepare edits as patches while a browser gate is in flight; apply them after it exits.
+
+**And NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
+verification `run_in_background`, then IMMEDIATELY continue the NEXT work item — including
+its code, prepared as apply-ready patches when committing would widen an open PR's scope.
+Ending a turn with "waiting for the gate result" delays the queued work the gate exists to
+protect; the completion notification re-enters the loop and the verdict is handled then.
 
 ## 8. Bug Fixing
 

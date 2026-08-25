@@ -82,11 +82,67 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     // #2042 INC-4c hoisted the resolve to tile-loop scope so fills AND the
     // stroke queue share it; the extrude exclusion moved to recordFillDraw's
     // !bindZBuffer guard (asserted in its own suite), so the gate here is
-    // the tile-level pair: unclipped + a real slice identity.
-    const at = src.indexOf('_tileUniforms.offsetOf(')
-    expect(at, 'split residency lookup not found').toBeGreaterThan(0)
-    const before = src.slice(Math.max(0, at - 700), at)
+    // the tile-level pair: unclipped + a real slice identity. INC-5 added a
+    // SECOND residency lookup ahead of it — the walk-skip — whose gate is the
+    // per-call splitWalkSkip qualification; both sites are pinned.
+    const first = src.indexOf('_tileUniforms.offsetOf(')
+    expect(first, 'walk-skip residency lookup not found').toBeGreaterThan(0)
+    const second = src.indexOf('_tileUniforms.offsetOf(', first + 1)
+    expect(second, 'pack-path residency lookup not found').toBeGreaterThan(first)
+    // Walk-skip site: gated on the per-call qualification + a completed seed pack.
+    expect(src.slice(Math.max(0, first - 700), first)).toContain('splitWalkSkip && packedOnce')
+    // Pack-path resolve: unclipped + a real slice identity.
+    const before = src.slice(Math.max(0, second - 700), second)
     expect(before).toContain('visibleKey < 0')
     expect(before).toContain("sliceLayer !== ''")
+    // The qualification lives in the SINGLE ring-free authority
+    // (_walkRingFree, #2042 INC-5b) — consulted by BOTH renderTileKeys'
+    // splitWalkSkip and the bundle-key builder's ringCursor sentinel; drift
+    // between them would re-couple the keys the sentinel decouples. Pin the
+    // authority's terms, the delegation, and both key sites.
+    const qual = src.indexOf('private _walkRingFree(')
+    expect(qual, '_walkRingFree authority not found').toBeGreaterThan(0)
+    const qualBody = src.slice(qual, qual + 1600)
+    for (const term of [
+      'visibleKeysForClip === null',
+      "sliceLayer !== ''",
+      'baseLayout()',
+      '_patternUniformActive',
+      '_linePatternActiveForShow',
+      "currentExtrudeMode !== 'per-feature'",
+      'translucentLines',
+      'lineVariant == null',
+      'isOverdrawActive',
+      'perStyleTwin',
+    ]) {
+      expect(qualBody, `_walkRingFree lost the "${term}" qualification`).toContain(term)
+    }
+    expect(src).toContain('const splitWalkSkip = this._walkRingFree(')
+    // INC-5b — the primary bundle key uses the -2 sentinel for ring-free
+    // walks; the fallback-clip key always uses the live cursor.
+    expect(src).toMatch(/ringCursor: this\._walkRingFree\([\s\S]{0,300}?\)\s*\?\s*-2\s*:/)
+    expect(src).toContain('ringCursor: this._ringCursorForBundleKey(),')
+    // The ring-alloc invariant exemption rides the qualification: every call
+    // must publish it, and the bundle-hit invariant must read it — a walk
+    // that skips packs allocs FEWER ring slots than its bundle recorded
+    // (residency transitions), which is only sound because nothing baked
+    // reads those slots. Gate2 2026-08-25 caught the unexempted invariant
+    // halting the render loop ("allocated 1 ring slots where the encoded
+    // bundle recorded 2").
+    expect(src).toContain('this._lastWalkRingFree = splitWalkSkip')
+    expect(src).toMatch(/if \(_inv && !this\._lastWalkRingFree\) \{/)
+    // #2042 INC-4d — the qualification's fill term must be capability-based
+    // (default pipes OR an eligible per-style twin), and the stroke clause
+    // must consult the draper's derivation verdict — NOT a bare
+    // `lineVariant == null` (which excluded every compiled show: constant
+    // paints inline as preamble consts, so all converted-style fills are
+    // per-style; the class the walk-skip exists for).
+    expect(src).toContain('const splitFillsCapable =')
+    const cap = src.indexOf('const splitFillsCapable =')
+    const capBody = src.slice(cap, cap + 600)
+    expect(capBody).toContain('perStyleTwin')
+    expect(qualBody).toContain('splitFillsCapable')
+    expect(qualBody).toContain('splitStrokeEligible(lineVariant)')
+    expect(qualBody).toContain('!drawStrokes ||')
   })
 })

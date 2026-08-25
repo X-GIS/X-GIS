@@ -93,10 +93,12 @@ describe('#1983 W2 — raster-dem source: same three properties, DEM props untou
 
   it('leaves the pre-existing raster-dem diagnostics exactly as they were', () => {
     const { code, warnings } = convert(demStyle({ tileSize: 512, maxzoom: 12 }))
-    // encoding is still surfaced as a warning (it has never been emitted — out of
-    // scope here, and the hillshade decode reads it off the LoadCommand, not the
-    // source block).
-    expect(warnings.some((w) => w.includes('non-default encoding="terrarium"'))).toBe(true)
+    // #2003 landed separately since this test was written: encoding: terrarium is now
+    // EMITTED (not warned) — that is the correct, updated diagnostic this tileSize/
+    // maxzoom emission must not disturb. The other raster-dem diagnostic (untouched by
+    // both #1983 and #2003) still holds exactly as before.
+    expect(code).toContain('encoding: terrarium')
+    expect(warnings.some((w) => w.includes('encoding'))).toBe(false)
     expect(warnings.some((w) => w.includes('rendering not yet supported'))).toBe(true)
     expect(code).toContain('// NOTE: raster-dem rendering (hillshade / 3D terrain)')
   })

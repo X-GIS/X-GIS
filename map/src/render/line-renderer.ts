@@ -744,6 +744,14 @@ export class LineRenderer {
     this._splitLayout = layout
     for (const d of this._lineDrapers.values()) d.setSplitLayout(layout)
   }
+  /** #2042 INC-4d — can strokes of `variant` draw through the split bind?
+   *  Forwards the draper's cached derivation verdict (line-material.ts
+   *  splitEligible); the walk-skip qualification consults this so an
+   *  ineligible-variant show never skips the packs its legacy strokes read. */
+  splitStrokeEligible(variant?: ShaderVariantInfo | null): boolean {
+    return this.ensureLineDraper(variant).splitEligible()
+  }
+
   private ensureLineDraper(variant?: ShaderVariantInfo | null): LineDraper {
     const gl2 = this.rhi.backend === 'webgl2'
     // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior

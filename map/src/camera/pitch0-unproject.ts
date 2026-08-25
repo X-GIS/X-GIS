@@ -32,9 +32,10 @@
 // a per-projection analytic fallback; see the two-authorities note at the head of
 // text/ground-basis.ts.
 
-import { WORLD_MERC, flatViewHeightCapM } from '@xgis/geo'
-import { invert4x4, CAMERA_FOV_DEG } from '@xgis/shared'
+import { WORLD_MERC, flatViewHeightCapM, mercatorYToLat } from '@xgis/geo'
+import { invert4x4, CAMERA_FOV_DEG, EARTH } from '@xgis/shared'
 import { projMercatorCpu, projectCpu, projectGeomCpu } from '../shaders/dsl/cpu-projections'
+import { WORLD_CIRC } from '../render-loop-helpers'
 import { type CameraView, buildRTCMatrix } from './view-matrix'
 import { unprojectToLonLat as unprojectToLonLatPure, type UnprojectView } from './unproject'
 
@@ -186,6 +187,38 @@ export interface FlatGroundView {
  *  Returns a REUSED tuple — copy out before the next call. */
 export type ProjectGround = (lon: number, lat: number) => readonly [number, number] | null
 
+/** Mercator metres + world-copy INDEX → screen px — the merc-domain twin of
+ *  `ProjectGround`, for callers that already hold merc metres (the line-label
+ *  polyline loop does; converting back to lon/lat was ~80 % of its frame time
+ *  before that round trip was removed). Returns a REUSED tuple. */
+export type ProjectGroundMerc = (
+  mx: number,
+  my: number,
+  worldCopy?: number,
+) => readonly [number, number] | null
+
+/** The one place a flat RTC point becomes screen px through `mvp`, shared by both
+ *  ground projectors below so the lon/lat and merc entry points cannot drift into
+ *  two slightly different compositions. `cw <= 0` is a genuine degeneracy — the
+ *  point is behind the camera — and is the ONLY rejection here (see the cull-free
+ *  rationale on `makeGroundProjector`). */
+function projectFlatRtc(
+  mvp: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  rtcX: number,
+  rtcY: number,
+  out: [number, number],
+): readonly [number, number] | null {
+  const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+  if (cw <= 0) return null
+  const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
+  const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
+  out[0] = (ndcX + 1) * 0.5 * canvasWidth
+  out[1] = (1 - ndcY) * 0.5 * canvasHeight
+  return out
+}
+
 /** The forward projector the ground basis is composed from: lon/lat → screen px
  *  through `mvp`, on the flat display path (projType 0-6), with the label pass's
  *  VISIBILITY culls deliberately OFF.
@@ -241,12 +274,63 @@ export function makeGroundProjector(
       rtcX = p[0] - lblCenter[0]
       rtcY = p[1] - lblCenter[1]
     }
-    const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
-    if (cw <= 0) return null
-    const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
-    const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
-    scratch[0] = (ndcX + 1) * 0.5 * canvasWidth
-    scratch[1] = (1 - ndcY) * 0.5 * canvasHeight
-    return scratch
+    return projectFlatRtc(mvp, canvasWidth, canvasHeight, rtcX, rtcY, scratch)
+  }
+}
+
+/** The MERC-domain ground projector — `makeGroundProjector`'s twin for the line
+ *  label pass, which walks a polyline of Mercator metres and must project the
+ *  SAME samples a second time through the pitch-0 matrix (design §3.4(1)).
+ *
+ *  Same composition, same cull-free contract, same `projectFlatRtc` tail: only the
+ *  input domain differs. It exists because the live walk feeds
+ *  `makeLabelProjectors`' `projectMercAny` merc metres directly — the
+ *  merc→lonLat→merc round trip it replaced was ~80 % of the polyline loop's frame
+ *  time (label-pass.ts) — so a lon/lat-only pitch-0 twin would pay that cost back
+ *  on every sample of every ground-aligned road.
+ *
+ *  `worldCopy` is the copy INDEX (0, ±1 from `getVisibleWorldCopies`), not metres,
+ *  mirroring `projectMercAny`: each arm multiplies by its own period so the label
+ *  plane is the pitch-0 image of the SAME world copy the live run was projected
+ *  in. Mercator shifts in merc metres, the x-periodic non-merc set in projected-x
+ *  (`WORLD_CIRC` — the GPU `project_geom` `world_off_m`). */
+export function makeGroundMercProjector(
+  mvp: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  flat: FlatGroundView,
+): ProjectGroundMerc {
+  const { projType, ccx, ccy, centerLon, centerLat } = flat
+  const isMerc = projType < 0.5
+  const lblCenter: [number, number] = isMerc
+    ? [0, 0]
+    : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
+  const scratch: [number, number] = [0, 0]
+  return (mx: number, my: number, worldCopy = 0): readonly [number, number] | null => {
+    if (isMerc) {
+      return projectFlatRtc(
+        mvp,
+        canvasWidth,
+        canvasHeight,
+        mx + worldCopy * WORLD_MERC - ccx,
+        my - ccy,
+        scratch,
+      )
+    }
+    // Same merc → lon/lat → project_geom chain `projectMercAny`'s non-merc arm
+    // takes, with the same `refLon = lon` (the label analog of the shader's
+    // tile-centre refLon).
+    const lon = mx / ((Math.PI / 180) * EARTH.sphereR)
+    const lat = mercatorYToLat(my)
+    const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
+    return projectFlatRtc(
+      mvp,
+      canvasWidth,
+      canvasHeight,
+      p[0] + worldCopy * WORLD_CIRC - lblCenter[0],
+      p[1] - lblCenter[1],
+      scratch,
+    )
   }
 }
