@@ -80,6 +80,7 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
     releaseTile: () => {},
     resetAll: () => {},
     flush: () => {},
+    takeRetired: () => [],
     destroy: () => {},
   }
 
