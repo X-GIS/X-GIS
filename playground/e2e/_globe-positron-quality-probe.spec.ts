@@ -105,8 +105,15 @@ function attachErrorCollector(page: Page, errors: string[]): void {
 
 async function gotoDemo(page: Page, url: string): Promise<void> {
   await page.goto(url, { waitUntil: 'domcontentloaded' })
+  // 180s, not 60s: the 9.70 camera's DIRECT (drape-disabled) arm timed out twice at
+  // 60s on a fresh context — z9.7's globe tile selection is a z9-majority + z10-focal-
+  // column busy scene (background facts), so the direct ECEF-chord path has to submit
+  // + software-rasterize far more raw geometry than the drape's cheap textured-quad
+  // path, and a fresh page/context also pays cold shader-variant compilation. 21.10
+  // (few overzoomed tiles) booted fine at 60s on the same arm — this is a real cost
+  // signal (recorded in the report), not a broken wait.
   await page.waitForFunction(() => (window as unknown as Win).__xgisReady === true, null, {
-    timeout: 60_000,
+    timeout: 180_000,
   })
 }
 
