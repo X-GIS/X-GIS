@@ -16,12 +16,12 @@ why Lever 4 (cross-tile draw merging) is blocked ("per-tile dynamic-offset slots
 
 ## Field audit (`polygonU`, map/src/shaders/dsl/polygon.ts)
 
-| class                                                        | fields                                                                                                                                                                                                             | writes/frame after split                                |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
-| **FRAME** (camera; one value for the whole VTR frame)        | `mvp`, `cam_h`, `cam_l`, `proj_params`, `log_depth_fc`, `zoom`, `globe_eye`, `light_dir_ecef` (camera-anchor rotated)                                                                                              | 1                                                       |
-| **SHOW** (paint; per show, re-resolved on zoom/time interp)  | `fill_color`, `stroke_color`, `opacity`, `layer_depth_offset`, `extrude_height_m`, `extrude_base_m`, `fill_translate_x/y`, `pattern_active`, `light_color_packed`, `pick_id`, `input_f32_0..7`, `input_color_0..3` | N_shows (~80 on Bright)                                 |
-| **TILE** (static per (slice, tile, worldCopy[, clipTarget])) | `tile_origin_merc`, `tile_extent_m`, `tile_dequant_scale`, `tile_dequant_half`, `clip_bounds`                                                                                                                      | 0 (written at upload / first draw; freed with the tile) |
-| **TILE × FRAME — the crux**                                  | `cam_ecef_off_h`, `cam_ecef_off_l` (= tileEcefCenter − cameraCenter, DSFUN hi/lo)                                                                                                                                  | 0 — recombined in-shader, see below                     |
+| class                                                        | fields                                                                                                                                                                                                                                       | writes/frame after split                                |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **FRAME** (camera/style; one value for the whole VTR frame)  | `mvp`, `proj_params`, `log_depth_fc`, `zoom`, `globe_eye`, `light_dir_ecef` (camera-anchor rotated), `cam_ecef_center_h/l` (INC-1), `input_f32_0..7`, `input_color_0..3` (style-global — INC-3 correction)                                   | 1                                                       |
+| **SHOW** (paint; per show, re-resolved on zoom/time interp)  | `fill_color`, `stroke_color`, `opacity`, `layer_depth_offset`, `extrude_height_m`, `extrude_base_m`, `fill_translate_x/y`, `pattern_active`, `light_color_packed`, `pick_id` (+ relocated `fill_antialias` / `fill_vertical_gradient` flags) | N_shows (~80 on Bright)                                 |
+| **TILE** (static per (slice, tile, worldCopy[, clipTarget])) | `tile_origin_merc`, `tile_extent_m`, `tile_dequant_scale`, `tile_dequant_half`, `clip_bounds`                                                                                                                                                | 0 (written at upload / first draw; freed with the tile) |
+| **TILE × FRAME — the crux**                                  | `cam_ecef_off_h`, `cam_ecef_off_l` (= tileEcefCenter − cameraCenter, DSFUN hi/lo); `cam_h`, `cam_l` (Mercator rel — the flat-arm analogue, INC-6; the audit originally mis-filed these as FRAME)                                             | 0 — recombined in-shader, see below                     |
 
 Today all four classes share ONE 256-byte block written per (show × tile × copy) per
 frame. After the split, per-frame CPU writes drop from `O(shows × tiles)` blocks to
@@ -88,8 +88,21 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
    - `tileBlockU` (map/src/shaders/dsl/tile-block.ts, group 0 binding 7 reserved) is
      the single layout authority; `tile-uniform-arena.test.ts`'s parity suite pins its
      bytes equal to the same-named polygonU lanes, making INC-4 a pure rebind.
-3. **INC-3 — ShowBlock.** `showIdx × slotSize` addressing; per-frame writes = shows
-   only. Gate: zoom-interp paint tests (vtr-continuous-zoom family) + §5.
+3. **INC-3 — ShowBlock + FrameBlock declarations + the partition gate.**
+   _Redefined as landed:_ INC-3 ships the `showBlockU` / `frameBlockU` declarations
+   (unbound, zero emission — the INC-2 discipline) plus
+   `uniform-split-partition.test.ts`: every polygonU field maps to EXACTLY one of
+   {frame, show, tile}, or carries a recorded retirement (`cam_ecef_off_h/l` —
+   recombined in-VS; their spare .w flags relocate to ShowBlock.fill_antialias /
+   .fill_vertical_gradient) or pending note (`cam_h/l` — see INC-6), and every
+   partitioned field packs BYTE-IDENTICALLY in its destination block (u32 raw-word
+   lanes included). The original "per-frame writes = shows only" outcome needs the
+   bind to be observable, so the live show-write swap moves into INC-4 where its
+   zoom-interp + §5 gates can actually bite. Audit-table corrections discovered
+   here: `input_*` lanes are STYLE-global (frame-class, not show-class), and
+   `cam_h/cam_l` are per-(tile × camera) — the audit's FRAME row was wrong for
+   them (they need INC-6, the flat-arm recombination, before they can leave the
+   ring).
 4. **INC-4 — draw path rebind + key simplification.** Bind the three ranges; delete
    `ringCursor`/`lineLayerOffset*` from `BundleKeyState` (they become structural);
    keep the alloc-count invariant one release as a canary, then retire it. Gate:
@@ -97,6 +110,15 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
    probe re-run to show the invariant is now unreachable-by-construction.
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
    ~0.19 toward the selection+key floor; record on #1190 and re-scope the issue.
+6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
+   are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
+   restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
+   absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
+   `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
+   the VS derives `rel = cam − origin` behind a flag, with its own
+   rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
+   keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
+   static at INC-4/5).
 
 ## Self-critique (architect pass, recorded so the author cannot skip them)
 
