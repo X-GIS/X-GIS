@@ -325,9 +325,11 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // in every arm. (That INC-6 respell landed while this pin still matched
     // the old `- u.cam_h)` literal — main's render shard sat red until this
     // update; the gauntlet merges on local gates, so a render-shard-only pin
-    // must be checked whenever the emit respells.) Pin the two halves a
-    // project()-revert would drop: the tile-local SOURCE vec, and the
-    // split-camera subtraction.
+    // must be checked whenever the emit respells. Bisected independently in
+    // #2073.) Pin the three pieces a project()-revert (or a flag-off-arm
+    // removal) would drop: the tile-local SOURCE vec, the split-camera
+    // subtraction, and the select() still carrying the legacy flag-off
+    // camera operand.
     const here = dirname(fileURLToPath(import.meta.url))
     const snapDir = join(
       here,
@@ -341,13 +343,15 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     )
     const SRC_VEC = 'vec2<f32>(abs_lon, abs_lat)' // dropped by a project(abs_lon, abs_lat) revert
     const CAM_REL = '- cam_rel_h) - cam_rel_l)' // the split-camera tile-local read (INC-6 Lets)
-    const readsTileLocal = (src: string) => src.includes(SRC_VEC) && src.includes(CAM_REL)
+    const FLAG_OFF = 'select(u.cam_h' // the legacy pair must remain the flag-off branch
+    const readsTileLocal = (src: string) =>
+      src.includes(SRC_VEC) && src.includes(CAM_REL) && src.includes(FLAG_OFF)
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
     const withToken = files.filter((f) => readsTileLocal(readFileSync(join(snapDir, f), 'utf8')))
     expect(
       withToken.length,
-      `no emitted polygon fill arm reads tile-local Mercator ("${SRC_VEC}" + "${CAM_REL}") — vs_main_ecef may have reverted to project(abs_lon, abs_lat)`,
+      `no emitted polygon fill arm reads tile-local Mercator ("${SRC_VEC}" + "${CAM_REL}" + "${FLAG_OFF}") — vs_main_ecef may have reverted to project(abs_lon, abs_lat), or the flag-off cam_rel arm was dropped`,
     ).toBeGreaterThan(0)
   })
 })
