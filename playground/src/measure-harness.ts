@@ -85,16 +85,26 @@ const DEMOTILES_FILLS: ColorClass[] = [
 // than one uniform ±tolerance — casing↔minor is the tightest (11pt) and stays fuzzy by
 // construction; water is additionally keyed on its blue-green cast (b−r) since its
 // neutral-gray window alone would collide with boundary/casing.
+//
+// Neutrality threshold tightened to <4 (was <6) — instrument-validation finding
+// (2026-08-25, first merc-9.70 run): `park` fill rgb(230,233,229) and `landcover_wood`
+// fill rgb(220,224,220) both sit inside the casing/minor R-windows and have a
+// max channel delta of exactly 4 (g the odd-channel-out on both), so at <6 tolerance
+// a Seoul wood/park polygon read as an 88px-wide "minor road" run — a flooded-positive
+// broken ruler, not a zero one, but the same fix: sample real colors, tighten past the
+// contaminant. Road/boundary colors are EXACTLY neutral (r=g=b, delta 0) pre-AA, so <4
+// excludes both fills (delta 4) while every genuine stroke match (delta 0, or a small
+// AA blend toward the near-neutral background) is untouched.
 const POSITRON_STROKES: ColorClass[] = [
   {
     name: 'boundary-gray', // boundary_2 ≈ rgb(178,178,178)
     ch: 'D',
-    test: (r, g, b) => r > 168 && r < 188 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+    test: (r, g, b) => r > 168 && r < 188 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
   },
   {
     name: 'casing-gray', // highway_{major,motorway}_casing rgb(213,213,213)
     ch: 'C',
-    test: (r, g, b) => r > 204 && r < 222 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+    test: (r, g, b) => r > 204 && r < 222 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
   },
   {
     name: 'inner-white', // highway_{major,motorway}_inner #fff
@@ -104,7 +114,7 @@ const POSITRON_STROKES: ColorClass[] = [
   {
     name: 'minor-gray', // highway_minor ≈ rgb(224,224,224) — a sub-pixel ≈0.42 CSS px
     ch: 'M', // hairline at z9.7 the bake cannot represent; ±8 window per background gap.
-    test: (r, g, b) => r > 216 && r < 232 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+    test: (r, g, b) => r > 216 && r < 232 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
   },
 ]
 const POSITRON_FILLS: ColorClass[] = [
