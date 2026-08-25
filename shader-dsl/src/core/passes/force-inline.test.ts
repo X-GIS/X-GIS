@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, f64T, f32T, sqrt, toF32 } from '../ir/index.js'
+import { fn, module, f64T, f32T, sqrt, toF32, stageOf } from '../ir/index.js'
 import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from './fp64-lower.js'
@@ -189,5 +189,54 @@ describe('forceInline — df64 known answers survive both strengths, bit for bit
     for (const [, m] of arms) {
       expect(f32Oracle(m).fns.k_narrow!(P(1e8 + 0.5))).toBe(Math.fround(1e8 + 0.5))
     }
+  })
+})
+
+// ── What flattening the WHOLE example corpus leaves standing ────────────────
+//
+// The render-parity arm in `_force-inline-compile-gate.spec.ts` proves flattening
+// does not move pixels. It cannot prove flattening HAPPENED — a no-op renders
+// byte-identically too — and its emit-side companion only checks that `df64_*` is
+// gone, which says nothing about the shader's OWN helpers. This is the missing
+// half: the exact set of non-entry functions that survive, each with the reason.
+//
+// A NEW NAME HERE IS A FINDING, not a number to re-pin: it means a helper the
+// obfuscation pass is supposed to dissolve did not. A name LEAVING is the ordinary
+// case (something became inlinable) — re-pin it.
+describe('forceInline(all) over the example corpus', () => {
+  // name -> why it is allowed to survive.
+  const EXPECTED: Record<string, string> = {
+    // `discard` is impure, and purity is the entire licence for lifting a body:
+    // WGSL `||`/`&&` short-circuit, so a call lifted out of a short-circuited
+    // operand would run a discard the original skipped.
+    discard_outside_circle: 'contains discard',
+    // The module IS this function — no entry point calls it, so there is no call
+    // site to inline into and deadFnElim must not strip the module to nothing.
+    shade: 'uncalled (the module is the helper)',
+  }
+
+  it('leaves exactly the helpers that cannot be inlined, and nothing else', async () => {
+    const { examples } = await import('../../../examples/index.js')
+    const survivors: Record<string, string> = {}
+    for (const ex of examples) {
+      const entries = new Set(
+        ex.module.funcs.filter((f) => stageOf(f) !== undefined).map((f) => f.name),
+      )
+      let wgsl: string
+      try {
+        wgsl = emitModule(ex.module, { plugins: [forceInlinePlugin({ strength: 'all' })] })
+      } catch {
+        continue // not every example emits standalone; the parity gate covers those
+      }
+      for (const m of wgsl.match(/^fn ([A-Za-z0-9_]+)/gm) ?? []) {
+        const name = m.slice(3)
+        if (!entries.has(name)) survivors[name] = ex.id
+      }
+    }
+    expect(
+      Object.keys(survivors).sort(),
+      `unexpected survivor(s): ${JSON.stringify(survivors)} — a helper the flattening ` +
+        `is meant to dissolve did not. Check preludeBlocker before re-pinning.`,
+    ).toEqual(Object.keys(EXPECTED).sort())
   })
 })
