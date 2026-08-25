@@ -206,6 +206,17 @@ const U = uniformStruct(
     tile_ecef_center_l: vec4fT,
     cam_ecef_center_h: vec4fT,
     cam_ecef_center_l: vec4fT,
+    // #2042 INC-6 — the flat-arm analogue of the ECEF anchors above: the
+    // ABSOLUTE Mercator anchors whose f64 difference IS cam_h/cam_l.
+    // tile_origin_merc_hl = worldOff-shifted tile origin (.xy hi, .zw lo —
+    // the legacy tile_origin_merc is the SINGLE-f32 .xy only, so the
+    // recombination needs these recovered low bits); cam_merc_center_hl =
+    // camera centre (.xy hi, .zw lo; copy-independent). Gated by the SAME
+    // recombine flag (cam_ecef_center_h.w) — one umbrella flag for both
+    // arms. Divergence envelope: rtc-recombine-precision.test.ts (Mercator
+    // section). Appended after INC-1's anchors — no existing offset moves.
+    tile_origin_merc_hl: vec4fT,
+    cam_merc_center_hl: vec4fT,
   },
 )
 // Exported (distinct barrel name) for the CPU packers' UniformBlock (#733 P2):
@@ -395,6 +406,32 @@ const emitPolygonProjectionLadder = (args: {
   const deg2rad = DEG2RAD
   const earthR = EARTH_R
   const pi = PI
+  // #2042 INC-6 — flag-selected Mercator camera rel: the flat-arm analogue
+  // of the 3D arm's INC-1 recombination (same flag lane,
+  // cam_ecef_center_h.w). Legacy: the CPU-packed cam_h/cam_l DSFUN pair.
+  // Recombine: (camMercH − originH, camMercL − originL) — hi−hi is
+  // Sterbenz-exact when the camera is near the tile, lo−lo recovers the
+  // low bits the single-f32 tile_origin_merc lost. Substituted for every
+  // cam_h/cam_l read in the flat arms below; the 3D arm never reads them.
+  const _mercHL = U.field.cam_merc_center_hl
+  const _originHL = U.field.tile_origin_merc_hl
+  const _mercRecombine = U.field.cam_ecef_center_h.w.gt(0.5)
+  const camRelH = Let(
+    'cam_rel_h',
+    select(
+      _mercRecombine,
+      vec2(_mercHL.x.sub(_originHL.x), _mercHL.y.sub(_originHL.y)),
+      U.field.cam_h,
+    ),
+  )
+  const camRelL = Let(
+    'cam_rel_l',
+    select(
+      _mercRecombine,
+      vec2(_mercHL.z.sub(_originHL.z), _mercHL.w.sub(_originHL.w)),
+      U.field.cam_l,
+    ),
+  )
   // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
   // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
   // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1397 this was
@@ -418,12 +455,12 @@ const emitPolygonProjectionLadder = (args: {
       // single f32 but sub-mm at every zoom (magnitude ≤ tile extent), unlike
       // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
       // ~10 px fill/outline split at deep over-zoom this fixes).
-      const relLocal = localMerc.sub(U.field.cam_h).sub(U.field.cam_l)
+      const relLocal = localMerc.sub(camRelH).sub(camRelL)
       clip.assign(transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, 1)))
       return
     }
     const p2d = project(absLon, absLat, projParamsV)
-    const rel2d = p2d.sub(U.field.tile_origin_merc).sub(U.field.cam_h).sub(U.field.cam_l)
+    const rel2d = p2d.sub(U.field.tile_origin_merc).sub(camRelH).sub(camRelL)
     // World-copy offset (world-copy fill-gap fix): project() returns the
     // PRIMARY-world absolute X (abs_lon ∈ [−180,180], worldOff-blind), and
     // tile_origin_merc carries (tileWest+worldOff)·DEG2RAD·R while cam_h+cam_l
@@ -456,7 +493,7 @@ const emitPolygonProjectionLadder = (args: {
       // Latitude is untouched (discLat/absLat), shared identically with the outline.
       if (localMerc) {
         const clon = projParamsV.y
-        const relMercX = localMerc.x.sub(U.field.cam_h.x).sub(U.field.cam_l.x)
+        const relMercX = localMerc.x.sub(camRelH.x).sub(camRelL.x)
         const dLon = relMercX.div(deg2rad.mul(earthR))
         const projParamsRel = vec4(projParamsV.x, f32(0), projParamsV.z, projParamsV.w)
         const tileRefLonRel = U.field.tile_origin_merc.x

@@ -228,3 +228,65 @@ describe('#2042 INC-1 — in-VS RTC recombination precision', () => {
     expect(worstSubMeterAbs, 'sub-metre |off| absolute divergence (m)').toBeLessThan(1e-6)
   })
 })
+
+// ═══ #2042 INC-6 — the flat-arm Mercator recombination, same discipline ═══
+//
+// cam_rel = camMerc − tileOriginMerc(+worldOff), recombined in-VS as
+// (camH − originH) + (camL − originL). Same error anatomy as the ECEF case:
+// hi−hi correctly rounded (Sterbenz-exact camera-over-tile), lo−lo + split
+// residues ≤ ~1e-8 m absolute (|merc| ≤ πR ≈ 2e7 ⇒ |lo| ≤ 2e7·2⁻²⁵ ≈ 0.6 m).
+// Pixel conversion is direct on the flat plane: a visible rel spans at most
+// the viewport + the 8×-stretch footprint ≈ ~5000 px of Mercator metres, so
+// err_px = err_m / mpp ≤ ulp-relative(2⁻²⁴) × ~5000 ≈ 3e-4 whole-domain.
+describe('#2042 INC-6 — Mercator cam-rel recombination precision', () => {
+  const R = () => activeBody().sphereR
+  const rawMercX = (lonDeg: number, worldOffDeg: number): number =>
+    (lonDeg + worldOffDeg) * DEG2RAD * R()
+  const rawMercY = (latDeg: number): number =>
+    Math.log(Math.tan(Math.PI / 4 + (clampMercLat(latDeg) * DEG2RAD) / 2)) * R()
+
+  it('camera exactly at the tile origin recombines to an EXACT zero rel', () => {
+    const a = computeTileCameraAnchor(11.25, 47.8125, 0, 11.25, 47.8125)
+    expect(f(a.camMercXH - a.tileMercXH) + f(a.camMercXL - a.tileMercXL)).toBe(0)
+    expect(f(a.camMercYH - a.tileMercYH) + f(a.camMercYL - a.tileMercYL)).toBe(0)
+    expect([a.camXH, a.camXL, a.camYH, a.camYL]).toEqual([0, 0, 0, 0])
+  })
+
+  it('whole-domain sweep incl. world copies: ulp-relative vs truth AND the legacy pair', () => {
+    let worstRel = 0
+    let worstSubMeterAbs = 0
+    let worstPx = 0
+    let worstCase = ''
+    for (const c of buildSweep()) {
+      for (const wo of [0, -360, 360]) {
+        const a = computeTileCameraAnchor(c.west, c.south, wo, c.camLon, c.camLat)
+        // f64 truth — same formulas/op-order as the authority.
+        const truthX = rawMercX(c.camLon, 0) - rawMercX(c.west, wo)
+        const truthY = rawMercY(c.camLat) - rawMercY(c.south)
+        // Shader model: correctly-rounded f32 subtracts of the f32 lanes.
+        const rx = f(a.camMercXH - a.tileMercXH) + f(a.camMercXL - a.tileMercXL)
+        const ry = f(a.camMercYH - a.tileMercYH) + f(a.camMercYL - a.tileMercYL)
+        const legacyX = a.camXH + a.camXL
+        const legacyY = a.camYH + a.camYL
+        const errTruth = Math.hypot(rx - truthX, ry - truthY)
+        const errLegacy = Math.hypot(rx - legacyX, ry - legacyY)
+        const rel = Math.hypot(truthX, truthY)
+        // Direct flat-plane pixel bound: a rel visible on screen subtends
+        // ≤ ~5000 px (viewport + 8×-stretch footprint), so mpp ≥ rel/5000.
+        const px = rel > 1 ? (errTruth / rel) * 5000 : 0
+        if (px > worstPx) {
+          worstPx = px
+          worstCase = `z${c.zoom} wo=${wo} |rel|=${rel.toFixed(0)}m err=${errTruth.toExponential(2)}m`
+        }
+        if (rel > 1) worstRel = Math.max(worstRel, errLegacy / rel)
+        else worstSubMeterAbs = Math.max(worstSubMeterAbs, errLegacy)
+      }
+    }
+    console.log(
+      `[merc-recombine] worst ${worstPx.toExponential(2)} px · rel ${worstRel.toExponential(2)} · ${worstCase}`,
+    )
+    expect(worstPx, `worst vs truth: ${worstCase}`).toBeLessThan(1e-3)
+    expect(worstRel, 'divergence / |rel| (ulp-relative envelope)').toBeLessThan(2 ** -22)
+    expect(worstSubMeterAbs, 'sub-metre |rel| absolute divergence (m)').toBeLessThan(1e-6)
+  })
+})
