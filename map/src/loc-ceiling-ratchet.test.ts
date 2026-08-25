@@ -823,7 +823,13 @@ const CEILINGS: Record<string, number> = {
   // `_installSyntheticEarthSurfaceSource`) and setBackgroundFill-lifecycle.test.ts pins its
   // text to THIS file. Pure extraction, no behaviour line. LOWERED by the extracted count
   // per the doc's Phase 0 mandate — headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/map.ts': 5462,
+  // 5462→5471 (#2116): the glyph keep-alive in `shouldRenderThisFrame`. It sits HERE and
+  // not behind a forwarder because this method is the single authority that gates both
+  // rendering and `idle`, and the sibling symbol-fade keep-alive it stands next to answers
+  // the same question — a second place to decide "is the text finished?" is how #2091 /
+  // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
+  // MEASURED.
+  'map/src/map.ts': 5471,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1032,7 +1038,11 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2167,
+  // 2167→2176 (#2116): `hasPendingGlyphLoads()` — the accessor the map's keep-alive polls.
+  // It cannot be avoided by reaching `pbfRasterizer` directly (private, and the chain's
+  // composition is this stage's business) and it is the same shape as the `getFadeLedger()`
+  // accessor two lines below it. 3 statement lines + its 6-line reason. MEASURED.
+  'map/src/text/text-stage.ts': 2176,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

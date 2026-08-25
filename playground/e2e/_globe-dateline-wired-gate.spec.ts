@@ -215,8 +215,23 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
       return w.__xgisSnapshot ? await w.__xgisSnapshot() : null
     })) as Snapshot | null
 
+  // #2114 — CONVERGE ON THE QUANTITY THE ASSERTION COUNTS. `findBothAntimeridianSides`
+  // skips `t.z < 1` before incrementing `considered` (:86-90), so a tile set of exactly
+  // [{z:0,x:0,y:0}] is `considered === 0` — but without this filter it is also a stable,
+  // NON-EMPTY key, so the poll below declared convergence on it and the spec then threw
+  // "the page did not get as far as requesting one" at a page that had requested one.
+  //
+  // Not a hypothesis: CI job 97942408291 printed `converged=true, 10544ms of the 120000ms
+  // budget, 1 raw tile(s), 0 page error(s)` — one raw tile, converged in 10.5 s, 109 s of
+  // budget left unused. With the filter that read is `''`, the poll keeps waiting, and the
+  // spec either sees the z>=1 tiles arrive or times out honestly with converged=false —
+  // which is the diagnosis the throw's own text asks the reader to make.
+  //
+  // The spec's comment at :80-84 records that the CALLER was de-drifted onto `considered`;
+  // the poll never was. This is that half.
   const tileKey = (s: Snapshot | null): string =>
     (s?.sources.world?.tiles ?? [])
+      .filter((t) => t.z >= 1)
       .map((t) => `${t.z}/${t.x}/${t.y}`)
       .sort()
       .join(',')
