@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 132f241dc1c1bf0e0e721ec51815ca108d0c82c7
+  Generated from: 6ccae6c99be6e053ab949adaf65486cb600c235c
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 132f241dc1c1
+    bun scripts/emit-changelog.ts --since 6ccae6c99be6
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
 - **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
 - **map:** #2042 INC-6 — flat-arm Mercator cam-rel recombination behind the flag ([#2058](https://github.com/X-GIS/X-GIS/pull/2058)) `fe9bf32`
 - **map:** #2042 INC-3 — Show/Frame block declarations + the partition gate ([#2056](https://github.com/X-GIS/X-GIS/pull/2056)) `f4a767d`
@@ -104,6 +105,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** #2042 INC-4b prep — tile-arena grow hook + retired-buffer drain ([#2067](https://github.com/X-GIS/X-GIS/pull/2067)) `c7fb2e3`
 - **render:** non-mercator projection bugs — drape anchor, antimeridian lon wrap, globe overzoom sharpness, oblique seam streaks (#2022 #2023 #2024 #1496) ([#2031](https://github.com/X-GIS/X-GIS/pull/2031)) `2bab527`
 - **map:** emit each source point once per frame ([#2036](https://github.com/X-GIS/X-GIS/pull/2036)) `6be0aee`
 - **map:** keep the loop warm while a LOD transition is still in flight ([#2010](https://github.com/X-GIS/X-GIS/pull/2010)) `86e085d`
@@ -259,6 +261,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **playground:** capture-canvas skill — chrome-free, event-driven map capture for e2e specs ([#2062](https://github.com/X-GIS/X-GIS/pull/2062)) `6ccae6c`
 - **e2e:** make the dateline gate name which failure it saw ([#1981](https://github.com/X-GIS/X-GIS/pull/1981)) `7732050`
 - **e2e:** converge the #1248 size gate instead of sleeping 2000ms ([#1970](https://github.com/X-GIS/X-GIS/pull/1970)) `994015a`
 - **scripts:** close rule (1) of vitest.config.ts's ISOLATED list ([#1979](https://github.com/X-GIS/X-GIS/pull/1979)) `09392e5`
