@@ -490,29 +490,18 @@ export function convertIconProperties(
   }
 }
 
-/** GAP-WARNINGS pass — deferred specific-gap notes (text-writing-mode,
- *  text-max-angle, symbol-z-order, symbol-avoid-edges) plus the consolidated
- *  ignored-properties note. Warning-only: appends to warnings[] in place. */
+/** GAP-WARNINGS pass — deferred specific-gap notes (symbol-avoid-edges) plus
+ *  the consolidated ignored-properties note. Warning-only: appends to
+ *  warnings[] in place. */
 export function convertGapWarnings(
   layer: MapboxLayer,
   layout: Record<string, unknown>,
   paint: Record<string, unknown>,
   warnings: string[],
 ): void {
-  // text-writing-mode: CJK / Arabic vertical text per Mapbox spec
-  // (`horizontal` default / `vertical`). X-GIS' TextStage walks glyph
-  // advances horizontally only; vertical text needs a per-glyph
-  // rotation + advance flip path. Surface specific gap.
-  const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
-  if (
-    Array.isArray(writingModeRaw) &&
-    writingModeRaw.length > 0 &&
-    !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')
-  ) {
-    warnings.push(
-      `Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`,
-    )
-  }
+  // text-writing-mode is now threaded end-to-end (#2051:
+  // label-writing-mode-vertical → LabelDef.writingMode). Emit handled in
+  // convertTextLayoutProperties; no gap warning.
   // text-max-angle is now threaded end-to-end (label-max-angle-N →
   // LabelDef.maxAngle → curved-label angular gate). Emit handled in
   // convertTextLayoutProperties; no gap warning.
@@ -1338,5 +1327,24 @@ export function convertTextLayoutProperties(
     warnings.push(
       `Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`,
     )
+  }
+
+  // text-writing-mode (#2051) — the ordered orientation PRIORITY LIST for CJK
+  // labels (`["horizontal"]` default / `["vertical"]` / both). D7 ships ONE
+  // orientation, so P1 reads the array as a SET: `vertical` anywhere in it
+  // emits `label-writing-mode-vertical` → LabelDef.writingMode, while
+  // `["horizontal"]` and an absent property emit NOTHING — that silence is
+  // what keeps every style not authoring the property byte-identical.
+  // Honouring the priority ORDER needs the horizontal/vertical arbitration of
+  // the design doc §7 and is a recorded `partial` (§14.2), not a silent drop.
+  const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
+  if (Array.isArray(writingModeRaw)) {
+    let vertical = false
+    for (let m of writingModeRaw) {
+      // Per-element v8 literal-wrap unwrap (the text-variable-anchor precedent).
+      while (Array.isArray(m) && m.length === 2 && m[0] === 'literal') m = m[1]
+      if (m === 'vertical') vertical = true
+    }
+    if (vertical) utils.push('label-writing-mode-vertical')
   }
 }
