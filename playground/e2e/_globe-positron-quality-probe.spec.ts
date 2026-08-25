@@ -241,7 +241,6 @@ async function captureThreeArms(
   page: Page,
   hash: string,
   suffix: string,
-  errors: string[],
 ): Promise<{ globeStock: ArmResult; globeDirect: ArmResult; merc: ArmResult }> {
   // 1. globe stock
   await gotoDemo(page, demoUrl(hash, { proj: 'globe' }))
@@ -252,26 +251,32 @@ async function captureThreeArms(
     tiles: await tileZHistogram(page),
   }
 
-  // 2. globe direct — a FRESH page, so `__XGIS_DISABLE_VECTOR_DRAPE` (set via
-  // addInitScript, which persists for every subsequent nav on the page it is
-  // added to) never leaks onto the stock/mercator arms sharing `page`.
-  const directPage = await page.context().newPage()
-  attachErrorCollector(directPage, errors)
-  await installOfflineProxy(directPage, { cacheDir: NET_CACHE })
-  await directPage.addInitScript(() => {
+  // 2. globe direct — SAME page, live-toggled (the _globe-vector-line-drape.spec.ts /
+  // _globe-vector-drape-i2.spec.ts idiom: `_drapeGlobeFills` is recomputed every
+  // render call, so flipping the global + forcing a repaint takes effect immediately,
+  // no reload needed). A first version of this probe opened a FRESH page (`page.context()
+  // .newPage()` + `addInitScript`) for the direct arm instead, keeping BOTH pages'
+  // WebGPU render loops alive at once — that hung `__xgisReady` indefinitely at the
+  // busy 9.70 camera (reproduced twice, unaffected by a 60s→180s budget bump) while
+  // 21.10's much lighter tile set booted fine; SwiftShader's software Vulkan path
+  // appears to livelock under two simultaneous heavy WebGPU contexts in one browser
+  // process. Toggling in place on one page sidesteps the double-context path entirely.
+  await page.evaluate(() => {
     ;(globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE = true
+    ;(window as unknown as Win).__xgisMap?.invalidate?.()
   })
-  await gotoDemo(directPage, demoUrl(hash, { proj: 'globe' }))
-  const globeDirectPng = await captureMapFrame(directPage, {
-    readyTimeoutMs: 120_000,
-    capture: 'clip',
-  })
+  const globeDirectPng = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   writeFileSync(join(OUT, `globe-direct-${suffix}.png`), globeDirectPng)
   const globeDirect: ArmResult = {
-    state: await dumpArmState(directPage),
-    tiles: await tileZHistogram(directPage),
+    state: await dumpArmState(page),
+    tiles: await tileZHistogram(page),
   }
-  await directPage.close()
+  // Clear it before the mercator/pitch60 steps — mercator never consults the flag
+  // (bakesVectorDrape gates on globe/sphere projections only) but a later globe-stock
+  // capture on this same page (the 9.70 pitch-60 arm) must NOT inherit "direct".
+  await page.evaluate(() => {
+    delete (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE
+  })
 
   // 3. mercator control (no proj= — vectors render direct on mercator either way)
   await gotoDemo(page, demoUrl(hash))
@@ -333,7 +338,7 @@ test.describe('Family F — full frames + state dumps', () => {
       attachErrorCollector(page, errors)
       await installOfflineProxy(page, { cacheDir: NET_CACHE })
 
-      const arms = await captureThreeArms(page, cam.hash, cam.id, errors)
+      const arms = await captureThreeArms(page, cam.hash, cam.id)
 
       if (cam.id === '9.70') {
         // Optional pitch-60 horizon-strip look, globe stock only.
@@ -394,7 +399,7 @@ test.describe('Family F — full frames + state dumps', () => {
       attachErrorCollector(page, errors)
       await installOfflineProxy(page, { cacheDir: NET_CACHE })
       const cam = CAMERAS[0]
-      const arms = await captureThreeArms(page, cam.hash, `${cam.id}-dpr2`, errors)
+      const arms = await captureThreeArms(page, cam.hash, `${cam.id}-dpr2`)
       writeFileSync(
         join(OUT, `state-${cam.id}-dpr2.json`),
         JSON.stringify({ camera: cam, dpr: 2, ...arms }, null, 2),
