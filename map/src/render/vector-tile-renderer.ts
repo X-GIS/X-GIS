@@ -2043,7 +2043,9 @@ export class VectorTileRenderer {
    *  strokes when strokes draw at all, no overdraw. */
   private _walkRingFree(
     fillPipeline: RhiPipelineHandle,
-    fillBindGroupLayout: GPUBindGroupLayout,
+    // Opaque on purpose (identity-compared against baseLayout() only) — a
+    // typed GPUBindGroupLayout here would add a raw-WebGPU token (#991).
+    fillBindGroupLayout: object,
     phase: LayerDrawPhase,
     translucentBucket: boolean,
     visibleKeysForClip: number[] | null,
