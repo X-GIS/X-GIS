@@ -297,3 +297,122 @@ describe('#777 IV3-2c — the collision AABB equals the renderer quad footprint'
     expect(box.maxX - box.minX).toBeCloseTo(40, 6) // width untouched at this basis
   })
 })
+
+// ── #2012 INC-4 — TextDraw.groundBasisPivot ────────────────────────────────────
+//
+// The curved line label's renderer contract is the reason this field exists: it
+// sets `anchorX/anchorY = 0` and writes ABSOLUTE screen positions into
+// `glyphOffsets` (the renderer computes `baseX = anchorX + offsets[2i]`), so a
+// basis pivoted on the anchor swings the whole road name around screen pixel
+// (0, 0). That is design §1.4(c), and it is why wiring the curved branch was never
+// a one-line change. Every assertion below is against an INDEPENDENTLY computed
+// affine of the untransformed run rather than against the renderer's own output.
+
+const OFFSET_X = 260
+const OFFSET_Y = 140
+
+/** A curved-label-shaped draw: anchor at the origin, absolute per-glyph offsets,
+ *  a per-glyph rotation — exactly what TextStage's line loop emits. */
+function makeCurvedDraw(
+  groundBasis?: ArrayLike<number>,
+  groundBasisPivot?: readonly [number, number],
+): TextDraw {
+  return {
+    anchorX: 0,
+    anchorY: 0,
+    glyphs: [GLYPH],
+    fontSize: 24,
+    rasterFontSize: 24,
+    color: [0, 0, 0, 1],
+    glyphOffsets: new Float32Array([OFFSET_X, OFFSET_Y]),
+    glyphRotations: new Float32Array([0]),
+    ...(groundBasis !== undefined ? { groundBasis } : {}),
+    ...(groundBasisPivot !== undefined ? { groundBasisPivot } : {}),
+  }
+}
+
+/** The contract about an arbitrary pivot, applied independently. */
+function applyBasisAbout(
+  p: [number, number][],
+  b: ArrayLike<number>,
+  pvx: number,
+  pvy: number,
+): [number, number][] {
+  return p.map(([x, y]) => {
+    const dx = x - pvx,
+      dy = y - pvy
+    return [pvx + dx * b[0]! + dy * b[2]!, pvy + dx * b[1]! + dy * b[3]!] as [number, number]
+  })
+}
+
+const bboxOf = (p: [number, number][]) => ({
+  minX: Math.min(...p.map((q) => q[0])),
+  minY: Math.min(...p.map((q) => q[1])),
+  maxX: Math.max(...p.map((q) => q[0])),
+  maxY: Math.max(...p.map((q) => q[1])),
+})
+
+describe('#2012 INC-4 — TextDraw.groundBasisPivot moves the pivot off the anchor', () => {
+  it('an absent pivot is bit-identical to passing the anchor explicitly', async () => {
+    const ctx = await makeCtx()
+    const implicit = capturedVerts(ctx, makeDraw(PITCH_BEARING_BASIS))
+    const explicit = capturedVerts(ctx, {
+      ...makeDraw(PITCH_BEARING_BASIS),
+      groundBasisPivot: [ANCHOR_X, ANCHOR_Y] as const,
+    })
+    expect(Array.from(explicit)).toEqual(Array.from(implicit))
+  })
+
+  it('a basis on a CURVED draw with NO pivot swings the quad around screen (0,0)', async () => {
+    // The §1.4(c) failure, pinned as the thing the pivot prevents. This is also
+    // the shape of the mandated fail-before cut: force the pivot to (0,0) and the
+    // glyph leaves its position entirely.
+    const ctx = await makeCtx()
+    const plain = positions(capturedVerts(ctx, makeCurvedDraw()))
+    const noPivot = positions(capturedVerts(ctx, makeCurvedDraw(PITCH_BASIS)))
+    near(noPivot, applyBasisAbout(plain, PITCH_BASIS, 0, 0))
+    // The glyph's quad top sits at y ≈ 122 and the basis halves the screen-
+    // vertical axis about the ORIGIN, so it is drawn ~59 px above where it
+    // belongs — a displacement of roughly three glyph heights, not a nuance.
+    const lift = bboxOf(plain).minY - bboxOf(noPivot).minY
+    expect(lift).toBeCloseTo(bboxOf(plain).minY * 0.5, 3)
+    expect(lift).toBeGreaterThan(2 * (bboxOf(plain).maxY - bboxOf(plain).minY))
+  })
+
+  it('the pivot keeps the glyph where it was and only foreshortens its quad', async () => {
+    const ctx = await makeCtx()
+    const plain = positions(capturedVerts(ctx, makeCurvedDraw()))
+    const pivoted = positions(capturedVerts(ctx, makeCurvedDraw(PITCH_BASIS, [OFFSET_X, OFFSET_Y])))
+    near(pivoted, applyBasisAbout(plain, PITCH_BASIS, OFFSET_X, OFFSET_Y))
+    const a = bboxOf(plain),
+      b = bboxOf(pivoted)
+    // Centre held (the quad is symmetric about the glyph position under this
+    // basis to within the bearing offsets), height halved, width untouched.
+    expect(b.maxY - b.minY).toBeCloseTo((a.maxY - a.minY) * 0.5, 3)
+    expect(b.maxX - b.minX).toBeCloseTo(a.maxX - a.minX, 3)
+    // And it stays put, unlike the pivot-less case above.
+    expect(Math.abs((b.minY + b.maxY) / 2 - (a.minY + a.maxY) / 2)).toBeLessThan(6)
+  })
+
+  it('carries the off-diagonal terms too (a diagonal-only basis would hide a dropped term)', async () => {
+    const ctx = await makeCtx()
+    const plain = positions(capturedVerts(ctx, makeCurvedDraw()))
+    const pivoted = positions(
+      capturedVerts(ctx, makeCurvedDraw(PITCH_BEARING_BASIS, [OFFSET_X, OFFSET_Y])),
+    )
+    near(pivoted, applyBasisAbout(plain, PITCH_BEARING_BASIS, OFFSET_X, OFFSET_Y))
+    // Non-vacuity: the pivoted result must differ from the anchor-pivoted one.
+    const anchorPivoted = positions(capturedVerts(ctx, makeCurvedDraw(PITCH_BEARING_BASIS)))
+    expect(pivoted[0]![0]).not.toBeCloseTo(anchorPivoted[0]![0], 1)
+  })
+
+  it('a pivot without a basis changes nothing (the field is inert on its own)', async () => {
+    const ctx = await makeCtx()
+    const plain = capturedVerts(ctx, makeCurvedDraw())
+    const pivotOnly = capturedVerts(ctx, {
+      ...makeCurvedDraw(),
+      groundBasisPivot: [OFFSET_X, OFFSET_Y] as const,
+    })
+    expect(Array.from(pivotOnly)).toEqual(Array.from(plain))
+  })
+})

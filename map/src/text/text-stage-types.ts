@@ -160,10 +160,37 @@ export interface PendingLabel {
 
 export interface PendingLineLabel {
   text: string
-  /** Polyline already projected to screen pixels by the caller. */
+  /** Polyline already projected to screen pixels by the caller. This is the
+   *  polyline the glyph WALK runs on: the live screen run for a viewport-aligned
+   *  label, and the LABEL PLANE (the pitch-0 image of the same samples) once
+   *  `livePolylineX` is present — see it. */
   polylineX: Float32Array
   polylineY: Float32Array
-  /** Distance along the polyline (px) where the label centre sits. */
+  /** #2012 INC-4 (`text-pitch-alignment: map` on the curved branch) — the LIVE
+   *  screen twin of `polylineX/Y`, sharing sample indices with it BY
+   *  CONSTRUCTION (both are projections of the same retained merc samples, and
+   *  the caller abandons the whole run if any sample has no pitch-0 image).
+   *
+   *  Present ⇒ `polylineX/Y` is the label plane and this is the screen. The walk
+   *  — advances, `text-max-angle`, `centerOffsetPx`, the fit test — then measures
+   *  in the plane, which is the space MapLibre lays line symbols out in and the
+   *  space in which glyph spacing along a foreshortened road is uniform; each
+   *  glyph is mapped back to the screen by the index correspondence
+   *  (`lerp(live[i], live[i+1], t)`, exact at every sample). Absent = the
+   *  historical path, where the walk polyline IS the screen. */
+  livePolylineX?: Float32Array
+  livePolylineY?: Float32Array
+  /** #2012 INC-4 — the ground basis for this label, derived at the label's OWN
+   *  ground point (the merc sample the centre offset lands on). Mirror of
+   *  `PendingLabel.groundBasis`, and the same `undefined = billboard` contract:
+   *  the field is omitted whenever the spec does not ground-align the layer, the
+   *  camera is unpitched, or the basis degenerates, and the drawn vertices are
+   *  then bit-identical to the pre-INC-4 output. May be absent while
+   *  `livePolylineX` is present: a run whose basis degenerated still gains the
+   *  label-plane cadence, it just does not lie down. */
+  groundBasis?: ArrayLike<number>
+  /** Distance along the polyline (px) where the label centre sits. Measured in
+   *  the WALK space — the label plane when `livePolylineX` is present. */
   centerOffsetPx: number
   def: LabelDef
   fontKey: string

@@ -272,6 +272,12 @@ export class TextRenderer {
       const gEy = groundBasis !== undefined ? groundBasis[1]! : 0
       const gNx = groundBasis !== undefined ? groundBasis[2]! : 0
       const gNy = groundBasis !== undefined ? groundBasis[3]! : 1
+      // #2012 INC-4 — the point the basis pivots about. The anchor is right for a
+      // point label and WRONG for a curved line label, whose anchor is (0, 0) with
+      // absolute positions in glyphOffsets; see TextDraw.groundBasisPivot.
+      const gPivot = d.groundBasisPivot
+      const gPvX = gPivot !== undefined ? gPivot[0] : d.anchorX
+      const gPvY = gPivot !== undefined ? gPivot[1] : d.anchorY
       // Whole-label rotation around (anchorX, anchorY). Used when
       // glyphRotations isn't set; one trig-pair beats stamping a
       // rotation matrix per quad.
@@ -391,8 +397,8 @@ export class TextRenderer {
         // Skipped wholesale when absent: viewport-aligned labels never touch
         // this arithmetic, so their vertices stay bit-identical (the gate).
         if (groundBasis !== undefined) {
-          const ax = d.anchorX
-          const ay = d.anchorY
+          const ax = gPvX
+          const ay = gPvY
           const tlDx = tlx - ax
           const tlDy = tly - ay
           const blDx = blx - ax

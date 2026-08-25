@@ -168,3 +168,7 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 site/.design-sync-build/
+
+# Session-temporary Playwright probe specs (must live under e2e/ for testDir,
+# but are debugging scratch — never committed; delete after use).
+playground/e2e/_tmp-*.spec.ts

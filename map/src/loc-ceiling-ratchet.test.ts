@@ -281,7 +281,15 @@ const CEILINGS: Record<string, number> = {
   // lanes), the pack block wrapped in if(!skipPack), the __xgisVtrWalkSkips
   // executed-mechanism witness, and the _lastWalkRingFree exemption of the
   // bundle-hit ring-alloc invariant (vacuous under a ring-reader-free walk).
-  'map/src/render/vector-tile-renderer.ts': 5379,
+  // 5379→5397 (#2042 INC-4d): splitFillsCapable (default pipes OR an
+  // eligible per-style split twin) + the stroke clause widened to
+  // split-eligible line variants (splitStrokeEligible).
+  // 5397→5454 (#2042 INC-5b): the qualification extracted into the single
+  // ring-free authority _walkRingFree (shared by renderTileKeys' walk-skip
+  // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
+  // for ring-free walks (PR #2090's measured re-record coupling) + the
+  // opaque-layout-param note (#991).
+  'map/src/render/vector-tile-renderer.ts': 5454,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1014,7 +1022,17 @@ const CEILINGS: Record<string, number> = {
   // metrics-only placeholder is what made every Latin label inkless. The ceiling is
   // lowered to the measured post-hook figure rather than left slack — the extraction
   // paid for the fix's growth, so the win is banked, not spent twice.
-  'map/src/text/text-stage.ts': 2187,
+  // 2187→2167 (#2012 INC-4): the curved-label GLYPH WALK — cumulative arc length,
+  // the fit/clamp, the keep-upright reversal, the per-glyph sample + max-angle gate
+  // and the offsets/rotations fill — moved whole to text/curved-glyph-walk.ts. It is
+  // exactly the code the increment had to change, and inline it could not be gated:
+  // the LABEL-PLANE ↔ SCREEN index correspondence INC-4 introduces is now a pure
+  // function of its two polylines with a unit gate that can be severed on its own.
+  // The file had 2 lines of headroom and the increment needed ~40, so the extraction
+  // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
+  // size rather than being left slack, because headroom is re-justified per phase,
+  // never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2167,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1115,7 +1133,16 @@ const CEILINGS: Record<string, number> = {
   // plus its safety rationale, and the loop-run counter incremented INSIDE the
   // body so the zoom-skip gate's loopRuns === misses assertion measures the skip
   // itself (removing the guard while keeping the counter turns the gate red).
-  'map/src/render/passes/label-pass.ts': 2010,
+  // 2010→1977 (#2012 INC-4): the CURVED LINE dispatch — the per-stop emit body, the
+  // world-lattice cadence, and the run identity (dedupe key / lineId / collisionId)
+  // it feeds — moved to passes/dispatch-curved-line-labels.ts, mirroring how
+  // dispatch-point-labels.ts paid for #777 IV3 (see the note above). The file had
+  // ZERO headroom and INC-4 adds the label-plane projection, the merc sample arrays
+  // and the ground gate here; the extraction pays for all of it. It also stops the
+  // run identity being derived on `text-rotation-alignment: viewport` layers, where
+  // no consumer exists. The ceiling drops to the measured post-prettier size rather
+  // than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/render/passes/label-pass.ts': 1977,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1168,7 +1195,11 @@ const CEILINGS: Record<string, number> = {
   // layout + twin build in build(), the two fields, and fillRhiState's
   // split hand-off. The factory is the layout/pipeline owner, so the
   // descriptor increment lands here by design.
-  'map/src/render/pipeline-factory.ts': 1553,
+  // 1553→1650 (#2042 INC-4d): the lazy per-style split twin registry —
+  // perStyleSplitTwin (emitted-interface eligibility + build-on-first-use),
+  // the two cache maps, the registerFillMaterials info capture, and
+  // fillRhiState's perStyleTwin hand-off.
+  'map/src/render/pipeline-factory.ts': 1650,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
