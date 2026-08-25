@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6ccae6c99be6e053ab949adaf65486cb600c235c
+  Generated from: 2536fd733c8c5215d637b42738b1f98b871ebd75
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6ccae6c99be6
+    bun scripts/emit-changelog.ts --since 2536fd733c8c
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map/shader-dsl:** #2042 INC-4b — split-bind fill family behind __XGIS_SPLIT_BIND ([#2070](https://github.com/X-GIS/X-GIS/pull/2070)) `2536fd7`
 - **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
 - **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
 - **map:** #2042 INC-6 — flat-arm Mercator cam-rel recombination behind the flag ([#2058](https://github.com/X-GIS/X-GIS/pull/2058)) `fe9bf32`
