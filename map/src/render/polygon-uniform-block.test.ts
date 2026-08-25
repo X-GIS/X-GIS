@@ -27,7 +27,7 @@ import {
 const MVP = Float32Array.from({ length: 16 }, (_, i) => (i + 1) * 0.0625)
 
 describe('polygon Uniforms — block ≡ slot writer', () => {
-  it('27-field full pack is byte-identical (incl. u32 pick_id raw word)', () => {
+  it('31-field full pack is byte-identical (incl. u32 pick_id raw word)', () => {
     // ── Frozen reference: the retired slot-arithmetic style ──
     const S = polygonUniformSlots().slot
     const ref = new ArrayBuffer(polygonUniformBytes())
@@ -47,6 +47,11 @@ describe('polygon Uniforms — block ≡ slot writer', () => {
     new Float32Array(ref, S.cam_ecef_off_l * 4, 4).set([0.015, -0.025, 0.035, 0])
     new Float32Array(ref, S.light_dir_ecef * 4, 4).set([0.288, -0.498, 0.996, 1.5])
     new Float32Array(ref, S.globe_eye * 4, 4).set([0.5, -0.5, 0.7071, 0.31])
+    // #2042 INC-1 absolute-anchor lanes (appended after the input pool)
+    new Float32Array(ref, S.tile_ecef_center_h * 4, 4).set([-3010000.5, 4040000.25, 3860000.5, 0])
+    new Float32Array(ref, S.tile_ecef_center_l * 4, 4).set([0.045, -0.055, 0.065, 0])
+    new Float32Array(ref, S.cam_ecef_center_h * 4, 4).set([-3010111.5, 4039888.75, 3859777.5, 1])
+    new Float32Array(ref, S.cam_ecef_center_l * 4, 4).set([-0.075, 0.085, -0.095, 0])
 
     // ── The block pack, same values field-by-field ──
     const block = uniformBlock(POLYGON_U)
@@ -79,6 +84,10 @@ describe('polygon Uniforms — block ≡ slot writer', () => {
       cam_ecef_off_l: [0.015, -0.025, 0.035, 0],
       light_dir_ecef: [0.288, -0.498, 0.996, 1.5],
       globe_eye: [0.5, -0.5, 0.7071, 0.31],
+      tile_ecef_center_h: [-3010000.5, 4040000.25, 3860000.5, 0],
+      tile_ecef_center_l: [0.045, -0.055, 0.065, 0],
+      cam_ecef_center_h: [-3010111.5, 4039888.75, 3859777.5, 1],
+      cam_ecef_center_l: [-0.075, 0.085, -0.095, 0],
     })
 
     expect(block.byteLength).toBe(polygonUniformBytes())

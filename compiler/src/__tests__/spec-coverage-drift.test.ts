@@ -296,7 +296,7 @@ describe('mapbox spec-coverage drift detector', () => {
       'pi / e / ln2',
       'upcase / downcase',
       'to-number / number',
-      'to-string / to-boolean / to-color',
+      'to-string / string / to-boolean / boolean / to-color',
       'rgb / rgba',
       'let / var',
       'interpolate (linear)',

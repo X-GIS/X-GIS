@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 463bb65302ac71eb6160bddc63f47d31fc4bb6a0
+  Generated from: f4a767d6efd3168b08aaee4951cddde7aa37a810
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 463bb65302ac
+    bun scripts/emit-changelog.ts --since f4a767d6efd3
 -->
 
 # Changelog
@@ -27,6 +27,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** #2042 INC-3 — Show/Frame block declarations + the partition gate ([#2056](https://github.com/X-GIS/X-GIS/pull/2056)) `f4a767d`
+- **engine/map:** #2042 INC-2 — persistent TileBlock slot arena + lifecycle ([#2054](https://github.com/X-GIS/X-GIS/pull/2054)) `f94adc1`
+- **map:** #2042 INC-1 — in-VS RTC recombination behind a flag (uniform-split step 1) ([#2048](https://github.com/X-GIS/X-GIS/pull/2048)) `619368a`
+- **compiler:** split/join, to-rgba, and the object assert — the C-tier expression residuals (#2008) ([#2045](https://github.com/X-GIS/X-GIS/pull/2045)) `d214e4e`
 - **compiler+map+data:** source-level scheme — tms row flip at the URL builder and the {-y} template token (#1985) ([#2029](https://github.com/X-GIS/X-GIS/pull/2029)) `41351e6`
 - **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`

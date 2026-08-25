@@ -31,7 +31,8 @@ import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
-import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
+import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
+import { TileUniformArena } from './tile-uniform-arena'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import {
   recordFillDraw,
@@ -245,6 +246,8 @@ export class VectorTileRenderer {
     this._featureBinder.releaseTile(handleKey)
     // #1592 — same eviction key frees the RHI path's per-tile feat_data.
     this._fillVariantsRhi?.releaseTile(handleKey)
+    // #2042 INC-2 — same key frees the tile's persistent TileBlock slots.
+    this._tileUniforms.releaseTile(handleKey)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
@@ -317,6 +320,11 @@ export class VectorTileRenderer {
    *  ring stages, exactly like the raw views this replaces. u32 lanes
    *  (pick_id / light_color_packed) route through the block's raw-word view. */
   private frameBlock = uniformBlock(POLYGON_U)
+  /** #2042 INC-2 — persistent per-(tile × worldCopy) TileBlock slots
+   *  (tile-uniform-arena.ts): packed once at first unclipped draw, freed via
+   *  _releaseTileHook. Nothing binds them until INC-4. Lazy device provider —
+   *  `this.rhi` is assigned in the ctor body, after field initializers. */
+  private readonly _tileUniforms = new TileUniformArena(() => this.rhi)
   /** #599 I2 — dedicated pack block for bakeTileToTexture so the mid-render bake
    *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
    *  the same show's stroke draw reads after the drape). */
@@ -1276,6 +1284,7 @@ export class VectorTileRenderer {
       // (antialias on, gradient inert on this path).
       B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
       B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      this._writeRtcAnchors(anchor)
       B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(opacity)
       B.set.log_depth_fc(this.logDepthFc)
@@ -1599,6 +1608,7 @@ export class VectorTileRenderer {
       B.set.cam_l(anchor.camXL, anchor.camYL)
       B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
       B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
+      this._writeRtcAnchors(anchor)
       B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
       B.set.opacity(layerOpacity)
       B.set.log_depth_fc(this.logDepthFc)
@@ -1974,6 +1984,30 @@ export class VectorTileRenderer {
     return this.uniformRing?.slotCursor() ?? -1
   }
 
+  /** #2042 INC-1 — stage the ABSOLUTE tile/camera ECEF anchors beside the
+   *  legacy cam_ecef_off pair, so the polygon VS can recombine the RTC offset
+   *  in-shader ((tileH − camH) + (tileL − camL); precision bound:
+   *  rtc-recombine-precision.test.ts). cam_ecef_center_h.w is the recombine
+   *  flag — __XGIS_RTC_RECOMBINE, default OFF = legacy CPU-packed offset.
+   *  Called at every frameBlock site that writes cam_ecef_off (the _bakeBlock
+   *  ortho bake stays all-zero → flag 0 → legacy, its dedicated block never
+   *  carries stale lanes). */
+  private _writeRtcAnchors(anchor: TileCameraAnchor): void {
+    const g = globalThis as { __XGIS_RTC_RECOMBINE?: boolean; __XGIS_RTC_RECOMBINE_SKEW?: number }
+    const on = g.__XGIS_RTC_RECOMBINE === true
+    // Test-only witness (the §5 A/B gate's cut-the-mechanism arm): a metre
+    // skew on the tile anchor X moves geometry IFF the VS recombine path is
+    // live — flag ON + skew must change the frame, flag OFF + skew must not.
+    // Distinguishes "both arms byte-equal because the paths agree" from
+    // "byte-equal because the flag never reached the shader" (#996 vacuity).
+    const skew = g.__XGIS_RTC_RECOMBINE_SKEW ?? 0
+    const B = this.frameBlock
+    B.set.tile_ecef_center_h(anchor.tileEcefXH + skew, anchor.tileEcefYH, anchor.tileEcefZH, 0)
+    B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
+    B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
+    B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
+  }
+
   /** Copy a per-tile uniform block into the staging mirror at the given
    *  ring byte offset and extend the dirty range. Replaces the old
    *  per-draw `device.queue.writeBuffer` call inside renderTileKeys. */
@@ -1989,6 +2023,9 @@ export class VectorTileRenderer {
    *  sees the updated ring contents. */
   private flushUniformStaging(): void {
     this.uniformRing?.flush()
+    // #2042 INC-2 — persistent TileBlock slots ride the same flush cadence
+    // (no-op when no tile was newly packed since the last call).
+    this._tileUniforms.flush()
   }
 
   /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
@@ -2009,6 +2046,9 @@ export class VectorTileRenderer {
       // resets all three arenas (keep GPU buffers alive for next upload),
       // and clears the cache + count — the Cluster-A half of the reset.
       this._store.resetForReupload()
+      // #2042 INC-2 — the wholesale cache wipe bypasses _releaseTileHook,
+      // so the TileBlock slots are dropped wholesale too (buffer survives).
+      this._tileUniforms.resetAll()
     }
   }
 
@@ -2222,6 +2262,7 @@ export class VectorTileRenderer {
     this._fillVariantsRhi = null
 
     this.uniformRing?.destroy()
+    this._tileUniforms.destroy()
     this.uniformRing = null
     // #599 I3 — free the globe vector-drape baked-fill textures.
     this._drape?.destroy()
@@ -3785,6 +3826,7 @@ export class VectorTileRenderer {
             translucentBucket,
             undefined,
             show.shaderVariant,
+            sliceLayer,
           )
         })
         if (wasMiss) {
@@ -3817,6 +3859,7 @@ export class VectorTileRenderer {
             translucentBucket,
             undefined,
             show.shaderVariant,
+            sliceLayer,
           )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
@@ -3860,6 +3903,7 @@ export class VectorTileRenderer {
           translucentBucket,
           undefined,
           show.shaderVariant,
+          sliceLayer,
         )
       }
     }
@@ -4057,6 +4101,7 @@ export class VectorTileRenderer {
               translucentBucket,
               fallbackVisibleKeys,
               show.shaderVariant,
+              sliceLayer,
             )
           })
           if (fbWasMiss) {
@@ -4085,6 +4130,7 @@ export class VectorTileRenderer {
               translucentBucket,
               fallbackVisibleKeys,
               show.shaderVariant,
+              sliceLayer,
             )
             this._skipFillDrawForBundle = false
             this._skipStrokeDrawForBundle = false
@@ -4121,6 +4167,7 @@ export class VectorTileRenderer {
             translucentBucket,
             fallbackVisibleKeys,
             show.shaderVariant,
+            sliceLayer,
           )
         }
       } finally {
@@ -4485,6 +4532,12 @@ export class VectorTileRenderer {
      *  callers — including reflection-based unit tests that call this
      *  private method directly — don't silently shift every arg after it. */
     lineVariant: ShaderVariantInfo | null | undefined = null,
+    /** #2042 INC-2 — the slice identity for the persistent TileBlock slots
+     *  (tile-uniform-arena.ts): pairs with each tile's numeric key to form
+     *  the SAME `${tileKey}:${sourceLayer}` identity the store's release
+     *  hook fires with. TRAILING (same rationale as lineVariant above);
+     *  '' = arena inert (reflection-based unit callers). */
+    sliceLayer: string = '',
   ): void {
     // #599 I2 — on the globe sphere route flat fills are DRAPED (baked→sphere
     // grid) by renderGlobeDrapedFills, not drawn here as ECEF chords. `_drape
@@ -4655,6 +4708,24 @@ export class VectorTileRenderer {
         anchor.ecefZL,
         this.currentFillVerticalGradient,
       )
+      this._writeRtcAnchors(anchor)
+      // #2042 INC-2 — establish the persistent TileBlock slot for this
+      // (slice, tile, worldCopy) on its first UNCLIPPED draw (packed once;
+      // freed via _releaseTileHook). Clip-fallback draws (visibleKey ≥ 0)
+      // keep the ring path: their clip_bounds is per visible descendant
+      // (see tile-uniform-arena.ts's header). Nothing binds the slot until
+      // INC-4 — this is the lifecycle + bytes-parity half landing first.
+      if (visibleKey < 0 && sliceLayer !== '') {
+        this._tileUniforms.ensureSlot(
+          sliceLayer,
+          key,
+          worldOff,
+          anchor,
+          TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom),
+          cached.dequantScale,
+          cached.dequantHalf,
+        )
+      }
 
       // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
       // dots the per-vertex ECEF face_normal against this; the raw MapLibre

@@ -868,6 +868,12 @@ export class MapRendererContent {
         pattern_active: 0,
         cam_ecef_off_h: [0, 0, 0, 0],
         cam_ecef_off_l: [0, 0, 0, 0],
+        // #2042 INC-1 anchors all-zero: cam_ecef_center_h.w = 0 keeps the VS
+        // on the legacy cam_ecef_off path (this non-tiled path has no RTC).
+        tile_ecef_center_h: [0, 0, 0, 0],
+        tile_ecef_center_l: [0, 0, 0, 0],
+        cam_ecef_center_h: [0, 0, 0, 0],
+        cam_ecef_center_l: [0, 0, 0, 0],
         light_dir_ecef: [0, 0, 0, 0],
         globe_eye: [ge[0], ge[1], ge[2], ge[3]],
       })

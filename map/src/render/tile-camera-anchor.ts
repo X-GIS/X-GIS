@@ -49,6 +49,25 @@ export interface TileCameraAnchor {
   ecefYL: number
   ecefZH: number
   ecefZL: number
+  /** #2042 INC-1 — the two ABSOLUTE ECEF anchors whose f64 difference IS the
+   *  RTC offset above, each split hi/lo. The polygon VS can recombine
+   *  `off = (tileH − camH) + (tileL − camL)` in-shader (see the uniform-block
+   *  -split plan): the divergence from the CPU-packed pair is ulp-RELATIVE
+   *  (≤ |off|·2⁻²³; measured ≤ 2.3e-4 px worst-case whole-domain, bound
+   *  1e-3) — rtc-recombine-precision.test.ts. Splitting here keeps this
+   *  file the single anchor authority (four callers, one seam). */
+  tileEcefXH: number
+  tileEcefXL: number
+  tileEcefYH: number
+  tileEcefYL: number
+  tileEcefZH: number
+  tileEcefZL: number
+  camEcefXH: number
+  camEcefXL: number
+  camEcefYH: number
+  camEcefYL: number
+  camEcefZH: number
+  camEcefZL: number
 }
 
 /** Compute both camera anchors for one tile draw. Pure; call per tile —
@@ -84,12 +103,24 @@ export function computeTileCameraAnchor(
   const camSin = Math.sin(camLatR)
   const camCos = Math.cos(camLatR)
   const cN = R / Math.sqrt(1 - E2 * camSin * camSin)
-  const offX = tN * tCos * Math.cos(tLonR) - cN * camCos * Math.cos(camLonR)
-  const offY = tN * tCos * Math.sin(tLonR) - cN * camCos * Math.sin(camLonR)
-  const offZ = tN * (1 - E2) * tSin - cN * (1 - E2) * camSin
+  const tileX = tN * tCos * Math.cos(tLonR)
+  const tileY = tN * tCos * Math.sin(tLonR)
+  const tileZ = tN * (1 - E2) * tSin
+  const camX = cN * camCos * Math.cos(camLonR)
+  const camY = cN * camCos * Math.sin(camLonR)
+  const camZ = cN * (1 - E2) * camSin
+  const offX = tileX - camX
+  const offY = tileY - camY
+  const offZ = tileZ - camZ
   const ecefXH = Math.fround(offX)
   const ecefYH = Math.fround(offY)
   const ecefZH = Math.fround(offZ)
+  const tileEcefXH = Math.fround(tileX)
+  const tileEcefYH = Math.fround(tileY)
+  const tileEcefZH = Math.fround(tileZ)
+  const camEcefXH = Math.fround(camX)
+  const camEcefYH = Math.fround(camY)
+  const camEcefZH = Math.fround(camZ)
 
   return {
     camXH,
@@ -104,5 +135,17 @@ export function computeTileCameraAnchor(
     ecefYL: Math.fround(offY - ecefYH),
     ecefZH,
     ecefZL: Math.fround(offZ - ecefZH),
+    tileEcefXH,
+    tileEcefXL: Math.fround(tileX - tileEcefXH),
+    tileEcefYH,
+    tileEcefYL: Math.fround(tileY - tileEcefYH),
+    tileEcefZH,
+    tileEcefZL: Math.fround(tileZ - tileEcefZH),
+    camEcefXH,
+    camEcefXL: Math.fround(camX - camEcefXH),
+    camEcefYH,
+    camEcefYL: Math.fround(camY - camEcefYH),
+    camEcefZH,
+    camEcefZL: Math.fround(camZ - camEcefZH),
   }
 }
