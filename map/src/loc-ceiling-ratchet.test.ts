@@ -1753,7 +1753,15 @@ const CEILINGS: Record<string, number> = {
   // 0 forever despite a correct sphere selection and a correct draw. +23 = a new
   // `globeTilesSelected: number | null` field on `FrameTileCache` (stashed at
   // compute time) + re-setting the diagnostic from it on a cache HIT too.
-  'map/src/render/tile-selection-cache.ts': 1059,
+  // 1059→1073 (#2091): the readiness gate pinned `_czPendingAdvance` on a
+  // target the source could never reach (cz is clamped to `source.maxLevel`
+  // right after the gate, so `cz === target` was unsatisfiable for any source
+  // whose data stops below floor(z)) — `keepLoopWarm` reads that flag, so the
+  // loop re-rendered every frame and the map NEVER fired `idle`. +14 = the
+  // reachability clamp on `target`, the "pending only while an advance is
+  // wanted" clear, and the two lesson comments that keep them from being
+  // "simplified" back out.
+  'map/src/render/tile-selection-cache.ts': 1073,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

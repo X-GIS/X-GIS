@@ -388,17 +388,14 @@ export class TileSelectionCache {
       this._czPendingAdvance = null
     } else {
       cz = this._hysteresisZ
-      // #2091 — the target must be REACHABLE for this source. `cz` is clamped
-      // to `source.maxLevel` right after this gate (see the clamp below), so a
-      // source whose data stops below `floor(z)` (the synthetic earth surface
-      // is maxLevel 0, and it is installed for every globe/background fill)
-      // could never satisfy the `cz === target` clear condition: the gate
-      // stepped cz up, the clamp knocked it back, and `_czPendingAdvance`
-      // stayed pinned forever. `keepLoopWarm` reads that flag, so `_needsRender`
-      // was re-armed every frame and the map NEVER fired `idle` — a permanently
-      // warm render loop on a static camera (battery/CPU, and every first-idle
-      // consumer hung). Clamping the target here is the same single authority
-      // the post-gate clamp uses.
+      // #2091 — the target must be REACHABLE. `cz` is clamped to
+      // `source.maxLevel` right after this gate, so for a source whose data
+      // stops below floor(z) (the synthetic earth surface is maxLevel 0, and
+      // ships with every globe/background fill) `cz === target` was
+      // unsatisfiable: the gate stepped cz up, the clamp knocked it back, and
+      // `_czPendingAdvance` stayed pinned — which `keepLoopWarm` reads, so the
+      // map re-rendered every frame and NEVER fired `idle`. Same clamp
+      // authority as the post-gate line.
       const target = Math.min(Math.floor(z), source.maxLevel)
       let wantAdvance = false
       // Match MapLibre's floor(z) promotion: advance the tile LOD
@@ -430,12 +427,11 @@ export class TileSelectionCache {
         cz = target
         this._czPendingAdvance = null
       }
-      // #2091 — invariant: a pending advance exists only while one is WANTED.
-      // Without this a flag set on an earlier frame (camera crossed up, then
-      // came back down into the hysteresis band) outlived its transition and
-      // kept `keepLoopWarm` — and with it the whole render loop — warm forever.
-      // The step-by-step climb is unaffected: `zoomingIn` holds on every frame
-      // of a climb, so `wantAdvance` stays true until cz reaches target.
+      // #2091 — invariant: a pending advance exists only while one is WANTED,
+      // so a flag armed on an earlier frame (camera crossed up, then came back
+      // into the hysteresis band) cannot outlive its transition. The
+      // step-by-step climb is unaffected: `zoomingIn` holds every frame of a
+      // climb, so `wantAdvance` stays true until cz reaches target.
       if (!wantAdvance) this._czPendingAdvance = null
 
       // Per-layer minzoom skip: layers like protomaps `roads` (z≥6)
