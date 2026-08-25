@@ -117,8 +117,12 @@ describe('#1984 W2 — a raster-dem source emits it too (the other clipping cons
     expect(block).toContain('type: raster-dem')
     expect(block).toContain('bounds: [5, 45, 11, 48]')
     expect(boundsWarnings(warnings)).toEqual([])
-    // Pre-existing raster-dem diagnostics are not in scope and must not move.
-    expect(warnings.some((w) => w.includes('non-default encoding="terrarium"'))).toBe(true)
+    // Pre-existing raster-dem diagnostics are not in scope and must not move by THIS
+    // change. #2003 landed separately since this test was written: encoding: terrarium
+    // is now emitted (not warned) — that is the correct, updated diagnostic set this
+    // bounds emission must not disturb.
+    expect(block).toContain('encoding: terrarium')
+    expect(warnings.some((w) => w.includes('encoding'))).toBe(false)
   })
 })
 
