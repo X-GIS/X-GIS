@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6f825af7ef0fe8ca0089c9aaa4e7416439d98716
+  Generated from: 132f241dc1c1bf0e0e721ec51815ca108d0c82c7
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6f825af7ef0f
+    bun scripts/emit-changelog.ts --since 132f241dc1c1
 -->
 
 # Changelog
@@ -27,6 +27,12 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
+- **map:** #2042 INC-6 — flat-arm Mercator cam-rel recombination behind the flag ([#2058](https://github.com/X-GIS/X-GIS/pull/2058)) `fe9bf32`
+- **map:** #2042 INC-3 — Show/Frame block declarations + the partition gate ([#2056](https://github.com/X-GIS/X-GIS/pull/2056)) `f4a767d`
+- **engine/map:** #2042 INC-2 — persistent TileBlock slot arena + lifecycle ([#2054](https://github.com/X-GIS/X-GIS/pull/2054)) `f94adc1`
+- **map:** #2042 INC-1 — in-VS RTC recombination behind a flag (uniform-split step 1) ([#2048](https://github.com/X-GIS/X-GIS/pull/2048)) `619368a`
+- **compiler:** split/join, to-rgba, and the object assert — the C-tier expression residuals (#2008) ([#2045](https://github.com/X-GIS/X-GIS/pull/2045)) `d214e4e`
 - **compiler+map+data:** source-level scheme — tms row flip at the URL builder and the {-y} template token (#1985) ([#2029](https://github.com/X-GIS/X-GIS/pull/2029)) `41351e6`
 - **compiler/convert:** collect the MapLibre sprite-array form; warn on projection/state/font-faces roots and vector promoteId (#2007) ([#2020](https://github.com/X-GIS/X-GIS/pull/2020)) `14af493`
 - **compiler+map+data:** source-level bounds — grammar, converter emit, and raster/hillshade request clip (#1984) ([#2015](https://github.com/X-GIS/X-GIS/pull/2015)) `a7c7834`
@@ -225,6 +231,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
+- **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
+- **plans:** GeoJSON clustering design — cluster options, synthetic properties, ["accumulated"] (ADR-0012 T3 track) ([#2033](https://github.com/X-GIS/X-GIS/pull/2033)) `90b097b`
+- **plans:** terrain-family design — terrain root, ["elevation"], color-relief, encoding emit (ADR-0012 D5 track) ([#2032](https://github.com/X-GIS/X-GIS/pull/2032)) `f0a45ff`
 - **plans:** D1 design — label ground projection (text-pitch-alignment map mode) ([#2011](https://github.com/X-GIS/X-GIS/pull/2011)) `35a1d89`
 - **adr:** ADR-0012 — full Mapbox style-spec support roadmap ([#1986](https://github.com/X-GIS/X-GIS/pull/1986)) `c3bc932`
 - a poller is an instrument, and its zero lies the same way ([#1974](https://github.com/X-GIS/X-GIS/pull/1974)) `b925394`
@@ -294,6 +304,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### chore
 
+- **skills:** reconstruct the §5 render-verification tooling — compare-parity-pixeldiff + tile-crop-review (#2012 prerequisite 1) ([#2046](https://github.com/X-GIS/X-GIS/pull/2046)) `463bb65`
 - **process:** verify what a session inherited instead of trusting it ([#1934](https://github.com/X-GIS/X-GIS/pull/1934)) `ef415b6`
 - **map:** drop the dead publish-manifest fields that contradict the source layout (#1685) ([#1772](https://github.com/X-GIS/X-GIS/pull/1772)) `4123b8b`
 - **design-sync:** import @xgis/site UI kit into claude.ai/design ([#1754](https://github.com/X-GIS/X-GIS/pull/1754)) `36fd72c`

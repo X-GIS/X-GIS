@@ -59,6 +59,10 @@ export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'slice',
   'index-of',
   'index_of',
+  // #2008 C-tier — split/join string ops + the to-rgba colour coercion.
+  'split',
+  'join',
+  'to_rgba',
   'number-format',
   'number_format',
   'pi',
@@ -347,6 +351,29 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         return haystack.indexOf(needle, from)
       }
       return -1
+    }
+    // #2008 C-tier — Mapbox `["split", input, separator]` / `["join",
+    // input, separator]`. Both are plain JS String#split / Array#join with
+    // NO Mapbox-specific edge-case handling, per the reference
+    // implementation (@maplibre/maplibre-gl-style-spec 24.8.5,
+    // expression/compound_expression.ts:511-520):
+    //   split: (ctx, [s, delim]) => s.evaluate(ctx).split(delim.evaluate(ctx))
+    //   join:  (ctx, [arr, delim]) => arr.evaluate(ctx).join(delim.evaluate(ctx))
+    // MapLibre's static type-checker guarantees string/array inputs reach
+    // `evaluate()`; X-GIS has no such compile-time check, so a
+    // wrong-shaped runtime value fails soft to null (matches the rest of
+    // this switch's defensive convention) instead of throwing.
+    case 'split': {
+      const s = args[0]
+      const delim = args[1]
+      if (typeof s !== 'string' || typeof delim !== 'string') return null
+      return s.split(delim)
+    }
+    case 'join': {
+      const arr = args[0]
+      const delim = args[1]
+      if (!Array.isArray(arr) || typeof delim !== 'string') return null
+      return arr.join(delim)
     }
     case 'number-format':
     case 'number_format': {
@@ -678,6 +705,24 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
         if (typeof a === 'string' && HEX_RE.test(a)) return a
       }
       return null
+    }
+    // #2008 C-tier — Mapbox `["to-rgba", color]` per-feature (dynamic)
+    // path; the CONSTANT case folds to a literal array at convert time
+    // (expr-string.ts toRgbaHandler) and never reaches here. `input` is
+    // whatever the nested colour expression evaluated to — every X-GIS
+    // colour-producing builtin (to_color/rgb/rgba/hsl/hsla) already
+    // yields a hex string, and `resolveColor` also normalises a raw CSS
+    // name (e.g. a feature property literally "red"). Unresolvable →
+    // null: mirrors colorRamp's resolveColor-before-resolveColorToRgba
+    // convention above (that function fails CLOSED to opaque black,
+    // which is right for a GPU branch but wrong for an expression result
+    // — an unresolvable colour must REPORT, not lie).
+    case 'to_rgba': {
+      const input = args[0]
+      const resolved = typeof input === 'string' ? resolveColor(input) : null
+      if (resolved === null) return null
+      const [r, g, b, a] = resolveColorToRgba(resolved)
+      return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255), a]
     }
     case 'rgb':
     case 'rgba': {

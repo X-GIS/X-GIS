@@ -42,6 +42,21 @@ export interface TileCameraAnchor {
   /** Tile origin in Mercator metres (f32-rounded, worldOff applied). */
   tileMercX: number
   tileMercY: number
+  /** #2042 INC-6 — the ABSOLUTE Mercator anchors whose f64 difference IS the
+   *  cam rel above, each split hi/lo: tile origin (worldOff applied — per
+   *  copy, matching the TileBlock arena key) and camera centre (copy-
+   *  independent). The flat-arm analogue of the ECEF pair below: the VS can
+   *  recombine `rel = (camH − originH) + (camL − originL)` with the same
+   *  ulp-relative envelope (rtc-recombine-precision.test.ts, Mercator
+   *  section). tileMercX/Y above stay the single-f32 legacy lanes. */
+  tileMercXH: number
+  tileMercXL: number
+  tileMercYH: number
+  tileMercYL: number
+  camMercXH: number
+  camMercXL: number
+  camMercYH: number
+  camMercYL: number
   /** Ellipsoid-frame ECEF RTC offset, DSFUN hi/lo per axis. */
   ecefXH: number
   ecefXL: number
@@ -49,6 +64,25 @@ export interface TileCameraAnchor {
   ecefYL: number
   ecefZH: number
   ecefZL: number
+  /** #2042 INC-1 — the two ABSOLUTE ECEF anchors whose f64 difference IS the
+   *  RTC offset above, each split hi/lo. The polygon VS can recombine
+   *  `off = (tileH − camH) + (tileL − camL)` in-shader (see the uniform-block
+   *  -split plan): the divergence from the CPU-packed pair is ulp-RELATIVE
+   *  (≤ |off|·2⁻²³; measured ≤ 2.3e-4 px worst-case whole-domain, bound
+   *  1e-3) — rtc-recombine-precision.test.ts. Splitting here keeps this
+   *  file the single anchor authority (four callers, one seam). */
+  tileEcefXH: number
+  tileEcefXL: number
+  tileEcefYH: number
+  tileEcefYL: number
+  tileEcefZH: number
+  tileEcefZL: number
+  camEcefXH: number
+  camEcefXL: number
+  camEcefYH: number
+  camEcefYL: number
+  camEcefZH: number
+  camEcefZL: number
 }
 
 /** Compute both camera anchors for one tile draw. Pure; call per tile —
@@ -71,6 +105,10 @@ export function computeTileCameraAnchor(
   const camRelY = camMercY - tileMercY
   const camXH = Math.fround(camRelX)
   const camYH = Math.fround(camRelY)
+  const tileMercXH = Math.fround(tileMercX)
+  const tileMercYH = Math.fround(tileMercY)
+  const camMercXH = Math.fround(camMercX)
+  const camMercYH = Math.fround(camMercY)
 
   // ── Ellipsoid ECEF RTC: tileEcefCenter − cameraCenter (no worldOff) ──
   const E2 = EARTH.e2
@@ -84,25 +122,57 @@ export function computeTileCameraAnchor(
   const camSin = Math.sin(camLatR)
   const camCos = Math.cos(camLatR)
   const cN = R / Math.sqrt(1 - E2 * camSin * camSin)
-  const offX = tN * tCos * Math.cos(tLonR) - cN * camCos * Math.cos(camLonR)
-  const offY = tN * tCos * Math.sin(tLonR) - cN * camCos * Math.sin(camLonR)
-  const offZ = tN * (1 - E2) * tSin - cN * (1 - E2) * camSin
+  const tileX = tN * tCos * Math.cos(tLonR)
+  const tileY = tN * tCos * Math.sin(tLonR)
+  const tileZ = tN * (1 - E2) * tSin
+  const camX = cN * camCos * Math.cos(camLonR)
+  const camY = cN * camCos * Math.sin(camLonR)
+  const camZ = cN * (1 - E2) * camSin
+  const offX = tileX - camX
+  const offY = tileY - camY
+  const offZ = tileZ - camZ
   const ecefXH = Math.fround(offX)
   const ecefYH = Math.fround(offY)
   const ecefZH = Math.fround(offZ)
+  const tileEcefXH = Math.fround(tileX)
+  const tileEcefYH = Math.fround(tileY)
+  const tileEcefZH = Math.fround(tileZ)
+  const camEcefXH = Math.fround(camX)
+  const camEcefYH = Math.fround(camY)
+  const camEcefZH = Math.fround(camZ)
 
   return {
     camXH,
     camXL: Math.fround(camRelX - camXH),
     camYH,
     camYL: Math.fround(camRelY - camYH),
-    tileMercX: Math.fround(tileMercX),
-    tileMercY: Math.fround(tileMercY),
+    tileMercX: tileMercXH,
+    tileMercY: tileMercYH,
+    tileMercXH,
+    tileMercXL: Math.fround(tileMercX - tileMercXH),
+    tileMercYH,
+    tileMercYL: Math.fround(tileMercY - tileMercYH),
+    camMercXH,
+    camMercXL: Math.fround(camMercX - camMercXH),
+    camMercYH,
+    camMercYL: Math.fround(camMercY - camMercYH),
     ecefXH,
     ecefXL: Math.fround(offX - ecefXH),
     ecefYH,
     ecefYL: Math.fround(offY - ecefYH),
     ecefZH,
     ecefZL: Math.fround(offZ - ecefZH),
+    tileEcefXH,
+    tileEcefXL: Math.fround(tileX - tileEcefXH),
+    tileEcefYH,
+    tileEcefYL: Math.fround(tileY - tileEcefYH),
+    tileEcefZH,
+    tileEcefZL: Math.fround(tileZ - tileEcefZH),
+    camEcefXH,
+    camEcefXL: Math.fround(camX - camEcefXH),
+    camEcefYH,
+    camEcefYL: Math.fround(camY - camEcefYH),
+    camEcefZH,
+    camEcefZL: Math.fround(camZ - camEcefZH),
   }
 }

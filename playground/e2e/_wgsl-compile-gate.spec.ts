@@ -22,6 +22,7 @@ import { test, expect } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { FIXTURES, emitForFixture } from '../../map/src/shaders/dsl/_polygon-fixtures'
 // NOT the `@xgis/map` BARREL (see _shader-math-parity.spec.ts — #765 loader death).
+import { emitPolygonSplitWgsl } from '../../map/src/shaders/dsl/polygon-split'
 import { emitLineWgsl } from '../../map/src/shaders/dsl/line'
 import { emitCompositeWgsl } from '../../map/src/shaders/dsl/line-composite'
 import { emitPointWgsl } from '../../map/src/shaders/dsl/point'
@@ -54,6 +55,11 @@ function allVariants(): Array<{ name: string; wgsl: string }> {
   FIXTURES.filter((fx) => !fx.variant).forEach((fx, i) =>
     out.push({ name: `polygon-base[${i}] ${fx.note ?? ''}`.trim(), wgsl: emitForFixture(fx) }),
   )
+  // #2042 INC-4a — the split-mode (Frame/Show/Tile) polygon module, derived
+  // from the legacy module by IR transform (polygon-split.ts). Nothing binds
+  // it until INC-4b, but its WGSL must be Tint-valid from day one.
+  out.push({ name: 'polygon-split(pick=false)', wgsl: emitPolygonSplitWgsl(null, false) })
+  out.push({ name: 'polygon-split(pick=true)', wgsl: emitPolygonSplitWgsl(null, true) })
   out.push({ name: 'line(pick=false)', wgsl: emitLineWgsl(null, false) })
   out.push({ name: 'line(pick=true)', wgsl: emitLineWgsl(null, true) })
   out.push({ name: 'line-composite', wgsl: emitCompositeWgsl() })

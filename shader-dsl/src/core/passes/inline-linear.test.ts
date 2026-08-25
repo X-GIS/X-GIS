@@ -21,6 +21,8 @@ import {
   toF32,
   toF64,
   If,
+  Loop,
+  Discard,
   type ModuleDecl,
   type FuncDecl,
 } from '../ir/index.js'
@@ -125,7 +127,13 @@ describe('inlineLinearAll — linear multi-statement inlining', () => {
 })
 
 describe('inlineLinearAll — conservative exclusions', () => {
-  it('leaves a control-flow (if) helper intact', () => {
+  // Control flow in the prelude is ADMITTED (it used to be the headline
+  // exclusion). Lifting splices into the call site's OWN block, so a branch stays
+  // a branch and a loop stays a loop — what a lifted body may not do is leave by a
+  // second exit, escape to the caller's control flow, or be impure. Those four
+  // refusals are pinned below, each against a helper that differs from an inlined
+  // one by exactly the statement under test.
+  it('inlines a control-flow (if) helper and preserves its value', () => {
     const branchy = fn('branchy', { x: f32T }, f32T, ({ x }, b) => {
       const r = b.var('r', f32T, f32(0))
       If(x.gt(0), () => {
@@ -143,7 +151,166 @@ describe('inlineLinearAll — conservative exclusions', () => {
         }),
       ],
     })
-    expect(emitModule(inlineLinearAll(m))).toContain('fn branchy')
+    const out = inlineLinearAll(m)
+    expect(emitModule(out)).not.toContain('fn branchy')
+    // BOTH arms — a fold that kept only one would still pass a single-input check.
+    for (const v of [2.5, -2.5, 0]) {
+      expect(compileModule(out).fns.caller(v) as number).toBe(
+        compileModule(m).fns.caller(v) as number,
+      )
+    }
+  })
+
+  it('inlines a LOOP helper — the escape-iteration shape — and preserves its value', () => {
+    // `fp64-mandelbrot`'s escape_f32 in miniature: vars, a bounded loop that
+    // assigns them, one trailing return. The params are read ONLY inside the loop
+    // (`c` in the body, `n` in the CONDITION), which is what makes the arg-temp
+    // probe's depth load-bearing rather than cosmetic.
+    const escape = fn('escape', { c: f32T, n: f32T }, f32T, ({ c, n }, b) => {
+      const z = b.var('z', f32T, f32(0))
+      const it = b.var('it', f32T, f32(0))
+      Loop(
+        f32(0),
+        (j) => j.lt(n),
+        () => {
+          If(z.lt(4), () => {
+            z.assign(z.mul(z).add(c))
+            it.assign(it.add(1))
+          })
+        },
+        1,
+      )
+      b.ret(it.add(z))
+    })
+    const m = module({
+      funcs: [
+        escape,
+        fn('caller', { x: f32T }, f32T, ({ x }, b) => {
+          b.ret(escape({ c: x, n: f32(5) }))
+        }),
+      ],
+    })
+    const out = inlineLinearAll(m)
+    const wgsl = emitModule(out)
+    expect(wgsl).not.toContain('fn escape')
+    expect(wgsl).not.toMatch(/\bescape\(/)
+    for (const v of [-1, -0.5, 0, 0.25, 1]) {
+      expect(compileModule(out).fns.caller(v) as number).toBe(
+        compileModule(m).fns.caller(v) as number,
+      )
+    }
+  })
+
+  it('gives every declaration a lift copies its own instance prefix', () => {
+    // Uniformity, NOT a miscompile guard — severing the nested collection still
+    // passes this, because the builder hoists `var` to function top and the O1
+    // cleanup copy-propagates a nested `let` away before two instances could
+    // collide. What it does pin is that two inline instances of a LOOP helper
+    // produce no repeated declaration and the same values as the un-inlined call.
+    const h = fn('h', { x: f32T }, f32T, ({ x }, b) => {
+      const r = b.var('r', f32T, f32(0))
+      Loop(
+        f32(0),
+        (j) => j.lt(3),
+        () => {
+          const t = b.var('t', f32T, x)
+          t.assign(t.mul(2).add(1))
+          r.assign(r.add(t))
+        },
+        1,
+      )
+      b.ret(r)
+    })
+    const m = module({
+      funcs: [
+        h,
+        fn('caller', { y: f32T }, f32T, ({ y }, b) => {
+          b.ret(h({ x: y }).add(h({ x: y.add(10) })))
+        }),
+      ],
+    })
+    const out = inlineLinearAll(m)
+    const wgsl = emitModule(out)
+    expect(wgsl).not.toContain('fn h')
+    const declared = [...wgsl.matchAll(/^\s*(?:let|var)\s+([A-Za-z0-9_]+)/gm)].map((d) => d[1])
+    expect(new Set(declared).size, `duplicate declaration in\n${wgsl}`).toBe(declared.length)
+    for (const v of [-3, 1, 4]) {
+      expect(compileModule(out).fns.caller(v) as number).toBe(
+        compileModule(m).fns.caller(v) as number,
+      )
+    }
+  })
+
+  it('leaves a helper containing `discard` intact — purity is what licenses the lift', () => {
+    const cut = fn('cut', { x: f32T }, f32T, ({ x }, b) => {
+      If(x.lt(0), () => {
+        Discard()
+      })
+      b.ret(x)
+    })
+    const m = module({
+      funcs: [
+        cut,
+        fn('cf', { y: f32T }, f32T, ({ y }, b) => b.ret(cut({ x: y })), {
+          stage: 'fragment',
+          retAttr: '@location(0)',
+        }),
+      ],
+    })
+    expect(emitModule(inlineLinearAll(m))).toContain('fn cut')
+  })
+
+  it('leaves a helper whose `break` escapes its own loop intact', () => {
+    // A free `break` would bind to whatever loop the CALLER sits in — the one way a
+    // pure body can still rewrite the caller's control flow. (Legal WGSL only
+    // inside a loop/switch, so this is hand-built IR.)
+    const free: FuncDecl = {
+      name: 'freeBreak',
+      params: [{ name: 'x', type: f32T }],
+      ret: f32T,
+      body: [
+        { s: 'var', name: 'r', type: f32T, init: { op: 'param', type: f32T, name: 'x' } },
+        { s: 'break' },
+        { s: 'return', expr: { op: 'varref', type: f32T, name: 'r' } },
+      ],
+    }
+    const caller: FuncDecl = {
+      name: 'caller',
+      params: [{ name: 'y', type: f32T }],
+      ret: f32T,
+      body: [
+        {
+          s: 'return',
+          expr: {
+            op: 'call',
+            type: f32T,
+            fn: 'freeBreak',
+            args: [{ op: 'param', type: f32T, name: 'y' }],
+          },
+        },
+      ],
+    }
+    expect(
+      emitModule(inlineLinearAll({ ...module({ funcs: [] }), funcs: [free, caller] })),
+    ).toContain('fn freeBreak')
+  })
+
+  it('leaves a helper with an EARLY return intact — a second exit needs a result var', () => {
+    const early = fn('early', { x: f32T }, f32T, ({ x }, b) => {
+      If(x.gt(0), () => {
+        b.ret(x)
+      })
+      b.ret(x.neg())
+    })
+    const m = module({
+      funcs: [
+        early,
+        fn('caller', { y: f32T }, f32T, ({ y }, b) => {
+          b.ret(early({ x: y }))
+        }),
+      ],
+    })
+    expect(emitModule(inlineLinearAll(m))).toContain('fn early')
   })
 
   it('leaves a helper called in a for-header intact (unsound to lift)', () => {

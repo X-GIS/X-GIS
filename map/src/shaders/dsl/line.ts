@@ -195,6 +195,19 @@ const TILE = uniformStruct(
     _pad_input_3: vec4fT,
     _pad_input_4: vec4fT,
     _pad_input_5: vec4fT,
+    // #2042 INC-1 — mirror polygon Uniforms' appended tile_ecef_center_h/l +
+    // cam_ecef_center_h/l (the in-VS RTC recombination anchors; the line
+    // shader keeps the CPU-packed cam_ecef_off path, so these are dead
+    // padding here). SIZE-only mirror, same as the input-pool pads above
+    // (polygon-line-uniform-parity).
+    _pad_tile_ecef_center_h: vec4fT,
+    _pad_tile_ecef_center_l: vec4fT,
+    _pad_cam_ecef_center_h: vec4fT,
+    _pad_cam_ecef_center_l: vec4fT,
+    // #2042 INC-6 — mirror polygon Uniforms' appended Mercator anchors
+    // (tile_origin_merc_hl / cam_merc_center_hl). SIZE-only, same as above.
+    _pad_tile_origin_merc_hl: vec4fT,
+    _pad_cam_merc_center_hl: vec4fT,
   },
 )
 
