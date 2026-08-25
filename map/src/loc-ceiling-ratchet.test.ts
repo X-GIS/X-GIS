@@ -259,7 +259,9 @@ const CEILINGS: Record<string, number> = {
   // own file); this is only the seam. Shrinks at INC-5 with the re-walk.
   // 5172→5182 (#2042 INC-6): the two Mercator-anchor writes in
   // _writeRtcAnchors (tile_origin_merc_hl carries the same skew witness).
-  'map/src/render/vector-tile-renderer.ts': 5182,
+  // 5182→5186 (#2042 INC-4b prep): the tile-arena grow-retired drain beside
+  // the ring drain (leak fix — the arena pinned every outgrown buffer).
+  'map/src/render/vector-tile-renderer.ts': 5186,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

@@ -113,6 +113,28 @@ describe('TileUniformArena — lifecycle + leak', () => {
   })
 })
 
+describe('TileUniformArena — grow surface for the split bind path (#2042 INC-4b)', () => {
+  it('setOnGrow fires on creation and every grow; takeRetired surfaces outgrown buffers once', () => {
+    const { device, created } = makeDevice()
+    const a = new TileUniformArena(() => device)
+    let fired = 0
+    a.setOnGrow(() => fired++)
+    expect(a.rhiBuffer()).toBeNull() // no slot established yet — no buffer
+    a.ensureSlot('water', 1, 0, ANCHOR, EXTENT, DQ_SCALE, DQ_HALF)
+    expect(fired, 'initial ensure() must fire the grow hook (first bind build)').toBe(1)
+    expect(a.rhiBuffer()).toBe(created[0])
+    expect(a.takeRetired()).toEqual([]) // nothing outgrown yet
+    // Push past the initial 256-slot capacity to force one doubling grow.
+    for (let t = 2; t <= 257; t++) a.ensureSlot('water', t, 0, ANCHOR, EXTENT, DQ_SCALE, DQ_HALF)
+    expect(fired, 'grow must fire the hook (bind rebuild + bundle invalidation)').toBe(2)
+    expect(a.rhiBuffer()).toBe(created[1])
+    // The outgrown buffer surfaces EXACTLY once — VTR's per-frame drain
+    // drops the ref (ring discipline); a repeat would double-drop.
+    expect(a.takeRetired()).toEqual([created[0]])
+    expect(a.takeRetired()).toEqual([])
+  })
+})
+
 describe('TileUniformArena — TileBlock ↔ polygonU byte parity (the INC-4 contract)', () => {
   it('every TileBlock lane is byte-identical to the same-named polygonU lane for the same tile', () => {
     // Left side: the bytes the arena stages (flush into the fake buffer).

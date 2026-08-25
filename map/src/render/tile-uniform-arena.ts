@@ -29,7 +29,13 @@
 // outside it is simply not arena-resident (INC-4 falls back to the ring for
 // such draws — correctness never depends on residency).
 
-import { UniformSlotArena, uniformBlock, type UniformBlockOf, type RhiDevice } from '@xgis/engine'
+import {
+  UniformSlotArena,
+  uniformBlock,
+  type UniformBlockOf,
+  type RhiBuffer,
+  type RhiDevice,
+} from '@xgis/engine'
 import { tileBlockU } from '../shaders/dsl/tile-block'
 import type { TileCameraAnchor } from './tile-camera-anchor'
 
@@ -39,6 +45,10 @@ const COPY_LANES = 5 // worldOff −2..+2 × 360°
 export class TileUniformArena {
   private arena: UniformSlotArena | null = null
   private block: UniformBlockOf<typeof tileBlockU> | null = null
+  /** #2042 INC-4b — fired after the arena buffer is (re)created. The split
+   *  bind path re-binds its group and invalidates recorded bundles here
+   *  (a bundle baked against the retired buffer must never replay). */
+  private _onGrow: (() => void) | null = null
   /** slice → tileKey → per-copy slot indices (lane = worldOff/360 + 2).
    *  Mirrors GpuTileStore.gpuCache's nested-map shape so the per-tile hot
    *  path stays free of composite-string allocation. */
@@ -65,10 +75,7 @@ export class TileUniformArena {
         this.ensureBlock().std140Stride(),
         256,
         'tile-uniform-arena',
-        // INC-4 wires the real onGrow (bind-group rebuild + bundle
-        // invalidation). Until something binds the buffer, a grow has no
-        // consumer to notify.
-        () => {},
+        () => this._onGrow?.(),
       )
       // Create the GPU buffer now — without this, flush() no-ops forever
       // and every staged slot silently never reaches the GPU (caught by
@@ -161,6 +168,24 @@ export class TileUniformArena {
    *  uniform-ring flush. */
   flush(): void {
     this.arena?.flush()
+  }
+
+  /** #2042 INC-4b — register the grow listener (bind-group rebuild + bundle
+   *  invalidation). Fired for the initial buffer creation too if the arena
+   *  does not exist yet when the consumer registers. */
+  setOnGrow(cb: () => void): void {
+    this._onGrow = cb
+  }
+
+  /** The live arena buffer (null until the first slot is established). */
+  rhiBuffer(): RhiBuffer | null {
+    return this.arena?.rhiBuffer ?? null
+  }
+
+  /** Buffers retired by grows since the last call — destroy them in the
+   *  post-submit safe window (the ring/retired-pool discipline). */
+  takeRetired(): RhiBuffer[] {
+    return this.arena?.takeRetired() ?? []
   }
 
   /** Live slot count — the leak gate's left-hand side. */

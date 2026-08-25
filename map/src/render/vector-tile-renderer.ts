@@ -1809,6 +1809,10 @@ export class VectorTileRenderer {
     // Bounded: the retired pool tops out at log2(maxCap) buffers (a
     // handful, ~MB-scale transient).
     this.uniformRing?.takeRetired()
+    // #2042 INC-4b prep — the tile arena's grow-retired buffers follow the
+    // same drop-refs discipline (same bind-group-capture hazard, same log2
+    // bound); without this drain the arena pins every outgrown buffer forever.
+    this._tileUniforms.takeRetired()
     // Tile-buffer eviction is DEFERRED to the start of the next frame.
     // The bucket scheduler calls render() multiple times per frame, so an
     // eviction in call N could destroy buffers still bound by encoded-but-
