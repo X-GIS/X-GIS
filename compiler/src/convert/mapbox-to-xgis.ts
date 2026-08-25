@@ -45,6 +45,7 @@ import {
   validateLayerIdCollisions,
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
+import { convertTerrain } from './terrain'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
 
@@ -202,8 +203,10 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   fog / light / terrain / transition / imports — Mapbox v3
-  //                additions, none implemented.
+  //   fog / light / transition / imports — Mapbox v3
+  //                additions, none implemented. (`terrain` moved out of this list in
+  //                #2095 — the block is now parsed + emitted, with its own precise
+  //                warning below instead of the generic one here.)
   //
   // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
   // omitted — they're host-integration concerns (the playground's
@@ -249,7 +252,6 @@ export function convertMapboxStyle(
   const gapFields = [
     'fog',
     'lights',
-    'terrain',
     'sky',
     'transition',
     'imports',
@@ -471,6 +473,18 @@ export function convertMapboxStyle(
         reasons,
       })
     }
+  }
+
+  // ── Top-level `terrain` block (#2095, T2 Phase 2) ───────────────────
+  // References a source (by id), so it is emitted right after the Sources loop
+  // above — keeps every source-referencing root concern grouped together in the
+  // emitted text. (Unlike background it does not validate against sourcesObj —
+  // Phase 2 is converter-only and a dangling reference is left to the runtime,
+  // same as an unvalidated layer.source today.)
+  const terrainBlock = convertTerrain(style.terrain, warnings)
+  if (terrainBlock) {
+    lines.push(terrainBlock)
+    lines.push('')
   }
 
   // ── Background layer (Mapbox `background` type) ────────────────────
