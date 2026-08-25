@@ -93,7 +93,11 @@ async function bootArm(browser: Browser, baseURL: string, arm: Arm): Promise<Arm
     ;(globalThis as { __XGIS_SPLIT_BIND_SKEW?: boolean }).__XGIS_SPLIT_BIND_SKEW = a.skew
     ;(globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS = true
   }, arm)
-  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1#1.5/20/140`, {
+  // adaptive=0 (#1620): the quality ladder reads SwiftShader as a struggling
+  // machine and its notch can differ between arms — a cross-arm A/B needs the
+  // scale pinned (the capture-canvas template carries it; step-3 zoom-out
+  // measured 25k px of pure tier divergence before this pin).
+  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1&adaptive=0#1.5/20/140`, {
     waitUntil: 'domcontentloaded',
   })
   console.log(`[split-parity] boot(${JSON.stringify(arm)}): navigated, load-settling`)
