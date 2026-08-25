@@ -182,6 +182,15 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
       ;(globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF = true
     })
   }
+  // #2042 INC-5 A/B arm: `XGIS_SPLIT_BIND=1` enables the three-range
+  // split bind (and with it the per-tile walk-skip), so the sweep can
+  // measure the encode slope flag-OFF vs flag-ON on one commit. The
+  // factory reads the flag ONCE at build() → must be set pre-boot.
+  if (process.env.XGIS_SPLIT_BIND === '1') {
+    await page.addInitScript(() => {
+      ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = true
+    })
+  }
 
   const rows: Array<{
     n: number

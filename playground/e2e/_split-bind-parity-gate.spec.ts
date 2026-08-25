@@ -194,10 +194,11 @@ async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
   return out
 }
 
-const splitDrawCount = (page: Page): Promise<{ fills: number; strokes: number }> =>
+const splitDrawCount = (page: Page): Promise<{ fills: number; strokes: number; skips: number }> =>
   page.evaluate(() => ({
     fills: (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0,
     strokes: (globalThis as { __xgisVtrSplitStrokeDraws?: number }).__xgisVtrSplitStrokeDraws ?? 0,
+    skips: (globalThis as { __xgisVtrWalkSkips?: number }).__xgisVtrWalkSkips ?? 0,
   }))
 
 test('#2042 INC-4b — split-bind fills match legacy; the split path provably executes and is read', async ({
@@ -251,6 +252,17 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
     splitDraws.strokes,
     'split arm recorded ZERO split STROKE draws — the line rebind never engaged (INC-4c vacuous)',
   ).toBeGreaterThan(0)
+  // Executed-mechanism witness half 3 (#2042 INC-5): the walk-skip actually
+  // engaged — parity alone cannot distinguish "skip ran, bytes identical"
+  // from "skip never qualified" (the assertion-that-failed-either-way class).
+  expect(
+    splitDraws.skips,
+    'split arm recorded ZERO walk-skips — the INC-5 pack bypass never engaged; its parity is vacuous',
+  ).toBeGreaterThan(0)
+  expect(
+    legacyDraws.skips,
+    'legacy arm recorded walk-skips — the flag gate leaks into the pack path',
+  ).toBe(0)
   console.log(
     `[split-parity] splitDraws: legacy=${JSON.stringify(legacyDraws)} split=${JSON.stringify(splitDraws)}`,
   )

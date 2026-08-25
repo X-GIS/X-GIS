@@ -223,6 +223,54 @@ projCenterLon, projCenterLat)` — the cam halves are tile-independent), then
      class (N unfiltered constant-colour fill layers, no strokes) — run the
      sweep flag-OFF vs flag-ON on the same commit, record both slopes on #1190.
 
+   _Implemented (2026-08-25) — one deviation from the design above:_ the show/
+   frame lanes are seeded by the FIRST tile's full pack (`packedOnce`), not by a
+   dedicated pre-loop pack with a `computeTileCameraAnchor(0,0,0,…)` — the first
+   tile's pack already writes every show/frame lane the span-copy lifts (show
+   lanes are per-show constants, frame lanes per-frame constants, so WHICH tile
+   seeds them is immaterial), and reusing it avoids a second anchor-math path
+   that could drift from the packer. Mechanics as landed:
+   - `splitWalkSkip` per-call qualification (VTR, above the tile loop): split
+     state live, real slice, `visibleKeysForClip === null` (primary path ⇒
+     every `visibleKey < 0`), base layout, no fill/line pattern, no per-feature
+     extrude, `!translucentLines`, no composer line variant, no overdraw. Under
+     these, the mat table proves every fill resolves to `eff.flat`/`eff.ground`
+     (per-style ⇒ feature layout, pattern/extrude ⇒ excluded) and every queued
+     stroke is opaque/pick — i.e. EVERY draw of the call is split-bound and the
+     ring slot has no reader for a skipped tile.
+   - Per tile after the first: `offsetOf` (resident?) → `syncShow`/`syncFrame`
+     (stamp-guarded no-ops after the first tile) → `bindGroup()` → skip the
+     WHOLE pack + `allocUniformSlot` + `stageUniformSlot` (`if (!skipPack)`
+     wraps the pack block; `slotOffset`/`currentTileBg` hoisted). Non-resident
+     copies fall back to the full pack for that tile only, which also runs
+     `ensureSlot` — so a tile's FIRST unclipped draw always packs and its slot
+     exists before any skip can trigger.
+   - Stroke queue entries on skipped tiles carry `slotOffset = 0`; harmless —
+     the split stroke branch replaces group 0 entirely, and under the
+     qualification every queued stroke takes it (`sTileOff ≥ 0` + the drain's
+     `strokeSplitBg` resolve conditions are all implied by `splitWalkSkip`).
+   - Bundle coherence as designed: growth → `_onSplitRebind` (bind-group retire
+     - `bundleCache.invalidateAll()`); residency drift between record and
+       replay changes ring ADVANCEMENT → the existing replay guard re-encodes.
+   - Pinned: `tile-uniform-arena-wiring.test.ts` now pins BOTH `offsetOf`
+     sites (walk-skip gated on `splitWalkSkip && packedOnce`; pack-path resolve
+     on `visibleKey < 0` + slice) and every qualification term.
+   - **Gate-caught defect (2026-08-25, predicted then witnessed):** the
+     bundle-hit ring-alloc invariant (`_bundleWalkAllocs`, #1190) compares the
+     hit re-walk's alloc count against the record frame's — a proxy for "baked
+     ring dynamic offsets still align". A walk-skip record frame packs fresh
+     tiles (`1 + k` allocs) and the next hit's re-walk skips them (`1`), so
+     arm B threw `[XGIS INVARIANT] bundle hit re-walk allocated 1 ring slots
+where the encoded bundle recorded 2` and the render loop halted. The
+     proxy is VACUOUS under `splitWalkSkip` — the bundle bakes zero per-tile
+     ring readers (even the seed tile's ring stage is write-only) — so the
+     invariant is now exempted exactly there (`_lastWalkRingFree`, published
+     by every call; key equality ⇒ identical qualification inputs ⇒ the
+     exemption is stable across record and hit). The fallback-path invariant
+     site is untouched (clipped walks can never qualify). The §5 gate asserts
+     `__xgisVtrWalkSkips > 0` on the split arm so "skip engaged" is witnessed,
+     not assumed.
+
 6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
    are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
    restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
