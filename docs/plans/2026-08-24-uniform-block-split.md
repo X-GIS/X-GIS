@@ -198,6 +198,31 @@ showOff]` threading through `recordFillDraw` (ascending 7 < 10 < 11 keeps
      counters (`__xgisVtrSplitDraws`, `__xgisVtrSplitStrokeDraws`).
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
    ~0.19 toward the selection+key floor; record on #1190 and re-scope the issue.
+
+   _Design (recorded 2026-08-25, pre-implementation):_
+   - **Per-show qualification, decided once per renderTileKeys call:** the walk's
+     per-tile pack + ring stage is skippable only when EVERY draw of the call is
+     split-bound — split state present, base layout (constant fill), no pattern,
+     no extrude, no overdraw, and (for the queued strokes) non-translucent solid.
+     A qualifying show packs its SHOW lanes once BEFORE the tile loop, syncs
+     show+frame once (frame anchors via ONE `computeTileCameraAnchor(0, 0, 0,
+projCenterLon, projCenterLat)` — the cam halves are tile-independent), then
+     per tile does ONLY: ensureSlot/offsetOf (arena hit path) → recordTileFill
+     with splitBind → stroke queue with tileOff. Skipped per tile: the anchor
+     trig, every frameBlock.set.*, allocUniformSlot, stageUniformSlot.
+   - **Non-resident fallback stays per-tile:** an exotic copy (offsetOf −1)
+     falls back to the full legacy pack+stage for THAT tile only.
+   - **Bundle-key coherence is free:** the replay guard already validates ring
+     ADVANCEMENT (`_ringCursorForBundleKey() − keyState.ringCursor`, VTR ~3931).
+     A skipped walk advances the ring by 0 at record AND replay; a residency
+     change between record and replay changes the advancement → the existing
+     guard forces a re-encode. `ringCursor` leaves BundleKeyState only when a
+     frame has NO legacy ring consumers — measure first, retire in a follow-up
+     if the sweep shows mixed frames are rare (INC-5b).
+   - **Measurement:** `_perf-encode-scaling-sweep` draws EXACTLY the covered
+     class (N unfiltered constant-colour fill layers, no strokes) — run the
+     sweep flag-OFF vs flag-ON on the same commit, record both slopes on #1190.
+
 6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
    are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
    restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
