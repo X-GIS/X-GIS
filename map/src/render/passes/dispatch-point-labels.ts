@@ -9,107 +9,78 @@
 // THE GROUND BASIS, in one paragraph. A label whose resolved
 // `text-pitch-alignment` is `map` lies IN the ground plane: it foreshortens and
 // tilts with the camera instead of standing up. `groundBasisAt` derives the
-// screen-space images of the anchor's ground axes by composing the live
-// projector with the SAME projection's pitch-0 inverse, which is what makes
-// "unpitched labels do not move" a property of the code rather than of a test
-// (see text/ground-basis.ts). Everything downstream — the collision AABB, the
-// quad corners, the perspectiveScale exclusion — has been in place since #1462;
-// this is the producer that was missing.
+// screen-space images of the label's ground axes as the ratio of the live and
+// pitch-0 forward Jacobians of the SAME projection, taken at the label's own
+// lon/lat, which is what makes "unpitched labels do not move" a property of the
+// code rather than of a test (see text/ground-basis.ts). Everything downstream —
+// the collision AABB, the quad corners, the perspectiveScale exclusion — has been
+// in place since #1462; this is the producer.
 
 import type { LabelDef } from '@xgis/compiler'
 import { resolvePitchAlignment } from '@xgis/compiler'
-import type { Pitch0Unprojector, Pitch0View } from '../../camera/pitch0-unproject'
+import { makeGroundProjector, type FlatGroundView } from '../../camera/pitch0-unproject'
 import { groundBasisAt, isIdentityBasis, type GroundBasis } from '../../text/ground-basis'
 
-/** Screen-space projector for a lon/lat, or null when the point is not on screen
- *  / the projection has no image for it. */
-export type ProjectLonLat = (lon: number, lat: number) => [number, number] | null
-
-/** Derives a label's ground basis, or `undefined` when it must stay a billboard.
- *  `undefined` is the signal the whole chain is built around: the field is then
- *  omitted, the renderer takes its skip path, and the vertices are bit-identical
- *  to what shipped before IV3 (#1442 proved that). */
-export type GroundBasisFor = (
-  def: LabelDef,
-  anchorScreenX: number,
-  anchorScreenY: number,
-  dpr: number,
-) => GroundBasis | undefined
-
-/** The linearization radius handed to `groundBasisAt`, in device px.
+/** Derives a label's ground basis from the label's own ground point, or
+ *  `undefined` when it must stay a billboard. `undefined` is the signal the whole
+ *  chain is built around: the field is then omitted, the renderer takes its skip
+ *  path, and the vertices are bit-identical to what shipped before IV3 (#1442
+ *  proved that).
  *
- *  It should be the label's own extent — its quad half-diagonal (#1424's stated
- *  limit: a basis is exact only over the range it spans). The dispatch site
- *  cannot know that: the quad is sized in text-stage from `sizePx`, long after
- *  `addLabel` returns, and all the caller holds is the anchor. So this
- *  approximates it from the font size, which is the term `sizePx` is built from
- *  and is within a small factor of the half-diagonal for any real label.
- *
- *  The approximation is safe rather than merely convenient, and the reason is
- *  worth stating: the basis is a first derivative of a smooth projection, so
- *  over the tens of px a glyph quad spans it barely varies — the error from
- *  probing at 12 px instead of 40 px is far below the sub-pixel scale at which
- *  a wrong basis would be visible. What is NOT safe is a probe of zero or a
- *  non-finite one, which `groundBasisAt` rejects outright rather than
- *  propagating as NaN into every vertex.
- */
-function probePxFor(def: LabelDef, dpr: number): number {
-  const size = def.size
-  return Number.isFinite(size) && size! > 0 ? size! * dpr : 16 * dpr
-}
+ *  Takes lon/lat rather than the screen anchor: the basis is a property of the
+ *  ground point, and a label's world copies (`projectLonLatCopies` fans an anchor
+ *  out across ±360°) are the same ground point seen twice, so they share one. */
+export type GroundBasisFor = (def: LabelDef, lon: number, lat: number) => GroundBasis | undefined
 
 /** Build the per-frame ground-basis producer.
  *
- *  `pitch0` must outlive the frame — it owns a matrix/inverse pair and a cache
- *  whose entire point is that a pure tilt is a HIT, so one per map (a WeakMap on
- *  the pass, matching how the pass already holds per-host state), never one per
- *  frame.
+ *  `liveMvp` must be the SAME matrix the label anchors were placed through
+ *  (`getViewForProjection(...).matrix`), `pitch0Mvp` its pitch-forced-to-0 twin
+ *  (`Pitch0Unprojector.matrix`), and `flat` the SAME projection constants
+ *  `makeLabelProjectors` was handed — pairing the basis with any other frame
+ *  would put the quad in a different one from its own anchor.
  *
  *  Returns `undefined` — the billboard path — for every label the spec does not
- *  ground-align, and also whenever the basis cannot be derived at all: the
- *  azimuthal discs and the globe have no pitch-0 lon/lat (`unprojectToLonLat`
- *  returns null there), and an anchor on the horizon degenerates. None of those
- *  are patched with a per-projection fallback; see the two-authorities note at
- *  the head of text/ground-basis.ts. */
+ *  ground-align, for the globe (`flat` is absent there: projType 7 renders through
+ *  the ECEF projector and is deferred with its reason in §3.2 of the design), and
+ *  whenever the basis degenerates. None of those is patched with a per-projection
+ *  fallback; see the two-authorities note at the head of text/ground-basis.ts. */
 export function makeGroundBasisFor(
-  view: Pitch0View & { readonly pitch: number },
+  view: { readonly pitch: number },
+  liveMvp: Float32Array,
+  pitch0Mvp: Float32Array,
   canvasW: number,
   canvasH: number,
-  projectLonLat: ProjectLonLat,
-  pitch0: Pitch0Unprojector,
+  flat: FlatGroundView | undefined,
 ): GroundBasisFor {
-  return (def, anchorScreenX, anchorScreenY, dpr) => {
-    // AN UNPITCHED CAMERA SHORT-CIRCUITS, and it does so on `pitch` rather than
-    // on the computed basis. Mathematically the two are the same test — at pitch
-    // 0 the projector IS the inverse of the pitch-0 unprojector, so the basis is
-    // exactly [1,0,0,1]. Numerically they are not: the round trip runs through an
-    // f32 MVP and an f32 invert, and the identity comes back off by up to
-    // **1.995e-6** (measured across zoom 2–18, latitude 0–70, bearings 0/37/90/180
-    // and four anchor positions). That is ~2000× `isIdentityBasis`'s 1e-9 default,
-    // so the computed test would say "not identity", a basis would be supplied,
-    // the renderer would walk its transform path, and the no-regression rung —
-    // unpitched frames bit-identical to before IV3 (#1442) — would fail on pure
-    // float noise.
+  // The globe has no map plane to lie in; withhold before building anything.
+  if (flat === undefined) return () => undefined
+  const projectLive = makeGroundProjector(liveMvp, canvasW, canvasH, flat)
+  const projectPitch0 = makeGroundProjector(pitch0Mvp, canvasW, canvasH, flat)
+  return (def, lon, lat) => {
+    // AN UNPITCHED CAMERA SHORT-CIRCUITS, and it does so on `pitch` rather than on
+    // the computed basis. Under the ratio construction the two really are the same
+    // test — at pitch 0 the pitch-0 matrix IS the live matrix element for element
+    // (pitch0-unproject.test.ts pins that), so `projectLive` and `projectPitch0`
+    // are the same function on the same floats and the basis is EXACTLY [1,0,0,1],
+    // which `isIdentityBasis` then withholds below. The predecessor could not say
+    // that: it composed an f32 invert, and the identity came back off by up to
+    // 1.995e-6 — ~2000× the 1e-9 epsilon — so reading the camera was the only
+    // exact test available. Keeping it is now about COST (six projections per
+    // label, on every unpitched frame, to reach a foregone conclusion) and about
+    // keeping the no-regression rung — unpitched frames bit-identical to before
+    // IV3 (#1442) — independent of any float argument at all.
     //
-    // Widening the epsilon to straddle that floor is the tripwire CLAUDE.md §12
-    // warns about: it would be a number chosen to make a test pass, and it would
-    // silently swallow a real small tilt too. Reading the camera instead is exact
-    // and needs no tolerance. `Camera.pitch` is the accessor-gated one, so a
-    // `pitchLocked` projection (the azimuthal discs) reads 0 and lands here — which
-    // is right, since those have no pitch-0 inverse to compose against anyway.
+    // Widening `isIdentityBasis`'s epsilon instead of reading the camera stays the
+    // tripwire CLAUDE.md §12 warns about: it would be a number chosen to make a
+    // test pass, and it would silently swallow a real small tilt too.
     if (!(view.pitch > 0)) return undefined
     // The spec chain, from the SHARED authority the converter's runtime-gap
     // warning uses (compiler/src/ir/label-alignment.ts) — so a label the
     // converter reported as ground-aligned is exactly the set handled here.
     if (resolvePitchAlignment(def.placement, def.rotationAlignment, def.pitchAlignment) !== 'map')
       return undefined
-    const basis = groundBasisAt(
-      anchorScreenX,
-      anchorScreenY,
-      probePxFor(def, dpr),
-      (sx, sy) => pitch0.unprojectToLonLat(view, sx, sy, canvasW, canvasH, dpr),
-      projectLonLat,
-    )
+    const basis = groundBasisAt(lon, lat, projectLive, projectPitch0)
     if (basis === null) return undefined
     // An unpitched camera yields exactly the identity by construction. Supplying
     // it would be a no-op that still walks the renderer's transform path; omit
@@ -153,7 +124,6 @@ export interface PointLabelDeps {
    *  it stays per-frame-per-layer exactly as it did inline. */
   nextPairKey: () => string
   groundBasisFor: GroundBasisFor
-  dpr: number
 }
 
 /** Dispatch one point feature's label (and its paired icon) at every visible
@@ -185,7 +155,9 @@ export function dispatchPointLabel(
     // #1081 — this copy's perspective distance-attenuation factor
     // (projectLonLatCopies tuple slot 3); shared by the label and its icon.
     const ps = projected[2]
-    const basis = deps.groundBasisFor(featDef, projected[0], projected[1], deps.dpr)
+    // Derived at the label's OWN ground point, so every world copy of this
+    // feature gets the same basis — they are one ground point seen twice.
+    const basis = deps.groundBasisFor(featDef, anchorLon, anchorLat)
     deps.addLabel(
       featDef.text,
       props,
