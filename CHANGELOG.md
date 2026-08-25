@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: f94adc12f3f0b7d5995d5600a6d2d4c62f1ffcf4
+  Generated from: f4a767d6efd3168b08aaee4951cddde7aa37a810
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since f94adc12f3f0
+    bun scripts/emit-changelog.ts --since f4a767d6efd3
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** #2042 INC-3 — Show/Frame block declarations + the partition gate ([#2056](https://github.com/X-GIS/X-GIS/pull/2056)) `f4a767d`
 - **engine/map:** #2042 INC-2 — persistent TileBlock slot arena + lifecycle ([#2054](https://github.com/X-GIS/X-GIS/pull/2054)) `f94adc1`
 - **map:** #2042 INC-1 — in-VS RTC recombination behind a flag (uniform-split step 1) ([#2048](https://github.com/X-GIS/X-GIS/pull/2048)) `619368a`
 - **compiler:** split/join, to-rgba, and the object assert — the C-tier expression residuals (#2008) ([#2045](https://github.com/X-GIS/X-GIS/pull/2045)) `d214e4e`
