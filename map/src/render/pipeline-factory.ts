@@ -47,7 +47,7 @@ import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { isOverdrawActive } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { buildShader } from './polygon-shader-cache'
+import { buildShader, toComposerVariant } from './polygon-shader-cache'
 import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
 import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import {
@@ -56,7 +56,7 @@ import {
   buildPatternFillMaterials,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import type { Material } from '@xgis/engine'
+import type { Material, RhiPipelineHandle } from '@xgis/engine'
 
 // ═══ Polygon shader emit ═══
 //
@@ -124,6 +124,23 @@ export class PipelineFactory {
    *  `__XGIS_SPLIT_BIND` (read once at build); null keeps every draw on the legacy path. */
   private _fillSplitMaterials: { flat: Material; ground: Material } | null = null
   private _fillSplitLayout: GPUBindGroupLayout | null = null
+  /** #2042 INC-4d — per-style split twin cache, keyed like _fillPerStyle (one
+   *  entry per per-style pipeline). `null` = the style is INELIGIBLE (its
+   *  composed module needs group-0 bindings the split layout lacks — feat_data,
+   *  palette atlas/sampler, compute — or reads a lane outside the partition),
+   *  cached so the derivation check runs once per style. Twins build LAZILY on
+   *  first split-qualified use: an eager emit per style would re-create the F4
+   *  boot waste registerFillMaterials removed. Same lifetime discipline as
+   *  _fillPerStyle (factory-lifetime; no destroy path). */
+  private _fillPerStyleSplit = new Map<
+    RhiPipelineHandle,
+    { mat: Material; variant: number } | null
+  >()
+  /** Variant + pipeline-set back-reference for the lazy build above. */
+  private _fillPerStyleInfo = new Map<
+    RhiPipelineHandle,
+    { variant: ShaderVariantInfo; pipelines: CachedPipeline }
+  >()
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
@@ -167,9 +184,79 @@ export class PipelineFactory {
               flat: this._fillSplitMaterials.flat,
               ground: this._fillSplitMaterials.ground,
               layout: this._fillSplitLayout,
+              perStyleTwin: (p) => this.perStyleSplitTwin(p),
             }
           : null,
     }
+  }
+
+  /** #2042 INC-4d — resolve (building lazily) the split twin for a per-style
+   *  fill pipeline; null = ineligible, keep the legacy bind. Eligibility is
+   *  decided from the DERIVED module itself: it must bind EXACTLY the three
+   *  split ranges at group(0) — a composed module with extra group-0 bindings
+   *  (feat_data, palette atlas/sampler, compute) has no home in the split
+   *  layout, and a read outside the Frame/Show/Tile partition throws in the
+   *  rewriter — both cache `null` (the same fallback class as pattern fills).
+   *  The eligibility derivation (compose + rewrite, no emit) is cheap; the
+   *  full emit + O2 + Material build runs ONCE per eligible style, on its
+   *  first split-qualified use (a few ms on the render thread, the same
+   *  lazy-build discipline as LineDraper.splitMat). */
+  perStyleSplitTwin(pipeline: RhiPipelineHandle): { mat: Material; variant: number } | null {
+    if (!this._fillSplitLayout) return null
+    const hit = this._fillPerStyleSplit.get(pipeline)
+    if (hit !== undefined) return hit
+    const info = this._fillPerStyleInfo.get(pipeline)
+    if (!info) {
+      this._fillPerStyleSplit.set(pipeline, null)
+      return null
+    }
+    const pickEnabled = isPickEnabled()
+    const cv = toComposerVariant(info.variant)
+    // Eligibility is decided on the EMITTED interface, not the IR decl list:
+    // the module statically declares sprite_atlas/samp (bindings 5/6) which
+    // the emit prunes when unused — exactly how the default split twins fit
+    // the three-range layout. A variant whose emitted WGSL still binds
+    // anything at group(0) beyond 7/10/11 (feat_data, palette atlas/sampler,
+    // compute), or whose derivation reads outside the partition (the
+    // rewriter throws), stays on the legacy bind.
+    let wgsl: string | null = null
+    try {
+      wgsl = emitPolygonSplitWgsl(cv, pickEnabled)
+      for (const m of wgsl.matchAll(/@group\(0\)\s*@binding\((\d+)\)/g)) {
+        const b = Number(m[1])
+        if (b !== 7 && b !== 10 && b !== 11) {
+          wgsl = null
+          break
+        }
+      }
+    } catch {
+      wgsl = null
+    }
+    const { pipelines } = info
+    const keys = [
+      pipelines.fillPipeline,
+      pipelines.fillPipelineFallback,
+      pipelines.fillPipelineGround,
+      pipelines.fillPipelineGroundFallback,
+    ]
+    if (wgsl === null) {
+      for (const k of keys) this._fillPerStyleSplit.set(k, null)
+      return null
+    }
+    const { flat, ground } = buildFlatFillMaterials({
+      rhi: this.ctx.rhi,
+      shader: wgsl,
+      format: this.ctx.format,
+      sampleCount: getSampleCount(),
+      bindGroupLayout: this._fillSplitLayout,
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled,
+    })
+    this._fillPerStyleSplit.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+    return this._fillPerStyleSplit.get(pipeline) ?? null
   }
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
@@ -206,6 +293,16 @@ export class PipelineFactory {
     this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
     this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
     this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+    // #2042 INC-4d — remember the variant per per-style pipeline so the lazy
+    // split-twin build (perStyleSplitTwin) can derive its module on demand.
+    for (const p of [
+      pipelines.fillPipeline,
+      pipelines.fillPipelineFallback,
+      pipelines.fillPipelineGround,
+      pipelines.fillPipelineGroundFallback,
+    ]) {
+      this._fillPerStyleInfo.set(p, { variant, pipelines })
+    }
 
     // #1252 — a data-driven fill that ALSO extrudes needs a feature-layout
     // extrude Material twin (fs_fill_extrude re-lights the feat_data colour).

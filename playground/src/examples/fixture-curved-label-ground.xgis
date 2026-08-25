@@ -1,0 +1,70 @@
+xgis 1
+
+/* #2012 INC-4 — `text-pitch-alignment: map` on the CURVED (tangent-rotated) line
+ * branch: the payload of ADR-0012 D1.
+ *
+ * Purpose-built, and it has to be, for a different reason than its point sibling
+ * (fixture-label-pitch-alignment.xgis). On a real basemap the resolving layers ARE
+ * line-placed road names — bright / liberty both route `waterway_line_label`,
+ * `water_name_line_label` and the three `highway-name-*` layers here — so the
+ * branch is not unexercised. But reaching them needs the network, and a §5 gate
+ * that cannot run offline degrades into the downscaled eyeball CLAUDE.md §5
+ * forbids. The geometry is EMBEDDED, not fetched and not pushed after run(): the
+ * inline source takes the VirtualPMTiles route (#1837), so these lines arrive as
+ * real vector TILES and the labels take the vector-tile curved branch — the one
+ * INC-4 wires — rather than the inline `placeInlineLineLabels` path (INC-3's).
+ *
+ * Six roads: two due EAST, two due NORTH, two DIAGONAL. The axis-aligned pairs sit
+ * where a ground basis is diagonal, the diagonal pair where its off-diagonal terms
+ * bite, so one frame exercises both.
+ *
+ * Two label layers over the SAME lines, so one frame carries both arms of the
+ * experiment and a diff cannot be explained by different geometry. BOTH take the
+ * curved branch — `label-along-path` with the default (auto ⇒ map) rotation
+ * alignment — so the ONLY difference between them is the ground alignment:
+ *
+ *   ground_roads    label-pitch-alignment-map       walks the label plane, lies in it
+ *   billboard_roads label-pitch-alignment-viewport  walks the screen, stands up
+ *
+ * Under pitch the two must diverge — in glyph SPACING (the label-plane walk is
+ * uniform on the ground, the screen walk uniform on the glass) as much as in quad
+ * shape. At pitch 0 they must be IDENTICAL: the pitch-0 twin of the polyline IS
+ * the polyline, and the basis is the identity and is withheld, so the ground arm
+ * takes exactly the pre-INC-4 path. That equality is the no-regression rung the
+ * whole design protects, and it is a hash rung, not a tolerance.
+ */
+
+source roads {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    {"type": "Feature", "properties": {"name": "EASTROADS"}, "geometry": {"type": "LineString", "coordinates": [[126.77902, 37.79012], [126.80302, 37.79012]]}},
+    {"type": "Feature", "properties": {"name": "EASTROADN"}, "geometry": {"type": "LineString", "coordinates": [[126.77902, 37.79332], [126.80302, 37.79332]]}},
+    {"type": "Feature", "properties": {"name": "NORTHROADW"}, "geometry": {"type": "LineString", "coordinates": [[126.78502, 37.78572], [126.78502, 37.79772]]}},
+    {"type": "Feature", "properties": {"name": "NORTHROADE"}, "geometry": {"type": "LineString", "coordinates": [[126.79702, 37.78572], [126.79702, 37.79772]]}},
+    {"type": "Feature", "properties": {"name": "DIAGONALROADA"}, "geometry": {"type": "LineString", "coordinates": [[126.78002, 37.78672], [126.80202, 37.79672]]}},
+    {"type": "Feature", "properties": {"name": "DIAGONALROADB"}, "geometry": {"type": "LineString", "coordinates": [[126.78002, 37.79672], [126.80202, 37.78672]]}}
+  ] }
+}
+
+/* The carriageway the names ride on. A label lying in the ground plane only reads
+ * as such NEXT TO the road it follows. */
+layer road_lines {
+  source: roads
+  | stroke-#9aa0a6 stroke-8
+}
+
+layer ground_roads {
+  source: roads
+  | label-[.name] label-along-path label-spacing-250
+    label-color-#ffffff label-size-20
+    label-halo-2 label-halo-color-#000000
+    label-pitch-alignment-map
+}
+
+layer billboard_roads {
+  source: roads
+  | label-[.name] label-along-path label-spacing-250
+    label-color-#ffd400 label-size-20
+    label-halo-2 label-halo-color-#000000
+    label-pitch-alignment-viewport
+}

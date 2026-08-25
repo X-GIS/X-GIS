@@ -234,22 +234,44 @@ export function mercOffsetToScreenOffset(
 }
 
 /** Point + tangent at along-polyline screen offset `s` on an already-projected
- *  (physical px) polyline. Writes `[x, y, tangentDeg]` into `out` (a caller-owned
- *  holder — this runs once per spacing stop, so returning a fresh object showed up
- *  in the hot loop) and returns false when `s` runs past the polyline's end.
+ *  (physical px) polyline. Writes `[x, y, tangentDeg, segIdx, segT]` into `out` (a
+ *  caller-owned holder — this runs once per spacing stop, so returning a fresh
+ *  object showed up in the hot loop) and returns false when `s` runs past the
+ *  polyline's end. Slots 3-4 are the CORRESPONDENCE itself (see below): the
+ *  containing segment and the fraction into it, so a caller holding a THIRD array
+ *  parallel to the run (the label pass holds the samples' mercator metres) can
+ *  read its own value at the same place without walking the run again.
  *
  *  The tangent is the containing segment's direction in degrees CCW from +x;
  *  `icon-rotation-alignment: map` (OFM road_oneway arrows) rotates by it.
  *
  *  Moved out of label-pass.ts's curved branch to sit beside the placement walk that
- *  shares its geometry — the two are the same "where along this polyline" question. */
+ *  shares its geometry — the two are the same "where along this polyline" question.
+ *
+ *  THE INDEX CORRESPONDENCE (#2012 INC-4, design §3.4(3)). Under
+ *  `text-pitch-alignment: map` the curved branch walks the LABEL PLANE — the
+ *  pitch-0 image of the same polyline — so the cadence is uniform in the space
+ *  MapLibre lays out in instead of uniform on a foreshortened screen. `twinX` /
+ *  `twinY` are that walk's LIVE screen twin: the second projection of the SAME
+ *  retained samples, so index `i` names one ground point in both arrays BY
+ *  CONSTRUCTION (the plane run is filled from the live run's own merc samples,
+ *  and the whole run is abandoned if any sample has no pitch-0 image). The
+ *  offset `s` is then measured on `px`/`py` and the point + tangent are READ OFF
+ *  the twin: `lerp(twin[i], twin[i+1], t)` — no inverse, no extra projection, and
+ *  exact at every sample rather than to first order. Absent (every viewport-
+ *  aligned label, every unpitched frame) → the twin IS `px`/`py` and the walk is
+ *  byte-identical to what it always did. */
 export function sampleAlongPolyline(
   px: Float32Array,
   py: Float32Array,
   pn: number,
   s: number,
-  out: [number, number, number],
+  out: [number, number, number, number, number],
+  twinX?: Float32Array,
+  twinY?: Float32Array,
 ): boolean {
+  const qx = twinX ?? px
+  const qy = twinY ?? py
   let acc = 0
   for (let i = 0; i < pn - 1; i++) {
     const dx = px[i + 1]! - px[i]!
@@ -257,9 +279,13 @@ export function sampleAlongPolyline(
     const segLen = Math.sqrt(dx * dx + dy * dy)
     if (acc + segLen >= s) {
       const t = segLen > 0 ? (s - acc) / segLen : 0
-      out[0] = px[i]! + dx * t
-      out[1] = py[i]! + dy * t
-      out[2] = (Math.atan2(dy, dx) * 180) / Math.PI
+      const qdx = qx[i + 1]! - qx[i]!
+      const qdy = qy[i + 1]! - qy[i]!
+      out[0] = qx[i]! + qdx * t
+      out[1] = qy[i]! + qdy * t
+      out[2] = (Math.atan2(qdy, qdx) * 180) / Math.PI
+      out[3] = i
+      out[4] = t
       return true
     }
     acc += segLen
