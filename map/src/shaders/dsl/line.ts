@@ -1221,7 +1221,7 @@ export const vsLine = fn(
       cosLon: gCosLon,
       sinLat: gSinLat,
       cosLat: gCosLat,
-      baseEcef: gBaseEcef as unknown as Node<'vec3<f32>'>,
+      baseEcef: gBaseEcef,
     }
     type GlobeFrame = typeof FRAME
 
