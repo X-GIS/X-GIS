@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: d9e1a1212641d3fdb655b002cee536a310ee0443
+  Generated from: 11b23e438fd9a3c7bce2cddca94c5bdb846e1a96
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since d9e1a1212641
+    bun scripts/emit-changelog.ts --since 11b23e438fd9
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** #2042 INC-4d — per-style fill split twins (the compiled-style class) ([#2090](https://github.com/X-GIS/X-GIS/pull/2090)) `11b23e4`
 - **map:** #2042 INC-5 — walk-skip: arena-resident tiles bypass the per-tile pack ([#2083](https://github.com/X-GIS/X-GIS/pull/2083)) `d9e1a12`
 - **compiler:** CJK vertical P1 — text-writing-mode wires to LabelDef.writingMode, zero pixels (#2051) ([#2078](https://github.com/X-GIS/X-GIS/pull/2078)) `0ffea94`
 - **compiler/convert:** emit raster-dem encoding (+ custom unpack factors) — the one missing hop (#2003) ([#2066](https://github.com/X-GIS/X-GIS/pull/2066)) `bbc58f0`
