@@ -15,6 +15,7 @@ export type { Diagnostic }
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
 import type { SourceBounds } from './source-bounds'
+import type { SourceClusterFields } from './source-cluster'
 import type { TileRowScheme } from './source-scheme'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
@@ -55,11 +56,11 @@ export interface Scene {
 
 /**
  * A data source definition. The `raster-dem` DEM fields (encoding / tileSize / custom
- * unpack factors) live on {@link RasterDemSourceFields}, a sibling file (LOC ceiling).
- * The `coverage` ramp/range display axes are LAYER paint — {@link RenderNodeCoveragePaint}
- * on RenderNode (INC-D); a `coverage` source is data-only.
+ * unpack factors) live on {@link RasterDemSourceFields}, the point-clustering axes on
+ * {@link SourceClusterFields} — sibling files (LOC ceiling). The `coverage` ramp/range
+ * axes are LAYER paint ({@link RenderNodeCoveragePaint}, INC-D); a coverage source is data-only.
  */
-export interface SourceDef extends RasterDemSourceFields {
+export interface SourceDef extends RasterDemSourceFields, SourceClusterFields {
   name: string
   type: string // 'geojson', 'vector', 'raster', 'raster-dem', 'binary'
   url: string

@@ -2,6 +2,7 @@ import type { MapboxSource } from './types'
 import { sanitizeId } from './utils'
 import { checkSourceBounds } from '../ir/source-bounds'
 import { isTileScheme, schemeRejectReason } from '../ir/source-scheme'
+import { convertSourceCluster } from './sources-cluster'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
@@ -488,32 +489,15 @@ export function convertSource(
       warnings.push(`raster-dem source "${id}" has no URL.`)
     }
   } else if (src.type === 'geojson') {
-    // Mapbox cluster fields (`cluster: true` etc.) instruct MapLibre
-    // to KDBush-cluster the point features client-side. X-GIS has no
-    // clustering pipeline today, so a style authoring point clusters
-    // gets unclustered points — visible as crowded marker pile-ups
-    // where MapLibre would show one numbered super-marker. Warn so
-    // the gap is visible.
-    const clusterCfg = src as {
-      cluster?: unknown
-      clusterRadius?: unknown
-      clusterMaxZoom?: unknown
-      clusterMinPoints?: unknown
-      clusterProperties?: unknown
-    }
-    // Treat null the same as undefined per Mapbox spec — both mean
-    // "field omitted" and shouldn't trigger the cluster warning.
-    if (
-      clusterCfg.cluster === true ||
-      (clusterCfg.clusterRadius !== undefined && clusterCfg.clusterRadius !== null) ||
-      (clusterCfg.clusterMaxZoom !== undefined && clusterCfg.clusterMaxZoom !== null) ||
-      (clusterCfg.clusterMinPoints !== undefined && clusterCfg.clusterMinPoints !== null) ||
-      (clusterCfg.clusterProperties !== undefined && clusterCfg.clusterProperties !== null)
-    ) {
-      warnings.push(
-        `GeoJSON source "${id}" declares clustering (cluster / clusterRadius / clusterMaxZoom / clusterMinPoints / clusterProperties); X-GIS has no point-clustering pipeline today, so all features render at their authored positions. Pre-cluster the data at the host until native cluster support lands.`,
-      )
-    }
+    // ── Source-level point clustering (#2050) ────────────────────────
+    //
+    // Mapbox `cluster` + its four tuning fields instruct MapLibre to aggregate the point
+    // features into supercluster hierarchies. They now REACH the IR: `convertSourceCluster`
+    // renders the source-block lines (and every diagnostic for a value that cannot be
+    // carried), `lowerSource` claims the same five keys through the shared `CLUSTER_KEY`
+    // table, and P2/P3 of the clustering track build the index that reads them. The lines
+    // are appended at the END of this arm, after the type/url/data emit.
+    const clusterLines = convertSourceCluster(id, src, warnings)
     // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
     // simplification), `buffer` (tile-clip padding), `lineMetrics`
     // (line-progress accessor for line-gradient), `maxzoom`,
@@ -616,6 +600,7 @@ export function convertSource(
         `GeoJSON source "${id}" data field must be a URL string or inline object; got ${typeof data}.`,
       )
     }
+    lines.push(...clusterLines) // cluster / clusterRadius / … (#2050)
   } else if (src.type === 'image' || src.type === 'video') {
     lines.push(`  // SKIPPED: ${src.type} source not yet supported by X-GIS engine`)
     warnings.push(
