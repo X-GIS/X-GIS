@@ -629,6 +629,10 @@ export class LineRenderer {
     translucent: boolean = false,
     patternActive: boolean = false,
     variant?: ShaderVariantInfo | null,
+    /** #2042 INC-4c — the split-bind stroke draw: `tileBindGroup` is then the
+     *  three-range split group and group 0 binds `[tileOff, showOff]`.
+     *  TRAILING (existing positional callers unshifted); null = legacy. */
+    split: { tileOff: number; showOff: number } | null = null,
   ): void {
     if (segmentCount === 0) return
     // Overdraw-debug v1: SDF stroke pipeline targets the swapchain
@@ -655,6 +659,7 @@ export class LineRenderer {
         layerOffset,
         pattern: patternActive,
         segmentCount,
+        split,
       },
       translucent ? 'max' : isPickEnabled() ? 'pick' : 'opaque',
     )
@@ -730,6 +735,15 @@ export class LineRenderer {
   // Replaces the prior single-draper field so a layer with a stage-block
   // stroke gets its own pipeline without disturbing every other line layer.
   private _lineDrapers = new Map<string, LineDraper>()
+
+  /** #2042 INC-4c — the factory's split group-0 layout, handed down by VTR
+   *  (setFillRhi / setLineRenderer wiring). Reaches every draper — the ones
+   *  already cached AND the ones built later. */
+  private _splitLayout: GPUBindGroupLayout | null = null
+  setSplitLayout(layout: GPUBindGroupLayout): void {
+    this._splitLayout = layout
+    for (const d of this._lineDrapers.values()) d.setSplitLayout(layout)
+  }
   private ensureLineDraper(variant?: ShaderVariantInfo | null): LineDraper {
     const gl2 = this.rhi.backend === 'webgl2'
     // #1605 Phase 3 — variant pipelines now run on BOTH backends. The prior
@@ -755,6 +769,7 @@ export class LineRenderer {
       gl2 ? (null as unknown as GPUBindGroupLayout) : this.layerBgl(),
       composerVariant,
     )
+    if (this._splitLayout) d.setSplitLayout(this._splitLayout)
     this._lineDrapers.set(key, d)
     return d
   }

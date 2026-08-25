@@ -310,6 +310,9 @@ export class VectorTileRenderer {
    *  consumed before the call returns. */
   private readonly _strokeQueueTiles: GPUTile[] = []
   private readonly _strokeQueueSlots: number[] = []
+  /** #2042 INC-4c — per-queued-tile split-bind TileBlock byte offset (−1 =
+   *  legacy ring bind for that tile). Parallel to the two arrays above. */
+  private readonly _strokeQueueTileOff: number[] = []
   /** Companion scratch for the per-call stroke offset pair (single-line
    *  `[lineLayerOffset]` vs road-casing `[lineLayerOffset, gap]`). */
   private readonly _strokeOffsetsScratch: number[] = []
@@ -466,8 +469,12 @@ export class VectorTileRenderer {
     // #717 dual-instance mirror; released in destroy(). See fill-rhi-slot.ts.
     mirrorFillRhi(state)
     this._fillRhi = state
-    // #2042 INC-4b — hand the factory's split layout to the bind path.
-    if (state?.split) this._splitBind?.setLayout(state.split.layout)
+    // #2042 INC-4b/4c — hand the factory's split layout to the bind path
+    // and to the line renderer's draper family (stroke split twins).
+    if (state?.split) {
+      this._splitBind?.setLayout(state.split.layout)
+      this.lineRenderer?.setSplitLayout(state.split.layout)
+    }
   }
 
   /** #2042 INC-4b — a split-range buffer was (re)created: retire the split
@@ -2077,6 +2084,9 @@ export class VectorTileRenderer {
   setLineRenderer(lr: LineRenderer): void {
     const wasNull = this.lineRenderer === null
     this.lineRenderer = lr
+    // #2042 INC-4c — either order of setFillRhi/setLineRenderer must leave
+    // the draper family holding the split layout.
+    if (this._fillRhi?.split) lr.setSplitLayout(this._fillRhi.split.layout)
     // If tiles were uploaded before LineRenderer was available they have no
     // segment buffers — force re-upload so outlines/lines render on next frame.
     if (wasNull && this._store.cacheCount() > 0) {
@@ -4656,8 +4666,10 @@ export class VectorTileRenderer {
     // wall fill at the same pixel.
     const strokeQueueTiles = this._strokeQueueTiles
     const strokeQueueSlots = this._strokeQueueSlots
+    const strokeQueueTileOff = this._strokeQueueTileOff
     strokeQueueTiles.length = 0
     strokeQueueSlots.length = 0
+    strokeQueueTileOff.length = 0
     // Per-call invariants shared by the per-tile light-rotation + clip_bounds
     // math below (the anchor math itself lives in tile-camera-anchor.ts).
     const DEG2RAD = Math.PI / 180
@@ -4989,6 +5001,37 @@ export class VectorTileRenderer {
       // the end of this renderTileKeys invocation.
       this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
 
+      // #2042 INC-4b/4c — resolve the split-bind draw for this tile ONCE, at
+      // tile-loop scope: the fill draw consumes it below, and the stroke
+      // queue records its tileOff so the deferred stroke pass can bind the
+      // same three-range group. Default flat/stroke only (not extrude /
+      // overdraw), unclipped, arena-resident copy. The span-copy write path
+      // lifts the show/frame lanes from the live legacy frameBlock bytes
+      // (byte-parity by construction); deliberately NOT gated on the bundle
+      // skip flags: replayed bundles read these buffers, so the per-frame
+      // content refresh must run whether or not new commands are recorded.
+      let splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null
+      if (
+        this._fillRhi?.split &&
+        this._splitBind &&
+        visibleKey < 0 &&
+        sliceLayer !== '' &&
+        !isOverdrawActive(this.rhi.caps)
+      ) {
+        const tileOff = this._tileUniforms.offsetOf(sliceLayer, key, worldOff)
+        if (tileOff >= 0) {
+          const showOff = this._splitBind.syncShow(
+            this.frameBlock.buffer,
+            sliceLayer,
+            this.currentPickId & 0xffff,
+            this.frameCount,
+          )
+          this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+          const bg = this._splitBind.bindGroup()
+          if (bg) splitBind = { bg, tileOff, showOff }
+        }
+      }
+
       // Polygon fills — skipped in 'strokes' phase (offscreen line-only RT).
       // ALSO skipped when render() flagged this layer as having an
       // effectively-invisible fill (no shader variant + zero alpha). Common
@@ -5086,6 +5129,7 @@ export class VectorTileRenderer {
           if (drawStrokes) {
             strokeQueueTiles.push(cached)
             strokeQueueSlots.push(slotOffset)
+            strokeQueueTileOff.push(splitBind ? splitBind.tileOff : -1)
           }
           continue
         }
@@ -5100,38 +5144,10 @@ export class VectorTileRenderer {
           : useExtrudedPipe
             ? fillPipelineExtruded!
             : fillPipeline
-        // #2042 INC-4b — resolve the split-bind draw for a qualifying fill:
-        // default flat fill (not extrude / overdraw), unclipped, arena-
-        // resident world copy. The span-copy write path lifts the show/frame
-        // lanes from the live legacy frameBlock bytes (byte-parity by
-        // construction — the same packer wrote them); recordFillDraw routes
-        // the draw through the split twins when non-null. Deliberately NOT
-        // gated on _skipFillDrawForBundle: a replayed bundle's split draws
-        // read these buffers, so the per-frame content refresh must run
-        // whether or not new commands are recorded.
-        let splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null
-        if (
-          this._fillRhi?.split &&
-          this._splitBind &&
-          !useExtrudedPipe &&
-          visibleKey < 0 &&
-          sliceLayer !== '' &&
-          !isOverdrawActive(this.rhi.caps)
-        ) {
-          const tileOff = this._tileUniforms.offsetOf(sliceLayer, key, worldOff)
-          if (tileOff >= 0) {
-            const showOff = this._splitBind.syncShow(
-              this.frameBlock.buffer,
-              sliceLayer,
-              this.currentPickId & 0xffff,
-              this.frameCount,
-            )
-            this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
-            const bg = this._splitBind.bindGroup()
-            if (bg) splitBind = { bg, tileOff, showOff }
-          }
-        }
         // Bundle-compatible draw recording extracted to `recordTileFill`.
+        // (The split-bind resolve happens once at tile-loop scope above —
+        // extrude draws pass it through and recordFillDraw's !bindZBuffer
+        // guard keeps them on the legacy bind.)
         // The 6 GPU commands below (setPipeline, setBindGroup,
         // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
         // subset that GPURenderBundleEncoder accepts. Encapsulating them
@@ -5177,6 +5193,7 @@ export class VectorTileRenderer {
       ) {
         strokeQueueTiles.push(cached)
         strokeQueueSlots.push(slotOffset)
+        strokeQueueTileOff.push(splitBind ? splitBind.tileOff : -1)
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -5205,6 +5222,30 @@ export class VectorTileRenderer {
       // draws. strokeQueue side effects (push from per-tile loop) remain
       // populated for any non-bundle path or stats.
       const currentLineTileBg2 = this._bindGroups.baseGroup()!
+      // #2042 INC-4c — one split resolve per stroke emit: the show/frame
+      // CONTENT is already frame-stamped (syncs are idempotent per frame);
+      // this re-derives the show offset + the three-range bind group for the
+      // deferred pass. Translucent (MAX-blend) and pattern strokes keep the
+      // legacy bind — the split layout carries no sprite bindings and the
+      // max material never split-routes.
+      let strokeSplitBg: GPUBindGroup | null = null
+      let strokeSplitShowOff = 0
+      if (
+        this._fillRhi?.split &&
+        this._splitBind &&
+        sliceLayer !== '' &&
+        !translucentLines &&
+        !this._linePatternActiveForShow
+      ) {
+        strokeSplitShowOff = this._splitBind.syncShow(
+          this.frameBlock.buffer,
+          sliceLayer,
+          this.currentPickId & 0xffff,
+          this.frameCount,
+        )
+        this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+        strokeSplitBg = this._splitBind.bindGroup()
+      }
       // line-gap-width double-draw: when the second offset slot was
       // written, iterate the strokeQueue with each offset. Single-line
       // (default) draws once. The second pass uses the SAME segment
@@ -5217,10 +5258,16 @@ export class VectorTileRenderer {
         for (let i = 0; i < strokeQueueTiles.length; i++) {
           const cached = strokeQueueTiles[i]!
           const slotOffset = strokeQueueSlots[i]!
+          const sTileOff = strokeQueueTileOff[i]!
+          const strokeSplit =
+            strokeSplitBg && sTileOff >= 0
+              ? { tileOff: sTileOff, showOff: strokeSplitShowOff }
+              : null
+          const strokeTileBg = strokeSplit ? strokeSplitBg! : currentLineTileBg2
           if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
             this.lineRenderer.drawSegments(
               pass,
-              currentLineTileBg2,
+              strokeTileBg,
               cached.outlineSegmentBindGroup,
               cached.outlineSegmentCount,
               slotOffset,
@@ -5228,12 +5275,13 @@ export class VectorTileRenderer {
               translucentLines,
               this._linePatternActiveForShow,
               lineVariant,
+              strokeSplit,
             )
           }
           if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
             this.lineRenderer.drawSegments(
               pass,
-              currentLineTileBg2,
+              strokeTileBg,
               cached.lineSegmentBindGroup,
               cached.lineSegmentCount,
               slotOffset,
@@ -5241,6 +5289,7 @@ export class VectorTileRenderer {
               translucentLines,
               this._linePatternActiveForShow,
               lineVariant,
+              strokeSplit,
             )
           }
         }

@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 2536fd733c8c5215d637b42738b1f98b871ebd75
+  Generated from: ed5117ff58af132d5f2158a91f44b426a606d05d
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 2536fd733c8c
+    bun scripts/emit-changelog.ts --path shader-dsl --since ed5117ff58af
 -->
 
 # Changelog — shader-dsl
@@ -22,6 +22,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
 
 ### 2026-08
+
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** fold forceInline into inline({ opaque }) — one factory, one axis ([#2071](https://github.com/X-GIS/X-GIS/pull/2071)) `9ae788c`
 
 #### feat
 

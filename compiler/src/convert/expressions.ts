@@ -95,8 +95,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       'line-progress':
         'Line-progress accessor — line-gradient requires source.lineMetrics + a per-fragment progress varying; not yet implemented.',
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
-      accumulated:
-        'Accumulated accessor — clusterProperties pipeline not implemented (clustering is host-side today).',
+      // `accumulated` is now SUPPORTED — handled by accumulatedHandler in the
+      // expr-lookup cluster (#2050), which returns the bare `accumulated` identifier
+      // the evaluator resolves through ACCUMULATED_KEY. It never reaches this table.
       'distance-from-center':
         'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
       // `pitch` is now SUPPORTED — handled by the `case 'pitch'` arm

@@ -37,6 +37,7 @@ import {
   typeofHandler,
   zoomHandler,
   pitchHandler,
+  accumulatedHandler,
   propertiesHandler,
   geometryTypeHandler,
   idHandler,
@@ -175,6 +176,9 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   // zero-arg feature accessors
   ['zoom', zoomHandler],
   ['pitch', pitchHandler],
+  // clusterProperties running aggregate — the reduce half of a cluster property
+  // (#2050); reserved evaluator identifier, injected by the cluster index.
+  ['accumulated', accumulatedHandler],
   ['properties', propertiesHandler],
   ['geometry-type', geometryTypeHandler],
   ['id', idHandler],

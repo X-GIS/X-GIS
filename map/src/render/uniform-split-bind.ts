@@ -107,6 +107,7 @@ export class UniformSplitBind {
   private showSpans: Span[] | null = null
   private showBindSize = 0
   private showFillColorOff = 0
+  private showStrokeColorOff = 0
   private frameStamp = -1
   /** slice → pickId-low → persistent slot + frame stamp (see header: the
    *  slice half of the key is what separates one layer's lowered filter
@@ -147,6 +148,7 @@ export class UniformSplitBind {
     this.frameScratch = new Uint8Array(frame.std140Stride())
     this.showBindSize = show.byteLength
     this.showFillColorOff = show.fieldOffset('fill_color' as never)
+    this.showStrokeColorOff = show.fieldOffset('stroke_color' as never)
   }
 
   private ensureShowArena(): UniformSlotArena {
@@ -214,6 +216,12 @@ export class UniformSplitBind {
         const f32 = new Float32Array(dst.buffer, this.showFillColorOff, 4)
         f32[0] = 1 - f32[0]!
         f32[1] = 1 - f32[1]!
+        // #2042 INC-4c — stroke_color too, so the render gate's skew arm also
+        // proves the SPLIT STROKE draws read this block (fills alone would
+        // let a dead stroke bind pass the witness).
+        const s32 = new Float32Array(dst.buffer, this.showStrokeColorOff, 4)
+        s32[0] = 1 - s32[0]!
+        s32[1] = 1 - s32[1]!
       }
       arena.stage(e.slot, dst.buffer as ArrayBuffer)
     }

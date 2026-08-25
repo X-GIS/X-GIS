@@ -72,6 +72,7 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   // arrays at entry (class-field initializers don't run under Object.create).
   ;(vtr as unknown as Record<string, unknown>)._strokeQueueTiles = []
   ;(vtr as unknown as Record<string, unknown>)._strokeQueueSlots = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueTileOff = []
   ;(vtr as unknown as Record<string, unknown>)._strokeOffsetsScratch = []
   // #2042 INC-2 — TileUniformArena field (same Object.create caveat). The
   // harness never uploads/evicts tiles, so an inert stub is the honest shape.

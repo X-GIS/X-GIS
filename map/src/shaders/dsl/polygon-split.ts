@@ -91,38 +91,49 @@ const derived: Record<string, () => Expr> = {
   },
 }
 
-/** The legacy block's binding varref: `bindingRef('u', struct Uniforms)`. */
-const isLegacyURef = (e: Expr): boolean =>
-  e.op === 'varref' && e.name === 'u' && e.type.kind === 'struct' && e.type.name === 'Uniforms'
+/** Build the read-rewriter for ONE legacy block shape. The polygon module's
+ *  block is `struct Uniforms`; the line module's byte-mirror is
+ *  `struct TileUniforms` (line.ts — same lanes, pads for the unread ones),
+ *  so the SAME partition + derivations apply and only the struct tag
+ *  differs. Exported for line-split.ts (#2042 INC-4c) — one rewriter
+ *  authority, no drift. */
+export const makeSplitRewriteRead =
+  (legacyStructName: string) =>
+  (e: Expr): Expr => {
+    const isLegacyURef = (x: Expr): boolean =>
+      x.op === 'varref' &&
+      x.name === 'u' &&
+      x.type.kind === 'struct' &&
+      x.type.name === legacyStructName
+    // DSL-built read: member rooted at the legacy binding varref.
+    if (e.op === 'member' && isLegacyURef(e.base)) {
+      const make = derived[e.field]
+      if (make) return make()
+      const dest = destNodeOf(e.field)
+      if (!dest)
+        throw new Error(
+          `uniform split: 'u.${e.field}' has no destination block and no derivation — ` +
+            'the Frame/Show/Tile partition (uniform-split-partition.test.ts) must cover it first',
+        )
+      return { ...e, base: dest }
+    }
+    // Compiler-spliced read: dotted varref name. Only partitioned paint/frame
+    // lanes are legal here — a spliced read of a retired anchor lane has no
+    // meaning and fails loud.
+    if (e.op === 'varref' && e.name.startsWith('u.')) {
+      const field = e.name.slice(2)
+      const dest = destNodeOf(field)
+      if (!dest)
+        throw new Error(
+          `uniform split: spliced read '${e.name}' has no destination block — ` +
+            'compiler-generated expressions may only read partitioned lanes',
+        )
+      return { op: 'member', type: e.type, base: dest, field } as Expr
+    }
+    return e
+  }
 
-const rewriteRead = (e: Expr): Expr => {
-  // DSL-built read: member rooted at the legacy binding varref.
-  if (e.op === 'member' && isLegacyURef(e.base)) {
-    const make = derived[e.field]
-    if (make) return make()
-    const dest = destNodeOf(e.field)
-    if (!dest)
-      throw new Error(
-        `polygon split: uniform 'u.${e.field}' has no destination block and no derivation — ` +
-          'the Frame/Show/Tile partition (uniform-split-partition.test.ts) must cover it first',
-      )
-    return { ...e, base: dest }
-  }
-  // Compiler-spliced read: dotted varref name. Only partitioned paint/frame
-  // lanes are legal here — a spliced read of a retired anchor lane has no
-  // meaning and fails loud.
-  if (e.op === 'varref' && e.name.startsWith('u.')) {
-    const field = e.name.slice(2)
-    const dest = destNodeOf(field)
-    if (!dest)
-      throw new Error(
-        `polygon split: spliced uniform read '${e.name}' has no destination block — ` +
-          'compiler-generated expressions may only read partitioned lanes',
-      )
-    return { op: 'member', type: e.type, base: dest, field } as Expr
-  }
-  return e
-}
+const rewriteRead = makeSplitRewriteRead('Uniforms')
 
 /** Build the split-mode polygon module for `variant`/`pickEnabled` by
  *  transforming the legacy module. Pure derivation — polygon.ts's authored
