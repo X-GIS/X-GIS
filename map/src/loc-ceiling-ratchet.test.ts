@@ -1897,7 +1897,11 @@ const CEILINGS: Record<string, number> = {
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
   // -300, and the label silently kept the layer default. +3 = the import + the two
   // wrapped call sites' shared 2-line why; the rewrite itself lives in lower-helpers.
-  'compiler/src/ir/lower-label.ts': 1190,
+  // 1190→941 (#2051, T4 CJK P1): foldLabelKnobs — the pure assembly half of the
+  // label sub-pass — moved verbatim to lower-label-fold.ts so the writingMode knob
+  // could land at zero net growth. LOWERED per this header's shrink rule — headroom
+  // is re-justified per phase, never banked. MEASURED.
+  'compiler/src/ir/lower-label.ts': 941,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).

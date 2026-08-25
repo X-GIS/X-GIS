@@ -607,7 +607,7 @@ export interface LabelDef {
    *  tangents without an angular gate); a style that doesn't author
    *  text-max-angle renders byte-identically. Batch 2. */
   maxAngle?: number
-  /** Horizontal (default) or vertical. CJK vertical text. Batch 1g+. */
+  /** Mapbox `text-writing-mode` — CJK vertical text. UNSET = horizontal (the spec default, byte-identical). Set to `vertical` when the style's ordered mode list CONTAINS `vertical`; ordering within that list is not yet honoured (T4 D7 P1, #2051). Layout consumes this in P2 — nothing reads it yet. */
   writingMode?: 'horizontal' | 'vertical'
   /** Mapbox `symbol-z-order` — per-feature draw + collision ordering
    *  policy. `auto` (default) resolves to `viewport-y` when no
