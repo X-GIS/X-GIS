@@ -48,6 +48,7 @@ import { LINE_FORMAT } from './line-vertex-format'
 import { isOverdrawActive } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
 import { buildShader } from './polygon-shader-cache'
+import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
 import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import {
   buildFlatFillMaterials,
@@ -118,6 +119,11 @@ export class PipelineFactory {
    *  pipelines — always built. recordFillDraw routes pattern draws through these. */
   private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null =
     null
+  /** #2042 INC-4b — split-bind (Frame/Show/Tile) twins of the default flat/ground pair, built from
+   *  the DERIVED split module (polygon-split.ts) against the split layout below. Behind
+   *  `__XGIS_SPLIT_BIND` (read once at build); null keeps every draw on the legacy path. */
+  private _fillSplitMaterials: { flat: Material; ground: Material } | null = null
+  private _fillSplitLayout: GPUBindGroupLayout | null = null
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
@@ -155,6 +161,14 @@ export class PipelineFactory {
             extrudedTest: this.fillPipelinePatternExtrudedFallback,
           }
         : null,
+      split:
+        this._fillSplitMaterials && this._fillSplitLayout
+          ? {
+              flat: this._fillSplitMaterials.flat,
+              ground: this._fillSplitMaterials.ground,
+              layout: this._fillSplitLayout,
+            }
+          : null,
     }
   }
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
@@ -368,6 +382,27 @@ export class PipelineFactory {
       texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
     },
     { binding: 6, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
+  ]
+
+  /** #2042 INC-4b — the split-bind fill layout: TileBlock(7) + ShowBlock(10)
+   *  dynamic, FrameBlock(11) plain. A NEW layout family — the shared
+   *  mr-*BindGroupLayouts are untouched (the INC-4 recon corollary: editing
+   *  those drags in every legacy consumer). Ascending binding order 7 < 10
+   *  keeps WebGPU's dynamic-offset ordering rule trivial: `[tileOff,
+   *  showOff]`. Raw visibility bits for the same module-load reason as
+   *  FEATURE_LAYOUT_ENTRIES. */
+  static readonly SPLIT_FILL_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
+    {
+      binding: 7,
+      visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true },
+    },
+    {
+      binding: 10,
+      visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true },
+    },
+    { binding: 11, visibility: /* VERTEX|FRAGMENT */ 3, buffer: { type: 'uniform' as const } },
   ]
 
   /** iter-204A — palette + sprite-atlas binding slots (bindings 2/4/5/6)
@@ -831,6 +866,28 @@ export class PipelineFactory {
       extrudedVertexLayout: extrudedVertexBufferLayout,
       pickEnabled,
     })
+
+    // #2042 INC-4b — the split-bind twins, behind __XGIS_SPLIT_BIND (read once
+    // at build: the flag is a page-load A/B lever, not a live toggle). The split
+    // module is the IR DERIVATION of the legacy one (polygon-split.ts) — same
+    // math, three-block addressing — and the twins are ordinary
+    // buildFlatFillMaterials products against the split layout, so the
+    // stencil/variant family stays byte-identical to flat/ground.
+    if ((globalThis as { __XGIS_SPLIT_BIND?: unknown }).__XGIS_SPLIT_BIND === true) {
+      this._fillSplitLayout = device.createBindGroupLayout({
+        label: 'mr-splitFillBindGroupLayout',
+        entries: PipelineFactory.SPLIT_FILL_LAYOUT_ENTRIES as GPUBindGroupLayoutEntry[],
+      })
+      this._fillSplitMaterials = buildFlatFillMaterials({
+        rhi: this.ctx.rhi,
+        shader: emitPolygonSplitWgsl(null, pickEnabled),
+        format,
+        sampleCount: getSampleCount(),
+        bindGroupLayout: this._fillSplitLayout,
+        vertexLayout: vertexBufferLayout,
+        pickEnabled,
+      })
+    }
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment

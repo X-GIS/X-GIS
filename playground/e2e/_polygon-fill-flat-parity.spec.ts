@@ -315,13 +315,19 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // Pins the FILL arm against a shader-only revert to `project(abs_lon,
     // abs_lat)` (packing unchanged): the regenerated snapshots would drop the
     // tile-local-Mercator read. The read is the BARE-vec2 tile-local form
-    // `(vec2<f32>(abs_lon, abs_lat) - cam_h) - cam_l`, unique to vs_main_ecef —
-    // the stroke arm wraps it in `project(`. Expression-pinned, not binding-name-
-    // pinned: the auto-var/CSE pass now HOISTS the tile-local vec into a temp
-    // (`_cseN = vec2<f32>(abs_lon, abs_lat)`; read as `((_cseN - cam_h) - cam_l)`)
-    // once #598 gave the disc arm a second use of it, so a single literal token no
-    // longer matches. Pin the two halves that a project()-revert would drop: the
-    // tile-local SOURCE vec, and the split-camera subtraction.
+    // `(vec2<f32>(abs_lon, abs_lat) - cam_rel_h) - cam_rel_l`, unique to
+    // vs_main_ecef — the stroke arm wraps it in `project(`. Expression-pinned,
+    // not binding-name-pinned: the auto-var/CSE pass HOISTS the tile-local vec
+    // into a temp (`_cseN = vec2<f32>(abs_lon, abs_lat)`) since #598, and
+    // #2042 INC-6 moved the camera term into the ladder-top `cam_rel_h/l`
+    // Lets (flag-selected between the CPU pair and the in-VS Mercator
+    // recombination), so the subtraction spells `- cam_rel_h) - cam_rel_l)`
+    // in every arm. (That INC-6 respell landed while this pin still matched
+    // the old `- u.cam_h)` literal — main's render shard sat red until this
+    // update; the gauntlet merges on local gates, so a render-shard-only pin
+    // must be checked whenever the emit respells.) Pin the two halves a
+    // project()-revert would drop: the tile-local SOURCE vec, and the
+    // split-camera subtraction.
     const here = dirname(fileURLToPath(import.meta.url))
     const snapDir = join(
       here,
@@ -334,7 +340,7 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       '__polygon-variant-snapshots__',
     )
     const SRC_VEC = 'vec2<f32>(abs_lon, abs_lat)' // dropped by a project(abs_lon, abs_lat) revert
-    const CAM_REL = '- u.cam_h) - u.cam_l)' // the split-camera tile-local read
+    const CAM_REL = '- cam_rel_h) - cam_rel_l)' // the split-camera tile-local read (INC-6 Lets)
     const readsTileLocal = (src: string) => src.includes(SRC_VEC) && src.includes(CAM_REL)
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
