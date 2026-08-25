@@ -132,6 +132,30 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
 showOff]` threading through `recordFillDraw` (ascending 7 < 10 < 11 keeps
      WebGPU's offset-order rule trivial), §5 legacy-vs-split A/B. Strokes keep
      ring staging transitionally (line shader legacy).
+
+     IMPLEMENTED (PR pending): the write path is a **span-copy, not a re-pack**
+     (`uniform-split-bind.ts`): at the first qualifying draw per frame the
+     frame-class lanes are COPIED from the live legacy `frameBlock` bytes into
+     a plain 512-B FrameBlock buffer, and per show into a persistent
+     `show-uniform-arena` slot (slot per `pickId & 0xffff`, refreshed once per
+     frameCount) — byte-parity by construction since the SAME packer wrote the
+     source; the span tables derive from the block declarations' reflected
+     offsets (relocated flag lanes read the retiring vec4s' `.w` bytes).
+     Factory half: `SPLIT_FILL_LAYOUT_ENTRIES` (7 dyn / 10 dyn / 11 plain,
+     drift-test-pinned; hasDynamicOffset is inexpressible through the RHI
+     reflect adapter, so the layout is native) + split flat/ground twins built
+     from `emitPolygonSplitWgsl` via the ordinary `buildFlatFillMaterials`,
+     surfaced as `FillRhiState.split`. Draw half: `recordFillDraw` executes the
+     split twin when the caller resolved arena residency AND the matched twin
+     is the default flat/ground pair — per-style, pattern, extrude, and
+     clip-fallback draws keep the legacy bind (first-slice scope). The
+     `_skipFillDrawForBundle` replay still runs the sync block, so replayed
+     bundles read refreshed split content (the same discipline that keeps ring
+     slots fresh under replay). Witnesses: `__xgisVtrSplitDraws` counter +
+     `__XGIS_SPLIT_BIND_SKEW` (inverts the staged ShowBlock fill colour) in
+     `_split-bind-parity-gate.spec.ts` (4 arms: legacy / split / split+skew
+     must move / legacy+skew must be inert).
+
    - **INC-4c — line split, then the walk deletion + `ringCursor` retirement
      move to INC-5 as planned.**
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
