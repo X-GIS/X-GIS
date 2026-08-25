@@ -5,7 +5,7 @@ import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from './fp64-lower.js'
 import { fixpoint, mapModuleExprs } from './opt/index.js'
 import { splitF64 } from '../fp64/df64-lib.js'
-import { forceInline } from './force-inline.js'
+import { forceInline, type InlineDecision } from './force-inline.js'
 import { inline as inlinePlugin } from '../../emit-prod.js'
 import { emitModule } from '../../index.js'
 import type { EmitPlugin } from '../emit.js'
@@ -74,6 +74,8 @@ const FLATTENED_OPS = 408
 const BASE = fixpoint(fp64Lower(kernel))
 const SIZE_WIN = forceInline(BASE, 'single-call')
 const ALL = forceInline(BASE, 'all')
+/** Same policy, but bounded — a DIFFERENT module, so it needs its own value arms. */
+const BUDGETED = forceInline(BASE, 'all', { maxGrowth: 2 })
 
 const df64Count = (m: ModuleDecl): number =>
   m.funcs.filter((f) => f.name.startsWith('df64_')).length
@@ -158,6 +160,9 @@ describe('forceInline — df64 known answers survive both strengths, bit for bit
   const arms: [string, ModuleDecl][] = [
     ['single-call', SIZE_WIN],
     ['all', ALL],
+    // A budgeted run is a DIFFERENT module — a different subset of helpers inlined, in a
+    // different order — so it needs its own bit-equality arms rather than inheriting them.
+    ['all+maxGrowth:2', BUDGETED],
   ]
   const base = f32Oracle(BASE)
 
@@ -236,5 +241,68 @@ describe('forceInline(all) over the example corpus', () => {
       `unexpected survivor(s): ${JSON.stringify(survivors)} — a helper the flattening ` +
         `is meant to dissolve did not. Check preludeBlocker before re-pinning.`,
     ).toEqual(Object.keys(EXPECTED).sort())
+  })
+})
+
+// ── The growth budget (gcc's --param inline-unit-growth, in this codebase's units) ──
+//
+// Obfuscation wants everything flattened, so the default is deliberately UNBOUNDED and
+// the budget is opt-in. What it buys is a choice: 'all' costs 5-27x the emitted bytes,
+// and `maxGrowth` is how a caller declines to pay that.
+describe('forceInline — maxGrowth bounds the unlocking', () => {
+  const runReport = (max?: number): { out: ModuleDecl; report: InlineDecision[] } => {
+    const report: InlineDecision[] = []
+    return { out: forceInline(BASE, 'all', { maxGrowth: max, report }), report }
+  }
+
+  it('LEAVES THE UNBUDGETED PATH ALONE — no budget is byte-for-byte the shipped result', () => {
+    // The load-bearing no-regression arm. A budget switches to unlocking one helper at a
+    // time; without one the batch unlock must still produce exactly what it always did.
+    expect(emitModule(forceInline(BASE, 'all', {}))).toBe(emitModule(ALL))
+    expect(emitModule(forceInline(BASE, 'all', { report: [] }))).toBe(emitModule(ALL))
+    // …and that is a real claim, not a tautology: the two paths are DISTINGUISHABLE.
+    // Routing the no-budget case through the incremental one would move shipped bytes —
+    // measured 17,724 -> 13,621 on this kernel, both at df64Left=0. (Which is also the
+    // surprise worth knowing: unlocking one helper at a time, with the cleanup running
+    // between steps, reaches the SAME full flattening ~23% smaller than the batch. Making
+    // that the default is a separate decision, because it moves everyone's output.)
+    expect(emitModule(forceInline(BASE, 'all', { maxGrowth: Infinity }))).not.toBe(emitModule(ALL))
+  })
+
+  it('a tight budget leaves helpers standing; an ample one removes them all', () => {
+    const tight = runReport(1.5)
+    const ample = runReport(50)
+    expect(df64Count(tight.out), 'a 1.5x cap should not fit the whole library').toBeGreaterThan(0)
+    expect(df64Count(ample.out), 'a 50x cap should fit everything').toBe(0)
+    // …and the cap is the reason, not an accident: the refusals say so by name.
+    expect(tight.report.some((r) => r.reason === 'over-budget')).toBe(true)
+    expect(ample.report.some((r) => r.reason === 'over-budget')).toBe(false)
+  })
+
+  it('never reports growth past the cap it was given', () => {
+    for (const cap of [1.5, 2, 3, 8]) {
+      const { report } = runReport(cap)
+      for (const r of report.filter((d) => d.inlined))
+        expect(
+          r.growth,
+          `${r.fn} was accepted at ${r.growth}x under a ${cap}x cap`,
+        ).toBeLessThanOrEqual(cap)
+    }
+  })
+
+  it('unlocks CHEAPEST FIRST — accepted helpers arrive in non-decreasing call-site order', () => {
+    const { report } = runReport(50)
+    const accepted = report.filter((r) => r.inlined).map((r) => r.callSites)
+    expect(accepted.length).toBeGreaterThan(1)
+    for (let i = 1; i < accepted.length; i++)
+      expect(
+        accepted[i],
+        `call-site order broke at ${i}: ${accepted.join(',')}`,
+      ).toBeGreaterThanOrEqual(accepted[i - 1]!)
+  })
+
+  it('reports on BOTH paths — an empty report would read as "nothing was inlined"', () => {
+    expect(runReport(undefined).report.filter((r) => r.inlined).length).toBeGreaterThan(0)
+    expect(runReport(50).report.filter((r) => r.inlined).length).toBeGreaterThan(0)
   })
 })
