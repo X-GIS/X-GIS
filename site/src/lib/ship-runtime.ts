@@ -32,15 +32,16 @@ import type { EmitPlugin } from '@xgis/shader-dsl'
 /** Which emitted source a panel shows. Mirrors the code tabs. */
 export type ShipTarget = 'wgsl' | 'glsl-vs' | 'glsl-fs'
 
-/** The plugins the toggles expose, in EXECUTION order — inline()/forceInline() rewrite the
+/** The plugins the toggles expose, in EXECUTION order — the two inline() settings rewrite the
  *  IR, mangle() renames what survives, minify() compacts the text. Also the order of the
  *  bits in a combination string, so a page's toggles and its bit string cannot disagree. */
 export const SHIP_PLUGINS = ['inline', 'forceInline', 'mangle', 'minify'] as const
 
-/** How a toggle spells its own call, when the bare name under-describes it. forceInline
- *  takes a strength and the two are not comparable, so the label has to say which. */
+/** How a toggle spells its own call, when the bare name under-describes it. Both inline
+ *  toggles are the SAME factory at different `opaque` settings, so the label has to say
+ *  which — `inline()` and `inline({ opaque: 'all' })` are not comparable. */
 const SHIP_CALL: Partial<Record<(typeof SHIP_PLUGINS)[number], string>> = {
-  forceInline: `forceInline({ strength: 'all' })`,
+  forceInline: `inline({ opaque: 'all' })`,
 }
 
 /** The caveat a toggle carries, shown as its label's tooltip. Only forceInline has one, and
@@ -49,7 +50,7 @@ const SHIP_CALL: Partial<Record<(typeof SHIP_PLUGINS)[number], string>> = {
 export const SHIP_HINTS: Partial<Record<(typeof SHIP_PLUGINS)[number], string>> = {
   forceInline:
     'inline() honours FuncDecl.opaque, so it is a complete no-op on the fp64 examples — ' +
-    "the df64 library is never inlined and never removed. forceInline({ strength: 'all' }) " +
+    "the df64 library is never inlined and never removed. inline({ opaque: 'all' }) " +
     'unlocks that opacity and tree-shakes the emptied declarations, so df64_* leaves the ' +
     'output entirely. Costs 5-27x the emitted bytes, and FXC can TDR on ANGLE-D3D11 ' +
     'compiling fully-inlined df64 bodies — this is a demonstration, not a shipping default.',
@@ -122,10 +123,10 @@ export async function shipPlugins(bits: string): Promise<EmitPlugin[]> {
   const prod = await import('@xgis/shader-dsl/emit-prod')
   const make = {
     inline: prod.inline,
-    // 'all' rather than the plugin's own 'size-win' default: the point of exposing this
-    // beside inline() is that it is the one setting under which the df64 call graph
-    // actually disappears. SHIP_HINTS carries what that costs.
-    forceInline: () => prod.forceInline({ strength: 'all' }),
+    // 'all' rather than 'single-call': the point of exposing a second inline toggle is
+    // that this is the one setting under which the df64 call graph actually disappears.
+    // SHIP_HINTS carries what that costs.
+    forceInline: () => prod.inline({ opaque: 'all' }),
     mangle: prod.mangle,
     minify: prod.minify,
   }
@@ -142,7 +143,7 @@ export const SHIP_BITS_NONE = '0'.repeat(SHIP_PLUGINS.length)
 
 /** `1,845 B` when a combination changes nothing, else `plain B → bytes B (±pct%)`.
  *  inline() can GROW the text (a multi-call helper is duplicated at each call site) and
- *  forceInline({ strength: 'all' }) always does, by 5-27x, so the delta is signed — growth
+ *  inline({ opaque: 'all' }) always does, by 5-27x, so the delta is signed — growth
  *  there is the documented cost, not a regression. */
 export function shipBadge(bytes: number, plain: number): string {
   const fmt = (n: number): string => n.toLocaleString()
