@@ -36,6 +36,9 @@ export const frameBlockU = uniformStruct(
     light_dir_ecef: vec4fT,
     cam_ecef_center_h: vec4fT,
     cam_ecef_center_l: vec4fT,
+    // #2042 INC-6 — absolute camera Mercator (.xy hi, .zw lo; copy-
+    // independent): the flat-arm half of the recombination.
+    cam_merc_center_hl: vec4fT,
     log_depth_fc: f32T,
     zoom: f32T,
     _pad0: f32T,

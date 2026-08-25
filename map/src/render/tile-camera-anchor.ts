@@ -42,6 +42,21 @@ export interface TileCameraAnchor {
   /** Tile origin in Mercator metres (f32-rounded, worldOff applied). */
   tileMercX: number
   tileMercY: number
+  /** #2042 INC-6 — the ABSOLUTE Mercator anchors whose f64 difference IS the
+   *  cam rel above, each split hi/lo: tile origin (worldOff applied — per
+   *  copy, matching the TileBlock arena key) and camera centre (copy-
+   *  independent). The flat-arm analogue of the ECEF pair below: the VS can
+   *  recombine `rel = (camH − originH) + (camL − originL)` with the same
+   *  ulp-relative envelope (rtc-recombine-precision.test.ts, Mercator
+   *  section). tileMercX/Y above stay the single-f32 legacy lanes. */
+  tileMercXH: number
+  tileMercXL: number
+  tileMercYH: number
+  tileMercYL: number
+  camMercXH: number
+  camMercXL: number
+  camMercYH: number
+  camMercYL: number
   /** Ellipsoid-frame ECEF RTC offset, DSFUN hi/lo per axis. */
   ecefXH: number
   ecefXL: number
@@ -90,6 +105,10 @@ export function computeTileCameraAnchor(
   const camRelY = camMercY - tileMercY
   const camXH = Math.fround(camRelX)
   const camYH = Math.fround(camRelY)
+  const tileMercXH = Math.fround(tileMercX)
+  const tileMercYH = Math.fround(tileMercY)
+  const camMercXH = Math.fround(camMercX)
+  const camMercYH = Math.fround(camMercY)
 
   // ── Ellipsoid ECEF RTC: tileEcefCenter − cameraCenter (no worldOff) ──
   const E2 = EARTH.e2
@@ -127,8 +146,16 @@ export function computeTileCameraAnchor(
     camXL: Math.fround(camRelX - camXH),
     camYH,
     camYL: Math.fround(camRelY - camYH),
-    tileMercX: Math.fround(tileMercX),
-    tileMercY: Math.fround(tileMercY),
+    tileMercX: tileMercXH,
+    tileMercY: tileMercYH,
+    tileMercXH,
+    tileMercXL: Math.fround(tileMercX - tileMercXH),
+    tileMercYH,
+    tileMercYL: Math.fround(tileMercY - tileMercYH),
+    camMercXH,
+    camMercXL: Math.fround(camMercX - camMercXH),
+    camMercYH,
+    camMercYL: Math.fround(camMercY - camMercYH),
     ecefXH,
     ecefXL: Math.fround(offX - ecefXH),
     ecefYH,

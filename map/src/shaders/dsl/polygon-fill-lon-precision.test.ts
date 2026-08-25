@@ -178,8 +178,18 @@ describe('#598 polygon fill — emitted WGSL wiring (fails on the pre-fix abs-de
     //          vec4(proj.x, 0.0, proj.z, proj.w), (tile_ref_lon − proj.y)) —
     // the SAME camera-relative, clon-recentred form the line finalize_corner
     // emits (\w+ generalizes the CSE-hoisted temp names).
+    // #2042 INC-6: the cam pair reads go through the flag-selected
+    // `cam_rel_h/l` Lets (legacy u.cam_h/u.cam_l when the flag is off), and
+    // the repeated proj/ref-lon args are now CSE-hoisted into temps — so the
+    // one-line match becomes three: (1) the call subtracts the cam pair and
+    // divides by DEG2RAD·R, (2) somewhere in the VS a clon-ZEROED
+    // proj_params vec4 is built, (3) the ref-lon arg subtracts clon. The
+    // wiring under test (camera-relative d_lon, clon recentred to 0) is
+    // unchanged.
+    expect(b).toMatch(/flat_rel\(\(\(\(\w+(?:\.x)? - cam_rel_h\.x\) - cam_rel_l\.x\) \/ \w+\), /)
+    expect(b).toMatch(/vec4<f32>\(u\.proj_params\.x, 0\.0, u\.proj_params\.z, u\.proj_params\.w\)/)
     expect(b).toMatch(
-      /flat_rel\(\(\(\(\w+\.x - u\.cam_h\.x\) - u\.cam_l\.x\) \/ \w+\), \w+, vec4<f32>\(u\.proj_params\.x, 0\.0, u\.proj_params\.z, u\.proj_params\.w\), \(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \w+\) - u\.proj_params\.y\)\)/,
+      /\(\(\(u\.tile_origin_merc\.x \+ \(0\.5 \* u\.tile_extent_m\)\) \/ \w+\) - u\.proj_params\.y\)/,
     )
     // and the pre-fix lossy `flat_rel(abs_lon, ...)` disc arm is GONE from the fill VS.
     expect(b).not.toMatch(/flat_rel\(abs_lon,/)

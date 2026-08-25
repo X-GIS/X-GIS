@@ -1,4 +1,4 @@
-// baseline: 6f825af7ef0fe8ca0089c9aaa4e7416439d98716
+// baseline: f4a767d6efd3168b08aaee4951cddde7aa37a810
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -52,6 +52,8 @@ struct Uniforms {
   tile_ecef_center_l: vec4<f32>,
   cam_ecef_center_h: vec4<f32>,
   cam_ecef_center_l: vec4<f32>,
+  tile_origin_merc_hl: vec4<f32>,
+  cam_merc_center_hl: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -337,19 +339,22 @@ fn compute_log_frag_depth(view_w: f32, fc: f32) -> f32 {
 
 @vertex
 fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32) -> VertexOutput {
-  let _cse0 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  var _av0: vec4<f32> = _cse0;
+  let _cse0 = (u.cam_ecef_center_h.w > 0.5);
+  let cam_rel_h = select(u.cam_h, vec2<f32>((u.cam_merc_center_hl.x - u.tile_origin_merc_hl.x), (u.cam_merc_center_hl.y - u.tile_origin_merc_hl.y)), _cse0);
+  let cam_rel_l = select(u.cam_l, vec2<f32>((u.cam_merc_center_hl.z - u.tile_origin_merc_hl.z), (u.cam_merc_center_hl.w - u.tile_origin_merc_hl.w)), _cse0);
+  let _cse1 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  var _av0: vec4<f32> = _cse1;
   let _cse5 = ((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / (DEG2RAD * EARTH_R));
   if ((u.proj_params.x < 0.5)) {
-    let _cse1 = (((project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc) - u.cam_h) - u.cam_l);
-    _av0 = (u.mvp * vec4<f32>((_cse1.x + (((floor(((_cse5 + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _cse1.y, 0.0, 1.0));
+    let _cse2 = (project(abs_lon, abs_lat, u.proj_params) - u.tile_origin_merc);
+    let _lc0 = ((_cse2 - cam_rel_h) - cam_rel_l);
+    _av0 = (u.mvp * vec4<f32>((_lc0.x + (((floor(((_cse5 + 180.0) / 360.0)) * 2.0) * PI) * EARTH_R)), _lc0.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
-    let _cse2 = flat_rel(abs_lon, abs_lat, u.proj_params, _cse5);
-    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, 0.0, 1.0));
+    let _cse3 = flat_rel(abs_lon, abs_lat, u.proj_params, _cse5);
+    _av0 = (u.mvp * vec4<f32>(_cse3.x, _cse3.y, 0.0, 1.0));
   } else {
-    let _cse3 = (u.cam_ecef_center_h.w > 0.5);
-    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse3);
-    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse3);
+    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse0);
+    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse0);
     _av0 = (u.mvp * vec4<f32>((((pos_h + pos_l) + rtc_off_h) + rtc_off_l), 1.0));
   }
   if ((u.pattern_active == 0u)) {
@@ -358,25 +363,30 @@ fn vs_main(@location(0) pos_h: vec3<f32>, @location(1) pos_l: vec3<f32>, @locati
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
   let _cse4 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse4, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI * 0.25) + (radians(_cse4) * 0.5)))) * EARTH_R), 0.0, _cse0, vec2<f32>(0.0, 0.0));
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), _cse4, _av0.w, 1.0, (radians(abs_lon) * EARTH_R), (log(tan(((PI * 0.25) + (radians(_cse4) * 0.5)))) * EARTH_R), 0.0, _cse1, vec2<f32>(0.0, 0.0));
 }
 
 @vertex
 fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) true_lat: f32) -> VertexOutput {
-  let _cse0 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  var _av0: vec4<f32> = _cse0;
-  let _cse5 = vec2<f32>(abs_lon, abs_lat);
+  let _cse0 = (u.cam_ecef_center_h.w > 0.5);
+  let cam_rel_h = select(u.cam_h, vec2<f32>((u.cam_merc_center_hl.x - u.tile_origin_merc_hl.x), (u.cam_merc_center_hl.y - u.tile_origin_merc_hl.y)), _cse0);
+  let cam_rel_l = select(u.cam_l, vec2<f32>((u.cam_merc_center_hl.z - u.tile_origin_merc_hl.z), (u.cam_merc_center_hl.w - u.tile_origin_merc_hl.w)), _cse0);
+  let _cse1 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  var _av0: vec4<f32> = _cse1;
+  let _cse6 = vec2<f32>(abs_lon, abs_lat);
   if ((u.proj_params.x < 0.5)) {
-    let _cse1 = ((_cse5 - u.cam_h) - u.cam_l);
-    _av0 = (u.mvp * vec4<f32>(_cse1.x, _cse1.y, 0.0, 1.0));
+    let _lc0 = ((_cse6 - cam_rel_h) - cam_rel_l);
+    _av0 = (u.mvp * vec4<f32>(_lc0.x, _lc0.y, 0.0, 1.0));
   } else if ((u.proj_params.x < 6.5)) {
-    let _cse6 = (DEG2RAD * EARTH_R);
-    let _cse2 = flat_rel((((_cse5.x - u.cam_h.x) - u.cam_l.x) / _cse6), true_lat, vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w), (((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse6) - u.proj_params.y));
-    _av0 = (u.mvp * vec4<f32>(_cse2.x, _cse2.y, 0.0, 1.0));
+    let _cse2 = _cse6.x;
+    let _cse3 = vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w);
+    let _cse7 = (DEG2RAD * EARTH_R);
+    let _cse4 = (((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse7) - u.proj_params.y);
+    let _lc1 = flat_rel((((_cse2 - cam_rel_h.x) - cam_rel_l.x) / _cse7), true_lat, _cse3, _cse4);
+    _av0 = (u.mvp * vec4<f32>(_lc1.x, _lc1.y, 0.0, 1.0));
   } else {
-    let _cse3 = (u.cam_ecef_center_h.w > 0.5);
-    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse3);
-    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse3);
+    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse0);
+    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse0);
     _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + rtc_off_h) + rtc_off_l), 1.0));
   }
   if ((u.pattern_active == 0u)) {
@@ -384,28 +394,32 @@ fn vs_main_ecef(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @loca
     _av0.y = (_av0.y - (u.fill_translate_y * _av0.w));
   }
   let _v0 = apply_log_depth(_av0, u.log_depth_fc);
-  let _cse4 = (abs_lat + u.tile_origin_merc.y);
-  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse4)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse4, 0.0, _cse0, vec2<f32>(0.0, 0.0));
+  let _cse5 = (abs_lat + u.tile_origin_merc.y);
+  return VertexOutput(vec4<f32>(_v0.x, _v0.y, (_v0.z - (u.layer_depth_offset * _v0.w)), _v0.w), 0.0, u32(feature_id), clamp(degrees(inv_merc_lat_rad(_cse5)), (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT), _av0.w, 1.0, (abs_lon + u.tile_origin_merc.x), _cse5, 0.0, _cse1, vec2<f32>(0.0, 0.0));
 }
 
 @vertex
 fn vs_main_ecef_extruded(@location(0) q_xy: vec4<u32>, @location(1) q_z: vec2<u32>, @location(2) feature_id: f32, @location(3) abs_lon: f32, @location(4) abs_lat: f32, @location(5) face_normal: vec3<f32>, @location(6) wall_height: f32, @location(7) is_top: f32, @location(8) wall_base: f32, @location(9) local_merc: vec2<f32>) -> VertexOutput {
+  let _cse0 = (u.cam_ecef_center_h.w > 0.5);
+  let cam_rel_h = select(u.cam_h, vec2<f32>((u.cam_merc_center_hl.x - u.tile_origin_merc_hl.x), (u.cam_merc_center_hl.y - u.tile_origin_merc_hl.y)), _cse0);
+  let cam_rel_l = select(u.cam_l, vec2<f32>((u.cam_merc_center_hl.z - u.tile_origin_merc_hl.z), (u.cam_merc_center_hl.w - u.tile_origin_merc_hl.w)), _cse0);
   var _av0: vec4<f32> = vec4<f32>(0.0, 0.0, 0.0, 0.0);
   let _cse1 = (wall_base + (max((wall_height - wall_base), 0.0) * is_top));
   let _cse9 = clamp(abs_lat, (-MERCATOR_LAT_LIMIT), MERCATOR_LAT_LIMIT);
   let _cse2 = radians(_cse9);
   let _cse3 = (u.proj_params.x < 6.5);
   if ((u.proj_params.x < 0.5)) {
-    let _cse0 = ((local_merc - u.cam_h) - u.cam_l);
-    _av0 = (u.mvp * vec4<f32>(_cse0.x, _cse0.y, (_cse1 / cos(_cse2)), 1.0));
+    let _lc0 = ((local_merc - cam_rel_h) - cam_rel_l);
+    _av0 = (u.mvp * vec4<f32>(_lc0.x, _lc0.y, (_cse1 / cos(_cse2)), 1.0));
   } else if (_cse3) {
+    let _cse4 = vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w);
     let _cse10 = (DEG2RAD * EARTH_R);
-    let _cse4 = flat_rel((((local_merc.x - u.cam_h.x) - u.cam_l.x) / _cse10), abs_lat, vec4<f32>(u.proj_params.x, 0.0, u.proj_params.z, u.proj_params.w), (((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse10) - u.proj_params.y));
-    _av0 = (u.mvp * vec4<f32>(_cse4.x, _cse4.y, _cse1, 1.0));
+    let _cse5 = (((u.tile_origin_merc.x + (0.5 * u.tile_extent_m)) / _cse10) - u.proj_params.y);
+    let _lc1 = flat_rel((((local_merc.x - cam_rel_h.x) - cam_rel_l.x) / _cse10), abs_lat, _cse4, _cse5);
+    _av0 = (u.mvp * vec4<f32>(_lc1.x, _lc1.y, _cse1, 1.0));
   } else {
-    let _cse5 = (u.cam_ecef_center_h.w > 0.5);
-    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse5);
-    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse5);
+    let rtc_off_h = select(vec3<f32>(u.cam_ecef_off_h.x, u.cam_ecef_off_h.y, u.cam_ecef_off_h.z), (vec3<f32>(u.tile_ecef_center_h.x, u.tile_ecef_center_h.y, u.tile_ecef_center_h.z) - vec3<f32>(u.cam_ecef_center_h.x, u.cam_ecef_center_h.y, u.cam_ecef_center_h.z)), _cse0);
+    let rtc_off_l = select(vec3<f32>(u.cam_ecef_off_l.x, u.cam_ecef_off_l.y, u.cam_ecef_off_l.z), (vec3<f32>(u.tile_ecef_center_l.x, u.tile_ecef_center_l.y, u.tile_ecef_center_l.z) - vec3<f32>(u.cam_ecef_center_l.x, u.cam_ecef_center_l.y, u.cam_ecef_center_l.z)), _cse0);
     _av0 = (u.mvp * vec4<f32>(((dequant_ecef(q_xy, q_z, u.tile_dequant_scale, u.tile_dequant_half) + rtc_off_h) + rtc_off_l), 1.0));
   }
   if ((u.pattern_active == 0u)) {

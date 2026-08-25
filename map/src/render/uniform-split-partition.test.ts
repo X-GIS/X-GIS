@@ -36,10 +36,14 @@ const RETIRING: Record<string, string> = {
 }
 const PENDING: Record<string, string> = {
   cam_h:
-    'per-(tile × camera) Mercator DSFUN rel — deriving it in-VS needs the flat-arm ' +
-    'analogue of INC-1 (absolute cam Merc hi/lo in FrameBlock + hi/lo tile origin in ' +
-    'TileBlock) with its own precision proof; until that increment it stays ring-staged',
-  cam_l: 'hi/lo pair of cam_h — same pending flat-arm recombination',
+    'per-(tile × camera) Mercator DSFUN rel — recombines in-VS from ' +
+    'cam_merc_center_hl − tile_origin_merc_hl (INC-6, same flag); the legacy lane ' +
+    'stays ring-staged until the INC-4 rebind retires it',
+  cam_l: 'hi/lo pair of cam_h — recombined by the same INC-6 select',
+  tile_origin_merc:
+    'the legacy SINGLE-f32 origin — superseded by tile_origin_merc_hl (.xy is this ' +
+    'value; .zw the recovered low bits); retires with the rebind, until then the ' +
+    'legacy flat path still reads it',
 }
 // Destination fields that deliberately have NO polygonU source:
 const RELOCATED_INTO_SHOW = new Set(['fill_antialias', 'fill_vertical_gradient'])
