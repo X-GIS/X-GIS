@@ -255,7 +255,19 @@ projCenterLon, projCenterLat)` — the cam halves are tile-independent), then
    - Pinned: `tile-uniform-arena-wiring.test.ts` now pins BOTH `offsetOf`
      sites (walk-skip gated on `splitWalkSkip && packedOnce`; pack-path resolve
      on `visibleKey < 0` + slice) and every qualification term.
-   - **Gate-caught defect (2026-08-25, predicted then witnessed):** the
+   - **Instrument lesson (2026-08-25): the sweep's fixed 6 s settle measured
+     WARMUP, not navigation.** First flag-OFF vs flag-ON read 279 vs 910
+     µs/layer — but per-N diagnostics showed the 8 s windows held 0-2 frames
+     (SwiftShader first-frame 20-40 s at n=128), `walkSkips=0` (the INC-5
+     mechanism never ran — warmup draws are clip-fallback, `visibleKey ≥ 0`),
+     and n=128 logged 385 bundle misses vs 6 hits (arena-growth
+     `invalidateAll` re-record storm). So BOTH slopes were record-path
+     warmup cost and say nothing about the steady-state claim — the #1190
+     0.19 ms/layer baseline was measured the same way and carries the same
+     caveat. The sweep now gates on bundleMisses convergence (probe
+     invalidates + rAF-tick-counted polls), zeroes the mechanism counters at
+     window start, and scales the window with N, printing per-window
+     hits/misses/skips so the regime is witnessed, not assumed. the
      bundle-hit ring-alloc invariant (`_bundleWalkAllocs`, #1190) compares the
      hit re-walk's alloc count against the record frame's — a proxy for "baked
      ring dynamic offsets still align". A walk-skip record frame packs fresh
