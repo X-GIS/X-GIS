@@ -181,14 +181,25 @@ describe('#2012 INC-5 — the map-branch size correction reaches the curved draw
     expect(span(grown.draw)).toBeGreaterThan(span(base.draw) * 1.5)
   })
 
-  it('a multiplier of 1 is byte-identical to no correction at all', () => {
-    // The no-regression rung. An unpitched frame withholds the basis entirely, so
-    // it never gets here — but a pitched anchor sitting exactly at the camera
-    // centre distance produces 1, and must not perturb a single float.
-    const a = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1 })
-    const b = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS })
-    expect(a.draw.fontSize).toBe(b.draw.fontSize)
-    expect(Array.from(a.draw.glyphOffsets!)).toEqual(Array.from(b.draw.glyphOffsets!))
+  it('a multiplier of 1 sizes exactly like the no-correction path', () => {
+    // The no-regression rung. An unpitched frame withholds the basis entirely, so it
+    // never gets here — but a pitched anchor sitting exactly at the camera centre
+    // distance produces 1, and must not perturb the size.
+    //
+    // The comparison arm has to be a run that genuinely TAKES the uncorrected path,
+    // not the same input spelled twice: `drive` normalises `sizeScale ?? 1` before it
+    // reaches the stage, so omitting the field here would hand both arms an identical
+    // object and the assertion would hold for any value of the fallback constant
+    // (#2110 review). A basis-LESS run is the reachable uncorrected arm — it leaves
+    // `PendingLineLabel.groundSizeScale` undefined and so exercises the `?? 1` in
+    // `text-stage.ts`. Only the SIZE is comparable: without a basis there is no
+    // pre-image step, so the offsets legitimately differ.
+    const corrected = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1 })
+    const uncorrected = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: undefined })
+    expect(corrected.draw.fontSize).toBe(uncorrected.draw.fontSize)
+    // …and the pairing is not vacuous: a non-1 multiplier does move it.
+    const grown = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 2 })
+    expect(grown.draw.fontSize).not.toBe(uncorrected.draw.fontSize)
   })
 
   it('is QUANTISED to 1/64, so a pitched pan cannot thrash the layout cache', () => {
