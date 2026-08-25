@@ -554,3 +554,111 @@ export async function expectColorHistogram(
     )
   }
 }
+
+// ─── Chrome-free, event-driven map capture (#2053 process fix) ───────────────
+//
+// `captureCanvas` screenshots the `#map` LOCATOR, which composites every
+// absolutely/fixed-positioned piece of demo chrome painted over the canvas —
+// the on-screen error console, the status pill, the live hash badge, the
+// map-tools cluster and the demo-actions bar. Their pixels land INSIDE the
+// frame a spec then measures (a cross-section scan reads the side panel as a
+// "stroke run") and inside the artifact a human reads at full resolution
+// (CLAUDE.md §5). Every gate that measured pixels has had to re-discover the
+// hide-ids list by hand (`_demotiles-mirror-gate` carries the reference copy).
+//
+// `captureMapFrame` is the pit-of-success wrapper: hide the chrome once,
+// then run the ordinary `captureCanvas` quiesce + shot. Additive — the ~100
+// existing element-path specs keep their exact behavior (CLAUDE.md §3).
+
+/** Demo-page chrome ids that overlap the `#map` canvas. Single authority —
+ *  keep in sync ONLY here; specs must not re-declare the list. */
+export const DEMO_CHROME_IDS = [
+  'log-overlay',
+  'status',
+  'status-popover',
+  'hash-badge',
+  'map-tools',
+  'editor-collapse-btn',
+  'demo-actions',
+] as const
+
+/** Hide every demo-chrome element that is currently visible. Returns the ids
+ *  actually hidden (log it — a gate's output should say what left the frame). */
+export async function hideDemoChrome(page: Page): Promise<string[]> {
+  return await page.evaluate(
+    (ids) => {
+      const hidden: string[] = []
+      for (const id of ids) {
+        const el = document.getElementById(id)
+        if (!el) continue
+        if (getComputedStyle(el).display !== 'none') hidden.push(id)
+        el.style.display = 'none'
+      }
+      return hidden
+    },
+    DEMO_CHROME_IDS as readonly string[] as string[],
+  )
+}
+
+export interface MapFrameOptions extends CaptureOptions {
+  /** Leave the demo chrome visible (screenshot-for-humans of the whole demo
+   *  UI). Default false — measurement frames must be chrome-free. */
+  keepChrome?: boolean
+}
+
+/** THE capture entry point for map-frame measurement in e2e specs: hides the
+ *  demo chrome, then runs `captureCanvas`'s ready + quiesce + shot. Use
+ *  `capture: 'clip'` when a view hits the #1802 element-stability hang
+ *  (whole-globe views are a known trigger). */
+export async function captureMapFrame(page: Page, opts: MapFrameOptions = {}): Promise<Buffer> {
+  if (!opts.keepChrome) await hideDemoChrome(page)
+  return await captureCanvas(page, opts)
+}
+
+/** Event-driven settle: resolve when the map reaches MapLibre-semantics
+ *  `idle` (camera at rest AND no pending source work AND nothing left to
+ *  draw — map-event-bus.ts). Prefer this over `waitForTimeout` after any
+ *  programmatic camera change. Two traps this wrapper owns so specs don't:
+ *  `idle` fires only on the busy→idle TRANSITION (a map that is already
+ *  idle never re-fires — checked via `_wasIdle` before subscribing), and a
+ *  scene that legitimately never idles (animated source, stuck upload
+ *  backlog) must time out loudly rather than hang the spec. */
+export async function awaitMapIdle(page: Page, timeoutMs = 30_000): Promise<'idle' | 'timeout'> {
+  return await page.evaluate(
+    (budget) =>
+      new Promise<'idle' | 'timeout'>((resolve) => {
+        type MapLike = {
+          _wasIdle?: boolean
+          on?: (t: string, l: () => void) => void
+          off?: (t: string, l: () => void) => void
+        }
+        const bus = (window as unknown as { __xgisMap?: { _eventBus?: MapLike } & MapLike })
+          .__xgisMap
+        if (!bus) {
+          resolve('timeout')
+          return
+        }
+        const idleNow = bus._eventBus?._wasIdle === true || bus._wasIdle === true
+        if (idleNow) {
+          resolve('idle')
+          return
+        }
+        if (typeof bus.on !== 'function' || typeof bus.off !== 'function') {
+          resolve('timeout')
+          return
+        }
+        let done = false
+        const finish = (r: 'idle' | 'timeout'): void => {
+          if (done) return
+          done = true
+          bus.off!('idle', onIdle)
+          clearTimeout(timer)
+          resolve(r)
+        }
+        const onIdle = (): void => finish('idle')
+        const timer = setTimeout(() => finish('timeout'), budget)
+        bus.on('idle', onIdle)
+      }),
+    timeoutMs,
+  )
+}
