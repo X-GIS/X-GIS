@@ -15,7 +15,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { Camera } from '@xgis/map'
-import { Pitch0Unprojector, makeGroundProjector, type FlatGroundView } from './pitch0-unproject'
+import {
+  Pitch0Unprojector,
+  makeGroundProjector,
+  makeGroundMercProjector,
+  type FlatGroundView,
+} from './pitch0-unproject'
 import { makeLabelProjectors } from '../render-loop-helpers'
 
 const W = 900,
@@ -268,4 +273,122 @@ describe('D1 INC-1 — makeGroundProjector agrees with makeLabelProjectors where
       ).toBeGreaterThan(0)
     })
   }
+})
+
+// The MERC-domain twin of the gate above. The line-label pass walks a polyline of
+// mercator metres and feeds `projectMercAny` directly — the merc→lonLat→merc round
+// trip it replaced was ~80 % of that loop's frame time — so its pitch-0 twin has to
+// take the same input domain or pay the round trip back on every sample of every
+// ground-aligned road. `makeGroundMercProjector` therefore re-states the same
+// chain a second time, and the same argument applies: re-stating is only safe
+// while it stays the SAME chain.
+describe('D1 INC-4 — makeGroundMercProjector agrees with projectMercAny where both answer', () => {
+  for (const projType of [0, 1, 2, 6]) {
+    it(`projType ${projType}`, () => {
+      let compared = 0
+      let culledOnly = 0
+      for (const pitch of [0, 45, 65]) {
+        for (const zoom of [2, 9, 15]) {
+          const cam = new Camera(11, 31, zoom)
+          cam.projType = projType
+          cam.bearing = 24
+          cam.pitch = pitch
+          const flat: FlatGroundView = {
+            projType,
+            ccx: cam.centerX,
+            ccy: cam.centerY,
+            centerLon: 11,
+            centerLat: 31,
+          }
+          const mvp = cam.getViewForProjection(projType, W, H, DPR).matrix
+          const culled = makeLabelProjectors(mvp, W, H, {
+            ...flat,
+            visibleWorldCopies: [0],
+          }).projectMercAny
+          const free = makeGroundMercProjector(mvp, W, H, flat)
+          for (let dx = -3_000_000; dx <= 3_000_000; dx += 500_000) {
+            for (let dy = -2_000_000; dy <= 2_000_000; dy += 500_000) {
+              const mx = cam.centerX + dx
+              const my = cam.centerY + dy
+              const a = culled(mx, my, 0)
+              const ax = a ? a[0] : NaN
+              const ay = a ? a[1] : NaN
+              const b = free(mx, my, 0)
+              if (a === null) {
+                if (b !== null) culledOnly++
+                continue
+              }
+              expect(b, `projType=${projType} pitch=${pitch} z=${zoom} d=${dx},${dy}`).not.toBe(
+                null,
+              )
+              expect([b![0], b![1]], `projType=${projType} pitch=${pitch} z=${zoom}`).toEqual([
+                ax,
+                ay,
+              ])
+              compared++
+            }
+          }
+        }
+      }
+      expect(compared, 'the lattice found no commonly-projectable points').toBeGreaterThan(50)
+      expect(
+        culledOnly,
+        'the cull-free projector never answered where the culled one did not',
+      ).toBeGreaterThan(0)
+    })
+  }
+
+  it('applies the world-copy period, so the plane is the SAME copy as the live run', () => {
+    const cam = new Camera(0, 0, 4)
+    cam.pitch = 50
+    const flat: FlatGroundView = {
+      projType: 0,
+      ccx: cam.centerX,
+      ccy: cam.centerY,
+      centerLon: 0,
+      centerLat: 0,
+    }
+    const mvp = cam.getViewForProjection(0, W, H, DPR).matrix
+    const free = makeGroundMercProjector(mvp, W, H, flat)
+    const live = makeLabelProjectors(mvp, W, H, {
+      ...flat,
+      visibleWorldCopies: [0, 1],
+    }).projectMercAny
+    for (const wo of [-1, 0, 1]) {
+      const a = live(1_000_000, 500_000, wo)
+      const b = free(1_000_000, 500_000, wo)
+      expect(b).not.toBe(null)
+      if (a !== null) expect([b![0], b![1]]).toEqual([a[0], a[1]])
+    }
+    // Non-vacuity: a projector that ignored the copy index would return one point.
+    const p0 = free(1_000_000, 500_000, 0)!
+    const x0 = p0[0]
+    const p1 = free(1_000_000, 500_000, 1)!
+    expect(p1[0]).not.toBeCloseTo(x0, 3)
+  })
+
+  it('is the identity twin at pitch 0 — the rung the whole design protects', () => {
+    // At pitch 0 the pitch-0 matrix IS the live matrix, so the plane run and the
+    // live run are the same floats and the walk is unchanged.
+    const cam = new Camera(200_000, 900_000, 12)
+    cam.bearing = 40
+    cam.pitch = 0
+    const flat: FlatGroundView = {
+      projType: 0,
+      ccx: cam.centerX,
+      ccy: cam.centerY,
+      centerLon: 1.8,
+      centerLat: 8,
+    }
+    const p0 = new Pitch0Unprojector()
+    const live = makeGroundMercProjector(cam.getViewForProjection(0, W, H, DPR).matrix, W, H, flat)
+    const plane = makeGroundMercProjector(p0.matrix(cam, W, H, DPR), W, H, flat)
+    for (let d = -400_000; d <= 400_000; d += 100_000) {
+      const a = live(cam.centerX + d, cam.centerY + d)!
+      const ax = a[0],
+        ay = a[1]
+      const b = plane(cam.centerX + d, cam.centerY + d)!
+      expect([b[0], b[1]]).toEqual([ax, ay])
+    }
+  })
 })

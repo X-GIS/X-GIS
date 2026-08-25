@@ -78,6 +78,23 @@ export interface TextDraw {
    *  than multiplying by an identity basis, so those vertices stay
    *  bit-identical to the pre-IV3 output. */
   groundBasis?: ArrayLike<number>
+  /** #2012 INC-4 — the screen point `groundBasis` pivots about. ABSENT → the draw
+   *  anchor, which is what a point label wants and keeps that path byte-identical.
+   *
+   *  A CURVED line label needs it because of the contract it already had: it sets
+   *  `anchorX/anchorY = 0` and writes ABSOLUTE screen positions into
+   *  `glyphOffsets` (the renderer computes `baseX = anchorX + offsets[2i]`), so a
+   *  basis pivoted on the anchor would swing the whole road name around screen
+   *  pixel (0, 0). That is why wiring the curved branch was never a one-line
+   *  change (design §1.4(c)), and it is what the pivot fixes.
+   *
+   *  The stage passes the label's LIVE screen centre — the point the basis was
+   *  derived at — and writes each glyph's offset as the PRE-IMAGE of its live
+   *  position under the basis, so `pivot + basis·(offset − pivot)` reproduces the
+   *  index-correspondence position exactly while the ~20 px quad around it comes
+   *  out foreshortened. The collision box is built from the same offsets through
+   *  `groundBasisAabb` about the same pivot, so box and quad stay together. */
+  groundBasisPivot?: readonly [number, number]
   /** Symbol fade box (label-fade.ts). When set, the renderer multiplies
    *  this draw's fill AND halo alpha by `fadeRef.a` at draw()-encode time
    *  every frame — the ledger mutates `.a` in place, so replayed (S16-skip)

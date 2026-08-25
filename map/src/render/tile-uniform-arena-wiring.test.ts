@@ -95,12 +95,14 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     const before = src.slice(Math.max(0, second - 700), second)
     expect(before).toContain('visibleKey < 0')
     expect(before).toContain("sliceLayer !== ''")
-    // The qualification itself must pin the invariants the skip relies on:
-    // every draw split-bound (base layout, no pattern/extrude/variant/max)
-    // and the primary unclipped path (visibleKey < 0 for every tile).
-    const qual = src.indexOf('const splitWalkSkip =')
-    expect(qual, 'splitWalkSkip qualification not found').toBeGreaterThan(0)
-    const qualBody = src.slice(qual, qual + 700)
+    // The qualification lives in the SINGLE ring-free authority
+    // (_walkRingFree, #2042 INC-5b) — consulted by BOTH renderTileKeys'
+    // splitWalkSkip and the bundle-key builder's ringCursor sentinel; drift
+    // between them would re-couple the keys the sentinel decouples. Pin the
+    // authority's terms, the delegation, and both key sites.
+    const qual = src.indexOf('private _walkRingFree(')
+    expect(qual, '_walkRingFree authority not found').toBeGreaterThan(0)
+    const qualBody = src.slice(qual, qual + 1600)
     for (const term of [
       'visibleKeysForClip === null',
       "sliceLayer !== ''",
@@ -111,9 +113,15 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
       'translucentLines',
       'lineVariant == null',
       'isOverdrawActive',
+      'perStyleTwin',
     ]) {
-      expect(qualBody, `splitWalkSkip lost the "${term}" qualification`).toContain(term)
+      expect(qualBody, `_walkRingFree lost the "${term}" qualification`).toContain(term)
     }
+    expect(src).toContain('const splitWalkSkip = this._walkRingFree(')
+    // INC-5b — the primary bundle key uses the -2 sentinel for ring-free
+    // walks; the fallback-clip key always uses the live cursor.
+    expect(src).toMatch(/ringCursor: this\._walkRingFree\([\s\S]{0,300}?\)\s*\?\s*-2\s*:/)
+    expect(src).toContain('ringCursor: this._ringCursorForBundleKey(),')
     // The ring-alloc invariant exemption rides the qualification: every call
     // must publish it, and the bundle-hit invariant must read it — a walk
     // that skips packs allocs FEWER ring slots than its bundle recorded
@@ -123,5 +131,18 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     // bundle recorded 2").
     expect(src).toContain('this._lastWalkRingFree = splitWalkSkip')
     expect(src).toMatch(/if \(_inv && !this\._lastWalkRingFree\) \{/)
+    // #2042 INC-4d — the qualification's fill term must be capability-based
+    // (default pipes OR an eligible per-style twin), and the stroke clause
+    // must consult the draper's derivation verdict — NOT a bare
+    // `lineVariant == null` (which excluded every compiled show: constant
+    // paints inline as preamble consts, so all converted-style fills are
+    // per-style; the class the walk-skip exists for).
+    expect(src).toContain('const splitFillsCapable =')
+    const cap = src.indexOf('const splitFillsCapable =')
+    const capBody = src.slice(cap, cap + 600)
+    expect(capBody).toContain('perStyleTwin')
+    expect(qualBody).toContain('splitFillsCapable')
+    expect(qualBody).toContain('splitStrokeEligible(lineVariant)')
+    expect(qualBody).toContain('!drawStrokes ||')
   })
 })

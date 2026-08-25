@@ -60,6 +60,9 @@ function makeFactory() {
   anyF.shaderCache = new Map()
   anyF._fillPerStyle = new Map()
   anyF._fillPerStyleExtrude = new Map()
+  // #2042 INC-4d — the lazy split-twin registry's info map (registerFillMaterials
+  // writes it unconditionally; the split cache itself stays untouched here).
+  anyF._fillPerStyleInfo = new Map()
   anyF.featureBindGroupLayout = BASE_FEATURE
   anyF.bindGroupLayout = BASE
   // The FrameRenderer-injected compute-aware resolver (the single authority).
