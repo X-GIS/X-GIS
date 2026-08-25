@@ -206,6 +206,34 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
     const frames = (await runSweep(page, 8000)).slice(2)
     const phases = await readPhases(page)
     const enc = phases.find((p) => p.name === 'frame.encode')
+    // #2042 INC-5 diagnostics — attribute a slope change before believing it:
+    // bundle hit/miss separates "steady replay but slow walk" from a
+    // re-record storm; the split/skip counters say which mechanism ran.
+    const diag = await page.evaluate(() => {
+      const g = globalThis as {
+        __xgisVtrSplitDraws?: number
+        __xgisVtrSplitStrokeDraws?: number
+        __xgisVtrWalkSkips?: number
+        __xgisVtrFillRhiDraws?: number
+      }
+      const m = (
+        window as unknown as {
+          __xgisMap?: {
+            stats?: { bundleHits: number; bundleMisses: number; bundleEvictions: number }
+          }
+        }
+      ).__xgisMap
+      const s = m?.stats
+      return {
+        splitFills: g.__xgisVtrSplitDraws ?? 0,
+        walkSkips: g.__xgisVtrWalkSkips ?? 0,
+        fillDraws: g.__xgisVtrFillRhiDraws ?? 0,
+        bundleHits: s?.bundleHits ?? -1,
+        bundleMisses: s?.bundleMisses ?? -1,
+        bundleEvictions: s?.bundleEvictions ?? -1,
+      }
+    })
+    console.log(`[encode-sweep] n=${n} frames=${frames.length} diag=${JSON.stringify(diag)}`)
     rows.push({
       n,
       layers,
