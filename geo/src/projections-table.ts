@@ -267,6 +267,51 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
   return globeMode || (r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false)
 }
 
+/** Selection zoom (currentZ) at and above which the bake→drape path stops
+ *  paying for itself and the direct arm wins (#2093 F1 — the LOD ceiling).
+ *
+ *  DERIVATION. The drape trades BLUR for great-circle HUG, so compare the two
+ *  errors in CSS px at camera zoom Z for a tile of zoom z:
+ *
+ *    - HUG (what the direct arm loses): a tile-clipped edge is drawn as a
+ *      CHORD under the sphere. Its sagitta over the tile's angular width
+ *      2π·2^-z is C = 128π·2^(Z−2z) CSS px — the tile spans TILE_PX·2^(Z−z) =
+ *      512·2^(Z−z) px (TILE_PX, world-scale.ts:24) and sags by ~(1/8)·span·
+ *      (angular width) = 512·2^(Z−z)·(2π·2^-z)/8.
+ *    - BLUR (what the drape pays): one bake texel is B = 2^(Z−z) CSS px
+ *      (a 512px bake of a 512-px-per-tile-at-z quad). That texel is BOTH the
+ *      drape's resolution floor AND its whole AA feather band — the bake runs
+ *      at dpr=1 with mpp = tileExtent/512, so line.ts's `halfAa = 0.5/dpr`
+ *      (:899) feather is one bake texel wide and is magnified with it.
+ *
+ *  Camera zoom Z CANCELS: C/B = 128π·2^(−z). So the verdict depends on the
+ *  TILE zoom alone, and direct wins for every z ≥ ceil(log2(128π)) = 9 — at
+ *  EVERY camera zoom, which is why this is a selection-zoom gate and not a
+ *  camera-zoom one. The globe selector's coarsest PRIMARY leaf is currentZ−1
+ *  (globe-visible-tiles.ts:474 descends only while `tz < floor(desiredZ)`),
+ *  so the coarsest tile the gate must cover at selection zoom S is S−1; the
+ *  threshold on currentZ is therefore 9 + 1 = 10.
+ *
+ *  currentZ is a HYSTERESED zoom bucket (tile-selection-cache.ts:368-390), so
+ *  the switch cannot flap on a camera hovering at the boundary, and it is then
+ *  SOURCE-CLAMPED to `source.maxLevel` (:598-599) — so a low-maxzoom source
+ *  (demotiles, maxzoom 2) never reaches the ceiling and keeps the drape, and
+ *  its #2024 overzoom windowing, at EVERY camera zoom. Below the gate the
+ *  drape's great-circle hug is worth its blur: the same trade that EXCLUDED
+ *  oblique(6) (see the comment at :242-244), read at the other end.
+ *
+ *  Ellipsoid flattening moves the crossover by <0.01 of a zoom level —
+ *  irrelevant to an integer threshold. */
+export const GLOBE_DIRECT_MIN_SELECTION_Z = 10
+
+/** Whether the bake→drape path still wins at this selection zoom (#2093 F1).
+ *  See GLOBE_DIRECT_MIN_SELECTION_Z for the chord-sagitta-vs-bake-texel
+ *  derivation; at or above the ceiling the direct arm is sharper at every
+ *  camera zoom. */
+export function drapesAtSelectionZ(currentZ: number): boolean {
+  return currentZ < GLOBE_DIRECT_MIN_SELECTION_Z
+}
+
 // ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /
 //    label-pass / render-loop). Add siblings (isFlatProj / periodicOf /
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──

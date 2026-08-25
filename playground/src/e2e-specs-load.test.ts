@@ -128,8 +128,10 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'builds full RENDER pipelines and streams tiles through the same SwiftShader init that times out; candidate for CI once the GPUArena OOM PR lands (test.yml notes) -- local/pre-push for now',
   '_globe-ecef-render-position.spec.ts':
     "spec's own header: (SwiftShader) createRenderPipeline of a real vertex shader times out, and throws no WebGPU adapter (hardware GPU required -- do NOT run under SwiftShader) -- HARDWARE/PRE-PUSH GATE, not a GitHub-CI render-gate (mirrors _ws8-projection-field's carve-out)",
+  '_globe-positron-native-zoom-gate.spec.ts':
+    'the #2093 closing gate (cause/effect/sever/parity on the F1 LOD ceiling) -- live OFM Positron over the curl proxy + multi-minute SwiftShader upload-backlog convergence per arm, the exact #1349 network+convergence class that is a PRE-PUSH/local gate, not a GitHub-CI one (mirrors _high-pitch-flicker); its offline sibling _globe-direct-overzoom-sharpness-gate IS CI-registered',
   '_globe-positron-quality-probe.spec.ts':
-    'witness-construction PROBE for the #2086 globe native-zoom quality campaign -- measures drape vs direct vs mercator vs MapLibre arms on live OFM Positron (network-dependent, SwiftShader-scale multi-minute budgets); diagnostic measurement, not a pass/fail gate (the campaign closing gate lands separately, CI-registered)',
+    'witness-construction PROBE for the #2093/#2086 globe native-zoom quality campaign -- measures drape vs direct vs mercator vs MapLibre arms on live OFM Positron (network-dependent, SwiftShader-scale multi-minute budgets); diagnostic measurement, not a pass/fail gate (the campaign closing gates land separately)',
   '_high-pitch-flicker.spec.ts':
     'fixture-unblocked (#1349) but not CI-viable as a blocking SwiftShader gate -- measured SwiftShader throughput ~4 tiles/min needs ~15 min for full convergence at the bug camera (#1349 comment); belongs in the real-GPU/nightly bucket, not registered',
   '_host-retained-icons-perf.spec.ts':

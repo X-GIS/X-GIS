@@ -275,7 +275,14 @@ const CEILINGS: Record<string, number> = {
   // parallel array + its two pushes, and the stroke-emit split resolve +
   // per-tile bind selection threaded through both drawSegments calls.
   // Shrinks at INC-5 with the re-walk deletion.
-  'map/src/render/vector-tile-renderer.ts': 5303,
+  // 5303→5311 (#2093 F1): the drape LOD ceiling at the `_drapeGlobeFills`
+  // derivation — the `drapesAtSelectionZ(currentZ)` conjunct + its
+  // __XGIS_FORCE_VECTOR_DRAPE A/B escape (6, incl. the 3-line rationale) and 2
+  // in the block comment above it. The arithmetic itself is NOT here: the
+  // chord-sagitta-vs-bake-texel derivation lives with the constant in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_SELECTION_Z), so this file
+  // gains only the call-site seam.
+  'map/src/render/vector-tile-renderer.ts': 5311,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

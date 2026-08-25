@@ -15,6 +15,9 @@
 // SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
+// COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
+// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the bake's blur would exceed the
+// chord sagitta it removes and the direct arm renders instead.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'

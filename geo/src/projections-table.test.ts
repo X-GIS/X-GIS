@@ -9,6 +9,8 @@ import {
   enumerateWorldCopies,
   routeToSphereSelector,
   bakesVectorDrape,
+  GLOBE_DIRECT_MIN_SELECTION_Z,
+  drapesAtSelectionZ,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
 
@@ -233,5 +235,55 @@ describe('PROJECTIONS table', () => {
       expect(p.cullThreshold).toBe(expected[p.projType])
       expect(p.rimThreshold).toBe(expected[p.projType])
     }
+  })
+})
+
+// ── T4: the #2093 F1 drape LOD ceiling ──
+// bakesVectorDrape says WHICH SURFACE drapes; GLOBE_DIRECT_MIN_SELECTION_Z says
+// HOW LONG it is worth draping. The bake→drape path trades BLUR (one 512px-bake
+// texel — also the drape's whole AA feather band) for HUG (the chord sagitta the
+// direct arm leaves under the sphere). Camera zoom CANCELS out of that ratio, so
+// the crossover is a property of the TILE zoom alone — which is what makes a
+// single selection-zoom integer a legitimate gate rather than a tuned constant.
+describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () => {
+  const TILE_PX = 512 // world-scale.ts:24
+
+  it('=== the chord-sagitta crossover, +1 for the currentZ−1 primary leaf', () => {
+    // Sagitta of a tile-wide chord = span·θ/8 = (TILE_PX·2^(Z−z))·(2π·2^−z)/8
+    //                              = (TILE_PX·2π/8)·2^(Z−2z) = 128π·2^(Z−2z) CSS px.
+    // One bake texel = 2^(Z−z) CSS px. Their ratio is 128π·2^−z, so the direct arm
+    // wins from TILE zoom ceil(log2(128π)) = 9 upward. The globe selector's coarsest
+    // PRIMARY leaf is currentZ−1 (globe-visible-tiles.ts:474 descends only while
+    // `tz < floor(desiredZ)`), so the threshold ON currentZ is that + 1.
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((TILE_PX * 2 * Math.PI) / 8)) + 1)
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(10)
+  })
+
+  it('the blur-vs-sagitta verdict is INDEPENDENT of camera zoom (Z cancels)', () => {
+    // The whole justification for gating on the SELECTION zoom is that the camera
+    // zoom Z drops out of C/B. Sweep Z across the usable range (incl. fractional
+    // camera zooms) — every Z must produce the SAME per-tile-zoom verdict, and the
+    // sign flip must sit between z=8 and z=9.
+    for (const Z of [2, 9.7, 15.3, 21.1]) {
+      for (let z = 2; z <= 14; z++) {
+        const C = 128 * Math.PI * 2 ** (Z - 2 * z) // chord sagitta, CSS px
+        const B = 2 ** (Z - z) // one bake texel == the AA feather band, CSS px
+        expect(
+          C >= B,
+          `Z=${Z} z=${z}: sagitta ${C}px vs bake texel ${B}px — the drape-vs-direct ` +
+            `verdict must depend on the TILE zoom alone, never on the camera zoom.`,
+        ).toBe(z <= 8)
+      }
+    }
+  })
+
+  it('drapesAtSelectionZ() switches exactly at the ceiling (9 drapes, 10 goes direct)', () => {
+    expect(drapesAtSelectionZ(9), 'below the ceiling the great-circle hug is worth its blur').toBe(
+      true,
+    )
+    expect(
+      drapesAtSelectionZ(GLOBE_DIRECT_MIN_SELECTION_Z),
+      'at the ceiling the 512px bake is blurrier than the chord it removes — render direct',
+    ).toBe(false)
   })
 })
