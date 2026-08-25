@@ -63,7 +63,7 @@ export function emitFillExtrusionPaint(
   // `fill-translate-x-N` / `fill-translate-y-M` utilities works end-
   // to-end with zero runtime changes — the converter just needs to
   // stop dropping the value.
-  addFillTranslate(out, p['fill-extrusion-translate'], warnings)
+  addFillTranslate(out, p['fill-extrusion-translate'], warnings, 'fill-extrusion-translate')
   // fill-extrusion-translate-anchor: fill-extrusion-translate rides the
   // SAME `fill-translate-{x,y}` utilities + slot 46/47 uniform as fill
   // (the extrude vertex shaders apply u.fill_translate_x/y), so the

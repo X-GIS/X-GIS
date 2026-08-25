@@ -2,13 +2,14 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
 import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { FailedTileLedger } from './tile-retry'
+import { clipTilesToBounds, normalizeSourceBounds, type SourceBounds } from './source-bounds-clip'
 import {
   admitTile,
   type EvictableTile,
@@ -34,25 +35,23 @@ import { globeEyeUniform } from './globe-eye-uniform'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
- *  MUST be the WGS84 **ellipsoid** ECEF of the camera centre (lonLatToECEF,
- *  E2≠0) — the same frame `lonlat_to_ecef` reconstructs the raster tile
- *  vertices in. The camera's `getECEFCenter()` is the **sphere** (E2=0);
- *  subtracting a sphere anchor from ellipsoid vertices leaves the
- *  ellipsoid−sphere discrepancy (~21.5 km at mid-latitude) on every vertex,
- *  which threw the whole raster sheet off the globe. Mirrors the vector
- *  tiler's ellipsoid `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
+ *  MUST be the WGS84 **ellipsoid** ECEF of the camera centre (lonLatToECEF, E2≠0) — the same
+ *  frame `lonlat_to_ecef` reconstructs the raster tile vertices in. The camera's
+ *  `getECEFCenter()` is the **sphere** (E2=0); subtracting a sphere anchor from ellipsoid
+ *  vertices leaves the ellipsoid−sphere discrepancy (~21.5 km at mid-latitude) on every vertex,
+ *  which threw the whole raster sheet off the globe. Mirrors the vector tiler's ellipsoid
+ *  `cam_ecef_off` (vector-tile-renderer.ts:3627-3638). */
 export function rasterGlobeCamAnchor(lonDeg: number, latDeg: number): ECEF {
   return lonLatToECEF(lonDeg, latDeg)
 }
 
-/** The DSFUN camera anchor for the raster/hillshade global uniform — the single
- *  authority shared by RasterRenderer + HillshadeRenderer (both drive the shared
- *  vs_tile, so both MUST pack identical lanes). Lanes are PER projType arm (see
- *  the cam_ecef_center struct-field comment in raster.ts): Mercator → 2D Merc
- *  centre; flat non-Mercator (1-6) → [clon, camProj0.x, camProj0.y] where camProj0
- *  = the camera's projected 2D centre in the clon = 0 frame (kills the single-f32
- *  clon/clat shake in every non-Mercator projection); globe → WGS84 ELLIPSOID
- *  ECEF (must match the ellipsoid the VS rebuilds vertices on, not
+/** The DSFUN camera anchor for the raster/hillshade global uniform — the single authority
+ *  shared by RasterRenderer + HillshadeRenderer (both drive the shared vs_tile, so both MUST
+ *  pack identical lanes). Lanes are PER projType arm (see the cam_ecef_center struct-field
+ *  comment in raster.ts): Mercator → 2D Merc centre; flat non-Mercator (1-6) → [clon,
+ *  camProj0.x, camProj0.y] where camProj0 = the camera's projected 2D centre in the clon = 0
+ *  frame (kills the single-f32 clon/clat shake in every non-Mercator projection); globe →
+ *  WGS84 ELLIPSOID ECEF (must match the ellipsoid the VS rebuilds vertices on, not
  *  getECEFCenter()'s sphere). */
 export function rasterFrameCamAnchor(
   camera: Pick<Camera, 'centerX' | 'centerY'>,
@@ -116,14 +115,13 @@ export interface RasterColorParams {
   contrast: number
 }
 
-/** Pack the raster global uniform — the SINGLE authority shared by render() and
- *  the forced-WebGL2 checker (renderRhiChecker). The checker's old literal-offset
- *  packer carried raster_params.w = 8 where render() wrote 0 — a dead lane (the
- *  shader reads only raster_params.x), retired by this unification. Completeness
- *  is compile-time (#600 globe_eye class does not compile if omitted); globe_eye
- *  is all-zero off the globe (frame.eye undefined), matching both old packers.
- *  camAnchor: 2D Mercator centre in .xy on the flat path (ECEF lanes dead
- *  there); the WGS84 ELLIPSOID anchor (rasterGlobeCamAnchor) on globe/3D.
+/** Pack the raster global uniform — the SINGLE authority shared by render() and the
+ *  forced-WebGL2 checker (renderRhiChecker). The checker's old literal-offset packer carried
+ *  raster_params.w = 8 where render() wrote 0 — a dead lane (the shader reads only
+ *  raster_params.x), retired by this unification. Completeness is compile-time (#600 globe_eye
+ *  class does not compile if omitted); globe_eye is all-zero off the globe (frame.eye
+ *  undefined), matching both old packers. camAnchor: 2D Mercator centre in .xy on the flat path
+ *  (ECEF lanes dead there); the WGS84 ELLIPSOID anchor (rasterGlobeCamAnchor) on globe/3D.
  *  (exported for the byte-equality gate — raster-frame-uniform.test.ts) */
 export function writeRasterFrameUniform(
   block: UniformBlockOf<typeof RASTER_U>,
@@ -184,12 +182,11 @@ export function writeRasterTileUniform(
 }
 
 // ── #1053 — raster globe pole caps ──
-// The Web-Mercator raster surface saturates at ±85.0511°, so the topmost (y=0)
-// and bottommost (y=2^z−1) tile rows abut an open polar hole. On the GLOBE only
-// (isGlobeProj → projType 7, the sole ECEF surface arm; every flat/Mercator
-// projection is a plane with no geographic pole), those rows get an extra cap
-// "tile" that fans their band edge to the pole. Cheap pure predicates, zero
-// allocation — the render loop calls them per tile.
+// The Web-Mercator raster surface saturates at ±85.0511°, so the topmost (y=0) and bottommost
+// (y=2^z−1) tile rows abut an open polar hole. On the GLOBE only (isGlobeProj → projType 7, the
+// sole ECEF surface arm; every flat/Mercator projection is a plane with no geographic pole),
+// those rows get an extra cap "tile" that fans their band edge to the pole. Cheap pure
+// predicates, zero allocation — the render loop calls them per tile.
 /** North cap needed? Globe + topmost tile row (north edge = +85.0511°). */
 export function needsNorthPoleCap(projType: number, tileY: number): boolean {
   return isGlobeProj(projType) && tileY === 0
@@ -352,9 +349,16 @@ export class RasterRenderer {
     this._rasterDraper = undefined
   }
 
-  setUrlTemplate(url: string): void {
+  /** The source's row origin (#1985) — `'tms'` numbers tile rows from the BOTTOM, so
+   *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. It rides `setUrlTemplate` rather than
+   *  a setter of its own because it is a property OF the template: re-arming a different
+   *  source without a scheme MUST clear it, and a separate setter could leave a stale flip
+   *  on the new URL. Undefined = `'xyz'`, the pre-existing behaviour. */
+  private _scheme: TileRowScheme | undefined
+  setUrlTemplate(url: string, scheme?: TileRowScheme): void {
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
+    this._scheme = scheme
   }
 
   /** Set the source's tile size in px (256 | 512). Values other than 256/512
@@ -366,6 +370,14 @@ export class RasterRenderer {
   setSourceMaxzoom(maxzoom: number | undefined): void {
     this._sourceMaxzoom =
       typeof maxzoom === 'number' && Number.isFinite(maxzoom) ? maxzoom : undefined
+  }
+
+  /** Source-level `bounds` — the dataset's spatial extent (#1984). Outside it the source
+   *  HAS no data, so `render()` drops those tiles before requesting. `normalizeSourceBounds`
+   *  re-validates, so an unusable box means "no clip", never a blanked source. */
+  private _sourceBounds: SourceBounds | undefined
+  setSourceBounds(bounds: [number, number, number, number] | undefined): void {
+    this._sourceBounds = normalizeSourceBounds(bounds)
   }
 
   setTileSize(tileSize: number | undefined): void {
@@ -437,9 +449,8 @@ export class RasterRenderer {
    *  polls this to keep ticking during load — newly-arrived textures need
    *  one more frame to show up, but arrivals don't fire a direct callback
    *  today, so we just keep the loop warm until the queue drains. */
-  /** True once a raster source's URL template is configured (#834 M5 slice 2
-   *  — the forced-WebGL2 frame draws real tiles instead of the analytic
-   *  checker when a source exists). */
+  /** True once a raster source's URL template is configured (#834 M5 slice 2 — the
+   *  forced-WebGL2 frame draws real tiles instead of the analytic checker when one exists). */
   hasSource(): boolean {
     return this.urlTemplate !== ''
   }
@@ -674,6 +685,10 @@ export class RasterRenderer {
           : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
       tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
     }
+    // Spatial clip (#1984). Applied to the SELECTION, so the drop reaches every consumer
+    // below at once — the leaf request loop, the parent-fallback prefetch, the eviction
+    // protection set and the draw list. A no-op (same array) without declared bounds.
+    tiles = clipTilesToBounds(tiles, this._sourceBounds)
 
     // Sort: lower zoom first (draw background), higher zoom on top (sharp near tiles)
     tiles.sort((a, b) => {
@@ -701,17 +716,16 @@ export class RasterRenderer {
 
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
-      const url = tileUrl(this.urlTemplate, coord)
+      const url = tileUrl(this.urlTemplate, coord, this._scheme)
 
       this.loadTileTexture(url, ctrl.signal)
-        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
-        // failure (bitmap fetch reject, or createTexture throw on a lost context)
-        // resolves to null so the .then ALWAYS frees the loadingTiles slot (else the
-        // key wedges, pinning all MAX_CONCURRENT slots → raster stalls). Scoped here so
-        // a throw from the .then bookkeeping still surfaces — through the terminal
-        // handler below, not as an unhandled rejection (#1565: this leaf chain floated
-        // while its parent-fallback sibling 50 lines down already terminated; two
-        // siblings, two error channels, and no rule enforcing either until now).
+        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load failure (bitmap
+        // fetch reject, or createTexture throw on a lost context) resolves to null so the .then
+        // ALWAYS frees the loadingTiles slot (else the key wedges, pinning all MAX_CONCURRENT slots
+        // → raster stalls). Scoped here so a throw from the .then bookkeeping still surfaces —
+        // through the terminal handler below, not as an unhandled rejection (#1565: this leaf chain
+        // floated while its parent-fallback sibling 50 lines down already terminated; two siblings,
+        // two error channels, and no rule enforcing either until now).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
@@ -726,12 +740,10 @@ export class RasterRenderer {
         .catch((e) => console.error('[X-GIS] raster tile post-load bookkeeping failed', e))
     }
 
-    // Write global uniforms through the typed block (#733 P2b — the single
-    // authority shared with the forced-WebGL2 checker). proj_params.w =
-    // log_depth_fc so the raster grid shader can apply/read the log-depth
-    // transform uniformly with the vector pipelines. The DSFUN camera anchor is
-    // packed per projType arm by frameCamAnchor (see there + raster.ts
-    // cam_ecef_center).
+    // Write global uniforms through the typed block (#733 P2b — the single authority shared with
+    // the forced-WebGL2 checker). proj_params.w = log_depth_fc so the raster grid shader can
+    // apply/read the log-depth transform uniformly with the vector pipelines. The DSFUN camera
+    // anchor is packed per projType arm by frameCamAnchor (see there + raster.ts cam_ecef_center).
     const camAnchor = rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat)
     const B = rasterBlock()
     writeRasterFrameUniform(
@@ -760,10 +772,8 @@ export class RasterRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        this.loadTileTexture(
-          tileUrl(this.urlTemplate, { z: parentZ, x: parentX, y: parentY, ox: parentX }),
-          ctrl.signal,
-        )
+        const parentCoord = { z: parentZ, x: parentX, y: parentY, ox: parentX }
+        this.loadTileTexture(tileUrl(this.urlTemplate, parentCoord, this._scheme), ctrl.signal)
           // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain, with
           // the catch scoped to the LOAD promise so a .then-body throw still surfaces.
           .catch(() => null)
@@ -780,43 +790,37 @@ export class RasterRenderer {
       }
     }
 
-    // World-copy fan-out is the SELECTOR's job (ADR-0006: one copy-set
-    // per pipeline). `visibleTilesFrustum` enumerates the visible copies
-    // for the cylindrical family (worldCopiesFor → WORLD_COPIES) and bakes
-    // each copy's offset into the tile's `ox` — so the bounds derived from
-    // `ox` below (`west = ox/rn*360 - 180`) already sit in their own world
-    // copy. Re-looping `camera.getVisibleWorldCopies()` here shifted those
-    // already-placed bounds AGAIN by wo*360, drawing every selected tile at
-    // every (ox + wo) position: the same logical world tile rasterised
-    // multiple times at the same screen location (raster-opacity<1 then
-    // COMPOUNDED the alpha; opacity=1 was wasted over-draw). The VTR vector
-    // path reads the selector ox ONCE (tile-selection-cache worldOffDeg) and
-    // draws each tile once — mirror that single-source pattern here. Globe /
-    // ECEF (projType ≥ 0.5) and the cylindrical non-Mercator flat set
-    // (1/2/6, routed through the mercator-named selector shim) were already
-    // collapsed to [0] and stay unchanged.
+    // World-copy fan-out is the SELECTOR's job (ADR-0006: one copy-set per pipeline).
+    // `visibleTilesFrustum` enumerates the visible copies for the cylindrical family
+    // (worldCopiesFor → WORLD_COPIES) and bakes each copy's offset into the tile's `ox` — so the
+    // bounds derived from `ox` below (`west = ox/rn*360 - 180`) already sit in their own world
+    // copy. Re-looping `camera.getVisibleWorldCopies()` here shifted those already-placed bounds
+    // AGAIN by wo*360, drawing every selected tile at every (ox + wo) position: the same logical
+    // world tile rasterised multiple times at the same screen location (raster-opacity<1 then
+    // COMPOUNDED the alpha; opacity=1 was wasted over-draw). The VTR vector path reads the selector
+    // ox ONCE (tile-selection-cache worldOffDeg) and draws each tile once — mirror that
+    // single-source pattern here. Globe / ECEF (projType ≥ 0.5) and the cylindrical non-Mercator
+    // flat set (1/2/6, routed through the mercator-named selector shim) were already collapsed to
+    // [0] and stay unchanged.
     const RASTER_WORLD_COPIES = [0]
-    // Per-frame draw dedup, keyed by the RENDER coord + world copy (ox).
-    // Parent fallback maps every uncached child onto the same parent at the
-    // parent's FULL bounds — without this, four missing z+1 children draw
-    // the identical parent quad four times at one world position (wasted
-    // fill; with raster-opacity < 1 the alpha COMPOUNDS, the same defect
-    // class the world-copy single-source fix removed for ox×wo).
+    // Per-frame draw dedup, keyed by the RENDER coord + world copy (ox). Parent fallback maps every
+    // uncached child onto the same parent at the parent's FULL bounds — without this, four missing
+    // z+1 children draw the identical parent quad four times at one world position (wasted fill;
+    // with raster-opacity < 1 the alpha COMPOUNDS, the same defect class the world-copy
+    // single-source fix removed for ox×wo).
     const drawnKeys = new Set<string>()
-    // Per-tile fade-in: a freshly-appeared tile ramps opacity 0→1 over
-    // `fadeMs` — the WALL CLOCK, not a frame count (#1477 fixed a ramp that
-    // ran 2× long at 30fps) — cross-fading over its cached parent (drawn
-    // beneath). Measured from the tile's FIRST DRAW (firstShownMs, lazily
-    // stamped below), so a tile pre-loaded off-screen still fades when first
-    // shown. fadeMs 0 (rasterFadeDuration 0 / reduced-motion) ⇒ instant full.
+    // Per-tile fade-in: a freshly-appeared tile ramps opacity 0→1 over `fadeMs` — the WALL CLOCK,
+    // not a frame count (#1477 fixed a ramp that ran 2× long at 30fps) — cross-fading over its
+    // cached parent (drawn beneath). Measured from the tile's FIRST DRAW (firstShownMs, lazily
+    // stamped below), so a tile pre-loaded off-screen still fades when first shown. fadeMs 0
+    // (rasterFadeDuration 0 / reduced-motion) ⇒ instant full.
     const fadeMs = this._fadeDurationMs
     let anyFading = false
 
-    // Emit one cached tile at `renderCoord` (bounds from the coord) with the
-    // supplied texture + per-tile opacity, in every visible world copy plus its
-    // globe pole caps. Honours the per-frame `drawnKeys` dedup so a parent shared
-    // by several children draws once. Extracted from the inline loop so the fade
-    // path can emit BOTH a parent (opacity 1, beneath) and its fading child
+    // Emit one cached tile at `renderCoord` (bounds from the coord) with the supplied texture +
+    // per-tile opacity, in every visible world copy plus its globe pole caps. Honours the per-frame
+    // `drawnKeys` dedup so a parent shared by several children draws once. Extracted from the
+    // inline loop so the fade path can emit BOTH a parent (opacity 1, beneath) and its fading child
     // (opacity < 1, over) for one visible coord.
     const emitTileAt = (
       renderCoord: { z: number; x: number; y: number; ox?: number },
@@ -902,12 +906,11 @@ export class RasterRenderer {
       return null
     }
 
-    // The cached DIRECT children (one zoom level down) covering `coord`. On a
-    // zoom-OUT the just-departed higher-detail tiles are still cached; drawing them
-    // beneath a fading-in parent retains their detail until the parent is opaque,
-    // so the parent cross-fades in over them instead of popping them out. On a
-    // zoom-IN the target's children aren't loaded yet, so this is empty (no-op) and
-    // the parent-underlay above handles the fill.
+    // The cached DIRECT children (one zoom level down) covering `coord`. On a zoom-OUT the
+    // just-departed higher-detail tiles are still cached; drawing them beneath a fading-in parent
+    // retains their detail until the parent is opaque, so the parent cross-fades in over them
+    // instead of popping them out. On a zoom-IN the target's children aren't loaded yet, so this is
+    // empty (no-op) and the parent-underlay above handles the fill.
     const findCachedChildren = (coord: {
       z: number
       x: number
@@ -951,15 +954,13 @@ export class RasterRenderer {
         const fadeAlpha = fadeMs > 0 ? Math.min(1, (nowMs - exact.firstShownMs) / fadeMs) : 1
         if (fadeAlpha < 1) {
           anyFading = true
-          // Underlay beneath the fading tile so detail is retained until it is
-          // opaque (all pushed BEFORE the fading tile = under it). The coarse
-          // cached ancestor FIRST (zoom-IN fill / background-gap safety — the gap
-          // the reverted vector-tile fade hit), THEN any cached direct children
-          // (zoom-OUT: the just-departed higher-detail tiles) so a zoom-out
-          // cross-fades sharp→native instead of popping the children out. dedup
-          // (drawnKeys) collapses a shared underlay tile to one draw. Marking each
-          // lastUsedFrame keeps it alive across the ramp so the LRU can't evict it
-          // mid-fade.
+          // Underlay beneath the fading tile so detail is retained until it is opaque (all pushed
+          // BEFORE the fading tile = under it). The coarse cached ancestor FIRST (zoom-IN fill /
+          // background-gap safety — the gap the reverted vector-tile fade hit), THEN any cached
+          // direct children (zoom-OUT: the just-departed higher-detail tiles) so a zoom-out
+          // cross-fades sharp→native instead of popping the children out. dedup (drawnKeys)
+          // collapses a shared underlay tile to one draw. Marking each lastUsedFrame keeps it alive
+          // across the ramp so the LRU can't evict it mid-fade.
           const parent = findCachedParent(coord)
           if (parent) {
             emitTileAt(parent.renderCoord, parent.entry.texture, 1)
@@ -993,12 +994,11 @@ export class RasterRenderer {
     const pick = pickTargetsEnabled(this.rhi.caps)
     this.ensureRasterDraper().draw(pass, B.buffer, tilesArr, this._nearest, pick)
 
-    // Capture this frame's visible set; deferred eviction runs in the next
-    // beginFrame(). Eviction used to run inline here, but destroying tile
-    // textures mid-frame trips "Destroyed texture used in submit" because
-    // bind groups created earlier in this same render() still reference
-    // them at queue.submit() time. Same lifecycle hazard the buffer fix
-    // (da4f26f) addressed for VectorTileRenderer.evictGPUTiles().
+    // Capture this frame's visible set; deferred eviction runs in the next beginFrame(). Eviction
+    // used to run inline here, but destroying tile textures mid-frame trips "Destroyed texture used
+    // in submit" because bind groups created earlier in this same render() still reference them at
+    // queue.submit() time. Same lifecycle hazard the buffer fix (da4f26f) addressed for
+    // VectorTileRenderer.evictGPUTiles().
     this.lastVisibleKeys = visibleKeys
   }
 

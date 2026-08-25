@@ -10,6 +10,9 @@
 //  2. §5 SNAP — after the zoom settles, the frame must equal a FRESH mount at
 //     the same camera within the same-code noise band (no stale labels at
 //     rest).
+//  3. LOOP SKIP (#1177/#2013) — the dispatch loop BODY must run only on miss
+//     frames (loopRuns delta === misses delta). A frame-time win alone cannot
+//     distinguish "the loop was skipped" from "the machine was less busy".
 
 import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
@@ -75,7 +78,9 @@ test('continuous zoom mostly hits the label-prepare skip; settle snaps exact', a
   const before = await page.evaluate(() =>
     (
       window as unknown as {
-        __xgisMap: { getLabelDispatchStats: () => { hits: number; misses: number } }
+        __xgisMap: {
+          getLabelDispatchStats: () => { hits: number; misses: number; loopRuns: number }
+        }
       }
     ).__xgisMap.getLabelDispatchStats(),
   )
@@ -99,17 +104,23 @@ test('continuous zoom mostly hits the label-prepare skip; settle snaps exact', a
   const after = await page.evaluate(() =>
     (
       window as unknown as {
-        __xgisMap: { getLabelDispatchStats: () => { hits: number; misses: number } }
+        __xgisMap: {
+          getLabelDispatchStats: () => { hits: number; misses: number; loopRuns: number }
+        }
       }
     ).__xgisMap.getLabelDispatchStats(),
   )
   const misses = after.misses - before.misses
   const hits = after.hits - before.hits
-  console.log(`[label-zoom-skip] zoom-window hits=${hits} misses=${misses}`)
+  const loopRuns = (after.loopRuns ?? 0) - (before.loopRuns ?? 0)
+  console.log(`[label-zoom-skip] zoom-window hits=${hits} misses=${misses} loopRuns=${loopRuns}`)
   // 0.30 zoom span / 0.15 tolerance ≈ 2-3 tolerance-driven prepares + the
   // settle snap + any tile-arrival misses. Pre-fix: ≥ 30 misses (every step).
   expect(misses).toBeLessThan(15)
   expect(hits).toBeGreaterThan(20)
+  // #1177/#2013 — the dispatch loop body ran EXACTLY on the miss frames.
+  // Pre-guard the loop ran every frame, so loopRuns would equal hits+misses.
+  expect(loopRuns).toBe(misses)
 
   const settled = await shoot(page)
 

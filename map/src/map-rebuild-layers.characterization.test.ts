@@ -152,6 +152,7 @@ interface RebuildMocks {
     setUrlTemplate: ReturnType<typeof vi.fn>
     setTileSize: ReturnType<typeof vi.fn>
     setSourceMaxzoom: ReturnType<typeof vi.fn>
+    setSourceBounds: ReturnType<typeof vi.fn>
   }
   hillshadeRenderer: {
     setUrlTemplate: ReturnType<typeof vi.fn>
@@ -190,8 +191,9 @@ function makeMocks(): RebuildMocks {
       setUrlTemplate: vi.fn(),
       setTileSize: vi.fn(),
       // Source-level maxzoom is armed alongside tileSize; the mock models the surface
-      // rebuildLayers actually calls.
+      // rebuildLayers actually calls. Its spatial twin (#1984) is armed on the same line.
       setSourceMaxzoom: vi.fn(),
+      setSourceBounds: vi.fn(),
     },
     hillshadeRenderer: {
       setUrlTemplate: vi.fn(),
@@ -362,21 +364,38 @@ function pointFC(): GeoJSONFeatureCollection {
 /** Raster source: rebuildLayers detects `data._tileUrl` and arms the
  *  raster renderer instead of tiling. We tag a near-empty FC with the
  *  private `_tileUrl` marker the runtime sets on raster sources. */
-function rasterSource(url: string): GeoJSONFeatureCollection {
+function rasterSource(
+  url: string,
+  maxzoom?: number,
+  scheme?: 'xyz' | 'tms',
+): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   ;(fc as unknown as { _tileUrl: string })._tileUrl = url
+  // #1983 — the source-manager marker carries the DECLARED source maxzoom; omitted
+  // here reproduces a source that declares none (unbounded).
+  if (maxzoom !== undefined) (fc as unknown as { maxzoom: number }).maxzoom = maxzoom
+  // #1985 — and its row-origin sibling; omitted reproduces an xyz source.
+  if (scheme !== undefined) (fc as unknown as { scheme: string }).scheme = scheme
   return fc
 }
 
 /** raster-dem source marker (#777): `{ _tileUrl, _dem: true, encoding, tileSize }`
  *  — rebuildLayers routes a `_dem` marker to the HILLSHADE renderer, not raster. */
-function demSource(url: string, encoding = 'mapbox', tileSize = 512): GeoJSONFeatureCollection {
+function demSource(
+  url: string,
+  encoding = 'mapbox',
+  tileSize = 512,
+  maxzoom?: number,
+  scheme?: 'xyz' | 'tms',
+): GeoJSONFeatureCollection {
   const fc: GeoJSONFeatureCollection = { type: 'FeatureCollection', features: [] }
   Object.assign(fc as unknown as Record<string, unknown>, {
     _tileUrl: url,
     _dem: true,
     encoding,
     tileSize,
+    ...(maxzoom === undefined ? {} : { maxzoom }),
+    ...(scheme === undefined ? {} : { scheme }),
   })
   return fc
 }
@@ -559,11 +578,59 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
 
       internals.rebuildLayers()
 
-      // First call is the reset (''), second arms the real URL.
+      // First call is the reset (''), second arms the real URL. The row origin (#1985)
+      // rides the SAME call — an undeclared source arms `undefined`, i.e. xyz.
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(2)
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
         'https://tiles/{z}/{x}/{y}.png',
+        undefined,
       )
+    })
+
+    it('arms the source-level scheme from the marker, on the template call (#1985)', () => {
+      // The map.ts hop: given a marker that carries `scheme`, rebuildLayers hands it to
+      // setUrlTemplate alongside the URL. Pair with hop 1 in source-scheme-wiring.test.ts
+      // (source-manager putting the key on the marker) — a rename on either side reds
+      // exactly one of the two.
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://t/{z}/{x}/{y}.png', 6, 'tms'))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
+        'https://t/{z}/{x}/{y}.png',
+        'tms',
+      )
+    })
+
+    it('arms the source-level maxzoom from the marker (#1983)', () => {
+      // Pins the SECOND hop only: given a marker that carries `maxzoom`, rebuildLayers
+      // hands it to setSourceMaxzoom. This arm was already correct before #1983 — the
+      // gap was the FIRST hop, source-manager never putting the key on the marker, so
+      // this assertion is green either way on its own. Pair it with hop 1 in
+      // `source-level-zoom-wiring.test.ts`: together they close the marker-key loop
+      // (a rename on either side reds exactly one of them).
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://tiles/{z}/{x}/{y}.png', 6))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setSourceMaxzoom).toHaveBeenCalledWith(6)
+    })
+
+    it('a source declaring no maxzoom arms undefined — unbounded, as before (#1983)', () => {
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set('basemap', rasterSource('https://tiles/{z}/{x}/{y}.png'))
+      internals.showCommands = [show('basemap', { layerName: 'basemap' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.rasterRenderer.setSourceMaxzoom).toHaveBeenCalledWith(undefined)
     })
 
     it('captures the raster show as _rasterShow and skips vector tiling', () => {
@@ -590,9 +657,11 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
 
       internals.rebuildLayers()
 
-      // Hillshade armed with the DEM URL (2nd call; 1st is the '' reset).
+      // Hillshade armed with the DEM URL (2nd call; 1st is the '' reset). The row origin
+      // (#1985) rides the same call; an undeclared DEM arms `undefined`, i.e. xyz.
       expect(mocks.hillshadeRenderer.setUrlTemplate).toHaveBeenLastCalledWith(
         'https://dem/{z}/{x}/{y}.png',
+        undefined,
       )
       // DEM decode threaded: terrarium unpack + tileSize 256.
       expect(mocks.hillshadeRenderer.setParams).toHaveBeenCalledWith(
@@ -604,6 +673,26 @@ describe('XGISMap.rebuildLayers — characterization (pins current behaviour)', 
       // The raster renderer is only reset ('') — a DEM source must NOT arm it as colour.
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledTimes(1)
       expect(mocks.rasterRenderer.setUrlTemplate).toHaveBeenCalledWith('')
+    })
+
+    it('threads the DEM source maxzoom into setParams (#1983)', () => {
+      // Same split as the raster arm above: `armHillshadeSource` already passed
+      // `maxzoom` through, and setParams is MOCKED here, so this pins the call and not
+      // the merge that dropped it. The real merge is gated in
+      // `source-level-zoom-wiring.test.ts` against a live HillshadeRenderer.
+      const mocks = makeMocks()
+      const { internals } = makeMap(mocks)
+      internals.rawDatasets.set(
+        'dem',
+        demSource('https://dem/{z}/{x}/{y}.png', 'terrarium', 256, 15),
+      )
+      internals.showCommands = [show('dem', { layerName: 'relief' })]
+
+      internals.rebuildLayers()
+
+      expect(mocks.hillshadeRenderer.setParams).toHaveBeenCalledWith(
+        expect.objectContaining({ maxzoom: 15 }),
+      )
     })
 
     it('captures the hillshade show as _hillshadeShow', () => {

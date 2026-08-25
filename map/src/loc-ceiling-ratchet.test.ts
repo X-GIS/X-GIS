@@ -224,7 +224,42 @@ const CEILINGS: Record<string, number> = {
   // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
   // comment that records why the shell phase answers to the extrude skip rule.
   // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
-  'map/src/render/vector-tile-renderer.ts': 4957,
+  // 4957→4976 (#2013): the Tier-2 zoom-direction prefetch is no longer gated on
+  // cameraIdle — the guard made it unreachable during the gesture it exists for —
+  // with the comment recording why, the farTargetBoost pass-through (prefetch
+  // probes the same far-field notch the drawing selection runs at), and the
+  // child-fallback fetch-frontier push (covered is not loaded — without it the
+  // deeper #2013 stretch let a view settle permanently on stretched children).
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  // 4961→4990 (#2024, merge union): the globe virtual-overzoom drape. The
+  // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
+  // at birth); the +29 kept here is the irreducible composition wiring — the
+  // dispatch call with its collaborator closure (uploadResident needs
+  // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
+  // (the bake matrix is this file's state), and one import. Deltas are disjoint
+  // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
+  // 4990→5078 (#1190, merge union atop #2024): bundle replay made correct-by-
+  // construction — ringCursor + stroke layer-slot offsets in both BundleKeyState
+  // literals, the hit-path alloc-count invariant at both sites, default-ON gate.
+  // Deltas disjoint (+29 #2024, +88 #1190 over the shared #2028 base). MEASURED.
+  // 5078→5101 (#1190 allocation ledger): the strokeQueue's per-call object
+  // array became instance parallel scratch (+ the offsets-pair scratch) — the
+  // O(stroked-tiles × layers)/frame nursery churn from the issue's ledger, plus
+  // the field docs that record why the reuse is re-entrancy-safe.
+  // 5101→5128 (#2042 INC-1): _writeRtcAnchors — the absolute tile/cam ECEF
+  // anchor staging (one helper, three per-tile call sites) + the §5 witness
+  // skew hook, behind the __XGIS_RTC_RECOMBINE flag. Shrinks back at INC-4/5
+  // when the legacy cam_ecef_off writes and the per-tile re-walk retire.
+  // 5128→5172 (#2042 INC-2): TileUniformArena wiring — the field + release-
+  // hook line + the per-tile ensureSlot call + the sliceLayer trailing param
+  // threaded through six renderTileKeys call sites + flush/reset/destroy
+  // pairing. The arena itself lives in tile-uniform-arena.ts (180 LOC, its
+  // own file); this is only the seam. Shrinks at INC-5 with the re-walk.
+  // 5172→5182 (#2042 INC-6): the two Mercator-anchor writes in
+  // _writeRtcAnchors (tile_origin_merc_hl carries the same skew witness).
+  'map/src/render/vector-tile-renderer.ts': 5182,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -746,7 +781,10 @@ const CEILINGS: Record<string, number> = {
   // the VTR's lookup string, that `vtKey` is the wrong one, and which shows this un-blanks.
   // Nothing extract-worthy: this is the ONE line only map.ts can write — it owns both the
   // ShowCommand the key is derived from and the catalog the key is handed to. MEASURED.
-  'map/src/map.ts': 5623,
+  // 5623→5630 (#1177/#2013): the `_labelDispatchLoopRuns` counter + its rationale and
+  // the `loopRuns` field in getLabelDispatchStats — the observable the zoom-skip gate
+  // asserts the dispatch-loop skip on (measure the skip, not the frame time).
+  'map/src/map.ts': 5630,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1042,7 +1080,11 @@ const CEILINGS: Record<string, number> = {
   // 2005→1996 (#1046 F3b): the `ctx.rhiPass` twin arm (draw directly on the forced-
   // WebGL2 frame's live screen pass) deleted; the `else` branch (originate through
   // the RHI frame encoder) unconditional now that it is the only frame shape.
-  'map/src/render/passes/label-pass.ts': 1996,
+  // 1996→2010 (#1177/#2013): the S16 dispatch-loop skip — a loop-condition guard
+  // plus its safety rationale, and the loop-run counter incremented INSIDE the
+  // body so the zoom-skip gate's loopRuns === misses assertion measures the skip
+  // itself (removing the guard while keeping the counter turns the gate red).
+  'map/src/render/passes/label-pass.ts': 2010,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1114,7 +1156,16 @@ const CEILINGS: Record<string, number> = {
   // rationale comments for a rename whose reason is invisible from the token.
   // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
   // segment), so the import list carries BOTH names — one structural line, zero logic.
-  'map/src/shaders/dsl/line.ts': 1543,
+  // 1543→1527 (#1496): the seam-crossing segment cull lands +15 in vs_line,
+  // paid for by extracting finalize_corner + pattern_unit_to_m to
+  // line-corner.ts (TILE lanes as parameters; a one-line adapter keeps the
+  // call sites). Net shrink banked per the shrink-only rule. MEASURED
+  // post-prettier.
+  // 1527→1535 (#2042 INC-1): the four `_pad_*_ecef_center_*` size-mirror pads
+  // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
+  // polygon-line-uniform-parity). MEASURED post-prettier.
+  // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
+  'map/src/shaders/dsl/line.ts': 1539,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1153,7 +1204,14 @@ const CEILINGS: Record<string, number> = {
   // prunes the module before EACH emit, so the four polygon pipelines (three in VTR, one
   // graticule) each lowered + ran the optimizer fixpoint twice; the module build is 2 ms
   // against ~80 ms for one emit, so that lowering is the entire cost.
-  'map/src/shaders/dsl/polygon.ts': 1498,
+  // 1498→1540 (#2042 INC-1): the four absolute RTC anchor struct fields (with
+  // the recombine-flag contract doc) + the flag-selected rtc_off_h/l Let pair
+  // in the projection ladder's 3D arm. Shrinks at INC-4 when the legacy
+  // cam_ecef_off fields and the select retire. MEASURED post-prettier.
+  // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
+  // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
+  // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
+  'map/src/shaders/dsl/polygon.ts': 1577,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -1520,7 +1578,10 @@ const CEILINGS: Record<string, number> = {
   // comment, and `...inputPoolValues(this.inputs)` spread into the polygon uniform
   // write — auto-merged cleanly (disjoint from this branch's F3b edits); two adjacent
   // comments' prettier-reflow saved a couple lines back. Measured post-hook.
-  'map/src/render/renderer.ts': 1003,
+  // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
+  // full-struct write() completeness net requires. MEASURED post-prettier.
+  // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
+  'map/src/render/renderer.ts': 1011,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -1577,7 +1638,9 @@ const CEILINGS: Record<string, number> = {
   // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
   // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
   // fall back to 16 and no-op).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
+  // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
+  // the new render-bundle capability the VT bundle gate keys on.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1859,6 +1922,14 @@ const CEILINGS: Record<string, number> = {
   // live-source polling interval).
   'compiler/src/ir/render-node.ts': 989,
   'compiler/src/convert/paint-helpers.ts': 826,
+  // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
+  // colour coercion added to callBuiltin's single-authority switch (the
+  // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
+  // not threaded into a second file) — 3 new BUILTIN_FN_NAMES entries + the
+  // `split`/`join`/`to_rgba` case blocks with their spec-citation comments.
+  // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP
+  // before (same situation emit-commands.ts hit at #1304, above).
+  'compiler/src/eval/evaluator-helpers.ts': 845,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).

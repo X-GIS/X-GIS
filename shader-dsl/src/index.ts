@@ -150,6 +150,7 @@ export { type Diagnostic } from './core/passes/lint/engine.js'
 
 // Pre-emit passes used by authors / consumers.
 export { composeModule, type ComposeOptions } from './core/passes/compose.js'
+export { renameVarrefsInFunc, rewriteExprsInFunc } from './core/passes/rename-varrefs.js'
 export { lowerModule } from './core/passes/match-lower.js'
 export { cse } from './core/passes/opt/cse.js'
 export { autoVars } from './core/passes/opt/auto-vars.js'

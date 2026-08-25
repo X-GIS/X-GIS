@@ -205,13 +205,16 @@ export function convertMapboxStyle(
   //   fog / light / terrain / transition / imports — Mapbox v3
   //                additions, none implemented.
   //
-  // Centre / zoom / pitch / bearing / glyphs / sprite / projection are
-  // deliberately omitted — they're host-integration concerns (the
-  // playground's demo-runner + compare-runner read them off the raw
-  // style JSON and call the matching XGISMap setters: setProjection for
-  // the top-level `projection` field, mapped from the Mapbox type name),
-  // not converter ones. The xgis DSL carries no top-level camera /
-  // projection state.
+  // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
+  // omitted — they're host-integration concerns (the playground's
+  // demo-runner + compare-runner read them off the raw style JSON and
+  // call the matching XGISMap setters), not converter ones. The xgis DSL
+  // carries no top-level camera state. `projection` is the same kind of
+  // host/runtime concern (setProjection, mapped from the Mapbox type
+  // name) but — unlike this group — DOES get a warning (#2007, in
+  // gapFields below): the demo-runner/compare-runner path exists, but a
+  // host embedding the compiler directly has no equivalent, so silence
+  // here would hide the gap rather than describe it.
   // Mapbox spec: top-level `version` must be 8 — the entire schema
   // (sources / layers / paint / layout / expressions) is version-
   // tagged. Older v7 styles use a different paint/layout shape; a
@@ -251,13 +254,109 @@ export function convertMapboxStyle(
     'transition',
     'imports',
     'models',
+    // #2007 — three more root fields with the same "converter never
+    // reads this" shape. `state` closes an asymmetry: the
+    // global-state EXPRESSION (op name "global-state") already falls
+    // through to the generic "Expression not converted" warning in
+    // expressions.ts, but the root `state` block that declares the
+    // defaults it reads was silently accepted. `projection` and
+    // `font-faces` had no warning at either level.
+    'projection',
+    'state',
+    'font-faces',
   ] as const satisfies readonly (keyof MapboxStyle)[]
   for (const k of gapFields) {
     const v = style[k]
-    if (v !== undefined && v !== null) topLevelGaps.push(k)
+    if (v === undefined || v === null) continue
+    // `projection` gets a precise clause instead of the bare field name:
+    // unlike fog/lights/etc. it is NOT an unimplemented feature — X-GIS
+    // renders every projection MapLibre does — it's that the COMPILER
+    // never reads or maps this field. A host still has to wire it itself
+    // (XGISMap.setProjection()), exactly as the playground's demo-runner
+    // + compare-runner already do via extractMapboxProjectionName()
+    // (mapbox-projection.ts) — that helper handles both the string and
+    // `{ type }` object forms; this warning is about the compiler having
+    // no equivalent for a host that isn't that specific harness.
+    topLevelGaps.push(
+      k === 'projection'
+        ? `${k} (host/runtime choice in X-GIS — not read or mapped by the compiler; call XGISMap.setProjection() at the host, same as center/zoom/bearing/pitch)`
+        : k,
+    )
   }
   if (topLevelGaps.length > 0) {
     warnings.push(`Top-level style fields ignored: ${topLevelGaps.join(', ')}`)
+  }
+
+  // #1977 — a `mapbox://` scheme sprite/glyphs URL requires the Mapbox API
+  // + an access token; same gap as the per-source url check below. This is
+  // orthogonal to the "sprite/glyphs are host-integration concerns" note
+  // above (which is about the DSL never encoding them at all) — the host
+  // still receives whatever URL is here and can only fail to fetch it.
+  // `glyphs` is otherwise never read in this file; add the read here so
+  // the warning has something to inspect.
+  if (typeof style.sprite === 'string' && /^mapbox:\/\//i.test(style.sprite)) {
+    warnings.push(
+      `Style sprite "${style.sprite.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible sprite or point at an https sprite JSON/PNG pair.`,
+    )
+  }
+  if (typeof style.glyphs === 'string' && /^mapbox:\/\//i.test(style.glyphs)) {
+    warnings.push(
+      `Style glyphs "${style.glyphs.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible glyphs endpoint or point at an https glyphs PBF template.`,
+    )
+  }
+
+  // #2007 — MapLibre multi-sprite array form: `"sprite": [{ id, url }, …]`.
+  // The topLevel.sprite collector above only recognizes
+  // `typeof style.sprite === 'string'`, so an array left topLevel.sprite
+  // EMPTY — every icon-image layer's atlas silently failed to load, with
+  // zero warning (the hazard this closes). MapLibre's own unprefixed
+  // `icon-image` lookup resolves against the entry whose id is "default"
+  // (https://maplibre.org/maplibre-style-spec/sprite/), so that entry is
+  // the one X-GIS's single-atlas model carries forward. Absent a
+  // "default" entry, fall back to the first one and say so — still
+  // lossy, but silence is strictly worse than a named, actionable gap.
+  if (Array.isArray(style.sprite)) {
+    const entries: { id: string; url: string }[] = []
+    style.sprite.forEach((entry, i) => {
+      const isObj = entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+      const url = isObj ? (entry as { url?: unknown }).url : undefined
+      if (typeof url !== 'string' || url.length === 0) {
+        warnings.push(`Style sprite array entry at index ${i} has no valid "url" string — skipped.`)
+        return
+      }
+      const rawId = (entry as { id?: unknown }).id
+      entries.push({ id: typeof rawId === 'string' && rawId.length > 0 ? rawId : '<no id>', url })
+    })
+    // Same mapbox:// scheme check the string form gets above — run it
+    // over every collected entry, not just the one that ends up chosen,
+    // so a dropped entry's transport gap is still visible.
+    for (const e of entries) {
+      if (/^mapbox:\/\//i.test(e.url)) {
+        warnings.push(
+          `Style sprite "${e.id}" url "${e.url.slice(0, 80)}" requires the Mapbox API and an access token — not supported; host a MapLibre-compatible sprite or point at an https sprite JSON/PNG pair.`,
+        )
+      }
+    }
+    if (entries.length > 0) {
+      const defaultEntry = entries.find((e) => e.id === 'default')
+      const chosen = defaultEntry ?? entries[0]!
+      if (!defaultEntry) {
+        warnings.push(
+          `Style sprite array has no entry with id "default" (MapLibre's unprefixed icon-image lookup target) — using the first entry, id "${chosen.id}", as the sprite atlas.`,
+        )
+      }
+      const dropped = entries.filter((e) => e !== chosen)
+      if (dropped.length > 0) {
+        warnings.push(
+          `Style sprite array declares extra id(s) X-GIS does not use (single sprite atlas only): ${dropped.map((e) => `"${e.id}"`).join(', ')} — icon-image refs prefixed ${dropped.map((e) => `"${e.id}:"`).join(', ')} will not resolve.`,
+        )
+      }
+      // Mirror of the string-form collector at the top of this
+      // function: first non-empty write wins.
+      if (options?.topLevel && options.topLevel.sprite === undefined) {
+        options.topLevel.sprite = chosen.url
+      }
+    }
   }
 
   // ── Sources ────────────────────────────────────────────────────────

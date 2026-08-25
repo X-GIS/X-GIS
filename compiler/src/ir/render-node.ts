@@ -14,6 +14,8 @@ export type { Diagnostic }
 // `./render-node` importers of these names keep resolving from here.
 import type { RasterDemSourceFields, RenderNodeHillshadePaint } from './render-node-hillshade'
 import type { RenderNodeCoveragePaint } from './render-node-coverage'
+import type { SourceBounds } from './source-bounds'
+import type { TileRowScheme } from './source-scheme'
 export type { RasterDemSourceFields, RenderNodeHillshadePaint, RenderNodeCoveragePaint }
 
 /** A complete IR scene — the output of the lowering pass. */
@@ -87,6 +89,21 @@ export interface SourceDef extends RasterDemSourceFields {
    *  does not declare them. */
   maxzoom?: number
   minzoom?: number
+  /** The DATASET's spatial extent — Mapbox source-level `bounds: [west, south, east,
+   *  north]` in WGS84 degrees (#1984). A tile outside it holds no data, so the raster /
+   *  raster-dem selectors drop it before requesting. The vector family reaches the same
+   *  predicate from its ARCHIVE metadata instead (PMTiles header / TileJSON manifest),
+   *  which is why the converter emits this for the raster family only. Undefined =
+   *  unclipped, the pre-existing behaviour. Validity (west < east — no antimeridian
+   *  wrap — south < north, WGS84 ranges) is settled once in ./source-bounds. */
+  bounds?: SourceBounds
+  /** The DATASET's row-origin — Mapbox source-level `scheme: "xyz" | "tms"` (#1985).
+   *  `tms` numbers tile rows from the BOTTOM, so the request path substitutes
+   *  `2^z − 1 − y` for `{y}`; `xyz` (the default, and what an omitted property means)
+   *  numbers from the top. Only the raster / raster-dem request path reads it — the
+   *  vector family builds its URLs in a different substitution (`vector-tile-loader`)
+   *  that never sees a SourceDef. The legal value set lives once in ./source-scheme. */
+  scheme?: TileRowScheme
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Positive seconds; undefined (0/absent in `.xgis`) = off, the pre-existing
    *  behaviour for every source. The runtime re-runs the SAME load path the
@@ -105,16 +122,13 @@ export interface SourceDef extends RasterDemSourceFields {
 
 // ─── RenderNode paint sub-bundles (Tier-B B2, row 5) ───────────────
 //
-// The flat OPTIONAL scalar paint fields on RenderNode were grouped PER
-// CONCERN into the four interfaces below; `RenderNode` then `extends`
-// them. (The core required value fields — `fill: ColorValue`,
-// `stroke: StrokeValue` (which already bundles most line styling),
-// `opacity`, `size` — stay on RenderNode itself.) This is a TYPE-level
-// grouping only: interface extension is structurally transparent, so
-// every wire key stays where it was and the lower / emit / runtime
-// readers are untouched. The inline `*TranslateXShape` zoom-interp
-// types are preserved verbatim — they are deliberately NOT
-// `PropertyShape<number>` so render-node.ts doesn't take a circular
+// The flat OPTIONAL scalar paint fields on RenderNode were grouped PER CONCERN into the four
+// interfaces below; `RenderNode` then `extends` them. (The core required value fields — `fill:
+// ColorValue`, `stroke: StrokeValue` (which already bundles most line styling), `opacity`, `size` —
+// stay on RenderNode itself.) This is a TYPE-level grouping only: interface extension is
+// structurally transparent, so every wire key stays where it was and the lower / emit / runtime
+// readers are untouched. The inline `*TranslateXShape` zoom-interp types are preserved verbatim —
+// they are deliberately NOT `PropertyShape<number>` so render-node.ts doesn't take a circular
 // import on property-types.ts.
 
 /** Polygon fill paint axes. */
@@ -138,13 +152,13 @@ export interface RenderNodeFillPaint {
    *  When true the runtime rotates the [dx,dy] offset by the map bearing
    *  so it tracks the map's world axes (map/world-space anchor). */
   fillTranslateAnchorMap?: boolean
-  /** Mapbox `paint.fill-antialias` opt-out. Default (unauthored / true)
-   *  = current behavior (the fill fragment multiplies in the sphere-rim
-   *  smoothstep AA fade). Only `false` changes anything: the runtime
-   *  drops the rim-alpha smoothstep so fill edges stay hard, honouring
-   *  the spec's pixel-art intent. (Geometric edge AA from pipeline MSAA
-   *  is not per-layer-disable-able and is left untouched.) */
-  fillAntialias?: boolean
+  /** Mapbox `paint.fill-antialias`. Default (unauthored / true) = current
+   *  behavior (the fill fragment multiplies in the sphere-rim smoothstep AA
+   *  fade). `false` drops that rim-alpha smoothstep so fill edges stay hard;
+   *  a 0/1 zoom shape (#1995) does the same per frame from the authored zoom.
+   *  (Geometric edge AA from pipeline MSAA is not per-layer-disable-able and
+   *  is left untouched.) See FillAntialiasValue for the two-form rationale. */
+  fillAntialias?: import('./property-types').FillAntialiasValue
   /** iter-177 Mapbox `paint.fill-pattern` Stage 1 — constant sprite
    *  name. Runtime resolves against sprite atlas at draw time and
    *  uses sprite centre pixel as fill colour. Stage 2 (real
@@ -347,36 +361,29 @@ export interface RenderNode
    *  size, dash-offset). emit-commands reads from this field as the
    *  authoritative source of lifecycle metadata. */
   animationMeta?: { loop: boolean; easing: Easing; delayMs: number }
-  /** Optional text label for the layer's features. When set, the
-   *  point-renderer expands each feature into one quad per glyph
-   *  (text content from `text.expr`, font + size from `text.font`
-   *  and `text.size`). Mapbox `text-field` / `text-font` /
-   *  `text-size` map here. Set via the `label-[<expr>]` utility OR
-   *  the `label:` block property (added in Batch 1c).
+  /** Optional text label for the layer's features. When set, the point-renderer expands
+   *  each feature into one quad per glyph (text content from `text.expr`, font + size from
+   *  `text.font` and `text.size`). Mapbox `text-field` / `text-font` / `text-size` map here.
+   *  Set via the `label-[<expr>]` utility OR the `label:` block property (added in Batch 1c).
    *
-   *  Engine plumbing arrives in Batch 1c — this field is the
-   *  contract that both the converter (Batch 1f) and the renderer
-   *  agree on. Batch 1b only adds the field + lower.ts plumbing
-   *  so Mapbox styles can carry text intent through compilation
-   *  without throwing. Rendering stays no-op until 1c. */
+   *  Engine plumbing arrives in Batch 1c — this field is the contract that both the converter
+   *  (Batch 1f) and the renderer agree on. Batch 1b only adds the field + lower.ts plumbing so
+   *  Mapbox styles can carry text intent through compilation without throwing. Rendering stays
+   *  no-op until 1c. */
   label?: LabelDef
 }
 
 // ─── Text template AST (Batch 1c) ─────────────────────────────────
 //
-// Label text is more than a single expression: GIS labels need
-// inline format specifiers ("{lat:.4f}°N", "{coord:mgrs}", etc.).
-// We encode this as a small AST: a sequence of literal fragments
-// interleaved with `{<expr>:<spec>}` interpolations. The DSL
-// surface is Mapbox-token-compatible — `"{name}"` parses to one
-// `interp` part with no spec, exactly like the existing tokens —
-// so styles relying on the legacy form keep working. Format
-// dispatch (number / datetime / dms / mgrs / …) happens at
-// per-feature text-resolve time (worker), not on the GPU.
+// Label text is more than a single expression: GIS labels need inline format specifiers
+// ("{lat:.4f}°N", "{coord:mgrs}", etc.). We encode this as a small AST: a sequence of literal
+// fragments interleaved with `{<expr>:<spec>}` interpolations. The DSL surface is
+// Mapbox-token-compatible — `"{name}"` parses to one `interp` part with no spec, exactly like the
+// existing tokens — so styles relying on the legacy form keep working. Format dispatch (number /
+// datetime / dms / mgrs / …) happens at per-feature text-resolve time (worker), not on the GPU.
 //
-// `kind: 'expr'` covers the simple legacy shape (a single bare
-// expression, no surrounding literal text) without forcing every
-// label through the template machinery. `kind: 'template'` is for
+// `kind: 'expr'` covers the simple legacy shape (a single bare expression, no surrounding literal
+// text) without forcing every label through the template machinery. `kind: 'template'` is for
 // anything richer.
 
 /** Format spec for one interpolation. Subset of Python PEP 3101
@@ -436,16 +443,13 @@ export interface LabelDef {
 
   // ── Typography ──
   /** Font stack — first available wins. Maps from Mapbox
-   *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`.
-   *  Optional — runtime defaults to its first loaded font.
-   *  Weight/italic words ("Regular", "Bold", "Italic", "Light", …)
-   *  are STRIPPED at conversion time and surfaced as `fontWeight` /
-   *  `fontStyle` below; the names left in this array are the family
-   *  portion only (e.g. just "Noto Sans"). Without that split the
-   *  browser parses "Noto-Sans-Bold" as a literal family name, fails
-   *  to match any installed font, and falls back to the OS default
-   *  — every Mapbox style ended up looking like the same Regular
-   *  weight regardless of what the style declared. */
+   *  `text-font: ["Noto Sans Regular", "Noto Sans CJK KR Regular"]`. Optional — runtime
+   *  defaults to its first loaded font. Weight/italic words ("Regular", "Bold", "Italic",
+   *  "Light", …) are STRIPPED at conversion time and surfaced as `fontWeight` / `fontStyle`
+   *  below; the names left in this array are the family portion only (e.g. just "Noto Sans").
+   *  Without that split the browser parses "Noto-Sans-Bold" as a literal family name, fails to
+   *  match any installed font, and falls back to the OS default — every Mapbox style ended up
+   *  looking like the same Regular weight regardless of what the style declared. */
   font?: string[]
   /** CSS font-weight derived from the Mapbox `text-font` entry's
    *  trailing keyword. `"Noto Sans Bold"` → 700, `"… Light"` → 300,
@@ -793,17 +797,14 @@ export interface StrokePattern {
   anchor?: 'repeat' | 'start' | 'end' | 'center'
 }
 
-/** A stroke width expressed as exactly ONE form. Now an alias over the
- *  unified `PropertyShape<number>` — every variant the legacy
- *  StrokeWidthValue carried (constant / zoom-stops / per-feature)
- *  matches PropertyShape one-to-one after renaming kinds and the
- *  `px` field to `value`. The alias means callsites continue to
- *  type-check; new callsites should reach for `PropertyShape<number>`
- *  directly.
+/** A stroke width expressed as exactly ONE form. Now an alias over the unified
+ *  `PropertyShape<number>` — every variant the legacy StrokeWidthValue carried (constant /
+ *  zoom-stops / per-feature) matches PropertyShape one-to-one after renaming kinds and the
+ *  `px` field to `value`. The alias means callsites continue to type-check; new callsites
+ *  should reach for `PropertyShape<number>` directly.
  *
- *  Pre-union safety guarantee preserved: every stroke MUST pick a
- *  kind — there is no way to construct a `StrokeWidthValue` that
- *  means "no width" except by explicitly writing
+ *  Pre-union safety guarantee preserved: every stroke MUST pick a kind — there is no way to
+ *  construct a `StrokeWidthValue` that means "no width" except by explicitly writing
  *  `{ kind: 'constant', value: 0 }`. */
 export type StrokeWidthValue = import('./property-types').PropertyShape<number>
 
@@ -877,13 +878,11 @@ export interface StrokeValue {
    *  the other way. Combined with explicit `offset` by addition. */
   align?: 'center' | 'inset' | 'outset'
   // ── Animation (PR 3) ──
-  // Parallel time stop lists live on the parent interface instead of
-  // promoting `width` / `dashOffset` to a union type — keeps every
-  // downstream consumer (emit-commands, renderer, line-renderer) able
-  // to read the base scalar without branching, and only checks the
-  // stops when animation is actually attached. Shared loop / easing /
-  // delay metadata is reused from the opacity animation attached to
-  // the same layer (see LayerAnimationMeta on RenderNode below).
+  // Parallel time stop lists live on the parent interface instead of promoting `width` /
+  // `dashOffset` to a union type — keeps every downstream consumer (emit-commands, renderer,
+  // line-renderer) able to read the base scalar without branching, and only checks the stops when
+  // animation is actually attached. Shared loop / easing / delay metadata is reused from the
+  // opacity animation attached to the same layer (see LayerAnimationMeta on RenderNode below).
   timeWidthStops?: TimeStop<number>[]
   timeDashOffsetStops?: TimeStop<number>[]
 }

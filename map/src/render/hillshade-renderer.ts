@@ -1,20 +1,19 @@
 // ═══ Hillshade Tile Renderer — raster-dem tiles shaded as relief (#777 Phase II) ═══
 //
-// Structural mirror of raster-renderer.ts (design §1: a hillshade tile IS a raster
-// tile with a DEM-decode → shade fragment). The tile machinery — visible-tile
-// selection, LRU cache, parent fallback, WGS84-ellipsoid ECEF anchor, globe pole
-// caps, world-copy handling — is copied verbatim from RasterRenderer (the two
-// deliberately stay SEPARATE renderers so the hillshade two-pass prepare + terrain
-// displacement upgrade path can diverge without over-coupling raster). What differs:
-//   • the draw goes through HillshadeDraper (DEM sampled NEAREST);
-//   • the global uniform is a PAIR — the shared raster 'Uniforms' (vertex + cull,
-//     via writeRasterFrameUniform with no-op colours) + 'HillshadeUniforms'
-//     (lighting + DEM decode + the zoom-independent deriv base, writeHillshadeGlobalUniform);
-//   • the per-tile pool is the SHARED raster 'TileUniforms' (writeRasterTileUniform).
+// Structural mirror of raster-renderer.ts (design §1: a hillshade tile IS a raster tile with a
+// DEM-decode → shade fragment). The tile machinery — visible-tile selection, LRU cache, parent
+// fallback, WGS84-ellipsoid ECEF anchor, globe pole caps, world-copy handling — is copied verbatim
+// from RasterRenderer (the two deliberately stay SEPARATE renderers so the hillshade two-pass
+// prepare + terrain displacement upgrade path can diverge without over-coupling raster). What
+// differs: • the draw goes through HillshadeDraper (DEM sampled NEAREST); • the global uniform is a
+// PAIR — the shared raster 'Uniforms' (vertex + cull, via writeRasterFrameUniform with no-op
+// colours) + 'HillshadeUniforms' (lighting + DEM decode + the zoom-independent deriv base,
+// writeHillshadeGlobalUniform); • the per-tile pool is the SHARED raster 'TileUniforms'
+// (writeRasterTileUniform).
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap } from '@xgis/data'
+import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
 import {
   admitTile,
   type EvictableTile,
@@ -41,6 +40,7 @@ import {
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
 import { FailedTileLedger, leafLoadBudget } from './tile-retry'
+import { clipTilesToBounds, normalizeSourceBounds, type SourceBounds } from './source-bounds-clip'
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
@@ -88,11 +88,10 @@ export function demUnpack(encoding: DemEncoding, custom?: Partial<DemUnpack>): D
   return MAPBOX_UNPACK
 }
 
-/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2):
- *  tileSize / pow(2, 28.2562). The zoom-dependent half —
- *  pow(2, zoom − exaggeration_zoom(zoom)) — is a property of the TILE, not of the
- *  frame, so the fragment applies it per tile from the tile's own Mercator span
- *  (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
+/** Zoom-INDEPENDENT half of the Sobel derivative scale (design §3 step 2): tileSize / pow(2,
+ *  28.2562). The zoom-dependent half — pow(2, zoom − exaggeration_zoom(zoom)) — is a property
+ *  of the TILE, not of the frame, so the fragment applies it per tile from the tile's own
+ *  Mercator span (`hs_deriv_scale`). A frame-wide scale off the camera zoom mis-shaded every
  *  parent-fallback and every magnified leaf by 2^Δz. */
 export function hillshadeDerivBase(tileSize: number): number {
   return tileSize / Math.pow(2, 28.2562)
@@ -147,16 +146,17 @@ export interface HillshadeParams {
   unpack: DemUnpack
   /** native DEM tile pixel size (256 / 512). */
   tileSize: number
-  /** Source-level `maxzoom` — the dataset's deepest real tile level. The cover zoom is
-   *  clamped to it, so the selector never asks for a tile that cannot exist. Undefined =
-   *  unbounded. */
+  /** Source-level `maxzoom` — the dataset's deepest real tile level. The cover zoom is clamped
+   *  to it, so the selector never asks for a tile that cannot exist. Undefined = unbounded. */
   maxzoom?: number
+  /** Source-level `bounds` — the dataset's spatial extent (#1984). The selector drops
+   *  every DEM tile that does not overlap it. Undefined = unclipped. */
+  bounds?: SourceBounds
 }
 
-// Typed uniform blocks (lazy — buildHillshadeModule needs configureProjections()).
-// The vertex 'Uniforms' + per-tile 'TileUniforms' are the SHARED raster structs
-// (writeRasterFrameUniform / writeRasterTileUniform write them); HillshadeUniforms
-// is the hillshade-only lighting block.
+// Typed uniform blocks (lazy — buildHillshadeModule needs configureProjections()). The vertex
+// 'Uniforms' + per-tile 'TileUniforms' are the SHARED raster structs (writeRasterFrameUniform /
+// writeRasterTileUniform write them); HillshadeUniforms is the hillshade-only lighting block.
 let _rasterBlock: UniformBlockOf<typeof RASTER_U> | null = null
 function rasterBlock(): UniformBlockOf<typeof RASTER_U> {
   return (_rasterBlock ??= uniformBlock(RASTER_U))
@@ -228,13 +228,18 @@ export function armHillshadeSource(
     blueFactor?: number
     baseShift?: number
     maxzoom?: number
+    bounds?: [number, number, number, number]
+    scheme?: TileRowScheme
   },
 ): void {
-  renderer.setUrlTemplate(dem._tileUrl)
+  // The row origin (#1985) rides the TEMPLATE, not setParams: it is a property of the URL,
+  // so re-arming a DEM without one must clear it rather than inherit the previous flip.
+  renderer.setUrlTemplate(dem._tileUrl, dem.scheme)
   renderer.setParams({
     // The DATASET's deepest real level. Undefined = unbounded (every source that does
     // not declare it keeps the pre-existing behaviour).
     maxzoom: dem.maxzoom,
+    bounds: dem.bounds,
     unpack: demUnpack((dem.encoding as DemEncoding | undefined) ?? 'mapbox', {
       redFactor: dem.redFactor,
       greenFactor: dem.greenFactor,
@@ -254,10 +259,9 @@ export function writeHillshadeGlobalUniform(
   p: HillshadeParams,
   bearingRad: number,
 ): void {
-  // azimuth = direction_rad + π (design §3 step 4), + camera bearing for the
-  // viewport anchor (light stays fixed to screen as the map rotates, design §4).
-  // The SAME prefold applies per extra multidirectional source (MapLibre folds
-  // the bearing into every u_azimuths[i] before upload).
+  // azimuth = direction_rad + π (design §3 step 4), + camera bearing for the viewport anchor (light
+  // stays fixed to screen as the map rotates, design §4). The SAME prefold applies per extra
+  // multidirectional source (MapLibre folds the bearing into every u_azimuths[i] before upload).
   const azimuthOf = (directionDeg: number): number =>
     directionDeg * DEG2RAD + Math.PI + (p.anchorMap ? 0 : bearingRad)
   const texel = 1 / p.tileSize
@@ -344,11 +348,10 @@ export class HillshadeRenderer {
   }
 
   // ── Tile fade-in (ported from RasterRenderer) ──
-  // A DEM tile used to POP to full opacity the frame it arrived, so a streaming
-  // relief flickered coarse→sharp tile by tile while the raster basemap under it
-  // cross-faded smoothly. Same machinery, same paint: the ramp rides the SHARED
-  // TileUniforms fade lane (tile_ecef_center.w → VsOut.vis), which vs_tile already
-  // interpolates — fs_hillshade just never read it.
+  // A DEM tile used to POP to full opacity the frame it arrived, so a streaming relief flickered
+  // coarse→sharp tile by tile while the raster basemap under it cross-faded smoothly. Same
+  // machinery, same paint: the ramp rides the SHARED TileUniforms fade lane (tile_ecef_center.w →
+  // VsOut.vis), which vs_tile already interpolates — fs_hillshade just never read it.
   /** DEM tile fade-in duration (ms); 0 = instant pop-in (byte-identical to the
    *  pre-fade path), which is what reduced-motion selects. */
   private _fadeDurationMs = 300
@@ -397,20 +400,24 @@ export class HillshadeRenderer {
     this._hillshadeDraper = undefined
   }
 
-  setUrlTemplate(url: string): void {
+  /** The DEM source's row origin (#1985) — `'tms'` numbers tile rows from the BOTTOM, so
+   *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. Undefined = `'xyz'`. Mirror of the
+   *  raster twin: it rides the template so a re-arm cannot leave a stale flip behind. */
+  private _scheme: TileRowScheme | undefined
+  setUrlTemplate(url: string, scheme?: TileRowScheme): void {
     // A different template is a different coverage, so past failures say nothing
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
     this.urlTemplate = url
+    this._scheme = scheme
   }
 
-  /** Merge resolved hillshade params over the current set. The DEM decode
-   *  (unpack / tileSize) is set once at arm-time (map.ts, from the `_dem`
-   *  source marker); the paint (direction / altitude / exaggeration / colours /
-   *  method) is resolved per-frame by the HillshadePass. Merging lets the two
-   *  compose without one clobbering the other. Non-finite scalars keep the
-   *  current value (a value can't NaN-poison the shade). */
+  /** Merge resolved hillshade params over the current set. The DEM decode (unpack / tileSize /
+   *  maxzoom) is set once at arm-time (map.ts, from the `_dem` source marker); the paint
+   *  (direction / altitude / exaggeration / colours / method) is resolved per-frame by the
+   *  HillshadePass. Merging lets the two compose without one clobbering the other. Non-finite
+   *  scalars keep the current value (a value can't NaN-poison the shade). */
   setParams(p: Partial<HillshadeParams>): void {
     const cur = this._params
     const f = (v: number | undefined, d: number) =>
@@ -433,6 +440,9 @@ export class HillshadeRenderer {
       extraSources: p.extraSources ?? cur.extraSources,
       unpack: p.unpack ?? cur.unpack,
       tileSize: p.tileSize === 256 || p.tileSize === 512 ? p.tileSize : cur.tileSize,
+      maxzoom: p.maxzoom ?? cur.maxzoom, // #1983 — without this key the arm's value was dropped
+      // #1984 — normalised at this ONE merge chokepoint, so no caller can blank the DEM.
+      bounds: p.bounds === undefined ? cur.bounds : normalizeSourceBounds(p.bounds),
     }
   }
 
@@ -460,24 +470,22 @@ export class HillshadeRenderer {
   private async loadTileTexture(url: string, signal: AbortSignal): Promise<LoadedTexture | null> {
     const bitmap = await loadImageBitmap(url, signal)
     if (!bitmap) return null
-    // #1153 P2 R4 (ported from raster — hillshade was the pre-fix copy):
-    // createTexture throws on a lost context (rhi-webgl2 :963) and
-    // copyExternalImage can throw too. Release the decoded bitmap + any
-    // half-created texture and normalise to the WebGPU null contract
-    // (loadImageTexture returns null on failure) so the caller's loadingTiles key
-    // is released rather than wedged; the chains' .catch is the outer backstop.
+    // #1153 P2 R4 (ported from raster — hillshade was the pre-fix copy): createTexture throws on a
+    // lost context (rhi-webgl2 :963) and copyExternalImage can throw too. Release the decoded
+    // bitmap + any half-created texture and normalise to the WebGPU null contract (loadImageTexture
+    // returns null on failure) so the caller's loadingTiles key is released rather than wedged; the
+    // chains' .catch is the outer backstop.
     let tex: RhiTexture | null = null
     try {
       tex = this.rhi.createTexture({
         width: bitmap.width,
         height: bitmap.height,
         format: 'rgba8unorm',
-        // 'render' is NOT for drawing into the tile: WebGPU's
-        // copyExternalImageToTexture requires COPY_DST | RENDER_ATTACHMENT on
-        // the destination, and unlike raster's tiles (whose mip chain makes
-        // createTexture auto-widen the usage, rhi-webgpu.ts #1436) this DEM
-        // texture is single-level by contract, so the flag must be explicit.
-        // Caught by _hillshade-chain-gate on WebGPU (10 validation errors).
+        // 'render' is NOT for drawing into the tile: WebGPU's copyExternalImageToTexture requires
+        // COPY_DST | RENDER_ATTACHMENT on the destination, and unlike raster's tiles (whose mip
+        // chain makes createTexture auto-widen the usage, rhi-webgpu.ts #1436) this DEM texture is
+        // single-level by contract, so the flag must be explicit. Caught by _hillshade-chain-gate
+        // on WebGPU (10 validation errors).
         usage: ['sample', 'copy-dst', 'render'],
         label: 'hillshade-dem-tile',
       })
@@ -560,6 +568,9 @@ export class HillshadeRenderer {
           : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
       tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
     }
+    // Spatial clip (#1984) — applied to the SELECTION, so the leaf loop, the parent-fallback
+    // prefetch, the eviction set and the draw list all see it. Mirror of the raster twin.
+    tiles = clipTilesToBounds(tiles, this._params.bounds)
 
     tiles.sort((a, b) => (a.z !== b.z ? a.z - b.z : 0))
     const visibleKeys = new Set(tiles.map((c) => `${c.z}/${c.x}/${c.y}`))
@@ -579,13 +590,12 @@ export class HillshadeRenderer {
       if (this.loadingTiles.size >= leafBudget) break
       const ctrl = new AbortController()
       this.loadingTiles.set(key, ctrl)
-      this.loadTileTexture(tileUrl(this.urlTemplate, coord), ctrl.signal)
-        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load
-        // failure resolves to null so the .then ALWAYS frees the loadingTiles slot
-        // (else the key wedges, pinning all MAX_CONCURRENT slots → the DEM stream
-        // stalls). Scoped here so a throw from the .then bookkeeping still surfaces —
-        // through the terminal handler below, not as an unhandled rejection (#1565:
-        // the same leaf-vs-parent drift the raster twin carried).
+      this.loadTileTexture(tileUrl(this.urlTemplate, coord, this._scheme), ctrl.signal)
+        // #1153 P2 R4 — narrow the release to the LOAD promise: an expected load failure resolves
+        // to null so the .then ALWAYS frees the loadingTiles slot (else the key wedges, pinning all
+        // MAX_CONCURRENT slots → the DEM stream stalls). Scoped here so a throw from the .then
+        // bookkeeping still surfaces — through the terminal handler below, not as an unhandled
+        // rejection (#1565: the same leaf-vs-parent drift the raster twin carried).
         .catch(() => null)
         .then((texture) => {
           this.loadingTiles.delete(key)
@@ -613,15 +623,8 @@ export class HillshadeRenderer {
         if (this.loadingTiles.size >= MAX_CONCURRENT_LOADS) break
         const ctrl = new AbortController()
         this.loadingTiles.set(parentKey, ctrl)
-        this.loadTileTexture(
-          tileUrl(this.urlTemplate, {
-            z: parentZ,
-            x: coord.x >> pz,
-            y: coord.y >> pz,
-            ox: coord.x >> pz,
-          }),
-          ctrl.signal,
-        )
+        const parentCoord = { z: parentZ, x: coord.x >> pz, y: coord.y >> pz, ox: coord.x >> pz }
+        this.loadTileTexture(tileUrl(this.urlTemplate, parentCoord, this._scheme), ctrl.signal)
           // #1153 P2 R4 — same un-wedge backstop for the parent-fallback chain.
           .catch(() => null)
           .then((texture) => {
@@ -639,12 +642,11 @@ export class HillshadeRenderer {
       }
     }
 
-    // Global uniforms: the shared raster 'Uniforms' (vertex + cull, no-op colours)
-    // + the hillshade lighting/decode 'HillshadeUniforms'. The DSFUN camera anchor
-    // is the SHARED per-arm authority (rasterFrameCamAnchor) — hillshade drives the
-    // same vs_tile, so its lanes MUST match raster's (Mercator 2D centre / flat
-    // non-Mercator clon+camProj0 / globe ECEF); a mismatch would shake or misplace
-    // the DEM sheet in every non-Mercator projection exactly as the basemap did.
+    // Global uniforms: the shared raster 'Uniforms' (vertex + cull, no-op colours) + the hillshade
+    // lighting/decode 'HillshadeUniforms'. The DSFUN camera anchor is the SHARED per-arm authority
+    // (rasterFrameCamAnchor) — hillshade drives the same vs_tile, so its lanes MUST match raster's
+    // (Mercator 2D centre / flat non-Mercator clon+camProj0 / globe ECEF); a mismatch would shake
+    // or misplace the DEM sheet in every non-Mercator projection exactly as the basemap did.
     const camAnchor = rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat)
     const B = rasterBlock()
     writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, {
@@ -776,17 +778,15 @@ export class HillshadeRenderer {
         const fadeAlpha = fadeMs > 0 ? Math.min(1, (nowMs - exact.firstShownMs) / fadeMs) : 1
         if (fadeAlpha < 1) {
           anyFading = true
-          // Underlay pushed BEFORE the fading tile = drawn under it. Coarse ancestor
-          // first (zoom-IN fill), then cached direct children (zoom-OUT retention).
-          // Marking lastUsedFrame keeps them alive across the ramp so the LRU can't
-          // evict an underlay mid-fade.
+          // Underlay pushed BEFORE the fading tile = drawn under it. Coarse ancestor first (zoom-IN
+          // fill), then cached direct children (zoom-OUT retention). Marking lastUsedFrame keeps
+          // them alive across the ramp so the LRU can't evict an underlay mid-fade.
           //
-          // The underlay fades OUT (1 − fadeAlpha) where raster holds its at 1 —
-          // forced by hillshade's TRANSLUCENT output (flat terrain is transparent):
-          // an underlay at 1 shows THROUGH the tile above and is still contributing
-          // when the ramp ends, so dropping it at fadeAlpha = 1 snaps the relief
-          // lighter. Raster's opaque tiles hide theirs by then. Settled frame is
-          // unchanged either way (the underlay contributes nothing at 1).
+          // The underlay fades OUT (1 − fadeAlpha) where raster holds its at 1 — forced by
+          // hillshade's TRANSLUCENT output (flat terrain is transparent): an underlay at 1 shows
+          // THROUGH the tile above and is still contributing when the ramp ends, so dropping it at
+          // fadeAlpha = 1 snaps the relief lighter. Raster's opaque tiles hide theirs by then.
+          // Settled frame is unchanged either way (the underlay contributes nothing at 1).
           const underlay = 1 - fadeAlpha
           const parent = findCachedParent(coord)
           if (parent) {

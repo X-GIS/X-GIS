@@ -4,8 +4,10 @@
 
 import type { Scene, RenderNode, ColorValue, TimeStop, Easing, DataExpr } from './render-node'
 import type { SymbolDef } from './render-node'
+import type { SourceBounds } from './source-bounds'
+import type { TileRowScheme } from './source-scheme'
 import { rgbaToHex } from './render-node'
-import type { PaintShapes, PropertyShape } from './property-types'
+import type { PaintShapes, PropertyShape, FillAntialiasValue } from './property-types'
 import { hasHillshadePaint, emitHillshadeShapes } from './emit-commands-hillshade'
 import {
   emitHeatmapFields,
@@ -68,6 +70,15 @@ export interface LoadCommand {
    *  unbounded, the pre-existing behaviour. */
   maxzoom?: number
   minzoom?: number
+  /** SOURCE-level spatial extent `[west, south, east, north]` (WGS84 degrees), threaded
+   *  from `SourceDef.bounds` (#1984). The raster / raster-dem selectors drop every tile
+   *  that does not overlap it, instead of requesting ocean tiles that can only 404.
+   *  Undefined = unclipped, the pre-existing behaviour. See `SourceDef.bounds`. */
+  bounds?: SourceBounds
+  /** SOURCE-level row origin, threaded from `SourceDef.scheme` (#1985). `tms` makes the
+   *  raster / raster-dem request path substitute `2^z − 1 − y` for `{y}`. Undefined =
+   *  `xyz`, the pre-existing behaviour. See `SourceDef.scheme`. */
+  scheme?: TileRowScheme
   /** `encoding: custom` elevation unpack factors (threaded from `SourceDef`):
    *  `elevation_m = R*redFactor + G*greenFactor + B*blueFactor - baseShift`. */
   redFactor?: number
@@ -127,10 +138,10 @@ export interface FillPaint {
    *  true the runtime rotates the [dx,dy] offset by the map bearing so
    *  it tracks the map world axes (map/world-space anchor). */
   fillTranslateAnchorMap?: boolean
-  /** Mapbox `paint.fill-antialias` opt-out. Default (undefined / true)
-   *  preserves the current fill render path byte-for-byte; only `false`
-   *  is passed through to disable the rim-alpha smoothstep at runtime. */
-  fillAntialias?: boolean
+  /** Mapbox `paint.fill-antialias`. Default (undefined / true) preserves the
+   *  current fill render path byte-for-byte; `false` — or a 0/1 zoom shape
+   *  (#1995) resolving to 0 — disables the rim-alpha smoothstep at runtime. */
+  fillAntialias?: FillAntialiasValue
 }
 
 /** Line / polygon-outline paint axes. */
@@ -310,9 +321,9 @@ export interface ShowCommand
    *  layers map here via the converter; xgis source uses
    *  `label-["..."]` utility or `label { ... }` sub-block. */
   label?: import('./render-node').LabelDef
-  /** Typed `PropertyShape<T>` bundle for every animatable / shape-able
-   *  paint axis. The flat `fill` / `stroke` / `opacity` / `strokeWidth`
-   *  / `size` fields above are RESOLVED views of the same data:
+  /** Typed `PropertyShape<T>` bundle for every animatable / shape-able paint axis. The flat
+   *  `fill` / `stroke` / `opacity` / `strokeWidth` / `size` fields above are RESOLVED views
+   *  of the same data:
    *  - `fill` / `stroke` carry the static-hex form used by shader
    *    uniform binding (no per-frame allocation for the common case).
    *  - `opacity` / `size` carry the per-frame resolved scalar that
@@ -388,14 +399,12 @@ export interface EmitOptions {
    *  flipping this on; defaults to `'manual'` for universal
    *  WebGPU-adapter compatibility. */
   enableScalarPaletteSampling?: boolean
-  /** P4-5 gate. When true, each ShowCommand's shaderVariant is
-   *  produced via `buildPerShowMergedVariant` — fill / stroke axes
-   *  that routed to compute get their fillExpr / strokeExpr replaced
-   *  by `unpack4x8unorm(compute_out_*[input.feat_id])`, the preamble
-   *  carries the matching `@group/@binding var<storage,read> ...`
-   *  decls, and the variant exposes `computeBindings` so the runtime
-   *  can wire the right output buffers per tile. When false (default),
-   *  the legacy variant is emitted unchanged. Runtime callers MUST
+  /** P4-5 gate. When true, each ShowCommand's shaderVariant is produced via
+   *  `buildPerShowMergedVariant` — fill / stroke axes that routed to compute get their
+   *  fillExpr / strokeExpr replaced by `unpack4x8unorm(compute_out_*[input.feat_id])`, the
+   *  preamble carries the matching `@group/@binding var<storage,read> ...` decls, and the
+   *  variant exposes `computeBindings` so the runtime can wire the right output buffers per
+   *  tile. When false (default), the legacy variant is emitted unchanged. Runtime callers MUST
    *  set this true ONLY after extending the polygon bind-group
    *  layout to include the compute-output bindings and feeding
    *  TileComputeResources.getOutBuffer() into the matching slots
@@ -439,27 +448,23 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
     baseShift: src.baseShift,
     maxzoom: src.maxzoom,
     minzoom: src.minzoom,
+    bounds: src.bounds,
+    scheme: src.scheme,
     refresh: src.refresh,
   }))
 
-  // Walk the IR once to collect every ZOOM-only paint literal /
-  // gradient (P3 Step 1). Always emit the palette into SceneCommands
-  // so a runtime that opts INTO `enablePaletteSampling` later in
-  // its boot has the data ready. Shader-gen integration is gated
-  // separately — without the runtime bind-group extension, an
-  // active palette would generate WGSL with @binding(2..4)
-  // references that fail pipeline validation against
-  // mr-baseBindGroupLayout.
+  // Walk the IR once to collect every ZOOM-only paint literal / gradient (P3 Step 1). Always emit
+  // the palette into SceneCommands so a runtime that opts INTO `enablePaletteSampling` later in its
+  // boot has the data ready. Shader-gen integration is gated separately — without the runtime
+  // bind-group extension, an active palette would generate WGSL with @binding(2..4) references that
+  // fail pipeline validation against mr-baseBindGroupLayout.
   const palette = collectPalette(scene)
-  // Variant-time palette is COLOR-only when only `enablePaletteSampling`
-  // is set; scalar gradients are stripped so processOpacity falls back
-  // to the legacy `u.opacity` uniform path. Once
-  // `enableScalarPaletteSampling` flips on, the full palette flows
-  // through and processOpacity routes zoom-interpolated axes to the
-  // scalar atlas. Two flags because the runtime needs to extend its
-  // bind-group layout BEFORE pipelines that reference
-  // `scalar_grad_atlas` are created — flipping per-call lets the
-  // runtime side ship in a separate commit without breaking validation.
+  // Variant-time palette is COLOR-only when only `enablePaletteSampling` is set; scalar gradients
+  // are stripped so processOpacity falls back to the legacy `u.opacity` uniform path. Once
+  // `enableScalarPaletteSampling` flips on, the full palette flows through and processOpacity
+  // routes zoom-interpolated axes to the scalar atlas. Two flags because the runtime needs to
+  // extend its bind-group layout BEFORE pipelines that reference `scalar_grad_atlas` are created —
+  // flipping per-call lets the runtime side ship in a separate commit without breaking validation.
   let variantPalette: Palette | undefined
   if (opts?.enablePaletteSampling) {
     if (opts.enableScalarPaletteSampling) {
@@ -484,12 +489,11 @@ export function emitCommands(scene: Scene, opts?: EmitOptions): SceneCommands {
   // so emitting it is back-compat by construction.
   const computePlan = planComputeKernels(scene)
 
-  // Compile-side merge gate. When the caller opts in AND the plan
-  // has entries, replace each show's variant with the per-show
-  // merged version. The runtime sees `shaderVariant.computeBindings`
-  // populated and switches to the compute-aware bind-group layout;
-  // without `enableComputePath`, variants are byte-identical to the
-  // legacy path so existing pipelines validate unchanged.
+  // Compile-side merge gate. When the caller opts in AND the plan has entries, replace each
+  // show's variant with the per-show merged version. The runtime sees
+  // `shaderVariant.computeBindings` populated and switches to the compute-aware bind-group
+  // layout; without `enableComputePath`, variants are byte-identical to the legacy path so
+  // existing pipelines validate unchanged.
   if (opts?.enableComputePath && computePlan.length > 0) {
     const bindGroup = opts.computePathBindGroup ?? 0
     const baseBinding = opts.computePathBaseBinding ?? 16
@@ -653,20 +657,16 @@ function emitShow(
 
 // ─── Composable per-concern field emitters (Tier-B B2) ─────────────
 //
-// Each returns the `Partial<ShowCommand>` slice for one paint concern,
-// carrying the exact flat keys (and the same lossy scalar fallbacks)
-// the monolithic emitShow literal used to inline. The spread-merge in
-// emitShow reassembles them into a byte-identical ShowCommand. The
-// SOLE faithfulness requirement is that no fallback ternary is dropped
-// or reordered relative to the former literal — verified by a
-// byte-identical IR diff over the fixture + synthetic corpus.
+// Each returns the `Partial<ShowCommand>` slice for one paint concern, carrying the exact flat
+// keys (and the same lossy scalar fallbacks) the monolithic emitShow literal used to inline. The
+// spread-merge in emitShow reassembles them into a byte-identical ShowCommand. The SOLE
+// faithfulness requirement is that no fallback ternary is dropped or reordered relative to the
+// former literal — verified by a byte-identical IR diff over the fixture + synthetic corpus.
 //
-// The return TYPE is the concrete concern interface (a stricter
-// subtype of `Partial<ShowCommand>`) rather than `Partial<ShowCommand>`
-// itself, so the spread-merge in emitShow keeps ShowCommand's REQUIRED
-// fields (`fill`, `stroke`, `strokeWidth`, `extrude`, …) provably
-// present — `Partial` would erase that and force a lossy cast at the
-// return site.
+// The return TYPE is the concrete concern interface (a stricter subtype of
+// `Partial<ShowCommand>`) rather than `Partial<ShowCommand>` itself, so the spread-merge in
+// emitShow keeps ShowCommand's REQUIRED fields (`fill`, `stroke`, `strokeWidth`, `extrude`, …)
+// provably present — `Partial` would erase that and force a lossy cast at the return site.
 
 /** Polygon fill paint fields. */
 function emitFillFields(node: RenderNode): FillPaint {

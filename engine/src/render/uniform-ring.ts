@@ -85,6 +85,14 @@ export class UniformRing {
     this.slot = 0
   }
 
+  /** Current slot cursor — allocations so far this frame (#1190). A
+   *  RenderBundle bakes dynamic offsets derived from this cursor at
+   *  record time; replaying it is only valid when the cursor base
+   *  matches, so the bundle cache key pins this value. */
+  slotCursor(): number {
+    return this.slot
+  }
+
   /** Hand the caller the buffers retired by grows since the last call, and
    *  clear the internal list. The caller destroys or drops them per its
    *  own lifecycle policy. */

@@ -23,7 +23,17 @@ export const fillCapabilities: readonly RuntimeCapability[] = [
     layerType: 'fill',
     variant: 'constant',
     supported: false,
-    note: 'false branch not implemented; pipeline always uses MSAA',
+    // Was "false branch not implemented" — stale since the opt-out was wired,
+    // and #1995 (which cites this same lane for the zoom form) makes it
+    // actively misleading. What is actually missing is GEOMETRIC edge AA.
+    note: 'false gates only the sphere-rim alpha fade (cam_ecef_off_h.w → fs_fill polygon_rim_alpha), which is 1.0 on flat-Mercator; the pipeline MSAA that does the geometric edge AA is not per-layer disable-able',
+  },
+  {
+    property: 'fill-antialias',
+    layerType: 'fill',
+    variant: 'zoom-interp',
+    supported: false,
+    note: '#1995 — the boolean `["step", ["zoom"], …]` form is no longer dropped: it lowers to a 0/1 PropertyShape resolved per frame (resolveSteppedShape) into the same rim-alpha lane, flipping at the authored zoom. Still listed as a gap for the SAME reason as the constant variant — the geometric MSAA edge AA is untouched',
   },
   { property: 'fill-translate', layerType: 'fill', variant: 'constant', supported: true },
   {

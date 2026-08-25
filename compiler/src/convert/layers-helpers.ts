@@ -5,6 +5,7 @@
 
 import type { MapboxLayer } from './types'
 import { exprToXgis, filterToXgis } from './expressions'
+import { foldSingleStopZoomFunctions } from './zoom-function-fold'
 import { isLinePlacement, resolvePitchAlignment } from '../ir/label-alignment'
 
 // ═══ Fail-CLOSED filter emission ═══
@@ -188,11 +189,15 @@ export const unwrapPairScalars = (t: unknown): unknown[] | null => {
  *  plain Record. Mirror of paint.ts's same guard — non-object forms
  *  (string copy-paste, array, etc.) used to let property-name index
  *  return a char of the string or undefined, leaking garbage into
- *  the emitted utility list. */
+ *  the emitted utility list.
+ *
+ *  Also folds legacy SINGLE-stop zoom functions to the constant they
+ *  denote (#1976) so every property below reads them through its
+ *  existing constant path — see foldSingleStopZoomFunctions. */
 export function safePropsBag(v: unknown): Record<string, unknown> {
   if (v === null || v === undefined) return {}
   if (typeof v !== 'object' || Array.isArray(v)) return {}
-  return v as Record<string, unknown>
+  return foldSingleStopZoomFunctions(v as Record<string, unknown>)
 }
 
 /** True when v should be treated as "property omitted" per Mapbox
@@ -581,4 +586,53 @@ export function pitchAlignmentGapWarning(
     `but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. ` +
     `Labels stay upright billboards under pitch instead of lying in the ground plane.`
   )
+}
+
+/** icon-offset (Batch 2 sprite atlas) — v8 literal-wrap unwrap + constant
+ *  2-tuple emit, or (#1977) a warn+drop for any non-constant form (legacy
+ *  `{stops:[...]}` function, modern `["interpolate", …]` expression, or any
+ *  other shape that doesn't reduce to a numeric pair). Appends
+ *  `label-icon-offset-x/-y-N` (mirrors the text-offset split — the `-`
+ *  utility-name separator can't carry a comma tuple) or a single gap
+ *  warning onto the caller's accumulators in place. Split out of
+ *  convertIconProperties (layers-symbol.ts) to keep that god-file under
+ *  its shrink-only LOC ceiling — mirror of the pitchAlignmentGapWarning
+ *  extraction above. Zero logic change. */
+export function convertIconOffset(
+  layer: { id: string },
+  layout: Record<string, unknown>,
+  utils: string[],
+  warnings: string[],
+): void {
+  // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
+  const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
+  const iconOffset =
+    Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
+      ? iconOffsetRaw.map((c) => {
+          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
+          return c
+        })
+      : null
+  if (
+    iconOffset !== null &&
+    typeof iconOffset[0] === 'number' &&
+    typeof iconOffset[1] === 'number'
+  ) {
+    // Two utilities so the xgis-utility-name grammar (`-` is the
+    // segment separator) can carry signed numbers without a custom
+    // string-comma syntax. Mirrors the `label-offset-x-N` /
+    // `label-offset-y-M` split for text-offset.
+    if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
+    if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
+  } else if (layout['icon-offset'] !== undefined && layout['icon-offset'] !== null) {
+    // #1977 — non-constant icon-offset (legacy {stops:[...]} function form
+    // OR modern ["interpolate", …] / other expression form) silently
+    // became [0,0] with ZERO diagnostic — every other gap on this pass
+    // warns; this one didn't. Warn + drop (mirror of icon-size's
+    // non-constant gap warning in convertIconProperties); expression
+    // support is a documented follow-up, not this fix.
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-offset non-constant form not yet supported — value dropped: ${JSON.stringify(layout['icon-offset']).slice(0, 80)}`,
+    )
+  }
 }

@@ -95,7 +95,11 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('fill-pattern declared without'))).toBe(false)
   })
 
-  it('source scheme: "tms" → Y-flip warning', () => {
+  it('source scheme: "tms" → the Y-flip warning is RETIRED; a raster source emits (#1985)', () => {
+    // Was: "tiles will render Y-flipped … wait for native scheme support". The scheme now
+    // reaches the request path (`tileUrl` substitutes `2^z − 1 − y` for `{y}`), so the
+    // whole warning is gone for the two types that consume it. The vector family keeps a
+    // NARROWED one, pinned in source-scheme-emit.test.ts alongside the emit witness.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -107,7 +111,8 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'legacy' }],
     })
-    expect(w.some((s) => s.includes('legacy') && s.includes('tms'))).toBe(true)
+    expect(w.filter((s) => s.includes('scheme'))).toEqual([])
+    expect(w.some((s) => s.includes('Y-flipped'))).toBe(false)
   })
 
   it('multiple tile mirrors → subdomain-rotation warning', () => {
@@ -128,7 +133,7 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"m"') && s.includes('mirrors'))).toBe(true)
   })
 
-  it('top-level fog → ignored-fields warning (projection + light host-applied, WS-8/WS-9)', () => {
+  it('top-level fog + projection → ignored-fields warning; light stays host-applied (WS-9, #2007 supersedes WS-8)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
@@ -139,14 +144,18 @@ describe('converter warning coverage', () => {
     })
     expect(w.some((s) => s.startsWith('Top-level style fields ignored'))).toBe(true)
     const note = w.find((s) => s.startsWith('Top-level style fields ignored'))!
-    // WS-8: top-level `projection` is now host-applied (demo-runner /
-    // compare-runner read it off the raw style JSON and call
-    // XGISMap.setProjection), so it must NOT appear in the ignored list.
-    expect(note, `projection should be host-applied, not ignored: ${note}`).not.toContain(
-      'projection',
+    // #2007 supersedes WS-8: the playground demo-runner/compare-runner still
+    // apply `projection` themselves, but the COMPILER never did — a host
+    // embedding convertMapboxStyle() directly had zero signal. `projection`
+    // now appears in the ignored list with a clause naming it a host/runtime
+    // choice (not a plain "unimplemented" gap like fog).
+    expect(note, `expected "projection" in: ${note}`).toContain('projection')
+    expect(note, `expected the host/runtime clause in: ${note}`).toContain(
+      'host/runtime choice in X-GIS',
     )
-    // WS-9: top-level `light` is now host-applied (XGISMap.setLight via the
-    // demo-runner / compare-runner), so it must NOT appear in the ignored list.
+    // WS-9: top-level `light` is still host-applied (XGISMap.setLight via the
+    // demo-runner / compare-runner) with no compiler-side gap to warn about,
+    // so it must still NOT appear in the ignored list.
     expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
     for (const k of ['fog']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
@@ -197,8 +206,12 @@ describe('converter warning coverage', () => {
     }
   })
 
-  it('source minzoom / maxzoom / bounds → unhandled-bounds warnings', () => {
-    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds).
+  it('source minzoom → still unhandled; maxzoom (#1983) and bounds (#1984) now emit', () => {
+    // Pins bc32a5c (minzoom/maxzoom) + 39a3cee (bounds), narrowed TWICE: #1983 stopped
+    // dropping a raster source's `maxzoom` (it clamps the cover zoom), and #1984 stopped
+    // dropping its `bounds` (the raster / raster-dem selectors clip to it —
+    // map/src/render/source-bounds-clip.ts). `minzoom` is the one half still genuinely
+    // dropped: it IS emitted, but no tile selector consumes a source-level minzoom.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -212,8 +225,35 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'regional' }],
     })
-    expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom/maxzoom'))).toBe(true)
-    expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(true)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('minzoom: 4'))).toBe(true)
+    // The two halves that stopped being dropped — asserted as the ABSENCE of any
+    // warning naming them, which is what "the property reaches the runtime" looks like
+    // from here (the emission itself is pinned in source-bounds-emit.test.ts).
+    expect(w.some((s) => s.includes('maxzoom') && s.includes('not emitted'))).toBe(false)
+    expect(w.some((s) => s.includes('"regional"') && s.includes('bounds'))).toBe(false)
+  })
+
+  it('a VECTOR source keeps a bounds warning — narrowed to name the real owner (#1984)', () => {
+    // The other side of the #1984 narrowing: bounds is emitted only for the two types
+    // whose selectors clip. A vector source still warns, but no longer as "unsupported"
+    // — its ARCHIVE metadata (PMTiles header / TileJSON manifest) already owns the clip,
+    // so re-declaring it in the xgis block would create a second authority.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'https://example.com/x.pmtiles' } },
+      layers: [{ id: 'l', type: 'line', source: 'v', 'source-layer': 'roads' }],
+    })
+    const bounds = warningsOf({
+      version: 8,
+      sources: {
+        v: { type: 'vector', url: 'https://example.com/x.pmtiles', bounds: [125, 33, 132, 39] },
+      },
+      layers: [{ id: 'l', type: 'line', source: 'v', 'source-layer': 'roads' }],
+    }).filter((s) => s.includes('bounds'))
+    expect(w.filter((s) => s.includes('bounds'))).toHaveLength(0) // no bounds ⇒ no note
+    expect(bounds).toHaveLength(1)
+    expect(bounds[0]).toContain('not emitted for type "vector"')
+    expect(bounds[0]).toMatch(/PMTiles header|TileJSON manifest/)
   })
 
   it('interpolate-lab colour spec → compile-time densification warning (iter 61)', () => {
@@ -419,8 +459,11 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"d"') && s.includes('promoteId'))).toBe(true)
   })
 
-  it('source tileSize: 256 → wrong-zoom-scale warning', () => {
-    // Pins 20af7b6.
+  it('source tileSize: 256 → emitted, NOT warned (#1983 replaced 20af7b6)', () => {
+    // Was: "the runtime tile selector hardcodes 512 px tiles". It does not — the raster
+    // arm takes 256 | 512 and biases the cover zoom by log2(512/tileSize) — so the
+    // declared size is now emitted into the source block instead of being warned away.
+    // A warning here again means the emit regressed back to a silent drop.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -432,7 +475,20 @@ describe('converter warning coverage', () => {
       },
       layers: [{ id: 'r', type: 'raster', source: 'relief' }],
     })
-    expect(w.some((s) => s.includes('"relief"') && s.includes('tileSize: 256'))).toBe(true)
+    expect(w.some((s) => s.includes('"relief"') && s.includes('tileSize'))).toBe(false)
+    expect(
+      convertMapboxStyle({
+        version: 8,
+        sources: {
+          relief: {
+            type: 'raster',
+            tiles: ['https://example.com/ne2/{z}/{x}/{y}.png'],
+            tileSize: 256,
+          },
+        },
+        layers: [{ id: 'r', type: 'raster', source: 'relief' }],
+      } as never),
+    ).toContain('tileSize: 256')
   })
 
   it('fill-extrusion-base non-zero → NO unhonoured-base warning (iter 489 + 493 — vertex shader now honors u.extrude_base_m)', () => {

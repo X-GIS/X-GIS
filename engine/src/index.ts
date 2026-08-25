@@ -49,6 +49,7 @@ export * from './render/material'
 // retired in the runtime dissolution; map/src/index.ts re-exports it on map's
 // public surface until the #991 close-out.
 export * from './render/uniform-ring'
+export * from './render/uniform-slot-arena'
 
 // ── Shader machinery: CPU log-depth + content-blind shader-DSL leaves ─
 export * from './shaders/log-depth'
