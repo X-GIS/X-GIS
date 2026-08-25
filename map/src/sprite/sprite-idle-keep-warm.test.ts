@@ -29,6 +29,13 @@ const reject = (() =>
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
+/** Drains the whole safeFetch await chain — deeper than `flush`, plus one macrotask turn, so a
+ *  multi-await fallback path has actually been ENTERED before the assertion looks at it. */
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 50; i++) await Promise.resolve()
+  await new Promise((r) => setTimeout(r, 0))
+  for (let i = 0; i < 50; i++) await Promise.resolve()
+}
 
 /** The REAL prototype bodies against a hand-built `{ host }` — no re-implementation, and no
  *  GPUDevice needed to reach them. */
@@ -78,6 +85,79 @@ describe('SpriteAtlasHost.hasPendingLoad — against a real host', () => {
     now = 1_000 + SPRITE_INFLIGHT_KEEP_WARM_MS + 1
     expect(host.hasPendingLoad()).toBe(false)
     now = 1_000 + SPRITE_INFLIGHT_KEEP_WARM_MS * 10
+    expect(host.hasPendingLoad()).toBe(false)
+  })
+})
+
+describe('SpriteAtlasHost.hasPendingLoad — the SUCCESS arm and the @2x fallback', () => {
+  // Every other arm here ends in 'failed'. Without this block the exact mutant
+  // `hasPendingLoad() { return this.state.status !== 'loaded' }` — the one the glyph twin
+  // documents as its killer — survives all of them: on a failing host it is
+  // indistinguishable from the real predicate. vitest ships no image decoder, so the PNG
+  // decode is stubbed exactly as sprite-atlas-host.test.ts:33-46 does.
+  const FIXTURE_JSON = { pin: { x: 0, y: 0, width: 16, height: 16, pixelRatio: 1 } }
+  const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+  const stubDecode = (): (() => void) => {
+    const g = globalThis as { createImageBitmap?: unknown }
+    const original = g.createImageBitmap
+    g.createImageBitmap = async () => ({ width: 256, height: 256, close: () => {} }) as ImageBitmap
+    return () => {
+      g.createImageBitmap = original
+    }
+  }
+
+  const okFetch = (opts: { deny2x?: boolean } = {}): typeof globalThis.fetch =>
+    ((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (opts.deny2x === true && url.includes('@2x'))
+        return Promise.resolve(new Response('', { status: 404 }))
+      return Promise.resolve(
+        url.endsWith('.json')
+          ? new Response(JSON.stringify(FIXTURE_JSON), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            })
+          : new Response(TINY_PNG, { status: 200, headers: { 'content-type': 'image/png' } }),
+      )
+    }) as typeof globalThis.fetch
+
+  it('goes false once the load SUCCEEDS, not only when it fails', async () => {
+    const restore = stubDecode()
+    const host = new SpriteAtlasHost({ spriteUrl: SPRITE_URL, fetch: okFetch() })
+    expect(host.hasPendingLoad()).toBe(true)
+    await host.whenReady()
+    restore()
+    expect(host.getState().status).toBe('loaded')
+    expect(host.hasPendingLoad()).toBe(false)
+  })
+
+  // The dpr>=1.5 path issues TWO sequential attempts (@2x, then 1x on a miss). The deadline is
+  // stamped ONCE, in kickOffLoad, so the whole chain shares one budget — the bounded quantity is
+  // "how long may an unresolved atlas hold the render loop", not "how long per HTTP request".
+  //
+  // The clock is advanced SYNCHRONOUSLY after construction, before any microtask runs, so the
+  // fallback attempt is entered on the far side of the deadline. That is what makes this test
+  // distinguish the two designs: with the real once-at-kickOff stamp the predicate is already
+  // false when the 1x attempt starts, while a per-attempt re-stamp would reset it to 0 elapsed
+  // and read as pending — silently doubling the real bound. Verified to kill exactly that mutant.
+  it('spans the @2x → 1x fallback on ONE deadline, stamped at kickOff', async () => {
+    let now = 500
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const restore = stubDecode()
+    // @2x misses; the 1x attempt then hangs, so the host stays in 'loading' to be observed.
+    const fetchFn = ((input: RequestInfo | URL) =>
+      String(input).includes('@2x')
+        ? Promise.resolve(new Response('', { status: 404 }))
+        : new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
+
+    const host = new SpriteAtlasHost({ spriteUrl: SPRITE_URL, fetch: fetchFn, dpr: 2 })
+    expect(host.hasPendingLoad()).toBe(true)
+    now = 500 + SPRITE_INFLIGHT_KEEP_WARM_MS + 1
+    await settle()
+    restore()
+
+    expect(host.getState().status, 'the 1x fallback must be in flight to observe').toBe('loading')
     expect(host.hasPendingLoad()).toBe(false)
   })
 })

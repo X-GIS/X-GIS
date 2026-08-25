@@ -1158,12 +1158,7 @@ const CEILINGS: Record<string, number> = {
   // run identity being derived on `text-rotation-alignment: viewport` layers, where
   // no consumer exists. The ceiling drops to the measured post-prettier size rather
   // than being left slack: headroom is re-justified per phase, never banked. MEASURED.
-  // 1977→1986 (#2122): the URL-sprite `onLanded` gains `invalidate()` beside its existing
-  // `markLabelDirty()`, matching the sibling site (background-pattern-atlas.ts:36-41) —
-  // without it an atlas landing AFTER the keep-warm deadline re-preps labels but never
-  // re-arms the loop, so it paints nothing until the next interaction. 1 call + a brace
-  // pair + its 6-line reason. MEASURED.
-  'map/src/render/passes/label-pass.ts': 1986,
+  'map/src/render/passes/label-pass.ts': 1977,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

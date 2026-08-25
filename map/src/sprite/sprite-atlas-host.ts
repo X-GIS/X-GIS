@@ -66,7 +66,15 @@ const HIGH_DPR_SUFFIX = '@2x'
  *  resource class over. Sized off the siblings rather than invented: the glyph in-flight
  *  keep-warm holds 10 s (`text/sdf/pbf/glyph-pbf-cache.ts`) and the raster ledger abandons
  *  a tile after ~10.5 s of retries. A late arrival still fires `onLanded` and still
- *  upgrades the atlas — it just no longer holds the loop. */
+ *  upgrades the atlas — it just no longer holds the loop, and `onLanded` re-arms one frame
+ *  through `markLabelDirty` regardless, so a post-deadline arrival still paints.
+ *
+ *  UNIT: one ATLAS LOAD, not one HTTP request. `loadStartedAt` is stamped once in
+ *  `kickOffLoad`, so on the dpr>=1.5 path the whole `@2x` -> `1x` fallback chain shares this
+ *  budget rather than getting one each. That is deliberate — the quantity being bounded is
+ *  "how long may an unresolved atlas hold the render loop", which is a property of the
+ *  frame, not of the retry policy. Pinned by the fallback test in
+ *  sprite-idle-keep-warm.test.ts, so a future per-request re-stamp fails loudly. */
 export const SPRITE_INFLIGHT_KEEP_WARM_MS = 10_000
 
 export class SpriteAtlasHost {

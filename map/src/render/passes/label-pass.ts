@@ -385,16 +385,7 @@ class LabelPass implements RenderPass {
           {
             spriteUrl: host.spriteUrl,
             dpr,
-            onLanded: () => {
-              // Label re-prep AND a guaranteed frame. `markLabelDirty()` alone re-preps
-              // labels but never re-arms an idle loop, so an atlas landing after the loop
-              // has idled painted nothing until the next interaction — the frozen-canvas
-              // symptom the sibling site (background-pattern-atlas.ts:15-19) already fixed
-              // this way. #2122's keep-warm covers the common case, but it is bounded by a
-              // deadline, and this is what makes a post-deadline arrival still paint.
-              host.markLabelDirty()
-              host.invalidate()
-            },
+            onLanded: () => host.markLabelDirty(), // sprite-land re-arm (glyph parity)
           },
           sc,
         )
