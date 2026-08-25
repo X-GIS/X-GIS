@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 00ea2c147f77f4fa6669b42489639e4f71c431d5
+  Generated from: bbc58f0b79c032a99e66dbc070d199b64fcff22f
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 00ea2c147f77
+    bun scripts/emit-changelog.ts --since bbc58f0b79c0
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** emit raster-dem encoding (+ custom unpack factors) — the one missing hop (#2003) ([#2066](https://github.com/X-GIS/X-GIS/pull/2066)) `bbc58f0`
 - **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
 - **compiler:** clustering P1 — cluster options through grammar/IR/converter, ["accumulated"] becomes a reserved evaluator key (#2050) ([#2077](https://github.com/X-GIS/X-GIS/pull/2077)) `ed5117f`
 - **map/text:** D1 INC-1 — forward-Jacobian ratio ground basis replaces the pitch-0 screen-anchor unprojection (#2012) ([#2060](https://github.com/X-GIS/X-GIS/pull/2060)) `7eb1462`
