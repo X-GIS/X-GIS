@@ -318,15 +318,18 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
     // `(vec2<f32>(abs_lon, abs_lat) - cam_rel_h) - cam_rel_l`, unique to
     // vs_main_ecef — the stroke arm wraps it in `project(`. Expression-pinned,
     // not binding-name-pinned: the auto-var/CSE pass HOISTS the tile-local vec
-    // into a temp (`_cseN = vec2<f32>(abs_lon, abs_lat)`) since #598 gave the
-    // disc arm a second use of it, and #2042 INC-6 hoisted the camera pair into
-    // flag-selected Lets (`let cam_rel_h = select(u.cam_h, <recombined>, flag)`)
-    // so the flag-off value stays the legacy u.cam_h/u.cam_l pair while the
-    // emitted TEXT reads through cam_rel_h/cam_rel_l — which is what broke the
-    // old `- u.cam_h) - u.cam_l)` literal (#2073). Pin the three pieces a
-    // project()-revert (or a flag-off-arm removal) would drop: the tile-local
-    // SOURCE vec, the split-camera subtraction, and the select() still carrying
-    // the legacy flag-off camera operand.
+    // into a temp (`_cseN = vec2<f32>(abs_lon, abs_lat)`) since #598, and
+    // #2042 INC-6 moved the camera term into the ladder-top `cam_rel_h/l`
+    // Lets (flag-selected between the CPU pair and the in-VS Mercator
+    // recombination), so the subtraction spells `- cam_rel_h) - cam_rel_l)`
+    // in every arm. (That INC-6 respell landed while this pin still matched
+    // the old `- u.cam_h)` literal — main's render shard sat red until this
+    // update; the gauntlet merges on local gates, so a render-shard-only pin
+    // must be checked whenever the emit respells. Bisected independently in
+    // #2073.) Pin the three pieces a project()-revert (or a flag-off-arm
+    // removal) would drop: the tile-local SOURCE vec, the split-camera
+    // subtraction, and the select() still carrying the legacy flag-off
+    // camera operand.
     const here = dirname(fileURLToPath(import.meta.url))
     const snapDir = join(
       here,
@@ -339,7 +342,7 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       '__polygon-variant-snapshots__',
     )
     const SRC_VEC = 'vec2<f32>(abs_lon, abs_lat)' // dropped by a project(abs_lon, abs_lat) revert
-    const CAM_REL = '- cam_rel_h) - cam_rel_l)' // the split-camera tile-local read (#2042 INC-6 Lets)
+    const CAM_REL = '- cam_rel_h) - cam_rel_l)' // the split-camera tile-local read (INC-6 Lets)
     const FLAG_OFF = 'select(u.cam_h' // the legacy pair must remain the flag-off branch
     const readsTileLocal = (src: string) =>
       src.includes(SRC_VEC) && src.includes(CAM_REL) && src.includes(FLAG_OFF)

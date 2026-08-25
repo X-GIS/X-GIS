@@ -126,7 +126,9 @@ const BASELINE: Record<string, number> = {
   // 43→46 (#1046 F3b Inc-2d): drawOitCompose RELOCATED here from oit-pass
   // (the pipeline/layout owner; native until the OIT twin lands) — moved
   // tokens plus the boundary unwrap cast, retiring with that twin.
-  'map/src/render/frame-renderer.ts': 44,
+  // 44→45 (#2042 INC-4b): the SPLIT_FILL_LAYOUT_ENTRIES static mirror for the
+  // drift test (GPUBindGroupLayoutEntry) — same forwarder pattern as PALETTE.
+  'map/src/render/frame-renderer.ts': 45,
   'map/src/render/frame-uniform.ts': 5,
   // 7→5 (#1357): the pooled-buffer recycler moved to gpu-buffer-pool.ts, taking
   // its createBuffer + the raw `device` field with it.
@@ -157,13 +159,21 @@ const BASELINE: Record<string, number> = {
   'map/src/render/material/hillshade-material.ts': 5,
   'map/src/render/material/icon-material.ts': 1,
   'map/src/render/material/line-material.ts': 2,
-  'map/src/render/material/polygon-fill-material.ts': 7,
+  // 7→9 (#2042 INC-4b): FillRhiState.split carries the factory's native split
+  // layout (GPUBindGroupLayout) and recordFillDraw's splitBind param carries the
+  // native bind group (GPUBindGroup) — the same boundary tokens the legacy
+  // tileBg path already holds; both retire if the Material seam ever grows
+  // dynamic-offset-capable RHI layouts.
+  'map/src/render/material/polygon-fill-material.ts': 9,
   'map/src/render/material/raster-material.ts': 6,
   'map/src/render/material/text-material.ts': 1,
   // 82→85 (#1252): the variant data-driven extruded pipeline descriptors
   // (fillExtruded/fallback in both variant builders) name GPURenderPipeline{,Descriptor} —
   // the same raw-WebGPU surface the existing base extruded builders carry.
-  'map/src/render/pipeline-factory.ts': 79,
+  // 79→82 (#2042 INC-4b): SPLIT_FILL_LAYOUT_ENTRIES + the split layout build
+  // (createBindGroupLayout with hasDynamicOffset — inexpressible through the
+  // RHI reflect adapter, which never emits dynamic offsets) + the layout field.
+  'map/src/render/pipeline-factory.ts': 82,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   // 15→10 (#1913): buildPointBglEntries' four hand-authored `GPUShaderStage.*` rows
@@ -189,9 +199,19 @@ const BASELINE: Record<string, number> = {
   // retires with the legacy-layer cluster).
   'map/src/render/renderer.ts': 56,
   'map/src/render/tile-compute-resources.ts': 5,
+  // Baselined 6 (#2042 INC-4b): UniformSplitBind's native half — the split
+  // bind group over the two arenas + frame block (GPUDevice/GPUBindGroup/
+  // GPUBindGroupLayout/GPUBuffer + one createBindGroup). Gap-blocked: the RHI
+  // reflect adapter cannot express hasDynamicOffset layouts, so the group must
+  // be built native against the factory's native split layout. Retires with a
+  // dynamic-offset-capable RHI bind seam.
+  'map/src/render/uniform-split-bind.ts': 6,
   'map/src/render/upload-coordinator.ts': 22,
   'map/src/render/vector-tile-renderer-types.ts': 5,
-  'map/src/render/vector-tile-renderer.ts': 17,
+  // 17→20 (#2042 INC-4b): the splitBind draw type (GPUBindGroup ×2 at the
+  // resolve + pass-through) and the unwrapBuffer closure (GPUBuffer) handed to
+  // UniformSplitBind — boundary tokens of the same class as ringBufferNative.
+  'map/src/render/vector-tile-renderer.ts': 20,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
   'map/src/sprite/icon-renderer.ts': 10,
   'map/src/sprite/icon-stage.ts': 7,

@@ -132,6 +132,53 @@ df64 sub (~6 f32 ops) per vertex — noise against the existing DSFUN dequant ch
 showOff]` threading through `recordFillDraw` (ascending 7 < 10 < 11 keeps
      WebGPU's offset-order rule trivial), §5 legacy-vs-split A/B. Strokes keep
      ring staging transitionally (line shader legacy).
+
+     IMPLEMENTED (PR pending): the write path is a **span-copy, not a re-pack**
+     (`uniform-split-bind.ts`): at the first qualifying draw per frame the
+     frame-class lanes are COPIED from the live legacy `frameBlock` bytes into
+     a plain 512-B FrameBlock buffer, and per show into a persistent
+     `show-uniform-arena` slot (slot per `pickId & 0xffff`, refreshed once per
+     frameCount) — byte-parity by construction since the SAME packer wrote the
+     source; the span tables derive from the block declarations' reflected
+     offsets (relocated flag lanes read the retiring vec4s' `.w` bytes).
+     Factory half: `SPLIT_FILL_LAYOUT_ENTRIES` (7 dyn / 10 dyn / 11 plain,
+     drift-test-pinned; hasDynamicOffset is inexpressible through the RHI
+     reflect adapter, so the layout is native) + split flat/ground twins built
+     from `emitPolygonSplitWgsl` via the ordinary `buildFlatFillMaterials`,
+     surfaced as `FillRhiState.split`. Draw half: `recordFillDraw` executes the
+     split twin when the caller resolved arena residency AND the matched twin
+     is the default flat/ground pair — per-style, pattern, extrude, and
+     clip-fallback draws keep the legacy bind (first-slice scope). The
+     `_skipFillDrawForBundle` replay still runs the sync block, so replayed
+     bundles read refreshed split content (the same discipline that keeps ring
+     slots fresh under replay). Witnesses: `__xgisVtrSplitDraws` counter +
+     `__XGIS_SPLIT_BIND_SKEW` (inverts the staged ShowBlock fill colour) in
+     `_split-bind-parity-gate.spec.ts` (4 arms: legacy / split / split+skew
+     must move / legacy+skew must be inert).
+
+     TWO REAL DEFECTS the gate caught before first green (both now unit-pinned):
+     1. **Show-slot aliasing** — a data-driven paint lowered on the CPU
+        (demotiles countries-fill `match()`) fans ONE style layer into
+        per-filter-bucket sub-shows that share the layer's pickId but carry
+        different fill colours; keyed on `pickId & 0xffff` alone, the first
+        bucket's copy stamped the frame and every bucket drew its colour.
+        Show identity is now (sliceLayer, pickId) — the slice key carries the
+        filter hash (uniform-split-bind.test.ts pins the aliasing).
+     2. **Rewrite-walker identity break** — the first `rewriteExprsInFunc`
+        (mapStmt/mapExpr composition) cloned shared Expr objects per
+        OCCURRENCE; the optimizer's auto-var pass correlates a mutable
+        value's declaration/assignments/reads by OBJECT IDENTITY (its header
+        says so), so one shared position var fissioned into `_av0.._av4`,
+        every read collapsed to the zero initializer, and split vertices all
+        landed at (0,0,0,0) — valid draws, EMPTY frames, no validation
+        error, and the ShowBlock-skew witness read ZERO pixels (which is the
+        witness doing its job: it refused to certify a dead read). The
+        walker now guarantees identity by construction (unchanged subtrees
+        return the ORIGINAL objects; a changed shared subtree maps to ONE
+        new object via a per-function memo) — rename-varrefs.test.ts pins
+        the contract, polygon-split-emit.test.ts pins the derived module's
+        auto-var count equal to legacy's.
+
    - **INC-4c — line split, then the walk deletion + `ringCursor` retirement
      move to INC-5 as planned.**
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
