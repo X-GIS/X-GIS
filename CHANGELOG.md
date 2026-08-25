@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bbc58f0b79c032a99e66dbc070d199b64fcff22f
+  Generated from: 0ffea948ddbad98f442c62ca951a6b27d4168c6a
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bbc58f0b79c0
+    bun scripts/emit-changelog.ts --since 0ffea948ddba
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** CJK vertical P1 — text-writing-mode wires to LabelDef.writingMode, zero pixels (#2051) ([#2078](https://github.com/X-GIS/X-GIS/pull/2078)) `0ffea94`
 - **compiler/convert:** emit raster-dem encoding (+ custom unpack factors) — the one missing hop (#2003) ([#2066](https://github.com/X-GIS/X-GIS/pull/2066)) `bbc58f0`
 - **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
 - **compiler:** clustering P1 — cluster options through grammar/IR/converter, ["accumulated"] becomes a reserved evaluator key (#2050) ([#2077](https://github.com/X-GIS/X-GIS/pull/2077)) `ed5117f`
