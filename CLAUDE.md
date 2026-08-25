@@ -93,13 +93,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 This OVERRIDES default behavior. Applies to EVERY claim that a render is correct, a
 parity fix works, or there is no regression — including before/after checks, multi-style
 sweeps, and post-merge confirmation. The methods below live as skills
-(`compare-parity-pixeldiff`, `tile-crop-review`); treating them as optional is the
+(`compare-parity-pixeldiff`, `tile-crop-review`, and `capture-canvas` for HOW a frame is
+captured and settled in the first place); treating them as optional is the
 recurring mistake. They are NOT optional here.
 
 **Forbidden:** judging a render by eyeballing a downscaled full frame or a downscaled
 side-by-side composite. `Read` downscales large images, so this silently loses the
 sub-pixel offsets, seams, missing shields, and width changes that real bugs live in.
-Eyeballing a downscaled composite is NOT verification.
+Eyeballing a downscaled composite is NOT verification. Equally forbidden: capturing a
+map frame with raw `locator('#map').screenshot()` / `page.screenshot()` (demo chrome
+lands in the measured pixels) or settling with `waitForTimeout` sleeps — use
+`captureMapFrame` / `awaitMapIdle` (e2e/helpers/visual.ts) per the `capture-canvas`
+skill, owner-mandated 2026-08-25.
 
 ### "There is no GPU here" is FALSE — for BOTH backends
 
