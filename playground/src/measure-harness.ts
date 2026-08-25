@@ -76,6 +76,45 @@ const DEMOTILES_FILLS: ColorClass[] = [
   },
 ]
 
+// OFM Positron palette (compiler/src/__tests__/fixtures/openfreemap-positron.json):
+// background rgb(242,243,240); water fill rgb(194,200,202); boundary_2 (admin-2 line)
+// hsl(0,0%,70%) = rgb(178,178,178) at full opacity past z4; highway_{major,motorway}
+// _casing rgb(213,213,213); highway_{major,motorway}_inner #fff past z6; highway_minor
+// hsl(0,0%,88%) = rgb(224,224,224). All neutral grays sit close together in 11-19pt
+// steps (178→194→213→224→242→255), so windows are hand-tuned to the ACTUAL gaps rather
+// than one uniform ±tolerance — casing↔minor is the tightest (11pt) and stays fuzzy by
+// construction; water is additionally keyed on its blue-green cast (b−r) since its
+// neutral-gray window alone would collide with boundary/casing.
+const POSITRON_STROKES: ColorClass[] = [
+  {
+    name: 'boundary-gray', // boundary_2 ≈ rgb(178,178,178)
+    ch: 'D',
+    test: (r, g, b) => r > 168 && r < 188 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+  },
+  {
+    name: 'casing-gray', // highway_{major,motorway}_casing rgb(213,213,213)
+    ch: 'C',
+    test: (r, g, b) => r > 204 && r < 222 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+  },
+  {
+    name: 'inner-white', // highway_{major,motorway}_inner #fff
+    ch: 'I',
+    test: (r, g, b) => r > 248 && g > 248 && b > 248,
+  },
+  {
+    name: 'minor-gray', // highway_minor ≈ rgb(224,224,224) — a sub-pixel ≈0.42 CSS px
+    ch: 'M', // hairline at z9.7 the bake cannot represent; ±8 window per background gap.
+    test: (r, g, b) => r > 216 && r < 232 && Math.abs(r - g) < 6 && Math.abs(g - b) < 6,
+  },
+]
+const POSITRON_FILLS: ColorClass[] = [
+  {
+    name: 'water', // rgb(194,200,202)
+    ch: 'A',
+    test: (r, g, b) => r > 182 && r < 206 && b - r > 4 && b >= g,
+  },
+]
+
 // The #2053 repro cells: Korea east coast + Busan, deep past the mirror's
 // maxzoom 2 (Δz 5-7), mercator control at the same cameras.
 const SCENARIOS: Record<string, Scenario> = {
@@ -91,6 +130,29 @@ const SCENARIOS: Record<string, Scenario> = {
     strokes: DEMOTILES_STROKES,
     fills: DEMOTILES_FILLS,
     convergeBudgetMs: 120_000,
+  },
+  // Globe rendering-quality probe (INC-1 PROBE phase): OFM Positron at the two
+  // user-reported cameras — #9.70/37.54704/126.81412 (native zoom, source maxzoom
+  // 14) and #21.10/37.38823/126.9468 (deep overzoom, Δz≈7, #2024 virtual windowed
+  // bakes). All-layer vector drape suspect: vector-tile-renderer.ts:3603-3625
+  // (`_drapeGlobeFills`/`_drapeStrokes`) rasterizes into fixed 512px DPR-blind
+  // single-sample tile bakes on the globe; mercator renders vectors directly.
+  // This scenario measures both projections at both cameras so the harness's
+  // run/registration numbers can attribute any width or ramp softness to the bake.
+  'positron-quality': {
+    name: 'positron-quality',
+    cells: [
+      { slug: 'globe-9.70', proj: 'globe', lon: 126.81412, lat: 37.54704, zoom: 9.7 },
+      { slug: 'globe-21.10', proj: 'globe', lon: 126.9468, lat: 37.38823, zoom: 21.1 },
+      { slug: 'merc-9.70', proj: 'mercator', lon: 126.81412, lat: 37.54704, zoom: 9.7 },
+      { slug: 'merc-21.10', proj: 'mercator', lon: 126.9468, lat: 37.38823, zoom: 21.1 },
+    ],
+    rows: [0.33, 0.5, 0.66],
+    strokes: POSITRON_STROKES,
+    fills: POSITRON_FILLS,
+    // Generous: SwiftShader globe cells took 120s on the demotiles scenario above;
+    // z21.1 overzoom additionally pays the #2024 virtual-bake dispatch per tile.
+    convergeBudgetMs: 150_000,
   },
 }
 
