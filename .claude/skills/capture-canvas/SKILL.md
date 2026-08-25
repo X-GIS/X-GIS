@@ -39,16 +39,18 @@ skill makes the correct path the short path.
    - `captureMapFrame` itself — its quiesce IS the load/first-paint wait.
    - `awaitMapIdle(page, budget)` after any programmatic camera change
      (`setZoom`/`setBearing`/`easeTo`) — resolves on the engine's
-     MapLibre-semantics `idle` (camera at rest + no pending source work
-     - nothing left to draw), immediately if already idle. It returns
-       `'idle' | 'timeout'` — **assert on the result**; a `'timeout'`
-       swallowed silently is a sleep with extra steps.
+     MapLibre-semantics `idle` (camera at rest AND no pending source work
+     AND nothing left to draw), immediately if already idle. It returns
+     `'idle' | 'timeout'` — **assert on the result**; a `'timeout'`
+     swallowed silently is a sleep with extra steps.
    - `opts.elapsedMsAtLeast` for animation-phase captures.
    - An engine counter loop for states `idle` deliberately excludes —
      e.g. `getPendingUploadCount() === 0` (bounded, and the bound
      FAILS the spec rather than proceeding).
-     A `waitForTimeout` is acceptable ONLY as a deliberate real-time gap
-     between two captures of an animation, with a comment saying so.
+
+   A `waitForTimeout` is acceptable ONLY as a deliberate real-time gap
+   between two captures of an animation, with a comment saying so.
+
 3. **`capture: 'clip'` on views that hit the #1802 hang.** The element
    path waits for `#map` bounding-box stability and can hang past any
    budget; whole-globe/low-zoom views are a known trigger. `'clip'`
