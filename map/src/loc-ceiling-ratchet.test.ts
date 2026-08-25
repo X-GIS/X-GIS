@@ -267,7 +267,10 @@ const CEILINGS: Record<string, number> = {
   // the flush/drain/destroy pairings. The write path itself lives in
   // uniform-split-bind.ts (276 LOC, its own file); this is only the seam.
   // Shrinks at INC-5 with the re-walk deletion.
-  'map/src/render/vector-tile-renderer.ts': 5253,
+  // 5253→5254 (#2042 INC-4b fix): the sliceLayer argument threaded into
+  // syncShow — the show-slot identity gained the slice half (the gate-caught
+  // filter-bucket aliasing; see uniform-split-bind.ts's header).
+  'map/src/render/vector-tile-renderer.ts': 5254,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
