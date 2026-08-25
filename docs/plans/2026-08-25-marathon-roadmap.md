@@ -25,6 +25,24 @@ Landed so far (do not re-derive):
   reports success (verified on run 32849832346 @ `9be7ae4`). The red this roadmap's Phase 0
   addresses appears on PULL-REQUEST runs, which is also where it must be confirmed fixed.
   This is CLAUDE.md §13's "a green check does not mean YOUR gate ran", in the concrete.
+- **A RENDER INPUT can be a function of wall-clock, and one is.** The adaptive quality
+  controller samples measured rendered-frame intervals (`engine/src/gpu/adaptive-quality.ts:198-212`)
+  and is live in any scene that sets no `?scenescale`. Measured on the parity gate's own
+  scene under SwiftShader: notch `0 → 3 → 4` within two script steps, `medianFrameMs`
+  149 → 6032, and `adaptiveFarLodBoost` `1 → 4`. The boost multiplies the tile selector's
+  far-field error ceiling (`map/src/render/tile-selection-cache.ts:303`,
+  `map/src/render/vector-tile-renderer.ts:4393`), so **the selector requests a different
+  tile set on a slower machine**. On a hash-equality rung there is no tolerance to absorb
+  that. Pin with `?adaptive=0` (`engine/src/gpu/quality.ts:24`, applied at module load
+  `:281`). **`?scenescale=` is NOT a substitute** — it pins only the dpr half at
+  `render-loop.ts:141` and leaves the far-LOD boost live, so a gate pinned that way stays
+  timing-dependent through tile selection.
+- **`idle` never covered in-flight glyph ranges** — but the style-import path drops the
+  style's `glyphs` (#2121), so no style-import fixture can exercise that path at all.
+  Measured: `map.glyphsUrl === null` and `textStage.pbfRasterizer === null` in
+  `import_maplibre_mirror`, whose `style.json` does set `glyphs`. Any reasoning about the
+  glyph pipeline that uses a style-import demo as its witness is reasoning about a chain
+  that is not there.
 - **`_bundle-replay-parity-gate` has a within-arm oracle nobody was using.** `SCRIPT[1]` and
   `SCRIPT[4]` are the identical camera (`spec:52`, `:56`) and were only logged. Cross-arm
   equality cannot see a settle that fires early — both arms sample at the same wrong point
