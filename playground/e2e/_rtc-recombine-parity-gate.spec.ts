@@ -60,17 +60,20 @@ type Arm = { recombine: boolean; skewM: number }
 let _clip: { x: number; y: number; width: number; height: number } | null = null
 let _stepIdx = 0
 
-async function bootArm(page: Page, arm: Arm): Promise<void> {
+async function bootArm(page: Page, arm: Arm, globe: boolean): Promise<void> {
   _clip = null
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  // proj=globe — the RTC offset (and so the recombination under test) lives
-  // in the projection ladder's 3D ECEF arm, which only globe(7) takes; the
-  // default flat-Mercator demo never executes it (measured: with the flat
-  // scene, ON + 5e5 m skew changed ZERO pixels — the witness refused to
-  // certify a vacuous A/B, twice, before this URL carried the projection).
-  await page.goto(`/demo.html?id=import_maplibre_mirror&proj=globe&e2e=1&msaa=1#1.5/20/140`, {
-    waitUntil: 'domcontentloaded',
-  })
+  // proj=globe — the ECEF RTC recombination (INC-1) lives in the projection
+  // ladder's 3D arm, which only globe(7) takes (measured: on the flat scene
+  // an ECEF anchor skew changed ZERO pixels — the witness refused to certify
+  // a vacuous A/B, twice, before this URL carried the projection). The FLAT
+  // scene became meaningful at INC-6: its Mercator cam-rel recombination is
+  // what the flat test below exercises (the skew hook moves BOTH anchors'
+  // X, so each scene's witness bites on its own arm).
+  await page.goto(
+    `/demo.html?id=import_maplibre_mirror${globe ? '&proj=globe' : ''}&e2e=1&msaa=1#1.5/20/140`,
+    { waitUntil: 'domcontentloaded' },
+  )
   console.log(`[rtc-parity] boot(${JSON.stringify(arm)}): navigated, waiting ready`)
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
@@ -248,28 +251,32 @@ async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
   return out
 }
 
-test('#2042 INC-1 — recombined-RTC frames match legacy frames; the flag provably reaches the shader', async ({
-  page,
-}, testInfo) => {
-  test.setTimeout(2_100_000)
+async function runParity(
+  page: Page,
+  testInfo: { outputPath: (name: string) => string },
+  globe: boolean,
+): Promise<void> {
+  const tag = globe ? 'globe' : 'flat'
   const pageErrors: string[] = []
   page.on('pageerror', (e) => pageErrors.push(String(e?.message ?? e)))
   await page.setViewportSize({ width: 288, height: 160 })
 
   // Arm A — legacy (flag off, no skew): the reference.
-  await bootArm(page, { recombine: false, skewM: 0 })
+  await bootArm(page, { recombine: false, skewM: 0 }, globe)
   const off = await runScript(page)
 
   // Arm B — recombine ON.
-  await bootArm(page, { recombine: true, skewM: 0 })
+  await bootArm(page, { recombine: true, skewM: 0 }, globe)
   const on = await runScript(page)
 
-  // Arm C — recombine ON + witness skew: single pose, must move geometry.
-  await bootArm(page, { recombine: true, skewM: WITNESS_SKEW_M })
+  // Arm C — recombine ON + witness skew: single pose, must move geometry
+  // (globe: the ECEF anchor X; flat: the Mercator origin X — the hook skews
+  // both, each scene's live arm reads its own).
+  await bootArm(page, { recombine: true, skewM: WITNESS_SKEW_M }, globe)
   const onSkew = await stepAndSettle(page, SCRIPT[0]!)
 
   // Arm D — recombine OFF + witness skew: single pose, must be inert.
-  await bootArm(page, { recombine: false, skewM: WITNESS_SKEW_M })
+  await bootArm(page, { recombine: false, skewM: WITNESS_SKEW_M }, globe)
   const offSkew = await stepAndSettle(page, SCRIPT[0]!)
 
   // ── Verdicts ──
@@ -281,40 +288,55 @@ test('#2042 INC-1 — recombined-RTC frames match legacy frames; the flag provab
     const equal = off[i]!.hash === on[i]!.hash
     const d = equal ? { count: 0, maxDelta: 0 } : pixelDiff(off[i]!.png, on[i]!.png)
     console.log(
-      `[rtc-parity] step ${i} ${JSON.stringify(SCRIPT[i])} off=${off[i]!.hash.slice(0, 12)} ` +
+      `[rtc-parity:${tag}] step ${i} ${JSON.stringify(SCRIPT[i])} off=${off[i]!.hash.slice(0, 12)} ` +
         `on=${on[i]!.hash.slice(0, 12)} ${equal ? 'EQUAL' : `DIFF count=${d.count} maxΔ=${d.maxDelta}`}`,
     )
     if (d.count > MAX_DIFF_PX) {
       // §5 artifacts — a failure must be reviewable at full resolution.
-      const po = testInfo.outputPath(`rtc-step${i}-off.png`)
-      const pn = testInfo.outputPath(`rtc-step${i}-on.png`)
+      const po = testInfo.outputPath(`rtc-${tag}-step${i}-off.png`)
+      const pn = testInfo.outputPath(`rtc-${tag}-step${i}-on.png`)
       writeFileSync(po, off[i]!.png)
       writeFileSync(pn, on[i]!.png)
-      console.log(`[rtc-parity] saved failing frames: ${po} ${pn}`)
+      console.log(`[rtc-parity:${tag}] saved failing frames: ${po} ${pn}`)
     }
     expect(
       d.count,
-      `step ${i}: OFF↔ON pixel diff ${d.count} > ${MAX_DIFF_PX} (maxΔ=${d.maxDelta}) — ` +
+      `${tag} step ${i}: OFF↔ON pixel diff ${d.count} > ${MAX_DIFF_PX} (maxΔ=${d.maxDelta}) — ` +
         'beyond the ulp-flip envelope; the recombined offset is not equivalent',
     ).toBeLessThanOrEqual(MAX_DIFF_PX)
   }
 
   // Witness 1 — the recombine path is LIVE: skewing the tile anchor moves it.
   const cd = pixelDiff(on[0]!.png, onSkew.png)
-  console.log(`[rtc-parity] witness ON+skew vs ON: count=${cd.count} maxΔ=${cd.maxDelta}`)
+  console.log(`[rtc-parity:${tag}] witness ON+skew vs ON: count=${cd.count} maxΔ=${cd.maxDelta}`)
   expect(
     cd.count,
-    'ON + skew did not move geometry — the VS is NOT consuming tile_ecef_center ' +
+    `${tag}: ON + skew did not move geometry — the VS is NOT consuming the skewed anchor ` +
       '(flag plumbing dead or select wired to the legacy arm); the A/B above is vacuous',
   ).toBeGreaterThan(100)
 
   // Witness 2 — flag OFF really bypasses the anchors: the skewed lanes are
   // staged into the uniform but the legacy path never reads them.
   console.log(
-    `[rtc-parity] witness OFF+skew vs OFF: off=${off[0]!.hash.slice(0, 12)} offSkew=${offSkew.hash.slice(0, 12)}`,
+    `[rtc-parity:${tag}] witness OFF+skew vs OFF: off=${off[0]!.hash.slice(0, 12)} offSkew=${offSkew.hash.slice(0, 12)}`,
   )
   expect(
     offSkew.hash,
-    'OFF + skew changed the frame — the legacy path is reading the anchor lanes',
+    `${tag}: OFF + skew changed the frame — the legacy path is reading the anchor lanes`,
   ).toBe(off[0]!.hash)
+}
+
+test('#2042 INC-1 — globe: recombined ECEF RTC matches legacy; the flag provably reaches the shader', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(2_100_000)
+  await runParity(page, testInfo, true)
+})
+
+test('#2042 INC-6 — flat: recombined Mercator cam-rel matches legacy; the flag provably reaches the shader', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(2_100_000)
+  _stepIdx = 0
+  await runParity(page, testInfo, false)
 })

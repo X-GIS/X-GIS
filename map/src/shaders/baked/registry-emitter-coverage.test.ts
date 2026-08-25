@@ -254,6 +254,19 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
     'no GLSL twin by construction (the extrude path does not exist on the GLSL backend), ' +
     'and SimpleFamily — the only parameterless shape the closed set has — requires one; a ' +
     'WGSL-only key shape is a phase-B (#1679) grammar question, not a phase-A omission',
+
+  // ── #2042 INC-4a: the split-mode polygon module — no consumer yet ──
+  // Derived from the legacy module by IR transform (polygon-split.ts); nothing
+  // builds a pipeline from it until INC-4b, so there is no first-frame path to
+  // shorten and no bake key to claim. When INC-4b lands the split pipeline
+  // family (WebGPU-only — no GLSL twin by scope), it inherits the same
+  // WGSL-only key-shape question as emitExtrudeShellComposeWgsl above; decide
+  // both together, do not bake speculatively now.
+  buildPolygonSplitModule:
+    '#2042 INC-4a — unconsumed until the INC-4b pipeline family; nothing to bake yet',
+  emitPolygonSplitWgsl:
+    '#2042 INC-4a — unconsumed until the INC-4b pipeline family; WGSL-only by scope ' +
+    '(the split rebind is WebGPU-only), so baking also waits on the WGSL-only key shape',
 }
 
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {

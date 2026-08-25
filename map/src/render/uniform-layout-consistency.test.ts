@@ -39,10 +39,11 @@ describe('uniform byte-layout consistency (CPU pack ↔ DSL struct, via reflect(
     // stride stepped 256 → 512 (next 256-multiple ≥ 272). 512/4 = 128 f32 slots.
     // #1539 appended the 12-lane reserved `input` pool after globe_eye: 368
     // bytes = 92 f32 slots. #2042 INC-1 appended the four absolute RTC anchor
-    // vec4s: 432 bytes = 108 f32 slots. The stride is UNCHANGED
-    // (ceil(432/256)*256 = 512), so this growth cost no extra ring memory —
+    // vec4s: 432 bytes = 108 f32 slots. #2042 INC-6 appended the two Mercator
+    // anchor vec4s: 464 bytes = 116 f32 slots. The stride is UNCHANGED
+    // (ceil(464/256)*256 = 512), so this growth cost no extra ring memory —
     // assert it still fits.
-    expect(slots).toBe(108)
+    expect(slots).toBe(116)
     expect(slots).toBeLessThanOrEqual(128)
   })
 

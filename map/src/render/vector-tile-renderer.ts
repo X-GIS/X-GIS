@@ -1809,6 +1809,10 @@ export class VectorTileRenderer {
     // Bounded: the retired pool tops out at log2(maxCap) buffers (a
     // handful, ~MB-scale transient).
     this.uniformRing?.takeRetired()
+    // #2042 INC-4b prep — the tile arena's grow-retired buffers follow the
+    // same drop-refs discipline (same bind-group-capture hazard, same log2
+    // bound); without this drain the arena pins every outgrown buffer forever.
+    this._tileUniforms.takeRetired()
     // Tile-buffer eviction is DEFERRED to the start of the next frame.
     // The bucket scheduler calls render() multiple times per frame, so an
     // eviction in call N could destroy buffers still bound by encoded-but-
@@ -2006,6 +2010,16 @@ export class VectorTileRenderer {
     B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
     B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
     B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
+    // #2042 INC-6 — the flat-arm Mercator anchors (.xy hi, .zw lo; same
+    // flag, same skew witness — the skew moves flat geometry iff the
+    // Mercator recombination is live, mirroring the ECEF witness on globe).
+    B.set.tile_origin_merc_hl(
+      anchor.tileMercXH + skew,
+      anchor.tileMercYH,
+      anchor.tileMercXL,
+      anchor.tileMercYL,
+    )
+    B.set.cam_merc_center_hl(anchor.camMercXH, anchor.camMercYH, anchor.camMercXL, anchor.camMercYL)
   }
 
   /** Copy a per-tile uniform block into the staging mirror at the given

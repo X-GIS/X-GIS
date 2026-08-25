@@ -422,6 +422,8 @@ export class GraticuleRenderer {
       tile_ecef_center_l: [0, 0, 0, 0],
       cam_ecef_center_h: [0, 0, 0, 0],
       cam_ecef_center_l: [0, 0, 0, 0],
+      tile_origin_merc_hl: [0, 0, 0, 0],
+      cam_merc_center_hl: [0, 0, 0, 0],
       light_dir_ecef: [0, 0, 0, 0],
       globe_eye: [globeEye[0], globeEye[1], globeEye[2], globeEye[3]],
     })
