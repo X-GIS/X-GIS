@@ -334,14 +334,19 @@ test.describe('polygon fill flat-Mercator arm parity (GPU position ≡ outline)'
       '__polygon-variant-snapshots__',
     )
     const SRC_VEC = 'vec2<f32>(abs_lon, abs_lat)' // dropped by a project(abs_lon, abs_lat) revert
-    const CAM_REL = '- u.cam_h) - u.cam_l)' // the split-camera tile-local read
-    const readsTileLocal = (src: string) => src.includes(SRC_VEC) && src.includes(CAM_REL)
+    // The split-camera read has two spellings: direct-uniform (#2042 flag off) and
+    // the INC-6 recombined locals (#2058 regenerated the snapshots with it — #2079).
+    // A project() revert has no camera subtraction under EITHER spelling, so
+    // accepting both keeps the teeth across the flag states.
+    const CAM_RELS = ['- u.cam_h) - u.cam_l)', '- cam_rel_h) - cam_rel_l)']
+    const readsTileLocal = (src: string) =>
+      src.includes(SRC_VEC) && CAM_RELS.some((t) => src.includes(t))
     const files = readdirSync(snapDir).filter((f) => f.endsWith('.wgsl'))
     expect(files.length, `no polygon snapshots in ${snapDir}`).toBeGreaterThan(0)
     const withToken = files.filter((f) => readsTileLocal(readFileSync(join(snapDir, f), 'utf8')))
     expect(
       withToken.length,
-      `no emitted polygon fill arm reads tile-local Mercator ("${SRC_VEC}" + "${CAM_REL}") — vs_main_ecef may have reverted to project(abs_lon, abs_lat)`,
+      `no emitted polygon fill arm reads tile-local Mercator ("${SRC_VEC}" + one of ${CAM_RELS.map((t) => `"${t}"`).join(' / ')}) — vs_main_ecef may have reverted to project(abs_lon, abs_lat)`,
     ).toBeGreaterThan(0)
   })
 })
