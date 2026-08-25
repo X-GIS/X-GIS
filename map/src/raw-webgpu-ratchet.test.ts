@@ -153,12 +153,17 @@ const BASELINE: Record<string, number> = {
   // the only reader of. The one remaining token is `GPUTextureFormat` (the `format`
   // field), gap-blocked with the same class this file's other entries are.
   'map/src/render/hillshade-renderer.ts': 1,
-  'map/src/render/line-renderer.ts': 21,
+  // 21→23 (#2042 INC-4c): setSplitLayout's GPUBindGroupLayout (field + param)
+  // — the factory's native split layout threaded to the draper family.
+  'map/src/render/line-renderer.ts': 23,
   // #777 Phase II — HillshadeDraper mirrors RasterDraper (GPUTexture/RhiTexture
   // union in the tile + view-cache types, bridged via wrapWebGpuTextureView).
   'map/src/render/material/hillshade-material.ts': 5,
   'map/src/render/material/icon-material.ts': 1,
-  'map/src/render/material/line-material.ts': 2,
+  // 2→4 (#2042 INC-4c): the split layout field + setter param
+  // (GPUBindGroupLayout) — same gap-blocked class as pipeline-factory's
+  // split entries (RHI reflect cannot express hasDynamicOffset).
+  'map/src/render/material/line-material.ts': 4,
   // 7→9 (#2042 INC-4b): FillRhiState.split carries the factory's native split
   // layout (GPUBindGroupLayout) and recordFillDraw's splitBind param carries the
   // native bind group (GPUBindGroup) — the same boundary tokens the legacy
@@ -211,7 +216,9 @@ const BASELINE: Record<string, number> = {
   // 17→20 (#2042 INC-4b): the splitBind draw type (GPUBindGroup ×2 at the
   // resolve + pass-through) and the unwrapBuffer closure (GPUBuffer) handed to
   // UniformSplitBind — boundary tokens of the same class as ringBufferNative.
-  'map/src/render/vector-tile-renderer.ts': 20,
+  // 20→21 (#2042 INC-4c): strokeSplitBg (GPUBindGroup) at the stroke-emit
+  // resolve — the same boundary token class as the fill resolve's.
+  'map/src/render/vector-tile-renderer.ts': 21,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
   'map/src/sprite/icon-renderer.ts': 10,
   'map/src/sprite/icon-stage.ts': 7,

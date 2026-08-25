@@ -181,6 +181,21 @@ showOff]` threading through `recordFillDraw` (ascending 7 < 10 < 11 keeps
 
    - **INC-4c — line split, then the walk deletion + `ringCursor` retirement
      move to INC-5 as planned.**
+
+     IMPLEMENTED (PR pending): `line-split.ts` derives the three-block stroke
+     module from the legacy line module with the SHARED rewriter
+     (`makeSplitRewriteRead('TileUniforms')`, exported by polygon-split.ts —
+     the line block is polygon's byte-mirror, so the partition + retired-lane
+     derivations apply verbatim; the measured read set needs NO aliases).
+     LineDraper gains lazy split twins (opaque + pick) against the factory's
+     split layout, `LineBatch.split` carries `[tileOff, showOff]`, and the
+     VTR resolve HOISTED to tile-loop scope so the stroke queue records each
+     tile's split offset (`_strokeQueueTileOff`); the deferred stroke pass
+     re-derives the show offset (syncs are frame-stamped/idempotent) and
+     binds the three-range group. Exclusions: translucent MAX strokes, bake,
+     pattern strokes (the split layout has no sprite bindings), WebGL2. The
+     skew witness now inverts stroke_color too, and the §5 gate asserts BOTH
+     counters (`__xgisVtrSplitDraws`, `__xgisVtrSplitStrokeDraws`).
 5. **INC-5 — delete the hit re-walk; measure.** Expect the sweep's slope to drop from
    ~0.19 toward the selection+key floor; record on #1190 and re-scope the issue.
 6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`

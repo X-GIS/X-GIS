@@ -125,7 +125,9 @@ const BASELINE: Record<string, number> = {
   // proven from a runtime loop over struct.fields), plus the Uint8Array
   // `.buffer as ArrayBuffer` at the arena stage seam (same cast the block
   // packers carry). All confined to the copy-table builder + skew hook.
-  'map/src/render/uniform-split-bind.ts': 5,
+  // 5→6 (INC-4c): the stroke_color fieldOffset key for the stroke-read
+  // skew witness — same reflection-key class as the rest.
+  'map/src/render/uniform-split-bind.ts': 6,
   'map/src/render/vector-tile-renderer.ts': 2,
   'map/src/shaders/dsl/projections.ts': 2,
   'map/src/source-manager.ts': 5,

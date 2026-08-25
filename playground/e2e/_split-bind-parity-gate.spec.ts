@@ -180,8 +180,11 @@ async function runScript(page: Page): Promise<{ hash: string; png: Buffer }[]> {
   return out
 }
 
-const splitDrawCount = (page: Page): Promise<number> =>
-  page.evaluate(() => (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0)
+const splitDrawCount = (page: Page): Promise<{ fills: number; strokes: number }> =>
+  page.evaluate(() => ({
+    fills: (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0,
+    strokes: (globalThis as { __xgisVtrSplitStrokeDraws?: number }).__xgisVtrSplitStrokeDraws ?? 0,
+  }))
 
 test('#2042 INC-4b — split-bind fills match legacy; the split path provably executes and is read', async ({
   browser,
@@ -220,13 +223,23 @@ test('#2042 INC-4b — split-bind fills match legacy; the split path provably ex
   ] as const) {
     expect(arm.errors, `arm ${name} page errors:\n${arm.errors.join('\n')}`).toEqual([])
   }
-  expect(legacyDraws, 'legacy arm recorded split draws — the flag gate leaks').toBe(0)
-  // Executed-mechanism witness half 1: the split branch actually drew.
   expect(
-    splitDraws,
-    'split arm recorded ZERO split draws — the rebind never engaged; the A/B below is vacuous',
+    legacyDraws.fills + legacyDraws.strokes,
+    'legacy arm recorded split draws — the flag gate leaks',
+  ).toBe(0)
+  // Executed-mechanism witness half 1: BOTH split families actually drew
+  // (#2042 INC-4b fills, INC-4c strokes).
+  expect(
+    splitDraws.fills,
+    'split arm recorded ZERO split FILL draws — the rebind never engaged; the A/B below is vacuous',
   ).toBeGreaterThan(0)
-  console.log(`[split-parity] splitDraws: legacy=${legacyDraws} split=${splitDraws}`)
+  expect(
+    splitDraws.strokes,
+    'split arm recorded ZERO split STROKE draws — the line rebind never engaged (INC-4c vacuous)',
+  ).toBeGreaterThan(0)
+  console.log(
+    `[split-parity] splitDraws: legacy=${JSON.stringify(legacyDraws)} split=${JSON.stringify(splitDraws)}`,
+  )
 
   expect(new Set(legacy.map((s) => s.hash)).size, 'reference frames all identical').toBeGreaterThan(
     1,
