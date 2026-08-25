@@ -223,15 +223,162 @@ projCenterLon, projCenterLat)` — the cam halves are tile-independent), then
      class (N unfiltered constant-colour fill layers, no strokes) — run the
      sweep flag-OFF vs flag-ON on the same commit, record both slopes on #1190.
 
-6. **INC-6 — flat-arm Mercator recombination (added by INC-3's audit).** `cam_h/cam_l`
-   are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
-   restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
-   absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
-   `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
-   the VS derives `rel = cam − origin` behind a flag, with its own
-   rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
-   keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
-   static at INC-4/5).
+   _Implemented (2026-08-25) — one deviation from the design above:_ the show/
+   frame lanes are seeded by the FIRST tile's full pack (`packedOnce`), not by a
+   dedicated pre-loop pack with a `computeTileCameraAnchor(0,0,0,…)` — the first
+   tile's pack already writes every show/frame lane the span-copy lifts (show
+   lanes are per-show constants, frame lanes per-frame constants, so WHICH tile
+   seeds them is immaterial), and reusing it avoids a second anchor-math path
+   that could drift from the packer. Mechanics as landed:
+   - `splitWalkSkip` per-call qualification (VTR, above the tile loop): split
+     state live, real slice, `visibleKeysForClip === null` (primary path ⇒
+     every `visibleKey < 0`), base layout, no fill/line pattern, no per-feature
+     extrude, `!translucentLines`, no composer line variant, no overdraw. Under
+     these, the mat table proves every fill resolves to `eff.flat`/`eff.ground`
+     (per-style ⇒ feature layout, pattern/extrude ⇒ excluded) and every queued
+     stroke is opaque/pick — i.e. EVERY draw of the call is split-bound and the
+     ring slot has no reader for a skipped tile.
+   - Per tile after the first: `offsetOf` (resident?) → `syncShow`/`syncFrame`
+     (stamp-guarded no-ops after the first tile) → `bindGroup()` → skip the
+     WHOLE pack + `allocUniformSlot` + `stageUniformSlot` (`if (!skipPack)`
+     wraps the pack block; `slotOffset`/`currentTileBg` hoisted). Non-resident
+     copies fall back to the full pack for that tile only, which also runs
+     `ensureSlot` — so a tile's FIRST unclipped draw always packs and its slot
+     exists before any skip can trigger.
+   - Stroke queue entries on skipped tiles carry `slotOffset = 0`; harmless —
+     the split stroke branch replaces group 0 entirely, and under the
+     qualification every queued stroke takes it (`sTileOff ≥ 0` + the drain's
+     `strokeSplitBg` resolve conditions are all implied by `splitWalkSkip`).
+   - Bundle coherence as designed: growth → `_onSplitRebind` (bind-group retire
+     - `bundleCache.invalidateAll()`); residency drift between record and
+       replay changes ring ADVANCEMENT → the existing replay guard re-encodes.
+   - Pinned: `tile-uniform-arena-wiring.test.ts` now pins BOTH `offsetOf`
+     sites (walk-skip gated on `splitWalkSkip && packedOnce`; pack-path resolve
+     on `visibleKey < 0` + slice) and every qualification term.
+   - **Instrument lesson (2026-08-25): the sweep's fixed 6 s settle measured
+     WARMUP, not navigation.** First flag-OFF vs flag-ON read 279 vs 910
+     µs/layer — but per-N diagnostics showed the 8 s windows held 0-2 frames
+     (SwiftShader first-frame 20-40 s at n=128), `walkSkips=0` (the INC-5
+     mechanism never ran — warmup draws are clip-fallback, `visibleKey ≥ 0`),
+     and n=128 logged 385 bundle misses vs 6 hits (arena-growth
+     `invalidateAll` re-record storm). So BOTH slopes were record-path
+     warmup cost and say nothing about the steady-state claim — the #1190
+     0.19 ms/layer baseline was measured the same way and carries the same
+     caveat. The sweep now gates on bundleMisses convergence (probe
+     invalidates + rAF-tick-counted polls), zeroes the mechanism counters at
+     window start, and scales the window with N, printing per-window
+     hits/misses/skips so the regime is witnessed, not assumed. the
+     bundle-hit ring-alloc invariant (`_bundleWalkAllocs`, #1190) compares the
+     hit re-walk's alloc count against the record frame's — a proxy for "baked
+     ring dynamic offsets still align". A walk-skip record frame packs fresh
+     tiles (`1 + k` allocs) and the next hit's re-walk skips them (`1`), so
+     arm B threw `[XGIS INVARIANT] bundle hit re-walk allocated 1 ring slots
+where the encoded bundle recorded 2` and the render loop halted. The
+     proxy is VACUOUS under `splitWalkSkip` — the bundle bakes zero per-tile
+     ring readers (even the seed tile's ring stage is write-only) — so the
+     invariant is now exempted exactly there (`_lastWalkRingFree`, published
+     by every call; key equality ⇒ identical qualification inputs ⇒ the
+     exemption is stable across record and hit). The fallback-path invariant
+     site is untouched (clipped walks can never qualify). The §5 gate asserts
+     `__xgisVtrWalkSkips > 0` on the split arm so "skip engaged" is witnessed,
+     not assumed.
+
+5d. **INC-4d — per-style fill split twins (added 2026-08-25 by INC-5's measurement).**
+The split class as shipped covers only VARIANT-LESS shows (synthetic earth,
+polar caps, CPU-lowered match buckets): `generateShaderVariant` returns a
+variant for EVERY compiled show and constant paints inline as preamble
+consts (`shader-gen.ts` FILL_COLOR const even for `#rrggbb`), so every
+converted-style fill draws a per-style composed pipeline → `mat !==
+   eff.flat/ground` → legacy bind. The sweep (the #1190 scenario) therefore
+never engages INC-5 (`walkSkips=0` in every steady window). This increment
+puts the osm/ofm constant-fill class inside the split (and walk-skip):
+
+- **Derivation is already variant-ready:** `buildPolygonSplitModule(variant,
+pick)` composes the variant THEN swaps struct/bindings and rewrites reads;
+  spliced `u.<lane>` reads route via the partition (`u.opacity` → ShowBlock,
+  show-block.ts:30) and unmapped reads throw at build (fail-loud). The line
+  side already emits its draper's own variant (line-material.ts splitMat).
+- **Eligibility (scope guard):** const-preamble variants only — no extra
+  group(0) bindings beyond the three split ranges (no feat_data, no palette
+  atlas/sampler, no compute bindings), `!needsFeatureBuffer`, empty
+  `paletteScalarGradients`. Authoritative check at derivation time: count
+  the derived module's group-0 bindings; >3 ⇒ ineligible (stay legacy).
+- **LAZY twins (the F4 lesson):** per-style twins reuse the pipeline's
+  already-emitted WGSL, but a split twin needs its OWN emit + O2 fixpoint —
+  eager per-style split emits would re-create the ~13×-boot-waste F4
+  removed. Build each style's split twin on FIRST split-qualified draw
+  (mirroring LineDraper.splitMat), cached per (style pipeline, pick).
+- **Runtime wiring:** `FillRhiState.split` gains a lazy per-style registry
+  (builder injected by the factory — the Material seam stays decoupled);
+  `recordFillDraw`'s split branch extends to `ps` hits with an eligible
+  twin; `splitWalkSkip` replaces `lineVariant == null` with "the call's
+  fill pipeline has (or can build) a split twin AND the show's variant is
+  const-preamble-eligible" — the term that today only COINCIDENTALLY
+  protects per-style shows from the skip becomes the exact predicate.
+- **Gate:** a §5 parity gate booting the sweep's synthetic style (N=8
+  per-style constant fills — exactly the newly-covered class) OFF vs ON:
+  amplitude-class budget + executed-mechanism witnesses (per-style split
+  fills > 0, walkSkips > 0) + the skew witness (show-lane inversion must
+  move per-style fills too).
+
+_Implemented (2026-08-25) — deviations from the sketch above:_
+
+- **Eligibility is decided on the EMITTED interface, not the IR decl
+  list.** The polygon module statically declares sprite_atlas/samp
+  (group-0 bindings 5/6) and the line module its pattern pair — the emit
+  PRUNES them when unused, which is how the INC-4b/4c default twins fit
+  the three-range layout at all. Counting `module.bindings` would have
+  rejected every style including the defaults; the check instead emits
+  the twin's WGSL once and requires its `@group(0) @binding(n)` set
+  ⊆ {7, 10, 11}, reusing the same emitted string for the Material build.
+  A derivation that reads outside the partition throws in the rewriter →
+  ineligible (cached null; the same legacy-fallback class as pattern).
+- **The stroke side rides the draper:** `LineDraper.splitEligible()`
+  caches the same emitted-interface verdict per variant draper, gates the
+  draw()-side split branch (closing the INC-4c latent crash where an
+  ineligible-variant stroke reaching the split branch would throw at
+  splitMat build), and `LineRenderer.splitStrokeEligible(variant)`
+  forwards it to the walk-skip qualification — so the qualification's
+  stroke clause is `!drawStrokes || lineVariant == null ||
+splitStrokeEligible(lineVariant)`, and 'all'-phase per-style shows
+  (the osm/ofm common case) qualify.
+- **No skew arm in the new gate:** these variants INLINE their colours as
+  module consts — the ShowBlock lanes the skew hook inverts are never
+  read. Parity itself is the read-witness for the lanes this class does
+  consume (mvp/proj from FrameBlock, extent/clip/dequant from the
+  TileBlock arena — misaddressing collapses geometry); the default-class
+  gate keeps the skew witness for show-lane reads.
+
+5e. **INC-5b — retire `ringCursor` from ring-free bundle keys (design, 2026-08-25).**
+Post-INC-4d, a ring-free walk's bundle bakes NO per-tile ring reader, yet its
+`BundleKeyState.ringCursor` still pins the per-frame ring base — so any
+alloc-count change in an EARLIER show (residency transition, a non-qualified
+show's tile churn) shifts every later ring-free show's key and re-records
+bundles whose baked commands could have replayed verbatim. Design:
+
+- When the walk qualified (`_lastWalkRingFree`), build the key with a
+  `ringCursor: -2` sentinel ("address-free") instead of the live cursor.
+  Key equality ⇒ identical qualification inputs (all key'd) ⇒ record and
+  hit agree on the sentinel; a call that LOSES qualification changes the
+  key naturally (cursor reappears).
+- The ring-alloc invariant stays exempted for these walks (INC-5's
+  `_lastWalkRingFree` — same soundness argument, now load-bearing for
+  addressing too).
+- Measure BEFORE building: instrument bundle re-record counts per frame
+  on the sweep + a zoom-churn scenario, OFF vs ON, to see whether
+  cross-show re-record coupling is a real cost — the gate4 run's
+  record-side counters (177 split fills over a 36-minute two-arm run)
+  suggest records are already rare at steady state; if re-records are
+  <1/frame, INC-5b is not worth its key-shape risk (record the negative
+  result here and close it). `cam_h/cam_l`
+  are per-(tile × camera) DSFUN rels, so the flat/Mercator projection arm still
+  restages per tile after INC-4. The INC-1 recipe applies: FrameBlock gains the
+  absolute camera Mercator hi/lo, TileBlock gains a hi/lo tile origin (the current
+  `tile_origin_merc` is a SINGLE f32 — the recombination needs the lost low bits),
+  the VS derives `rel = cam − origin` behind a flag, with its own
+  rtc-recombine-precision-style whole-domain proof. Until it lands, flat-arm draws
+  keep the ring for cam_h/l (globe draws — the pitch/jank-critical path — go fully
+  static at INC-4/5).
 
 ## Self-critique (architect pass, recorded so the author cannot skip them)
 
