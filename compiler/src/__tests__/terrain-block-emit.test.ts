@@ -250,3 +250,51 @@ describe('#2095 TB7 — byte-identity: none of the committed fixture styles auth
     })
   }
 })
+
+// TB8 (#2110 review) — the dead-source drop pass and the terrain emit are two passes that
+// disagreed. The drop builds its liveness set from LAYER `source` fields only and runs
+// BEFORE the terrain block is emitted, so a raster-dem declared for terrain and used by no
+// layer — the ordinary shape, since terrain needs no hillshade layer — was deleted while
+// `terrain { source: <that id> }` was still written out. The emitted .xgis then named a
+// source that did not exist, and the notes block carried two warnings contradicting each
+// other. None of TB1-TB7 could see it: every one of them declares a layer over the same
+// dem, which keeps the source live for the wrong reason.
+describe('TB8 — a source referenced ONLY by terrain stays alive', () => {
+  const styleWithTerrainOnlyDem = {
+    version: 8,
+    sources: {
+      dem: { type: 'raster-dem', tiles: ['https://x/{z}/{x}/{y}.png'], encoding: 'terrarium' },
+      base: { type: 'vector', tiles: ['https://y/{z}/{x}/{y}.pbf'] },
+    },
+    terrain: { source: 'dem', exaggeration: 1.5 },
+    layers: [{ id: 'l', type: 'line', source: 'base', 'source-layer': 'road' }],
+  }
+
+  it('emits the source block the terrain block names', () => {
+    const { code } = convert(styleWithTerrainOnlyDem)
+    expect(code).toContain('terrain {')
+    expect(code, 'terrain names a source the drop pass deleted').toMatch(/source dem\s*\{/)
+  })
+
+  it('does not claim the source is unreferenced', () => {
+    const { warnings } = convert(styleWithTerrainOnlyDem)
+    const dropped = warnings.filter((w) => w.includes('never referenced by any layer'))
+    expect(dropped, `contradicts the terrain emit: ${dropped.join(' | ')}`).toEqual([])
+  })
+
+  it('still drops a dem that NOTHING references — the pass keeps its teeth', () => {
+    // The negative control. Without it, "keep every raster-dem" would pass the two above.
+    const { code, warnings } = convert({
+      ...styleWithTerrainOnlyDem,
+      terrain: { source: 'base', exaggeration: 1 },
+    })
+    expect(code).not.toMatch(/source dem\s*\{/)
+    expect(warnings.some((w) => w.includes('never referenced by any layer'))).toBe(true)
+  })
+
+  it('lowers the emitted program — a dangling source would not resolve', () => {
+    const { code } = convert(styleWithTerrainOnlyDem)
+    const ast = new Parser(new Lexer(withPragma(code)).tokenize()).parse()
+    expect(() => lower(ast)).not.toThrow()
+  })
+})

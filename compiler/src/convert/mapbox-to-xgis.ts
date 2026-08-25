@@ -399,6 +399,21 @@ export function convertMapboxStyle(
       referencedSourceIds.add(layerSource)
     }
   }
+  // A LAYER is not the only thing that can reference a source. The top-level `terrain`
+  // block names one too (#2095), and it is emitted further down — AFTER this pass has
+  // already decided what to drop. Without this, a raster-dem declared for terrain and
+  // used by no layer (the ordinary shape: terrain needs no hillshade layer) was deleted
+  // while `terrain { source: <that id> }` was still emitted, leaving a dangling reference
+  // and two warnings that contradict each other. Raw id, exactly like the layer ids
+  // above: `sourcesObj`'s keys are the style's own, and `convertTerrain` sanitizes only
+  // for the emitted text.
+  const rawTerrain = style.terrain
+  if (rawTerrain !== null && typeof rawTerrain === 'object' && !Array.isArray(rawTerrain)) {
+    const terrainSource = (rawTerrain as { source?: unknown }).source
+    if (typeof terrainSource === 'string' && terrainSource.length > 0) {
+      referencedSourceIds.add(terrainSource)
+    }
+  }
   // Only run the dead-source drop on styles that DECLARE layers. A
   // sources-only style (unit-test fixture / partial author authoring
   // sources first then layers later) would otherwise see every source
