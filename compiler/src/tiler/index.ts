@@ -37,6 +37,11 @@ export {
 } from './ecef-packing'
 export { clipPolygonToRect, clipPolygonToRectV2, clipLineToRect } from './clip'
 export { geojsonvt, GeoJSONVT, DEFAULT_OPTIONS as GEOJSONVT_DEFAULT_OPTIONS } from './geojsonvt'
+// Source-level point clustering (#2050). Sibling index to `geojsonvt`, serving the same
+// source at `z <= clusterMaxZoom`; the worker that holds both is P3's. `CLUSTER_TAG` rides
+// along because the alternative is every consumer spelling 'point_count' as a literal.
+export { pointCluster, PointCluster } from './cluster'
+export { CLUSTER_TAG, type ClusterOptions } from './cluster/types'
 export { encodeMVT, type MVTLayerInput, type EncodeOptions } from './geojsonvt/encode-mvt'
 export type { GeoJSONVTOptions, TransformedTile, TransformedTileFeature } from './geojsonvt/types'
 export {
