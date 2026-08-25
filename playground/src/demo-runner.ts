@@ -40,6 +40,15 @@ const params = new URLSearchParams(location.search)
 let currentIdx = Math.max(0, demoIds.indexOf(params.get('id') ?? 'minimal'))
 let currentMap: XGISMap | null = null
 
+// `?measure=<scenario>` — in-page measurement harness (measure-harness.ts):
+// drives repro cameras, converges, reads the canvas back and reports
+// cross-section numbers, so real-hardware runs produce the same JSON a
+// headless SwiftShader probe does (#2053). Dynamic import keeps the normal
+// demo path at zero extra bytes; the harness itself waits for map boot.
+if (params.get('measure')) {
+  void import('./measure-harness').then((mod) => mod.runMeasureHarness(params))
+}
+
 // Module-scope sprite / glyphs URL stash for the Mapbox-import flows
 // (`__xgisImportMapbox` direct call AND `__xgisImportSource` session-
 // Storage / hash channel from the site /convert page). The XGISMap
