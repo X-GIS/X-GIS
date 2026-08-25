@@ -37,6 +37,7 @@
 // measured). Small viewport + msaa=1 keeps SwiftShader raster bounded.
 
 import { test, expect, type Page } from '@playwright/test'
+import { hideDemoChrome } from './helpers/visual'
 import { createHash } from 'node:crypto'
 
 // z4 band: world-copy enumeration is OFF here (low-zoom only), which keeps
@@ -103,6 +104,16 @@ async function bootArm(page: Page, bundleOff: boolean): Promise<void> {
     inv: (globalThis as { __XGIS_INVARIANTS?: unknown }).__XGIS_INVARIANTS,
   }))
   console.log(`[bundle-parity] page flags: ${JSON.stringify(flags)}`)
+  // The measured pixels must be MAP pixels (#2116). A clipped `page.screenshot` over the
+  // canvas box still composites every demo-chrome element that OVERLAPS that box —
+  // `DEMO_CHROME_IDS` (helpers/visual.ts) is documented as exactly that set — and here it
+  // is not a cosmetic worry: `#status`'s opacity AND its text are a direct function of
+  // `map.getMissingTileCount()` (`playground/src/demo-runner.ts:1019-1033`), so the LOADING
+  // INDICATOR was inside the frames this gate hashes. Two arms that converge a moment apart
+  // then differ by a variable-length high-contrast string, for reasons that have nothing to
+  // do with bundling. Measured on the sibling RTC gate: hiding the chrome removed ~53% of
+  // its step-0 diff (7448 -> 3497 px). CLAUDE.md §5 forbids this capture shape by name.
+  console.log(`[bundle-parity] chromeHidden=${JSON.stringify(await hideDemoChrome(page))}`)
   await page.waitForTimeout(8_000) // cold-start tile + glyph cascade
   // Warm-up: run the full script once WITHOUT hashing, so every pose's
   // tiles AND glyph ranges are loaded before the measured pass. The idle
