@@ -4712,7 +4712,7 @@ export class VectorTileRenderer {
           fillPipeline === splitPipes.test ||
           fillPipeline === splitPipes.groundWrite ||
           fillPipeline === splitPipes.groundTest)) ||
-        this._fillRhi.split.perStyleTwin?.(fillPipeline as unknown as GPURenderPipeline) != null)
+        this._fillRhi.split.perStyleTwin?.(fillPipeline) != null)
     const splitWalkSkip =
       splitFillsCapable &&
       this._splitBind != null &&

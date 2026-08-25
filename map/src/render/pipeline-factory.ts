@@ -56,7 +56,7 @@ import {
   buildPatternFillMaterials,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import type { Material } from '@xgis/engine'
+import type { Material, RhiPipelineHandle } from '@xgis/engine'
 
 // ═══ Polygon shader emit ═══
 //
@@ -133,12 +133,12 @@ export class PipelineFactory {
    *  boot waste registerFillMaterials removed. Same lifetime discipline as
    *  _fillPerStyle (factory-lifetime; no destroy path). */
   private _fillPerStyleSplit = new Map<
-    GPURenderPipeline,
+    RhiPipelineHandle,
     { mat: Material; variant: number } | null
   >()
   /** Variant + pipeline-set back-reference for the lazy build above. */
   private _fillPerStyleInfo = new Map<
-    GPURenderPipeline,
+    RhiPipelineHandle,
     { variant: ShaderVariantInfo; pipelines: CachedPipeline }
   >()
   fillRhiState(): FillRhiState | null {
@@ -201,7 +201,7 @@ export class PipelineFactory {
    *  full emit + O2 + Material build runs ONCE per eligible style, on its
    *  first split-qualified use (a few ms on the render thread, the same
    *  lazy-build discipline as LineDraper.splitMat). */
-  perStyleSplitTwin(pipeline: GPURenderPipeline): { mat: Material; variant: number } | null {
+  perStyleSplitTwin(pipeline: RhiPipelineHandle): { mat: Material; variant: number } | null {
     if (!this._fillSplitLayout) return null
     const hit = this._fillPerStyleSplit.get(pipeline)
     if (hit !== undefined) return hit

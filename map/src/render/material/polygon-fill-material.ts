@@ -97,7 +97,7 @@ export interface FillRhiState {
      *  Returns the split twin for a per-style fill pipeline, building it on
      *  first use, or null when the style is ineligible (extra group-0
      *  bindings / out-of-partition reads — those keep the legacy bind). */
-    perStyleTwin?: (pipeline: GPURenderPipeline) => { mat: Material; variant: number } | null
+    perStyleTwin?: (pipeline: RhiPipelineHandle) => { mat: Material; variant: number } | null
   } | null
 }
 
@@ -721,7 +721,7 @@ export function recordFillDraw(
         if (mat === eff.flat) sMat = eff.split.flat
         else if (mat === eff.ground) sMat = eff.split.ground
         else if (!extrudeSolid) {
-          const t = eff.split.perStyleTwin?.(pipeline as GPURenderPipeline)
+          const t = eff.split.perStyleTwin?.(pipeline)
           if (t) {
             sMat = t.mat
             sVariant = t.variant
