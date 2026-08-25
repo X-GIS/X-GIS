@@ -284,11 +284,12 @@ const CEILINGS: Record<string, number> = {
   // 5379→5397 (#2042 INC-4d): splitFillsCapable (default pipes OR an
   // eligible per-style split twin) + the stroke clause widened to
   // split-eligible line variants (splitStrokeEligible).
-  // 5397→5452 (#2042 INC-5b): the qualification extracted into the single
+  // 5397→5454 (#2042 INC-5b): the qualification extracted into the single
   // ring-free authority _walkRingFree (shared by renderTileKeys' walk-skip
   // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
-  // for ring-free walks (PR #2090's measured re-record coupling).
-  'map/src/render/vector-tile-renderer.ts': 5452,
+  // for ring-free walks (PR #2090's measured re-record coupling) + the
+  // opaque-layout-param note (#991).
+  'map/src/render/vector-tile-renderer.ts': 5454,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
