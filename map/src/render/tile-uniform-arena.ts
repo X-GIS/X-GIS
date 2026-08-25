@@ -137,6 +137,16 @@ export class TileUniformArena {
     return arena.byteOffset(slot)
   }
 
+  /** Read-only residency lookup for the INC-4b draw path: the slot's byte
+   *  offset, or -1 when this (slice, tile, copy) never established one
+   *  (the caller keeps the legacy ring bind). Never allocates. */
+  offsetOf(sourceLayer: string, tileKey: number, worldOffDeg: number): number {
+    const lane = worldOffDeg / 360 + COPY_BIAS
+    if (lane < 0 || lane >= COPY_LANES || !Number.isInteger(lane)) return -1
+    const slot = this.slots.get(sourceLayer)?.get(tileKey)?.[lane]
+    return slot === undefined ? -1 : this.arena!.byteOffset(slot)
+  }
+
   /** Free every copy-lane slot of one tile. `hookKey` is the store's
    *  release-hook string, `${tileKey}:${sourceLayer}` — fired by every
    *  eviction / drop / supersede path. Unknown keys are a no-op (tiles
