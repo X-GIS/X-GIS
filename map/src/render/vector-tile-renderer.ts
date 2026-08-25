@@ -32,6 +32,7 @@ import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
+import { TileUniformArena } from './tile-uniform-arena'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import {
   recordFillDraw,
@@ -245,6 +246,8 @@ export class VectorTileRenderer {
     this._featureBinder.releaseTile(handleKey)
     // #1592 — same eviction key frees the RHI path's per-tile feat_data.
     this._fillVariantsRhi?.releaseTile(handleKey)
+    // #2042 INC-2 — same key frees the tile's persistent TileBlock slots.
+    this._tileUniforms.releaseTile(handleKey)
   }
   private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
@@ -317,6 +320,11 @@ export class VectorTileRenderer {
    *  ring stages, exactly like the raw views this replaces. u32 lanes
    *  (pick_id / light_color_packed) route through the block's raw-word view. */
   private frameBlock = uniformBlock(POLYGON_U)
+  /** #2042 INC-2 — persistent per-(tile × worldCopy) TileBlock slots
+   *  (tile-uniform-arena.ts): packed once at first unclipped draw, freed via
+   *  _releaseTileHook. Nothing binds them until INC-4. Lazy device provider —
+   *  `this.rhi` is assigned in the ctor body, after field initializers. */
+  private readonly _tileUniforms = new TileUniformArena(() => this.rhi)
   /** #599 I2 — dedicated pack block for bakeTileToTexture so the mid-render bake
    *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
    *  the same show's stroke draw reads after the drape). */
@@ -2015,6 +2023,9 @@ export class VectorTileRenderer {
    *  sees the updated ring contents. */
   private flushUniformStaging(): void {
     this.uniformRing?.flush()
+    // #2042 INC-2 — persistent TileBlock slots ride the same flush cadence
+    // (no-op when no tile was newly packed since the last call).
+    this._tileUniforms.flush()
   }
 
   /** Provide the shared SDF line renderer (set by map.ts after GPU init). */
@@ -2035,6 +2046,9 @@ export class VectorTileRenderer {
       // resets all three arenas (keep GPU buffers alive for next upload),
       // and clears the cache + count — the Cluster-A half of the reset.
       this._store.resetForReupload()
+      // #2042 INC-2 — the wholesale cache wipe bypasses _releaseTileHook,
+      // so the TileBlock slots are dropped wholesale too (buffer survives).
+      this._tileUniforms.resetAll()
     }
   }
 
@@ -2248,6 +2262,7 @@ export class VectorTileRenderer {
     this._fillVariantsRhi = null
 
     this.uniformRing?.destroy()
+    this._tileUniforms.destroy()
     this.uniformRing = null
     // #599 I3 — free the globe vector-drape baked-fill textures.
     this._drape?.destroy()
@@ -3811,6 +3826,7 @@ export class VectorTileRenderer {
             translucentBucket,
             undefined,
             show.shaderVariant,
+            sliceLayer,
           )
         })
         if (wasMiss) {
@@ -3843,6 +3859,7 @@ export class VectorTileRenderer {
             translucentBucket,
             undefined,
             show.shaderVariant,
+            sliceLayer,
           )
           this._skipFillDrawForBundle = false
           this._skipStrokeDrawForBundle = false
@@ -3886,6 +3903,7 @@ export class VectorTileRenderer {
           translucentBucket,
           undefined,
           show.shaderVariant,
+          sliceLayer,
         )
       }
     }
@@ -4083,6 +4101,7 @@ export class VectorTileRenderer {
               translucentBucket,
               fallbackVisibleKeys,
               show.shaderVariant,
+              sliceLayer,
             )
           })
           if (fbWasMiss) {
@@ -4111,6 +4130,7 @@ export class VectorTileRenderer {
               translucentBucket,
               fallbackVisibleKeys,
               show.shaderVariant,
+              sliceLayer,
             )
             this._skipFillDrawForBundle = false
             this._skipStrokeDrawForBundle = false
@@ -4147,6 +4167,7 @@ export class VectorTileRenderer {
             translucentBucket,
             fallbackVisibleKeys,
             show.shaderVariant,
+            sliceLayer,
           )
         }
       } finally {
@@ -4511,6 +4532,12 @@ export class VectorTileRenderer {
      *  callers — including reflection-based unit tests that call this
      *  private method directly — don't silently shift every arg after it. */
     lineVariant: ShaderVariantInfo | null | undefined = null,
+    /** #2042 INC-2 — the slice identity for the persistent TileBlock slots
+     *  (tile-uniform-arena.ts): pairs with each tile's numeric key to form
+     *  the SAME `${tileKey}:${sourceLayer}` identity the store's release
+     *  hook fires with. TRAILING (same rationale as lineVariant above);
+     *  '' = arena inert (reflection-based unit callers). */
+    sliceLayer: string = '',
   ): void {
     // #599 I2 — on the globe sphere route flat fills are DRAPED (baked→sphere
     // grid) by renderGlobeDrapedFills, not drawn here as ECEF chords. `_drape
@@ -4682,6 +4709,23 @@ export class VectorTileRenderer {
         this.currentFillVerticalGradient,
       )
       this._writeRtcAnchors(anchor)
+      // #2042 INC-2 — establish the persistent TileBlock slot for this
+      // (slice, tile, worldCopy) on its first UNCLIPPED draw (packed once;
+      // freed via _releaseTileHook). Clip-fallback draws (visibleKey ≥ 0)
+      // keep the ring path: their clip_bounds is per visible descendant
+      // (see tile-uniform-arena.ts's header). Nothing binds the slot until
+      // INC-4 — this is the lifecycle + bytes-parity half landing first.
+      if (visibleKey < 0 && sliceLayer !== '') {
+        this._tileUniforms.ensureSlot(
+          sliceLayer,
+          key,
+          worldOff,
+          anchor,
+          TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom),
+          cached.dequantScale,
+          cached.dequantHalf,
+        )
+      }
 
       // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
       // dots the per-vertex ECEF face_normal against this; the raw MapLibre
