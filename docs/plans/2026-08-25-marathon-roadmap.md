@@ -51,7 +51,18 @@ Landed so far (do not re-derive):
 
 ---
 
-## Phase 0 — the idle contract (BLOCKING: every PR that merges main is red)
+## Phase 0 — the idle contract — **LANDED** (PR #2120, squashed as `6864afd`)
+
+> Outcome: the glyph predicate shipped, and the investigation turned up THREE render gates
+> that were not measuring what they assert. `_bundle-replay-parity-gate` and
+> `_rtc-recombine-parity-gate` now produce IDENTICAL hashes step for step across four flag
+> states — one canonical frame per camera pose. Attribution on the RTC gate, one cut at a
+> time: 7448 px → 3497 (demo chrome removed) → 0 (adaptive ladder pinned). With the gates
+> green the vacuity witnesses finally executed, so #2042 INC-1 and INC-6 are now positively
+> verified rather than merely un-accused. Filed and NOT fixed here: #2121, #2122.
+
+The original analysis is kept below because its reasoning — including where it was wrong —
+is the record.
 
 Every PR that merges `main` inherits a red `render-gate` on
 `_bundle-replay-parity-gate`. Traced, reproduced locally:
@@ -66,12 +77,21 @@ marks a range `{status:'loading'}` and resolves it asynchronously; nothing betwe
 the idle event observes it. So `idle` has never meant "converged" — it meant "converged
 except for text".
 
-Why it only surfaced now: before #2103, a source whose `maxLevel` sat below `floor(z)` (the
-synthetic earth surface is `maxLevel 0`, and ships with every globe/background fill) pinned
-`_czPendingAdvance` for the full `READINESS_TIMEOUT_MS` (5 s), cleared it for exactly one
-frame, and re-armed. That oscillation gave every `idle` a 0-5 s delay, which was long enough
-for glyph ranges to land. #2103 made the target reachable — correctly — and the delay went
-away with it. #2103 exposed this bug; it did not create it.
+Why it only surfaced now — and note the TWO REGIMES, which an earlier draft of this document
+conflated. What #2103 removed was a **sleep**, and the sleep is regime-dependent:
+
+| `floor(z) − source.maxLevel` | behaviour before #2103                                                                               | which bug                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `= 1`                        | `step === target`, so the timeout clears the flag → a **hard ≈5 s floor on every settle**, then idle | the parity gate's accidental sleep |
+| `≥ 2`                        | `step < target`, so `cz === target` never holds and the flag is never nulled → **never idle**        | #2091's permanent busy loop        |
+
+The gate's scene is the first regime (zoom 1.5, `__synthetic_earth_surface__` is `maxLevel 0`
+and ships with every globe/background fill). The floor is **hard**, not a 0-5 s draw: the flag
+is nulled at each settle (`tile-selection-cache.ts:553`), so the next settle re-arms with a
+fresh `since` (`:462-464`) and must wait the full `READINESS_TIMEOUT_MS`. That deterministic
+5 s is why the gate was RELIABLY green while carrying two latent defects. #2103 made the
+target reachable — correctly — and the sleep went with it. #2103 exposed this bug; it did not
+create it, and reverting it restores the sleep, not the guarantee.
 
 **Fix:** a bounded glyph-in-flight predicate.
 `GlyphProvider.hasPendingLoads?()` (optional, chain-of-responsibility like the existing
