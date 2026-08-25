@@ -93,6 +93,11 @@ export interface FillRhiState {
     flat: Material
     ground: Material
     layout: GPUBindGroupLayout
+    /** #2042 INC-4d — lazy per-style split twin resolver (pipeline-factory).
+     *  Returns the split twin for a per-style fill pipeline, building it on
+     *  first use, or null when the style is ineligible (extra group-0
+     *  bindings / out-of-partition reads — those keep the legacy bind). */
+    perStyleTwin?: (pipeline: GPURenderPipeline) => { mat: Material; variant: number } | null
   } | null
 }
 
@@ -701,26 +706,41 @@ export function recordFillDraw(
         count: cached.indexCount,
         indexed: true,
       }
-      // #2042 INC-4b — the split-bind rebind: a qualifying default flat/ground
-      // fill executes the SPLIT twin (FrameBlock 11 / ShowBlock 10 / TileBlock 7)
-      // instead of the legacy single-block twin — same variant/stencil family,
-      // same geometry, different uniform addressing. Gated to the default pair:
-      // per-style, pattern, and extrude twins keep the legacy path (the INC-4b
-      // first-slice scope). The two diag counters keep the total honest AND
-      // give the §5 gate its executed-mechanism witness.
-      if (splitBind && eff.split && !bindZBuffer && (mat === eff.flat || mat === eff.ground)) {
-        const sMat = mat === eff.flat ? eff.split.flat : eff.split.ground
-        const draws = executeItems(sMat, rhiPass, [
-          {
-            ...item,
-            bindGroups: [wrapWebGpuBindGroup(splitBind.bg)],
-            dynamicOffsets: [[splitBind.tileOff, splitBind.showOff]],
-          },
-        ])
-        const gs = globalThis as { __xgisVtrSplitDraws?: number }
-        gs.__xgisVtrSplitDraws = (gs.__xgisVtrSplitDraws ?? 0) + draws
-        g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + draws
-        return
+      // #2042 INC-4b — the split-bind rebind: a qualifying fill executes the
+      // SPLIT twin (FrameBlock 11 / ShowBlock 10 / TileBlock 7) instead of the
+      // legacy single-block twin — same variant/stencil family, same geometry,
+      // different uniform addressing. INC-4b covered the default flat/ground
+      // pair; INC-4d extends it to per-style twins via the factory's lazy
+      // resolver (null = ineligible: extra group-0 bindings or out-of-
+      // partition reads keep the legacy path, like pattern and extrude). The
+      // diag counters keep the total honest AND give the §5 gate its
+      // executed-mechanism witness.
+      if (splitBind && eff.split && !bindZBuffer) {
+        let sMat: Material | null = null
+        let sVariant = variant
+        if (mat === eff.flat) sMat = eff.split.flat
+        else if (mat === eff.ground) sMat = eff.split.ground
+        else if (!extrudeSolid) {
+          const t = eff.split.perStyleTwin?.(pipeline as GPURenderPipeline)
+          if (t) {
+            sMat = t.mat
+            sVariant = t.variant
+          }
+        }
+        if (sMat) {
+          const draws = executeItems(sMat, rhiPass, [
+            {
+              ...item,
+              variant: sVariant,
+              bindGroups: [wrapWebGpuBindGroup(splitBind.bg)],
+              dynamicOffsets: [[splitBind.tileOff, splitBind.showOff]],
+            },
+          ])
+          const gs = globalThis as { __xgisVtrSplitDraws?: number }
+          gs.__xgisVtrSplitDraws = (gs.__xgisVtrSplitDraws ?? 0) + draws
+          g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + draws
+          return
+        }
       }
       let draws: number
       if (extrudeShell) {
