@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 65b1319c27a144209bc898d05189d9f4cde5bd52
+  Generated from: 91c7b739db0b96ce37643340369d457f0ade727a
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 65b1319c27a1
+    bun scripts/emit-changelog.ts --since 91c7b739db0b
 -->
 
 # Changelog
@@ -118,6 +118,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** #2091 — the readiness gate pinned an unreachable LOD target, so the map never idled ([#2103](https://github.com/X-GIS/X-GIS/pull/2103)) `91c7b73`
 - **map:** #2042 INC-4b prep — tile-arena grow hook + retired-buffer drain ([#2067](https://github.com/X-GIS/X-GIS/pull/2067)) `c7fb2e3`
 - **render:** non-mercator projection bugs — drape anchor, antimeridian lon wrap, globe overzoom sharpness, oblique seam streaks (#2022 #2023 #2024 #1496) ([#2031](https://github.com/X-GIS/X-GIS/pull/2031)) `2bab527`
 - **map:** emit each source point once per frame ([#2036](https://github.com/X-GIS/X-GIS/pull/2036)) `6be0aee`
