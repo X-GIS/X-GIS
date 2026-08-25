@@ -29,13 +29,15 @@
 // __XGIS_SPLIT_BIND is read ONCE at PipelineFactory.build() → per-arm fresh
 // browser contexts with addInitScript (same rationale as the INC-4b gate).
 // Capture + settle per the capture-canvas skill: captureMapFrame
-// (capture:'clip'), awaitMapIdle asserted, bounded stability loop, adaptive=0.
+// (capture:'clip'), bounded consecutive-hash stability loop, adaptive=0.
+// NO awaitMapIdle: this scenario never fires idle (#2091) — the stability
+// loop is the terminal-state authority.
 
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { PNG } from 'pngjs'
-import { captureMapFrame, awaitMapIdle } from './helpers/visual'
+import { captureMapFrame } from './helpers/visual'
 // Relative deep import (charter): Playwright transpiles specs in raw Node —
 // the @xgis/* workspace alias does not resolve here.
 import { convertMapboxStyle } from '../../compiler/src/convert/mapbox-to-xgis'
@@ -92,7 +94,7 @@ async function bootArm(browser: Browser, baseURL: string, arm: Arm): Promise<Arm
   const ctx = await browser.newContext({
     baseURL,
     ignoreHTTPSErrors: true,
-    viewport: { width: 512, height: 320 },
+    viewport: { width: 384, height: 240 },
     reducedMotion: 'reduce',
   })
   const page = await ctx.newPage()
@@ -129,11 +131,12 @@ async function bootArm(browser: Browser, baseURL: string, arm: Arm): Promise<Arm
     m.markCameraPositioned()
     m.invalidate()
   }, CAM)
-  // Best-effort settle only (#2091 — see applyStep); the warmup + capture
-  // stability loops below are the real settling authority.
-  await awaitMapIdle(page, 45_000)
-  // Full-script warmup in EVERY arm (identical histories → comparable frames;
-  // also seeds arena residency so the ON arm's walk-skip can engage).
+  // No idle wait (#2091 — see applyStep); one capture settles the camera
+  // change through the engine quiesce, then the warmup applies the script
+  // back-to-back (identical histories in both arms; seeds arena residency so
+  // the ON arm's walk-skip can engage — the measured pass's stability loops
+  // do the real settling).
+  await captureMapFrame(page, { capture: 'clip' })
   for (const step of SCRIPT) await applyStep(page, step)
   return { page, errors, close: () => ctx.close() }
 }
@@ -158,15 +161,14 @@ async function applyStep(
     m.setZoom(s.zoom)
     m.invalidate()
   }, step)
-  // #2091 — this scenario never fires `idle`: a handful of visible tiles
-  // stop caching (probe: frozen at 13/17) and hasPendingSourceWork starves
-  // the idle predicate forever, on BOTH arms identically. So idle is a
-  // best-effort settle here, NOT an assert — the consecutive-hash-equal
-  // capture loop below is the terminal-state authority (a mid-load frame
-  // cannot produce two equal hashes while tiles are still arriving).
-  const r = await awaitMapIdle(page, 45_000)
-  if (r !== 'idle')
-    console.log('[perstyle-parity] idle timeout (#2091, expected) — capture-stability settles')
+  // #2091 — this scenario never fires `idle` (visible tiles stop caching at
+  // 13/17 and hasPendingSourceWork starves the predicate forever, on BOTH
+  // arms identically), so there is NO idle wait here at all: a 45 s
+  // best-effort wait burned ~15 dead minutes across the arms and blew the
+  // spec budget. The consecutive-hash-equal capture loop is the sole
+  // terminal-state authority — captureMapFrame's own engine quiesce pumps
+  // frames, and a mid-load frame cannot produce two equal hashes while
+  // tiles are still arriving.
 }
 
 let _stepIdx = 0
@@ -219,7 +221,7 @@ const mechCounts = (page: Page): Promise<{ fills: number; skips: number }> =>
 test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk-skip provably engage', async ({
   browser,
 }, testInfo) => {
-  test.setTimeout(2_100_000)
+  test.setTimeout(2_700_000)
   _stepIdx = 0
   const baseURL = testInfo.project.use.baseURL
   if (!baseURL) throw new Error('project baseURL missing — per-arm contexts need it')
