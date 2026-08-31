@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 063001e9f91155c12875a6227e5ac131299647d5
+  Generated from: 96e668e729e0d766796306d2bbd2aa2d51f647a0
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 063001e9f911
+    bun scripts/emit-changelog.ts --since 96e668e729e0
 -->
 
 # Changelog
@@ -128,6 +128,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/convert:** resolved-locale reads only the collator locale ([#2171](https://github.com/X-GIS/X-GIS/pull/2171)) `96e668e`
 - **map/render:** apply the RTC witness skew at the single anchor producer, and make the parity gate name its bind path ([#2167](https://github.com/X-GIS/X-GIS/pull/2167)) `b759e32`
 - **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
