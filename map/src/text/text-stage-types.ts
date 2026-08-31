@@ -132,11 +132,33 @@ export interface PendingLabel {
    *  within a layer (near-on-top) without crossing layer boundaries. Undefined
    *  → its own bucket (imperative overlays). */
   layerName?: string
-  /** #1081 — MapLibre perspective distance-attenuation factor for this anchor
-   *  (clamp(0.5 + 0.5·wCenter/wAnchor, 0.5, 1.0) — shrink-only; the near-field
-   *  growth a higher cap allows evicts neighbouring labels). prepare() multiplies
-   *  the label size by it so a far anchor's quad — collision box AND draw — shrinks.
-   *  Undefined → 1 (no attenuation: overlays, flat un-pitched, line labels). */
+  /** MapLibre's `perspective_ratio` for this anchor — ONE size multiplier read on
+   *  ONE of two branches, exactly as `symbol_sdf.vertex.glsl:93-101` spends its
+   *  single uniform. prepare() multiplies the label size by it, so a re-sized
+   *  anchor's collision box AND draw quad move together. Undefined → 1 (no
+   *  correction: overlays, unpitched frames, line labels).
+   *
+   *  WHICH BRANCH IS THE PRODUCER'S CALL, not prepare()'s, because the producer is
+   *  what knows the label's alignment — it is the same code that decides whether
+   *  `groundBasis` below is supplied:
+   *
+   *    billboard (`text-pitch-alignment: viewport`, the default) — #1081's
+   *      VIEWPORT branch, `clamp(0.5 + 0.5·wCenter/wAnchor, 0.5, 1.0)`, computed
+   *      per anchor by `makeLabelProjectors`. Shrink-only, deliberately: the
+   *      near-field growth a higher cap allows evicted neighbouring labels.
+   *    ground-aligned (`map`) — the MAP branch, `groundPerspectiveScale`
+   *      (#2012 INC-5), `clamp(0.5 + 0.5·wAnchor/wCenter, 0, 4)`. It GROWS with
+   *      distance, because the quad is laid out in the ground plane and the
+   *      perspective divide that follows shrinks it back.
+   *
+   *  The two are NOT alternatives to each other and NOT applied together: they are
+   *  one quantity, and the alignment picks which reading of it applies. This field
+   *  used to be suppressed to 1 whenever `groundBasis` was present, on the reading
+   *  that the basis already carried the distance attenuation. It does not: the
+   *  basis is a normalized RATIO (identity at pitch 0 by construction), so it
+   *  carries the tilt and the foreshortening but no absolute distance term at all.
+   *  Forcing 1 left every ground-projected label smaller than the reference by the
+   *  whole perspective factor — design §2(2) / §3.3, rejected in §8 R6. */
   perspectiveScale?: number
   /** #777 IV3 (`text-pitch-alignment: map`) — the screen-space images of this
    *  anchor's ground-plane axes, from `groundBasisAt`. The label then lies IN the
@@ -145,17 +167,34 @@ export interface PendingLabel {
    *  together. Undefined = viewport-aligned (the default, and every projection
    *  whose unprojector has no inverse — azimuthal, globe).
    *
-   *  MUTUALLY EXCLUSIVE with `perspectiveScale` above, and prepare() enforces it:
-   *  both express the same distance attenuation — perspectiveScale isotropically
-   *  (right for a billboard), the basis anisotropically (right for a quad lying on
-   *  the ground, and it also carries the tilt). Applying both shrinks a far label
-   *  twice. */
+   *  Present ⇒ `perspectiveScale` above carries the MAP branch; see it. The two
+   *  arrive from one producer call at one ground point, so a label cannot end up
+   *  lying at one distance and sized for another. */
   groundBasis?: ArrayLike<number>
   /** #777 I-G — inline images carved out of the resolved text-field (the
    *  Mapbox `["image", …]` marker), keyed by codepoint index into `text`
    *  (which is the marker-STRIPPED string). Undefined / empty = plain label
    *  (the overwhelming common case). Resolved to sprite quads in prepare(). */
   inlineImages?: InlineImageRun[]
+}
+
+/** The ground-alignment payload `addCurvedLineLabel` takes (#2012 INC-4/INC-5),
+ *  named because the SAME shape is written on both sides of the stage boundary —
+ *  the dispatch's reused holder and the stage's parameter. It gained `sizeScale`
+ *  in INC-5, which had to be added to every hand-written copy of it; one authority
+ *  is what stops the next field reaching only some of them.
+ *
+ *  The caller may reuse ONE holder across labels — the fields are copied out on
+ *  arrival, the same contract the projectors' scratch tuples carry. */
+export interface CurvedGroundArgs {
+  /** The LIVE screen twin of the walk polyline (which is then the label plane). */
+  liveX: Float32Array
+  liveY: Float32Array
+  /** Undefined when the basis degenerated: the run keeps the plane cadence and
+   *  billboards. */
+  basis: ArrayLike<number> | undefined
+  /** MapLibre's `perspective_ratio`, map branch. 1 = no correction. */
+  sizeScale: number
 }
 
 export interface PendingLineLabel {
@@ -189,6 +228,17 @@ export interface PendingLineLabel {
    *  `livePolylineX` is present: a run whose basis degenerated still gains the
    *  label-plane cadence, it just does not lie down. */
   groundBasis?: ArrayLike<number>
+  /** #2012 INC-5 — MapLibre's `perspective_ratio` on its MAP branch for this
+   *  label, from `groundPerspectiveScale` at the same ground point `groundBasis`
+   *  was derived at. prepare() multiplies `sizePx` by it, so a far road name holds
+   *  at ~0.5× the authored size instead of foreshortening away.
+   *
+   *  Set only alongside `groundBasis`, and for the same reason it is: a run that
+   *  gains the label-plane cadence but whose basis degenerated still billboards,
+   *  and a billboard on this branch is not perspective-corrected at all (the
+   *  curved walk is a whole-run walk, so it has never carried #1081's per-anchor
+   *  viewport factor). Undefined → 1, and the walk is byte-identical to before. */
+  groundSizeScale?: number
   /** Distance along the polyline (px) where the label centre sits. Measured in
    *  the WALK space — the label plane when `livePolylineX` is present. */
   centerOffsetPx: number

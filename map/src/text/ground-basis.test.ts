@@ -21,6 +21,7 @@ import {
   isIdentityBasis,
   IDENTITY_BASIS,
   BASIS_PROBE_DEG,
+  groundPerspectiveScale,
   type ScreenPoint,
 } from './ground-basis'
 import { makeGroundProjector, Pitch0Unprojector } from '../camera/pitch0-unproject'
@@ -447,5 +448,91 @@ describe('D1 INC-1 — projectors that return a REUSED scratch tuple', () => {
       false,
     )
     expect(b![3]).toBeCloseTo(0.4, 6)
+  })
+})
+
+// ═══ D1 INC-5 — the pitched SIZE correction that goes with lying down ═══
+//
+// The basis says WHERE the quad lies; this says HOW BIG it is there. MapLibre
+// applies a perspective size multiplier in BOTH alignment cases and they are
+// reciprocal-argument twins of one formula
+// (`src/shaders/glsl/symbol_sdf.vertex.glsl:93-101`, read at 5.24.0):
+//
+//   distance_ratio    = u_pitch_with_map ? camera_to_anchor / camera_to_center
+//                                        : camera_to_center / camera_to_anchor
+//   perspective_ratio = clamp(0.5 + 0.5 * distance_ratio, 0.0, 4.0)
+//   size             *= perspective_ratio
+//
+// X-GIS shipped the VIEWPORT branch (#1081, inline in render-loop-helpers.ts, and
+// clamped shrink-only there for a measured reason of its own) and forced the map
+// branch to 1 — which is NEITHER branch, and leaves a ground-projected label
+// smaller than the reference by the whole perspective factor in the far field
+// (design §2(2) / §3.3, and §8 R6 records the rejection of leaving it at 1).
+//
+// The bounds are the reference's, not ours: 0 and 4, on the map branch's own
+// argument. They are asserted here because they are the half of the formula a
+// re-derivation gets wrong — the natural instinct is to reuse #1081's [0.5, 1.0]
+// shrink-only clamp, which would cap the correction at 1 and silently restore
+// most of the bug.
+describe('D1 INC-5 — groundPerspectiveScale is MapLibre`s map branch, bounds included', () => {
+  it('is the identity at the camera centre (distance ratio 1)', () => {
+    // The anchor at the camera-centre distance is neither nearer nor farther, so
+    // it must not be resized at all — the rung that keeps an unpitched frame (where
+    // every anchor shares the centre's clip-w) bit-identical to the pre-INC-5 path.
+    expect(groundPerspectiveScale(1)).toBe(1)
+  })
+
+  it('is 0.5 + 0.5*ratio inside the clamp — the reference formula, not an approximation', () => {
+    for (const r of [0.25, 0.5, 0.8, 1.5, 2, 3, 5, 6.5]) {
+      expect(groundPerspectiveScale(r), `distance ratio ${r}`).toBeCloseTo(0.5 + 0.5 * r, 12)
+    }
+  })
+
+  it('GROWS with distance — the opposite direction from the viewport branch', () => {
+    // This is the whole point: in the label plane the glyph must get BIGGER with
+    // distance so the perspective divide that follows does not shrink it to
+    // nothing. A correction that shrinks here is #1081's branch misapplied.
+    const near = groundPerspectiveScale(0.5)
+    const far = groundPerspectiveScale(4)
+    expect(far).toBeGreaterThan(near)
+    expect(near).toBeLessThan(1)
+    expect(far).toBeGreaterThan(1)
+  })
+
+  it('clamps at MapLibre`s UPPER bound 4, and reaches it exactly at ratio 7', () => {
+    expect(groundPerspectiveScale(7)).toBe(4)
+    expect(groundPerspectiveScale(7.0001)).toBe(4)
+    expect(groundPerspectiveScale(1e9)).toBe(4)
+    // Just inside: still on the linear part, so the bound is a CLAMP and not a cap
+    // the formula happens to approach.
+    expect(groundPerspectiveScale(6.9)).toBeCloseTo(3.95, 12)
+  })
+
+  it('clamps at MapLibre`s LOWER bound 0 for a degenerate (negative) distance', () => {
+    // Unreachable through a live projector — `projectFlatRtc` rejects cw <= 0 — but
+    // the reference clamps it and so does this, so a caller that ever hands over a
+    // point behind the camera gets 0 rather than a negative size.
+    expect(groundPerspectiveScale(-1)).toBe(0)
+    expect(groundPerspectiveScale(-50)).toBe(0)
+  })
+
+  it('is total: a non-finite ratio yields the no-correction identity, never NaN', () => {
+    // A NaN would propagate into sizePx and take the whole label's layout with it.
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(groundPerspectiveScale(bad), `ratio ${bad}`).toBe(1)
+    }
+  })
+
+  it('is the reciprocal-argument twin of the viewport branch, at the same anchor', () => {
+    // The two branches are one formula read with the ratio inverted, and this is
+    // the relationship that stops them drifting into two unrelated curves. The
+    // viewport side is spelled out here from the reference rather than imported:
+    // #1081 applies it inline in the projector, where a unit test cannot reach it.
+    for (const cwOverCenter of [0.3, 1, 2.5, 6]) {
+      const viewport = 0.5 + 0.5 * (1 / cwOverCenter) // camera_to_center/camera_to_anchor
+      const ground = groundPerspectiveScale(cwOverCenter)
+      // Both are `0.5 + 0.5·x`; the arguments are reciprocals of each other.
+      expect(2 * ground - 1).toBeCloseTo(1 / (2 * viewport - 1), 12)
+    }
   })
 })

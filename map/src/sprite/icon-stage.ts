@@ -28,6 +28,9 @@ export interface SpriteMetadataSource {
   get(name: string): SpriteInfo | undefined
   getState(): { status: 'idle' | 'loading' | 'loaded' | 'failed' }
   whenReady(): Promise<void>
+  /** True while an atlas fetch is outstanding and inside its keep-warm deadline (#2122).
+   *  Optional (only the URL host fetches) and BOUNDED by contract — see #2091. */
+  hasPendingLoad?(): boolean
   /** Fill-/line-pattern Stage-1 centre-pixel readback — only the URL
    *  SpriteAtlasHost implements it; the host DRAWING API atlas (#797) does
    *  not (host fill-pattern coexistence is Phase 1), so callers use `?.`. */
@@ -714,6 +717,12 @@ export class IconStage {
   isAtlasTerminal(): boolean {
     const s = this.host.getState().status
     return s === 'loaded' || s === 'failed'
+  }
+
+  /** Render-loop keep-alive probe (#2122) — deadlined, unlike `isAtlasTerminal()` above,
+   *  which is the prepare-skip question and never goes true against a host that hangs. */
+  hasPendingAtlasLoad(): boolean {
+    return this.host.hasPendingLoad?.() ?? false
   }
 
   /** Async-ready hook — resolves once the atlas reaches a terminal

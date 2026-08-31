@@ -9,6 +9,7 @@ export type Statement =
   | SourceStatement
   | LayerStatement
   | BackgroundStatement
+  | TerrainStatement
   | PresetStatement
   | ImportStatement
   | SymbolStatement
@@ -168,6 +169,18 @@ export type BackgroundStatement = {
   kind: 'BackgroundStatement'
   utilities: UtilityLine[]
   styleProperties: StyleProperty[]
+  line: number
+}
+
+// terrain { source: dem, exaggeration: 1.5 } — Mapbox v3 / MapLibre top-level terrain
+// block (#2095, T2 Phase 2). Same body grammar as source (BlockProperty[]), but no name
+// — mirrors background's nameless header, source's key:value body. Recognized as a soft
+// keyword (matched by Identifier VALUE at statement-start, not a reserved lexer token —
+// see parser-terrain.ts) so an existing source/layer legitimately named "terrain"
+// (playground/src/examples/hillshade-terrarium.xgis) keeps parsing unchanged.
+export type TerrainStatement = {
+  kind: 'TerrainStatement'
+  properties: BlockProperty[]
   line: number
 }
 

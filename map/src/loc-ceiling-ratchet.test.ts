@@ -834,7 +834,13 @@ const CEILINGS: Record<string, number> = {
   // the same question — a second place to decide "is the text finished?" is how #2091 /
   // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
   // MEASURED.
-  'map/src/map.ts': 5471,
+  // 5471→5482 (#2122): the sprite keep-alive, beside the glyph one #2120 added. Same
+  // authority for the same reason — `shouldRenderThisFrame` gates both rendering and
+  // `idle`, and a second place to decide "is this frame's async content finished?" is how
+  // that question has drifted three times already. Reads a deadlined probe rather than the
+  // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
+  // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  'map/src/map.ts': 5482,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1043,11 +1049,22 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  // 2167→2176 (#2116): `hasPendingGlyphLoads()` — the accessor the map's keep-alive polls.
-  // It cannot be avoided by reaching `pbfRasterizer` directly (private, and the chain's
-  // composition is this stage's business) and it is the same shape as the `getFadeLedger()`
-  // accessor two lines below it. 3 statement lines + its 6-line reason. MEASURED.
-  'map/src/text/text-stage.ts': 2176,
+  // 2176→2175 (#2012 INC-5, on top of #2116's 2167→2176). #2116 added
+  // `hasPendingGlyphLoads()` (+9); INC-5 nets −1 here by paying for the pitched size
+  // correction out of TWO extractions, because the file had ZERO headroom to pay it from.
+  // (1) `labelSizePx` — authored size × DPR × the 1/64-quantised perspective factor —
+  // moved to text-stage-helpers.ts, taking the #1081 rationale and the layout-cache
+  // contract with it. It is exactly the arithmetic INC-5 makes SHARED: the point loop has
+  // folded a perspective factor in since #1081 and the curved loop now does too, and two
+  // copies are two chances to quantise one and not the other (the cache is keyed on the
+  // result, so the un-quantised arm would thrash on every frame of a tilt).
+  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5 showed
+  // was hand-written on BOTH sides of the stage boundary plus once more as the dispatch's
+  // reused holder: adding one field meant editing three copies of one shape, so it becomes
+  // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
+  // size derivation and their reasoning. The ceiling drops to the measured post-merge size
+  // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2175,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1301,7 +1318,13 @@ const CEILINGS: Record<string, number> = {
   // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
   // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
   // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
-  'map/src/shaders/dsl/polygon.ts': 1577,
+  // 1577→1567 (#2042 INC-6 prep): the Mercator cam-rel recipe moved to the shared
+  // merc-cam-rel.ts so line.ts can consume the SAME authority instead of spelling out a second
+  // copy (it would have been the third, counting polygon-split.ts's `derived` map). Shrink-only
+  // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
+  // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
+  // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
+  'map/src/shaders/dsl/polygon.ts': 1567,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

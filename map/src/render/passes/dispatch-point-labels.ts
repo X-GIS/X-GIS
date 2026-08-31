@@ -19,18 +19,48 @@
 import type { LabelDef } from '@xgis/compiler'
 import { resolvePitchAlignment } from '@xgis/compiler'
 import { makeGroundProjector, type FlatGroundView } from '../../camera/pitch0-unproject'
-import { groundBasisAt, isIdentityBasis, type GroundBasis } from '../../text/ground-basis'
+import {
+  groundBasisAt,
+  groundPerspectiveScale,
+  IDENTITY_BASIS,
+  isIdentityBasis,
+  type GroundBasis,
+} from '../../text/ground-basis'
 
-/** Derives a label's ground basis from the label's own ground point, or
+/** Everything a label needs in order to lie in the ground plane, derived at its
+ *  own ground point in one go.
+ *
+ *  The two travel together because they are two halves of one answer and they are
+ *  read off the SAME projection: `basis` is where the quad lies, `sizeScale` how
+ *  big it is there (MapLibre's `perspective_ratio`, map branch — #2012 INC-5,
+ *  design §3.3). Splitting them across two producers would put the size on a
+ *  different ground point from the tilt at the one anchor where it matters most,
+ *  the far field.
+ *
+ *  REUSED HOLDER — read both fields out immediately, exactly as with the
+ *  projectors' scratch tuples (the aliasing that made #1471 + #1492 inert on main
+ *  is the same shape one level up). */
+export interface GroundAlignment {
+  basis: GroundBasis
+  /** Multiplies the label's `sizePx`. 1 = no correction. */
+  sizeScale: number
+}
+
+/** Derives a label's ground alignment from the label's own ground point, or
  *  `undefined` when it must stay a billboard. `undefined` is the signal the whole
- *  chain is built around: the field is then omitted, the renderer takes its skip
+ *  chain is built around: the fields are then omitted, the renderer takes its skip
  *  path, and the vertices are bit-identical to what shipped before IV3 (#1442
  *  proved that).
  *
  *  Takes lon/lat rather than the screen anchor: the basis is a property of the
  *  ground point, and a label's world copies (`projectLonLatCopies` fans an anchor
- *  out across ±360°) are the same ground point seen twice, so they share one. */
-export type GroundBasisFor = (def: LabelDef, lon: number, lat: number) => GroundBasis | undefined
+ *  out across ±360°) are the same ground point seen twice, so they share one.
+ *  `sizeScale` inherits that treatment — see where it is computed. */
+export type GroundBasisFor = (
+  def: LabelDef,
+  lon: number,
+  lat: number,
+) => GroundAlignment | undefined
 
 /** Build the per-frame ground-basis producer.
  *
@@ -57,6 +87,11 @@ export function makeGroundBasisFor(
   if (flat === undefined) return () => undefined
   const projectLive = makeGroundProjector(liveMvp, canvasW, canvasH, flat)
   const projectPitch0 = makeGroundProjector(pitch0Mvp, canvasW, canvasH, flat)
+  // #2012 INC-5 — clip-w of the camera-centre anchor. The live label matrix is
+  // camera-relative (RTC), so the centre sits at the origin and its divisor IS
+  // `mvp[15]`; the same identity #1081 uses in `makeLabelProjectors`.
+  const wCenter = liveMvp[15]!
+  const _align: GroundAlignment = { basis: IDENTITY_BASIS, sizeScale: 1 }
   return (def, lon, lat) => {
     // AN UNPITCHED CAMERA SHORT-CIRCUITS, and it does so on `pitch` rather than on
     // the computed basis. Under the ratio construction the two really are the same
@@ -86,7 +121,28 @@ export function makeGroundBasisFor(
     // it would be a no-op that still walks the renderer's transform path; omit
     // instead, so an unpitched frame stays provably bit-identical rather than
     // merely arithmetically equal.
-    return isIdentityBasis(basis) ? undefined : basis
+    if (isIdentityBasis(basis)) return undefined
+    // #2012 INC-5 — the pitched SIZE correction, at the same ground point and off
+    // the same cull-free projection. A seventh call rather than a reach into
+    // `groundBasisAt`'s probes: those land at (lon+δ) and (lat+δ), and reading the
+    // divisor from whichever ran last would silently make the anchor's distance a
+    // property of the probe ORDER. δ is 1e-8°, so the difference is beneath float
+    // noise — which is exactly why an order-dependent read would never be caught.
+    //
+    // READ THE SLOT OUT IMMEDIATELY: this is a reused scratch tuple.
+    const here = projectLive(lon, lat)
+    if (here === null) return undefined
+    const cw = here[2]
+    _align.basis = basis
+    // ONE value per ground point, shared by that point's world copies — the same
+    // treatment the basis gets two lines up, and deliberately so: a copy 360° away
+    // genuinely sits at a different camera distance, but changing that for the size
+    // while the basis it must agree with stays per-ground-point would split the two
+    // halves of one answer across two ground points. Copies are only visible at the
+    // low zooms where the pitched distance spread is smallest. Recorded rather than
+    // silently approximated; lifting it is a change to the BASIS first.
+    _align.sizeScale = groundPerspectiveScale(cw / wCenter)
+    return _align
   }
 }
 
@@ -157,7 +213,7 @@ export function dispatchPointLabel(
     const ps = projected[2]
     // Derived at the label's OWN ground point, so every world copy of this
     // feature gets the same basis — they are one ground point seen twice.
-    const basis = deps.groundBasisFor(featDef, anchorLon, anchorLat)
+    const align = deps.groundBasisFor(featDef, anchorLon, anchorLat)
     deps.addLabel(
       featDef.text,
       props,
@@ -168,8 +224,14 @@ export function dispatchPointLabel(
       deps.layerName,
       pairKey,
       undefined,
-      ps,
-      basis,
+      // #2012 INC-5 — ONE perspective size multiplier per label, in the branch its
+      // own alignment selects, which is how MapLibre's shader spends its single
+      // `perspective_ratio` (`u_pitch_with_map`). A ground-aligned label takes the
+      // map branch and GROWS with distance; a billboard keeps #1081's shrink-only
+      // viewport branch. The paired ICON always keeps the viewport one —
+      // `icon-pitch-alignment` is ADR-0012 D3 and is not wired here.
+      align !== undefined ? align.sizeScale : ps,
+      align?.basis,
     )
     deps.dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)
   }

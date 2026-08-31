@@ -33,8 +33,20 @@ function idleDecision(): string {
     start,
     'the shouldRenderThisFrame DEFINITION must exist — the gate has nowhere to live without it',
   ).toBeGreaterThan(-1)
-  // Bounded slice: far enough to cover the gate list, short enough not to swallow the file.
-  return MAP_SRC.slice(start, start + 4000)
+  // Bounded to the METHOD, not to a character budget. The budget was 4000 chars and it went
+  // vacuous the moment the keep-alive list grew: #2122 added a sprite probe with the same
+  // sibling-sized comment every other gate carries (+967 chars), and the flow gate — the very
+  // thing this file exists to watch — fell OUT of the slice at offset 4269. The margin before
+  // that was 608 chars, about seven comment lines, on a list that gains an entry per async
+  // resource class (#1333 flow, #2116 glyphs, #2122 sprites). Same `indexOf('\n  }')` idiom as
+  // raster-budget-1579.test.ts:76 and quality-flip-releases-drapers.test.ts:113 — a method's
+  // own close is 2-space-indented under prettier, so nested blocks cannot end the slice early.
+  const end = MAP_SRC.indexOf('\n  }', start)
+  expect(
+    end,
+    'the shouldRenderThisFrame method must CLOSE — without its end the slice would swallow the file',
+  ).toBeGreaterThan(start)
+  return MAP_SRC.slice(start, end)
 }
 
 describe('flow-field keep-alive (#1333)', () => {
