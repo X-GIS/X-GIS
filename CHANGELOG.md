@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: eebe3e312a8392ecb9c39a6056e5671df06940d3
+  Generated from: bc5644b1a56508af3fa6eda356393cd53e8a3271
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since eebe3e312a83
+    bun scripts/emit-changelog.ts --since bc5644b1a565
 -->
 
 # Changelog
@@ -23,7 +23,19 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** sprite atlas joins the pending-work registry (#2149 increment 3) ([#2177](https://github.com/X-GIS/X-GIS/pull/2177)) `f1bf7e4`
 - **map:** convergence-authority design + pending-work registry — glyph and coverage registered (#2149) ([#2153](https://github.com/X-GIS/X-GIS/pull/2153)) `eebe3e3`
+
+#### fix
+
+- **raster:** position the grid VS from CPU-exact trig instead of building ECEF from angles ([#2140](https://github.com/X-GIS/X-GIS/pull/2140)) `4372e89`
+- **data:** bound the one keep-warm signal a hanging fetch could pin ([#2183](https://github.com/X-GIS/X-GIS/pull/2183)) `2d6023a`
+- **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`
+- **compiler:** three spec-coverage rows that misdescribed the engine ([#2172](https://github.com/X-GIS/X-GIS/pull/2172)) `ddbe76d`
+
+#### test
+
+- **compiler:** check spec-coverage rows against the tree they describe ([#2178](https://github.com/X-GIS/X-GIS/pull/2178)) `bc5644b`
 
 ### 2026-08
 

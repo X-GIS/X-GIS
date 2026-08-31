@@ -56,6 +56,7 @@ import { RasterRenderer, rasterCoverZoom } from '@xgis/map'
 import { Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
+import { rasterTileBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -150,7 +151,8 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
     cache.set(key, { texture: fakeTexture, lastUsedFrame: 0, firstShownMs: 0 })
   }
 
-  // Identify the per-draw pooled tile-uniform buffers (size 48) vs the global
+  // Identify the per-draw pooled tile-uniform buffers (size DERIVED — #2137 grew
+  // TileUniforms to 336 B; a literal here would silently match nothing) vs the global
   // uniform buffer (size 128). Capture tf[0] from every 48-byte write that
   // immediately precedes a draw.
   const drawPositions: string[] = []
@@ -163,7 +165,7 @@ function capturedDrawWorldPositions(ctx: GPUContext): string[] {
     data: ArrayBufferView | ArrayBuffer,
   ): void => {
     const size = (buf as { size?: number })?.size
-    if (size !== 48) return // skip the 128-byte global uniform write
+    if (size !== rasterTileBytes()) return // skip the global uniform write
     const f32 =
       data instanceof ArrayBuffer
         ? new Float32Array(data)

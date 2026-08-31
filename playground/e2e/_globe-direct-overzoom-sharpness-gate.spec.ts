@@ -53,13 +53,28 @@
 //           sub-pixel AA ramp crossing the 2px↔1px boundary, not a property of the
 //           ceiling. Re-asserting it in any form would be re-asserting a boundary.
 //
-//           The live claim is the one the data supports: the drape-held frame must
-//           differ from the direct frame by decisively more than THIS RUN's
-//           same-arm noise floor (direct captured twice, nothing changed between).
-//           The floor is measured rather than assumed because the direct path on
-//           this engine is not always frame-stable at a fixed camera (#2135). The
-//           soft-band numbers are still printed — they are useful — but they are
-//           reported, never asserted.
+//           The pixel-MAGNITUDE spelling that replaced it — arm-to-arm delta above
+//           `max(noise floor × 4, 0.01)` — is now dead in its turn, for a sharper
+//           reason than the first: #2137 removed the quantity it was reading. That
+//           0.01 was derived from a measured arm delta of 0.031245; on the same
+//           camera it now measures 0.001492, bit-identical across four runs and two
+//           machines. The drape bakes vector tiles into a texture that `vs_tile`
+//           then positions, and while that VS built ECEF from angles the bake landed
+//           MIS-REGISTERED against the direct path — 3.1% of the frame WAS that
+//           registration error. Positioning from CPU-exact trig removes it, the two
+//           paths converge to the ~0.15% a texel-resampled bake legitimately costs,
+//           and the old floor would now be asserting that the drape must STAY
+//           mis-registered. Re-asserting it in any form would be re-asserting a
+//           defect.
+//
+//           So the sever arm's teeth sit where they never needed a calibration
+//           constant: on the state the ceiling itself controls. `stillDraping` is []
+//           in the direct arm and `drapingNow` is non-empty in the drape arm, over
+//           the SAME above-ceiling source set — cut either half (the ceiling at
+//           vector-tile-renderer.ts:3615, or the override at :3621) and one of those
+//           two goes red naming the half that was cut. The arm delta and the
+//           soft-band numbers are still printed — they are useful, and the first is
+//           now a drape-registration meter — but they are reported, never asserted.
 //
 // Settling is the one deliberate departure: the original slept `waitForTimeout
 // (6000)`, which the capture-canvas skill forbids for content (a sleep that
@@ -121,20 +136,6 @@ function readGlobeDirectMinSelectionZ(): number {
  *  bake by construction (it magnifies geometry, not texels), so holding it to
  *  the sharpest bake's number is the honest floor. */
 const SOFT_BAND_MAX = 0.2
-/** The sever arm's discriminator: the drape-held frame must differ from the direct
- *  frame by decisively more than the same-arm noise floor measured in the same run.
- *
- *  DERIVED FROM MEASUREMENT, not picked. Two consecutive runs on this camera
- *  (SwiftShader, WORKERS=1) both reported, to six decimals: same-arm noise floor
- *  0.000000, arm-to-arm delta 0.031245. So the direct path is frame-stable here
- *  and the arms separate by 3.12% of the frame. The bar is
- *  `max(floor × MULT, MIN)`: MIN 0.01 leaves ~3× headroom below the measured
- *  signal while still failing long before the arms become indistinguishable, and
- *  MULT 4 only binds if this scene ever stops being frame-stable (the direct path
- *  on this engine is not always stable at a fixed camera — #2135), in which case
- *  the bar rises with the noise instead of silently passing on it. */
-const ARM_DELTA_FLOOR_MULT = 4
-const ARM_DELTA_MIN = 0.01
 /** Convergence budget: the `dark` demo compiles a 14.6 MB countries.geojson
  *  before the first tile can draw (measured ~32 s to steady state under
  *  SwiftShader in `_globe-dateline-wired-gate`), and this style then loads its
@@ -410,19 +411,19 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
   ).toBeLessThanOrEqual(SOFT_BAND_MAX)
 
   // ── NOISE FLOOR — the same arm, twice, nothing changed in between ──────────
-  // The sever assertion below asks whether the two arms render DIFFERENTLY. That
-  // question only has an answer relative to how much this scene moves on its own,
-  // so the gate measures its own floor every run instead of trusting a constant.
-  // Not paranoia: `_bundle-replay-parity-gate` on this same engine has a
-  // bundle-DISABLED arm whose frame hashes vary run to run at a fixed camera
-  // (#2135), so a hard-coded floor would be a guess about a moving quantity.
+  // The arm delta below is REPORTED, not asserted (see the header), and a bare
+  // percentage is uninterpretable without knowing how much this scene moves on its
+  // own — `_bundle-replay-parity-gate` on this same engine has an arm whose frame
+  // hashes vary run to run at a fixed camera (#2135). So the floor is measured
+  // beside it every run and printed with it.
   const directPng2 = await captureMapFrame(page, { readyTimeoutMs: 180_000, capture: 'clip' })
   const noiseFloor = await pixelDiffRatio(page, directPng, directPng2)
   console.log(`[#2093 overzoom noise-floor] ${noiseFloor.toFixed(6)}`)
   expect(
     noiseFloor,
     `same-arm noise floor is ${noiseFloor} — 1 is pixelDiffRatio's size-mismatch sentinel, so ` +
-      `the two captures are not comparable and nothing below means anything`,
+      `the two captures are not comparable and the delta printed below would be a lie about the ` +
+      `frame rather than a measurement of it`,
   ).toBeLessThan(1)
 
   // ── SEVER — hold the drape on the same page, same camera ───────────────────
@@ -474,19 +475,18 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
   console.log(`[#2093 overzoom draped] ${JSON.stringify(drapedProfile)}`)
 
   expect(drapedProfile.rows, 'drape arm edge profile must sample enough rows').toBeGreaterThan(50)
-  // RELATIVE, deliberately: the claim is that the ceiling changes what is drawn,
-  // i.e. that the arms are distinguishable. An absolute bound here would restate
-  // #2024's windowed-bake number inside #2093's gate.
+  // REPORTED, NOT ASSERTED — see the header. This number is now a measure of the
+  // drape's REGISTRATION against the direct path, and #2137 removed the error it
+  // used to read (0.031245 → 0.001492 at this camera); a magnitude floor
+  // calibrated on the old reading would assert that the drape must stay
+  // mis-registered. The sever arm's teeth are the `stillDraping` / `drapingNow`
+  // pair above — mechanism state, no constant.
   const armDelta = await pixelDiffRatio(page, directPng, drapedPng)
-  console.log(`[#2093 overzoom arm-delta] ${armDelta.toFixed(6)} vs floor ${noiseFloor.toFixed(6)}`)
-  expect(
-    armDelta,
-    `holding the drape changed ${(armDelta * 100).toFixed(2)}% of the frame against a same-arm ` +
-      `noise floor of ${(noiseFloor * 100).toFixed(2)}%. Indistinguishable arms mean the #2093 ` +
-      `ceiling is not the mechanism that decides what is drawn at this camera — a finding about ` +
-      `the fix, not a flake. (soft-band: direct ${directProfile.fracWide.toFixed(3)} vs drape ` +
-      `${drapedProfile.fracWide.toFixed(3)} — reported, NOT asserted: see the header.)`,
-  ).toBeGreaterThan(Math.max(noiseFloor * ARM_DELTA_FLOOR_MULT, ARM_DELTA_MIN))
+  console.log(
+    `[#2093 overzoom arm-delta] ${armDelta.toFixed(6)} vs floor ${noiseFloor.toFixed(6)} ` +
+      `(soft-band: direct ${directProfile.fracWide.toFixed(3)} vs drape ` +
+      `${drapedProfile.fracWide.toFixed(3)})`,
+  )
 
   // Leave the page as it was found — the flag is on globalThis and a later
   // navigation in the same context would inherit it.

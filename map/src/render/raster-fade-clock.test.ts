@@ -38,6 +38,7 @@ import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer, rasterCoverZoom, Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
+import { rasterTileBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 beforeEach(() => {
@@ -96,7 +97,7 @@ function renderAndCaptureAlpha(
     _off: number,
     data: ArrayBufferView | ArrayBuffer,
   ): void => {
-    if ((buf as { size?: number })?.size !== 48) return
+    if ((buf as { size?: number })?.size !== rasterTileBytes()) return
     const f32 =
       data instanceof ArrayBuffer
         ? new Float32Array(data)

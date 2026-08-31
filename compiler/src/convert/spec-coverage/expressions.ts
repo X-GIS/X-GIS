@@ -51,7 +51,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'in',
     status: 'supported',
     note: 'Both expression form and legacy form. Empty value list lowers to constant `false` per spec.',
-    source: 'expressions.ts:560',
+    source: 'expr-lookup.ts:502',
   },
   { name: '!in', status: 'supported' },
   // Arithmetic + math
@@ -231,7 +231,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'zoom',
     status: 'supported',
     note: 'Lowers to bare `zoom` identifier. Works in `interpolate(zoom, …)` / `step(zoom, …)` AND anywhere else (filter compare, case condition, arithmetic).',
-    source: 'expressions.ts:471',
+    source: 'expr-lookup.ts:152',
   },
   {
     name: 'pitch',
