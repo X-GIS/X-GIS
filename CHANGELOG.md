@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 3c346261c883340428832bc9045ecfa8a80066fb
+  Generated from: b759e321f538de4598f981e17c99c3c968367e19
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 3c346261c883
+    bun scripts/emit-changelog.ts --since b759e321f538
 -->
 
 # Changelog
@@ -126,6 +126,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/render:** apply the RTC witness skew at the single anchor producer, and make the parity gate name its bind path ([#2167](https://github.com/X-GIS/X-GIS/pull/2167)) `b759e32`
 - **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
 - **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
