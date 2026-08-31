@@ -121,6 +121,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     description: '2-vertex line, no join.',
     source: load('fixture-line.xgis'),
   },
+  fixture_line_gradient: {
+    name: 'Fixture: line-gradient (#2117)',
+    tag: 'fixture',
+    description:
+      'Two straight lines, same base colour and width, from inline data: the upper one carries a blue→red ramp over ["line-progress"], the lower one carries none. The base colour is GREEN — neither ramp endpoint — so a dropped ramp is a different colour, not a shade. §5 probe: /demo.html?id=fixture_line_gradient&forcegl2=1.',
+    source: load('fixture-line-gradient.xgis'),
+  },
   fixture_line_join: {
     name: 'Fixture: line join',
     tag: 'fixture',

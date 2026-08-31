@@ -629,6 +629,8 @@ function lowerLayer(
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
+  // #2117 — line-gradient ramp stops (progress → straight-alpha RGBA).
+  let strokeGradientStops: { offset: number; rgba: [number, number, number, number] }[] | undefined
   // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
   let dashArrayShape:
     | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
@@ -838,6 +840,7 @@ function lowerLayer(
     strokeOffset,
     strokeAlign,
     strokeBlur,
+    strokeGradientStops,
     dashArrayShape,
     strokeOpacityShape,
     strokeGapWidth,
@@ -1035,6 +1038,7 @@ function lowerLayer(
   strokeOffset = acc.strokeOffset
   strokeAlign = acc.strokeAlign
   strokeBlur = acc.strokeBlur
+  strokeGradientStops = acc.strokeGradientStops
   dashArrayShape = acc.dashArrayShape
   strokeOpacityShape = acc.strokeOpacityShape
   strokeGapWidth = acc.strokeGapWidth
@@ -1268,6 +1272,7 @@ function lowerLayer(
           strokeAlign ??
           (fill.kind !== 'none' && strokeColor.kind !== 'none' ? 'inset' : undefined),
         blur: strokeBlur,
+        gradientStops: strokeGradientStops,
         gapWidth: strokeGapWidth,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
         timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,

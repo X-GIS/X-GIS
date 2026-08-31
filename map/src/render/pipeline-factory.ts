@@ -964,13 +964,22 @@ export class PipelineFactory {
       pickEnabled,
     })
 
-    // #2042 INC-4b — the split-bind twins, behind __XGIS_SPLIT_BIND (read once
-    // at build: the flag is a page-load A/B lever, not a live toggle). The split
-    // module is the IR DERIVATION of the legacy one (polygon-split.ts) — same
-    // math, three-block addressing — and the twins are ordinary
-    // buildFlatFillMaterials products against the split layout, so the
+    // #2042 INC-4b — the split-bind twins. The split module is the IR DERIVATION of the
+    // legacy one (polygon-split.ts) — same math, three-block addressing — and the twins are
+    // ordinary buildFlatFillMaterials products against the split layout, so the
     // stencil/variant family stays byte-identical to flat/ground.
-    if ((globalThis as { __XGIS_SPLIT_BIND?: unknown }).__XGIS_SPLIT_BIND === true) {
+    //
+    // #2042 INC-7 — DEFAULT ON. Read once at build (the flag is a page-load lever, not a
+    // live toggle), and the sense is now opt-OUT: `!== false`, so only an explicit
+    // `__XGIS_SPLIT_BIND = false` keeps a page on the legacy path. It stays as an escape
+    // hatch for one release, per docs/plans/2026-08-25-marathon-roadmap.md, and INC-8's
+    // deletion of the legacy path is gated on ON having SHIPPED green — not merely merged.
+    //
+    // WebGPU-only by construction, not by intent: build() early-returns for `webgl2` above
+    // (this method's backend fence), so on that backend the split layout is never created
+    // and this flip is inert. That is what makes the "both backends" precondition
+    // discharged by showing WebGL2 UNCHANGED rather than re-verified.
+    if ((globalThis as { __XGIS_SPLIT_BIND?: unknown }).__XGIS_SPLIT_BIND !== false) {
       this._fillSplitLayout = device.createBindGroupLayout({
         label: 'mr-splitFillBindGroupLayout',
         entries: PipelineFactory.SPLIT_FILL_LAYOUT_ENTRIES as GPUBindGroupLayoutEntry[],

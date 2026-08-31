@@ -31,7 +31,7 @@ import {
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { LineRenderer } from '@xgis/map'
+import { LineRenderer, lineLayerUniformStride } from '@xgis/map'
 
 let stub: StubInstallation
 
@@ -57,12 +57,17 @@ async function makeCtx(): Promise<GPUContext> {
   return initGPU(canvas) as unknown as Promise<GPUContext>
 }
 
-// The layer-uniform ring is 512 slots × 256 B = 131072 B (LineRenderer
-// LAYER_SLOT = 256, layerRingCapacity = 512). endFrame() uploads the dirty
-// range of THIS buffer via device.queue.writeBuffer — its byte-size is
-// distinct from every other buffer the renderer creates, so we key the
-// writeBuffer interception on it.
-const LAYER_RING_BYTES = 512 * 256
+// endFrame() uploads the dirty range of the layer-uniform ring via
+// device.queue.writeBuffer; its byte-size is unique among the buffers the renderer
+// creates, so keying the interception on that size selects the upload unambiguously.
+// The layer-uniform ring is `layerRingCapacity` (512) slots × the LineLayer dynamic-offset
+// stride. That stride is DERIVED (`lineLayerUniformStride()`, reflect-backed) and moved
+// 256 → 512 when #2117 grew LineLayer past 256 B — a hand literal here went silently dark
+// that day: the buffer interception below stopped matching, so every assertion in this
+// file saw no write and reported "undefined". Read it from the SoT instead, and LAZILY —
+// reflect emits the projection fns, which throw before configureProjections() (the
+// no-eager-uniform-reflect rule; a module-level const would evaluate at import).
+const layerRingBytes = (): number => 512 * lineLayerUniformStride()
 
 // Stroke colour: three DISTINCT channel values so each RGB slot assertion is
 // non-vacuous and unambiguously tied to line-color (not a shared constant).
@@ -102,7 +107,7 @@ function captureFirstLayerSlot(ctx: GPUContext): Float32Array | undefined {
     dataOffset?: number,
     size?: number,
   ): void => {
-    if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
+    if ((buf as { size?: number })?.size !== layerRingBytes()) return
     // endFrame calls writeBuffer(layerRing, lo, stagingBuffer, byteOffset+lo, hi-lo).
     // `data` is the staging ArrayBuffer; `dataOffset` is the absolute byte
     // start of the dirty range. The first layer slot starts at byte 0.

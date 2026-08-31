@@ -879,6 +879,12 @@ export interface StrokeValue {
    *  perpendicular offsets ±(gapWidth + width)/2. Default 0 = single
    *  line. Constant form here; zoom-interp deferred. */
   gapWidth?: number
+  /** Mapbox `paint.line-gradient` (#2117) — colour ramp over ["line-progress"],
+   *  the fraction along the line. Stops are straight-alpha RGBA in 0..1, ascending
+   *  by `offset`. Present = the ramp REPLACES the solid stroke colour; the line
+   *  layer uniform carries up to 8 stops and `fs_line` evaluates them at
+   *  `arc_pos / line_length` (the same arc the dash phase already rides). */
+  gradientStops?: { offset: number; rgba: [number, number, number, number] }[]
   /** Stroke alignment relative to the centerline. Default 'center'.
    *  Inset shifts the stroke onto the left side of travel by half-width
    *  (so the stroke's right edge sits on the original line); outset shifts
