@@ -262,6 +262,12 @@ The rules that remain, and WHY:
   the machine before. One such job + light/medium work in parallel is fine.
 - Everything else runs CONCURRENTLY with a background gate: recon, design, code edits,
   docs/issue records, single-file tests, patch preparation for the next increment.
+- **But never EDIT REPO SOURCES a running browser gate is serving.** The e2e gates run
+  against the Vite dev server, so a save mid-run hot-reloads the page and kills the
+  in-flight `page.evaluate` (`Execution context was destroyed, most likely because of a
+navigation`) — a green-looking pipeline that actually measured a moving tree. Paid for
+  2026-08-25: a comment-only edit during a gate's boot invalidated a 37-minute run.
+  Prepare edits as patches while a browser gate is in flight; apply them after it exits.
 
 **And NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
 verification `run_in_background`, then IMMEDIATELY continue the NEXT work item — including
@@ -360,6 +366,13 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 build > log; grep -c "error TS" log` reports FAILURE on a clean build, because grep exits 1
   when it matches nothing. The mirror of the pipe-laundering entry above: that one hides a
   failure, this one invents one. Capture `$?` immediately, then diagnose.
+- `pgrep -f <pattern>` issued from a tool call MATCHES THE CALLING SHELL — the shell's own
+  command line contains the pattern. So `until ! pgrep -f 'bun run build'` never exits, and a
+  `pgrep -fc vitest` status poll returns nonzero while NOTHING is running: a job that never
+  started reads as "still running". Cost a full vitest sweep reported as in-flight for ~40
+  minutes that had never been launched (the log file did not exist). Use a bracket pattern
+  (`[v]itest`), or better, do not poll at all — launch with `run_in_background` and read the
+  harness's exit code. Same family as the poller entry under Verification.
 - `cd` PERSISTS across a compound command, so a relative path in a restore step resolves
   against the new directory — a `cd playground && … ; cp backup map/src/x.ts` silently writes
   to `playground/map/src/`, leaving the probe's edit live. Cost a reported "the fix does not
@@ -395,6 +408,11 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   surviving structural gates live in `map/src/architecture-invariants.test.ts`. The lesson
   stands: before adding a gate, check whether an existing one already owns the invariant.
   → `2026-07-14-the-second-ratchet.md`
+- A gate must CONVERGE ON, and MEASURE, exactly the quantity it asserts about. Three
+  violations surfaced in one day: a convergence poll keyed on ALL tiles while the assertion
+  counted only `z >= 1`, so it declared victory on a z=0-only set and blamed the page
+  (#2114); two parity gates hashing DOM chrome; and the same two letting a wall-clock-driven
+  controller move the tile set under them. Each read as a rendering regression. → #2114, #2120
 - A ratchet whose allowlist keys are FILE PATHS dies silently when the files move: two
   gates (projType branching, the layer-direction spine) sat vacuously green from the P3
   extraction until the runtime dissolution audited them. Any path-keyed gate needs a
@@ -427,6 +445,28 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   emits the OLD markup with no warning, so a correct plugin looks broken and invites a "fix".
   `build-api-reference.ts` now drops that file on every run; if a plugin edit still seems inert,
   delete it before doubting the plugin.
+- A gate that screenshots the PAGE can hash its own CONVERGENCE STATE. `#status`'s opacity
+  AND its text are a direct function of `map.getMissingTileCount()`
+  (`playground/src/demo-runner.ts:1019-1033`), and it overlaps the canvas — so two parity
+  gates were printing "loading N tiles…" into the frames they then compared. ~53% of one
+  gate's step-0 diff, at maxΔ 218, which reads as a rendering regression. A clipped
+  `page.screenshot` over the canvas BOX is not chrome-free: `DEMO_CHROME_IDS`
+  (`e2e/helpers/visual.ts`) exists because those elements overlap it. Use `captureMapFrame`.
+  → #2120
+- A RENDER INPUT can be a function of WALL-CLOCK. The adaptive quality controller samples
+  measured rendered-frame intervals and runs live wherever `?adaptive=0` / `?scenescale` is
+  absent; measured on one scene at notch 0 → 3 → 4 with `adaptiveFarLodBoost` 1 → 4, and that
+  boost multiplies the tile selector's far-field error ceiling — so the SELECTOR asks for a
+  different tile set on a slower machine. A hash-equality rung has no tolerance to absorb it.
+  Pin with `?adaptive=0` (applied at module load, before the first frame is sampled).
+  `?scenescale=` is NOT a substitute: it pins the dpr half only and leaves the selector
+  moving. → #2120
+- CROSS-GATE AGREEMENT is cheap evidence and nobody was using it. Two gates toggling DISJOINT
+  flags produced the SAME unexplained hash pair — one pair cannot be caused by two different
+  flags, so it had to be the harness (it was boot order). After the fix the two gates agree
+  hash-for-hash across four flag states, which no single gate fixed to suit itself could
+  fake. When a parity gate is red, check whether a sibling gate on the same scene says the
+  same thing. → #2120
 - Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
   Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
   (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.

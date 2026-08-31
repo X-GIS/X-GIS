@@ -37,6 +37,7 @@
 // measured). Small viewport + msaa=1 keeps SwiftShader raster bounded.
 
 import { test, expect, type Page } from '@playwright/test'
+import { hideDemoChrome } from './helpers/visual'
 import { createHash } from 'node:crypto'
 
 // z4 band: world-copy enumeration is OFF here (low-zoom only), which keeps
@@ -62,7 +63,22 @@ async function bootArm(page: Page, bundleOff: boolean): Promise<void> {
   // one-off step-0 deviation traced to first-pose content timing; reduced
   // motion removes the variable in BOTH arms identically.
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1#1.5/20/140`, {
+  // `adaptive=0` is LOAD-BEARING for a hash-equality rung (#2116). The adaptive quality
+  // controller reads MEASURED rendered-frame intervals and moves the render down a ladder,
+  // so with it live the frame is a function of wall-clock — which a byte-identity gate has
+  // no tolerance to absorb. It is not a subtle blur either: measured on this exact scene
+  // under SwiftShader, the notch climbed 0 -> 3 -> 4 within the first two script steps and
+  // `adaptiveFarLodBoost` went 1 -> 4, i.e. the SELECTOR changed which tiles it asked for
+  // (`tile-selection-cache.ts:303`, `vector-tile-renderer.ts:4393`). The slower arm
+  // therefore settles to a different picture than the faster one, which is exactly the
+  // observed shape: bundles OFF (re-encoding every frame, cold HTTP cache) diverged run to
+  // run while bundles ON — byte-identical to the last known-green run — stayed stable.
+  //
+  // `?adaptive=0` is applied at MODULE LOAD (`engine/src/gpu/quality.ts:281`), before the
+  // first frame is sampled, so the controller never leaves notch 0. `?scenescale=` is NOT
+  // a substitute: it pins only the dpr half (`render-loop.ts:141`) and leaves the far-LOD
+  // boost live, so a gate using it would still be timing-dependent through tile selection.
+  await page.goto(`/demo.html?id=import_maplibre_mirror&e2e=1&msaa=1&adaptive=0#1.5/20/140`, {
     waitUntil: 'domcontentloaded',
   })
   console.log(`[bundle-parity] boot(off=${bundleOff}): navigated, waiting ready`)
@@ -88,6 +104,16 @@ async function bootArm(page: Page, bundleOff: boolean): Promise<void> {
     inv: (globalThis as { __XGIS_INVARIANTS?: unknown }).__XGIS_INVARIANTS,
   }))
   console.log(`[bundle-parity] page flags: ${JSON.stringify(flags)}`)
+  // The measured pixels must be MAP pixels (#2116). A clipped `page.screenshot` over the
+  // canvas box still composites every demo-chrome element that OVERLAPS that box —
+  // `DEMO_CHROME_IDS` (helpers/visual.ts) is documented as exactly that set — and here it
+  // is not a cosmetic worry: `#status`'s opacity AND its text are a direct function of
+  // `map.getMissingTileCount()` (`playground/src/demo-runner.ts:1019-1033`), so the LOADING
+  // INDICATOR was inside the frames this gate hashes. Two arms that converge a moment apart
+  // then differ by a variable-length high-contrast string, for reasons that have nothing to
+  // do with bundling. Measured on the sibling RTC gate: hiding the chrome removed ~53% of
+  // its step-0 diff (7448 -> 3497 px). CLAUDE.md §5 forbids this capture shape by name.
+  console.log(`[bundle-parity] chromeHidden=${JSON.stringify(await hideDemoChrome(page))}`)
   await page.waitForTimeout(8_000) // cold-start tile + glyph cascade
   // Warm-up: run the full script once WITHOUT hashing, so every pose's
   // tiles AND glyph ranges are loaded before the measured pass. The idle
@@ -310,6 +336,28 @@ test('#1190 — bundled frames are byte-identical to direct frames across an int
   // The invariant net: a hit re-walk that no longer matches the baked
   // offsets throws in-page — surface it as this gate's failure.
   expect(pageErrors, `page errors during parity run:\n${pageErrors.join('\n')}`).toEqual([])
+  // WITHIN-ARM idempotence (#2116). SCRIPT[1] and SCRIPT[4] are the SAME camera, and this
+  // fixture was chosen precisely because its tiles have terminal content, so one camera has
+  // ONE settled frame — see the header. Cross-arm equality cannot see a settle that fires
+  // early, because both arms then sample at the same wrong point and agree; this can. It is
+  // also the cheaper net: when `idle` stopped covering in-flight glyph ranges the OFF arm
+  // alone already disagreed with itself (step 1 vs step 4) before any arm comparison ran.
+  for (const [arm, hs] of [
+    ['off', offHashes],
+    ['on', onHashes],
+  ] as const) {
+    expect(
+      hs[4],
+      `${arm} arm settled to two different frames for the SAME camera ` +
+        `${JSON.stringify(SCRIPT[1])} — step 1 ${hs[1]?.slice(0, 12)} vs step 4 ` +
+        `${hs[4]?.slice(0, 12)}. The settled frame is not a pure function of the camera: ` +
+        `something in the render path read state that differed between the two visits. ` +
+        `First suspects, in the order they have actually bitten: the adaptive quality ` +
+        `notch (pinned here by ?adaptive=0 — check it is still on the URL), a settle ` +
+        `signal firing before an async resource landed, and load-order-dependent ` +
+        `selection. Compare the two arms' timings before assuming a bundle regression.`,
+    ).toBe(hs[1])
+  }
   // Vacuity guard — bundling must actually engage on the ON arm.
   expect(stats.hits, 'bundle path never HIT on the ON arm — gate is vacuous').toBeGreaterThan(0)
   // The §5 verdict: every step byte-identical between arms.
