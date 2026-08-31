@@ -49,7 +49,7 @@ describe('buildLineSegments — tile-boundary cap suppression', () => {
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
 
-    const segs = buildLineSegments(verts, indices, 10, TILE_W, TILE_H)
+    const segs = buildLineSegments(verts, indices, 10, null, TILE_W, TILE_H)
     // Segment 0 (vertex 0 → 1): vertex 0 is the boundary endpoint.
     // prev_tangent should be NON-ZERO (in-line direction, suppressing cap).
     const seg0_prevTx = segs[0 * 20 + 8]
@@ -74,7 +74,7 @@ describe('buildLineSegments — tile-boundary cap suppression', () => {
     ])
     const indices = new Uint32Array([0, 1])
 
-    const segs = buildLineSegments(verts, indices, 10, TILE_W, TILE_H)
+    const segs = buildLineSegments(verts, indices, 10, null, TILE_W, TILE_H)
     // Segment 0's next_tangent (for vertex 1 = west boundary).
     const nextTx = segs[0 * 20 + 10]
     const nextTy = segs[0 * 20 + 11]
@@ -90,7 +90,7 @@ describe('buildLineSegments — tile-boundary cap suppression', () => {
     ])
     const indices = new Uint32Array([0, 1])
 
-    const segs = buildLineSegments(verts, indices, 10, TILE_W, TILE_H)
+    const segs = buildLineSegments(verts, indices, 10, null, TILE_W, TILE_H)
     // Segment 0's next_tangent — vertex 1 is INSIDE, not on boundary,
     // and tout=0 → no adjacency neighbor → stays zero → cap drawn.
     const nextTx = segs[0 * 20 + 10]
