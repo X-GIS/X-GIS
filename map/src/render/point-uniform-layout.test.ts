@@ -65,6 +65,7 @@ const CONTRACT = {
   circle_params: 32,
   globe_eye: 36, // #600 — globe(7) eye-horizon cull dir
   zoom: 40, // #1635 — camera zoom, the lane a stage block's `zoom` builtin reads
+  mvp_pitch0: 44, // #2118 — the pitch-0 MVP, the ground basis's P₀ half
 }
 
 describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contract)', () => {
@@ -79,12 +80,17 @@ describe('point uniform byte-layout consistency (reflection ↔ WGSL ↔ contrac
     expect(refl.slot).toEqual(CONTRACT)
   })
 
-  it('struct is 176 bytes / 44 f32 slots — exactly the renderer Float32Array', () => {
+  it('struct is 240 bytes / 60 f32 slots — exactly the renderer Float32Array', () => {
     // #600 — grew 144→160 (globe_eye vec4 @36 for the globe(7) eye-horizon cull).
     // #1635 — grew 160→176: `zoom: f32` at slot 40 plus std140's 12 B tail pad to
     // the struct's 16 B alignment. The 3 pad slots are addressable but unwritten;
-    // the next scalar lane added here costs zero extra bytes.
-    expect(wgsl.sizeBytes).toBe(176)
-    expect(refl.slots).toBe(44)
+    // the next SCALAR lane added there costs zero extra bytes.
+    // #2118 — grew 176→240: `mvp_pitch0: mat4x4<f32>` at slot 44. A mat4 needs the
+    // 16 B alignment the tail pad had already reached, so it consumed those 3 pad
+    // slots as its own leading alignment and added its 64 B on top. Appended AFTER
+    // zoom, so no pre-existing field moved — the invariant every prior growth here
+    // kept, and the reason the retired-lane byte reference below still holds.
+    expect(wgsl.sizeBytes).toBe(240)
+    expect(refl.slots).toBe(60)
   })
 })
