@@ -35,6 +35,12 @@ export interface CompiledTile {
   y: number
   tileWest: number // tile origin longitude (f64 precision in JS)
   tileSouth: number // tile origin latitude (f64 precision in JS)
+  /** Tile origin (SW corner) in ABSOLUTE Mercator metres — the exact
+   *  `lonLatToMercF64(tileWest, tileSouth)` the DSFUN line/outline vertices
+   *  were made tile-local against. Consumers hand this to
+   *  `buildLineSegments` so the #2089 ECEF endpoint lanes are packed against
+   *  the same anchor as the polygon fill (one position authority). */
+  tileOriginMerc: readonly [number, number]
   /** Polygon fill vertices in the quantized ECEF layout (Phase 2 PR 2f):
    *  stride 24 bytes = uint16×6 position (32-bit fixed point per axis) +
    *  f32 fid + f32 abs_lon + f32 abs_lat. Backed by a Float32Array view

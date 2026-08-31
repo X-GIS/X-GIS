@@ -43,6 +43,9 @@ export interface SerializedTile {
   y: number
   tileWest: number
   tileSouth: number
+  /** #2089 — pack-time tile origin (absolute Mercator metres), carried through
+   *  serialization so buildLineSegments' ECEF lanes use the exact pack anchor. */
+  tileOriginMerc: readonly [number, number]
   vertices: ArrayBuffer
   /** PR 2f per-tile quantized-position dequant params for `vertices`. */
   dequantScale: number
@@ -130,6 +133,7 @@ export function runCompile(req: GeoJSONCompileRequest): {
         y: tile.y,
         tileWest: tile.tileWest,
         tileSouth: tile.tileSouth,
+        tileOriginMerc: tile.tileOriginMerc,
         vertices: tile.vertices.buffer as ArrayBuffer,
         dequantScale: tile.dequantScale,
         dequantHalf: tile.dequantHalf,
