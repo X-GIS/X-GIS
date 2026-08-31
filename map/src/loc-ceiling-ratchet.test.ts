@@ -2153,7 +2153,14 @@ const CEILINGS: Record<string, number> = {
   // spec default. It is not — v8 defaults that knob to "map" — and the wrong claim was
   // load-bearing enough to be worth the lines. MEASURED post-prettier (`wc -l`), set EXACTLY
   // to the count — headroom is re-justified per phase, never banked.
-  'compiler/src/ir/render-node.ts': 995,
+  // 989→995 twice, INDEPENDENTLY: #2117 line-gradient added StrokeValue.gradientStops and
+  // #2118 circle-pitch added ShowCommand.circlePitchAlignmentMap, each +6 from the same base.
+  // Both branches therefore wrote the IDENTICAL ceiling line `995`, so git merged it with NO
+  // CONFLICT while the file itself grew by BOTH deltas — the one shape of ceiling drift that
+  // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
+  // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
+  // type, const or function name occurs twice in the file.
+  'compiler/src/ir/render-node.ts': 1001,
   'compiler/src/convert/paint-helpers.ts': 826,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
