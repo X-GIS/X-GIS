@@ -9,6 +9,7 @@ import {
   extractInterpolateZoomStops,
   extractInterpolateZoomArrayStops,
   extractInterpolateZoomColorStops,
+  extractInterpolateProgressColorStops,
   resolveColorTokenLiterals,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
@@ -32,6 +33,23 @@ export const strokeDasharrayBindingHandler: BindingHandler = {
     // No array stops — fall through (original arm did NOT `continue`; the
     // item then reaches the named `stroke` arm). Report not-consumed.
     return false
+  },
+}
+
+/** `stroke-gradient-[interpolate(line_progress, p0, #c0, …)]` — the Mapbox
+ *  `line-gradient` ramp (#2117). Stops lower to straight-alpha RGBA tuples; the
+ *  line layer uniform carries them and `fs_line` evaluates the ramp at
+ *  `arc_pos / line_length`. An unparseable binding falls through to X-GIS0005. */
+export const strokeGradientBindingHandler: BindingHandler = {
+  match: (ctx) => ctx.name === 'stroke-gradient',
+  apply: (ctx) => {
+    const stops = extractInterpolateProgressColorStops(ctx.item.binding!)
+    if (!stops) return false
+    ctx.acc.strokeGradientStops = stops.map((s) => ({
+      offset: s.offset,
+      rgba: hexToRgba(s.value),
+    }))
+    return true
   },
 }
 

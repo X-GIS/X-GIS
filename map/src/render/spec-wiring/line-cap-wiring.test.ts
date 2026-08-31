@@ -34,6 +34,7 @@ import {
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import {
   LineRenderer,
+  lineLayerUniformStride,
   LINE_CAP_BUTT,
   LINE_CAP_ROUND,
   LINE_CAP_SQUARE,
@@ -78,10 +79,17 @@ function makeTileBGL(ctx: GPUContext): GPUBindGroupLayout {
 // index 8 of the staged buffer the renderer uploads.
 const FLAGS_U32_INDEX = 8
 const CAP_MASK = 0x7 // bits 0-2
-// The layer-uniform ring is 512 slots × 256 B — a size unique among the
-// buffers the renderer creates, so it keys the writeBuffer interception
-// unambiguously (mirrors line-color / line-miter-limit / line-pattern wiring).
-const LAYER_RING_BYTES = 512 * 256
+// endFrame() uploads the dirty range of the layer-uniform ring via
+// device.queue.writeBuffer; its byte-size is unique among the buffers the renderer
+// creates, so keying the interception on that size selects the upload unambiguously.
+// The layer-uniform ring is `layerRingCapacity` (512) slots × the LineLayer dynamic-offset
+// stride. That stride is DERIVED (`lineLayerUniformStride()`, reflect-backed) and moved
+// 256 → 512 when #2117 grew LineLayer past 256 B — a hand literal here went silently dark
+// that day: the buffer interception below stopped matching, so every assertion in this
+// file saw no write and reported "undefined". Read it from the SoT instead, and LAZILY —
+// reflect emits the projection fns, which throw before configureProjections() (the
+// no-eager-uniform-reflect rule; a module-level const would evaluate at import).
+const layerRingBytes = (): number => 512 * lineLayerUniformStride()
 const JOIN_SHIFT = 3
 const JOIN_MASK = 0x3 // bits 3-4
 
@@ -103,7 +111,7 @@ function capturedFlags(ctx: GPUContext, cap: number, join: number): number {
     // Key on the native buffer's unique byte-size (§4 seam: `renderer.layerRing`
     // is now an opaque RhiBuffer, but writeBuffer still receives the UNWRAPPED
     // native GPUBuffer — its size is distinct among the renderer's buffers).
-    if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
+    if ((buf as { size?: number })?.size !== layerRingBytes()) return
     const u32 =
       data instanceof ArrayBuffer
         ? new Uint32Array(data)
