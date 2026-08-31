@@ -100,9 +100,15 @@ export const GEOMETRY_TYPE_KEY = '$geometryType' as const
 /** Reserved key for the feature's RAW geometry object ({ type, coordinates }).
  *  Mapbox `["within", polygon]` lowers to `within(get("$geometry"), …)` and
  *  needs the actual coordinates (not just the type) to test containment.
- *  `applyFilter` (GeoJSON path) injects `feature.geometry` here; paths that
- *  don't supply it (MVT tile-coordinate filter eval) leave it absent, so
- *  `within` degrades to false there — see eval/within.ts. */
+ *  Injected on every filter path: `applyFilter` for GeoJSON
+ *  (map/src/feature-helpers.ts) and `sliceFilterAccepts` for vector tiles
+ *  (data/src/eval/filter-eval.ts). No reprojection is owed on either — the
+ *  MVT decoder un-quantizes tile coordinates to lng/lat before a filter sees
+ *  a feature, which is the space the polygon / target argument is emitted in.
+ *  A bag that omits this key makes `within` return false and `distance`
+ *  return null for EVERY feature, silently; that was the vector-tile
+ *  behaviour until #2166. The paint/layout bags still omit it — `within` and
+ *  `distance` remain filter-only. */
 export const GEOMETRY_KEY = '$geometry' as const
 
 /** Normalize a raw GeoJSON geometry-type string to the form Mapbox's

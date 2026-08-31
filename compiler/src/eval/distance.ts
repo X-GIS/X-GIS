@@ -16,9 +16,11 @@
 // cross-track edge cases.
 //
 // FIRST SLICE — Point / MultiPoint feature-geometry (the dominant
-// proximity-filter case). LineString / Polygon feature-geometry and
-// MVT tile-coordinate sources return null (deferred); spec-coverage
-// marks the property `partial`.
+// proximity-filter case). LineString / Polygon feature-geometry returns
+// null (deferred); spec-coverage marks the property `partial`. Vector-tile
+// sources are NOT deferred and need no reprojection: the MVT decoder
+// un-quantizes tile coordinates to lng/lat before a filter sees a feature,
+// so they reach here in the same space the target is emitted in.
 
 type Pt = readonly number[]
 type Points = ReadonlyArray<Pt>

@@ -15,8 +15,8 @@ import { isLinePlacement, resolvePitchAlignment } from '../ir/label-alignment'
 //     if (f) lines.push(`  filter: ${f}`)
 //   }
 // The bug: when `layer.filter` IS authored but UNCONVERTIBLE (an op
-// filterToXgis can't lower — e.g. `["within", polygon]`, `["distance",
-// …]`), filterToXgis returns null, the `if (f)` gate skips the push,
+// filterToXgis can't lower — e.g. `["feature-state", "hover"]`),
+// filterToXgis returns null, the `if (f)` gate skips the push,
 // and the layer emits NO filter line → it renders EVERY feature. That
 // is fail-OPEN: the exact opposite of the spec intent that an
 // unsatisfiable / unknown predicate EXCLUDES features.

@@ -113,10 +113,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // (imageHandler, #777 I-G) → an inline sprite quad on the baseline.
       // Neither reaches this fallback table.
       // `within` is now SUPPORTED (Point/MultiPoint vs Polygon/MultiPolygon
-      // on GeoJSON sources) — handled by withinHandler in the expr-lookup
-      // cluster, so it never reaches this fallback table. (LineString /
-      // Polygon tested-geometry and MVT tile-coordinate sources remain
-      // partial — see eval/within.ts.)
+      // on GeoJSON and MVT/PMTiles sources alike) — handled by withinHandler
+      // in the expr-lookup cluster, so it never reaches this fallback table.
+      // (LineString tested-geometry remains partial — see eval/within.ts.)
       // `is-supported-script` is now SUPPORTED — handled by
       // isSupportedScriptHandler in the expr-lookup cluster (lowers to
       // constant `true`, matching X-GIS' all-Unicode-renderable
