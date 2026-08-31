@@ -3,6 +3,10 @@
 Status: **APPROVED 2026-08-31** (owner, "허가" — blanket approval of the doc as written,
 including §9's three recommendations: 10 s deadline default, #2129 lands on the new rails
 in increment 2, burst scope stays `SCOPE_VT_PIPELINE` pending #2150's measurement).
+**Reconciled 2026-08-31, same day, against the owner's parallel corrections on main**:
+#2158 (composed-authority framing — see §1 ⚠), #2161 (Gate 10 = L3, landed — see §4.5),
+#2162/#2163 (`getMissingTileCount` is not a convergence signal — see §4.3). One new owner
+decision opened: §9.4 (coverage mechanism (a) vs (b)); increment 2 is on hold behind it.
 Date: 2026-08-31. Tracking issue: #2149. Origin: marathon roadmap Phase 5, first bullet
 (`docs/plans/2026-08-25-marathon-roadmap.md:179-192`).
 
@@ -20,8 +24,17 @@ convergence predicates, so `idle` fired before the scene landed, or the loop nev
 | #2122 / PR #2126 | sprite atlas             | same hole, "one resource class over"                      |
 | #2129 (open)     | coverage cell reads      | same hole, third instance                                 |
 
-The question "is there still work pending?" is answered in **five places that agree only by
-hand**:
+⚠ **Framing corrected 2026-08-31** (owner, #2158, after this doc was approved): the sites
+below are **composed, not competing** — `keepLoopWarm` → `_needsRender`
+(`render-loop.ts:682`) → `shouldRenderThisFrame`'s first term; `hasPendingSourceWork` is a
+private helper `shouldRenderThisFrame` calls; `awaitMapIdle` decides nothing (it reads the
+event bus's `_wasIdle`). There is ONE composed authority. What survives — and what this
+design's registry delivers — is #2158's surviving core: **nothing enumerates the async
+resource classes**, so each new class was a human noticing an omission. "Collapse the
+predicates" is NOT the goal; "make the class list the single registered thing" is.
+
+The question "is there still work pending?" is fed from **five composed sites, each
+holding a hand-maintained partial signal list**:
 
 1. `shouldRenderThisFrame()` — `map/src/map.ts:4423-4493`, an open enumeration grown one
    incident at a time;
@@ -150,19 +163,22 @@ Scopes are named, frozen kind subsets declared next to the union:
 - `SCOPE_VT_PIPELINE` = `vt-fetch | vt-replaced | vt-upload | vt-missed` — **exactly**
   today's `hasPendingSourceWork()` set, so burst exit keeps its current behavior
   byte-for-byte (non-goal above).
-- `SCOPE_TILE_COUNT` = `vt-missed | raster-fetch | dem-fetch` — exactly the
-  `_missingTileCount` sum at `render-loop.ts:663-666`; `getMissingTileCount()` becomes
-  `Σ count(kind)` over this scope instead of a hand-synced re-sum.
+- ~~`SCOPE_TILE_COUNT` → `getMissingTileCount()`~~ — **DROPPED 2026-08-31** (#2162/#2163):
+  the owner corrected the accessor's contract to "NOT a convergence signal" (it carries
+  three of `keepLoopWarm`'s six terms by design), and whether to fix the NUMBER instead is
+  #2162's option (B), an open owner decision. This design no longer touches
+  `_missingTileCount` / `getMissingTileCount()`; if (B) is chosen later, the registry's
+  per-kind counts are the natural implementation, but that lands under #2162, not here.
 
 ### 4.4 Call-site collapse map
 
-| site today                                                                        | after                                                                              |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `shouldRenderThisFrame` data terms (glyph, sprite, `hasPendingSourceWork()` call) | one term: `registry.hasPending(SCOPE_ALL)`; animation terms stay as-is             |
-| `hasPendingSourceWork()` (map.ts:4512)                                            | deleted; burst deps take `() => registry.hasPending(SCOPE_VT_PIPELINE)`            |
-| `keepLoopWarm()` + its `KeepWarmInputs` plumbing                                  | deleted; `render-loop.ts:682` sets `_needsRender = registry.hasPending(SCOPE_ALL)` |
-| `_missingTileCount` manual sum                                                    | `Σ count()` over `SCOPE_TILE_COUNT`                                                |
-| `awaitMapIdle`                                                                    | unchanged (consumes `idle`)                                                        |
+| site today                                                                        | after                                                                                                                                         |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shouldRenderThisFrame` data terms (glyph, sprite, `hasPendingSourceWork()` call) | one term: `registry.hasPending(SCOPE_ALL)`; animation terms stay as-is                                                                        |
+| `hasPendingSourceWork()` (map.ts:4512)                                            | its hand-maintained signal list becomes `registry.hasPending(SCOPE_VT_PIPELINE)`; the composed call chain (#2158) is unchanged                |
+| `keepLoopWarm()` + its `KeepWarmInputs` plumbing                                  | its six-signal list becomes registry reads at the same end-of-frame site; the composition (`→ _needsRender →` first term, #2158) is unchanged |
+| `_missingTileCount` manual sum                                                    | OUT OF SCOPE — #2162 option (B), an owner decision (see §4.3)                                                                                 |
+| `awaitMapIdle`                                                                    | unchanged (consumes `idle`)                                                                                                                   |
 
 Per-frame counts (`vt-missed`) are _written into_ their source by the frame that computes
 them (as `totalMissed` already is) — the registry reads, never computes.
@@ -181,11 +197,14 @@ them (as `totalMissed` already is) — the registry reads, never computes.
   mutant-killer: every arm ending in `failed` lets `status !== 'failed'` survive — real in
   #2122). Fixtures are keyed `Record<PendingWorkKind, Fixture>`, so a missing fixture is
   also L1-loud. This is where probe-flavor boundedness is actually enforced.
-- **L3 (fetch-entry ratchet)**: a test asserting every module in `map/src` that imports
-  `safeFetch`/`guardedFetch` either maps to a `PendingWorkKind` or carries an explicit
-  opt-out entry naming why (e.g. one-shot style/scene load, already gated by boot). With
-  the mandatory companion assertion that every allowlist key still resolves — the #996
-  lesson: a path-keyed gate whose keys go stale is vacuously green.
+- **L3 (fetch-entry ratchet)** — **LANDED ON MAIN 2026-08-31 as Gate 10** (#2160/#2161,
+  `map/src/architecture-invariants.test.ts`), in a stronger shape than proposed here:
+  per-file `safeFetch` SITE COUNTS are pinned (a new fetch in an already-registered file
+  still trips it), the #996 key-resolution companion is carried, and the classification
+  admits TWO valid mechanisms — (a) a deadline-bounded keep-warm term, or (b)
+  `invalidate()` on arrival. This design's registry is the single implementation point
+  for mechanism (a); Gate 10 is the census that every fetcher has (a) or (b). The
+  increment that would have built L3 here is therefore dropped.
 - **What nothing catches** (named, not hidden): an async subsystem that neither fetches
   through the shared entry points nor registers — e.g. a future worker round-trip with its
   own transport. The mitigation is L3's review-time visibility plus this doc; no type
@@ -203,9 +222,13 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    from #2120 re-point at the fixture). `shouldRenderThisFrame` keeps its other terms;
    the glyph term is replaced by the registry read. Cut test: deleting the registration
    reds L1; deleting the map.ts wiring reds the wiring test only.
-2. **#2129 lands on the new rails**: `coverage` as the first ledger-flavor registrant,
-   closing that issue per its own checklist (open decision 2 of #2149 → resolved: no
-   third hand-added term).
+2. **#2129 lands on the new rails** — **ON HOLD 2026-08-31 pending one owner call**
+   (§9.4): Gate 10 (#2161) classifies the coverage source under mechanism (b),
+   `invalidate()` on arrival, which prevents fossilization but not the premature-`idle`
+   sampling #2129 reports; #2129 prescribes mechanism (a), a deadlined keep-warm probe.
+   If (a): `coverage` lands here as the first ledger-flavor registrant, closing #2129
+   per its checklist. If the owner rules (b) sufficient: this increment is dropped and
+   #2129 is closed by that ruling instead.
 3. **`sprite`** migrated (probe flavor, #2126 tests re-pointed).
 4. **Raster/DEM family** (`raster-fetch/retry`, `dem-fetch/retry`) — probe adapters over
    the existing ledgers; `render-loop-keep-warm.ts` still exists, now reading the registry
@@ -213,25 +236,29 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
 5. **VT family** (`vt-fetch/replaced/upload/missed/lod`) — adapters registered in
    `map.ts` over the probes VTR/TileCatalog already export; `vector-tile-renderer.ts` and
    `tile-selection-cache.ts` are **not edited** (shrink-only ceilings).
-6. **Collapse**: delete `keepLoopWarm` + `hasPendingSourceWork`; burst deps re-wired to
-   `SCOPE_VT_PIPELINE`; `_missingTileCount` from `SCOPE_TILE_COUNT`; `map-event-bus`
-   untouched (Q1 shape unchanged).
-7. **L3 ratchet** last — after migration, so its allowlist starts truthful.
+6. **Simplify the composed helpers** (rescoped 2026-08-31 per #2158 — this was
+   "Collapse"): `keepLoopWarm` and `hasPendingSourceWork` keep their places in the
+   composed chain but their hand-maintained signal lists become registry scope reads;
+   burst deps re-wired to `SCOPE_VT_PIPELINE` (same signal set); `_missingTileCount`
+   untouched (#2162 option (B) is the owner's); `map-event-bus` untouched.
+7. ~~**L3 ratchet**~~ — **DONE ON MAIN** as Gate 10 (#2161,
+   `architecture-invariants.test.ts`); see §4.5 L3. Nothing to build here.
 
 Rollback story: every increment before 6 is additive (old predicate + registry agree via
-a transitional dual-read assertion in dev builds); increment 6 is the only deletion and
-lands alone.
+a transitional dual-read assertion in dev builds); increment 6 is the only list-rewiring
+step and lands alone.
 
 ## 6. Verification (what closes #2149)
 
-- L1/L2/L3 in place; the five-arm suite green for all twelve kinds.
+- L1/L2 in place (L3 = Gate 10, already on main); the five-arm suite green for every
+  registered kind.
 - Cut tests: unregistering a kind reds only L1; dropping a deadline reds only that kind's
   deadline arm; severing the map.ts wiring reds only the wiring test (assert the CAUSE
   before the EFFECT — §12).
-- `readiness-gate-unreachable-target.test.ts` (#2103), sprite/glyph keep-warm suites, and
-  the #2120 parity pair stay green throughout.
-- `git grep -l 'hasPendingSourceWork\|keepLoopWarm'` returns only history/docs after
-  increment 6.
+- `readiness-gate-unreachable-target.test.ts` (#2103), sprite/glyph keep-warm suites,
+  Gate 10, and the #2120 parity pair stay green throughout.
+- After increment 6, `shouldRenderThisFrame`'s data terms and `keepLoopWarm`'s body read
+  the registry; no hand-maintained per-class `if` list remains outside it.
 
 ## 7. Socratic self-critique (architect pass)
 
@@ -298,8 +325,14 @@ against a host that never answers). New here:
 
 ## 9. Open for owner decision
 
-1. Deadline default 10 s + per-kind overrides in one table — confirm.
-2. Increment 2 closes #2129 on the new rails (vs. fixing #2129 first, standalone, then
-   migrating it in increment 3) — recommended as written; flip if #2129's urgency wins.
+1. Deadline default 10 s + per-kind overrides in one table — **settled** (approval,
+   2026-08-31).
+2. ~~Increment 2 ordering~~ — superseded by §9.4 below.
 3. Burst-exit scope stays `SCOPE_VT_PIPELINE` until #2150's instrument measures the
-   widened alternative — confirm.
+   widened alternative — **settled** (approval, 2026-08-31).
+4. **NEW (2026-08-31): coverage — mechanism (a) or (b)?** Gate 10 (#2161) records the
+   coverage source as covered by (b) `invalidate()`-on-arrival; #2129 argues (b) still
+   lets `idle` fire on a pre-coverage frame (the settle-harness symptom) and prescribes
+   (a), a deadlined keep-warm probe. Recommendation: (a), landed as increment 2 — it is
+   what made glyphs (#2120) and sprites (#2126) honest, and Gate 10's (b) row then
+   upgrades to (a). Owner to confirm or rule (b) sufficient.
