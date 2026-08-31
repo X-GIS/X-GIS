@@ -183,9 +183,16 @@ export interface FlatGroundView {
   centerLat: number
 }
 
-/** lon/lat → screen px, or null where the projection has no image for the point.
- *  Returns a REUSED tuple — copy out before the next call. */
-export type ProjectGround = (lon: number, lat: number) => readonly [number, number] | null
+/** `[screenX, screenY, clipW]`, or null where the projection has no image for the
+ *  point. Returns a REUSED tuple — copy out before the next call.
+ *
+ *  Slot 3 is the perspective divisor the point was projected through — this
+ *  engine's measure of "how far is this from the camera", and the numerator of the
+ *  distance ratio `groundPerspectiveScale` takes (#2012 INC-5). It rides the
+ *  projection the caller already did rather than being re-derived, so there is one
+ *  composition and not two that must agree. Readers of `[0]`/`[1]` are unaffected,
+ *  the same contract `projectLonLatCopies`' slot 3 established. */
+export type ProjectGround = (lon: number, lat: number) => readonly [number, number, number] | null
 
 /** Mercator metres + world-copy INDEX → screen px — the merc-domain twin of
  *  `ProjectGround`, for callers that already hold merc metres (the line-label
@@ -195,7 +202,7 @@ export type ProjectGroundMerc = (
   mx: number,
   my: number,
   worldCopy?: number,
-) => readonly [number, number] | null
+) => readonly [number, number, number] | null
 
 /** The one place a flat RTC point becomes screen px through `mvp`, shared by both
  *  ground projectors below so the lon/lat and merc entry points cannot drift into
@@ -208,14 +215,18 @@ function projectFlatRtc(
   canvasHeight: number,
   rtcX: number,
   rtcY: number,
-  out: [number, number],
-): readonly [number, number] | null {
+  out: [number, number, number],
+): readonly [number, number, number] | null {
   const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
   if (cw <= 0) return null
   const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
   const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
   out[0] = (ndcX + 1) * 0.5 * canvasWidth
   out[1] = (1 - ndcY) * 0.5 * canvasHeight
+  // Slot 3 — the divisor, kept because it is already computed and because the
+  // ONLY other way to the anchor's camera distance is a second composition of
+  // this same expression somewhere else (#2012 INC-5).
+  out[2] = cw
   return out
 }
 
@@ -258,8 +269,8 @@ export function makeGroundProjector(
   const lblCenter: [number, number] = isMerc
     ? [0, 0]
     : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
-  const scratch: [number, number] = [0, 0]
-  return (lon: number, lat: number): readonly [number, number] | null => {
+  const scratch: [number, number, number] = [0, 0, 0]
+  return (lon: number, lat: number): readonly [number, number, number] | null => {
     let rtcX: number
     let rtcY: number
     if (isMerc) {
@@ -305,8 +316,8 @@ export function makeGroundMercProjector(
   const lblCenter: [number, number] = isMerc
     ? [0, 0]
     : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
-  const scratch: [number, number] = [0, 0]
-  return (mx: number, my: number, worldCopy = 0): readonly [number, number] | null => {
+  const scratch: [number, number, number] = [0, 0, 0]
+  return (mx: number, my: number, worldCopy = 0): readonly [number, number, number] | null => {
     if (isMerc) {
       return projectFlatRtc(
         mvp,
