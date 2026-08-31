@@ -17,7 +17,11 @@ import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 import { installCoopsCurrents } from './examples/coops-currents.recipe'
 import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
 import { DEMOS } from './demos'
-import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
+import {
+  extractMapboxProjectionName,
+  extractMapboxLight,
+  extractMapboxSky,
+} from './mapbox-projection'
 import {
   registerXGISLanguage,
   registerXGISTheme,
@@ -2173,6 +2177,11 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
       // when the style declares none.
       const styleLight = extractMapboxLight(styleObj)
       if (styleLight) currentMap?.setLight(styleLight)
+      // #2052 T5 Phase 1 — honour the style's top-level `sky` block (host-applied,
+      // MapLibre's zenith-angle sky ramp). Left OFF when the style authors none, which
+      // is what keeps a sky-less style's frame byte-identical to pre-#2052.
+      const styleSky = extractMapboxSky(styleObj)
+      if (styleSky) currentMap?.setAtmosphere({ sky: styleSky })
       // Apply style-declared camera when nothing else (URL hash or
       // bounds-fit) explicitly positioned us yet. URL hash camera
       // (parseHash → markCameraPositioned at boot) wins because the
