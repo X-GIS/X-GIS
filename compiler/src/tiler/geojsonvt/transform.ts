@@ -57,7 +57,10 @@ export function transformTile(tile: InternalTile, extent: number): TransformedTi
   return tile as unknown as TransformedTile
 }
 
-function transformPoint(
+// Exported for the same single-authority reason `convert.ts`'s projections are: the
+// cluster index emits into the same extent-local space (with a SHIFTED tile origin for
+// its two antimeridian arms, which this signature already takes). Body untouched.
+export function transformPoint(
   x: number,
   y: number,
   extent: number,

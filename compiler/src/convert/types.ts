@@ -34,11 +34,16 @@ export interface MapboxStyle {
    *  renders a single atlas, so the converter collects only one entry
    *  (see mapbox-to-xgis.ts) and warns about the rest. */
   sprite?: string | { id?: string; url?: string }[]
+  /** Mapbox v3 / MapLibre top-level terrain block (#2095, T2 Phase 2) — both dialects
+   *  spell it identically: `{ source, exaggeration }`. Loosely typed (both fields
+   *  `unknown`) because convert/terrain.ts owns the actual shape validation, the same
+   *  division MapboxSource/MapboxLayer use for their own loosely-typed fields; kept out
+   *  of the "known-but-unsupported" cluster below since this one now IS converted. */
+  terrain?: { source?: unknown; exaggeration?: unknown }
   /** Known-but-unsupported top-level fields — declared only so the
    *  converter can detect them and warn; never encoded into xgis source. */
   fog?: unknown
   lights?: unknown
-  terrain?: unknown
   sky?: unknown
   transition?: unknown
   imports?: unknown

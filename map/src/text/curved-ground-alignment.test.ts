@@ -126,6 +126,9 @@ function drive(ground?: {
   liveX: Float32Array
   liveY: Float32Array
   basis: ArrayLike<number> | undefined
+  /** #2012 INC-5 — defaulted so the pre-INC-5 cases stay spelled as they were;
+   *  1 is the no-correction identity. */
+  sizeScale?: number
 }): { draw: TextDraw } {
   const { stage, captured } = makeStage()
   stage.beginFrame()
@@ -142,13 +145,75 @@ function drive(ground?: {
     undefined,
     undefined,
     undefined,
-    ground,
+    ground && { ...ground, sizeScale: ground.sizeScale ?? 1 },
   )
   stage.prepare()
   const draw = captured[0]!.find((d) => d.glyphRotations !== undefined)!
   expect(draw, 'curved draw missing').toBeDefined()
   return { draw }
 }
+
+describe('#2012 INC-5 — the map-branch size correction reaches the curved draw', () => {
+  // The claim: `groundSizeScale` multiplies the label's sizePx, which is the
+  // SINGLE quad authority — so the drawn font size, the glyph advances and the
+  // collision box all move with it. Asserted on quantities the walk actually
+  // MOVES (fontSize and the along-run advance between the two glyphs), not on a
+  // count, because a count cannot tell "the label got bigger" from "the label got
+  // placed".
+
+  it('scales the drawn fontSize by exactly the multiplier it was handed', () => {
+    const base = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1 })
+    const grown = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 2 })
+    expect(grown.draw.fontSize).toBeCloseTo(base.draw.fontSize * 2, 6)
+  })
+
+  it('grows the GLYPH ADVANCE too — the quad authority, not a draw-time fudge', () => {
+    // If the multiplier were applied to the quad alone, the glyphs would keep
+    // their old spacing and overlap. The advance is measured in the label plane
+    // and mapped back through the correspondence, so it is read off the stored
+    // pre-image offsets.
+    const base = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1 })
+    const grown = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 2 })
+    const span = (d: TextDraw): number => {
+      const o = d.glyphOffsets!
+      return Math.abs(o[2]! - o[0]!)
+    }
+    expect(span(grown.draw)).toBeGreaterThan(span(base.draw) * 1.5)
+  })
+
+  it('a multiplier of 1 sizes exactly like the no-correction path', () => {
+    // The no-regression rung. An unpitched frame withholds the basis entirely, so it
+    // never gets here — but a pitched anchor sitting exactly at the camera centre
+    // distance produces 1, and must not perturb the size.
+    //
+    // The comparison arm has to be a run that genuinely TAKES the uncorrected path,
+    // not the same input spelled twice: `drive` normalises `sizeScale ?? 1` before it
+    // reaches the stage, so omitting the field here would hand both arms an identical
+    // object and the assertion would hold for any value of the fallback constant
+    // (#2110 review). A basis-LESS run is the reachable uncorrected arm — it leaves
+    // `PendingLineLabel.groundSizeScale` undefined and so exercises the `?? 1` in
+    // `text-stage.ts`. Only the SIZE is comparable: without a basis there is no
+    // pre-image step, so the offsets legitimately differ.
+    const corrected = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1 })
+    const uncorrected = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: undefined })
+    expect(corrected.draw.fontSize).toBe(uncorrected.draw.fontSize)
+    // …and the pairing is not vacuous: a non-1 multiplier does move it.
+    const grown = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 2 })
+    expect(grown.draw.fontSize).not.toBe(uncorrected.draw.fontSize)
+  })
+
+  it('is QUANTISED to 1/64, so a pitched pan cannot thrash the layout cache', () => {
+    // The cache is keyed on the resulting sizePx (layoutCacheKey). Two multipliers
+    // inside one 1/64 step must therefore produce the SAME size, or every frame of
+    // a tilt mints a fresh entry and the steady scene becomes all-miss.
+    const a = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1.5 })
+    const b = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1.5 + 1 / 500 })
+    expect(b.draw.fontSize).toBe(a.draw.fontSize)
+    // And a step of a full 1/64 DOES move it, or the quantisation is a constant.
+    const c = drive({ liveX: LIVE_X, liveY: LIVE_Y, basis: BASIS, sizeScale: 1.5 + 1 / 64 })
+    expect(c.draw.fontSize).toBeGreaterThan(a.draw.fontSize)
+  })
+})
 
 describe('#2012 INC-4 — a curved label carries its basis and pivot to the draw', () => {
   it('reaches TextDraw.groundBasis + groundBasisPivot (the #1081 dry-seam guard)', () => {
@@ -242,7 +307,7 @@ describe('#2012 INC-4 — the collision box is the footprint of the drawn quads'
         undefined,
         undefined,
         undefined,
-        ground ? { liveX: PLANE_X, liveY, basis: BASIS } : undefined,
+        ground ? { liveX: PLANE_X, liveY, basis: BASIS, sizeScale: 1 } : undefined,
       )
     }
     stage.prepare()

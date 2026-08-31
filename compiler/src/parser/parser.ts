@@ -1,7 +1,8 @@
 import { TokenType, type Token } from '../lexer/tokens'
 import { Lexer } from '../lexer/lexer'
 import type * as AST from './ast'
-import { StatementParser, STATEMENT_START_TOKENS } from './parser-statements'
+import { STATEMENT_START_TOKENS } from './parser-statements'
+import { TerrainStatementParser } from './parser-terrain'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { DiagnosticCollector, ParseError, type Diagnostic } from '../diagnostics/diagnostic'
 
@@ -21,8 +22,9 @@ export function parseExpressionString(source: string): AST.Expr {
  *  (parser-expressions.ts), and the shared token cursor
  *  (parser-cursor.ts) live in their own modules; `Parser` only wires
  *  the public entry points (`parse`, `parseSingleExpression`) on top
- *  of that shared cursor. */
-export class Parser extends StatementParser {
+ *  of that shared cursor. Extends TerrainStatementParser (not StatementParser
+ *  directly) — see parser-terrain.ts's header for why. */
+export class Parser extends TerrainStatementParser {
   constructor(tokens: Token[]) {
     super(tokens)
   }
