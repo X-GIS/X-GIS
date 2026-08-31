@@ -66,10 +66,19 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
     note: 'Mapbox v3 distance-fog gradient. Would need a post-process pass with depth-based mixing.',
   },
   {
+    name: 'sky',
+    status: 'partial',
+    impact: 'low',
+    note: "MapLibre top-level `sky` root — the zenith-angle sky gradient. DISTINCT from the Mapbox `sky` LAYER TYPE (`{ type: 'sky' }`), which stays unsupported in layer-types.ts; this is the style-root object. #2052 (T5 P1) made it host-applied rather than encoded into xgis source, the same channel `light` uses: extractMapboxSky (playground/src/mapbox-projection.ts) reads it and XGISMap.setAtmosphere({ sky }) carries sky-color / horizon-color / sky-horizon-blend, which the atmosphere pass paints anchored on the GLOBE'S LIMB — so the horizon the gradient references is the one actually being drawn, not a screen-space guess. It leaves the gapFields warn list on that basis, but does NOT become silent: any sub-property outside those three (the below-horizon fog band, the global sky fade) is named individually in a precise partial-sky warning, so a partial root reads as partial instead of as supported. The flat-projection arm is T5 P2.",
+    source:
+      'playground/src/mapbox-projection.ts extractMapboxSky / map/src/render/passes/atmosphere-pass.ts',
+  },
+  {
     name: 'terrain',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'medium',
-    note: 'Roadmap Batch 4 (raster-dem + hillshade).',
+    note: "Top-level terrain block `{ source, exaggeration }` — both dialects spell it identically. #2095 (T2 P2) landed the real path: parser/parser-terrain.ts parses it into a terrain statement, convert/terrain.ts validates and converts it, and ir/terrain-block.ts carries it, so the block survives the compile instead of vanishing into the ignored-roots sweep. Its `source` also joins referencedSourceIds, without which a DEM referenced ONLY by terrain was pruned and the emitted block pointed at a source that no longer existed. PARTIAL because the renderer has no VERTEX DISPLACEMENT pass: the DEM feeds hillshade (via the raster-dem source path) and nothing lifts geometry, so the warning says displacement is not applied AND says what the DEM IS used for — accepting the property while rendering flat, with nothing to explain the gap, would be worse than dropping it. This row was left at 'unsupported / Roadmap Batch 4' when #2095 merged; corrected here rather than left to rot beside the sky row this change adds.",
+    source: 'parser/parser-terrain.ts / convert/terrain.ts / ir/terrain-block.ts',
   },
   {
     name: 'projection',

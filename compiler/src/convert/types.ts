@@ -44,10 +44,15 @@ export interface MapboxStyle {
    *  converter can detect them and warn; never encoded into xgis source. */
   fog?: unknown
   lights?: unknown
-  sky?: unknown
   transition?: unknown
   imports?: unknown
   models?: unknown
+  /** MapLibre `sky` root — the zenith-angle sky gradient. Host-applied
+   *  like `light` (T5 Phase 1, #2052): the demo-runner + compare-runner
+   *  read the block and call `XGISMap.setAtmosphere({ sky })`, so it is
+   *  NOT in the ignored-top-level list. The converter still reads it to
+   *  warn about the sub-properties this phase does not carry. */
+  sky?: unknown
   /** MapLibre object-form camera projection (`{ type: "globe" }` etc).
    *  Genuinely host/runtime territory in X-GIS (XGISMap.setProjection) —
    *  unlike fog/lights/terrain above this isn't an unimplemented
