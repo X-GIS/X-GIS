@@ -584,6 +584,7 @@ export class XGISMap {
     refresh: this._coverageRefresh,
     guardedFetch: (label) => (u, init) =>
       safeFetch(String(u), { ...init, signal: init?.signal ?? this._coverageAbort.signal }, label),
+    beginPendingWork: () => this._pendingWork.begin('coverage'),
     destroyed: () => this._destroyed,
     runEpoch: () => this._runEpoch,
     catalogues: this._coverageCatalogues,

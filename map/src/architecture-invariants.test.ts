@@ -342,8 +342,10 @@ describe('arch ratchet: Gate-10 — every safeFetch caller is a classified async
     'map/src/map.ts': {
       sites: 3,
       why:
-        'MIXED. :582 guardedFetch (coverage/S-111) is (b) — coverage-source.ts invalidates at ' +
-        ':293,432,579,630,671,796. :4221 (.xgb scene binary) and :4295 (public loadSource) are ' +
+        'MIXED. :582 guardedFetch (coverage/S-111) is (b)+(a) since #2129/#2149: arrival still ' +
+        'invalidates, and each catalogue cell read now also holds a deadlined pending-work ' +
+        'ticket (coverage-source.ts readCatalogueItem → pending-work.ts). ' +
+        ':4221 (.xgb scene binary) and :4295 (public loadSource) are ' +
         'not on the frame path: both are awaited by an explicit host load call.',
     },
     'map/src/style-import-resolver.ts': {

@@ -6,7 +6,8 @@ in increment 2, burst scope stays `SCOPE_VT_PIPELINE` pending #2150's measuremen
 **Reconciled 2026-08-31, same day, against the owner's parallel corrections on main**:
 #2158 (composed-authority framing — see §1 ⚠), #2161 (Gate 10 = L3, landed — see §4.5),
 #2162/#2163 (`getMissingTileCount` is not a convergence signal — see §4.3). One new owner
-decision opened: §9.4 (coverage mechanism (a) vs (b)); increment 2 is on hold behind it.
+decision opened and then settled the same day: §9.4 (coverage — (a), second "허가");
+increment 2 landed on it.
 Date: 2026-08-31. Tracking issue: #2149. Origin: marathon roadmap Phase 5, first bullet
 (`docs/plans/2026-08-25-marathon-roadmap.md:179-192`).
 
@@ -222,13 +223,12 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    from #2120 re-point at the fixture). `shouldRenderThisFrame` keeps its other terms;
    the glyph term is replaced by the registry read. Cut test: deleting the registration
    reds L1; deleting the map.ts wiring reds the wiring test only.
-2. **#2129 lands on the new rails** — **ON HOLD 2026-08-31 pending one owner call**
-   (§9.4): Gate 10 (#2161) classifies the coverage source under mechanism (b),
-   `invalidate()` on arrival, which prevents fossilization but not the premature-`idle`
-   sampling #2129 reports; #2129 prescribes mechanism (a), a deadlined keep-warm probe.
-   If (a): `coverage` lands here as the first ledger-flavor registrant, closing #2129
-   per its checklist. If the owner rules (b) sufficient: this increment is dropped and
-   #2129 is closed by that ruling instead.
+2. **#2129 lands on the new rails** — **LANDED** (§9.4 settled (a)): `coverage` is the
+   first ledger-flavor registrant. The registry owns the stamps and the 10 s deadline
+   (`COVERAGE_INFLIGHT_KEEP_WARM_MS`); the ticket spans exactly the `state.inFlight`
+   window in `readCatalogueItem`; mechanism (b) stays for post-deadline arrivals.
+   Cut-verified three ways: the map.ts injection, the cell-read checkout, and the
+   central deadline each red only their own test.
 3. **`sprite`** migrated (probe flavor, #2126 tests re-pointed).
 4. **Raster/DEM family** (`raster-fetch/retry`, `dem-fetch/retry`) — probe adapters over
    the existing ledgers; `render-loop-keep-warm.ts` still exists, now reading the registry
@@ -330,9 +330,8 @@ against a host that never answers). New here:
 2. ~~Increment 2 ordering~~ — superseded by §9.4 below.
 3. Burst-exit scope stays `SCOPE_VT_PIPELINE` until #2150's instrument measures the
    widened alternative — **settled** (approval, 2026-08-31).
-4. **NEW (2026-08-31): coverage — mechanism (a) or (b)?** Gate 10 (#2161) records the
-   coverage source as covered by (b) `invalidate()`-on-arrival; #2129 argues (b) still
-   lets `idle` fire on a pre-coverage frame (the settle-harness symptom) and prescribes
-   (a), a deadlined keep-warm probe. Recommendation: (a), landed as increment 2 — it is
-   what made glyphs (#2120) and sprites (#2126) honest, and Gate 10's (b) row then
-   upgrades to (a). Owner to confirm or rule (b) sufficient.
+4. **coverage — mechanism (a) or (b)?** — **settled (a)** (owner, second "허가",
+   2026-08-31). Landed as increment 2: the ledger-flavor ticket spans exactly the
+   `state.inFlight` window in `readCatalogueItem`, the deadline is enforced centrally in
+   `pending-work.ts`, Gate 10's map.ts row now reads (b)+(a), and mechanism (b)'s
+   `invalidate()`-on-arrival stays for post-deadline landings.

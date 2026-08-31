@@ -35,6 +35,8 @@ import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
 import { PbfRasterizer } from './text/sdf/pbf-rasterizer'
 import { createRasterizer, createMetricsRasterizer } from './text/sdf/glyph-rasterizer'
 import { TextStage } from './text/text-stage'
+import { syncCoverageResidency, type CoverageSourceDeps } from './coverage-source'
+import { XGISMap } from './map'
 
 const GLYPHS_URL = 'https://tiles.example.com/fonts/{fontstack}/{range}.pbf'
 
@@ -143,6 +145,29 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
       }
     },
   },
+  // #2129 — ledger flavor: the registry owns the stamps and the deadline
+  // (COVERAGE_INFLIGHT_KEEP_WARM_MS, pending-work.ts), so this fixture drives the real
+  // ledger through the real `begin()`. Success and failure both settle through the ONE
+  // `finally` in readCatalogueItem (coverage-source.ts — `ticket?.done()` beside
+  // `state.inFlight.delete`), so at this seam the two arms are the same lever BY
+  // CONSTRUCTION; the wiring block below executes that finally through the real
+  // production function on the failure route, and the hang route proves begin-before-await.
+  coverage: {
+    inFlight() {
+      let clock = 1_000
+      vi.spyOn(performance, 'now').mockImplementation(() => clock)
+      const registry = buildPendingWorkRegistry({ textStage: null })
+      const ticket = registry.begin('coverage')
+      return {
+        registry,
+        succeed: async () => ticket.done(),
+        fail: async () => ticket.done(),
+        expire: () => {
+          clock += 20_000
+        },
+      }
+    },
+  },
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -180,3 +205,86 @@ for (const kind of PENDING_WORK_KINDS) {
     })
   })
 }
+
+// ── #2129 — the coverage ticket is WIRED through the real cell-read path ──
+// Drives the REAL exported entry (`syncCoverageResidency` → module-private
+// `readCatalogueItem`) with a one-cell catalogue, so the two load-bearing lines are
+// executed, not read: the ticket checkout on the line after the synchronous
+// `state.inFlight.add` (warm before the first await — the exact #2129 requirement), and
+// its `done()` in the settle `finally` (a failed read releases the loop).
+describe('coverage — the ticket spans the real catalogue cell read (#2129)', () => {
+  const item = { id: 'cell-a', bbox: [-10, -10, 10, 10], href: 'https://tiles.example.com/a.h5' }
+  const buildDeps = (
+    fetchFn: typeof globalThis.fetch,
+    registry: PendingWorkRegistry,
+  ): CoverageSourceDeps =>
+    ({
+      rawDatasets: new Map(),
+      catalogues: new Map([
+        [
+          's',
+          {
+            url: 'https://tiles.example.com/cat.json',
+            items: [item],
+            wanted: [],
+            suppressed: new Set(),
+            inFlight: new Set(),
+          },
+        ],
+      ]),
+      view: () => [-180, -85, 180, 85],
+      time: { nextEpoch: () => 1, isCurrent: () => true },
+      guardedFetch: () => fetchFn,
+      destroyed: () => false,
+      invalidate: () => {},
+      beginPendingWork: () => registry.begin('coverage'),
+    }) as unknown as CoverageSourceDeps
+
+  it('begins the ticket SYNCHRONOUSLY — warm before the first await', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const registry = buildPendingWorkRegistry({ textStage: null })
+    const hang = (() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
+    void syncCoverageResidency(buildDeps(hang, registry), 's')
+    expect(registry.hasPending()).toBe(true)
+  })
+
+  it('dones the ticket in the settle finally — a FAILED read releases the loop', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const registry = buildPendingWorkRegistry({ textStage: null })
+    const reject = (() =>
+      Promise.reject(new Error('network down'))) as unknown as typeof globalThis.fetch
+    await syncCoverageResidency(buildDeps(reject, registry), 's')
+    expect(registry.hasPending()).toBe(false)
+  })
+})
+
+// The map half: the `_coverageDeps.beginPendingWork` injection (map.ts) reaches the real
+// registry, and a live ticket flips the real `shouldRenderThisFrame` on a settled frame.
+// Severing the injection or the registry term reds exactly this block.
+describe('XGISMap — a coverage ticket keeps the real shouldRenderThisFrame warm (#2129)', () => {
+  it('the deps-record ticket flips the settled-frame verdict, and done() releases it', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const h = map as unknown as Record<string, unknown>
+    h._needsRender = false
+    h._sceneHasAnimation = false
+    h.textStage = null
+    const c = (map as unknown as { camera: Record<string, number> }).camera
+    h._lastSigZoom = c.zoom
+    h._lastSigCX = c.centerX
+    h._lastSigCY = c.centerY
+    h._lastSigBearing = c.bearing
+    h._lastSigPitch = c.pitch
+    h._lastSigW = 0
+    h._lastSigH = 0
+    const ask = (): boolean =>
+      (map as unknown as { shouldRenderThisFrame: () => boolean }).shouldRenderThisFrame()
+    expect(ask()).toBe(false)
+    const deps = (map as unknown as { _coverageDeps: { beginPendingWork: () => { done(): void } } })
+      ._coverageDeps
+    const ticket = deps.beginPendingWork()
+    expect(ask()).toBe(true)
+    ticket.done()
+    expect(ask()).toBe(false)
+  })
+})

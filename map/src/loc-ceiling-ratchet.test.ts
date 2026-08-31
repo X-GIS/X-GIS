@@ -864,6 +864,12 @@ const CEILINGS: Record<string, number> = {
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines after
   // trimming a first draft that cost +11. MEASURED post-prettier.
   'map/src/map.ts': 5485,
+  // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
+  // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
+  // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
+  // The keep-warm reason lives on the registration (pending-work.ts); this file carries
+  // only the wire. Shrink-only from here. MEASURED post-prettier.
+  'map/src/coverage-source.ts': 801,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
