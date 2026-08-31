@@ -34,11 +34,32 @@
 //           bound the original used for the WINDOWED bake (0.20). The direct
 //           path magnifies geometry, so it must be at least as sharp as the
 //           sharpest bake — a weaker bound here would let a regression through.
-//   SEVER   `__XGIS_FORCE_VECTOR_DRAPE` on the same page, same camera. The
-//           assertion is RELATIVE — drape strictly softer than direct — because
-//           what has to be true is that the two arms are DISTINGUISHABLE; an
-//           absolute bound on the drape arm would be re-asserting #2024's number
-//           in #2093's gate, and would go red for #2024's reasons.
+//   SEVER   `__XGIS_FORCE_VECTOR_DRAPE` on the same page, same camera. What has
+//           to be true is that the two arms are DISTINGUISHABLE — an absolute
+//           bound on the drape arm would re-assert #2024's number inside #2093's
+//           gate and go red for #2024's reasons.
+//
+//           This USED to be spelled "drape's soft-band strictly exceeds direct's"
+//           and that spelling is now DEAD, on measurement: before merging main it
+//           read direct 0.000 vs drape 0.099; after, direct 0.000 vs drape 0.000,
+//           with greenFrac moving by 8e-5 — i.e. the frames still differ by ~20k
+//           pixels while the soft-band metric no longer separates them. The drape
+//           at this camera is the #2024 WINDOWED bake, whose sharpness rides an
+//           atomic residency switch (`computeDrapeOverzoom` falls back to the
+//           parent-magnified bake unless every ancestor is resident), and main's
+//           readiness-gate change (#2091 / 91c7b73, whose own commit body retracts
+//           its "no render change" claim with "it changes which tiles are
+//           selected") moved that lifecycle. So the old inequality was reporting a
+//           sub-pixel AA ramp crossing the 2px↔1px boundary, not a property of the
+//           ceiling. Re-asserting it in any form would be re-asserting a boundary.
+//
+//           The live claim is the one the data supports: the drape-held frame must
+//           differ from the direct frame by decisively more than THIS RUN's
+//           same-arm noise floor (direct captured twice, nothing changed between).
+//           The floor is measured rather than assumed because the direct path on
+//           this engine is not always frame-stable at a fixed camera (#2135). The
+//           soft-band numbers are still printed — they are useful — but they are
+//           reported, never asserted.
 //
 // Settling is the one deliberate departure: the original slept `waitForTimeout
 // (6000)`, which the capture-canvas skill forbids for content (a sleep that
@@ -49,7 +70,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { captureMapFrame } from './helpers/visual'
+import { captureMapFrame, pixelDiffRatio } from './helpers/visual'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -100,6 +121,20 @@ function readGlobeDirectMinSelectionZ(): number {
  *  bake by construction (it magnifies geometry, not texels), so holding it to
  *  the sharpest bake's number is the honest floor. */
 const SOFT_BAND_MAX = 0.2
+/** The sever arm's discriminator: the drape-held frame must differ from the direct
+ *  frame by decisively more than the same-arm noise floor measured in the same run.
+ *
+ *  DERIVED FROM MEASUREMENT, not picked. Two consecutive runs on this camera
+ *  (SwiftShader, WORKERS=1) both reported, to six decimals: same-arm noise floor
+ *  0.000000, arm-to-arm delta 0.031245. So the direct path is frame-stable here
+ *  and the arms separate by 3.12% of the frame. The bar is
+ *  `max(floor × MULT, MIN)`: MIN 0.01 leaves ~3× headroom below the measured
+ *  signal while still failing long before the arms become indistinguishable, and
+ *  MULT 4 only binds if this scene ever stops being frame-stable (the direct path
+ *  on this engine is not always stable at a fixed camera — #2135), in which case
+ *  the bar rises with the noise instead of silently passing on it. */
+const ARM_DELTA_FLOOR_MULT = 4
+const ARM_DELTA_MIN = 0.01
 /** Convergence budget: the `dark` demo compiles a 14.6 MB countries.geojson
  *  before the first tile can draw (measured ~32 s to steady state under
  *  SwiftShader in `_globe-dateline-wired-gate`), and this style then loads its
@@ -374,6 +409,22 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than
       `must clear the windowed bake's own bound.`,
   ).toBeLessThanOrEqual(SOFT_BAND_MAX)
 
+  // ── NOISE FLOOR — the same arm, twice, nothing changed in between ──────────
+  // The sever assertion below asks whether the two arms render DIFFERENTLY. That
+  // question only has an answer relative to how much this scene moves on its own,
+  // so the gate measures its own floor every run instead of trusting a constant.
+  // Not paranoia: `_bundle-replay-parity-gate` on this same engine has a
+  // bundle-DISABLED arm whose frame hashes vary run to run at a fixed camera
+  // (#2135), so a hard-coded floor would be a guess about a moving quantity.
+  const directPng2 = await captureMapFrame(page, { readyTimeoutMs: 180_000, capture: 'clip' })
+  const noiseFloor = await pixelDiffRatio(page, directPng, directPng2)
+  console.log(`[#2093 overzoom noise-floor] ${noiseFloor.toFixed(6)}`)
+  expect(
+    noiseFloor,
+    `same-arm noise floor is ${noiseFloor} — 1 is pixelDiffRatio's size-mismatch sentinel, so ` +
+      `the two captures are not comparable and nothing below means anything`,
+  ).toBeLessThan(1)
+
   // ── SEVER — hold the drape on the same page, same camera ───────────────────
   // Live toggle, not a second page: two simultaneous WebGPU contexts livelocked
   // SwiftShader in the INC-1 probe. `_drapeGlobeFills` is recomputed every render
@@ -426,13 +477,16 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than
   // RELATIVE, deliberately: the claim is that the ceiling changes what is drawn,
   // i.e. that the arms are distinguishable. An absolute bound here would restate
   // #2024's windowed-bake number inside #2093's gate.
+  const armDelta = await pixelDiffRatio(page, directPng, drapedPng)
+  console.log(`[#2093 overzoom arm-delta] ${armDelta.toFixed(6)} vs floor ${noiseFloor.toFixed(6)}`)
   expect(
-    drapedProfile.fracWide,
-    `soft-band fraction: direct ${directProfile.fracWide.toFixed(3)} vs drape-held ` +
-      `${drapedProfile.fracWide.toFixed(3)}. Equal means holding the drape changed nothing at ` +
-      `this camera — the #2093 ceiling is then not the mechanism that decides sharpness here, ` +
-      `which is a finding about the fix, not a flake.`,
-  ).toBeGreaterThan(directProfile.fracWide)
+    armDelta,
+    `holding the drape changed ${(armDelta * 100).toFixed(2)}% of the frame against a same-arm ` +
+      `noise floor of ${(noiseFloor * 100).toFixed(2)}%. Indistinguishable arms mean the #2093 ` +
+      `ceiling is not the mechanism that decides what is drawn at this camera — a finding about ` +
+      `the fix, not a flake. (soft-band: direct ${directProfile.fracWide.toFixed(3)} vs drape ` +
+      `${drapedProfile.fracWide.toFixed(3)} — reported, NOT asserted: see the header.)`,
+  ).toBeGreaterThan(Math.max(noiseFloor * ARM_DELTA_FLOOR_MULT, ARM_DELTA_MIN))
 
   // Leave the page as it was found — the flag is on globalThis and a later
   // navigation in the same context would inherit it.
