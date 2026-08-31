@@ -1,6 +1,8 @@
 # Convergence authority — one registry for "is the scene converged?" (#2149)
 
-Status: **DESIGN — awaiting owner approval before any code** (author↔architect flow).
+Status: **APPROVED 2026-08-31** (owner, "허가" — blanket approval of the doc as written,
+including §9's three recommendations: 10 s deadline default, #2129 lands on the new rails
+in increment 2, burst scope stays `SCOPE_VT_PIPELINE` pending #2150's measurement).
 Date: 2026-08-31. Tracking issue: #2149. Origin: marathon roadmap Phase 5, first bullet
 (`docs/plans/2026-08-25-marathon-roadmap.md:179-192`).
 
