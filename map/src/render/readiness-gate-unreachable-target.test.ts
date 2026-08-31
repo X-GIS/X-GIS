@@ -91,14 +91,10 @@ function drive(
 /** The real consumer: `keepLoopWarm` with every OTHER signal quiet, so the
  *  pending-advance flag is the only thing that can hold the loop warm. */
 function loopWarm(cache: TileSelectionCache): boolean {
-  const quiet = {
-    hasPendingLoads: () => false,
-    failedTiles: { hasPendingRetries: () => false },
-  }
   return keepLoopWarm({
     totalMissed: 0,
-    raster: quiet,
-    hillshade: quiet,
+    // #2149 — the raster/DEM signals now arrive through the registry scope; quiet here.
+    pendingWork: { hasPending: () => false },
     vtRenderers: [
       { renderer: { hasPendingUploads: () => false, _selection: cache } },
     ] as unknown as Parameters<typeof keepLoopWarm>[0]['vtRenderers'],

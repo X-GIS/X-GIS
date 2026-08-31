@@ -222,7 +222,12 @@ export function evictToBudget<T extends EvictableTile>(
  *
  *  Only the FETCH side — the textures are owned by the device, which
  *  `_releaseGpuResources` destroys one call later. */
-export function abortLoadingTiles(loadingTiles: Map<string, AbortController>): void {
+export function abortLoadingTiles(loadingTiles: {
+  values(): IterableIterator<AbortController>
+  clear(): void
+}): void {
+  // Structural over the exact surface used, so the bare Map AND the deadline-stamped
+  // InflightLedger (#2149, tile-retry.ts) both satisfy it — one teardown authority.
   for (const ctrl of loadingTiles.values()) ctrl.abort()
   loadingTiles.clear()
 }

@@ -48,7 +48,7 @@ export const fillCapabilities: readonly RuntimeCapability[] = [
     layerType: 'fill',
     variant: 'constant',
     supported: true,
-    note: 'viewport (default) = screen-space; map = world-space: VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.fillTranslateAnchorMap). Pitch foreshortening of the offset not reproduced.',
+    note: 'map is the spec default (and what an absent anchor means, #2170) = world-space: VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.fillTranslateAnchorMap). An explicit viewport = screen-space, un-flagged. Pitch foreshortening of the offset not reproduced.',
   },
   // iter-181/182/183/184 Stage 2 — UV-tiled sprite atlas sampled in
   // fs_fill_pattern with world-anchored UV. Constant string sprite

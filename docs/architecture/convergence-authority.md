@@ -233,9 +233,17 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    moved onto its registration, the existing #2126 WIRED test now pins the registry
    route, and the probe-severing cut reds exactly the sprite half while glyph stays
    green).
-4. **Raster/DEM family** (`raster-fetch/retry`, `dem-fetch/retry`) — probe adapters over
-   the existing ledgers; `render-loop-keep-warm.ts` still exists, now reading the registry
-   for these kinds (transitional).
+4. **Raster/DEM family** — **LANDED**, with one boundedness addition the recon forced:
+   the renderers' raw `loadingTiles.size` was UNBOUNDED against a hung fetch (the slot
+   is freed only on settle, and the guarded fetch has no timeout — #2091's shape), so
+   the shared `InflightLedger` (tile-retry.ts, beside FailedTileLedger for the same
+   anti-drift reason) now stamps each checkout and `liveCount()` stops counting past
+   `RASTER_INFLIGHT_KEEP_WARM_MS` (10 s) — a pure read, no abort: the slot-pinning of a
+   hung fetch is pre-existing and unchanged. `keepLoopWarm` reads
+   `hasPending(SCOPE_RASTER_DEM)` (scope identity pinned by test) in place of its four
+   hand-listed signals; the retry kinds ride the real `FailedTileLedger`
+   (attempt-count-bounded). Cut-verified both ways: the keep-warm scope read and the
+   `raster-fetch` probe each red only their own tests.
 5. **VT family** (`vt-fetch/replaced/upload/missed/lod`) — adapters registered in
    `map.ts` over the probes VTR/TileCatalog already export; `vector-tile-renderer.ts` and
    `tile-selection-cache.ts` are **not edited** (shrink-only ceilings).

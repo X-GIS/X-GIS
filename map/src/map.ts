@@ -396,9 +396,9 @@ export class XGISMap {
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   textStage: TextStage | null = null
-  /** #2149 — the ONE list of async resource classes whose bounded in-flight work keeps
-   *  the loop warm (pending-work.ts). Probes read the stages lazily at call time. */
-  private readonly _pendingWork = buildPendingWorkRegistry(this)
+  /** #2149 — the ONE list of async resource classes whose bounded in-flight work keeps the
+   *  loop warm (pending-work.ts). Probes read lazily; package-internal for the host Pick. */
+  readonly _pendingWork = buildPendingWorkRegistry(this)
   overlays: TextOverlay[] = []
   /** Resource bundle the TextStage uses to populate its glyph chain
    *  on first construction. Mutated by `setGlyphsUrl`, `addGlyph
