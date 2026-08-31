@@ -42,6 +42,12 @@ test.describe.configure({ timeout: 300_000 })
 // position — far above any SwiftShader raster noise floor.
 const TRANSLATE: readonly [number, number] = [60, 0]
 
+// Both arms must run the SAME backend or the diff is between two rasterizers,
+// not between two anchors. Asserted per arm (§5) so a silent fallback cannot
+// green this gate. The page carries no `?forcegl2`, so this is the WebGPU path
+// on SwiftShader.
+const EXPECTED_BACKEND = 'webgpu'
+
 function style(anchor: 'absent' | 'viewport'): string {
   return convertMapboxStyle({
     version: 8,
@@ -107,6 +113,14 @@ async function capture(
     // The arm actually booted is the arm we asked for — never infer it.
     const booted = await page.evaluate(() => sessionStorage.getItem('__xgisImportSource') ?? '')
     expect(booted, `the ${anchor} arm must boot its own style`).toBe(src)
+    // Name the backend so a silent fallback cannot green this gate (§5). Both
+    // arms must be on the SAME one, or the pixel comparison is between two
+    // rasterizers rather than between two anchors.
+    const backend = await page.evaluate(
+      () =>
+        (window as unknown as { __xgisActiveBackend?: string | null }).__xgisActiveBackend ?? null,
+    )
+    expect(backend, `the ${anchor} arm's backend`).toBe(EXPECTED_BACKEND)
     await awaitMapIdle(page, 120_000)
     return await captureMapFrame(page)
   } finally {
