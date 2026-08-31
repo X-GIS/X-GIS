@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: cd67bbeb32b7e7f3375ee00cd2dc20b79681527b
+  Generated from: c5fcdacc23447d2371ff56ca22e0977706dde0c5
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since cd67bbeb32b7
+    bun scripts/emit-changelog.ts --since c5fcdacc2344
 -->
 
 # Changelog
@@ -122,6 +122,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
 - **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
 - **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
 - **map/playground:** #2116 — the idle contract, and three render gates that measured the wrong thing ([#2120](https://github.com/X-GIS/X-GIS/pull/2120)) `6864afd`
