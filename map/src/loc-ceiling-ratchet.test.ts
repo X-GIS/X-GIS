@@ -865,13 +865,19 @@ const CEILINGS: Record<string, number> = {
   // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
   // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
-  // →5489 (this merge): the two bumps above were authored against the SAME base 5482 and
-  // the merged file takes BOTH deltas, so neither branch's number is right afterwards.
-  // Set from `wc -l` on the merged file, not from arithmetic — and note that git only
-  // conflicted here because the two numbers happened to DIFFER; had both branches landed
-  // on the same value it would have merged clean at a ceiling one change too low
-  // (CLAUDE.md §12). Lower as #991 decomposes map.ts.
+  // →5489 (main's #2138 merge note): bumps authored against the same base SUM — set from
+  // `wc -l` on the merged file, never from arithmetic (CLAUDE.md §12).
+  // Merge union (#2149 ⨯ #2138): branch carried 5485 (#2129's +1 injection net of the
+  // glyph-term −1), main carried 5489 (#2138's +4); the merged file MEASURES 5489 —
+  // the branch's net-zero rides inside it. Lower as #991 decomposes map.ts.
   'map/src/map.ts': 5489,
+  // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
+  // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
+  // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
+  // The keep-warm reason lives on the registration (pending-work.ts); this file carries
+  // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
+  // #2138 merge (main did not touch this file): 801.
+  'map/src/coverage-source.ts': 801,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
