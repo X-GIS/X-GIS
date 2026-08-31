@@ -136,6 +136,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
         textStage: {
           hasPendingGlyphLoads: () => realStageProbe.call({ pbfRasterizer: rasterizer }),
         },
+        iconStage: null,
       })
       cache.ensure('Open Sans Semibold', 65, () => {})
       return {
