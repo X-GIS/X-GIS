@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 91c7b739db0b96ce37643340369d457f0ade727a
+  Generated from: 0bf3cd0ad9378146466e2cdb482a1b70cd54b27b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 91c7b739db0b
+    bun scripts/emit-changelog.ts --since 0bf3cd0ad937
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **line:** position the globe line VS from CPU-exact ECEF endpoint lanes ([#2089](https://github.com/X-GIS/X-GIS/pull/2089)) `0bf3cd0`
 - **map/text:** D1 INC-4 — curved line labels walk the label plane and draw through a pivoted ground basis (#2012) ([#2092](https://github.com/X-GIS/X-GIS/pull/2092)) `65b1319`
 - **map:** #2042 INC-5b — ring-free bundle keys drop the live ringCursor for a sentinel ([#2098](https://github.com/X-GIS/X-GIS/pull/2098)) `e26ba5d`
 - **map:** #2042 INC-4d — per-style fill split twins (the compiled-style class) ([#2090](https://github.com/X-GIS/X-GIS/pull/2090)) `11b23e4`
@@ -118,6 +119,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/playground:** #2116 — the idle contract, and three render gates that measured the wrong thing ([#2120](https://github.com/X-GIS/X-GIS/pull/2120)) `6864afd`
 - **map:** #2091 — the readiness gate pinned an unreachable LOD target, so the map never idled ([#2103](https://github.com/X-GIS/X-GIS/pull/2103)) `91c7b73`
 - **map:** #2042 INC-4b prep — tile-arena grow hook + retired-buffer drain ([#2067](https://github.com/X-GIS/X-GIS/pull/2067)) `c7fb2e3`
 - **render:** non-mercator projection bugs — drape anchor, antimeridian lon wrap, globe overzoom sharpness, oblique seam streaks (#2022 #2023 #2024 #1496) ([#2031](https://github.com/X-GIS/X-GIS/pull/2031)) `2bab527`
@@ -248,6 +250,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- record the four lessons #2120 paid for, and correct the #2103 taxonomy ([#2124](https://github.com/X-GIS/X-GIS/pull/2124)) `4f9af24`
 - **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
 - **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
 - **plans:** GeoJSON clustering design — cluster options, synthetic properties, ["accumulated"] (ADR-0012 T3 track) ([#2033](https://github.com/X-GIS/X-GIS/pull/2033)) `90b097b`

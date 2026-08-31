@@ -828,7 +828,13 @@ const CEILINGS: Record<string, number> = {
   // `_installSyntheticEarthSurfaceSource`) and setBackgroundFill-lifecycle.test.ts pins its
   // text to THIS file. Pure extraction, no behaviour line. LOWERED by the extracted count
   // per the doc's Phase 0 mandate — headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/map.ts': 5462,
+  // 5462→5471 (#2116): the glyph keep-alive in `shouldRenderThisFrame`. It sits HERE and
+  // not behind a forwarder because this method is the single authority that gates both
+  // rendering and `idle`, and the sibling symbol-fade keep-alive it stands next to answers
+  // the same question — a second place to decide "is the text finished?" is how #2091 /
+  // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
+  // MEASURED.
+  'map/src/map.ts': 5471,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1037,7 +1043,11 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2167,
+  // 2167→2176 (#2116): `hasPendingGlyphLoads()` — the accessor the map's keep-alive polls.
+  // It cannot be avoided by reaching `pbfRasterizer` directly (private, and the chain's
+  // composition is this stage's business) and it is the same shape as the `getFadeLedger()`
+  // accessor two lines below it. 3 statement lines + its 6-line reason. MEASURED.
+  'map/src/text/text-stage.ts': 2176,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1237,12 +1247,15 @@ const CEILINGS: Record<string, number> = {
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
   // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
-  // 1539→1561 (#2117 line-gradient): the two ramp uniform arrays + gradient_count on
-  // LineLayer, and the ramp substitution in compute_line_color. The ramp EVALUATION
-  // (the loop + the 4-per-vec4 position unpack) is extracted to line-gradient.ts, the
-  // same relief valve #1496 used, so only the struct fields + one If block land here.
-  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
-  'map/src/shaders/dsl/line.ts': 1561,
+  // 1651→1673 (#2117 line-gradient, on top of #2089's 1539→1651). #2089 paid 112 lines
+  // for the ECEF endpoint lanes and the error-budget rationale under them; #2117 adds
+  // 22: the two ramp uniform arrays + `gradient_count` on LineLayer (which takes the
+  // slot the 16-byte alignment pad occupied, so the struct grows only by the arrays),
+  // and the ramp substitution in compute_line_color. The ramp EVALUATION — the stop
+  // loop and the 4-per-vec4 position unpack — is extracted to line-gradient.ts, the
+  // same relief valve #1496 used, so only the struct fields and one `If` block land
+  // here. Headroom is re-justified per phase, never banked. MEASURED post-merge.
+  'map/src/shaders/dsl/line.ts': 1673,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1872,7 +1885,9 @@ const CEILINGS: Record<string, number> = {
   // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
   // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
   // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
-  'map/src/render/upload-coordinator.ts': 921,
+  // 921→923 (#2089): the tileOriginMerc argument at the two buildLineSegments
+  // call sites (the ECEF endpoint-lane pack anchor).
+  'map/src/render/upload-coordinator.ts': 923,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
@@ -1908,7 +1923,8 @@ const CEILINGS: Record<string, number> = {
   // geometry) instead of its array position, so data-driven paint stops reading
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
-  'compiler/src/tiler/vector-tiler.ts': 1601,
+  // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
+  'compiler/src/tiler/vector-tiler.ts': 1603,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

@@ -389,6 +389,15 @@ export class TextStage {
     return this.fadeLedger
   }
 
+  /** Is a glyph range still in flight? The map's render keep-alive polls this beside
+   *  `getFadeLedger().hasActive()` — the same authority, because both answer "is this
+   *  frame's text finished?" and a second opinion is how that question has drifted before.
+   *  Bounded by the provider (see `GlyphProvider.hasPendingLoads`), so a hung glyph host
+   *  cannot pin the loop. */
+  hasPendingGlyphLoads(): boolean {
+    return this.pbfRasterizer?.hasPendingLoads() ?? false
+  }
+
   /** #1260 — live-update the symbol-fade duration (a reduced-motion flip or a
    *  host option change) without reconstructing the stage. 0 disables fading
    *  and clears in-flight ramps; a positive value re-enables it. */

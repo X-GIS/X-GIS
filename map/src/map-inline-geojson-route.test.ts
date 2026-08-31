@@ -377,6 +377,7 @@ describe('legacy route slice-key agreement (#1940)', () => {
             y: 0,
             tileWest: -180,
             tileSouth: -85.0511,
+            tileOriginMerc: [0, 0] as const,
             vertices: new Float32Array(18),
             dequantScale: 1,
             dequantHalf: 0,
