@@ -21,6 +21,7 @@ import {
   VALID_ANCHORS,
   parseMapboxFontName,
   pitchAlignmentGapWarning,
+  distanceFromCenterAnchorWarning,
   convertIconOffset,
 } from './layers-helpers'
 
@@ -1243,6 +1244,12 @@ export function convertTextLayoutProperties(
   // default chain that reaches "map" without authoring it. See the helper.
   const pitchGap = pitchAlignmentGapWarning(layer, layout, placement, rotAlign, pitchAlign)
   if (pitchGap !== null) warnings.push(pitchGap)
+
+  // ["distance-from-center"] has no well-defined anchor under line
+  // placement (#2119) — see the helper doc for why this is permanent,
+  // not a wiring gap.
+  const dfcGap = distanceFromCenterAnchorWarning(layer, layout, paint, placement)
+  if (dfcGap !== null) warnings.push(dfcGap)
 
   // symbol-spacing — distance between repeated labels along a line
   // in pixels. Only meaningful for placement: line. Default 250 in
