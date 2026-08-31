@@ -489,6 +489,23 @@ async function runParity(
     writeFileSync(pOn, on[0]!.png)
     writeFileSync(pSkew, onSkew.png)
     console.log(`[rtc-parity:${tag}] witness frames: ${pOn} ${pSkew}`)
+
+    // STRUCTURAL FLOOR — the reason `drawnPixelCount` exists (#2042 INC-6 wrote it, then
+    // orphaned it by flipping LINE_HALF_WIRED to true in the same commit, which retired the
+    // only arm that called it; TS6133 was the only thing that noticed). See #2148.
+    //
+    // It is needed MORE now, not less. Witness 2 below asserts `offSkew.hash === off.hash`,
+    // and TWO BLANK CANVASES satisfy that perfectly — a live assertion that a scene drawing
+    // nothing would pass. The skew-diff arms are self-protecting (a blank pair diffs to 0,
+    // which fails their `> 0` / `> 100` bars), but the hash-equality one is not.
+    const drawn = drawnPixelCount(on[0]!.png)
+    console.log(`[rtc-parity:${tag}] drawn pixels on the stroke-only scene: ${drawn}`)
+    expect(
+      drawn,
+      `${tag}: the stroke-only scene drew ${drawn} pixels — a BLANK frame satisfies Witness 2's ` +
+        'hash equality and the skew diffs alike, so every verdict below would be vacuous. ' +
+        'The scene, the fixture or the boot failed, not the recombination.',
+    ).toBeGreaterThan(0)
   }
   const geometryWitness = lineOnly && projOverride !== null
   if (lineOnly && !LINE_HALF_WIRED) {
