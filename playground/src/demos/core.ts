@@ -298,6 +298,14 @@ export const DEMOS_CORE: Record<string, Demo> = {
     source: load('openfreemap-bright.xgis'),
   },
 
+  openfreemap_positron: {
+    name: 'OpenFreeMap Positron (live)',
+    tag: 'vector-tiles',
+    description:
+      'Live one-line `import "…/styles/positron"` — the runtime fetches the OpenFreeMap "positron" Mapbox style and converts it in full, including the place/POI/road-name/shield labels. OpenMapTiles schema. Added to reproduce two user-reported cameras: #9.70/37.54704/126.81412 (Seoul, native zoom) and #21.10/37.38823/126.9468 (Seoul, deep overzoom — source maxzoom 14).',
+    source: load('openfreemap-positron.xgis'),
+  },
+
   pmtiles_only_landuse: {
     name: 'PMTiles — landuse only (diag)',
     tag: 'vector-tiles',

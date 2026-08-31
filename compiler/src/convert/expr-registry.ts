@@ -41,6 +41,7 @@ import {
   propertiesHandler,
   geometryTypeHandler,
   idHandler,
+  distanceFromCenterHandler,
   inHandler,
   isSupportedScriptHandler,
   withinHandler,
@@ -182,6 +183,10 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['properties', propertiesHandler],
   ['geometry-type', geometryTypeHandler],
   ['id', idHandler],
+  // camera+anchor accessor — routes through get("$key") like geometry-type
+  // / id above (hyphenated op name, can't be a bare identifier); reserved
+  // key + units math: eval/reserved-keys.ts + eval/distance-from-center.ts
+  ['distance-from-center', distanceFromCenterHandler],
   // geometry containment — point/multipoint within polygon (CPU predicate)
   ['within', withinHandler],
   // geometry proximity — metres from feature to target (CPU predicate)

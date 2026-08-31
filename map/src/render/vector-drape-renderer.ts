@@ -15,6 +15,9 @@
 // SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
+// COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
+// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the bake's blur would exceed the
+// chord sagitta it removes and the direct arm renders instead.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
@@ -52,6 +55,24 @@ const tileRowLat = (y: number, tileN: number): number =>
 const BAKE_PX = 512
 /** Bytes of one bake — RGBA8 at BAKE_PX², every entry the same size. */
 const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
+
+/** #2093 — consecutive drape-free frames after which the WHOLE bake cache is
+ *  released.
+ *
+ *  `planBakeEvictions` only trims ABOVE the cap, so a cache that stops being
+ *  sampled freezes at its high-water mark — up to `maxCachedEntriesFor(BAKE_BYTES)`
+ *  512² RGBA8 textures (384 desktop / 96 mobile, i.e. ~384 / ~96 MiB) held until
+ *  `destroy()`. Before the LOD ceiling the globe drape never went permanently
+ *  cold; past `GLOBE_DIRECT_MIN_SELECTION_Z` the direct arm renders every vector
+ *  layer, so nothing re-enters the cache and none of it can ever be sampled again.
+ *
+ *  30 frames (~0.5 s at 60 fps) is the compromise: an ACTIVE drape only ever
+ *  produces a drape-free frame transiently (a frame where every visible tile is
+ *  mid-reload, so every bake self-skips), and the cost of being wrong is a re-bake
+ *  of the VISIBLE set only — the entries dropped were by definition not on screen.
+ *  A map that renders no frames at all keeps its cache until it renders again;
+ *  that is the deliberate limit of a frame-counted release. */
+export const COLD_RELEASE_FRAMES = 30
 
 /** ECEF-frame view the drape projects with — the SAME matrix + log-depth + eye
  *  the vector / raster paths already compute (camera.getViewForProjection), so
@@ -107,6 +128,8 @@ export interface DrapeOverzoomTile {
  *  shared RasterDraper + the raster global uniform + a per-tile baked-texture
  *  cache (validated by uploadEpoch + fill colour, so a static globe re-bakes
  *  nothing). I3 (#599): the cache is bounded by an LRU cap + freed on destroy;
+ *  #2093 also releases it in full once it goes COLD (the LOD ceiling can retire
+ *  the drape for good, and an LRU cap alone never frees an under-cap cache);
  *  eviction is deferred to beginFrame (see there for the lifecycle rationale). */
 export class VectorDrapeRenderer {
   private readonly draper: RasterDraper
@@ -145,6 +168,9 @@ export class VectorDrapeRenderer {
    *  submit still references ("Destroyed texture used in a submit"). One more frame
    *  guarantees the referencing submit has completed. */
   private readonly _retiredBakes: RhiTexture[] = []
+  /** #2093 — consecutive beginFrame()s that saw NO bake draped. Drives the
+   *  cold-cache release (see COLD_RELEASE_FRAMES). */
+  private _coldFrames = 0
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -417,7 +443,10 @@ export class VectorDrapeRenderer {
    *  least-recently-draped bakes past the viewport-aware cap (#1579 —
    *  `maxCachedEntriesFor`, sharing the raster cache's byte ceiling instead of a
    *  flat desktop-sized count), skipping the previous frame's visible set, then
-   *  rolls the visible set forward.
+   *  rolls the visible set forward. #2093 adds the cold-cache release below the
+   *  cap eviction: the same visible set that gates eviction also says whether the
+   *  cache was sampled AT ALL, and COLD_RELEASE_FRAMES drape-free frames drop it
+   *  entirely (through the same retire queue).
    *
    *  Eviction is DEFERRED here rather than run inline in renderGlobeFills for
    *  the SAME lifecycle reason the raster tile cache (raster-renderer.evictTiles)
@@ -443,6 +472,25 @@ export class VectorDrapeRenderer {
         this._retiredBakes.push(tex) // destroy next frame — the prior submit may still reference it
         this.baked.delete(k)
       }
+    }
+    // #2093 cold-cache release. `visibleKeys` is the set of bakes the frame that
+    // just ended actually draped, so an empty set means the cache went unsampled.
+    // The cap eviction above cannot free it — it only trims ABOVE the cap — so a
+    // cache that goes permanently cold (the LOD ceiling hands every vector layer
+    // to the direct arm) would sit at its high-water mark until destroy(). Drop
+    // the whole thing through the SAME retire queue the eviction uses, so the
+    // textures are destroyed one frame later, after the referencing submit has
+    // drained. The VTR's lazy `this._drape ??=` re-creates nothing — this
+    // renderer stays alive and simply re-bakes if draping resumes.
+    if (this.visibleKeys.size > 0 || this.baked.size === 0) {
+      this._coldFrames = 0
+    } else if (++this._coldFrames >= COLD_RELEASE_FRAMES) {
+      for (const e of this.baked.values()) {
+        this.draper.dropTexture(e.tex) // invalidate the draper cache before freeing
+        this._retiredBakes.push(e.tex) // destroy next frame — same deferred-retire discipline
+      }
+      this.baked.clear()
+      this._coldFrames = 0
     }
     this.visibleKeys.clear()
     // Restart the shared-pool base for the new frame (see _framePoolBase). #1142
