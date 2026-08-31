@@ -151,6 +151,13 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
     expect(CURVED).toMatch(
       /const i = _sampleOut\[3\][\s\S]*const t = _sampleOut\[4\][\s\S]*const gx = mx\[i\]! \+ \(mx\[i \+ 1\]! - mx\[i\]!\) \* t/,
     )
-    expect(CURVED).toContain('_groundArgs.basis = run.groundBasisFor?.(run.featDef, lon, lat)')
+    // #2012 INC-5 — the producer now yields the basis AND its size multiplier in
+    // one call, so the pin is on the CALL (which is what carries the ground point)
+    // rather than on the assignment it used to be spelled as.
+    expect(CURVED).toContain('run.groundBasisFor?.(run.featDef, lon, lat)')
+    expect(CURVED).toContain('_groundArgs.basis = align?.basis')
+    // Both halves come off the SAME call — a second call would be a second
+    // projection AND could be handed a different ground point.
+    expect((CURVED.match(/run\.groundBasisFor\?\./g) ?? []).length).toBe(1)
   })
 })
