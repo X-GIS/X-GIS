@@ -178,11 +178,31 @@ Only then decide whether #1190 needs another lever at all.
 
 ## Phase 5 — 5-year architecture debt
 
-- **One authority for "is the scene converged?"** #2091, #2101, #2116 are three faces of the
-  same defect: convergence is decided in `shouldRenderThisFrame`, in `keepLoopWarm`, in
-  `hasPendingSourceWork`, and again in `awaitMapIdle` — four places, drifting. Collapse to
-  one predicate with one list of resource classes, and make adding a new async resource
-  class a compile error if it does not register.
+- **One authority for "is the scene converged?"** ⚠ **The "four places, drifting" framing
+  below was wrong — corrected 2026-08-31 by reading the four sites.** They are composed, not
+  competing, and the composition is explicit:
+  `keepLoopWarm` → `_needsRender` (`render-loop.ts:682`, an assignment at end-of-frame) →
+  `shouldRenderThisFrame`'s FIRST term (`map.ts:4424`); `hasPendingSourceWork` is a private
+  helper `shouldRenderThisFrame` calls at `map.ts:4479`; and `awaitMapIdle`
+  (`playground/e2e/helpers/visual.ts:626`) does not decide anything — it reads the event
+  bus's `_wasIdle`, which is driven by `shouldRenderThisFrame`, and it is already edge-safe
+  (checks the current state before subscribing). So there is ONE composed authority. Do not
+  open this as a "collapse four predicates" refactor; that premise does not survive contact
+  with the code.
+
+  What survives, and is still worth doing: **nothing enumerates the async resource classes.**
+  `shouldRenderThisFrame` is a hand-maintained list of 13 `if` terms, and adding a resource
+  class means remembering to add one — #2116 (glyphs) and #2122 (sprites) were each a
+  human noticing an omission, not a compiler catching one. Make the class list the single
+  registered thing, so a new async resource that does not register is a compile error. That
+  is the real content of this item.
+
+  Also noted while reading: `render-loop.ts:680` sets `_needsRender = false` and `:682`
+  immediately overwrites it with `keepLoopWarm(...)`, so `:680` is dead. Harmless, but the
+  assignment at `:682` is `=` rather than `|=`, which means an `invalidate()` issued from
+  inside the frame would be clobbered. Whether any caller actually does that is unverified —
+  check before treating it as a bug.
+
 - **Every keep-warm signal bounded by construction.** Phase 0 establishes the rule; apply it
   to the existing signals and pin it with a test, so the next `safeFetch`-without-timeout
   cannot wedge the loop.
