@@ -76,6 +76,55 @@ const DEMOTILES_FILLS: ColorClass[] = [
   },
 ]
 
+// OFM Positron palette (compiler/src/__tests__/fixtures/openfreemap-positron.json):
+// background rgb(242,243,240); water fill rgb(194,200,202); boundary_2 (admin-2 line)
+// hsl(0,0%,70%) = rgb(178,178,178) at full opacity past z4; highway_{major,motorway}
+// _casing rgb(213,213,213); highway_{major,motorway}_inner #fff past z6; highway_minor
+// hsl(0,0%,88%) = rgb(224,224,224). All neutral grays sit close together in 11-19pt
+// steps (178→194→213→224→242→255), so windows are hand-tuned to the ACTUAL gaps rather
+// than one uniform ±tolerance — casing↔minor is the tightest (11pt) and stays fuzzy by
+// construction; water is additionally keyed on its blue-green cast (b−r) since its
+// neutral-gray window alone would collide with boundary/casing.
+//
+// Neutrality threshold tightened to <4 (was <6) — instrument-validation finding
+// (2026-08-25, first merc-9.70 run): `park` fill rgb(230,233,229) and `landcover_wood`
+// fill rgb(220,224,220) both sit inside the casing/minor R-windows and have a
+// max channel delta of exactly 4 (g the odd-channel-out on both), so at <6 tolerance
+// a Seoul wood/park polygon read as an 88px-wide "minor road" run — a flooded-positive
+// broken ruler, not a zero one, but the same fix: sample real colors, tighten past the
+// contaminant. Road/boundary colors are EXACTLY neutral (r=g=b, delta 0) pre-AA, so <4
+// excludes both fills (delta 4) while every genuine stroke match (delta 0, or a small
+// AA blend toward the near-neutral background) is untouched.
+const POSITRON_STROKES: ColorClass[] = [
+  {
+    name: 'boundary-gray', // boundary_2 ≈ rgb(178,178,178)
+    ch: 'D',
+    test: (r, g, b) => r > 168 && r < 188 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
+  },
+  {
+    name: 'casing-gray', // highway_{major,motorway}_casing rgb(213,213,213)
+    ch: 'C',
+    test: (r, g, b) => r > 204 && r < 222 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
+  },
+  {
+    name: 'inner-white', // highway_{major,motorway}_inner #fff
+    ch: 'I',
+    test: (r, g, b) => r > 248 && g > 248 && b > 248,
+  },
+  {
+    name: 'minor-gray', // highway_minor ≈ rgb(224,224,224) — a sub-pixel ≈0.42 CSS px
+    ch: 'M', // hairline at z9.7 the bake cannot represent; ±8 window per background gap.
+    test: (r, g, b) => r > 216 && r < 232 && Math.abs(r - g) < 4 && Math.abs(g - b) < 4,
+  },
+]
+const POSITRON_FILLS: ColorClass[] = [
+  {
+    name: 'water', // rgb(194,200,202)
+    ch: 'A',
+    test: (r, g, b) => r > 182 && r < 206 && b - r > 4 && b >= g,
+  },
+]
+
 // The #2053 repro cells: Korea east coast + Busan, deep past the mirror's
 // maxzoom 2 (Δz 5-7), mercator control at the same cameras.
 const SCENARIOS: Record<string, Scenario> = {
@@ -91,6 +140,36 @@ const SCENARIOS: Record<string, Scenario> = {
     strokes: DEMOTILES_STROKES,
     fills: DEMOTILES_FILLS,
     convergeBudgetMs: 120_000,
+  },
+  // Globe rendering-quality probe (INC-1 PROBE phase): OFM Positron at the two
+  // user-reported cameras — #9.70/37.54704/126.81412 (native zoom, source maxzoom
+  // 14) and #21.10/37.38823/126.9468 (deep overzoom, Δz≈7, #2024 virtual windowed
+  // bakes). All-layer vector drape suspect: vector-tile-renderer.ts:3603-3625
+  // (`_drapeGlobeFills`/`_drapeStrokes`) rasterizes into fixed 512px DPR-blind
+  // single-sample tile bakes on the globe; mercator renders vectors directly.
+  // This scenario measures both projections at both cameras so the harness's
+  // run/registration numbers can attribute any width or ramp softness to the bake.
+  'positron-quality': {
+    name: 'positron-quality',
+    cells: [
+      { slug: 'globe-9.70', proj: 'globe', lon: 126.81412, lat: 37.54704, zoom: 9.7 },
+      { slug: 'globe-21.10', proj: 'globe', lon: 126.9468, lat: 37.38823, zoom: 21.1 },
+      { slug: 'merc-9.70', proj: 'mercator', lon: 126.81412, lat: 37.54704, zoom: 9.7 },
+      { slug: 'merc-21.10', proj: 'mercator', lon: 126.9468, lat: 37.38823, zoom: 21.1 },
+    ],
+    rows: [0.33, 0.5, 0.66],
+    strokes: POSITRON_STROKES,
+    fills: POSITRON_FILLS,
+    // 600s (was 150s — raised 2026-08-25 after orchestrator review): a first run
+    // measured globe-9.70 with 288 pending uploads STILL residual at 150s and
+    // globe-21.10 with 37-68 (mercator cells: 0 residual same run) — the #2053
+    // upload-backlog class ("the map fossilized half-loaded"), not a converged
+    // frame. Positron is ~35 layers; the busy z9.7 camera (z9-majority + z10-focal-
+    // column tile selection, background facts) has far more to upload than the
+    // demotiles scenario's single-layer cells ever did. Cells that still carry a
+    // residual after this budget are reported as such (never hidden) — see
+    // `drapeState` below for the accompanying cause-assertion.
+    convergeBudgetMs: 600_000,
   },
 }
 
@@ -113,6 +192,17 @@ interface CellReport {
   convergedMs: number
   residualPendingUploads: number
   residualPendingLoads: number
+  /** Cause-assertion for a drape A/B (e.g. `__XGIS_DISABLE_VECTOR_DRAPE`): the LIVE
+   *  `_drapeGlobeFills`/`_drapeStrokes`/baked-key-count per vtSource at read time, so
+   *  a report can be checked for "did the lever actually flip" instead of inferred
+   *  from pixels alone (§12 — an assertion that never distinguishes the states it
+   *  tests is worthless; this makes the mechanism itself part of the report). Present
+   *  on every cell/scenario — cheap, and a `false`/`0` everywhere off the globe is
+   *  itself the expected control reading, not a hole in the data. */
+  drapeState: Record<
+    string,
+    { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }
+  >
   rows: RowMeasure[]
 }
 
@@ -145,7 +235,7 @@ type MapLike = {
   vtSources?: Map<
     string,
     {
-      renderer: { getPendingUploadCount?: () => number }
+      renderer: Record<string, unknown> & { getPendingUploadCount?: () => number }
       source: { getPendingLoadCount?: () => number }
     }
   >
@@ -164,6 +254,31 @@ function pendingCounts(m: MapLike): { uploads: number; loads: number } {
     }
   }
   return { uploads, loads }
+}
+
+/** Cause-assertion recipe from _globe-drape-overzoom-gate.spec.ts:136-149 —
+ *  `renderer['_drapeGlobeFills']` / `['_drapeStrokes']` / baked-key count — read
+ *  fresh at report time so a scenario A/B (e.g. `__XGIS_DISABLE_VECTOR_DRAPE`)
+ *  can be checked for whether the lever actually moved, not inferred from pixels. */
+function captureDrapeState(
+  m: MapLike,
+): Record<string, { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }> {
+  const out: Record<
+    string,
+    { drapeGlobeFills: boolean; drapeStrokes: boolean; bakedCount: number }
+  > = {}
+  if (m.vtSources) {
+    for (const [name, entry] of m.vtSources) {
+      const r = entry.renderer
+      const drape = r['_drape'] as { baked?: Map<string, unknown> } | undefined
+      out[name] = {
+        drapeGlobeFills: r['_drapeGlobeFills'] === true,
+        drapeStrokes: r['_drapeStrokes'] === true,
+        bakedCount: drape?.baked?.size ?? 0,
+      }
+    }
+  }
+  return out
 }
 
 /** Converge: source work drained AND upload/load counters at zero for 5
@@ -351,6 +466,7 @@ export async function runMeasureHarness(params: URLSearchParams): Promise<void> 
     await nextFrame()
     const convergedMs = await converge(m, sc.convergeBudgetMs)
     const residual = pendingCounts(m)
+    const drapeState = captureDrapeState(m)
     // Compose the frame the reader sees, then read it back.
     m.invalidate?.()
     await nextFrame()
@@ -364,12 +480,16 @@ export async function runMeasureHarness(params: URLSearchParams): Promise<void> 
       convergedMs,
       residualPendingUploads: residual.uploads,
       residualPendingLoads: residual.loads,
+      drapeState,
       rows,
     })
     const regs = rows.map((r) => r.registrationCss).filter((v): v is number => v !== null)
+    const drapeSummary = Object.entries(drapeState)
+      .map(([n, s]) => `${n}:fills=${s.drapeGlobeFills}/baked=${s.bakedCount}`)
+      .join(' ')
     ui.line(
       `  converged ${convergedMs}ms (residual up=${residual.uploads} ld=${residual.loads}) · ` +
-        `reg=[${regs.join(', ')}]px · runs=${rows.map((r) => r.runs.length).join('/')}`,
+        `drape[${drapeSummary}] · reg=[${regs.join(', ')}]px · runs=${rows.map((r) => r.runs.length).join('/')}`,
     )
   }
 

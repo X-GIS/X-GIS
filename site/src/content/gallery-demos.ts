@@ -408,6 +408,7 @@ export const unlistedDemoIds: string[] = [
   'custom_shapes',
   'animation_pulse',
   'hillshade_multidir',
+  'openfreemap_positron',
   // Detail-level variants of a carded composition.
   'physical_map_10m',
   'physical_map_50m',

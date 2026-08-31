@@ -1,0 +1,20 @@
+xgis 1
+
+/* OpenFreeMap "Positron" — live one-line import.
+ *
+ * Same live-import path as openfreemap-bright.xgis: the runtime fetches
+ * the style.json, sniffs its Mapbox v8 shape (`version` + `layers`), runs
+ * convertMapboxStyle, and renders the FULL style — all sources (the
+ * openmaptiles planet tilejson, plus whatever the style itself defines)
+ * AND the symbol layers (place/POI/road-name/shield labels).
+ *
+ * Positron is OpenFreeMap's light/muted basemap on the same OpenMapTiles
+ * schema as Bright, converted through the same path against a different
+ * Mapbox style document.
+ *
+ * Added to reproduce two user-reported cameras:
+ *   #9.70/37.54704/126.81412  (Seoul, native zoom)
+ *   #21.10/37.38823/126.9468  (Seoul, deep overzoom — source maxzoom 14)
+ */
+
+import "https://tiles.openfreemap.org/styles/positron"

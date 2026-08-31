@@ -56,12 +56,67 @@ const MAX_DIFF_PX = 12
  *  above MAX_DIFF_PX and far below wrap-around ambiguity. */
 const WITNESS_SKEW_M = 5e5
 
+/** #2042 INC-6 — the LINE-only witness scene, injected rather than committed.
+ *
+ *  THE GEOMETRY MUST HAVE EXTENT PERPENDICULAR TO THE SKEW, and that is not a detail —
+ *  it is the whole reason this scene is coastlines and not the parallels it started as.
+ *  The witness skew translates the tile anchor along X. `fixture-long-chords.geojson` is
+ *  4 constant-latitude LineStrings spanning lon -180..180, i.e. horizontal image lines
+ *  wider than the frame; translating one along X maps its pixel set to ITSELF, so the
+ *  skew is invisible by construction in every projection. Measured, it was: 20 differing
+ *  pixels at 5 isolated x-positions (join residue where translation symmetry breaks),
+ *  IDENTICAL in Mercator and equirectangular — a witness that cannot witness.
+ *  `ne_110m_coastline.geojson` is 4994 segments with 36% steeper than 45 degrees, so an
+ *  X shift displaces real edges.
+ *
+ *  No fill layer and no label layer, both deliberate. A fill would let the polygon path
+ *  satisfy the witness on the line half's behalf (the flat arm's existing defect); an
+ *  along-path label moves through the TEXT stage, so a shifted label would be
+ *  indistinguishable from a wired line recombination. Both are the same failed-either-way
+ *  shape (CLAUDE.md 12) at different layers.
+ *
+ *  Injected through `__xgisRunSource` (playground/src/demo-runner.ts) rather than committed
+ *  as a fixture, so the scene sits next to the assertion that depends on it; `XGISMap`
+ *  exposes no layer-visibility API, so trimming a shipped scene in-page is not an option. */
+const LINE_ONLY_SRC = `xgis 1
+source coast { type: geojson, url: "ne_110m_coastline.geojson" }
+layer coastline {
+  source: coast
+  | stroke-rose-500 stroke-3
+}
+`
+
+/** Whether line.ts CONSUMES the Mercator anchor lanes yet (#2042 INC-6, the LINE half).
+ *
+ *  TRUE as of the INC-6 LINE half: `line.ts` un-padded `cam_ecef_center_h` (its `.w` is the
+ *  umbrella recombine flag), `tile_origin_merc_hl` and `cam_merc_center_hl`, and routes all
+ *  three cam_h/cam_l read sites through `mercCamRel()`. So a skewed anchor now MOVES stroke
+ *  pixels, and the witness below asserts that instead of asserting inertness.
+ *
+ *  This constant flipped in the SAME diff that un-padded the lanes, and the false side was
+ *  MEASURED on pre-#2042-INC-6 sources (pads verified present, line-endpoint.ts verified
+ *  absent, before measuring): skew moved count=0 maxD=0 in BOTH arms. With the lanes wired
+ *  the same scene gives 1679 px (Mercator) / 1714 px (equirectangular). Neither assertion
+ *  was rewritten by the change under test — only this one documented flag — so the gate
+ *  judged the increment rather than being edited to agree with it.
+ *
+ *  The earlier 0 recorded against the PARALLELS scene does not count and is not cited: that
+ *  scene is translation-invariant along the skew axis (see LINE_ONLY_SRC), so its 0 was the
+ *  scene being blind, not the lanes being pads. Same number, no information. */
+const LINE_HALF_WIRED = true
+
 type Arm = { recombine: boolean; skewM: number }
 
 let _clip: { x: number; y: number; width: number; height: number } | null = null
 let _stepIdx = 0
 
-async function bootArm(page: Page, arm: Arm, globe: boolean): Promise<void> {
+async function bootArm(
+  page: Page,
+  arm: Arm,
+  globe: boolean,
+  lineOnly = false,
+  projOverride: string | null = null,
+): Promise<void> {
   _clip = null
   await page.emulateMedia({ reducedMotion: 'reduce' })
   // proj=globe — the ECEF RTC recombination (INC-1) lives in the projection
@@ -86,16 +141,73 @@ async function bootArm(page: Page, arm: Arm, globe: boolean): Promise<void> {
   // resample: the diff sits on all 55 rows and 287 of 288 columns at ~25 px/row, with a
   // spike on the one thin dashed feature (rows 11-14: 223/265/270/195). That is the ladder's
   // dpr notch, not arithmetic.
-  await page.goto(
-    `/demo.html?id=import_maplibre_mirror${globe ? '&proj=globe' : ''}&e2e=1&msaa=1&adaptive=0#1.5/20/140`,
-    { waitUntil: 'domcontentloaded' },
-  )
+  const sceneId = lineOnly ? 'line_styles' : 'import_maplibre_mirror'
+  const proj = projOverride !== null ? `&proj=${projOverride}` : globe ? '&proj=globe' : ''
+  await page.goto(`/demo.html?id=${sceneId}${proj}&e2e=1&msaa=1&adaptive=0#1.5/20/140`, {
+    waitUntil: 'domcontentloaded',
+  })
   console.log(`[rtc-parity] boot(${JSON.stringify(arm)}): navigated, waiting ready`)
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,
     { timeout: 240_000 },
   )
+  // Line-only arms: swap the shipped `long_chords` scene for the stroke-only one. Booting
+  // that demo first (rather than injecting over an arbitrary scene) means its geojson is
+  // already fetched, so the re-run does not re-race the network. `runSource` takes the same
+  // path as the Run button and rebuilds the map, so wait for readiness AGAIN — map.ts clears
+  // `__xgisReady` on the teardown and re-sets it once the new map enters the render loop.
+  if (lineOnly) {
+    await page.evaluate(async (src: string) => {
+      ;(window as unknown as { __xgisReady?: boolean }).__xgisReady = false
+      await (
+        window as unknown as { __xgisRunSource: (s: string) => Promise<unknown> }
+      ).__xgisRunSource(src)
+    }, LINE_ONLY_SRC)
+    await page.waitForFunction(
+      () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
+      null,
+      { timeout: 240_000 },
+    )
+    const layers = await page.evaluate(
+      () =>
+        (
+          window as unknown as { __xgisMap?: { getLayers?: () => readonly { name?: string }[] } }
+        ).__xgisMap
+          ?.getLayers?.()
+          ?.map((l) => l?.name ?? '?') ?? null,
+    )
+    console.log(`[rtc-parity] line-only scene layers: ${JSON.stringify(layers)}`)
+    // ASSERTED, not just logged. If the injection silently no-ops the arm renders the
+    // shipped `long_chords` — label layer included — and every stroke verdict below becomes
+    // a text-stage measurement wearing a line-shader label. That is the exact false positive
+    // this scene was built to remove, so it must fail loudly here rather than pass quietly.
+    expect(
+      layers,
+      'line-only scene injection produced no layer list — cannot certify the label layer is gone',
+    ).not.toBeNull()
+    expect(
+      layers,
+      `line-only scene must contain the stroke layer ALONE; got ${JSON.stringify(layers)}`,
+    ).toEqual(['coastline'])
+
+    // ASSERT the arm is running the projection it NAMES. Without this the equirectangular
+    // arm silently rendered Mercator frames — identical witness numbers to the Mercator arm
+    // (count=20, maxD=244), i.e. an arm that looks like second-projection coverage and is
+    // not. That is the same vacuity this whole witness exists to remove, one level up.
+    const projName = await page.evaluate(
+      () =>
+        (
+          window as unknown as { __xgisMap?: { getProjectionName?: () => string } }
+        ).__xgisMap?.getProjectionName?.() ?? null,
+    )
+    console.log(`[rtc-parity] line-only projection: ${JSON.stringify(projName)}`)
+    expect(
+      projName,
+      `line-only arm must render the projection it claims; asked for ` +
+        `${JSON.stringify(projOverride ?? 'mercator')}, got ${JSON.stringify(projName)}`,
+    ).toBe(projOverride ?? 'mercator')
+  }
   // Flags are read LIVE per frame at the uniform write site, so a post-ready
   // evaluate is sufficient (and addInitScript stacking is not reliable
   // across per-arm navigations — measured in the bundle gate's history).
@@ -147,6 +259,27 @@ async function shot(page: Page): Promise<{ hash: string; png: Buffer }> {
   }
   const png = await page.screenshot({ clip: _clip, animations: 'disabled', timeout: 120_000 })
   return { hash: createHash('sha256').update(png).digest('hex'), png }
+}
+
+/** Pixels whose colour differs from the frame's corner pixel — i.e. DRAWN content.
+ *
+ *  The line-only witness asserts "the skew moved 0 pixels", and a BLANK canvas satisfies
+ *  that just as well as an inert-but-rendering one (§12: a pixel-COUNT gate passes on broken
+ *  images — assert structure). This is the structural floor that separates the two: on a
+ *  scene whose only drawable is a stroke layer, drawn pixels ARE stroke pixels. */
+function drawnPixelCount(png: Buffer): number {
+  const p = PNG.sync.read(png)
+  const [br, bg, bb] = [p.data[0]!, p.data[1]!, p.data[2]!]
+  let n = 0
+  for (let i = 0; i < p.data.length; i += 4) {
+    if (
+      Math.abs(p.data[i]! - br) > 8 ||
+      Math.abs(p.data[i + 1]! - bg) > 8 ||
+      Math.abs(p.data[i + 2]! - bb) > 8
+    )
+      n++
+  }
+  return n
 }
 
 /** Count pixels differing in ANY channel (+ max channel delta) between two
@@ -280,28 +413,30 @@ async function runParity(
   page: Page,
   testInfo: { outputPath: (name: string) => string },
   globe: boolean,
+  lineOnly = false,
+  projOverride: string | null = null,
 ): Promise<void> {
-  const tag = globe ? 'globe' : 'flat'
+  const tag = lineOnly ? (projOverride ?? 'line-merc') : globe ? 'globe' : 'flat'
   const pageErrors: string[] = []
   page.on('pageerror', (e) => pageErrors.push(String(e?.message ?? e)))
   await page.setViewportSize({ width: 288, height: 160 })
 
   // Arm A — legacy (flag off, no skew): the reference.
-  await bootArm(page, { recombine: false, skewM: 0 }, globe)
+  await bootArm(page, { recombine: false, skewM: 0 }, globe, lineOnly, projOverride)
   const off = await runScript(page)
 
   // Arm B — recombine ON.
-  await bootArm(page, { recombine: true, skewM: 0 }, globe)
+  await bootArm(page, { recombine: true, skewM: 0 }, globe, lineOnly, projOverride)
   const on = await runScript(page)
 
   // Arm C — recombine ON + witness skew: single pose, must move geometry
   // (globe: the ECEF anchor X; flat: the Mercator origin X — the hook skews
   // both, each scene's live arm reads its own).
-  await bootArm(page, { recombine: true, skewM: WITNESS_SKEW_M }, globe)
+  await bootArm(page, { recombine: true, skewM: WITNESS_SKEW_M }, globe, lineOnly, projOverride)
   const onSkew = await stepAndSettle(page, SCRIPT[0]!)
 
   // Arm D — recombine OFF + witness skew: single pose, must be inert.
-  await bootArm(page, { recombine: false, skewM: WITNESS_SKEW_M }, globe)
+  await bootArm(page, { recombine: false, skewM: WITNESS_SKEW_M }, globe, lineOnly, projOverride)
   const offSkew = await stepAndSettle(page, SCRIPT[0]!)
 
   // ── Verdicts ──
@@ -334,11 +469,55 @@ async function runParity(
   // Witness 1 — the recombine path is LIVE: skewing the tile anchor moves it.
   const cd = pixelDiff(on[0]!.png, onSkew.png)
   console.log(`[rtc-parity:${tag}] witness ON+skew vs ON: count=${cd.count} maxΔ=${cd.maxDelta}`)
-  expect(
-    cd.count,
-    `${tag}: ON + skew did not move geometry — the VS is NOT consuming the skewed anchor ` +
-      '(flag plumbing dead or select wired to the legacy arm); the A/B above is vacuous',
-  ).toBeGreaterThan(100)
+  // The two line arms witness DIFFERENT sites, and neither one covers both. On Mercator
+  // `finalize_corner` is the identity passthrough (line-corner.ts) so the VERTEX site is
+  // dead and geometry cannot move; the live consumer is the fragment `line_endpoint`,
+  // which feeds dash/SDF distance math — a per-fragment perturbation. On a non-Mercator
+  // flat projType it is the exact inverse: `line_endpoint` returns p_h+p_l (cam unused)
+  // while `finalize_corner` takes the flat_rel arm that DOES read the pair, so geometry
+  // moves. One bar for both would be wrong in one direction or the other.
+  // §5 — a witness verdict must be REVIEWABLE at full resolution, not just a scalar. The
+  // A/B comparison above already saves its frames on failure; the witness did not, and that
+  // gap cost a round: two projections reported an identical `count=20 maxD=244` and there
+  // was no image to say whether those 20 pixels were a positional shift (paired red/blue
+  // parallel edges) or an antialiasing edge flip (scattered isolated pixels). Saved for
+  // every line arm — the frames are 288x55, the cost is nil, and the numbers alone have
+  // now misled this gate twice.
+  if (lineOnly) {
+    const pOn = testInfo.outputPath(`rtc-${tag}-witness-on.png`)
+    const pSkew = testInfo.outputPath(`rtc-${tag}-witness-on-skew.png`)
+    writeFileSync(pOn, on[0]!.png)
+    writeFileSync(pSkew, onSkew.png)
+    console.log(`[rtc-parity:${tag}] witness frames: ${pOn} ${pSkew}`)
+  }
+  const geometryWitness = lineOnly && projOverride !== null
+  if (lineOnly && !LINE_HALF_WIRED) {
+    // Measured pre-state: nothing reads the anchors, so the skew is inert on every site.
+    expect(
+      cd.count,
+      `${tag}: ON + skew moved ${cd.count} px on a stroke-only scene while line.ts still ` +
+        'declares the anchors as PADS — something is reading lanes it cannot see, or the ' +
+        'scene is not stroke-only. Flip LINE_HALF_WIRED only in the commit that un-pads them.',
+    ).toBe(0)
+  } else if (lineOnly && !geometryWitness) {
+    // Mercator: FRAGMENT-stage witness. The bar is "> 0", and it is categorical rather
+    // than fitted — this arm measured EXACTLY 0 while the lanes were pads (#2141, merged),
+    // so any non-zero is the pads-to-live transition. It is deliberately NOT "> 100": that
+    // would demand a geometric shift this projection's dead vertex site cannot produce,
+    // which is how the first draft of this gate failed.
+    expect(
+      cd.count,
+      `${tag}: ON + skew moved 0 px — the FRAGMENT sites are not consuming the recombined ` +
+        'pair (line_endpoint / clip mask). This arm measured exactly 0 pre-#2042-INC-6, so ' +
+        'a return to 0 means the wiring regressed.',
+    ).toBeGreaterThan(0)
+  } else {
+    expect(
+      cd.count,
+      `${tag}: ON + skew did not move geometry — the VS is NOT consuming the skewed anchor ` +
+        '(flag plumbing dead or select wired to the legacy arm); the A/B above is vacuous',
+    ).toBeGreaterThan(100)
+  }
 
   // Witness 2 — flag OFF really bypasses the anchors: the skewed lanes are
   // staged into the uniform but the legacy path never reads them.
@@ -364,4 +543,36 @@ test('#2042 INC-6 — flat: recombined Mercator cam-rel matches legacy; the flag
   test.setTimeout(2_100_000)
   _stepIdx = 0
   await runParity(page, testInfo, false)
+})
+
+// The flat test above runs `import_maplibre_mirror`, whose frame is dominated by
+// `countries-fill` / `crimea-fill`. Its `> 100 px` witness is satisfied by the POLYGON fill
+// alone, so it cannot distinguish a wired line recombination from a dead one — both fail
+// identically, which is §12's "assertion that failed either way". This third test removes
+// that: every pixel it measures is a stroke, so its witness bites on the LINE half and
+// nothing else.
+//
+// Landed BEFORE the line half deliberately. A gate written after the change it judges has
+// no tree left on which to show it discriminates; written before, its `LINE_HALF_WIRED=false`
+// arm MEASURES that the anchors are inert today, and the commit that un-pads them flips one
+// documented constant to claim the opposite. That before/after pair is the fail-before.
+test('#2042 INC-6 — line-only Mercator: the FRAGMENT sites consume the recombined pair', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(2_100_000)
+  _stepIdx = 0
+  await runParity(page, testInfo, false, /* lineOnly */ true)
+})
+
+// The companion arm, and the reason there are two. Mercator's `finalize_corner` is the
+// identity passthrough, so the VERTEX site — the one that positions geometry — never runs
+// there: the Mercator arm above can only ever see a fragment-stage perturbation. On
+// equirectangular (projType 1) the inverse holds, so this arm is the only place a wrong
+// recombined offset shows up as MOVED STROKES rather than shaded ones.
+test('#2042 INC-6 — line-only equirectangular: the VERTEX site moves geometry', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(2_100_000)
+  _stepIdx = 0
+  await runParity(page, testInfo, false, /* lineOnly */ true, 'equirectangular')
 })

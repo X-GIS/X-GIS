@@ -289,7 +289,24 @@ const CEILINGS: Record<string, number> = {
   // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
   // for ring-free walks (PR #2090's measured re-record coupling) + the
   // opaque-layout-param note (#991).
-  'map/src/render/vector-tile-renderer.ts': 5454,
+  // 5303→5311 (#2093 F1): the drape LOD ceiling at the `_drapeGlobeFills`
+  // derivation — the `drapesAtSelectionZ(currentZ)` conjunct + its
+  // __XGIS_FORCE_VECTOR_DRAPE A/B escape (6, incl. the 3-line rationale) and 2
+  // in the block comment above it. The arithmetic itself is NOT here: the
+  // chord-sagitta-vs-bake-texel derivation lives with the constant in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_SELECTION_Z), so this file
+  // gains only the call-site seam.
+  // 5311→5320 (#2093 E1): the two drape flags added as cells of BOTH bundle
+  // cache keys (primary + fallback) — 4 property lines + 5 of pointer comment.
+  // They SELECT what a bundle records (`drawFills` / `drawStrokes`) and the
+  // ceiling made them zoom-dependent, so a key that omits them lets a direct-arm
+  // bundle replay its fill draws over the drape. Irreducible: the contract is
+  // one property per key literal (`satisfies BundleKeyState`), and the full
+  // derivation lives with the fields in _cache/bundle-cache-key.ts, not here.
+  // Merge of the two histories above: main's 5454 plus this branch's +17,
+  // MEASURED post-prettier on the merged file (never side-picked, never summed
+  // by hand — a merge that takes either side's number lands a wrong ceiling).
+  'map/src/render/vector-tile-renderer.ts': 5471,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -829,7 +846,13 @@ const CEILINGS: Record<string, number> = {
   // the same question — a second place to decide "is the text finished?" is how #2091 /
   // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
   // MEASURED.
-  'map/src/map.ts': 5471,
+  // 5471→5482 (#2122): the sprite keep-alive, beside the glyph one #2120 added. Same
+  // authority for the same reason — `shouldRenderThisFrame` gates both rendering and
+  // `idle`, and a second place to decide "is this frame's async content finished?" is how
+  // that question has drifted three times already. Reads a deadlined probe rather than the
+  // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
+  // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  'map/src/map.ts': 5482,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1038,11 +1061,22 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  // 2167→2176 (#2116): `hasPendingGlyphLoads()` — the accessor the map's keep-alive polls.
-  // It cannot be avoided by reaching `pbfRasterizer` directly (private, and the chain's
-  // composition is this stage's business) and it is the same shape as the `getFadeLedger()`
-  // accessor two lines below it. 3 statement lines + its 6-line reason. MEASURED.
-  'map/src/text/text-stage.ts': 2176,
+  // 2176→2175 (#2012 INC-5, on top of #2116's 2167→2176). #2116 added
+  // `hasPendingGlyphLoads()` (+9); INC-5 nets −1 here by paying for the pitched size
+  // correction out of TWO extractions, because the file had ZERO headroom to pay it from.
+  // (1) `labelSizePx` — authored size × DPR × the 1/64-quantised perspective factor —
+  // moved to text-stage-helpers.ts, taking the #1081 rationale and the layout-cache
+  // contract with it. It is exactly the arithmetic INC-5 makes SHARED: the point loop has
+  // folded a perspective factor in since #1081 and the curved loop now does too, and two
+  // copies are two chances to quantise one and not the other (the cache is keyed on the
+  // result, so the un-quantised arm would thrash on every frame of a tilt).
+  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5 showed
+  // was hand-written on BOTH sides of the stage boundary plus once more as the dispatch's
+  // reused holder: adding one field meant editing three copies of one shape, so it becomes
+  // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
+  // size derivation and their reasoning. The ceiling drops to the measured post-merge size
+  // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2175,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1254,7 +1288,20 @@ const CEILINGS: Record<string, number> = {
   // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
   // PACKED while the shader recombines in f32 — the distinction a later reader
   // would otherwise have to rediscover from a failing tolerance.
-  'map/src/shaders/dsl/line.ts': 1651,
+  // 1651→1673 (#2042 INC-6, the LINE half): the flat arm now RECOMBINES the Mercator
+  // camera-relative pair from the absolute anchors instead of reading the CPU-packed
+  // cam_h/cam_l lanes. That is a real added code path, not padding: three un-padded lane
+  // declarations + their reasons, a `tileCamRel()` adapter over the shared merc-cam-rel.ts
+  // authority, and a `lineEndpoint` adapter over the extracted helper. `line_endpoint`
+  // itself MOVED OUT to line-endpoint.ts (the #1003 line-corner.ts idiom — lanes as
+  // parameters), which is why the growth is 22 and not 30; the extraction was required by
+  // the increment anyway, since that function's cam read is one of the three sites the
+  // recombination replaces and the pair it needs is flag-selected, not a raw lane.
+  // The file's path back DOWN is identified and measured: `compute_line_color`
+  // (map/src/shaders/dsl/line.ts, ~497 lines — a third of the file) is the next extraction,
+  // deliberately not folded in here so this increment's diff stays about the recombination.
+  // MEASURED after prettier.
+  'map/src/shaders/dsl/line.ts': 1673,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1300,7 +1347,13 @@ const CEILINGS: Record<string, number> = {
   // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
   // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
   // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
-  'map/src/shaders/dsl/polygon.ts': 1577,
+  // 1577→1567 (#2042 INC-6 prep): the Mercator cam-rel recipe moved to the shared
+  // merc-cam-rel.ts so line.ts can consume the SAME authority instead of spelling out a second
+  // copy (it would have been the third, counting polygon-split.ts's `derived` map). Shrink-only
+  // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
+  // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
+  // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
+  'map/src/shaders/dsl/polygon.ts': 1567,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

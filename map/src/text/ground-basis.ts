@@ -58,8 +58,14 @@
 // second, projection-specific basis authority is the two-authorities drift this
 // construction exists to avoid.
 
-/** Screen point, or null where the projection has no image for the point. */
-export type ScreenPoint = readonly [number, number]
+/** Screen point, or null where the projection has no image for the point.
+ *
+ *  A projector may carry EXTRA slots past the first two and `groundBasisAt`
+ *  ignores them — the ground projectors return `[x, y, clipW]` so a caller that
+ *  needs the anchor's camera distance gets it off the projection it already did
+ *  (#2012 INC-5). Same contract as `projectLonLatCopies`' slot 3: readers of
+ *  `[0]`/`[1]` are unaffected by the widening. */
+export type ScreenPoint = readonly [number, number, ...number[]]
 
 /** `[ex, ey, nx, ny]` — the screen-space images of the anchor's ground axes,
  *  normalized so that an unpitched camera yields exactly `[1, 0, 0, 1]`. */
@@ -188,6 +194,45 @@ export function groundBasisAt(
   const bdet = basis[0] * basis[3] - basis[1] * basis[2]
   if (!Number.isFinite(bdet) || Math.abs(bdet) < 1e-6) return null
   return basis
+}
+
+/** The size multiplier that goes with lying in the ground plane — MapLibre's
+ *  `perspective_ratio`, read on its MAP branch (#2012 INC-5, design §3.3).
+ *
+ *  `src/shaders/glsl/symbol_sdf.vertex.glsl:93-101` (maplibre-gl 5.24.0):
+ *
+ *    distance_ratio    = u_pitch_with_map ? camera_to_anchor / camera_to_center
+ *                                         : camera_to_center / camera_to_anchor
+ *    perspective_ratio = clamp(0.5 + 0.5 * distance_ratio, 0.0, 4.0)
+ *    size             *= perspective_ratio
+ *
+ *  `distanceRatio` here is the MAP branch's argument — the anchor's camera
+ *  distance over the camera-centre distance, which on this engine is the ratio
+ *  of clip-w's (`projectFlatRtc` computes it; slot 3 of the ground projectors'
+ *  tuple carries it). It GROWS with distance, which is the whole point and the
+ *  thing a re-derivation gets backwards: the label is sized in the label PLANE,
+ *  and the perspective divide that follows shrinks it again, so a far label has
+ *  to be laid out bigger to end up at ~0.5× on screen instead of at nothing.
+ *
+ *  The viewport branch is the reciprocal argument, and X-GIS has had it since
+ *  #1081 — inline in `makeLabelProjectors` (render-loop-helpers.ts), clamped
+ *  shrink-only to `[0.5, 1.0]` there for a measured reason of its own (near-field
+ *  growth evicted neighbouring labels). That clamp is why the ratio cannot simply
+ *  be recovered from `PendingLabel.perspectiveScale`: it is not invertible for any
+ *  anchor nearer than the camera centre, which is every label in the bottom band
+ *  of a pitched frame.
+ *
+ *  The BOUNDS are the reference's, deliberately: 0 and 4, not #1081's `[0.5, 1]`.
+ *  Reusing the shrink-only clamp here would cap the correction at 1 and leave most
+ *  of the defect in place. Forcing 1 — what shipped before this — is neither
+ *  branch, and is rejected with its reason in design §8 R6.
+ *
+ *  Total by construction: a non-finite ratio returns 1 (no correction) rather than
+ *  propagating a NaN into `sizePx`, which would take the label's whole layout —
+ *  advances, wrapping, the collision box — with it. */
+export function groundPerspectiveScale(distanceRatio: number): number {
+  if (!Number.isFinite(distanceRatio)) return 1
+  return Math.max(0, Math.min(4, 0.5 + 0.5 * distanceRatio))
 }
 
 /** The screen AABB a basis-transformed box occupies.

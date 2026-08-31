@@ -33,6 +33,7 @@ import type { LabelDef } from '@xgis/compiler'
 import { EARTH } from '@xgis/shared'
 import { mercatorYToLat } from '@xgis/geo'
 import type { ProjectGroundMerc } from '../../camera/pitch0-unproject'
+import type { CurvedGroundArgs } from '../../text/text-stage-types'
 import type { GroundBasisFor } from './dispatch-point-labels'
 import { lineLabelCopyKey, lineLabelDedupeKey } from './line-label-dedupe'
 import { latticeMissesRun, type LineLabelDropCounts } from './line-label-drop-stats'
@@ -198,11 +199,7 @@ export interface CurvedLineLabelDeps {
     lineId: string | undefined,
     anchorDistancePx: number | undefined,
     collisionId: string | undefined,
-    ground?: {
-      liveX: Float32Array
-      liveY: Float32Array
-      basis: ArrayLike<number> | undefined
-    },
+    ground?: CurvedGroundArgs,
   ) => void
   /** `label-pass`'s icon dispatcher. Slot order mirrors it exactly. */
   dispatchIcon: (
@@ -260,11 +257,12 @@ export interface CurvedLineLabelRun extends CurvedRunPolylines {
 /** `[x, y, tangentDeg, segIdx, segT]` — reused across stops. */
 const _sampleOut: [number, number, number, number, number] = [0, 0, 0, 0, 0]
 /** Reused `ground` holder — `addCurvedLineLabel` copies the fields out. */
-const _groundArgs: {
-  liveX: Float32Array
-  liveY: Float32Array
-  basis: ArrayLike<number> | undefined
-} = { liveX: new Float32Array(0), liveY: new Float32Array(0), basis: undefined }
+const _groundArgs: CurvedGroundArgs = {
+  liveX: new Float32Array(0),
+  liveY: new Float32Array(0),
+  basis: undefined,
+  sizeScale: 1,
+}
 
 /** Walk one projected run and emit the curved labels the world lattice puts on it
  *  (or the single midpoint label a short run gets), with the paired icon and the
@@ -322,7 +320,15 @@ export function emitCurvedLineLabels(run: CurvedLineLabelRun, deps: CurvedLineLa
       const lat = mercatorYToLat(gy)
       _groundArgs.liveX = run.liveX!
       _groundArgs.liveY = run.liveY!
-      _groundArgs.basis = run.groundBasisFor?.(run.featDef, lon, lat)
+      // Reused holder on both sides — read the fields out in one place rather
+      // than calling the producer twice, which would also project twice.
+      const align = run.groundBasisFor?.(run.featDef, lon, lat)
+      _groundArgs.basis = align?.basis
+      // #2012 INC-5 — the map-branch size multiplier that goes with lying down. A
+      // run whose basis degenerated gets 1: it keeps the label-plane cadence and
+      // billboards, and a billboard is sized by the viewport branch, which the
+      // curved path has never applied (it passes 1 for its icon too).
+      _groundArgs.sizeScale = align?.sizeScale ?? 1
       groundArgs = _groundArgs
     }
     deps.addCurvedLineLabel(

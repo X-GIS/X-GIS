@@ -119,6 +119,28 @@ export interface BundleKeyState {
   /** Second (gap) layer-slot offset for the road-casing double-stroke
    *  draw pair; -1 sentinel = single-stroke path (no second draw). */
   readonly lineLayerOffsetGap: number
+
+  /** #2093 — whether the globe vector DRAPE owns this show's fills
+   *  (`VectorTileRenderer._drapeGlobeFills`). It selects `drawFills` in
+   *  renderTileKeys, so the two arms record DIFFERENT command sets into the
+   *  bundle while no other cell here need move. `allocUniformSlot()` runs once
+   *  per tile at tile-loop scope, ABOVE the `if (drawFills …)` guard, so the
+   *  walk allocates identically on both arms and the hit-path alloc-count
+   *  invariant cannot fire; `ringCursor` separates them only on a frame where
+   *  the drape actually (re-)bakes — `bakeTileToTexture` takes one slot per
+   *  bake — which is exactly what the bake cache stops happening. In the steady
+   *  state (bakes cached, ring rewound by beginFrame's resetSlot) the cursor at
+   *  key-build time is identical. Before the #2093 LOD ceiling the flag was
+   *  camera-invariant per show; the ceiling makes it zoom-dependent and
+   *  `__XGIS_FORCE_VECTOR_DRAPE` flips it live at a FIXED camera — every other
+   *  cell identical, so a direct-arm bundle would HIT under a held drape and
+   *  replay its fill draws ON TOP of the draped ones. */
+  readonly drapeGlobeFills: boolean
+
+  /** #2093 — the stroke half of the above (`VectorTileRenderer._drapeStrokes`
+   *  → `drawStrokes`): when the drape baked this show's strokes into the tile
+   *  texture the bundle records no direct ECEF-chord stroke draws. */
+  readonly drapeStrokes: boolean
 }
 
 /** Type guard — pinned for tests + future runtime assertions. */
@@ -132,6 +154,8 @@ export function isBundleKeyState(v: unknown): v is BundleKeyState {
     Array.isArray(o.epochs) &&
     typeof o.bindGroupEpoch === 'number' &&
     typeof o.pickOn === 'boolean' &&
-    typeof o.samples === 'number'
+    typeof o.samples === 'number' &&
+    typeof o.drapeGlobeFills === 'boolean' &&
+    typeof o.drapeStrokes === 'boolean'
   )
 }

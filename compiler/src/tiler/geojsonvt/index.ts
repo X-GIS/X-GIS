@@ -11,9 +11,14 @@
 //     `1 << z` shift wraps to negative at z=31); the Morton scheme
 //     stays accurate to z=25 without bit-width issues and is what
 //     the rest of the X-GIS pipeline already uses.
-//   - cluster / lineMetrics / debug counters / tileCoords array
-//     dropped — none of them feed the X-GIS render path. Stripping
-//     them takes ~50 LoC off the hot path.
+//   - lineMetrics / debug counters / tileCoords array dropped —
+//     none of them feed the X-GIS render path. Stripping them takes
+//     ~50 LoC off the hot path. `cluster` LEFT that list in #2050:
+//     source-level point clustering is the sibling `../cluster/`
+//     index (docs/plans/2026-08-24-geojson-clustering.md), a
+//     separate hierarchy serving z ≤ clusterMaxZoom for the same
+//     source. Sibling, not member, so this file's 1:1-port
+//     provenance stays true.
 //   - Defaults pre-baked for MapLibre's 512-px tile convention
 //     (extent=8192, buffer=2048 = 128 css px, tolerance=6 = 0.375
 //     css px). Same numerics MapLibre's geojson_source.ts produces.
