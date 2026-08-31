@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 74610ede05261b7f15f089f52bc9174bb611f440
+  Generated from: 260f77edce62805d926413aeed42d93d410c7020
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 74610ede0526
+    bun scripts/emit-changelog.ts --since 260f77edce62
 -->
 
 # Changelog
@@ -31,6 +31,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** fill-antialias gates the fill-outline draw, not MSAA ([#2194](https://github.com/X-GIS/X-GIS/pull/2194)) `260f77e`
 - **data:** inject $geometry into the vector-tile slice filter ([#2192](https://github.com/X-GIS/X-GIS/pull/2192)) `74610ed`
 - **convert:** *-translate-anchor spec default is map, not viewport ([#2180](https://github.com/X-GIS/X-GIS/pull/2180)) `867803d`
 - **raster:** position the grid VS from CPU-exact trig instead of building ECEF from angles ([#2140](https://github.com/X-GIS/X-GIS/pull/2140)) `4372e89`
