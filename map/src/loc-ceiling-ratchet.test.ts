@@ -1243,7 +1243,14 @@ const CEILINGS: Record<string, number> = {
   // perStyleSplitTwin (emitted-interface eligibility + build-on-first-use),
   // the two cache maps, the registerFillMaterials info capture, and
   // fillRhiState's perStyleTwin hand-off.
-  'map/src/render/pipeline-factory.ts': 1650,
+  // 1650→1659 (#2042 INC-7): the split-bind default flips from opt-IN (`=== true`) to
+  // opt-OUT (`!== false`). One condition character, plus a 9-line reason recording why the
+  // escape hatch stays for one release, why INC-8's legacy deletion is gated on ON having
+  // SHIPPED green rather than merged, and why WebGPU-only here is structural — build()
+  // early-returns for webgl2 before the split layout is created, so the flip is inert on
+  // that backend and the "both backends" precondition is discharged by showing WebGL2
+  // UNCHANGED. MEASURED after prettier.
+  'map/src/render/pipeline-factory.ts': 1659,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
