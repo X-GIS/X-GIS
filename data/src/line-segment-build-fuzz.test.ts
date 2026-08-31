@@ -25,51 +25,51 @@ function idx(...ks: number[]): Uint32Array {
 
 describe('iter-297 buildLineSegments fuzz', () => {
   it('empty vertices + indices → empty output', () => {
-    const r = buildLineSegments(new Float32Array(0), new Uint32Array(0), 6)
+    const r = buildLineSegments(new Float32Array(0), new Uint32Array(0), 6, null)
     expect(r.length).toBe(0)
   })
 
   it('zero indices but non-empty vertices → empty output', () => {
     const v = v6([0, 0, 0, 0, 0, 0])
-    const r = buildLineSegments(v, new Uint32Array(0), 6)
+    const r = buildLineSegments(v, new Uint32Array(0), 6, null)
     expect(r.length).toBe(0)
   })
 
   it('single segment (2 indices) → 1 segment in output', () => {
     const v = v6([0, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100])
-    const r = buildLineSegments(v, idx(0, 1), 6)
+    const r = buildLineSegments(v, idx(0, 1), 6, null)
     expect(r.length).toBe(LINE_SEGMENT_STRIDE_F32)
   })
 
   it('odd index count (3 indices) → does not crash', () => {
     const v = v6([0, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100], [200, 0, 0, 0, 0, 200])
-    expect(() => buildLineSegments(v, idx(0, 1, 2), 6)).not.toThrow()
+    expect(() => buildLineSegments(v, idx(0, 1, 2), 6, null)).not.toThrow()
   })
 
   it('zero-length segment (p0 == p1) → no crash', () => {
     const v = v6([50, 50, 0, 0, 0, 0], [50, 50, 0, 0, 0, 0])
-    expect(() => buildLineSegments(v, idx(0, 1), 6)).not.toThrow()
+    expect(() => buildLineSegments(v, idx(0, 1), 6, null)).not.toThrow()
   })
 
   it('NaN vertex does not crash builder', () => {
     const v = v6([NaN, NaN, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100])
-    expect(() => buildLineSegments(v, idx(0, 1), 6)).not.toThrow()
+    expect(() => buildLineSegments(v, idx(0, 1), 6, null)).not.toThrow()
   })
 
   it('Infinity vertex does not crash', () => {
     const v = v6([Infinity, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100])
-    expect(() => buildLineSegments(v, idx(0, 1), 6)).not.toThrow()
+    expect(() => buildLineSegments(v, idx(0, 1), 6, null)).not.toThrow()
   })
 
   it('stride=10 (DSFUN with tangents) decodes', () => {
     // [mx_h, my_h, mx_l, my_l, feat_id, arc_start, tan0, tan1, tan2, tan3]
     const v = new Float32Array([0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 100, 0, 0, 0, 0, 100, 1, 0, 1, 0])
-    expect(() => buildLineSegments(v, idx(0, 1), 10)).not.toThrow()
+    expect(() => buildLineSegments(v, idx(0, 1), 10, null)).not.toThrow()
   })
 
   it('stride<6 throws explicit error (defensive)', () => {
     const v = new Float32Array([0, 0, 0, 0, 0, 100, 0, 0, 0, 0])
-    expect(() => buildLineSegments(v, idx(0, 1), 5)).toThrow(/stride/)
+    expect(() => buildLineSegments(v, idx(0, 1), 5, null)).toThrow(/stride/)
   })
 
   it('large chain (1000 segments) does not OOM', () => {
@@ -85,47 +85,47 @@ describe('iter-297 buildLineSegments fuzz', () => {
       i[k * 2] = k
       i[k * 2 + 1] = k + 1
     }
-    expect(() => buildLineSegments(v, i, 6)).not.toThrow()
+    expect(() => buildLineSegments(v, i, 6, null)).not.toThrow()
   })
 
   it('tileWidthMerc=0 still produces valid output', () => {
     const v = v6([0, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100])
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0)
     expect(r.length).toBe(LINE_SEGMENT_STRIDE_F32)
   })
 
   it('heights map with no matching featId falls back to defaultHeight', () => {
     const v = v6([0, 0, 0, 0, 99, 0], [100, 0, 0, 0, 99, 100])
     const heights = new Map<number, number>([[42, 50]]) // 99 absent
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0, heights, undefined, undefined, 0)
     expect(r[16]).toBe(0) // z_lift_m at offset 16
   })
 
   it('heights map with matching featId writes z_lift_m', () => {
     const v = v6([0, 0, 0, 0, 42, 0], [100, 0, 0, 0, 42, 100])
     const heights = new Map<number, number>([[42, 50]])
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0, heights, undefined, undefined, 0)
     expect(r[16]).toBe(50)
   })
 
   it('widths map per-feature override at offset 17', () => {
     const v = v6([0, 0, 0, 0, 7, 0], [100, 0, 0, 0, 7, 100])
     const widths = new Map<number, number>([[7, 3.5]])
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, undefined, widths, undefined, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0, undefined, widths, undefined, 0)
     expect(r[17]).toBe(3.5)
   })
 
   it('widths absent for featId → 0 (legacy fallthrough)', () => {
     const v = v6([0, 0, 0, 0, 99, 0], [100, 0, 0, 0, 99, 100])
     const widths = new Map<number, number>([[42, 5]])
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, undefined, widths, undefined, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0, undefined, widths, undefined, 0)
     expect(r[17]).toBe(0)
   })
 
   it('colors packed RGBA writes through u32 view at offset 18', () => {
     const v = v6([0, 0, 0, 0, 7, 0], [100, 0, 0, 0, 7, 100])
     const colors = new Map<number, number>([[7, 0xff0000ff]])
-    const r = buildLineSegments(v, idx(0, 1), 6, 0, 0, undefined, undefined, colors, 0)
+    const r = buildLineSegments(v, idx(0, 1), 6, null, 0, 0, undefined, undefined, colors, 0)
     const u32 = new Uint32Array(r.buffer)
     expect(u32[18]).toBe(0xff0000ff)
   })
@@ -136,7 +136,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
     const v = v6([0, 0, 0, 0, NaN, 0], [100, 0, 0, 0, NaN, 100])
     const heights = new Map<number, number>([[42, 50]])
     expect(() =>
-      buildLineSegments(v, idx(0, 1), 6, 0, 0, heights, undefined, undefined, 0),
+      buildLineSegments(v, idx(0, 1), 6, null, 0, 0, heights, undefined, undefined, 0),
     ).not.toThrow()
   })
 
@@ -148,7 +148,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
       i[k * 2] = k
       i[k * 2 + 1] = k + 1
     }
-    const r = buildLineSegments(v, i, 6)
+    const r = buildLineSegments(v, i, 6, null)
     expect(r.length).toBe((N - 1) * LINE_SEGMENT_STRIDE_F32)
   })
 
@@ -179,7 +179,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
 
     it('straight chain — all segment floats finite', () => {
       const v = v6([0, 0, 0, 0, 0, 0], [100, 0, 0, 0, 0, 100], [200, 50, 0, 0, 0, 250])
-      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, null, 1000, 1000)
       assertAllFinite(r, 'straight')
     })
 
@@ -187,7 +187,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
       // A→B→A' where B is the apex: tangent reverses, miter pad
       // formula can blow up if not guarded.
       const v = v6([0, 0, 0, 0, 0, 0], [100, 0.001, 0, 0, 0, 100], [0, 0.002, 0, 0, 0, 200])
-      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, null, 1000, 1000)
       assertAllFinite(r, 'hairpin')
     })
 
@@ -197,14 +197,14 @@ describe('iter-297 buildLineSegments fuzz', () => {
       // extending the quad 4×half_w along the reversed segment → a perpendicular
       // whisker at dense-vertex clusters. It must bevel (pad 1) instead.
       const v = v6([0, 0, 0, 0, 0, 0], [100, 0.0001, 0, 0, 0, 100], [0, 0.0002, 0, 0, 0, 200])
-      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, null, 1000, 1000)
       const padP1Seg0 = r[0 * LINE_SEGMENT_STRIDE_F32 + 15] // slot 15 = pad_ratio_p1 (join at apex)
       expect(padP1Seg0).toBeLessThanOrEqual(1)
     })
 
     it('coincident consecutive vertices — zero tangent guarded', () => {
       const v = v6([5, 5, 0, 0, 0, 0], [5, 5, 0, 0, 0, 0], [10, 10, 0, 0, 0, 7])
-      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, 1000, 1000)
+      const r = buildLineSegments(v, idx(0, 1, 1, 2), 6, null, 1000, 1000)
       assertAllFinite(r, 'coincident')
     })
 
@@ -221,7 +221,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
         for (let k = 0; k < n - 1; k++) {
           ix.push(k, k + 1)
         }
-        const r = buildLineSegments(v, idx(...ix), 6, 1000, 1000)
+        const r = buildLineSegments(v, idx(...ix), 6, null, 1000, 1000)
         assertAllFinite(r, `rand-${trial}`)
       }
     })
@@ -233,7 +233,7 @@ describe('iter-297 buildLineSegments fuzz', () => {
       const W = 1000,
         H = 1000
       const v = v6([0, 500, 0, 0, 0, 0], [W, 500, 0, 0, 0, W]) // ends on east edge
-      const r = buildLineSegments(v, idx(0, 1), 6, W, H)
+      const r = buildLineSegments(v, idx(0, 1), 6, null, W, H)
       assertAllFinite(r, 'boundary-join')
     })
   })

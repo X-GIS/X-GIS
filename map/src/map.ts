@@ -4438,6 +4438,15 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
+    // Glyph keep-alive (#2116): a label whose PBF range is still in flight draws
+    // metrics-only (all-zero SDF, correctly spaced and inkless), and the range lands on a
+    // network callback that no tile/upload/LOD signal can see. Without this the loop idles
+    // on that frame and `idle` means "converged except for text" — which is how a
+    // settle-on-idle harness came to sample first-visit poses before their glyphs arrived,
+    // and why the parity gate needed an 8 s sleep plus a warm-up pass to be reproducible.
+    // Bounded at the provider (GlyphProvider.hasPendingLoads), so a glyph host that never
+    // answers costs one deadline of warm frames, not a map that never idles.
+    if (this.textStage !== null && this.textStage.hasPendingGlyphLoads()) return true
     // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
     // while any raster tile is mid-cross-fade the loop keeps rendering so the
     // per-tile ramp advances; the renderer clears the flag once every tile hits

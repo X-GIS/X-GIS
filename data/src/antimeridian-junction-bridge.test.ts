@@ -102,7 +102,7 @@ function boundaryEndpoint(
     }
   }
 
-  const seg = buildLineSegments(lv, li, stride, tileWidthMerc, tileHeightMerc)
+  const seg = buildLineSegments(lv, li, stride, null, tileWidthMerc, tileHeightMerc)
   const nseg = seg.length / S
 
   // The boundary edge in tile-local metres: north edge = tileHeightMerc, south

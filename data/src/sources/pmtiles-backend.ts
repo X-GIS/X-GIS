@@ -486,8 +486,16 @@ export class PMTilesBackend implements TileSource {
       const [z, x, y] = tileKeyUnpack(key)
       const { widthMerc, heightMerc } = tileSizeMerc(z, y)
       if (pool) {
-        pool
-          .compile(
+        // #2091 — `pool.compile()` calls `ensureWorkers()` BEFORE it returns its
+        // promise (mvt-worker-pool.ts:395), so a synchronous throw there (a
+        // `new Worker` blocked by CSP, a blob-URL restriction, a worker-limit
+        // hit) escapes before `.finally(releaseLoading)` is attached and strands
+        // the key in `loadingTiles` forever — `hasPendingLoads()` then pins the
+        // idle predicate and the tile is never re-requested. Same failure the
+        // virtual-catalog adapter carried; release and let the key retry.
+        let compiling: ReturnType<MvtWorkerPool['compile']>
+        try {
+          compiling = pool.compile(
             bytes.buffer.slice(
               bytes.byteOffset,
               bytes.byteOffset + bytes.byteLength,
@@ -505,6 +513,12 @@ export class PMTilesBackend implements TileSource {
             this.strokeWidthExprs,
             this.strokeColorExprs,
           )
+        } catch (err) {
+          sink.releaseLoading(key)
+          xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
+          continue
+        }
+        compiling
           .then((slices) => {
             if (slices.length === 0) {
               sink.acceptResult(key, null)
@@ -635,6 +649,7 @@ export class PMTilesBackend implements TileSource {
             tile.outlineVertices,
             tile.outlineLineIndices,
             10,
+            tile.tileOriginMerc,
             widthMerc,
             heightMerc,
             heights.size > 0 ? heights : undefined,
@@ -655,6 +670,7 @@ export class PMTilesBackend implements TileSource {
             tile.lineVertices,
             tile.lineIndices,
             lineStride,
+            tile.tileOriginMerc,
             widthMerc,
             heightMerc,
             heights.size > 0 ? heights : undefined,
