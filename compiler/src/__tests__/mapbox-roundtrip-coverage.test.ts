@@ -180,7 +180,18 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
       // and MapLibre draws no outline pass at all then (draw_fill.ts:44), so
       // "no stroke" is the CORRECT outcome, not a coverage gap (#2166).
       // OFM Bright `highway-area` is the witness for the false branch.
-      if (paint['fill-antialias'] === false) {
+      //
+      // Unwrap `["literal", false]` the same way the emitter does
+      // (convert/paint-fill.ts, the `aa` const above the outline emit). A bare
+      // `=== false` here would be a SECOND authority for one rule: the wrapped
+      // form is the same constant, so the emitter suppresses the outline while
+      // this checker took the else-branch and reported a false failure against
+      // correct output. No corpus layer authors it today, which is exactly why
+      // the drift would sit unnoticed (CLAUDE.md §12).
+      const aaRaw = paint['fill-antialias']
+      const aa =
+        Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
+      if (aa === false) {
         if (show.stroke) {
           fails.push(
             `[${layer.id}] fill-antialias:false must suppress the outline, but show.stroke is set`,
