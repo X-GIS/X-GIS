@@ -683,7 +683,6 @@ export class RenderLoop {
     this.host._needsRender = keepLoopWarm({
       totalMissed,
       pendingWork: this.host._pendingWork,
-      vtRenderers: this.host.vtSources.values(),
     })
 
     this.host._scheduleFrame()

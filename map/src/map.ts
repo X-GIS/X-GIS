@@ -83,7 +83,7 @@ import {
 } from './map-accessibility'
 import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
-import { buildPendingWorkRegistry } from './pending-work'
+import { buildPendingWorkRegistry, SCOPE_VT_PIPELINE } from './pending-work'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { settleSourceLoads } from './source-load-outcome'
 import { isLegacyGeoJSONOptOut, SourceManager } from './source-manager'
@@ -353,7 +353,11 @@ export class XGISMap {
         renderer.setColdStartBurst(on)
       }
     },
-    hasPendingSourceWork: () => this.hasPendingSourceWork(),
+    // #2149 increment 6 — the registry's SCOPE_VT_PIPELINE pins exactly the four-signal
+    // set the deleted hasPendingSourceWork() walked (fetches, owed swaps, deferred
+    // uploads, last-frame missed tiles), so the burst-exit hysteresis is byte-for-byte.
+    // Lazy: read at tick time, after every field below it is initialised.
+    hasPendingSourceWork: () => this._pendingWork.hasPending(SCOPE_VT_PIPELINE),
     // #1167 — desktop-only burst: a CONSERVATIVE default, not a measured mobile
     // regression (the +262 ms it once cited did not survive a permutation test;
     // the desktop convergence win did). Same `isMobileClassViewport(window.
@@ -1289,7 +1293,7 @@ export class XGISMap {
     })
     // Source-ingest cluster — receives the SAME source-state Map
     // instances by reference so every internal read in renderFrame /
-    // rebuildLayers / hasPendingSourceWork / diagnostics stays untouched.
+    // rebuildLayers / the pending-work probes / diagnostics stays untouched.
     // ctx / renderer / lineRenderer are read fresh (populated in run())
     // via accessors; camera / canvas are stable ctor-time instances.
     this.sourceManager = new SourceManager({
@@ -4436,9 +4440,9 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
-    // #2149 — the registered async resource classes (pending-work.ts): each kind's
-    // bounded in-flight probe holds the loop warm, and the per-kind reasons live on the
-    // registrations (glyph #2116, sprite #2122, coverage #2129 so far).
+    // #2149 — the registered async resource classes (pending-work.ts): ONE read over the
+    // full twelve-kind union. Every per-class data term this method used to hand-list
+    // lives on a registration now; a new class joins by registering, not by editing here.
     if (this._pendingWork.hasPending()) return true
     // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
     // while any raster tile is mid-cross-fade the loop keeps rendering so the
@@ -4458,7 +4462,6 @@ export class XGISMap {
     // animation, it stops it. One HALF of the two-gate obligation (the other is the advection
     // step itself); see the note on GraphicsManager.hasAnimatedGraphics for why both.
     if (this.coverageRenderer?.hasFlowField() === true) return true
-    if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
     const w = canvas?.width ?? 0,
@@ -4472,41 +4475,6 @@ export class XGISMap {
       w !== this._lastSigW ||
       h !== this._lastSigH
     )
-  }
-
-  /** Returns true when any source still has work that didn't fit in
-   *  the previous frame's budgets — keeps render-on-demand running
-   *  until the whole pipeline converges. Without this, sub-tile
-   *  generation at deep over-zoom (z=17 over a z=15 PMTiles archive
-   *  produces 30+ tiles × 4 layer slices = 120 sub-tile clips, but
-   *  the per-frame budget caps at ~50) would partial-fill the
-   *  viewport and freeze: render-skip fires after the first paint,
-   *  leaving the remaining sub-tiles ungenerated until the camera
-   *  next moves. Symptoms: checker-pattern of missing layer slices,
-   *  visible sub-tile-aligned rectangular gaps.
-   *
-   *  Signals checked, in order of cost:
-   *    - HTTP fetches in flight (`source.hasPendingLoads`).
-   *    - VTR has pending uploads (deferred when the per-frame upload
-   *      budget hits its cap).
-   *    - Last frame had missed tiles (some visible cells couldn't
-   *      find a cached ancestor or didn't get sub-tiled in time). */
-  private hasPendingSourceWork(): boolean {
-    for (const { source, renderer } of this.vtSources.values()) {
-      if (source.hasPendingLoads?.()) return true
-      // #1448 — a swap OWED is pending work, not pending fetch: without this the loop stops
-      // with the replacement un-applied and the layer draws the previous seed for good.
-      if (source.hasReplacedKeys?.()) return true
-      if (renderer.hasPendingUploads?.()) return true
-      const stats = renderer.getDrawStats?.()
-      if (
-        stats &&
-        (stats as { missedTiles?: number }).missedTiles &&
-        (stats as { missedTiles: number }).missedTiles > 0
-      )
-        return true
-    }
-    return false
   }
 
   /** #1155 F3 — register a (catalog, renderer) pair into vtSources. Single

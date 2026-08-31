@@ -22,6 +22,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { Camera } from '../camera'
 import { TileSelectionCache } from './tile-selection-cache'
 import { keepLoopWarm } from '../render-loop-keep-warm'
+import { buildPendingWorkRegistry } from '../pending-work'
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
 
@@ -88,17 +89,21 @@ function drive(
   )
 }
 
-/** The real consumer: `keepLoopWarm` with every OTHER signal quiet, so the
- *  pending-advance flag is the only thing that can hold the loop warm. */
+/** The real consumer chain: `keepLoopWarm` reading THIS cache through a real
+ *  pending-work registry (#2149 increment 6 — the `vt-lod` kind is the shipped route),
+ *  with every other signal quiet, so the pending-advance flag is the only thing that
+ *  can hold the loop warm. */
 function loopWarm(cache: TileSelectionCache): boolean {
-  return keepLoopWarm({
-    totalMissed: 0,
-    // #2149 — the raster/DEM signals now arrive through the registry scope; quiet here.
-    pendingWork: { hasPending: () => false },
-    vtRenderers: [
-      { renderer: { hasPendingUploads: () => false, _selection: cache } },
-    ] as unknown as Parameters<typeof keepLoopWarm>[0]['vtRenderers'],
+  const pendingWork = buildPendingWorkRegistry({
+    textStage: null,
+    iconStage: null,
+    vtSources: new Map([
+      ['s', { source: {}, renderer: { hasPendingUploads: () => false, _selection: cache } }],
+    ]),
+    rasterRenderer: undefined,
+    hillshadeRenderer: undefined,
   })
+  return keepLoopWarm({ totalMissed: 0, pendingWork })
 }
 
 describe('#2091 — the readiness gate cannot pin an unreachable target', () => {

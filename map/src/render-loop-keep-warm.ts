@@ -6,71 +6,31 @@
 // through a full GPU frame — the exact shape CLAUDE.md's own lessons ledger records as
 // having been paid for once already.
 
-import { SCOPE_RASTER_DEM, type PendingWorkRegistry } from './pending-work'
+import { SCOPE_KEEP_WARM, type PendingWorkRegistry } from './pending-work'
 
 export interface KeepWarmInputs {
-  /** Unresolved VT placeholders counted this frame. */
+  /** Unresolved VT placeholders counted this frame — the frame's OWN output, summed by
+   *  the loop over `hasData()` sources only, so it stays a direct input rather than a
+   *  `vt-missed` registry re-read (that probe has no hasData() skip; routing through it
+   *  would widen the signal). A failing VT tile reaches this gate ONLY here, and the
+   *  bound is tile-decision's KEEP_WARM_MAX_FAILURES: past it the decision turns
+   *  terminal and the renderer stops counting the miss (#1596). */
   totalMissed: number
-  /** #2149 increment 4 — the raster/DEM signals (mid-fetch + retry backoff, both arms)
-   *  now come from the pending-work registry's SCOPE_RASTER_DEM read instead of a second
-   *  hand-maintained list here. Same four signals, same bounds (the fetch counts are
-   *  deadline-bounded in the shared InflightLedger, the retries by MAX_TILE_ATTEMPTS);
-   *  the composed chain (#2158: this → _needsRender → shouldRenderThisFrame's first
-   *  term) is unchanged. */
+  /** #2149 increment 6 — every other signal (raster/DEM mid-fetch + retry backoff, VT
+   *  deferred uploads, a VT LOD ramp in flight) is a registered pending-work kind, read
+   *  through ONE scope; the per-kind reasons and bounds live on the registrations
+   *  (pending-work.ts) and the scope's own doc. The composed chain (#2158: this →
+   *  _needsRender → shouldRenderThisFrame's first term) is unchanged. */
   pendingWork: Pick<PendingWorkRegistry, 'hasPending'>
-  /** The VT sources' renderers — scanned only when nothing above already fired.
-   *
-   *  `_selection._czPendingAdvance` is reached DIRECTLY rather than through a
-   *  per-renderer forwarder, the same call the raster/DEM `failedTiles` ledger above
-   *  makes and for the same reason: the transition state has exactly one owner
-   *  (`TileSelectionCache`), and a forwarder is a second place that could answer this
-   *  question differently. It is also the only shape available — both owning files sit
-   *  on shrink-only LOC ceilings (`loc-ceiling-ratchet.test.ts`), so the accessor this
-   *  would otherwise be cannot be added to either without an unrelated extraction. The
-   *  coupling is typechecked here, so a rename on either side breaks the build. */
-  vtRenderers: Iterable<{
-    renderer: { hasPendingUploads(): boolean; _selection: { _czPendingAdvance: unknown } }
-  }>
 }
 
-/** Must the loop render again? Six signals:
- *
- *   - VT tiles with unresolved placeholders (`missedTiles > 0`) — including a VT tile
- *     inside its source's fetch backoff, which is BOUNDED exactly as the raster ledger
- *     below is: `tile-decision.ts` marks a `pending` decision `terminal` past
- *     `KEEP_WARM_MAX_FAILURES` consecutive failures and the renderer stops counting it,
- *     so a permanently-unfetchable tile lets the loop idle while a transient one stays
- *     warm long enough for the source's retry to run (#1596)
- *   - raster tiles mid-fetch
- *   - hillshade DEM tiles mid-fetch — a hillshade-only scene has no other signal, and
- *     without it the loop idles before the DEM arrives and the arrival never repaints:
- *     permanent black relief until an interaction
- *   - raster/DEM tiles waiting out a RETRY backoff (#1575). Nothing else can see one:
- *     `hasPendingLoads` is 0 the moment the failed load settles, and `totalMissed` counts
- *     VT sources only. So on a static camera the loop stopped, and the retry — which is
- *     re-attempted only from inside `render()` — never ran. It terminates: a tile gets
- *     `MAX_TILE_ATTEMPTS` over ~10.5 s and is then abandoned.
- *   - VT tiles queued behind the per-frame upload budget (scanned last: it is the only
- *     signal that costs a loop over the sources)
- *   - a VT LOD transition still in flight (#1997). The readiness gate advances the tile
- *     LOD one step per RENDERED frame, so a camera that jumps two levels — a `#z/lat/lon`
- *     hash, `jumpTo`, a bounds fit — leaves the selection behind the camera for two more
- *     frames. An unconverged selection can be legitimately EMPTY (a z=0 root tile is not
- *     inside a zoom-2 sphere frustum), and an empty selection requests nothing, misses
- *     nothing and uploads nothing: every signal above reads quiet in the exact frame the
- *     ramp still owes work. The loop then idles mid-ramp and CANNOT restart, because the
- *     LOD only advances inside a rendered frame — the 5 s readiness timeout included. It
- *     terminates for the same reason the others do: the gate either reaches its target or
- *     times out, and both paths clear the flag. Measured on the globe demo: the loop
- *     stopped with cz=0 against camera zoom 2 and stayed there with zero tiles
- *     indefinitely; one `invalidate()` finished the ramp in two frames (cz 0→1→2,
- *     tiles 0→4→8). */
+/** Must the loop render again? `totalMissed` plus the SCOPE_KEEP_WARM kinds. The
+ *  hand-maintained per-class signal list this gate accreted between #1575 and #2091 is
+ *  gone: a new resource class joins by REGISTERING (pending-work.ts), and membership in
+ *  this end-of-frame read is decided once, at the scope declaration — not by editing a
+ *  second list here. `totalMissed` short-circuits first, so the O(sources) VT walks
+ *  behind the scope run only when the cheap signal is quiet (the ordering the old
+ *  hand-rolled body also kept). */
 export function keepLoopWarm(input: KeepWarmInputs): boolean {
-  if (input.totalMissed > 0 || input.pendingWork.hasPending(SCOPE_RASTER_DEM)) {
-    return true
-  }
-  for (const { renderer } of input.vtRenderers) {
-    if (renderer.hasPendingUploads() || renderer._selection._czPendingAdvance !== null) return true
-  }
-  return false
+  return input.totalMissed > 0 || input.pendingWork.hasPending(SCOPE_KEEP_WARM)
 }
