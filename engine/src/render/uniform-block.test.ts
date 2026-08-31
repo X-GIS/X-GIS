@@ -161,8 +161,14 @@ describe('UniformBlock fail-loud construction (the LineLayer carve-out boundary)
     expect(() => uniformBlock(U)).toThrow(/column\/stride-aware/)
   })
 
-  it('rejects array fields', () => {
-    const U = uniformStruct('Arr', { group: 0, binding: 0, as: 'u' }, { a: arrayT(vec4fT, 2) })
+  it('rejects array fields whose element is smaller than 16 B (std140 pads the stride)', () => {
+    // #2137 narrowed this guard: `array<vec4<T>, N>` is now ADMITTED, because its
+    // element is already 16 B so stride == element size and the flat path packs it
+    // correctly. Everything narrower still pads to a 16-byte stride — an
+    // `array<f32, N>` occupies 16N bytes, not 4N — and must still fail loud.
+    // The admitted half, and the offsets it must land on, are pinned in
+    // uniform-block-vec4-array.test.ts.
+    const U = uniformStruct('Arr', { group: 0, binding: 0, as: 'u' }, { a: arrayT(f32T, 2) })
     expect(() => uniformBlock(U)).toThrow(/column\/stride-aware/)
   })
 
