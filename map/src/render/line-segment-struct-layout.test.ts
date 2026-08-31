@@ -53,6 +53,17 @@ function parseStructFieldTypes(wgsl: string, name: string): string[] {
   return types
 }
 
+/** Field NAMES in the same declaration order — the offset map's key side. */
+function parseStructFieldNames(wgsl: string, name: string): string[] {
+  const m = wgsl.match(new RegExp(`struct ${name} \\{([\\s\\S]*?)\\}`))
+  if (!m) throw new Error(`WGSL struct ${name} not found`)
+  const names: string[] = []
+  const fieldRe = /(\w+)\s*:\s*[\w<>]+\s*,/g
+  let f: RegExpExecArray | null
+  while ((f = fieldRe.exec(m[1]!)) !== null) names.push(f[1]!)
+  return names
+}
+
 describe('LineSegment storage-struct layout (CPU writer ↔ WGSL reader)', () => {
   const wgsl = emitLineWgsl(null, false)
   const fieldTypes = parseStructFieldTypes(wgsl, 'LineSegment')
@@ -74,8 +85,54 @@ describe('LineSegment storage-struct layout (CPU writer ↔ WGSL reader)', () =>
     expect(wgslStride).toBe(LINE_SEGMENT_STRIDE_BYTES)
   })
 
-  it('both sides are 80 B / 20 floats', () => {
-    expect(wgslStride).toBe(80)
-    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(80)
+  // #2089 grew both sides together (unlike 2d.1A's CPU-only append): slots
+  // 20-31 are the per-endpoint CPU-exact ECEF RTC DSFUN lanes the globe
+  // vs_line positions from.
+  it('both sides are 128 B / 32 floats', () => {
+    expect(wgslStride).toBe(128)
+    expect(LINE_SEGMENT_STRIDE_BYTES).toBe(128)
+  })
+
+  // The stride check above is SIZE-ONLY, and every #2089 lane is an f32 — so
+  // any permutation of them (or of a field swapped past them) keeps the struct
+  // at 128 B and sails through it. That is not hypothetical: `buildLineSegments`
+  // writes the lanes at LITERAL offsets (`off + 20`, `off + 26`), so a
+  // stride-preserving reshuffle of the WGSL declaration silently repoints every
+  // globe endpoint at the wrong lane — strokes drift toward the tile anchor
+  // while fills stay put, i.e. #2053's symptom returns with all size gates
+  // green. Storage buffers raise no validation error and the flat-arm gates
+  // cannot see it. So pin the NAME→OFFSET map, not just the total.
+  it('#2089 ECEF lane fields sit at the byte offsets the CPU writer uses', () => {
+    const names = parseStructFieldNames(wgsl, 'LineSegment')
+    const types = fieldTypes
+    expect(names.length, 'name/type parse disagree').toBe(types.length)
+    // std430 offset of each field, walked the same way structStd430Size does.
+    const offsets = new Map<string, number>()
+    let off = 0
+    for (let i = 0; i < names.length; i++) {
+      const info = STD430[types[i]!]!
+      off = roundUp(off, info[0])
+      offsets.set(names[i]!, off)
+      off += info[1]
+    }
+    // buildLineSegments: writeEcefLanes(f0, off + 20) and (f1, off + 26),
+    // each writing [x_h, y_h, z_h, x_l, y_l, z_l] in that order.
+    const expected: [string, number][] = [
+      ['e0x_h', 20 * 4],
+      ['e0y_h', 21 * 4],
+      ['e0z_h', 22 * 4],
+      ['e0x_l', 23 * 4],
+      ['e0y_l', 24 * 4],
+      ['e0z_l', 25 * 4],
+      ['e1x_h', 26 * 4],
+      ['e1y_h', 27 * 4],
+      ['e1z_h', 28 * 4],
+      ['e1x_l', 29 * 4],
+      ['e1y_l', 30 * 4],
+      ['e1z_l', 31 * 4],
+    ]
+    for (const [name, byteOffset] of expected) {
+      expect(offsets.get(name), `LineSegment.${name} byte offset`).toBe(byteOffset)
+    }
   })
 })
