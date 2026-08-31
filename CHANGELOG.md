@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1e3b93a7978876c721ce264bffed6ef10ccdbf6e
+  Generated from: f97ec8a6c26d869c685e0101fc48404c5ac5739c
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1e3b93a79788
+    bun scripts/emit-changelog.ts --since f97ec8a6c26d
 -->
 
 # Changelog
@@ -126,6 +126,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
 - **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
 - **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
