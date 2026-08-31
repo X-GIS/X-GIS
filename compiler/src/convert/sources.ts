@@ -530,21 +530,23 @@ export function convertSource(
     // are appended at the END of this arm, after the type/url/data emit.
     const clusterLines = convertSourceCluster(id, src, warnings)
     // Mapbox GeoJSON tuning fields: `tolerance` (Douglas-Peucker
-    // simplification), `buffer` (tile-clip padding), `lineMetrics`
-    // (line-progress accessor for line-gradient), `maxzoom`,
+    // simplification), `buffer` (tile-clip padding), `maxzoom`,
     // `attribution`, `generateId`. X-GIS's GeoJSON pipeline uses
     // hand-tuned defaults; none of these are honoured.
+    // `lineMetrics` is NOT in that list (#2117): Mapbox makes it opt-in because its
+    // GeoJSON worker only measures line length when asked, but X-GIS's tiler stamps a
+    // per-chain cumulative arc on EVERY line vertex unconditionally (vector-tiler.ts
+    // augmentChainWithArc) because the dash phase needs it. line-progress therefore has
+    // its value with or without the flag, and warning "ignored" would be false.
     const geoCfg = src as {
       tolerance?: unknown
       buffer?: unknown
-      lineMetrics?: unknown
       generateId?: unknown
       attribution?: unknown
     }
     const geoIgnored: string[] = []
     if (geoCfg.tolerance !== undefined && geoCfg.tolerance !== null) geoIgnored.push('tolerance')
     if (geoCfg.buffer !== undefined && geoCfg.buffer !== null) geoIgnored.push('buffer')
-    if (geoCfg.lineMetrics === true) geoIgnored.push('lineMetrics (line-gradient prerequisite)')
     if (geoCfg.generateId === true) geoIgnored.push('generateId')
     if (geoIgnored.length > 0) {
       warnings.push(`GeoJSON source "${id}" — ignored tuning fields: ${geoIgnored.join(', ')}`)

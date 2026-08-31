@@ -30,7 +30,12 @@ import {
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { LineRenderer, type PatternSlot, LINE_FLAG_HAS_PATTERN } from '@xgis/map'
+import {
+  LineRenderer,
+  lineLayerUniformStride,
+  type PatternSlot,
+  LINE_FLAG_HAS_PATTERN,
+} from '@xgis/map'
 
 let stub: StubInstallation
 
@@ -72,10 +77,15 @@ function makeTileBindGroupLayout(ctx: GPUContext): GPUBindGroupLayout {
   })
 }
 
-// Layer-ring slot stride = 256 bytes (LineRenderer.LAYER_SLOT); the ring is
-// 512 slots → the flushed buffer's byte-size is 512 * 256. Pattern slot 0 lives
-// at f32 index 20 (u32 shapeId); the flags word is u32 index 8.
-const LAYER_RING_BYTES = 512 * 256
+// Pattern slot 0 lives at f32 index 20 (u32 shapeId); the flags word is u32 index 8.
+// The layer-uniform ring is `layerRingCapacity` (512) slots × the LineLayer dynamic-offset
+// stride. That stride is DERIVED (`lineLayerUniformStride()`, reflect-backed) and moved
+// 256 → 512 when #2117 grew LineLayer past 256 B — a hand literal here went silently dark
+// that day: the buffer interception below stopped matching, so every assertion in this
+// file saw no write and reported "undefined". Read it from the SoT instead, and LAZILY —
+// reflect emits the projection fns, which throw before configureProjections() (the
+// no-eager-uniform-reflect rule; a module-level const would evaluate at import).
+const layerRingBytes = (): number => 512 * lineLayerUniformStride()
 const PATTERN0_SHAPEID = 20
 const FLAGS_WORD = 8
 
@@ -101,7 +111,7 @@ function captureLayerWrite(ctx: GPUContext, patterns: PatternSlot[]): Captured {
     _off: number,
     data: ArrayBufferView | ArrayBuffer,
   ): void => {
-    if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
+    if ((buf as { size?: number })?.size !== layerRingBytes()) return
     // The flush covers the dirty range starting at slot-0 byte 0, so the
     // captured view begins at pattern-slot-0 / flags within slot 0.
     const u32 =

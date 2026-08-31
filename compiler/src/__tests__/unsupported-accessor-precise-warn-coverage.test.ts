@@ -28,7 +28,7 @@ describe('precise unsupported-accessor warnings', () => {
     expect(code).toMatch(/\["heatmap-density"\] not yet supported.*heatmap-color ramp/)
   })
 
-  it('line-progress warns with lineMetrics hint', () => {
+  it('line-progress outside a gradient warns with the ramp-context hint (#2117)', () => {
     const style = {
       version: 8,
       sources: { s: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } },
@@ -42,7 +42,7 @@ describe('precise unsupported-accessor warnings', () => {
       ],
     }
     const code = convertMapboxStyle(style as never)
-    expect(code).toMatch(/\["line-progress"\] not yet supported.*lineMetrics/)
+    expect(code).toMatch(/\["line-progress"\] not yet supported.*line-gradient ramp/)
   })
 
   it('feature-state warns', () => {
