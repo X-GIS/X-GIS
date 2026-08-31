@@ -372,6 +372,18 @@ export const circleTranslateConstUtilHandlers: BindingHandler[] = [
       return true
     },
   },
+  {
+    // Mapbox circle-pitch-alignment=map → ground-plane disc flag (#2118). The
+    // converter emits this ONLY for the "map" mode; viewport IS the spec default
+    // here (the opposite of circle-pitch-scale above) and emits nothing, so the
+    // untilted rendering is byte-identical. Runtime maps the quad's local axes
+    // through the ground basis so the disc foreshortens into an ellipse.
+    match: (c) => c.name === 'circle-pitch-alignment-map',
+    apply: (c) => {
+      c.acc.circlePitchAlignmentMap = true
+      return true
+    },
+  },
 ]
 
 /** `heatmap-color-[interpolate(heatmap_density, o0, #c0, …)]` — the

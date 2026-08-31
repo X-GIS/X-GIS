@@ -556,6 +556,11 @@ function lowerLayer(
    *  "viewport" (spec default — radius constant in screen px; byte-identical
    *  to historical X-GIS). True = "map" (radius scales with perspective). */
   let circlePitchScaleMap: boolean | undefined
+  /** Mapbox `paint.circle-pitch-alignment` = "map" (#2118). Undefined / false =
+   *  "viewport", and THAT one really is the spec default — the two circle pitch
+   *  knobs default opposite ways. True = "map" (the disc lies in the ground
+   *  plane and foreshortens under pitch). */
+  let circlePitchAlignmentMap: boolean | undefined
   /** Mapbox `heatmap-*` paint axes (Phase R). `isHeatmap` is the marker the
    *  converter's `heatmap` utility sets; the rest carry the resolved scalars. */
   // Arrow layer (#1302): marker + per-feature bearing (bearing-[.dir] / bearing-N).
@@ -809,6 +814,7 @@ function lowerLayer(
     circleTranslateY,
     circleBlur,
     circlePitchScaleMap,
+    circlePitchAlignmentMap,
     strokeTranslateX,
     strokeTranslateY,
     fillTranslateAnchorMap,
@@ -1001,6 +1007,7 @@ function lowerLayer(
   circleTranslateY = acc.circleTranslateY
   circleBlur = acc.circleBlur
   circlePitchScaleMap = acc.circlePitchScaleMap
+  circlePitchAlignmentMap = acc.circlePitchAlignmentMap
   strokeTranslateX = acc.strokeTranslateX
   strokeTranslateY = acc.strokeTranslateY
   fillTranslateAnchorMap = acc.fillTranslateAnchorMap
@@ -1294,6 +1301,7 @@ function lowerLayer(
     circleTranslateY,
     circleBlur,
     circlePitchScaleMap,
+    circlePitchAlignmentMap,
     strokeTranslateX,
     strokeTranslateY,
     fillTranslateAnchorMap,

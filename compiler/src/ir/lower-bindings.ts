@@ -67,6 +67,7 @@ export interface LayerAccumulator {
   circleTranslateY: number | undefined
   circleBlur: number | undefined
   circlePitchScaleMap: boolean | undefined
+  circlePitchAlignmentMap: boolean | undefined
   strokeTranslateX: number | undefined
   strokeTranslateY: number | undefined
   fillTranslateAnchorMap: boolean | undefined

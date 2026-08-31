@@ -22,6 +22,7 @@ import {
   module,
   transformMat4,
   arrayLit,
+  abs,
   f32,
   u32,
   i32,
@@ -113,10 +114,21 @@ const U = uniformStruct(
     // w unused.
     cam_ecef_h: vec4fT,
     cam_ecef_l: vec4fT,
-    // circle_params: x=translate_x_ndc, y=translate_y_ndc, z=blur_px, w=unused.
-    // translate_x/y are pre-baked to NDC-per-pixel (px * 2 / w/h) by the
-    // renderer — same convention as fill_translate_x/y in polygon.ts.
-    // Default [0,0,0,0] → no-op (existing rendering byte-identical).
+    // circle_params: x=translate_x_ndc, y=translate_y_ndc, z=blur_px,
+    // w=pitch MODE CODE. translate_x/y are pre-baked to NDC-per-pixel
+    // (px * 2 / w/h) by the renderer — same convention as fill_translate_x/y in
+    // polygon.ts. Default [0,0,0,0] → no-op (existing rendering byte-identical).
+    //
+    // The mode code is an ENUM, not a bit field, because the two Mapbox knobs are
+    // not independent once the disc leaves the screen plane (#2118):
+    //   0 = pitch-alignment viewport + pitch-scale viewport — the historical
+    //       X-GIS path: a screen-facing disc of constant screen radius.
+    //   1 = pitch-alignment viewport + pitch-scale map — a screen-facing disc
+    //       whose RADIUS shrinks with distance (w_ref/clip.w).
+    //   2 = pitch-alignment map (+ pitch-scale map, the Mapbox default for that
+    //       knob) — the disc lies IN the ground plane. The ground basis below
+    //       already carries the distance foreshortening, so 2 must NOT also take
+    //       the radius multiplier of 1 — that would count it twice.
     circle_params: vec4fT,
     // #600 — globe(7) eye-horizon cull. xyz = normalize(eye_ecef), w =
     // EARTH_R/|eye_ecef| (= horizonCos). point_cos_c passes this to
@@ -134,6 +146,15 @@ const U = uniformStruct(
     // `pointUniformBytes()` since they share this block. Written per frame by
     // writePointFrameUniform.
     zoom: f32T,
+    // #2118 — the live camera's MVP with pitch forced to 0 (`Pitch0Unprojector.
+    // matrix`, the SAME producer label-pass feeds to `groundBasisAt`). It is the
+    // P₀ half of the ground basis mode 2 builds; see the construction in vs_point.
+    // AFTER zoom = no pre-existing field moves, and it lands on the 16 B boundary
+    // the struct's 12 B tail pad already reached, so the struct grows 176 → 240 B.
+    // Written on EVERY frame — the live matrix itself whenever mode ≠ 2, so the
+    // basis a future caller computed through it would be the identity rather than
+    // garbage. Only mode 2 reads it.
+    mvp_pitch0: mat4x4fT,
   },
 )
 export { U as pointU }
@@ -327,6 +348,96 @@ const sdfShape = fn(
   { allowEarlyReturn: true },
 ) // MISRA single-exit DEVIATION — the AABB early-out skips a 32-segment loop (perf)
 
+// ═══ #2118 — the ground basis for `circle-pitch-alignment: map` ═══
+//
+// THIS IS THE WGSL/GLSL IMAGE OF `map/src/text/ground-basis.ts` — the same
+// construction, the same operand order, evaluated at the feature's own ground point.
+// Read that module's header for WHY it is a ratio of the projection's own forward
+// Jacobians and not a closed-form divisor; that reasoning is the authority and is
+// NOT restated here. It is transcribed rather than called because `groundBasisAt` is
+// a CPU function over `project(lon,lat)` callbacks: a per-point CPU basis would mean
+// repacking feat_data every frame, which is exactly what `redrawTilePointsCached`
+// exists to avoid. `circle-pitch-alignment-basis.test.ts` re-evaluates this
+// arithmetic against that authority over a camera lattice, and pins these lines
+// verbatim, so "transcribed" cannot decay into "re-derived".
+//
+//   basis = ΔP · ΔP₀⁻¹     ΔP  = the live screen Jacobian at the ground point
+//                          ΔP₀ = the SAME Jacobian through the pitch-0 MVP
+//
+// BOTH JACOBIANS ARE EXACT HERE, not finite differences. On the flat display path
+// the ground→clip map is `M · (rel, 0, 1)` — LINEAR in rel — so ∂clip/∂rel_x is
+// exactly M's column 0 and ∂clip/∂rel_y exactly column 1, and the only nonlinearity
+// left is the perspective divide, differentiated in closed form below. The δ the CPU
+// version must choose (and whose error floor its header measures over a decade of
+// margin) has no analogue on this path.
+//
+// The px space is the one the quad expansion uses — `offsetPx * (2/W, 2/H)` added to
+// clip, i.e. x right and **y UP** (NDC's sense), NOT `projectFlatRtc`'s y-down screen
+// space. Both Jacobians are taken in that one convention and the basis is applied to
+// an offset in it, so the off-diagonal signs are self-consistent; mixing the two
+// conventions would silently mirror the ellipse under bearing.
+//
+// Returns `[ex, ey, nx, ny]` packed in a vec4, or the IDENTITY where the basis would
+// be degenerate — the same fallback `groundBasisAt` takes by returning null, and the
+// billboard the user already sees. It is a named function rather than an inline block
+// because inlining it pushed `vs_point` past the shader-lint statement ceiling, and
+// because the CPU authority it mirrors is a named module too.
+const ground_basis_2x2 = fn(
+  'ground_basis_2x2',
+  { mvp: mat4x4fT, mvp0: mat4x4fT, relPos: vec4fT, groundClip: vec4fT, viewport: vec4fT },
+  ({ mvp, mvp0, relPos, groundClip, viewport }) => {
+    const out = Var(vec4(1, 0, 0, 1))
+    // Half-viewport: NDC → the px space described above.
+    const hw = Let(viewport.x.mul(0.5))
+    const hh = Let(viewport.y.mul(0.5))
+    // ΔP — d(px)/d(rel) under the LIVE matrix. d(clip)/d(rel_x) is column 0
+    // exactly; the quotient rule over the perspective divide supplies the rest.
+    const lw = Let(groundClip.w)
+    const lInv = Let(f32(1).div(lw.mul(lw)))
+    const lc0 = mvp.at(u32(0), vec4fT)
+    const lc1 = mvp.at(u32(1), vec4fT)
+    const la = Let(lc0.x.mul(lw).sub(groundClip.x.mul(lc0.w)).mul(hw).mul(lInv))
+    const lb = Let(lc0.y.mul(lw).sub(groundClip.y.mul(lc0.w)).mul(hh).mul(lInv))
+    const lc = Let(lc1.x.mul(lw).sub(groundClip.x.mul(lc1.w)).mul(hw).mul(lInv))
+    const ld = Let(lc1.y.mul(lw).sub(groundClip.y.mul(lc1.w)).mul(hh).mul(lInv))
+    // ΔP₀ — the SAME derivative through the pitch-0 matrix, at the SAME
+    // ground point. `relPos` is shared, so the two Jacobians cannot drift
+    // onto different points (the predecessor's 84 %/240 % error, ground-
+    // basis.ts header).
+    const zclip = Let(transformMat4(mvp0, relPos))
+    const zw = Let(zclip.w)
+    const zInv = Let(f32(1).div(zw.mul(zw)))
+    const zc0 = mvp0.at(u32(0), vec4fT)
+    const zc1 = mvp0.at(u32(1), vec4fT)
+    const za = Let(zc0.x.mul(zw).sub(zclip.x.mul(zc0.w)).mul(hw).mul(zInv))
+    const zb = Let(zc0.y.mul(zw).sub(zclip.y.mul(zc0.w)).mul(hh).mul(zInv))
+    const zc = Let(zc1.x.mul(zw).sub(zclip.x.mul(zc1.w)).mul(hw).mul(zInv))
+    const zd = Let(zc1.y.mul(zw).sub(zclip.y.mul(zc1.w)).mul(hh).mul(zInv))
+    // basis = ΔP · ΔP₀⁻¹, with ΔP₀⁻¹ = [zd, −zb; −zc, za] / det. The term
+    // ORDER is ground-basis.ts's and is load-bearing for the same reason:
+    // when the two matrices are the same floats every entry reduces to a
+    // value IEEE-754 guarantees (det/det, and a product minus its own
+    // commuted self), so the identity is EXACT rather than within an epsilon.
+    // Do not "simplify" the operand order.
+    const det = Let(za.mul(zd).sub(zc.mul(zb)))
+    If(abs(det).gt(0), () => {
+      const ex = Let(la.mul(zd).sub(lc.mul(zb)).div(det))
+      const ey = Let(lb.mul(zd).sub(ld.mul(zb)).div(det))
+      const nx = Let(lc.mul(za).sub(la.mul(zc)).div(det))
+      const ny = Let(ld.mul(za).sub(lb.mul(zc)).div(det))
+      // A degenerate LIVE step (the feature sat on the horizon, or the two
+      // live columns collapsed) yields a singular basis; a disc drawn through
+      // it would collapse to a line. Keep the identity, i.e. billboard — the
+      // same fallback `groundBasisAt` takes by returning null, and on the same
+      // DIMENSIONLESS threshold so it means one thing at every zoom.
+      If(abs(ex.mul(ny).sub(ey.mul(nx))).gt(1e-6), () => {
+        out.assign(vec4(ex, ey, nx, ny))
+      })
+    })
+    return out
+  },
+)
+
 // ── Entry points ──
 
 const vs = fn(
@@ -385,7 +496,7 @@ const vs = fn(
     // ECEF lanes are dead on the flat path. u.mvp is the matching matrix
     // (Camera.getViewForProjection). Quad expansion below consumes centerClip
     // identically for both paths.
-    const centerClip = when(
+    const relPos = when(
       [
         [
           U.field.proj_params.x.lt(0.5),
@@ -401,7 +512,7 @@ const vs = fn(
             const camMercL = U.field.cam_ecef_l.swizzle('xy')
             const relX = mxH.sub(camMercH.x).add(mxL.sub(camMercL.x))
             const relY = myH.sub(camMercH.y).add(myL.sub(camMercL.y))
-            return transformMat4(mvp, vec4(relX, relY, 0, 1))
+            return vec4(relX, relY, 0, 1)
           },
         ],
         [
@@ -413,14 +524,22 @@ const vs = fn(
             // individual marker project_geom collapses to plain project. Same flat MVP.
             const pp = U.field.proj_params
             const relG = flat_rel(absLon, absLat, pp, absLon)
-            return transformMat4(mvp, vec4(relG.x, relG.y, 0, 1))
+            return vec4(relG.x, relG.y, 0, 1)
           },
         ],
       ],
       () => {
-        return transformMat4(mvp, vec4(ecefRtc, 1))
+        return vec4(ecefRtc, 1)
       },
     )
+    // The feature's own ground point, in clip space, BEFORE circle-translate.
+    // `relPos` is now the single place the three display-projection branches
+    // agree on WHERE the feature is; `groundClip` is its image under the live
+    // MVP. The pitch-alignment basis is a DERIVATIVE AT that ground point, so it
+    // must linearize about the untranslated point — circle-translate is a
+    // screen-space shift of the drawn quad, not a move of the feature.
+    const groundClip = Let(transformMat4(mvp, relPos))
+    const centerClip = Var(groundClip)
 
     // circle-translate: apply viewport-space offset post-MVP.
     // translate_x/y are pre-baked to NDC-per-pixel by the renderer
@@ -435,8 +554,9 @@ const vs = fn(
     )
 
     // circle-pitch-scale (Mapbox `paint.circle-pitch-scale`). circle_params.w
-    // is the mode flag: 0 = viewport (spec default — radius constant in screen
-    // px, byte-identical to the historical X-GIS path); 1 = map. In map mode
+    // is the pitch MODE CODE (see the struct); mode 1 is pitch-alignment
+    // viewport + pitch-scale map. Mode 2 (ground-aligned) deliberately does NOT
+    // enter here — its basis already carries this same foreshortening. In map mode
     // the radius scales with the map perspective so circles farther from the
     // camera / under pitch shrink. The scale factor is w_ref / clip.w where
     // w_ref = mvp[3][3] = the perspective w at the recentered camera anchor
@@ -445,11 +565,51 @@ const vs = fn(
     // mirrors MapLibre circle.vertex.glsl's `* (u_camera_to_center_distance /
     // gl_Position.w)` for pitch-alignment:viewport + pitch-scale:map. =1 at the
     // screen centre, <1 toward the horizon. Guard clip.w>0 to avoid div blow-up.
-    If(U.field.circle_params.w.gt(0.5), () => {
+    const pitchMode = Let(toU32(U.field.circle_params.w))
+    If(pitchMode.eq(u32(1)), () => {
       const wRef = mvp.at(u32(3), vec4fT).w
       const wPt = Let(max(centerClip.w, 1e-4))
       radiusPx.assign(radiusPx.mul(wRef.div(wPt)))
     })
+
+    // ═══ circle-pitch-alignment: map — the disc lies IN the ground plane ═══
+    //
+    // Mode 2. The quad's local axes become the SCREEN-SPACE IMAGES of the feature's
+    // own ground axes, so the disc foreshortens into an ellipse as the camera tilts
+    // instead of staying a screen-facing disc. The SDF is untouched: the fragment
+    // still evaluates a circle in the quad's LOCAL space (`o.uv` is deliberately
+    // left un-transformed below), and the basis is what turns that local circle into
+    // the right on-screen ellipse. The construction lives in `ground_basis_2x2`
+    // above; everything below is its application.
+    //
+    // GLOBE (projType 7) IS DEFERRED, for ground-basis.ts's own reason: the ECEF
+    // branch's `relPos` is a 3D point, not a ground-plane coordinate, so there is no
+    // map plane for the disc to lie in. It billboards exactly as today. Do NOT patch
+    // it with a per-projection analytic fallback — a second, projection-specific
+    // ground-perspective authority is the drift this construction avoids.
+    const basis = Var(vec4(1, 0, 0, 1))
+    If(pitchMode.eq(u32(2)), () => {
+      If(U.field.proj_params.x.lt(6.5), () => {
+        // OBJECT-param call, not positional: this helper takes two mat4s and three
+        // vec4s, so a positional call is exactly the same-type swap the DSL's
+        // `no-deprecated` rule exists to prevent — passing the live matrix where the
+        // pitch-0 one belongs would compile, emit, link, and silently produce the
+        // identity basis forever.
+        basis.assign(
+          ground_basis_2x2({
+            mvp,
+            mvp0: U.field.mvp_pitch0,
+            relPos,
+            groundClip,
+            viewport: U.field.viewport,
+          }),
+        )
+      })
+    })
+    const bEx = basis.x
+    const bEy = basis.y
+    const bNx = basis.z
+    const bNy = basis.w
 
     // bit 3 of packed10 = flat-quad mode.
     const isFlat = packed10.bitAnd(u32(8)).ne(0)
@@ -481,7 +641,19 @@ const vs = fn(
       })
       const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
       const offXY = offsets.at(p.quad_id, vec2fT)
-      const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+      const localPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+      // Mode 2 maps the quad's LOCAL offset through the ground basis; every other
+      // mode leaves it alone through an identity basis that is written, not
+      // computed, so the untilted path stays the arithmetic it has always been.
+      const offsetPx = Var(localPx)
+      If(pitchMode.eq(u32(2)), () => {
+        offsetPx.assign(
+          vec2(
+            localPx.x.mul(bEx).add(localPx.y.mul(bNx)),
+            localPx.x.mul(bEy).add(localPx.y.mul(bNy)),
+          ),
+        )
+      })
       const offsetNdc = offsetPx.mul(pxToNdc)
       const flatClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
       o.position.assign(apply_log_depth({ pos: flatClip, fc }))
@@ -499,7 +671,19 @@ const vs = fn(
       })
       const pxToNdc = vec2(f32(2).div(viewport.x), f32(2).div(viewport.y))
       const offXY = offsets.at(p.quad_id, vec2fT)
-      const offsetPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+      const localPx = Let(vec2(offXY.x.mul(expand), offXY.y.mul(expand).add(yShiftPx)))
+      // Mode 2 maps the quad's LOCAL offset through the ground basis; every other
+      // mode leaves it alone through an identity basis that is written, not
+      // computed, so the untilted path stays the arithmetic it has always been.
+      const offsetPx = Var(localPx)
+      If(pitchMode.eq(u32(2)), () => {
+        offsetPx.assign(
+          vec2(
+            localPx.x.mul(bEx).add(localPx.y.mul(bNx)),
+            localPx.x.mul(bEy).add(localPx.y.mul(bNy)),
+          ),
+        )
+      })
       const offsetNdc = offsetPx.mul(pxToNdc)
       const billboardClip = Let(centerClip.add(vec4(offsetNdc.mul(centerClip.w), 0, 0)))
       o.position.assign(apply_log_depth({ pos: billboardClip, fc }))
