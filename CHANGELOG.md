@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 867803d9aa0f14045d5d8f6f7dd87c4cf2cd29d9
+  Generated from: b0df728a85b67e922fdc507d4fcba4c6a86ca178
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 867803d9aa0f
+    bun scripts/emit-changelog.ts --since b0df728a85b6
 -->
 
 # Changelog
@@ -23,6 +23,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** the VT family joins the pending-work registry (#2149 increment 5) ([#2190](https://github.com/X-GIS/X-GIS/pull/2190)) `b0df728`
+- **map/text:** CJK vertical P2 — the column, the cache key, and a bbox that turned out not to be offsets-driven ([#2154](https://github.com/X-GIS/X-GIS/pull/2154)) `40a7991`
 - **map:** raster/DEM fetch and retry join the pending-work registry, deadline-bounded (#2149 increment 4) ([#2186](https://github.com/X-GIS/X-GIS/pull/2186)) `0d9f09d`
 - **map:** sprite atlas joins the pending-work registry (#2149 increment 3) ([#2177](https://github.com/X-GIS/X-GIS/pull/2177)) `f1bf7e4`
 - **map:** convergence-authority design + pending-work registry — glyph and coverage registered (#2149) ([#2153](https://github.com/X-GIS/X-GIS/pull/2153)) `eebe3e3`
