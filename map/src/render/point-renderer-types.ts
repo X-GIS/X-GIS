@@ -82,6 +82,18 @@ export interface PointLayer {
    *  `writePointFrameUniform` sets circle_params.w=1 and the point VS scales
    *  the quad expansion by w_ref/clip.w so circles foreshorten with pitch. */
   circlePitchScaleMap: boolean
+  /** Mapbox `paint.circle-pitch-alignment` = "map" (#2118). false = viewport
+   *  (the SPEC DEFAULT here — a screen-facing billboard disc, byte-identical to
+   *  the historical path). true = map: `writePointFrameUniform` raises the pitch
+   *  mode code to 2 and the point VS maps the quad's local axes through the
+   *  ground basis, so the disc lies in the ground plane and foreshortens into an
+   *  ellipse under pitch. Suppressed at pitch 0, where the basis is the identity.
+   *
+   *  Note the two circle pitch knobs default OPPOSITE ways in the Mapbox spec —
+   *  `circle-pitch-alignment` to viewport, `circle-pitch-scale` to map — so this
+   *  flag being false is the default while `circlePitchScaleMap` being false is
+   *  NOT (see convert/layers-circle.ts, which records that gap). */
+  circlePitchAlignmentMap: boolean
   /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or null
    *  for the default feat_data-read path on both axes. Resolved once at
    *  addLayer time from the compiler's ShaderVariant; ensurePointDraper

@@ -63,6 +63,7 @@ export function refreshTilePointUniformAndDraw(
     tileTranslateY,
     show.circleBlur ?? 0,
     show.circlePitchScaleMap ?? false,
+    show.circlePitchAlignmentMap ?? false,
   )
   deps.rhi.writeBuffer(deps.uniformBuffer, 0, deps.frameBlock.buffer)
   deps.pointDraper.draw(pass, {

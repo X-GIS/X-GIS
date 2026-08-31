@@ -242,6 +242,12 @@ export interface CirclePaint {
    *  True = "map" (radius scales with the map perspective). PointRenderer
    *  packs the flag into the point uniform's circle_params.w. */
   circlePitchScaleMap?: boolean
+  /** Mapbox `paint.circle-pitch-alignment` = "map" (#2118). Undefined / false =
+   *  "viewport" (the spec default for THIS knob — the sibling above defaults the
+   *  other way). True = "map": PointRenderer raises the point uniform's
+   *  circle_params.w mode code to 2 and the VS maps the disc's local axes through
+   *  the ground basis, so it lies in the ground plane. */
+  circlePitchAlignmentMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
@@ -733,6 +739,7 @@ function emitCircleFields(node: RenderNode): CirclePaint {
     circleTranslateYShape: node.circleTranslateYShape,
     circleBlur: node.circleBlur,
     circlePitchScaleMap: node.circlePitchScaleMap,
+    circlePitchAlignmentMap: node.circlePitchAlignmentMap,
   }
 }
 

@@ -3862,6 +3862,10 @@ export class XGISMap {
           perFeatureFills,
           perFeatureStrokes,
           show.shaderVariant ?? null, // #1605 Phase 2 — trailing
+          // circle-pitch-alignment:map (#2118) — the disc lies in the ground
+          // plane. Trailing, like every tail param before it, so no positional
+          // call site shifts. Default (viewport / false) is today's rendering.
+          show.circlePitchAlignmentMap ?? false,
         )
         continue
       }
