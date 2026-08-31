@@ -198,10 +198,18 @@ Only then decide whether #1190 needs another lever at all.
   is the real content of this item.
 
   Also noted while reading: `render-loop.ts:680` sets `_needsRender = false` and `:682`
-  immediately overwrites it with `keepLoopWarm(...)`, so `:680` is dead. Harmless, but the
-  assignment at `:682` is `=` rather than `|=`, which means an `invalidate()` issued from
-  inside the frame would be clobbered. Whether any caller actually does that is unverified —
-  check before treating it as a bug.
+  immediately overwrites it with `keepLoopWarm(...)`, so `:680` is dead. The assignment at
+  `:682` is `=` rather than `|=`, so an `invalidate()` issued from inside the frame would be
+  clobbered — **checked 2026-08-31, and no such caller exists**, so this is latent, not a
+  bug. Every `invalidate()` in `map/src` is either a host-driven public API call
+  (`setPaintProperty`, layer mutations, `setView`, gesture end) or an ASYNC callback:
+  `background-pattern-atlas.ts:40` fires from `onLanded`, the coverage sites from fetch
+  completions, and all six `GraphicsManager` `repaintHook?.()` calls
+  (`graphics-manager.ts:249,265,514,533,560,572`) sit in host-facing mutation APIs — add,
+  `append`, tint/feat update, remove. None runs inside `render()`. Do not "fix" `:682`
+  speculatively; making it robust needs `= false` moved to the START of the frame plus
+  `||=` here, which is a real behavioural change and should wait for an actual in-frame
+  caller to exist.
 
 - **Every keep-warm signal bounded by construction.** Phase 0 establishes the rule; apply it
   to the existing signals and pin it with a test, so the next `safeFetch`-without-timeout
