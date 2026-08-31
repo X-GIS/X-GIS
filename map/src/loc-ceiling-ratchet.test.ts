@@ -1293,7 +1293,20 @@ const CEILINGS: Record<string, number> = {
   // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
   // PACKED while the shader recombines in f32 — the distinction a later reader
   // would otherwise have to rediscover from a failing tolerance.
-  'map/src/shaders/dsl/line.ts': 1651,
+  // 1651→1673 (#2042 INC-6, the LINE half): the flat arm now RECOMBINES the Mercator
+  // camera-relative pair from the absolute anchors instead of reading the CPU-packed
+  // cam_h/cam_l lanes. That is a real added code path, not padding: three un-padded lane
+  // declarations + their reasons, a `tileCamRel()` adapter over the shared merc-cam-rel.ts
+  // authority, and a `lineEndpoint` adapter over the extracted helper. `line_endpoint`
+  // itself MOVED OUT to line-endpoint.ts (the #1003 line-corner.ts idiom — lanes as
+  // parameters), which is why the growth is 22 and not 30; the extraction was required by
+  // the increment anyway, since that function's cam read is one of the three sites the
+  // recombination replaces and the pair it needs is flag-selected, not a raw lane.
+  // The file's path back DOWN is identified and measured: `compute_line_color`
+  // (map/src/shaders/dsl/line.ts, ~497 lines — a third of the file) is the next extraction,
+  // deliberately not folded in here so this increment's diff stays about the recombination.
+  // MEASURED after prettier.
+  'map/src/shaders/dsl/line.ts': 1673,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
