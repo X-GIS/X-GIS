@@ -83,6 +83,7 @@ import {
 } from './map-accessibility'
 import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
+import { buildPendingWorkRegistry } from './pending-work'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { settleSourceLoads } from './source-load-outcome'
 import { isLegacyGeoJSONOptOut, SourceManager } from './source-manager'
@@ -395,6 +396,9 @@ export class XGISMap {
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   textStage: TextStage | null = null
+  /** #2149 — the ONE list of async resource classes whose bounded in-flight work keeps
+   *  the loop warm (pending-work.ts). Probes read the stages lazily at call time. */
+  private readonly _pendingWork = buildPendingWorkRegistry(this)
   overlays: TextOverlay[] = []
   /** Resource bundle the TextStage uses to populate its glyph chain
    *  on first construction. Mutated by `setGlyphsUrl`, `addGlyph
@@ -581,6 +585,7 @@ export class XGISMap {
     refresh: this._coverageRefresh,
     guardedFetch: (label) => (u, init) =>
       safeFetch(String(u), { ...init, signal: init?.signal ?? this._coverageAbort.signal }, label),
+    beginPendingWork: () => this._pendingWork.begin('coverage'),
     destroyed: () => this._destroyed,
     runEpoch: () => this._runEpoch,
     catalogues: this._coverageCatalogues,
@@ -4431,15 +4436,10 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
-    // Glyph keep-alive (#2116): a label whose PBF range is still in flight draws
-    // metrics-only (all-zero SDF, correctly spaced and inkless), and the range lands on a
-    // network callback that no tile/upload/LOD signal can see. Without this the loop idles
-    // on that frame and `idle` means "converged except for text" — which is how a
-    // settle-on-idle harness came to sample first-visit poses before their glyphs arrived,
-    // and why the parity gate needed an 8 s sleep plus a warm-up pass to be reproducible.
-    // Bounded at the provider (GlyphProvider.hasPendingLoads), so a glyph host that never
-    // answers costs one deadline of warm frames, not a map that never idles.
-    if (this.textStage !== null && this.textStage.hasPendingGlyphLoads()) return true
+    // #2149 — the registered async resource classes (pending-work.ts): each kind's
+    // bounded in-flight probe holds the loop warm, and the per-kind reasons live on the
+    // registrations. Glyph (#2116) migrated first; further kinds join per the design doc.
+    if (this._pendingWork.hasPending()) return true
     // Sprite keep-alive (#2122) — the other half of the same hole the line above closes.
     // IconStage is built lazily on the first frame that needs it and its SpriteAtlasHost
     // kicks off the atlas fetch WITHOUT arming `_needsRender`, so the next frame idles with

@@ -867,12 +867,19 @@ const CEILINGS: Record<string, number> = {
   // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
   // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
-  // →5475 (this merge): THREE deltas against the same base 5482 — #2144's −14, #2118's +4
-  // and #2162's +3 — so no branch's number survives and arithmetic on any two of them is
-  // wrong. Set from `wc -l` on the merged file. Every bump note above is kept because each
-  // documents a different change; only the number is re-derived (CLAUDE.md §12).
+  // →5475 (this merge): FOUR bumps have now been authored against the same base 5482 —
+  // this branch's −14 (#2144), #2118's +4, #2162's +3 and #2149's net-zero — so no branch's
+  // number survives and arithmetic on any subset of them is wrong. Set from `wc -l` on the
+  // merged file. Every bump note above is kept because each documents a different change;
+  // only the number is re-derived (CLAUDE.md §12). Lower as #991 decomposes map.ts.
   'map/src/map.ts': 5475,
-  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
+  // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
+  // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
+  // The keep-warm reason lives on the registration (pending-work.ts); this file carries
+  // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
+  // #2138 merge (main did not touch this file): 801.
+  'map/src/coverage-source.ts': 801, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
