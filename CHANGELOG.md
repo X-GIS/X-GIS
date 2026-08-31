@@ -7,17 +7,23 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 063001e9f91155c12875a6227e5ac131299647d5
+  Generated from: eebe3e312a8392ecb9c39a6056e5671df06940d3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 063001e9f911
+    bun scripts/emit-changelog.ts --since eebe3e312a83
 -->
 
 # Changelog
 
 This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
+
+### 2026-09
+
+#### feat
+
+- **map:** convergence-authority design + pending-work registry — glyph and coverage registered (#2149) ([#2153](https://github.com/X-GIS/X-GIS/pull/2153)) `eebe3e3`
 
 ### 2026-08
 
@@ -128,6 +134,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/convert:** resolved-locale reads only the collator locale ([#2171](https://github.com/X-GIS/X-GIS/pull/2171)) `96e668e`
 - **map/render:** apply the RTC witness skew at the single anchor producer, and make the parity gate name its bind path ([#2167](https://github.com/X-GIS/X-GIS/pull/2167)) `b759e32`
 - **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`

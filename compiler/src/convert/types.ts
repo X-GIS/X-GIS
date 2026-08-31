@@ -67,7 +67,11 @@ export interface MapboxStyle {
    *  (#2007) — declared only so the ignored-top-level warning can name
    *  it. */
   'font-faces'?: unknown
-  // Other top-level fields (metadata) still ignored.
+  /** Arbitrary author data the spec says does not affect rendering. The
+   *  converter preserves it as a leading block comment in the emitted xgis —
+   *  the same channel `name` uses — rather than dropping it, so a style's
+   *  licence / schema-version pointers survive the conversion. */
+  metadata?: unknown
 }
 
 export interface MapboxSource {

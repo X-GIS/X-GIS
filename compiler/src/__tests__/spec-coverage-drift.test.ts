@@ -265,6 +265,12 @@ describe('mapbox spec-coverage drift detector', () => {
     const allowlist = new Set<string>([
       // Top-level structural keys that don't appear as `case` strings:
       'name',
+      // Same shape as `name`: read as the typed property `style.metadata` and
+      // preserved as a comment, so the string-literal extractor can't see it.
+      // What the converter actually does with it is pinned by
+      // style-metadata-preserved.test.ts, which also binds this row to the
+      // layer-level `metadata` row.
+      'metadata',
       'sources',
       'layers',
       // MapLibre v3 alias for raster-resampling — read via the
