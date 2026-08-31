@@ -24,6 +24,7 @@ import {
 import {
   strokeDasharrayBindingHandler,
   strokeGapBindingHandler,
+  strokeGradientBindingHandler,
   strokeTranslateXBindingHandler,
   strokeTranslateYBindingHandler,
   strokeOpacityBindingHandler,
@@ -81,6 +82,9 @@ export const BINDING_HANDLERS: BindingHandler[] = [
   fillAntialiasBindingHandler,
   fillBindingHandler,
   strokeBindingHandler,
+  // #2117 — EXACT `stroke-gradient` match, so it can never collide with the
+  // EXACT `stroke` arm above; placed here to mirror heatmapColorBindingHandler.
+  strokeGradientBindingHandler,
   fillExtrusionHeightBindingHandler,
   fillExtrusionBaseBindingHandler,
   heatmapColorBindingHandler,

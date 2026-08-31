@@ -14,7 +14,7 @@
 
 import type { RhiBindGroup, RhiRenderPass } from '@xgis/engine'
 import type { LineRenderer } from './line-renderer'
-import type { PatternSlot } from './line-pattern'
+import type { PatternSlot, LineGradientStop } from './line-pattern'
 
 /** The resolved, mpp-INDEPENDENT stroke style captured from the direct layer-slot write. Re-packed
  *  per baked tile with that tile's bake mpp (E/BAKE_PX). `dashSrc` stays in Mapbox width units and is
@@ -33,6 +33,10 @@ export interface BakeStrokeStyle {
   dashOffsetUnits: number
   patternSlots: PatternSlot[]
   offset: number
+  /** Mapbox line-gradient ramp stops (#2117), or null. mpp-independent like the colour, so
+   *  it re-packs into the bake slot verbatim — without it a gradient would vanish the
+   *  moment the globe drape took over from the direct draw. */
+  gradient: readonly LineGradientStop[] | null
 }
 
 /** A fresh zeroed style (VTR holds one, mutated in place per render() — no per-frame alloc). */
@@ -49,6 +53,7 @@ export function emptyBakeStrokeStyle(): BakeStrokeStyle {
     dashOffsetUnits: 0,
     patternSlots: [],
     offset: 0,
+    gradient: null,
   }
 }
 
@@ -74,6 +79,12 @@ export function strokeBakeKey(active: boolean, s: BakeStrokeStyle): number {
   k = (k ^ (Math.round(s.widthPx * 16) * 0x9e3779b1)) | 0
   k = (k ^ ((s.cap | (s.join << 3)) * 0x85ebca6b)) | 0
   k = (k ^ ((s.dashSrc?.length ?? 0) * 0xc2b2ae35)) | 0
+  // Ramp stops are part of the baked pixels — hash every stop, not just the count, so a
+  // recoloured ramp with the same stop count re-bakes.
+  for (const st of s.gradient ?? []) {
+    k = (k ^ (Math.round(st.offset * 1023) * 0x27d4eb2f)) | 0
+    k = (k ^ ((q8(st.rgba[0]) | (q8(st.rgba[1]) << 8) | (q8(st.rgba[2]) << 16)) * 0x165667b1)) | 0
+  }
   return k | 0
 }
 
@@ -116,6 +127,7 @@ function writeBakeStrokeLayerSlot(
     0, // line-translate x (screen-space; N/A in the bake)
     0, // line-translate y
     s.roundLimit,
+    s.gradient,
   )
   // The bake encoder self-submits (ownsSubmit), so this slot must be uploaded before that submit.
   // endFrame() flushes the accrued dirty range (the frame's final endFrame re-flushes any later

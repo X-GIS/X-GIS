@@ -1550,6 +1550,10 @@ export class VectorTileRenderer {
     // fs_line_pattern reads layer.color.r/.a as the x/y repeat metres and tile.stroke_color as
     // the sprite-atlas UV bbox, so the pattern show trades its solid stroke colour for the atlas.
     const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+    // #2117 — a pattern layer trades layer.color for the atlas repeat/UV lanes and takes its
+    // RGB from the sprite, so a ramp there could only bend the pattern's alpha. Mapbox treats
+    // the two as mutually exclusive; the pattern wins.
+    const lineGradient = linePatternActive ? null : (show.strokeGradientStops ?? null)
     const lineSlotColor: [number, number, number, number] = linePatternActive
       ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
       : [stroke[0], stroke[1], stroke[2], stroke[3]]
@@ -1595,6 +1599,7 @@ export class VectorTileRenderer {
       0,
       0,
       roundLimit,
+      lineGradient,
     )
     this.lineRenderer.endFrame()
 
@@ -2093,16 +2098,13 @@ export class VectorTileRenderer {
    *  ortho bake stays all-zero → flag 0 → legacy, its dedicated block never
    *  carries stale lanes). */
   private _writeRtcAnchors(anchor: TileCameraAnchor): void {
-    const g = globalThis as { __XGIS_RTC_RECOMBINE?: boolean; __XGIS_RTC_RECOMBINE_SKEW?: number }
-    const on = g.__XGIS_RTC_RECOMBINE === true
-    // Test-only witness (the §5 A/B gate's cut-the-mechanism arm): a metre
-    // skew on the tile anchor X moves geometry IFF the VS recombine path is
-    // live — flag ON + skew must change the frame, flag OFF + skew must not.
-    // Distinguishes "both arms byte-equal because the paths agree" from
-    // "byte-equal because the flag never reached the shader" (#996 vacuity).
-    const skew = g.__XGIS_RTC_RECOMBINE_SKEW ?? 0
+    const on = (globalThis as { __XGIS_RTC_RECOMBINE?: boolean }).__XGIS_RTC_RECOMBINE === true
+    // The §5 witness skew is NOT applied here: it is baked into the anchor by
+    // computeTileCameraAnchor, so the split-bind packer (TileUniformArena)
+    // inherits it too. Applying it at this legacy-uniform site left it inert
+    // under the shipping split bind — #2165.
     const B = this.frameBlock
-    B.set.tile_ecef_center_h(anchor.tileEcefXH + skew, anchor.tileEcefYH, anchor.tileEcefZH, 0)
+    B.set.tile_ecef_center_h(anchor.tileEcefXH, anchor.tileEcefYH, anchor.tileEcefZH, 0)
     B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
     B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
     B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
@@ -2110,7 +2112,7 @@ export class VectorTileRenderer {
     // flag, same skew witness — the skew moves flat geometry iff the
     // Mercator recombination is live, mirroring the ECEF witness on globe).
     B.set.tile_origin_merc_hl(
-      anchor.tileMercXH + skew,
+      anchor.tileMercXH,
       anchor.tileMercYH,
       anchor.tileMercXL,
       anchor.tileMercYL,
@@ -3154,6 +3156,10 @@ export class VectorTileRenderer {
       // as repeat axes). The solid stroke colour is lost on the pattern path, but the sprite
       // atlas sample provides the visual colour band (mirror of fill-pattern's fill_color reuse).
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+      // #2117 — a pattern layer trades layer.color for the atlas repeat/UV lanes and takes its
+      // RGB from the sprite, so a ramp there could only bend the pattern's alpha. Mapbox treats
+      // the two as mutually exclusive; the pattern wins.
+      const lineGradient = linePatternActive ? null : (show.strokeGradientStops ?? null)
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
         : [
@@ -3190,6 +3196,7 @@ export class VectorTileRenderer {
         this.currentStrokeTranslateNdcX,
         this.currentStrokeTranslateNdcY,
         roundLimit,
+        lineGradient,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -3214,6 +3221,7 @@ export class VectorTileRenderer {
           this.currentStrokeTranslateNdcX,
           this.currentStrokeTranslateNdcY,
           roundLimit,
+          lineGradient,
         )
       }
 
@@ -3234,6 +3242,7 @@ export class VectorTileRenderer {
       bs.dashOffsetUnits = resolvedShow.dashOffset
       bs.patternSlots = patternSlots
       bs.offset = effectiveOffset
+      bs.gradient = lineGradient
       // A stroke is drape-worthy when it draws something: a resolved colour+width, or a line pattern
       // (which carries its colour in the sprite atlas, not cachedStrokeColor).
       this._bakeStrokeActive =

@@ -190,3 +190,135 @@ describe('TileUniformArena — TileBlock ↔ polygonU byte parity (the INC-4 con
     ).toBe(true)
   })
 })
+
+// ═══ #2165 — the §5 witness skew must reach THIS packer ═══
+//
+// The skew used to be applied by vector-tile-renderer's _writeRtcAnchors,
+// which writes the LEGACY monolithic polygonU. #2151 made the split bind the
+// shipping default, so the tile anchors come from the arena below instead —
+// and the arena reads the anchor straight. The witness went inert on the
+// default path: `_rtc-recombine-parity-gate`'s cut arm could no longer move a
+// pixel, so it reddened, and had it not, the gate would have been vacuous.
+//
+// The e2e gate is the render witness; this is the cheap structural one. It
+// bites on the mechanism directly: skew set → the arena's staged bytes must
+// move. Before the fix these two byte arrays were identical.
+
+const SKEW_KEY = '__XGIS_RTC_RECOMBINE_SKEW'
+
+function withSkew<T>(metres: number, fn: () => T): T {
+  const g = globalThis as Record<string, unknown>
+  const had = SKEW_KEY in g
+  const prev = g[SKEW_KEY]
+  g[SKEW_KEY] = metres
+  try {
+    return fn()
+  } finally {
+    if (had) g[SKEW_KEY] = prev
+    else delete g[SKEW_KEY]
+  }
+}
+
+/** Stage one slot and return the packed TileBlock bytes. */
+function stagedBytes(anchor: ReturnType<typeof computeTileCameraAnchor>): Uint8Array {
+  const { device, created } = makeDevice()
+  const a = new TileUniformArena(() => device)
+  const off = a.ensureSlot('water', 42, 0, anchor, EXTENT, DQ_SCALE, DQ_HALF)
+  a.flush()
+  return created[0]!.bytes.slice(off, off + uniformBlock(tileBlockU).buffer.byteLength)
+}
+
+describe('#2165 — the recombine witness reaches the split-bind packer', () => {
+  const SKEW = 250 // metres — far past any f32 ulp at Tokyo's magnitudes
+
+  it('moves the arena-staged TileBlock bytes (the split bind is the shipping path)', () => {
+    const clean = stagedBytes(ANCHOR)
+    const skewed = stagedBytes(
+      withSkew(SKEW, () =>
+        computeTileCameraAnchor(139.74609375, 35.68359375, 0, 139.7671, 35.6812),
+      ),
+    )
+    expect(
+      [...skewed],
+      'the witness skew did not change the bytes TileUniformArena stages — it is ' +
+        'inert on the default (split) bind path, so the §5 A/B cut arm cannot move ' +
+        'a pixel and every recombine verdict built on it is vacuous (#2165)',
+    ).not.toEqual([...clean])
+  })
+
+  it('skews the ABSOLUTE anchors only — the CPU-packed offset lanes stay clean', () => {
+    // That asymmetry IS the witness: with the recombine flag OFF the shader
+    // reads the offset lanes, so the skew must be invisible; with it ON it
+    // reads the absolute pair, so the skew must move geometry.
+    const clean = ANCHOR
+    const skewed = withSkew(SKEW, () =>
+      computeTileCameraAnchor(139.74609375, 35.68359375, 0, 139.7671, 35.6812),
+    )
+    expect(
+      skewed.tileMercXH + skewed.tileMercXL - (clean.tileMercXH + clean.tileMercXL),
+    ).toBeCloseTo(SKEW, 1)
+    expect(
+      skewed.tileEcefXH + skewed.tileEcefXL - (clean.tileEcefXH + clean.tileEcefXL),
+    ).toBeCloseTo(SKEW, 1)
+    for (const k of [
+      'camXH',
+      'camXL',
+      'camYH',
+      'camYL',
+      'tileMercX',
+      'tileMercY',
+      'ecefXH',
+      'ecefXL',
+      'ecefYH',
+      'ecefYL',
+      'ecefZH',
+      'ecefZL',
+      'camEcefXH',
+      'camEcefXL',
+      'camMercXH',
+      'camMercXL',
+      'tileMercYH',
+      'tileMercYL',
+      'tileEcefYH',
+      'tileEcefZH',
+    ] as const) {
+      expect(skewed[k], `${k} moved under the witness skew — it must not`).toBe(clean[k])
+    }
+  })
+
+  it('RE-PACKS a resident slot when the witness moves — the pack-once cache is not a wall', () => {
+    // The half the two assertions above cannot see. They each build a FRESH arena, so they
+    // would pass on a build where a resident slot can never be re-packed — which is exactly
+    // the state that made the gate measure 0 moved pixels on the shipping bind path. Here the
+    // slot is established FIRST, unskewed, and the skew arrives after: the arena must notice
+    // and drop the stale pack. Without `packedSkew` the second ensureSlot returns the cached
+    // offset and these bytes are identical.
+    const { device, created } = makeDevice()
+    const a = new TileUniformArena(() => device)
+    a.ensureSlot('water', 42, 0, ANCHOR, EXTENT, DQ_SCALE, DQ_HALF)
+    a.flush()
+    const resident = created[0]!.bytes.slice(0, uniformBlock(tileBlockU).buffer.byteLength)
+
+    const skewedAnchor = withSkew(SKEW, () =>
+      computeTileCameraAnchor(139.74609375, 35.68359375, 0, 139.7671, 35.6812),
+    )
+    withSkew(SKEW, () => {
+      const off = a.ensureSlot('water', 42, 0, skewedAnchor, EXTENT, DQ_SCALE, DQ_HALF)
+      a.flush()
+      expect(off).toBeGreaterThanOrEqual(0)
+    })
+    const after = created[0]!.bytes.slice(0, uniformBlock(tileBlockU).buffer.byteLength)
+    expect(
+      [...after],
+      'the resident slot was reused after the witness moved — a skew set once a tile is ' +
+        'already packed can never reach the shader, so the §5 gate measures an inert witness ' +
+        'and passes on a dead recombination (#2165)',
+    ).not.toEqual([...resident])
+  })
+
+  it('is a no-op when unset — the shipping path packs the unskewed math', () => {
+    expect([
+      ...stagedBytes(computeTileCameraAnchor(139.74609375, 35.68359375, 0, 139.7671, 35.6812)),
+    ]).toEqual([...stagedBytes(ANCHOR)])
+  })
+})

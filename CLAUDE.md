@@ -428,6 +428,29 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   missing export and the missing emitter reached main under a green local run. Re-run the
   typecheck AFTER the final `git add`, and read `git show --stat HEAD` against the change
   you think you made — a file count that does not match is the tell.
+- Two branches raising the SAME ratchet key to the SAME number from the same base merge
+  with NO conflict, and the file then takes BOTH deltas — the ceiling is now one change too
+  low and the ratchet reds on main having been green on both branches. git cannot see it:
+  the resolved line is byte-identical to each side. RE-MEASURE every ceiling you raised
+  after the merge, never carry the number across.
+- A test-only WITNESS applied at a PACKER dies the day the packer is replaced. #2151 made
+  the uniform split-bind the default, so the tile anchors came from `TileUniformArena`
+  instead of the legacy block the §5 skew hook wrote — the witness stopped reaching the
+  shader, and the only reason anyone noticed is that it reddened first. A week later it
+  would have gone GREEN with its cut arm moving nothing. Apply a witness at the SINGLE
+  PRODUCER of the value it perturbs, so every packer inherits it by construction. → `#2165`
+- A gate that INHERITS a global default silently changes subject when the default flips.
+  `_rtc-recombine-parity-gate` is a CONSUMER of the bind path, not part of the split-bind
+  feature, so #2151's pre-merge check (which covered the two gates that SET the flag, and
+  were immune by construction) could not cover it. A gate must PIN the mode it measures —
+  and where two modes have different semantics, assert each mode's own (the split path has
+  no flag select at all, so "OFF + skew must be inert" is a premise it does not have).
+  → `#2165`, and it is §12's shared-path/consumer-gates rule one increment on.
+- A CACHE silently retires a "read live per frame" premise. The same gate injects its flags
+  post-ready and documents why it may; `TileUniformArena` packs a slot ONCE and reuses it
+  forever, so after INC-4b a flag set after boot could never reach a resident tile. When you
+  move a value behind a pack-once cache, go read what the tests assumed about how often it
+  is read. → `#2165`
 
 **Verification**
 
@@ -541,6 +564,13 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   "exposed so a gate can assert the controller ACTED" and was surfaced on no public object —
   three rounds of inference circled a question the system already knew. Intent in a comment
   is not wiring; check the accessor is reachable from where a test runs.
+- A shader edit-probe that skips `bun run bake:shaders` proves NOTHING, and the way it fails
+  is to look like a vacuous gate. The page consumes the BAKED artifact, so cutting a
+  `map/src/shaders/dsl/` mechanism and re-running the render gate leaves it GREEN — read as
+  "this gate cannot distinguish", which is the opposite of true. Re-baked, the same cut
+  reddened naming exactly the severed half. Bake after the cut AND after the restore, and
+  assert `git status --porcelain map/src/shaders/baked/` is empty before believing either
+  run. → #2117
 
 **Process**
 

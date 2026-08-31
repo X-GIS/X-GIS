@@ -11,7 +11,7 @@
 //
 // This drives the REAL LineRenderer.writeLayerSlot + endFrame against the
 // WebGPU stub (no GPU) and intercepts `device.queue.writeBuffer` to read the
-// 256-byte layer slot the renderer uploads into the layer ring, asserting
+// layer slot the renderer uploads into the layer ring, asserting
 // that f32 slot [7] (LineLayerUniform.miter_limit) carries the value passed.
 // Two distinct values are checked so a constant / prop-independent write can
 // never pass (non-vacuous).
@@ -27,7 +27,7 @@ import {
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { LineRenderer, LINE_CAP_BUTT, LINE_JOIN_MITER } from '@xgis/map'
+import { LineRenderer, lineLayerUniformStride, LINE_CAP_BUTT, LINE_JOIN_MITER } from '@xgis/map'
 
 let stub: StubInstallation
 
@@ -53,11 +53,17 @@ async function makeCtx(): Promise<GPUContext> {
   return initGPU(canvas) as unknown as Promise<GPUContext>
 }
 
-// The layer ring is `layerRingCapacity (512) * LAYER_SLOT (256)` bytes. This
-// size is unique among the buffers the renderer writes, so keying the
-// writeBuffer interception on it unambiguously selects the layer-uniform
-// upload (endFrame()). The miter limit is f32 slot [7] of the 256-byte slot.
-const LAYER_RING_BYTES = 512 * 256
+// endFrame() uploads the dirty range of the layer-uniform ring via
+// device.queue.writeBuffer; its byte-size is unique among the buffers the renderer
+// creates, so keying the interception on that size selects the upload unambiguously.
+// The layer-uniform ring is `layerRingCapacity` (512) slots × the LineLayer dynamic-offset
+// stride. That stride is DERIVED (`lineLayerUniformStride()`, reflect-backed) and moved
+// 256 → 512 when #2117 grew LineLayer past 256 B — a hand literal here went silently dark
+// that day: the buffer interception below stopped matching, so every assertion in this
+// file saw no write and reported "undefined". Read it from the SoT instead, and LAZILY —
+// reflect emits the projection fns, which throw before configureProjections() (the
+// no-eager-uniform-reflect rule; a module-level const would evaluate at import).
+const layerRingBytes = (): number => 512 * lineLayerUniformStride()
 const MITER_LIMIT_SLOT = 7
 
 /** Add a single line layer with the given miterLimit, flush the layer ring,
@@ -88,7 +94,7 @@ function capturedMiterLimit(ctx: GPUContext, miterLimit: number): number {
     data: ArrayBuffer | ArrayBufferView,
     dataOffset = 0,
   ): void => {
-    if ((buf as { size?: number })?.size !== LAYER_RING_BYTES) return
+    if ((buf as { size?: number })?.size !== layerRingBytes()) return
     const ab = data instanceof ArrayBuffer ? data : (data as ArrayBufferView).buffer
     const base =
       data instanceof ArrayBuffer ? dataOffset : (data as ArrayBufferView).byteOffset + dataOffset

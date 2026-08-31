@@ -303,10 +303,15 @@ const CEILINGS: Record<string, number> = {
   // bundle replay its fill draws over the drape. Irreducible: the contract is
   // one property per key literal (`satisfies BundleKeyState`), and the full
   // derivation lives with the fields in _cache/bundle-cache-key.ts, not here.
-  // Merge of the two histories above: main's 5454 plus this branch's +17,
-  // MEASURED post-prettier on the merged file (never side-picked, never summed
-  // by hand — a merge that takes either side's number lands a wrong ceiling).
-  'map/src/render/vector-tile-renderer.ts': 5471,
+  // 5454→5471 (#2093 F1+E1) and 5454→5466 (#2117 line-gradient) are two
+  // independent +17 / +12 on the SAME 5454 base. #2117 adds the `lineGradient`
+  // resolve (pattern-exclusion comment + one const) at BOTH stroke-write sites,
+  // the argument at the three writeLayerSlot calls, and the `bs.gradient` bake
+  // capture — no new branch, the ramp itself lives in line-pattern.ts /
+  // line-gradient.ts. Merged: 5483, MEASURED post-merge on the merged file
+  // (`wc -l`) — never side-picked, never summed by hand, exactly as main's own
+  // note above warns. Headroom is re-justified per phase, never banked.
+  'map/src/render/vector-tile-renderer.ts': 5483,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -853,8 +858,17 @@ const CEILINGS: Record<string, number> = {
   // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
   // 5482→5468 (#2144): `getDumpedLabels`'s inline return type — the third
-  // hand-written copy of `DumpedLabel` — becomes the imported interface. MEASURED.
-  'map/src/map.ts': 5468,
+  // hand-written copy of `DumpedLabel` — becomes the imported interface.
+  // 5482→5485 (#2162, main): both `getMissingTileCount` docstrings claimed it "settles to 0
+  // exactly when the scene converges". It does not — the sum carries three of
+  // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
+  // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
+  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
+  // →5471 (this merge): a −14 and a +3 authored against the SAME base 5482; the merged
+  // file takes both, so neither branch's number survives. Set from `wc -l` on the merged
+  // file, not from arithmetic — and the ceiling stays as tight as #2144 intended, which is
+  // the whole point of re-measuring rather than taking the larger side (CLAUDE.md §12).
+  'map/src/map.ts': 5471,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1333,7 +1347,18 @@ const CEILINGS: Record<string, number> = {
   // (map/src/shaders/dsl/line.ts, ~497 lines — a third of the file) is the next extraction,
   // deliberately not folded in here so this increment's diff stays about the recombination.
   // MEASURED after prettier.
-  'map/src/shaders/dsl/line.ts': 1673,
+  // 1651→1673 (#2117 line-gradient, on top of #2089's 1539→1651). #2089 paid 112 lines
+  // for the ECEF endpoint lanes and the error-budget rationale under them; #2117 adds
+  // 22: the two ramp uniform arrays + `gradient_count` on LineLayer (which takes the
+  // slot the 16-byte alignment pad occupied, so the struct grows only by the arrays),
+  // and the ramp substitution in compute_line_color. The ramp EVALUATION — the stop
+  // loop and the 4-per-vec4 position unpack — is extracted to line-gradient.ts, the
+  // same relief valve #1496 used, so only the struct fields and one `If` block land
+  // here. Headroom is re-justified per phase, never banked. MEASURED post-merge.
+  // BOTH histories above start from 1651 and BOTH add 22 — #2042 INC-6 and #2117 each
+  // reached 1673 independently, which is exactly the merge where taking either side's
+  // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
+  'map/src/shaders/dsl/line.ts': 1695,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1610,7 +1635,11 @@ const CEILINGS: Record<string, number> = {
   // where the fields live; this file keeps one call reading the resolved kind.
   // Two now-orphaned @xgis/geo imports (isGlobeProj, promotesToGlobeWhenTilted)
   // went with it. Measured, not arithmetic.
-  'map/src/render-loop.ts': 934,
+  // 934->935 (#2162): the end-of-frame `_missingTileCount` comment asserted the sum
+  // "settles to 0 exactly when that gate stops re-arming" -- it is three of the gate's
+  // six terms (retries, pending VT uploads and `_czPendingAdvance` absent). One line,
+  // comment-only. MEASURED post-prettier.
+  'map/src/render-loop.ts': 935,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -2063,7 +2092,11 @@ const CEILINGS: Record<string, number> = {
   // so `refresh: -5` reports "non-negative" instead of a misleading "not a
   // number"), and the return-object field. Mirrors the existing `maxzoom`/
   // `minzoom` numeric-prop shape.
-  'compiler/src/ir/lower.ts': 1514,
+  // 1514→1519 (#2117 line-gradient): the `strokeGradientStops` local + its one-line why,
+  // its acc read, the acc-literal key and the `gradientStops:` field on the emitted
+  // StrokeValue — the four-site shape every stroke paint axis already has here, no new
+  // branch. Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'compiler/src/ir/lower.ts': 1519,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -2111,7 +2144,10 @@ const CEILINGS: Record<string, number> = {
   // 980→982 (#1257): rasterFadeDurationMs? field + doc comment on RenderNodeRasterPaint.
   // 982→989 (#1304): `SourceDef.refresh?: number` field + doc comment (the declarative
   // live-source polling interval).
-  'compiler/src/ir/render-node.ts': 989,
+  // 989→995 (#2117 line-gradient): `StrokeValue.gradientStops` + the 5-line doc that
+  // records WHY the ramp replaces the solid colour and which arc it is sampled over.
+  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 995,
   'compiler/src/convert/paint-helpers.ts': 826,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
@@ -2125,7 +2161,10 @@ const CEILINGS: Record<string, number> = {
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
   // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP before.
-  'compiler/src/ir/emit-commands.ts': 805,
+  // 805→810 (#2117 line-gradient): `LinePaint.strokeGradientStops` + doc + the one
+  // `node.stroke.gradientStops` wire line. Headroom is re-justified per phase, never
+  // banked. MEASURED post-prettier.
+  'compiler/src/ir/emit-commands.ts': 810,
   // 785→826 (#1269 item 3): retry backoff jitter, so tiles that fail together
   // don't retry in lockstep — the injectable-rng test seam (mirrors the log-throttle/
   // negative-cache module-state + test-only-setter shape already in this file) +

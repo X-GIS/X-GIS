@@ -20,9 +20,23 @@
 //     — proves the VS actually consumes tile_ecef_center when the flag is on;
 //     if the flag plumbing is dead this arm renders the legacy frame and the
 //     gate goes red naming it.
-//   • OFF + skew 5e5 m → frame MUST equal the OFF arm byte-for-byte — the
-//     skewed lanes are staged but the legacy path never reads them; proves
-//     flag-off really bypasses the anchors.
+//   • OFF + skew 5e5 m → what this arm must show DEPENDS ON THE BIND PATH,
+//     and #2165 is the bill for not saying so. On the LEGACY monolithic bind
+//     the shader carries a flag select (merc-cam-rel.ts / polygon.ts's
+//     `camCH.w.gt(0.5)`), so flag-off reads the CPU-packed cam_ecef_off pair
+//     and the frame MUST equal the OFF arm byte-for-byte. On the SPLIT bind
+//     the cam_ecef_off vec4s are RETIRED (uniform-split-partition's RETIRING
+//     set) — polygon-split.ts rewrites cam_h/cam_l to the recombined arm
+//     ALONE, "with no flag select" (merc-cam-rel.ts's own header) — so there
+//     is no legacy arm to bypass to and the skew MUST move the frame.
+//
+// EACH TEST THEREFORE PINS ITS BIND PATH (`__XGIS_SPLIT_BIND`, via an
+// addInitScript set once before the first navigation, so it is live at the
+// pipeline-factory build() that reads it). #2151 flipped the default from
+// opt-in to opt-out and this gate — a CONSUMER of the bind path, not part of
+// the split-bind feature — silently changed subject and went red asserting
+// the retired path's semantics against the shipping one (#2165). Inheriting
+// the default is what made that possible; it is not inherited any more.
 //
 // Scene/settle harness mirrors _bundle-replay-parity-gate.spec.ts (the same
 // hard-won constraints): committed demotiles mirror (offline, TERMINAL tile
@@ -30,8 +44,16 @@
 // SwiftShader raster budget), idle-event settle with the listener registered
 // BEFORE the camera moves, full-script warmup per arm (glyph ranges), reduced
 // motion, clipped page.screenshot (element screenshots never stabilize),
-// post-ready page.evaluate flag injection (addInitScript stacking measured
-// broken across arm navigations).
+// post-ready page.evaluate flag injection for the PER-ARM flags (addInitScript
+// stacking measured broken across arm navigations) — the per-TEST bind path is
+// a single constant and so does ride an addInitScript, added once up front.
+//
+// That post-ready injection rests on "the flags are read LIVE per frame at the
+// uniform write site". #2042 INC-4b quietly retired that for the tile anchors:
+// TileUniformArena packs a slot ONCE and reuses it forever, so a skew set after
+// boot could never reach an already-resident tile and Witness 1 measured 0 on
+// the shipping path. tile-uniform-arena.ts's `packedSkew` restores the premise
+// by dropping resident packs when the witness moves (#2165).
 
 import { test, expect, type Page } from '@playwright/test'
 import { hideDemoChrome } from './helpers/visual'
@@ -415,11 +437,24 @@ async function runParity(
   globe: boolean,
   lineOnly = false,
   projOverride: string | null = null,
+  /** Which uniform bind path this test measures. NEVER inherited from the
+   *  shipping default — see the header: that is how #2165 happened. */
+  splitBind = true,
 ): Promise<void> {
-  const tag = lineOnly ? (projOverride ?? 'line-merc') : globe ? 'globe' : 'flat'
+  // No '/' — the tag is spliced into testInfo.outputPath() for the §5 artifacts,
+  // and a slash there makes the write ENOENT in a directory nobody created.
+  const tag =
+    (lineOnly ? (projOverride ?? 'line-merc') : globe ? 'globe' : 'flat') +
+    (splitBind ? '' : '-legacy-bind')
   const pageErrors: string[] = []
   page.on('pageerror', (e) => pageErrors.push(String(e?.message ?? e)))
   await page.setViewportSize({ width: 288, height: 160 })
+  // Added ONCE, before the first navigation: pipeline-factory reads
+  // __XGIS_SPLIT_BIND at build(), so a post-ready evaluate is too late. One
+  // constant for the whole test means no stacking across the four arms.
+  await page.addInitScript((v: boolean) => {
+    ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = v
+  }, splitBind)
 
   // Arm A — legacy (flag off, no skew): the reference.
   await bootArm(page, { recombine: false, skewM: 0 }, globe, lineOnly, projOverride)
@@ -440,6 +475,49 @@ async function runParity(
   const offSkew = await stepAndSettle(page, SCRIPT[0]!)
 
   // ── Verdicts ──
+  // The bind path is the SUBJECT of every verdict below, so prove the page is
+  // on the one this test names before reading a single pixel. The echo proves
+  // the init script ran ahead of page scripts (hence ahead of build()); the
+  // walk-skip counter is the executed-mechanism half — it increments only
+  // inside VTR's split branch, so on a polygon scene it separates "split bind
+  // declared" from "split bind actually taken" (§12: a flag you set is not a
+  // mechanism you ran).
+  const observed = await page.evaluate(() => ({
+    flag: (globalThis as { __XGIS_SPLIT_BIND?: unknown }).__XGIS_SPLIT_BIND,
+    walkSkips: (globalThis as { __xgisVtrWalkSkips?: number }).__xgisVtrWalkSkips ?? 0,
+  }))
+  console.log(`[rtc-parity:${tag}] bind path: ${JSON.stringify(observed)}`)
+  expect(
+    observed.flag,
+    `${tag}: __XGIS_SPLIT_BIND did not survive to the page — the init script did not run ` +
+      'before build(), so this test measured whatever the shipping default happens to be',
+  ).toBe(splitBind)
+  if (!splitBind) {
+    // The counter increments ONLY inside VTR's split branch, so a non-zero here
+    // means __XGIS_SPLIT_BIND=false did not take and the legacy select semantics
+    // below would be asserted against the split path. Measured 0 on this arm.
+    expect(
+      observed.walkSkips,
+      `${tag}: the split walk-skip fired ${observed.walkSkips}x on the legacy-bind arm — ` +
+        '__XGIS_SPLIT_BIND=false did not take',
+    ).toBe(0)
+  } else if (!lineOnly && !globe) {
+    // Flat polygon scene: every fill is an UNCLIPPED draw of a named slice, so it
+    // establishes arena slots and the walk-skip engages (measured 2578). This is
+    // the executed-mechanism half — a flag you set is not a mechanism you ran.
+    //
+    // NOT asserted on globe: with the vector drape disabled the globe arm draws
+    // direct ECEF chord fills, whose per-tile draws do not all clear
+    // `visibleKey < 0` — measured 0 there, on a run whose Witness 1 then moved
+    // 3356 px on flat. A `> 0` bar on globe fails for a reason that has nothing
+    // to do with the recombination, which is the opposite of what a witness is
+    // for. Witness 1 below is the mechanism proof on that scene.
+    expect(
+      observed.walkSkips,
+      `${tag}: the split walk-skip never fired — the arena slots are not being bound, so ` +
+        'this test is measuring the ring path while claiming the split one',
+    ).toBeGreaterThan(0)
+  }
   expect(pageErrors, `page errors during parity run:\n${pageErrors.join('\n')}`).toEqual([])
   // Blank-canvas trap: distinct poses must produce distinct frames.
   expect(new Set(off.map((s) => s.hash)).size, 'reference frames all identical').toBeGreaterThan(1)
@@ -497,7 +575,8 @@ async function runParity(
     // It is needed MORE now, not less. Witness 2 below asserts `offSkew.hash === off.hash`,
     // and TWO BLANK CANVASES satisfy that perfectly — a live assertion that a scene drawing
     // nothing would pass. The skew-diff arms are self-protecting (a blank pair diffs to 0,
-    // which fails their `> 0` / `> 100` bars), but the hash-equality one is not.
+    // which fails their `> 0` / `> 100` bars), but the hash-equality one is not. Assert once,
+    // here, that the stroke-only scene actually put ink on the canvas.
     const drawn = drawnPixelCount(on[0]!.png)
     console.log(`[rtc-parity:${tag}] drawn pixels on the stroke-only scene: ${drawn}`)
     expect(
@@ -536,15 +615,32 @@ async function runParity(
     ).toBeGreaterThan(100)
   }
 
-  // Witness 2 — flag OFF really bypasses the anchors: the skewed lanes are
-  // staged into the uniform but the legacy path never reads them.
+  // Witness 2 — what "flag OFF" MEANS, and it is not the same on both binds.
   console.log(
     `[rtc-parity:${tag}] witness OFF+skew vs OFF: off=${off[0]!.hash.slice(0, 12)} offSkew=${offSkew.hash.slice(0, 12)}`,
   )
-  expect(
-    offSkew.hash,
-    `${tag}: OFF + skew changed the frame — the legacy path is reading the anchor lanes`,
-  ).toBe(off[0]!.hash)
+  if (splitBind) {
+    // No select exists to bypass to: polygon-split.ts rewrites cam_h/cam_l to
+    // the recombined arm ALONE (merc-cam-rel.ts's header), and the legacy
+    // cam_ecef_off vec4s are retired outright. So the anchors are read
+    // unconditionally and the skew MUST move the frame with the flag off.
+    // Asserting the opposite here is what reddened this gate in #2165.
+    expect(
+      offSkew.hash,
+      `${tag}: OFF + skew left the frame byte-identical on the SPLIT bind — the split path has ` +
+        'no flag select, so the anchors must be read unconditionally. An inert skew here means ' +
+        'the tile lanes are not reaching the shader at all (a stale arena pack, or the draw ' +
+        'silently fell back to the ring), and Witness 1 above is measuring something else.',
+    ).not.toBe(off[0]!.hash)
+  } else {
+    // The legacy monolithic bind DOES carry the select, and this is the only
+    // place its off-arm is pinned: the skewed lanes are staged into the
+    // uniform and the CPU-packed cam_ecef_off pair is read instead.
+    expect(
+      offSkew.hash,
+      `${tag}: OFF + skew changed the frame — the legacy path is reading the anchor lanes`,
+    ).toBe(off[0]!.hash)
+  }
 }
 
 test('#2042 INC-1 — globe: recombined ECEF RTC matches legacy; the flag provably reaches the shader', async ({
@@ -592,4 +688,20 @@ test('#2042 INC-6 — line-only equirectangular: the VERTEX site moves geometry'
   test.setTimeout(2_100_000)
   _stepIdx = 0
   await runParity(page, testInfo, false, /* lineOnly */ true, 'equirectangular')
+})
+
+// The four tests above all measure the SHIPPING (split) bind, where there is no
+// flag select — so none of them can pin what `__XGIS_RTC_RECOMBINE` does, and the
+// OFF↔ON parity loop is an identity check there rather than a parity one. This
+// fifth test is where the select itself is pinned, on the cheapest scene that can
+// carry it (the stroke-only Mercator arm, ~1.2m): legacy bind, both arms of the
+// select live, Witness 2 in its classic direction. Without it, retiring the select
+// by accident would be invisible — the exact §12 shape (#1444) of an assertion that
+// passes whichever way the mechanism is wired.
+test('#2042 INC-6 — legacy bind: the flag select still has BOTH arms', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(2_100_000)
+  _stepIdx = 0
+  await runParity(page, testInfo, false, /* lineOnly */ true, null, /* splitBind */ false)
 })
