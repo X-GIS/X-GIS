@@ -244,9 +244,17 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    hand-listed signals; the retry kinds ride the real `FailedTileLedger`
    (attempt-count-bounded). Cut-verified both ways: the keep-warm scope read and the
    `raster-fetch` probe each red only their own tests.
-5. **VT family** (`vt-fetch/replaced/upload/missed/lod`) — adapters registered in
-   `map.ts` over the probes VTR/TileCatalog already export; `vector-tile-renderer.ts` and
-   `tile-selection-cache.ts` are **not edited** (shrink-only ceilings).
+5. **VT family** (`vt-fetch/replaced/upload/missed/lod`) — **LANDED** (probe flavor):
+   one early-exit walk over `vtSources` per kind, reading the probes VTR/TileCatalog
+   already export; `vector-tile-renderer.ts` and `tile-selection-cache.ts` are **not
+   edited** (shrink-only ceilings held). `SCOPE_VT_PIPELINE` pins exactly
+   `hasPendingSourceWork()`'s four-kind set — `vt-lod` is registered but deliberately
+   outside it (burst exit never read `_czPendingAdvance`). Five-arm contracts run on
+   structural fixtures whose boundedness DELEGATES, per comment, to the named owner
+   suites (the real chains need a GPU); wiring is transitionally DOUBLE-ROUTED (legacy
+   `hasPendingSourceWork` + registry) until increment 6 deletes the legacy body and the
+   wiring test pins registry-only. Cut-verified: severing the `vt-fetch` registration
+   reds exactly its arm + the scope test, siblings green.
 6. **Simplify the composed helpers** (rescoped 2026-08-31 per #2158 — this was
    "Collapse"): `keepLoopWarm` and `hasPendingSourceWork` keep their places in the
    composed chain but their hand-maintained signal lists become registry scope reads;
