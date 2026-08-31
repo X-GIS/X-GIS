@@ -289,12 +289,29 @@ const CEILINGS: Record<string, number> = {
   // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
   // for ring-free walks (PR #2090's measured re-record coupling) + the
   // opaque-layout-param note (#991).
-  // 5454→5466 (#2117 line-gradient): the `lineGradient` resolve (pattern-exclusion
-  // comment + one const) at BOTH stroke-write sites, the argument at the three
-  // writeLayerSlot calls, and the `bs.gradient` bake capture. No new branch — the
-  // ramp itself lives in line-pattern.ts / line-gradient.ts.
-  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
-  'map/src/render/vector-tile-renderer.ts': 5466,
+  // 5303→5311 (#2093 F1): the drape LOD ceiling at the `_drapeGlobeFills`
+  // derivation — the `drapesAtSelectionZ(currentZ)` conjunct + its
+  // __XGIS_FORCE_VECTOR_DRAPE A/B escape (6, incl. the 3-line rationale) and 2
+  // in the block comment above it. The arithmetic itself is NOT here: the
+  // chord-sagitta-vs-bake-texel derivation lives with the constant in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_SELECTION_Z), so this file
+  // gains only the call-site seam.
+  // 5311→5320 (#2093 E1): the two drape flags added as cells of BOTH bundle
+  // cache keys (primary + fallback) — 4 property lines + 5 of pointer comment.
+  // They SELECT what a bundle records (`drawFills` / `drawStrokes`) and the
+  // ceiling made them zoom-dependent, so a key that omits them lets a direct-arm
+  // bundle replay its fill draws over the drape. Irreducible: the contract is
+  // one property per key literal (`satisfies BundleKeyState`), and the full
+  // derivation lives with the fields in _cache/bundle-cache-key.ts, not here.
+  // 5454→5471 (#2093 F1+E1) and 5454→5466 (#2117 line-gradient) are two
+  // independent +17 / +12 on the SAME 5454 base. #2117 adds the `lineGradient`
+  // resolve (pattern-exclusion comment + one const) at BOTH stroke-write sites,
+  // the argument at the three writeLayerSlot calls, and the `bs.gradient` bake
+  // capture — no new branch, the ramp itself lives in line-pattern.ts /
+  // line-gradient.ts. Merged: 5483, MEASURED post-merge on the merged file
+  // (`wc -l`) — never side-picked, never summed by hand, exactly as main's own
+  // note above warns. Headroom is re-justified per phase, never banked.
+  'map/src/render/vector-tile-renderer.ts': 5483,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

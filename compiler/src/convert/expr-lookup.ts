@@ -263,6 +263,24 @@ export const idHandler: ExprHandler = (v, warnings) => {
   return 'get("$featureId")'
 }
 
+export const distanceFromCenterHandler: ExprHandler = (v, warnings) => {
+  // Mapbox ["distance-from-center"] (#2119) — feature anchor's distance
+  // from the viewport centre, in half-diagonal units (see
+  // eval/distance-from-center.ts for the arithmetic). Camera+anchor
+  // dependent, same reserved-key family as zoom/pitch/accumulated — but
+  // the op name has a hyphen, which the xgis lexer tokenizes as Minus
+  // (readIdentifier stops at [a-zA-Z0-9_]), so a bare `distance-from-
+  // center` identifier would parse as three subtractions, not one name.
+  // Routes through the SAME channel ["geometry-type"] / ["id"] already
+  // use for the identical reason: `get("$key")`, not a bare identifier.
+  if (v.length !== 1) {
+    warnings.push(
+      `Malformed ["distance-from-center"] expression: zero-arg accessor takes no arguments, got ${v.length - 1}.`,
+    )
+  }
+  return 'get("$distanceFromCenter")'
+}
+
 /** Serialise a nested numeric coordinate array to xgis array-literal
  *  source (`[[...]]`). Returns null if any leaf is a non-finite number
  *  (an invalid bare identifier in the emitted source). */

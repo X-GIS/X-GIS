@@ -17,6 +17,7 @@ import {
   CAMERA_ZOOM_KEY,
   FEATURE_ID_KEY,
   GEOMETRY_TYPE_KEY,
+  DISTANCE_FROM_CENTER_KEY,
   makeEvalProps,
   normalizeGeometryType,
 } from './reserved-keys'
@@ -29,6 +30,7 @@ const RESERVED_LITERALS = [
   CAMERA_ZOOM_KEY, // '$zoom'
   FEATURE_ID_KEY, // '$featureId'
   GEOMETRY_TYPE_KEY, // '$geometryType'
+  DISTANCE_FROM_CENTER_KEY, // '$distanceFromCenter'
 ] as const
 
 // Allowlist: places where the literal IS legitimate.
@@ -135,6 +137,7 @@ describe('reserved keys — no literal `$zoom` / `$featureId` / `$geometryType` 
     expect(CAMERA_ZOOM_KEY).toBe('$zoom')
     expect(FEATURE_ID_KEY).toBe('$featureId')
     expect(GEOMETRY_TYPE_KEY).toBe('$geometryType')
+    expect(DISTANCE_FROM_CENTER_KEY).toBe('$distanceFromCenter')
   })
 
   it('makeEvalProps normalizes Multi* geometry types to their base form', () => {

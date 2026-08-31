@@ -588,6 +588,52 @@ export function pitchAlignmentGapWarning(
   )
 }
 
+/** True if `node` (an arbitrary Mapbox paint/layout JSON value) contains a
+ *  `["distance-from-center", …]` expression anywhere in its tree — nested
+ *  inside `step` / `interpolate` / `case` / etc. Single-use, local to
+ *  distanceFromCenterAnchorWarning below. */
+function usesDistanceFromCenter(node: unknown): boolean {
+  if (!Array.isArray(node)) return false
+  if (node[0] === 'distance-from-center') return true
+  return node.some(usesDistanceFromCenter)
+}
+
+/** `["distance-from-center"]` (#2119) vs `symbol-placement: "line"` /
+ *  `"line-center"` — the anchor-not-well-defined half of #2119's scope.
+ *
+ *  A line-placed label's anchor moves continuously along the line as the
+ *  runtime lays glyphs out — there is no single point the way a point-
+ *  placed symbol has one, so `["distance-from-center"]` has no meaningful
+ *  value for this layer (not a temporary wiring gap — a permanent property
+ *  of line placement). Mirrors pitchAlignmentGapWarning's shape (same
+ *  call site, same already-resolved `placement`) and ADR-0012 §1's
+ *  precise-warning convention: names the property, the reason, and the
+ *  alternative.
+ *
+ *  Scans `layout` + `paint` (where the accessor is actually authored —
+ *  `step` / `interpolate` on an opacity or size property is the canonical
+ *  use, see #2119); `filter` is not scanned; a `distance-from-center` used
+ *  only in a line-placed layer's filter is not covered by this warning. */
+export function distanceFromCenterAnchorWarning(
+  layer: { id: string },
+  layout: Record<string, unknown>,
+  paint: Record<string, unknown>,
+  placement: unknown,
+): string | null {
+  if (!isLinePlacement(placement)) return null
+  const used =
+    Object.values(layout).some(usesDistanceFromCenter) ||
+    Object.values(paint).some(usesDistanceFromCenter)
+  if (!used) return null
+  return (
+    `Symbol layer "${layer.id}" — ["distance-from-center"] used with symbol-placement ` +
+    `"${String(placement)}": a line-placed label's anchor moves continuously along the ` +
+    `line, so there is no single well-defined feature anchor the way symbol-placement ` +
+    `"point" has one; the expression has no meaningful value for this layer. Switch to ` +
+    `symbol-placement: "point", or drop the accessor for this layer.`
+  )
+}
+
 /** icon-offset (Batch 2 sprite atlas) — v8 literal-wrap unwrap + constant
  *  2-tuple emit, or (#1977) a warn+drop for any non-constant form (legacy
  *  `{stops:[...]}` function, modern `["interpolate", …]` expression, or any

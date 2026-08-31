@@ -267,6 +267,74 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
   return globeMode || (r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false)
 }
 
+/** Selection zoom (currentZ) at and above which the bake→drape path stops
+ *  paying for itself and the direct arm wins (#2093 F1 — the LOD ceiling).
+ *
+ *  DERIVATION. The drape trades BLUR for great-circle HUG, so compare the two
+ *  errors in CSS px at camera zoom Z for a tile of zoom z:
+ *
+ *  Write `span = TILE_PX·2^(Z−z)` for the tile's on-screen width in CSS px
+ *  (TILE_PX, world-scale.ts:24). Both errors are that span times something:
+ *
+ *    - HUG (what the direct arm loses): a tile-clipped edge is drawn as a
+ *      CHORD under the sphere, sagging over the tile's angular width 2π·2^-z
+ *      by ~(1/8)·span·(angular width), i.e. C = (TILE_PX·π/4)·2^(Z−2z) CSS px.
+ *    - BLUR (what the drape pays): the tile bakes to BAKE_PX texels across
+ *      (vector-drape-renderer.ts:55), so one texel is B = span/BAKE_PX CSS px.
+ *      That texel is BOTH the drape's resolution floor AND its whole AA feather
+ *      band — the bake runs at dpr=1 with mpp = tileExtent/BAKE_PX, so line.ts's
+ *      `halfAa = 0.5/dpr` (:899) feather is one bake texel wide and magnifies
+ *      with it.
+ *
+ *  Camera zoom Z CANCELS, and so does TILE_PX — it scales the span, which is
+ *  the numerator of BOTH errors: C/B = (BAKE_PX·π/4)·2^(−z). So the verdict
+ *  depends on the TILE zoom alone, and direct wins for every
+ *  z ≥ ceil(log2(BAKE_PX·π/4)) = ceil(log2(128π)) = 9 — at EVERY camera zoom,
+ *  which is why this is a selection-zoom gate and not a camera-zoom one.
+ *
+ *  THE CROSSOVER IS GOVERNED BY BAKE_PX, NOT BY TILE_PX. Today the two are both
+ *  512, so `TILE_PX·2π/8` happens to give the same 128π — a coincidence, not a
+ *  derivation. Anything that changes the drape's bake resolution MOVES this
+ *  constant (halving BAKE_PX → 8, doubling → 10), and #2094 proposes exactly
+ *  that (dpr-aware bake density). The drift is caught by the BAKE_PX pin in
+ *  map/src/render/globe-direct-ceiling-selection.test.ts, which is where a
+ *  reader who changes BAKE_PX will be sent.
+ *
+ *  MAPPING TILE z ONTO currentZ. `currentZ = floor(cameraZoom)`, clamped to the
+ *  source maxLevel (tile-selection-cache.ts:51, :377/:387 — plain `floor` for
+ *  MapLibre vector-source parity, reverted there from `+0.7` on 2026-05-15).
+ *  The globe selector runs with `selMaxZ = currentZ` and force-descends the
+ *  focal tile to that max (globe-visible-tiles.ts:434), so the tiles under the
+ *  camera centre are drawn AT currentZ — the threshold is therefore the
+ *  crossover itself, 9, with no off-by-one. Horizon tiles come in coarser
+ *  (`tz < floor(desiredZ)`, :474) and would prefer the drape on the worst-case
+ *  C, but they are limb-foreshortened into few pixels while the focal set owns
+ *  the frame, and a frame cannot mix the two paths without a seam.
+ *
+ *  Getting this mapping wrong is what a `round`-based reading of currentZ cost
+ *  once: at the #2093 report camera (zoom 9.70 → currentZ 9) a ceiling of 10
+ *  left the drape running — measured, on the fix itself, before this correction.
+ *
+ *  currentZ is a HYSTERESED zoom bucket (tile-selection-cache.ts:368-390), so
+ *  the switch cannot flap on a camera hovering at the boundary, and it is then
+ *  SOURCE-CLAMPED to `source.maxLevel` (:598-599) — so a low-maxzoom source
+ *  (demotiles, maxzoom 2) never reaches the ceiling and keeps the drape, and
+ *  its #2024 overzoom windowing, at EVERY camera zoom. Below the gate the
+ *  drape's great-circle hug is worth its blur: the same trade that EXCLUDED
+ *  oblique(6) (see the comment at :242-244), read at the other end.
+ *
+ *  Ellipsoid flattening moves the crossover by <0.01 of a zoom level —
+ *  irrelevant to an integer threshold. */
+export const GLOBE_DIRECT_MIN_SELECTION_Z = 9
+
+/** Whether the bake→drape path still wins at this selection zoom (#2093 F1).
+ *  See GLOBE_DIRECT_MIN_SELECTION_Z for the chord-sagitta-vs-bake-texel
+ *  derivation; at or above the ceiling the direct arm is sharper at every
+ *  camera zoom. */
+export function drapesAtSelectionZ(currentZ: number): boolean {
+  return currentZ < GLOBE_DIRECT_MIN_SELECTION_Z
+}
+
 // ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /
 //    label-pass / render-loop). Add siblings (isFlatProj / periodicOf /
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──

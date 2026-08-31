@@ -242,9 +242,10 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   },
   {
     name: 'distance-from-center',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'low',
-    note: "Returns the current feature's screen-space distance from the viewport centre (globe-mode horizon fade). The converter RECOGNISES the op and emits a precise warning (expressions.ts KNOWN_UNSUPPORTED) so it never falls to the generic catch-all — but it returns null, NOT a value: X-GIS has no per-feature/per-frame camera-relative evaluation hook in the expression model (feature exprs evaluate against the property bag only; there is no live camera-centre distance), so it cannot be implemented faithfully without a new per-frame feature-distance pass. Warned, not supported.",
+    note: 'Feature anchor\'s distance from the viewport centre, in units of the viewport HALF-DIAGONAL (0 centre, 1 at any corner, >1 off-screen — eval/distance-from-center.ts owns that arithmetic and its witnesses; half-width or half-height alone is the silent bug, invisible on a square viewport). #2119 converted this from unsupported: the op no longer warns, distanceFromCenterHandler lowers it to `get("$distanceFromCenter")` — the same channel `geometry-type` / `id` use, because the hyphen makes a bare identifier impossible (the lexer reads `-` as Minus) — and DISTANCE_FROM_CENTER_KEY reserves the slot, so shadowing by a feature property literally named `distance-from-center` is structurally impossible rather than checked. PARTIAL, not supported, for one reason: NO render-path caller injects the value yet, so it evaluates to null at runtime, the same absence contract `["pitch"]` has at a decode-time site. The blocker is measured, not unexamined — label-pass.ts applyFeatureExprs caches per-feature evaluation on (props ref, zoomBucket) because it was 73% of frame time, and a quantity that changes on PAN moves neither key. Injecting it there either serves stale values or gives that cache up. Line-placed labels additionally have no single anchor at all, and get a precise per-layer warning (distanceFromCenterAnchorWarning) rather than a silent drop.',
+    source: 'expr-lookup.ts distanceFromCenterHandler / eval/distance-from-center.ts',
   },
   {
     name: 'distance',

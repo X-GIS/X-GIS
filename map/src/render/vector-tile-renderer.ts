@@ -85,7 +85,7 @@ import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape } from '@xgis/geo'
+import { bakesVectorDrape, drapesAtSelectionZ } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
@@ -3680,10 +3680,18 @@ export class VectorTileRenderer {
     // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
     // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
     // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
-    // at all pitches so it is EXCLUDED (renders direct). WebGPU + NON-extruded +
+    // at all pitches so it is EXCLUDED (renders direct). `drapesAtSelectionZ` adds the
+    // #2093 LOD CEILING: the trade reverses once the tiles are fine enough, so past
+    // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
     // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
+      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the 512px bake's blur
+      // exceeds the direct path's chord sagitta at every camera zoom;
+      // __XGIS_FORCE_VECTOR_DRAPE holds the drape for A/B and sever-arm gates.
+      (drapesAtSelectionZ(currentZ) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
       this.rhi.backend !== 'webgl2' &&
       this.currentExtrudeMode === 'none' &&
       // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
@@ -3940,6 +3948,11 @@ export class VectorTileRenderer {
             : this._ringCursorForBundleKey(),
           lineLayerOffset,
           lineLayerOffsetGap,
+          // #2093 — these SELECT what the bundle records (`drawFills` /
+          // `drawStrokes`); nothing else in the key separates the two arms.
+          // Full derivation: the BundleKeyState field docs.
+          drapeGlobeFills: this._drapeGlobeFills,
+          drapeStrokes: this._drapeStrokes,
         } as const satisfies BundleKeyState
         const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
         const desc: BundleEncodeDescriptor = {
@@ -4226,6 +4239,10 @@ export class VectorTileRenderer {
             ringCursor: this._ringCursorForBundleKey(),
             lineLayerOffset,
             lineLayerOffsetGap,
+            // #2093 — mirror of the primary site. The #1076 fallback dispatch
+            // PINS both false above; the key follows the field, not a literal.
+            drapeGlobeFills: this._drapeGlobeFills,
+            drapeStrokes: this._drapeStrokes,
           } as const satisfies BundleKeyState
           const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
           const fbDesc: BundleEncodeDescriptor = {
