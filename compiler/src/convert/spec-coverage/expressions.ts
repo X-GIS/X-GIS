@@ -51,7 +51,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'in',
     status: 'supported',
     note: 'Both expression form and legacy form. Empty value list lowers to constant `false` per spec.',
-    source: 'expressions.ts:560',
+    source: 'expr-lookup.ts:502',
   },
   { name: '!in', status: 'supported' },
   // Arithmetic + math
@@ -199,7 +199,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'resolved-locale',
     status: 'partial',
     impact: 'low',
-    note: 'Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). Non-constant collator options warn + drop.',
+    note: 'Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). The handler reads ONLY the collator\'s `locale`, so a non-constant case-/diacritic-sensitivity SIBLING opt no longer drops the expression — those opts cannot change the resolved tag. It deliberately does NOT go through the shared all-or-nothing `extractCollatorOpts`, which the COMPARISON path needs because `collator_cmp` bakes every opt. PARTIAL for one remaining reason: a non-constant LOCALE is undecidable at compile time and still warns + drops (as does a non-collator argument, or a non-object opts).',
   },
   {
     name: 'is-supported-script',
@@ -231,7 +231,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'zoom',
     status: 'supported',
     note: 'Lowers to bare `zoom` identifier. Works in `interpolate(zoom, …)` / `step(zoom, …)` AND anywhere else (filter compare, case condition, arithmetic).',
-    source: 'expressions.ts:471',
+    source: 'expr-lookup.ts:152',
   },
   {
     name: 'pitch',

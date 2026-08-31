@@ -3,9 +3,9 @@
 exports[`Fixture conversion structural snapshot > maplibre-demotiles — converted output fingerprint 1`] = `
 {
   "layerCount": 8,
-  "outputBytes": 14284,
-  "outputLines": 141,
-  "outputSha256": "76e365719586f0c1fa866e9b4a4d3f3fe07847a60c1ff1338fbbc816e1cab604",
+  "outputBytes": 14514,
+  "outputLines": 143,
+  "outputSha256": "f6fcd96bda8e040cd3bc012526a29783e76c3f5ceb9fac3182bb3293a74fae8a",
   "warningCount": 2,
 }
 `;

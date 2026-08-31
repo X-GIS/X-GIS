@@ -49,7 +49,7 @@ import {
   Discard,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
-import { ioStruct, builtin, location, uniformStruct, resource } from '@xgis/shader-dsl'
+import { ioStruct, builtin, location, uniformStruct, resource, arrayOf } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 import { isGlobeProj } from '@xgis/geo'
 import { ECEF_CONSTS, lonlatToEcef } from './ecef'
@@ -63,7 +63,7 @@ import {
   PROJECTION_CONSTS,
   getGpuProjectionFuncs,
 } from './projections'
-import { PI } from './consts'
+import { PI, WGS84_E2 } from './consts'
 
 const U = uniformStruct(
   'Uniforms',
@@ -126,6 +126,23 @@ const Tile = uniformStruct(
     // by rasterGridN(projType, tileZoom); y reserved (kept 0). Was a dead `_pad`
     // vec2 — the vec2+vec2 byte layout is unchanged so the 48 B slot is stable.
     grid: vec2fT,
+    // #2137 — CPU-f64 trig for the grid, so the VS never builds the ~6.4e6 m ECEF
+    // from angles itself. EVERY transcendental on that path multiplies the Earth
+    // radius, so a backend's relative trig error lands as METRES of ground
+    // displacement — measured 1.17e+3 m on SwiftShader against a 2 m f32 floor
+    // (_raster-grid-lat-parity). Deriving the LATITUDE more precisely does not
+    // help: that gate fed the shader an exact latitude and the error did not
+    // move, because `lonlat_to_ecef`'s own sin/cos/sqrt dominate. Same reason
+    // #2089 worked for lines — its ENU trig scales the small corner offset, never R.
+    //
+    // Indexed by the grid's own INTEGER row/col (gy/gx in [0, N]), so no rounding.
+    // Sized 9 = gridN 8 + 1: `rasterGridN` floors at 8 for every tileZoom >= 4,
+    // which is exactly where the error is visible. Coarser tiles (z0-z3, N up to
+    // 128) keep the in-shader path — they are viewed from far enough out that
+    // 1.17e+3 m is sub-pixel, and sizing these 129 would grow the per-tile slot
+    // for all three consumers of this block (raster, drape AND hillshade).
+    row_trig: arrayOf(vec4fT, 9), // x = sin(lat), y = cos(lat), z = N (prime vertical), w unused
+    col_trig: arrayOf(vec4fT, 9), // x = sin(lon), y = cos(lon), zw unused
   },
 )
 // Exported (distinct barrel names — every dsl file calls its struct 'U'/'Tile'
@@ -289,7 +306,28 @@ const vs = fn(
     // Works for every projection because the MVP is always the ECEF frame view
     // (Camera.getECEFFrameView). No per-projection branches needed.
     const lonRad = radians(lon)
-    const ecef = lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height: f32(0) })
+    // #2137 — take the CPU-f64 trig table where it covers this tile (gridN 8, i.e.
+    // every tileZoom >= 4) and this is not a pole cap, whose latitude comes from
+    // the cap fan rather than the row grid. Same WGS84 formula `lonlatToEcef`
+    // evaluates, with every transcendental already applied on the CPU, so no
+    // backend trig error can be scaled by ~6.4e6 m. `grid.x` is a uniform, so the
+    // select is uniform control flow, not per-lane divergence.
+    // `notCap` mirrors `isCap`'s threshold idiom above rather than negating it —
+    // the DSL has no boolean `not`, and a float '==' is banned (no-float-eq).
+    const notCap = abs(capSign).lt(f32(0.5))
+    const useTrigTable = gridNU.eq(u32(8)).and(notCap)
+    const rowT = Tile.field.row_trig.at(gy)
+    const colT = Tile.field.col_trig.at(gx)
+    const ecefTable = vec3(
+      rowT.z.mul(rowT.y).mul(colT.y),
+      rowT.z.mul(rowT.y).mul(colT.x),
+      rowT.z.mul(f32(1).sub(WGS84_E2)).mul(rowT.x),
+    )
+    const ecef = select(
+      useTrigTable,
+      ecefTable,
+      lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height: f32(0) }),
+    )
     // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
     // DSFUN two-term subtract: (ecef − hi) is Sterbenz-exact (both ~6.4e6 m), then
     // − lo narrows the small result AFTER cancellation, so the camera's f32
