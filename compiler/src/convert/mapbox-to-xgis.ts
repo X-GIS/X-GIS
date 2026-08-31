@@ -214,10 +214,13 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   fog / light / transition / imports — Mapbox v3
-  //                additions, none implemented. (`terrain` moved out of this list in
-  //                #2095 — the block is now parsed + emitted, with its own precise
-  //                warning below instead of the generic one here.)
+  //   light / imports — Mapbox v3 additions, none implemented.
+  //                (`terrain` moved out of this list in #2095 — the block is now
+  //                parsed + emitted, with its own precise warning below instead of
+  //                the generic one here. `fog` and `transition` moved out in #2166
+  //                for the opposite reason: still unimplemented, but "ignored" is
+  //                the wrong sentence for both — each has its own precise warning
+  //                below.)
   //
   // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
   // omitted — they're host-integration concerns (the playground's
@@ -265,10 +268,13 @@ export function convertMapboxStyle(
   // It is not silent, though — the sub-properties that phase does not carry
   // get their own precise warning below, so a `partial` root reads as
   // partial rather than as supported.
+  // `fog` and `transition` LEFT this list in #2166. Neither is implemented and
+  // neither becomes silent — they leave because "ignored" is the wrong SENTENCE
+  // for both, in opposite directions: fog's block is two unrelated halves only
+  // one of which is hopeless, and transition costs a converted style nothing at
+  // rest. Each gets its own precise warning below.
   const gapFields = [
-    'fog',
     'lights',
-    'transition',
     'imports',
     'models',
     // #2007 — three more root fields with the same "converter never
@@ -322,6 +328,61 @@ export function convertMapboxStyle(
             dropped.length === 1 ? 'is' : 'are'
           } not carried — the below-horizon fog band and the global sky fade are later ` +
           `phases of the sky/fog work.`,
+      )
+    }
+  }
+
+  // #2166 B1 — the Mapbox v3 `fog` root, out of the gapFields lump. Still
+  // unsupported: no part of it is read here or applied at runtime. What the lump
+  // could not say is that the block is TWO unrelated halves and only one of them
+  // is hopeless. `range` / `color` / `vertical-range` fog rendered geometry by
+  // DEPTH, which needs a pass X-GIS does not have. `high-color` / `space-color` /
+  // `horizon-blend` describe the sky ABOVE the horizon — the thing the atmosphere
+  // pass already paints, and the thing XGISMap.setAtmosphere already carries for
+  // the MapLibre `sky` root above (extractMapboxSky). Nothing translates the
+  // Mapbox spelling into it, so an author who wanted the atmosphere look is told
+  // which spelling renders today instead of being told the block is a dead end.
+  if (style.fog !== undefined && style.fog !== null) {
+    const fog = style.fog
+    const authored =
+      typeof fog === 'object' && !Array.isArray(fog) ? Object.keys(fog as object) : []
+    // `star-intensity` is deliberately in neither half — the atmosphere pass
+    // draws no stars, so pointing it at the `sky` root would be a false promise.
+    const skyward = ['high-color', 'space-color', 'horizon-blend']
+    const atmospheric = authored.filter((k) => skyward.includes(k))
+    warnings.push(
+      `Top-level "fog" is not applied${authored.length > 0 ? ` (${authored.join(', ')})` : ''} — ` +
+        `X-GIS has no depth-based fog pass, so nothing tints geometry by distance.` +
+        (atmospheric.length > 0
+          ? ` ${atmospheric.join(', ')} describe the sky ABOVE the horizon rather than distance ` +
+            `fog, and that half already renders under the MapLibre spelling — author a top-level ` +
+            `"sky" root, which the host applies via XGISMap.setAtmosphere; nothing translates the ` +
+            `Mapbox "fog" spelling into it.`
+          : ''),
+    )
+  }
+
+  // #2166 B1 — `transition`, out of the same lump for the opposite reason:
+  // "ignored" OVER-states the loss. The block never changes a rendered frame; it
+  // only times the cross-fade when a paint value CHANGES at runtime, and X-GIS
+  // steps to the new value instead. So the converted style is identical at rest
+  // and the warning says exactly that, rather than implying a missing visual.
+  // A block asking for no animation at all is what X-GIS already does, so it
+  // warns nothing — the same "only warn about what is actually lost" guard the
+  // partial-sky block above uses. Spec defaults: duration 300ms, delay 0ms.
+  if (style.transition !== undefined && style.transition !== null) {
+    const t =
+      typeof style.transition === 'object' && !Array.isArray(style.transition)
+        ? (style.transition as { duration?: unknown; delay?: unknown })
+        : {}
+    const duration = typeof t.duration === 'number' ? t.duration : 300
+    const delay = typeof t.delay === 'number' ? t.delay : 0
+    if (duration > 0 || delay > 0) {
+      warnings.push(
+        `Top-level "transition" (duration ${duration}ms, delay ${delay}ms) is not applied — ` +
+          `X-GIS has no per-property transition clock, so a paint value that changes at runtime ` +
+          `steps straight to it. The converted style renders identically at rest; only the ` +
+          `animation between two states is lost.`,
       )
     }
   }

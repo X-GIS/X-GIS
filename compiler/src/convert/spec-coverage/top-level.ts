@@ -51,7 +51,7 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
     name: 'transition',
     status: 'unsupported',
     impact: 'low',
-    note: 'Per-property fade-in dropped.',
+    note: 'Top-level `transition` `{ duration, delay }` — the cross-fade timing used when a paint value CHANGES at runtime. #2166 took it out of the ignored-roots lump in mapbox-to-xgis.ts because "ignored" OVER-states the loss: it costs a converted style nothing at rest — every value renders exactly as authored — and X-GIS simply steps to a new paint value instead of fading it, there being no per-property transition clock in the runtime. The warning now names the authored duration/delay and says the frame is identical at rest, and a block asking for no animation at all (duration 0, no delay) warns nothing at all, since that IS what X-GIS does; the lump used to fire on it, which was a false positive. Still `unsupported`, and the work is a RUNTIME animation clock, not a converter change. Recorded while adjacent: the per-property `<property>-transition` form inside `paint` is dropped by the same absence and gets no warning of its own — surfaceIgnoredPaint is candidate-list driven, so a paint key that no emitter lists is never examined.',
   },
   {
     name: 'light',
@@ -63,7 +63,7 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
     name: 'fog',
     status: 'unsupported',
     impact: 'low',
-    note: 'Mapbox v3 distance-fog gradient. Would need a post-process pass with depth-based mixing.',
+    note: 'Mapbox v3 `fog` root. #2166 took it out of the ignored-roots lump in mapbox-to-xgis.ts (it left gapFields there) and gave it a precise warning, because the block is TWO unrelated halves and only one of them is a dead end. `range` / `color` / `vertical-range` fog rendered geometry by DEPTH — that needs a depth-sampling pass X-GIS does not have, and it is what keeps this row `unsupported`. `high-color` / `space-color` / `horizon-blend` instead describe the sky ABOVE the horizon, which the atmosphere pass already paints and which setAtmosphere already carries for the MapLibre `sky` root (extractMapboxSky, the row below) — so the warning points an author who wanted that look at the spelling that renders TODAY rather than calling the whole block hopeless. Nothing is auto-translated between the two spellings: a real implementation still owes the depth pass for the distance half plus a Mapbox-to-MapLibre key mapping for the atmosphere half. `star-intensity` is deliberately in neither half — the atmosphere pass draws no stars.',
   },
   {
     name: 'sky',

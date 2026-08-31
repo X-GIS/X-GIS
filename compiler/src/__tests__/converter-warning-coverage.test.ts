@@ -133,13 +133,13 @@ describe('converter warning coverage', () => {
     expect(w.some((s) => s.includes('"m"') && s.includes('mirrors'))).toBe(true)
   })
 
-  it('top-level fog + projection → ignored-fields warning; light stays host-applied (WS-9, #2007 supersedes WS-8)', () => {
+  it('top-level projection → ignored-fields warning; fog gets its OWN precise warning (#2166); light stays host-applied (WS-9, #2007 supersedes WS-8)', () => {
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'vector', url: 'x.pmtiles' } },
       layers: [],
       projection: { type: 'globe' },
-      fog: { range: [0.5, 10] },
+      fog: { range: [0.5, 10], 'high-color': '#245cdf' },
       light: { intensity: 0.3 },
     })
     expect(w.some((s) => s.startsWith('Top-level style fields ignored'))).toBe(true)
@@ -157,9 +157,70 @@ describe('converter warning coverage', () => {
     // demo-runner / compare-runner) with no compiler-side gap to warn about,
     // so it must still NOT appear in the ignored list.
     expect(note, `light should be host-applied, not ignored: ${note}`).not.toContain('light')
-    for (const k of ['fog']) {
-      expect(note, `expected "${k}" in: ${note}`).toContain(k)
-    }
+    // #2166 B1 — `fog` LEFT gapFields. BOTH directions are pinned, because a
+    // bare "the lump no longer says fog" assertion would pass just as well if
+    // the converter had gone silent about fog entirely.
+    expect(
+      note,
+      `"fog" left gapFields in #2166 — it must not be lumped any more: ${note}`,
+    ).not.toContain('fog')
+    const fogNote = w.find((s) => s.startsWith('Top-level "fog" is not applied'))
+    expect(fogNote, `expected the precise fog warning, got: ${JSON.stringify(w)}`).toBeDefined()
+    // It names what the author actually wrote, splits the block's two halves,
+    // and says what a real implementation needs for the distance half.
+    expect(fogNote, `expected the authored keys named in: ${fogNote}`).toContain('range')
+    expect(fogNote, `expected the authored keys named in: ${fogNote}`).toContain('high-color')
+    expect(fogNote, `expected the missing depth pass named in: ${fogNote}`).toContain(
+      'depth-based fog pass',
+    )
+    expect(
+      fogNote,
+      `expected the atmosphere half pointed at the spelling that renders: ${fogNote}`,
+    ).toContain('setAtmosphere')
+  })
+
+  it('top-level transition → precise "identical at rest" warning, not the ignored lump (#2166)', () => {
+    // `lights` keeps the lump alive so "transition is not in it" is asserted
+    // against a real string rather than against an absent warning.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      lights: [{ id: 'ambient', type: 'ambient', properties: { color: '#fff' } }],
+      transition: { duration: 500, delay: 100 },
+    })
+    const note = w.find((s) => s.startsWith('Top-level style fields ignored'))
+    expect(note, `expected the lump to survive for lights: ${JSON.stringify(w)}`).toBeDefined()
+    expect(note, `expected "lights" still lumped in: ${note}`).toContain('lights')
+    expect(
+      note,
+      `"transition" left gapFields in #2166 — it must not be lumped any more: ${note}`,
+    ).not.toContain('transition')
+    const t = w.find((s) => s.startsWith('Top-level "transition"'))
+    expect(t, `expected the precise transition warning, got: ${JSON.stringify(w)}`).toBeDefined()
+    // The authored timings, and the fact that distinguishes this gap from
+    // every other one in the lump: nothing is missing from a static frame.
+    expect(t, `expected the authored duration in: ${t}`).toContain('500ms')
+    expect(t, `expected the authored delay in: ${t}`).toContain('100ms')
+    expect(t, `expected the "identical at rest" clause in: ${t}`).toContain(
+      'renders identically at rest',
+    )
+  })
+
+  it('a transition asking for no animation at all warns nothing (#2166)', () => {
+    // duration 0 / no delay IS what X-GIS does, so the old lump was a false
+    // positive here. Same "only warn about what is actually lost" guard the
+    // partial-sky block uses.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      transition: { duration: 0 },
+    })
+    expect(
+      w.filter((s) => s.includes('transition')),
+      `a no-op transition must produce no warning at all, got: ${JSON.stringify(w)}`,
+    ).toEqual([])
   })
 
   it('GeoJSON source clustering → conversion-notes warning', () => {
