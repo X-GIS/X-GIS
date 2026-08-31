@@ -174,8 +174,19 @@ function checkPaint(layer: MapboxLayer, show: ShowSample | undefined): string[] 
       if (!show.fill) fails.push(`[${layer.id}] fill-color set but show.fill is null`)
     }
     if (paint['fill-outline-color'] !== undefined) {
-      // Lowers to a stroke utility — fill layer gains a stroke colour.
-      if (!show.stroke) {
+      // Lowers to a stroke utility — fill layer gains a stroke colour, EXCEPT
+      // when fill-antialias is the constant `false`. The spec makes
+      // fill-outline-color `requires: [{"!":"fill-pattern"},{"fill-antialias":true}]`
+      // and MapLibre draws no outline pass at all then (draw_fill.ts:44), so
+      // "no stroke" is the CORRECT outcome, not a coverage gap (#2166).
+      // OFM Bright `highway-area` is the witness for the false branch.
+      if (paint['fill-antialias'] === false) {
+        if (show.stroke) {
+          fails.push(
+            `[${layer.id}] fill-antialias:false must suppress the outline, but show.stroke is set`,
+          )
+        }
+      } else if (!show.stroke) {
         fails.push(`[${layer.id}] fill-outline-color set but show.stroke is null`)
       }
     }
