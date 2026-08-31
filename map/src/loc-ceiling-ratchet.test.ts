@@ -1318,7 +1318,6 @@ const CEILINGS: Record<string, number> = {
   // reached 1673 independently, which is exactly the merge where taking either side's
   // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
   'map/src/shaders/dsl/line.ts': 1695,
-  'map/src/shaders/dsl/line.ts': 1673,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
