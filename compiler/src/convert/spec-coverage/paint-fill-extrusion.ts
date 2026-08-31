@@ -43,12 +43,12 @@ export const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
     name: 'fill-extrusion-ambient-occlusion-intensity',
     status: 'unsupported',
     impact: 'low',
-    note: 'AO would need per-vertex normal + screen-space AO pass. Not in current renderer.',
+    note: 'Mapbox-GL-JS-only paint property: `paint_fill-extrusion` in the pinned @maplibre/maplibre-gl-style-spec (v24.8.5) carries exactly 8 keys — fill-extrusion-{base,color,height,opacity,pattern,translate,translate-anchor,vertical-gradient} — and NO ambient-occlusion key, so the compiler oracle (spec/oracle.ts) cannot resolve the property and there is no reference implementation to verify an X-GIS one against. NOT a substrate gap: the per-vertex normal an AO term needs already ships — `face_normal` (float32x3, @location(5)) is in POLYGON_EXTRUDED_FORMAT and shaders/dsl/polygon.ts already dots it against the light and runs a height-based wall ramp. Costing this off "the renderer has no normals" would cost it wrong; the missing piece is the AO pass plus an oracle to check it against. Bound to both measurements by fill-extrusion-ao-note-fidelity.test.ts.',
   },
   {
     name: 'fill-extrusion-ambient-occlusion-radius',
     status: 'unsupported',
     impact: 'low',
-    note: 'See fill-extrusion-ambient-occlusion-intensity.',
+    note: "Same Mapbox-GL-JS-only origin as fill-extrusion-ambient-occlusion-intensity: absent from the pinned spec oracle's 8-key `paint_fill-extrusion` block, so nothing resolves it and nothing verifies it. Not a substrate gap either — `face_normal` ships in POLYGON_EXTRUDED_FORMAT.",
   },
 ]
