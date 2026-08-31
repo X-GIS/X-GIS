@@ -40,7 +40,7 @@ describe('buildLineSegments — line_length (slot 13)', () => {
       [300, 0, 300],
     ])
     const indices = new Uint32Array([0, 1, 1, 2, 2, 3])
-    const seg = buildLineSegments(vertices, indices, 6)
+    const seg = buildLineSegments(vertices, indices, 6, null)
 
     const segCount = indices.length / 2
     expect(seg.length).toBe(segCount * LINE_SEGMENT_STRIDE_F32)
@@ -63,7 +63,7 @@ describe('buildLineSegments — line_length (slot 13)', () => {
       [50, 1000, 50], // B v1  (B total = 50)
     ])
     const indices = new Uint32Array([0, 1, 1, 2, 3, 4])
-    const seg = buildLineSegments(vertices, indices, 6)
+    const seg = buildLineSegments(vertices, indices, 6, null)
 
     // Segments 0,1 belong to A → 300
     expect(seg[0 * LINE_SEGMENT_STRIDE_F32 + OFF_LINE_LENGTH]).toBeCloseTo(300, 3)
@@ -84,7 +84,7 @@ describe('buildLineSegments — line_length (slot 13)', () => {
       [600, 0, 600],
     ])
     const indices = new Uint32Array([0, 1, 1, 2, 2, 3])
-    const seg = buildLineSegments(vertices, indices, 6)
+    const seg = buildLineSegments(vertices, indices, 6, null)
 
     const arcStarts: number[] = []
     const segCount = indices.length / 2

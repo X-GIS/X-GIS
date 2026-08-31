@@ -823,7 +823,13 @@ const CEILINGS: Record<string, number> = {
   // `_installSyntheticEarthSurfaceSource`) and setBackgroundFill-lifecycle.test.ts pins its
   // text to THIS file. Pure extraction, no behaviour line. LOWERED by the extracted count
   // per the doc's Phase 0 mandate — headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/map.ts': 5462,
+  // 5462→5471 (#2116): the glyph keep-alive in `shouldRenderThisFrame`. It sits HERE and
+  // not behind a forwarder because this method is the single authority that gates both
+  // rendering and `idle`, and the sibling symbol-fade keep-alive it stands next to answers
+  // the same question — a second place to decide "is the text finished?" is how #2091 /
+  // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
+  // MEASURED.
+  'map/src/map.ts': 5471,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1032,22 +1038,22 @@ const CEILINGS: Record<string, number> = {
   // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
   // size rather than being left slack, because headroom is re-justified per phase,
   // never banked. MEASURED.
-  // 2167→2166 (#2012 INC-5): TWO extractions pay for the pitched size correction,
-  // and the file had ZERO headroom to pay it from. (1) `labelSizePx` — authored
-  // size × DPR × the 1/64-quantised perspective factor — moved to text-stage-
-  // helpers.ts, taking the #1081 rationale and the layout-cache contract with it.
-  // It is exactly the arithmetic INC-5 makes SHARED: the point loop has folded a
-  // perspective factor in since #1081 and the curved loop now does too, and two
-  // copies are two chances to quantise one and not the other (the cache is keyed on
-  // the result, so the un-quantised arm would thrash on every frame of a tilt).
-  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5
-  // showed was hand-written on BOTH sides of the stage boundary plus once more as
-  // the dispatch's reused holder: adding one field meant editing three copies of
-  // one shape, so it becomes one named type in text-stage-types.ts. What GREW here
-  // is only the two loops' one-line size derivation and their reasoning. The
-  // ceiling drops to the measured post-prettier size rather than being left slack:
-  // headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2166,
+  // 2176→2175 (#2012 INC-5, on top of #2116's 2167→2176). #2116 added
+  // `hasPendingGlyphLoads()` (+9); INC-5 nets −1 here by paying for the pitched size
+  // correction out of TWO extractions, because the file had ZERO headroom to pay it from.
+  // (1) `labelSizePx` — authored size × DPR × the 1/64-quantised perspective factor —
+  // moved to text-stage-helpers.ts, taking the #1081 rationale and the layout-cache
+  // contract with it. It is exactly the arithmetic INC-5 makes SHARED: the point loop has
+  // folded a perspective factor in since #1081 and the curved loop now does too, and two
+  // copies are two chances to quantise one and not the other (the cache is keyed on the
+  // result, so the un-quantised arm would thrash on every frame of a tilt).
+  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5 showed
+  // was hand-written on BOTH sides of the stage boundary plus once more as the dispatch's
+  // reused holder: adding one field meant editing three copies of one shape, so it becomes
+  // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
+  // size derivation and their reasoning. The ceiling drops to the measured post-merge size
+  // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2175,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1247,7 +1253,19 @@ const CEILINGS: Record<string, number> = {
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
   // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
-  'map/src/shaders/dsl/line.ts': 1539,
+  // 1539→1641 (#2089): the 12 ECEF endpoint-lane struct fields, the lane/ENU
+  // corner construction that replaced the in-shader `ecefFromMerc` re-derivation,
+  // and the reviewed error-budget rationale the construction rests on (the
+  // spherical-vs-ellipsoidal cos(lat) residual, the exact-affine tangent-plane
+  // argument, and the δφ·|off| vs δφ·R statement of what the migration buys).
+  // The arm closes over base/isStart/sego, so it lives with the VS builder
+  // rather than extracting; the growth is comment-heavy by design — a wrong
+  // justification here is what a later reader would build on.
+  // 1641→1651: the measured before/after (1.17e3 m → 2.1e-1 m, from
+  // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
+  // PACKED while the shader recombines in f32 — the distinction a later reader
+  // would otherwise have to rediscover from a failing tolerance.
+  'map/src/shaders/dsl/line.ts': 1651,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1787,7 +1805,17 @@ const CEILINGS: Record<string, number> = {
   // 0 forever despite a correct sphere selection and a correct draw. +23 = a new
   // `globeTilesSelected: number | null` field on `FrameTileCache` (stashed at
   // compute time) + re-setting the diagnostic from it on a cache HIT too.
-  'map/src/render/tile-selection-cache.ts': 1059,
+  // 1059→1066 (#2091): the readiness gate pinned `_czPendingAdvance` on a
+  // target the source could never reach (cz is clamped to `source.maxLevel`
+  // right after the gate, so `cz === target` was unsatisfiable for any source
+  // whose data stops below floor(z)) — `keepLoopWarm` reads that flag, so the
+  // loop re-rendered every frame and the map NEVER fired `idle`. +7 = the
+  // one-line reachability clamp on `target` plus the lesson comment that keeps
+  // it from being "simplified" back out. (An adversarial review pass caught a
+  // second edit as dead code — the `wantAdvance` false case was ALREADY
+  // cleared by the pre-existing `} else {` on the same block — and it was
+  // removed; the fix is the clamp alone, re-proven fail-before.)
+  'map/src/render/tile-selection-cache.ts': 1066,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -1867,7 +1895,9 @@ const CEILINGS: Record<string, number> = {
   // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
   // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
   // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
-  'map/src/render/upload-coordinator.ts': 921,
+  // 921→923 (#2089): the tileOriginMerc argument at the two buildLineSegments
+  // call sites (the ECEF endpoint-lane pack anchor).
+  'map/src/render/upload-coordinator.ts': 923,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
@@ -1903,7 +1933,8 @@ const CEILINGS: Record<string, number> = {
   // geometry) instead of its array position, so data-driven paint stops reading
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
-  'compiler/src/tiler/vector-tiler.ts': 1601,
+  // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
+  'compiler/src/tiler/vector-tiler.ts': 1603,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

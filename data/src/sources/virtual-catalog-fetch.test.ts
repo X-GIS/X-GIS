@@ -192,3 +192,37 @@ describe('TileCatalog virtual catalog (on-demand fetch)', () => {
     expect(source.getBounds()).toEqual([11, 43, 12, 44])
   })
 })
+
+describe('a fetcher that throws SYNCHRONOUSLY releases its loading slot (#2091)', () => {
+  // Fail-before: `loadTile` called `sink.trackLoading(key)` and THEN
+  // `catalog.fetcher(...)` bare — a synchronous throw escaped before the
+  // .then/.catch attached, so `releaseLoading` never ran and the key sat in
+  // `loadingTiles` for the session. `hasPendingLoads()` then stayed true
+  // forever, and since the idle predicate folds pending source work
+  // (map.ts hasPendingSourceWork), the map could never fire `idle` again.
+  it('leaves no pending load behind, and a later good request still works', async () => {
+    const source = new TileCatalog()
+    let calls = 0
+    const fetcher: VirtualTileFetcher = (z, x, y) => {
+      calls++
+      if (calls === 1) throw new Error('sync boom')
+      return Promise.resolve(buildSyntheticCompiledTile(z, x, y))
+    }
+    source.setVirtualCatalog({ fetcher, minZoom: 0, maxZoom: 0, bounds: [-180, -85, 180, 85] })
+
+    const key = tileKey(0, 0, 0)
+    source.requestTiles([key])
+    expect(calls, 'the throwing fetcher ran').toBe(1)
+    // THE ORACLE: the slot came back, so the idle predicate can settle.
+    expect(source.hasPendingLoads(), 'sync throw stranded the loading slot').toBe(false)
+
+    // And the catalog is not poisoned — a later request for the same key
+    // still dispatches and lands (the strand also blocked re-requests via
+    // the loadingTiles dedupe in requestTiles).
+    source.requestTiles([key])
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls).toBe(2)
+    expect(source.hasTileData(key)).toBe(true)
+    expect(source.hasPendingLoads()).toBe(false)
+  })
+})

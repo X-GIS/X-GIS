@@ -162,7 +162,7 @@ describe('end-to-end dash pipeline', () => {
     const idx: number[] = []
     for (let i = 0; i < arcs.length - 1; i++) idx.push(i, i + 1)
     // stride 6 (line features), no tile-bounds so no boundary detection.
-    const seg = buildLineSegments(verts, new Uint32Array(idx), 6)
+    const seg = buildLineSegments(verts, new Uint32Array(idx), 6, null)
 
     // Check arc_start at slot 12 of each segment (DSFUN layout):
     // [p0_h, p1_h, p0_l, p1_l, prev_t, next_t, arc_start, len, pad, pad].
