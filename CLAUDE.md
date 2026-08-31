@@ -541,6 +541,13 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   "exposed so a gate can assert the controller ACTED" and was surfaced on no public object —
   three rounds of inference circled a question the system already knew. Intent in a comment
   is not wiring; check the accessor is reachable from where a test runs.
+- A shader edit-probe that skips `bun run bake:shaders` proves NOTHING, and the way it fails
+  is to look like a vacuous gate. The page consumes the BAKED artifact, so cutting a
+  `map/src/shaders/dsl/` mechanism and re-running the render gate leaves it GREEN — read as
+  "this gate cannot distinguish", which is the opposite of true. Re-baked, the same cut
+  reddened naming exactly the severed half. Bake after the cut AND after the restore, and
+  assert `git status --porcelain map/src/shaders/baked/` is empty before believing either
+  run. → #2117
 
 **Process**
 

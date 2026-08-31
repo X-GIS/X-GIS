@@ -186,15 +186,21 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   // split bind (and with it the per-tile walk-skip), so the sweep can
   // measure the encode slope flag-OFF vs flag-ON on one commit. The
   // factory reads the flag ONCE at build() → must be set pre-boot.
-  if (process.env.XGIS_SPLIT_BIND === '1') {
-    await page.addInitScript(() => {
-      ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = true
-    })
-  }
+  // #2042 INC-7 — the flag now defaults ON, so the baseline arm must set it FALSE
+  // EXPLICITLY. Without this the `XGIS_SPLIT_BIND` env var stopped selecting anything:
+  // both arms would boot split and the sweep would measure split-vs-split while still
+  // labelling one arm "legacy" — a comparison that reports a difference of zero for the
+  // wrong reason (§12, the assertion that failed either way).
+  const wantSplit = process.env.XGIS_SPLIT_BIND === '1'
+  await page.addInitScript((on: boolean) => {
+    ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = on
+  }, wantSplit)
 
   const rows: Array<{
     n: number
     layers: number
+    /** null when the row is a real measurement; otherwise WHY it is not one. */
+    invalid: 'NO-FRAMES' | 'NOT-CONVERGED' | null
     encodeMean: number
     encodeWorst: number
     frameP50: number
@@ -307,14 +313,35 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
     console.log(
       `[encode-sweep] n=${n} windowMs=${windowMs} frames=${frames.length} diag=${JSON.stringify(diag)}`,
     )
+    // VALIDITY, not just measurement (#1190). `frame.encode` is a PER-RENDERED-FRAME cost,
+    // so a window in which the compositor produced ZERO frames cannot report one — and a
+    // scene that never reached steady state was not measured at the layer count it claims.
+    // Both happen here under SwiftShader: at 33+ full-frame country-fill layers the GPU
+    // process starves rAF even at 320x240 with MSAA off, so the window closes with frames=0
+    // while page.evaluate keeps sampling. Printed unguarded, that yields a clean-looking
+    // 46 -> 142 -> 216 ms "scaling curve" computed over windows that rendered nothing (§12:
+    // a blind instrument reports a number, and the number reads as a finding).
+    //
+    // The harness still has no pass/fail assertions — it is a measurement tool — but it now
+    // refuses to emit a figure it cannot stand behind, and says which precondition failed.
+    const invalid = frames.length === 0 ? 'NO-FRAMES' : steady.ok === false ? 'NOT-CONVERGED' : null
+    if (invalid !== null) {
+      console.log(
+        `[encode-sweep] n=${n}: INVALID (${invalid}) — frames=${frames.length} steady.ok=${steady.ok}; ` +
+          'frame.encode is per-rendered-frame, so no figure is reported for this row. ' +
+          'Re-measure on real hardware (measure-harness) rather than trusting a SwiftShader mean here.',
+      )
+    }
     rows.push({
       n,
       layers,
+      invalid,
       encodeMean: enc?.perFrameMs ?? -1,
       encodeWorst: enc?.maxFrameMs ?? -1,
       frameP50: pct(frames, 50),
       frameP95: pct(frames, 95),
     })
+    if (invalid !== null) continue
     console.log(
       `[encode-sweep] n=${n}: layers=${layers} frame.encode mean=${rows.at(-1)!.encodeMean.toFixed(2)}ms worst=${rows.at(-1)!.encodeWorst.toFixed(1)}ms  frame p50=${rows.at(-1)!.frameP50.toFixed(1)} p95=${rows.at(-1)!.frameP95.toFixed(1)}`,
     )
@@ -323,8 +350,24 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   console.log('\n=== #1190 encode scaling sweep (countries.geojson, 8s rotate, SwiftShader) ===')
   console.log('n | layers(actual) | frame.encode mean ms | worst ms | frame p50 | p95')
   for (const r of rows) {
+    if (r.invalid !== null) {
+      console.log(
+        `  ${r.n} | ${r.layers} | INVALID (${r.invalid}) — no frames rendered in the window; ` +
+          'a per-frame cost cannot be derived from it',
+      )
+      continue
+    }
     console.log(
       `  ${r.n} | ${r.layers} | ${r.encodeMean.toFixed(2)} | ${r.encodeWorst.toFixed(1)} | ${r.frameP50.toFixed(1)} | ${r.frameP95.toFixed(1)}`,
     )
   }
+  const usable = rows.filter((r) => r.invalid === null).length
+  console.log(
+    `\n[encode-sweep] ${usable}/${rows.length} rows usable. ` +
+      (usable < rows.length
+        ? 'The INVALID rows are a SwiftShader limit, not a result: this container cannot render ' +
+          'the high-layer scenes at all, so #1190 numbers at those layer counts must come from ' +
+          'real hardware (see .claude/skills/measure-harness).'
+        : ''),
+  )
 })

@@ -335,6 +335,18 @@ export function extractInterpolateZoomColorStops(
   return stops.length >= 2 ? { base, stops } : null
 }
 
+/** Detect `interpolate(line_progress, p0, c0, p1, c1, …)` — the line-gradient ramp
+ *  binding `paint-line.ts addLineGradient` emits — and extract the progress →
+ *  hex-colour stops. Structural twin of the heatmap_density extractor below; the
+ *  converter has already rejected every non-linear curve, non-constant colour and
+ *  out-of-range/descending position, so this only accepts that canonical shape and
+ *  returns null otherwise (the caller then falls through to X-GIS0005). */
+export function extractInterpolateProgressColorStops(
+  expr: AST.Expr,
+): Array<{ offset: number; value: string }> | null {
+  return extractInterpolateRampStops(expr, 'line_progress')
+}
+
 /** Detect `interpolate(heatmap_density, o0, c0, o1, c1, …)` — the
  *  heatmap-color ramp binding the converter emits — and extract the
  *  density-offset → hex-colour stops. The converter pre-resolves curve
@@ -345,12 +357,21 @@ export function extractInterpolateZoomColorStops(
 export function extractInterpolateDensityColorStops(
   expr: AST.Expr,
 ): Array<{ offset: number; value: string }> | null {
+  return extractInterpolateRampStops(expr, 'heatmap_density')
+}
+
+/** Shared body of the two ramp extractors above — `interpolate(<inputName>, o, #hex, …)`
+ *  with offsets ascending in [0, 1] and constant colour stops. Parameterised on the
+ *  input identifier only, so both ramps parse through ONE authority. */
+function extractInterpolateRampStops(
+  expr: AST.Expr,
+  inputName: string,
+): Array<{ offset: number; value: string }> | null {
   if (expr.kind !== 'FnCall') return null
   if (expr.callee.kind !== 'Identifier' || expr.callee.name !== 'interpolate') return null
   const args = expr.args
   const input = args[0]
-  if (input === undefined || input.kind !== 'Identifier' || input.name !== 'heatmap_density')
-    return null
+  if (input === undefined || input.kind !== 'Identifier' || input.name !== inputName) return null
   const remaining = args.length - 1
   if (remaining < 4 || remaining % 2 !== 0) return null
   const stops: Array<{ offset: number; value: string }> = []

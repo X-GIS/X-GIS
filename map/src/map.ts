@@ -1659,16 +1659,19 @@ export class XGISMap {
 
   /** Per-frame count of tiles the map is still waiting on: vector-tile cells
    *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
-   *  Written by the render-loop's end-of-frame bookkeeping as the sum of the
-   *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
-   *  it settles to 0 exactly when the scene converges. Public-by-convention (no
-   *  `private`) so `RenderLoopHost` can Pick it for the write. */
+   *  Written by the render-loop's end-of-frame bookkeeping. NOT a convergence
+   *  signal (#2162): it carries three of `keepLoopWarm`'s six terms and none of
+   *  what `shouldRenderThisFrame` adds. Public-by-convention (no `private`) so
+   *  `RenderLoopHost` can Pick it for the write. */
   _missingTileCount = 0
-  /** In-flight tile-load count for the last rendered frame: > 0 while vector,
-   *  raster, or hillshade tiles are still resolving; 0 once the scene settles.
+  /** Tiles with nothing drawable last frame, plus raster/DEM tiles mid-fetch.
    *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
    *  each call), so a host can poll it every rAF to drive a "loading N tiles"
-   *  affordance without churning GC. */
+   *  affordance without churning GC. Reads 0 while the scene is still resolving
+   *  (#2162) — the vector arm counts cells with NO fallback, so one showing a
+   *  magnified ancestor mid-download is 0 here where the raster arm's
+   *  fetch-count is 1. Drive an affordance with it; never `=== 0` as a settle
+   *  condition — `idle` is the honest one. */
   getMissingTileCount(): number {
     return this._missingTileCount
   }

@@ -1,0 +1,48 @@
+xgis 1
+
+/* Fixture: line-gradient (#2117).
+ *
+ * TWO straight 2-vertex lines with the SAME base stroke colour and width, drawn from
+ * inline data (fully offline — no network, no tile server):
+ *   - `graded`  carries a blue→red ramp over ["line-progress"];
+ *   - `control` carries none, so it must stay the flat base colour end to end.
+ *
+ * The base colour is GREEN — neither ramp endpoint — so "the ramp was ignored" and
+ * "the ramp rendered" are different pixels, not a subtle shade.
+ *
+ * GEOMETRY IS LOAD-BEARING, and this cost a debugging round: ["line-progress"] is
+ * normalised over the arc of the TILE-CLIPPED CHAIN, so a feature the tiler splits gets
+ * one 0→1 ramp PER TILE. Both lines therefore live at lon 5..85 — strictly inside the
+ * single z≤2 tile that spans lon 0..90 — and the gate pins the camera to zoom 2. A line
+ * crossing lon 0 (a tile boundary at EVERY zoom ≥ 1) renders blue→red→blue→red instead,
+ * which is the property's documented vector-tile limitation, not a bug in this scene.
+ *
+ * §5 probe: /demo.html?id=fixture_line_gradient&forcegl2=1
+ */
+
+source graded {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "properties": {},
+      "geometry": { "type": "LineString", "coordinates": [[5, 20], [85, 20]] } }
+  ] }
+}
+
+source control {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    { "type": "Feature", "properties": {},
+      "geometry": { "type": "LineString", "coordinates": [[5, 5], [85, 5]] } }
+  ] }
+}
+
+layer graded_line {
+  source: graded
+  | stroke-#00ff00 stroke-14
+  | stroke-gradient-[interpolate(line_progress, 0, #0000ffff, 1, #ff0000ff)]
+}
+
+layer control_line {
+  source: control
+  | stroke-#00ff00 stroke-14
+}
