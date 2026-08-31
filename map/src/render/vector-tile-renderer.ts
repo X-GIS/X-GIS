@@ -1550,6 +1550,10 @@ export class VectorTileRenderer {
     // fs_line_pattern reads layer.color.r/.a as the x/y repeat metres and tile.stroke_color as
     // the sprite-atlas UV bbox, so the pattern show trades its solid stroke colour for the atlas.
     const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+    // #2117 — a pattern layer trades layer.color for the atlas repeat/UV lanes and takes its
+    // RGB from the sprite, so a ramp there could only bend the pattern's alpha. Mapbox treats
+    // the two as mutually exclusive; the pattern wins.
+    const lineGradient = linePatternActive ? null : (show.strokeGradientStops ?? null)
     const lineSlotColor: [number, number, number, number] = linePatternActive
       ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
       : [stroke[0], stroke[1], stroke[2], stroke[3]]
@@ -1595,6 +1599,7 @@ export class VectorTileRenderer {
       0,
       0,
       roundLimit,
+      lineGradient,
     )
     this.lineRenderer.endFrame()
 
@@ -3154,6 +3159,10 @@ export class VectorTileRenderer {
       // as repeat axes). The solid stroke colour is lost on the pattern path, but the sprite
       // atlas sample provides the visual colour band (mirror of fill-pattern's fill_color reuse).
       const linePatternActive = show.linePatternUV != null && show.linePatternRepeatM != null
+      // #2117 — a pattern layer trades layer.color for the atlas repeat/UV lanes and takes its
+      // RGB from the sprite, so a ramp there could only bend the pattern's alpha. Mapbox treats
+      // the two as mutually exclusive; the pattern wins.
+      const lineGradient = linePatternActive ? null : (show.strokeGradientStops ?? null)
       const lineSlotColor: [number, number, number, number] = linePatternActive
         ? [show.linePatternRepeatM![0], 0, 0, show.linePatternRepeatM![1]]
         : [
@@ -3190,6 +3199,7 @@ export class VectorTileRenderer {
         this.currentStrokeTranslateNdcX,
         this.currentStrokeTranslateNdcY,
         roundLimit,
+        lineGradient,
       )
       if (gapWidth > 0) {
         lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
@@ -3214,6 +3224,7 @@ export class VectorTileRenderer {
           this.currentStrokeTranslateNdcX,
           this.currentStrokeTranslateNdcY,
           roundLimit,
+          lineGradient,
         )
       }
 
@@ -3234,6 +3245,7 @@ export class VectorTileRenderer {
       bs.dashOffsetUnits = resolvedShow.dashOffset
       bs.patternSlots = patternSlots
       bs.offset = effectiveOffset
+      bs.gradient = lineGradient
       // A stroke is drape-worthy when it draws something: a resolved colour+width, or a line pattern
       // (which carries its colour in the sprite atlas, not cachedStrokeColor).
       this._bakeStrokeActive =

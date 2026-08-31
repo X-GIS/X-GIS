@@ -196,6 +196,10 @@ export interface LinePaint {
   strokeAlign?: 'center' | 'inset' | 'outset'
   /** Mapbox `paint.line-blur` edge feathering in CSS px (0 = crisp). */
   strokeBlur?: number
+  /** Mapbox `paint.line-gradient` (#2117) — progress→colour ramp stops
+   *  (straight-alpha RGBA 0..1, ascending offset). Present = the ramp
+   *  replaces the solid stroke colour along the line. */
+  strokeGradientStops?: { offset: number; rgba: [number, number, number, number] }[]
   /** Mapbox `paint.line-gap-width` — px gap between two parallel
    *  strokes composing a road casing. > 0 triggers the line renderer's
    *  double-draw path (two writeLayerSlot + drawSegments per layer
@@ -715,6 +719,7 @@ function emitLineFields(
     strokeGapWidth: node.stroke.gapWidth,
     strokeAlign: node.stroke.align,
     strokeBlur: node.stroke.blur,
+    strokeGradientStops: node.stroke.gradientStops,
     strokeTranslateX: node.strokeTranslateX,
     strokeTranslateY: node.strokeTranslateY,
     strokeTranslateXShape: node.strokeTranslateXShape,

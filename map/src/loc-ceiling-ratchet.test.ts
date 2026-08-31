@@ -289,7 +289,12 @@ const CEILINGS: Record<string, number> = {
   // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
   // for ring-free walks (PR #2090's measured re-record coupling) + the
   // opaque-layout-param note (#991).
-  'map/src/render/vector-tile-renderer.ts': 5454,
+  // 5454→5466 (#2117 line-gradient): the `lineGradient` resolve (pattern-exclusion
+  // comment + one const) at BOTH stroke-write sites, the argument at the three
+  // writeLayerSlot calls, and the `bs.gradient` bake capture. No new branch — the
+  // ramp itself lives in line-pattern.ts / line-gradient.ts.
+  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'map/src/render/vector-tile-renderer.ts': 5466,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1232,7 +1237,12 @@ const CEILINGS: Record<string, number> = {
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
   // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
-  'map/src/shaders/dsl/line.ts': 1539,
+  // 1539→1561 (#2117 line-gradient): the two ramp uniform arrays + gradient_count on
+  // LineLayer, and the ramp substitution in compute_line_color. The ramp EVALUATION
+  // (the loop + the 4-per-vec4 position unpack) is extracted to line-gradient.ts, the
+  // same relief valve #1496 used, so only the struct fields + one If block land here.
+  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'map/src/shaders/dsl/line.ts': 1561,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1953,7 +1963,11 @@ const CEILINGS: Record<string, number> = {
   // so `refresh: -5` reports "non-negative" instead of a misleading "not a
   // number"), and the return-object field. Mirrors the existing `maxzoom`/
   // `minzoom` numeric-prop shape.
-  'compiler/src/ir/lower.ts': 1514,
+  // 1514→1519 (#2117 line-gradient): the `strokeGradientStops` local + its one-line why,
+  // its acc read, the acc-literal key and the `gradientStops:` field on the emitted
+  // StrokeValue — the four-site shape every stroke paint axis already has here, no new
+  // branch. Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'compiler/src/ir/lower.ts': 1519,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -2001,7 +2015,10 @@ const CEILINGS: Record<string, number> = {
   // 980→982 (#1257): rasterFadeDurationMs? field + doc comment on RenderNodeRasterPaint.
   // 982→989 (#1304): `SourceDef.refresh?: number` field + doc comment (the declarative
   // live-source polling interval).
-  'compiler/src/ir/render-node.ts': 989,
+  // 989→995 (#2117 line-gradient): `StrokeValue.gradientStops` + the 5-line doc that
+  // records WHY the ramp replaces the solid colour and which arc it is sampled over.
+  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 995,
   'compiler/src/convert/paint-helpers.ts': 826,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
@@ -2015,7 +2032,10 @@ const CEILINGS: Record<string, number> = {
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
   // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP before.
-  'compiler/src/ir/emit-commands.ts': 805,
+  // 805→810 (#2117 line-gradient): `LinePaint.strokeGradientStops` + doc + the one
+  // `node.stroke.gradientStops` wire line. Headroom is re-justified per phase, never
+  // banked. MEASURED post-prettier.
+  'compiler/src/ir/emit-commands.ts': 810,
   // 785→826 (#1269 item 3): retry backoff jitter, so tiles that fail together
   // don't retry in lockstep — the injectable-rng test seam (mirrors the log-throttle/
   // negative-cache module-state + test-only-setter shape already in this file) +

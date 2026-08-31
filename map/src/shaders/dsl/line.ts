@@ -100,6 +100,7 @@ import { ECEF_CONSTS, lonlatToEcef } from './ecef'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, DEG2RAD } from './consts'
 import { finalizeCornerWith, patternUnitToM, type FinalizeCornerAdapter } from './line-corner'
+import { lineGradientRampColor } from './line-gradient'
 import { dist_to_segment, dist_to_quadratic, dist_to_cubic, winding_line } from './sdf'
 
 // Round-join acute-fold threshold on |prevTan + dir| (unit vectors → length is
@@ -253,7 +254,13 @@ const LAYER = uniformStruct(
     // Mapbox line-round-limit (0 = use the historical JOIN_ACUTE_BIS fold
     // constant, byte-identical default; >0 scales the fold threshold).
     round_limit: f32T,
-    _pad_e: f32T,
+    // #2117 line-gradient — 0 = no ramp (solid stroke colour). Takes the slot the
+    // 16-byte-alignment pad occupied, so the struct grows only by the two arrays below.
+    gradient_count: u32T,
+    // Ramp stops: straight-alpha RGBA per stop, and their 0..1 positions packed 4 per
+    // vec4 (the dash_array lane's shape). The stop budget is LINE_GRADIENT_MAX_STOPS.
+    gradient_color: arrayOf(vec4fT, 8),
+    gradient_pos: arrayOf(vec4fT, 2),
   },
 )
 
@@ -905,7 +912,22 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p
   // Per-segment stroke colour override — the default (no-variant) fill for line_color_out.
   const segPacked = bitcastU32(sego.color_packed)
   const segColor = unpack4x8unorm(segPacked)
-  const baseColor = Let('base_color', select(segColor.a.gt(0), segColor, LAYER.field.color))
+  // #2117 line-gradient — the ramp REPLACES the resolved solid colour. `progress` reuses
+  // `arcPos` (the cumulative arc the dash phase already rides) over the polyline total the
+  // segment builder stamped, so there is exactly ONE arc-length authority on this path.
+  const resolvedColor = Var('resolved_color', select(segColor.a.gt(0), segColor, LAYER.field.color))
+  If(LAYER.field.gradient_count.gt(0), () => {
+    const progress = clamp(arcPos.div(max(sego.line_length, f32(1e-6))), 0, 1)
+    resolvedColor.assign(
+      lineGradientRampColor(
+        progress,
+        LAYER.field.gradient_count,
+        (i) => LAYER.field.gradient_color.at(i),
+        (v) => LAYER.field.gradient_pos.at(v),
+      ),
+    )
+  })
+  const baseColor = Let('base_color', resolvedColor)
   void baseColor // referenced externally by name in defaultLineColorReturnStmts (#1605)
   Var('line_color_out', vec4(0, 0, 0, 0))
   // ▼ Composer-swap point (#1605) — variant.strokeExpr assigns line_color_out, OR the

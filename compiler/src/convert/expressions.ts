@@ -93,7 +93,7 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       'heatmap-density':
         'Heatmap density accessor — only meaningful inside a heatmap-color ramp, which the heatmap converter lowers separately (layers-heatmap.ts heatmapRampToXgis); it has no value in a generic expression context.',
       'line-progress':
-        'Line-progress accessor — line-gradient requires source.lineMetrics + a per-fragment progress varying; not yet implemented.',
+        'Line-progress accessor — only meaningful inside a line-gradient ramp, which the line converter lowers separately (paint-line.ts addLineGradient); it has no value in a generic expression context.',
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
       // `accumulated` is now SUPPORTED — handled by accumulatedHandler in the
       // expr-lookup cluster (#2050), which returns the bare `accumulated` identifier

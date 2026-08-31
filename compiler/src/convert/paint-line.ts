@@ -4,6 +4,7 @@
 // / surfaceIgnoredPaint) live in paint-helpers.
 import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
+import { resolveColorToRgba } from '../tokens/colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
 import {
@@ -49,15 +50,10 @@ export function emitLinePaint(
       )
     }
   }
-  // line-gradient — value-aware: when present, surface the specific
-  // gap reason (needs line-progress accessor) instead of the
-  // generic ignored-properties warn. Removed from surfaceIgnoredPaint
-  // candidates so the specific message isn't duplicated.
-  if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
-    warnings.push(
-      `Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`,
-    )
-  }
+  // line-gradient (#2117) — the interpolate-over-["line-progress"] form lowers to a
+  // ramp binding; every other form warns precisely (see addLineGradient). Stays out of
+  // surfaceIgnoredPaint's candidate list so the specific message isn't duplicated.
+  addLineGradient(out, layer, p['line-gradient'], warnings)
   addLineTranslate(out, p['line-translate'], warnings)
   // line-translate-anchor: viewport (default) = screen-space (today's
   // behaviour). map → world-space offset rotating with map bearing.
@@ -441,4 +437,127 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   warnings.push(
     `paint.line-dasharray: ${shape} form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
   )
+}
+
+// ── line-gradient (#2117) ────────────────────────────────────────────
+//
+// `["interpolate", ["linear"], ["line-progress"], p0, c0, p1, c1, …]` lowers to the
+// xgis bracket binding `stroke-gradient-[interpolate(line_progress, p0, #rrggbbaa, …)]`
+// — structurally the same lowering `heatmap-color` already uses for its
+// `interpolate(heatmap_density, …)` ramp (layers-heatmap.ts heatmapRampToXgis), so the
+// IR/runtime side rides the ramp-stop carrier that path established rather than a new one.
+//
+// `line-progress` itself needs no source opt-in here: the tiler stamps a per-chain
+// cumulative arc on every line vertex unconditionally (vector-tiler.ts augmentChainWithArc
+// → vertex[5]) and the segment builder derives the polyline total from it
+// (line-segment-build.ts arcTotal → LineSegment.line_length), because the DASH phase
+// already needs both. line-progress = arc_pos / line_length reuses that single authority;
+// Mapbox's `lineMetrics: true` opt-in has no X-GIS counterpart to honour.
+
+/** Ramp stops the LineLayer uniform carries (`gradient_color: array<vec4f, 8>`).
+ *  Beyond this the ramp warns + drops rather than silently resampling. */
+const LINE_GRADIENT_MAX_STOPS = 8
+
+/** Emit `stroke-gradient-[…]` for the supported line-gradient form; warn precisely
+ *  (property + reason + alternative, ADR-0012 §1) for every form deferred to a later
+ *  increment. Never silently drops. */
+function addLineGradient(out: string[], layer: MapboxLayer, v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  const fail = (why: string, alternative: string): void => {
+    warnings.push(`Layer "${layer.id}" — line-gradient: ${why}. ${alternative}`)
+  }
+  // Vector-tile sources are DEFERRED. `source-layer` is required for a vector source and
+  // absent on a GeoJSON one (validateLayerSourceLayer enforces exactly that), so it is the
+  // layer-local witness of the source kind — no style-wide source table has to be threaded
+  // through convertLayer → paintToUtilities for this one property.
+  const sourceLayer = layer['source-layer']
+  if (typeof sourceLayer === 'string' && sourceLayer.length > 0) {
+    return fail(
+      'the layer reads a vector-tile source (it declares source-layer), where the tiles clip each line and no whole-feature arc length survives, so ["line-progress"] cannot be normalised over the original feature',
+      'Mapbox/MapLibre restrict line-gradient to GeoJSON sources for the same reason — serve the geometry as a GeoJSON source, or author a constant line-color.',
+    )
+  }
+  if (!Array.isArray(v) || typeof v[0] !== 'string') {
+    return fail(
+      `value is not an expression (${JSON.stringify(v).slice(0, 60)})`,
+      'Author it as ["interpolate", ["linear"], ["line-progress"], 0, "#rrggbb", 1, "#rrggbb"].',
+    )
+  }
+  if (v[0] !== 'interpolate') {
+    return fail(
+      `["${v[0].slice(0, 30)}", …] is not supported yet — only ["interpolate", ["linear"], ["line-progress"], …] is`,
+      'Rewrite the ramp as an interpolate over ["line-progress"] (a step ramp can be spelled as interpolate stops 1/1024 apart), or author a constant line-color.',
+    )
+  }
+  // ["interpolate", curve, input, p0, c0, …]
+  let curve: unknown = v[1]
+  while (Array.isArray(curve) && curve.length === 2 && curve[0] === 'literal') curve = curve[1]
+  if (!Array.isArray(curve) || typeof curve[0] !== 'string') {
+    return fail(
+      'the interpolation curve is malformed',
+      'Use ["linear"] — the only curve wired for line-gradient today.',
+    )
+  }
+  if (curve[0] !== 'linear') {
+    return fail(
+      `the ["${String(curve[0]).slice(0, 30)}"] interpolation curve is not wired yet — only ["linear"] is`,
+      'Pre-densify the eased ramp into linear stops, or author a constant line-color.',
+    )
+  }
+  const input = v[2]
+  if (!Array.isArray(input) || input.length !== 1 || input[0] !== 'line-progress') {
+    return fail(
+      `the interpolate input is ${JSON.stringify(input).slice(0, 40)}, not ["line-progress"]`,
+      'line-gradient only accepts ["line-progress"]; a per-feature (data-driven) gradient is not wired — use line-color for a per-feature colour.',
+    )
+  }
+  if (v.length < 7 || v.length % 2 !== 1) {
+    return fail(
+      'the stop list is malformed (expected position/colour pairs, at least two)',
+      'Author it as ["interpolate", ["linear"], ["line-progress"], 0, "#rrggbb", 1, "#rrggbb"].',
+    )
+  }
+  const stops: { offset: number; hex: string }[] = []
+  for (let i = 3; i + 1 < v.length; i += 2) {
+    const o = v[i]
+    if (typeof o !== 'number' || !Number.isFinite(o) || o < 0 || o > 1) {
+      return fail(
+        `stop position ${JSON.stringify(o).slice(0, 30)} is not a number in [0, 1]`,
+        'line-progress stops are fractions of the line length — use 0…1.',
+      )
+    }
+    if (stops.length > 0 && o < stops[stops.length - 1]!.offset) {
+      return fail(
+        `stop positions must ascend (${stops[stops.length - 1]!.offset} then ${o})`,
+        'Sort the stops by position.',
+      )
+    }
+    const hex = colorToXgis(v[i + 1], warnings)
+    if (hex === null) {
+      return fail(
+        `stop at ${o} is not a constant colour (${JSON.stringify(v[i + 1]).slice(0, 40)})`,
+        'Data-driven (per-feature) gradient stops are not wired — use constant colours.',
+      )
+    }
+    stops.push({ offset: o, hex: hex8(hex) })
+  }
+  if (stops.length > LINE_GRADIENT_MAX_STOPS) {
+    return fail(
+      `the ramp has ${stops.length} stops; the line layer uniform carries ${LINE_GRADIENT_MAX_STOPS}`,
+      `Reduce the ramp to ${LINE_GRADIENT_MAX_STOPS} stops or fewer — resampling it here would move colours the author placed exactly.`,
+    )
+  }
+  const parts = stops.map((s) => `${Math.round(s.offset * 1e6) / 1e6}, ${s.hex}`)
+  out.push(`stroke-gradient-[interpolate(line_progress, ${parts.join(', ')})]`)
+}
+
+/** Normalise any `colorToXgis` hex shape (#rgb / #rgba / #rrggbb / #rrggbbaa) to the
+ *  8-digit form the ramp-stop extractor and `hexToRgba` both read losslessly. */
+function hex8(hex: string): string {
+  const [r, g, b, a] = resolveColorToRgba(hex)
+  const ch = (x: number): string =>
+    Math.round(Math.max(0, Math.min(1, x)) * 255)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${ch(r)}${ch(g)}${ch(b)}${ch(a)}`
 }

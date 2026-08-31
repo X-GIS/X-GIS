@@ -183,8 +183,10 @@ describe('converter warning coverage', () => {
   })
 
   it('GeoJSON source tuning fields → ignored-tuning warning', () => {
-    // Pins e700bd0 — tolerance / buffer / lineMetrics / generateId
-    // each surface in the consolidated note.
+    // Pins e700bd0 — tolerance / buffer / generateId each surface in the consolidated
+    // note. `lineMetrics` LEFT the list at #2117: the tiler measures every line's arc
+    // unconditionally (the dash phase needs it), so line-progress works with or without
+    // the flag and calling it "ignored" would be a false diagnostic.
     const w = warningsOf({
       version: 8,
       sources: {
@@ -201,9 +203,12 @@ describe('converter warning coverage', () => {
     })
     const note = w.find((s) => s.includes('"lines"') && s.includes('ignored tuning fields'))
     expect(note, `expected ignored-tuning note: ${JSON.stringify(w)}`).toBeDefined()
-    for (const k of ['tolerance', 'buffer', 'lineMetrics', 'generateId']) {
+    for (const k of ['tolerance', 'buffer', 'generateId']) {
       expect(note, `expected "${k}" in: ${note}`).toContain(k)
     }
+    expect(note, `lineMetrics is honoured by construction (#2117): ${note}`).not.toContain(
+      'lineMetrics',
+    )
   })
 
   it('source minzoom → still unhandled; maxzoom (#1983) and bounds (#1984) now emit', () => {

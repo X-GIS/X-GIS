@@ -5,6 +5,9 @@
 // surface so existing imports keep working.
 
 import { lineLayerUniformBytes, lineLayerUniformSlots } from './line-uniform-slots'
+import { LINE_GRADIENT_MAX_STOPS } from '../shaders/dsl/line-gradient'
+
+export { LINE_GRADIENT_MAX_STOPS }
 
 // ═══ Layer Uniform Layout ═══
 // Must match WGSL struct LineLayerUniform.
@@ -26,8 +29,12 @@ import { lineLayerUniformBytes, lineLayerUniformSlots } from './line-uniform-slo
 //   [47]    line_translate_x         — NDC-per-pixel x offset (Mapbox line-translate)
 //   [48]    line_translate_y         — NDC-per-pixel y offset (Mapbox line-translate)
 //   [49]    round_limit              — Mapbox line-round-limit (0 = shader historical fold)
-//   [50-51] pad                      — 16-byte alignment (208 bytes total)
-// Total = 52 f32 = 208 bytes.
+//   [50]    gradient_count (u32)     — Mapbox line-gradient ramp stop count (0 = no ramp)
+//   [51]    pad                      — 16-byte alignment before the ramp arrays
+//   [52-83] gradient_color[8]        — ramp stop RGBA (straight alpha, opacity pre-scaled)
+//   [84-91] gradient_pos[8]          — ramp stop positions 0..1 (2 × vec4 lanes)
+// Total = 92 f32 = 368 bytes. Slot indices come from reflect() below, never these
+// literals — the comment is a map, `lineLayerUniformSlots()` is the authority.
 
 /** Canonical `LineLayer` uniform byte size — the size of the buffer
  *  `packLineLayerUniform` returns. Derived from `reflect()` (the SoT) via
@@ -82,6 +89,13 @@ function packFlags(
     (hasPattern ? LINE_FLAG_HAS_PATTERN : 0) |
     (hasOffset ? LINE_FLAG_HAS_OFFSET : 0)
   )
+}
+
+/** One `line-gradient` ramp stop — position along the line (0..1) + straight-alpha RGBA
+ *  (0..1 per channel), as the compiler lowers it (`LinePaint.strokeGradientStops`). */
+export interface LineGradientStop {
+  offset: number
+  rgba: [number, number, number, number]
 }
 
 export interface DashConfig {
@@ -237,6 +251,12 @@ export function packLineLayerUniform(
    *  0 = no override (the shader falls back to its historical round-join
    *  fold constant, byte-identical default). */
   roundLimit: number = 0,
+  /** Mapbox `paint.line-gradient` (#2117) ramp stops — ascending by `offset`. Empty /
+   *  null = no ramp (`gradient_count` stays 0 and the shader keeps the solid colour).
+   *  Stops past LINE_GRADIENT_MAX_STOPS are DROPPED here rather than resampled; the
+   *  converter already warns before it gets this far, and the .xgis-authored path
+   *  clipping is the same rule. */
+  gradient: readonly LineGradientStop[] | null = null,
 ): Float32Array {
   const { f32: buf, u32 } = lineUniformScratch()
   // Field → f32-slot indices from reflect() (the SoT), not hand literals —
@@ -320,6 +340,22 @@ export function packLineLayerUniform(
   buf[S.line_translate_x] = lineTranslateX
   buf[S.line_translate_y] = lineTranslateY
   buf[S.round_limit] = roundLimit // Mapbox line-round-limit; 0 = shader uses historical fold
-  // trailing pad slots remain 0 (16-byte alignment)
+
+  // Gradient ramp. Stop alpha rides the SAME opacity × sub-pixel-width scaling the solid
+  // colour got above (one authority for the alpha budget), so the shader can substitute
+  // the ramp for `layer.color` wholesale.
+  // A 1-stop ramp is not a ramp — treat it as absent so the solid colour stands.
+  const capped = gradient ? Math.min(gradient.length, LINE_GRADIENT_MAX_STOPS) : 0
+  const gradCount = capped >= 2 ? capped : 0
+  u32[S.gradient_count] = gradCount
+  for (let i = 0; i < gradCount; i++) {
+    const st = gradient![i]!
+    const c = S.gradient_color + i * 4
+    buf[c] = st.rgba[0]
+    buf[c + 1] = st.rgba[1]
+    buf[c + 2] = st.rgba[2]
+    buf[c + 3] = st.rgba[3] * opacity * widthAlphaScale
+    buf[S.gradient_pos + i] = st.offset
+  }
   return buf
 }

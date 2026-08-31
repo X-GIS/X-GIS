@@ -260,6 +260,10 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   },
   { name: 'accumulated', status: 'na', note: 'Heatmap-only.' },
   { name: 'heatmap-density', status: 'na', note: 'Heatmap-only.' },
-  { name: 'line-progress', status: 'na', note: 'line-gradient only.' },
+  {
+    name: 'line-progress',
+    status: 'na',
+    note: 'line-gradient only — and as of #2117 the line converter lowers that ramp itself (paint-line.ts addLineGradient), the way layers-heatmap.ts owns heatmap-density. It still has no value in a GENERIC expression context, which is what this row records; the generic path warns and says where it IS meaningful.',
+  },
   { name: 'sky-radial-progress', status: 'na' },
 ]
