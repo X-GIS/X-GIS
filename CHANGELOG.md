@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 0bf3cd0ad9378146466e2cdb482a1b70cd54b27b
+  Generated from: 6c98bd69ea543c3b48fe6d7b986423e87226818c
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 0bf3cd0ad937
+    bun scripts/emit-changelog.ts --since 6c98bd69ea54
 -->
 
 # Changelog
@@ -119,6 +119,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
 - **map/playground:** #2116 — the idle contract, and three render gates that measured the wrong thing ([#2120](https://github.com/X-GIS/X-GIS/pull/2120)) `6864afd`
 - **map:** #2091 — the readiness gate pinned an unreachable LOD target, so the map never idled ([#2103](https://github.com/X-GIS/X-GIS/pull/2103)) `91c7b73`
 - **map:** #2042 INC-4b prep — tile-arena grow hook + retired-buffer drain ([#2067](https://github.com/X-GIS/X-GIS/pull/2067)) `c7fb2e3`

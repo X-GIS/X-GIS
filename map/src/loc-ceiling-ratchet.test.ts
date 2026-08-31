@@ -829,7 +829,13 @@ const CEILINGS: Record<string, number> = {
   // the same question — a second place to decide "is the text finished?" is how #2091 /
   // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
   // MEASURED.
-  'map/src/map.ts': 5471,
+  // 5471→5482 (#2122): the sprite keep-alive, beside the glyph one #2120 added. Same
+  // authority for the same reason — `shouldRenderThisFrame` gates both rendering and
+  // `idle`, and a second place to decide "is this frame's async content finished?" is how
+  // that question has drifted three times already. Reads a deadlined probe rather than the
+  // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
+  // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  'map/src/map.ts': 5482,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1300,7 +1306,13 @@ const CEILINGS: Record<string, number> = {
   // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
   // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
   // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
-  'map/src/shaders/dsl/polygon.ts': 1577,
+  // 1577→1567 (#2042 INC-6 prep): the Mercator cam-rel recipe moved to the shared
+  // merc-cam-rel.ts so line.ts can consume the SAME authority instead of spelling out a second
+  // copy (it would have been the third, counting polygon-split.ts's `derived` map). Shrink-only
+  // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
+  // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
+  // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
+  'map/src/shaders/dsl/polygon.ts': 1567,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.

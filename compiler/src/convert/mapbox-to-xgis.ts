@@ -45,6 +45,7 @@ import {
   validateLayerIdCollisions,
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
+import { convertTerrain } from './terrain'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
 
@@ -202,8 +203,10 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   fog / light / terrain / transition / imports — Mapbox v3
-  //                additions, none implemented.
+  //   fog / light / transition / imports — Mapbox v3
+  //                additions, none implemented. (`terrain` moved out of this list in
+  //                #2095 — the block is now parsed + emitted, with its own precise
+  //                warning below instead of the generic one here.)
   //
   // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
   // omitted — they're host-integration concerns (the playground's
@@ -254,7 +257,6 @@ export function convertMapboxStyle(
   const gapFields = [
     'fog',
     'lights',
-    'terrain',
     'transition',
     'imports',
     'models',
@@ -423,6 +425,21 @@ export function convertMapboxStyle(
       referencedSourceIds.add(layerSource)
     }
   }
+  // A LAYER is not the only thing that can reference a source. The top-level `terrain`
+  // block names one too (#2095), and it is emitted further down — AFTER this pass has
+  // already decided what to drop. Without this, a raster-dem declared for terrain and
+  // used by no layer (the ordinary shape: terrain needs no hillshade layer) was deleted
+  // while `terrain { source: <that id> }` was still emitted, leaving a dangling reference
+  // and two warnings that contradict each other. Raw id, exactly like the layer ids
+  // above: `sourcesObj`'s keys are the style's own, and `convertTerrain` sanitizes only
+  // for the emitted text.
+  const rawTerrain = style.terrain
+  if (rawTerrain !== null && typeof rawTerrain === 'object' && !Array.isArray(rawTerrain)) {
+    const terrainSource = (rawTerrain as { source?: unknown }).source
+    if (typeof terrainSource === 'string' && terrainSource.length > 0) {
+      referencedSourceIds.add(terrainSource)
+    }
+  }
   // Only run the dead-source drop on styles that DECLARE layers. A
   // sources-only style (unit-test fixture / partial author authoring
   // sources first then layers later) would otherwise see every source
@@ -497,6 +514,18 @@ export function convertMapboxStyle(
         reasons,
       })
     }
+  }
+
+  // ── Top-level `terrain` block (#2095, T2 Phase 2) ───────────────────
+  // References a source (by id), so it is emitted right after the Sources loop
+  // above — keeps every source-referencing root concern grouped together in the
+  // emitted text. (Unlike background it does not validate against sourcesObj —
+  // Phase 2 is converter-only and a dangling reference is left to the runtime,
+  // same as an unvalidated layer.source today.)
+  const terrainBlock = convertTerrain(style.terrain, warnings)
+  if (terrainBlock) {
+    lines.push(terrainBlock)
+    lines.push('')
   }
 
   // ── Background layer (Mapbox `background` type) ────────────────────
