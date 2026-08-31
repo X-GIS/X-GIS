@@ -32,6 +32,7 @@ import {
 } from '../shaders/dsl/raster'
 import { projectCpu } from '../shaders/dsl/cpu-projections'
 import { globeEyeUniform } from './globe-eye-uniform'
+import { rasterGridTrig } from './raster-grid-trig'
 
 /** Camera RTC anchor for the raster VS on the globe / 3D surfaces.
  *
@@ -173,11 +174,14 @@ export function writeRasterTileUniform(
    *  select() reads this to fan the band edge to the pole. Default 0. */
   capSign = 0,
 ): void {
+  const trig = rasterGridTrig(west, east, mercSouth, mercDiff, gridN)
   block.write({
     bounds: [west, south, east, north],
     tile_ecef_center: [tileEcef[0], tileEcef[1], tileEcef[2], tileOpacity],
     merc_y: [mercSouth, mercDiff],
     grid: [gridN, capSign],
+    row_trig: trig.rows,
+    col_trig: trig.cols,
   })
 }
 

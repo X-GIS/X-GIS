@@ -865,13 +865,22 @@ const CEILINGS: Record<string, number> = {
   // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
   // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
-  // →5489 (this merge): the two bumps above were authored against the SAME base 5482 and
-  // the merged file takes BOTH deltas, so neither branch's number is right afterwards.
-  // Set from `wc -l` on the merged file, not from arithmetic — and note that git only
-  // conflicted here because the two numbers happened to DIFFER; had both branches landed
-  // on the same value it would have merged clean at a ceiling one change too low
-  // (CLAUDE.md §12). Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 5489,
+  // →5489 (main's #2138 merge note): bumps authored against the same base SUM — set from
+  // `wc -l` on the merged file, never from arithmetic (CLAUDE.md §12).
+  // Merge union (#2149 ⨯ #2138): branch carried 5485 (#2129's +1 injection net of the
+  // glyph-term −1), main carried 5489 (#2138's +4); the merged file MEASURES 5489 —
+  // the branch's net-zero rides inside it. Lower as #991 decomposes map.ts.
+  // →5478 (#2149 increment 3): the sprite keep-alive block (11 lines) moved onto its
+  // registration in pending-work.ts — the shared registry term already covers it.
+  // MEASURED post-prettier.
+  'map/src/map.ts': 5478,
+  // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
+  // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
+  // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
+  // The keep-warm reason lives on the registration (pending-work.ts); this file carries
+  // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
+  // #2138 merge (main did not touch this file): 801.
+  'map/src/coverage-source.ts': 801,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1445,7 +1454,15 @@ const CEILINGS: Record<string, number> = {
   // addTileLevel's body. +12 is the two parameters, the three passthroughs and the doc that
   // says WHY the slot has to be named — the catalog is the storage authority the VTR's
   // `computeSliceKey` lookup has to agree with. MEASURED.
-  'data/src/tile-catalog.ts': 1456,
+  // 1456->1478 (#2182): `loadingTiles` becomes a Map (key -> dispatch ms) so
+  // `hasPendingLoads()` can be DEADLINED. It was the one keep-warm signal still
+  // unbounded: `safeFetch` has no timeout, backends release only from `.then`/`.catch`,
+  // and `cancelStale` is keyed on the ACTIVE set, so a still-visible tile whose fetch
+  // HANGS was stranded for the session and `idle` never fired again (#2091's shape, at
+  // the catalog level, so every backend). +22 is the constant with its bound rationale,
+  // the field doc, the deadline loop and the accessor doc. A first draft cost +39 and was
+  // trimmed. MEASURED post-prettier.
+  'data/src/tile-catalog.ts': 1478,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1979,7 +1996,14 @@ const CEILINGS: Record<string, number> = {
   // `loadImageTexture` raw-device fork removed — both backends now load through the RHI
   // (`rhi.createTexture`/`copyExternalImage`/`generateMipmaps`), which also deletes the
   // `device: GPUDevice` field the fork was the only reader of.
-  'map/src/render/raster-renderer.ts': 1029,
+  // 1029→1034 (#2137): the CPU trig table wiring. `vs_tile` used to build the
+  // ~6.4e6 m ECEF from angles on the GPU, where every transcendental multiplies
+  // the Earth radius (1.17e+3 m of ground displacement measured on SwiftShader);
+  // the table hands it CPU-f64 sin/cos/N so it only multiplies. The 53-line
+  // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
+  // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
+  // import, one call, and the two new struct fields the packer must write.
+  'map/src/render/raster-renderer.ts': 1034,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

@@ -34,8 +34,14 @@ describe('raster global Uniforms — reflect === shipped', () => {
 
 describe('raster per-tile TileUniforms — reflect === shipped', () => {
   const T = rasterTileSlots().slot
-  it('bytes === 48 (= slots × 4)', () => {
-    expect(rasterTileBytes()).toBe(48)
+  it('bytes === 336 (= slots × 4)', () => {
+    // 48 → 336 (#2137): the CPU trig table added row_trig + col_trig, two
+    // `array<vec4<f32>, 9>` = 2 × 144 B. The VS used to build the ~6.4e6 m ECEF
+    // from angles, so every transcendental it evaluated multiplied the Earth
+    // radius (1.17e+3 m of ground displacement measured on SwiftShader); the
+    // table removes them from that path. This pin is the reflect-derived size —
+    // it moves only when the struct does, which is the point.
+    expect(rasterTileBytes()).toBe(336)
     expect(rasterTileBytes()).toBe(rasterTileSlots().slots * 4)
   })
   const cases: ReadonlyArray<readonly [string, number]> = [

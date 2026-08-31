@@ -225,12 +225,12 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'icon-keep-upright',
     status: 'supported',
     impact: 'low',
-    note: "Flip line-placed icons so they face up (icon twin of text-keep-upright). Constant form lowered (#777 I-B): converter emits label-icon-keep-upright / label-icon-keep-upright-false → LabelDef.iconKeepUpright → label-pass dispatchIcon folds a downward segment tangent into the upright half-plane (resolveIconRotateRad) under symbol-placement=line + icon-rotation-alignment=map. DEFAULT: Mapbox's spec default is `true`, but X-GIS activates the fold ONLY on an EXPLICITLY authored value — an ABSENT property keeps today's always-follow-tangent render byte-identical (icon-allow-overlap absent-default precedent); flipping the absent-default requires its own §5 before/after sweep. Non-constant (zoom-interp / data-driven) forms warn and skip.",
+    note: "Flip line-placed icons so they face up (icon twin of text-keep-upright). Constant form lowered (#777 I-B): converter emits label-icon-keep-upright / label-icon-keep-upright-false → LabelDef.iconKeepUpright → label-pass dispatchIcon folds a downward segment tangent into the upright half-plane (resolveIconRotateRad) under symbol-placement=line + icon-rotation-alignment=map. DEFAULT: Mapbox's spec default is `false` and X-GIS's ABSENT behaviour already matches it — always-follow-tangent, no fold. The fold activates ONLY on an EXPLICITLY authored value. Non-constant (zoom-interp / data-driven) forms warn and skip.",
   },
   {
     name: 'icon-pitch-alignment',
     status: 'unsupported',
     impact: 'low',
-    note: 'viewport (default) / map / auto. X-GIS uses viewport-aligned icons unconditionally; map mode would project the icon quad onto the ground plane.',
+    note: 'map / viewport / auto — the spec default is `auto`, NOT viewport. X-GIS uses viewport-aligned icons unconditionally; map mode would project the icon quad onto the ground plane.',
   },
 ]

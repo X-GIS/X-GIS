@@ -79,6 +79,7 @@ export interface CoverageSourceDeps {
   /** The caller's SSRF-guarded fetch for `label`. Injected rather than reached for, so
    *  this module never picks a fetch itself — same contract coverage-fetch.ts holds. */
   guardedFetch: (label: string) => typeof fetch
+  beginPendingWork?: () => { done(): void } // #2129 — ticket spans one cell read (pending-work.ts)
   /** True once the map is destroyed — a re-read that lands afterwards must not arm. */
   destroyed: () => boolean
   /** The map's current run epoch (#1569). `destroyed()` alone cannot see a SCENE SWAP:
@@ -372,7 +373,7 @@ interface CatalogueReadResult {
 
 /** Start reading one catalogue cell's bytes. Registers `state.inFlight` synchronously (before
  *  the first await) so a concurrent resolve — or this same resolve's own read-ahead window —
- *  never double-fetches the same region; clears it once the read settles, success or not. */
+ *  never double-fetches; settles it — and the #2129 pending-work ticket — success or not. */
 async function readCatalogueItem(
   deps: CoverageSourceDeps,
   sourceId: string,
@@ -387,6 +388,7 @@ async function readCatalogueItem(
   const label = `coverage source "${sourceId}" region "${region}"`
   const token = deps.time.nextEpoch(region)
   state.inFlight.add(region)
+  const ticket = deps.beginPendingWork?.()
   try {
     const handle = await fetchCoverageHandle(item.href, label, deps.guardedFetch(label))
     return { handle, token }
@@ -396,6 +398,7 @@ async function readCatalogueItem(
     return null
   } finally {
     state.inFlight.delete(region)
+    ticket?.done()
   }
 }
 
