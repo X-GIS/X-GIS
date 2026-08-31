@@ -231,6 +231,7 @@ type MapLike = {
   setBearing?: (b: number) => void
   setPitch?: (p: number) => void
   invalidate?: () => void
+  _pendingWork?: { hasPending?: () => boolean }
   hasPendingSourceWork?: () => boolean
   vtSources?: Map<
     string,
@@ -289,7 +290,9 @@ async function converge(m: MapLike, budgetMs: number): Promise<number> {
   let stable = 0
   while (performance.now() - t0 < budgetMs) {
     const { uploads, loads } = pendingCounts(m)
-    const busy = (m.hasPendingSourceWork?.() ?? false) || uploads > 0 || loads > 0
+    // #2149 inc 6: registry probe first; legacy method for older builds.
+    const pending = m._pendingWork?.hasPending?.() ?? m.hasPendingSourceWork?.() ?? false
+    const busy = pending || uploads > 0 || loads > 0
     stable = busy ? 0 : stable + 1
     if (stable >= 5) break
     // Keep frames flowing while work is pending — render-on-demand drains

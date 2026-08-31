@@ -217,6 +217,7 @@ async function hideSymbolLayers(page: import('@playwright/test').Page) {
       new Promise<void>((resolve) => {
         interface XS {
           stats: { tilesCached: number; tilesVisible: number }
+          _pendingWork?: { hasPending?: () => boolean }
           hasPendingSourceWork?: () => boolean
         }
         const map = (window as unknown as { __xgisMap?: XS }).__xgisMap
@@ -232,7 +233,8 @@ async function hideSymbolLayers(page: import('@playwright/test').Page) {
         const tick = () => {
           const elapsed = performance.now() - start
           const c = map.stats.tilesCached
-          const pending = map.hasPendingSourceWork?.() ?? false
+          // #2149 inc 6: registry probe first; legacy method for older builds.
+          const pending = map._pendingWork?.hasPending?.() ?? map.hasPendingSourceWork?.() ?? false
           // Cache must be stable AND source must have no pending work.
           // Stable alone caught idle gaps between fetch batches;
           // pending=true while stable=true is impossible (cache grows

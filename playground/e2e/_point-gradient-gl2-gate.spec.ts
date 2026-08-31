@@ -302,14 +302,26 @@ async function settle(page: Page): Promise<void> {
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
-        const m = (window as unknown as { __xgisMap?: { hasPendingSourceWork?: () => boolean } })
-          .__xgisMap
+        const m = (
+          window as unknown as {
+            __xgisMap?: {
+              _pendingWork?: { hasPending?: () => boolean }
+              hasPendingSourceWork?: () => boolean
+            }
+          }
+        ).__xgisMap
         const t0 = performance.now()
         let stable = 0
         const tick = (): void => {
           let idle = false
           try {
-            idle = typeof m?.hasPendingSourceWork === 'function' ? !m.hasPendingSourceWork() : true
+            // #2149 inc 6: registry probe first; legacy method for older builds.
+            idle =
+              typeof m?._pendingWork?.hasPending === 'function'
+                ? !m._pendingWork.hasPending()
+                : typeof m?.hasPendingSourceWork === 'function'
+                  ? !m.hasPendingSourceWork()
+                  : true
           } catch {
             idle = false
           }
