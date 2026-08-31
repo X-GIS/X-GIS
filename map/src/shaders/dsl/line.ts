@@ -103,6 +103,8 @@ import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, DEG2RAD } from './consts'
 import { finalizeCornerWith, patternUnitToM, type FinalizeCornerAdapter } from './line-corner'
 import { lineGradientRampColor } from './line-gradient'
+import { lineEndpointWith, type LineEndpointAdapter } from './line-endpoint'
+import { mercCamRel } from './merc-cam-rel'
 import { dist_to_segment, dist_to_quadratic, dist_to_cubic, winding_line } from './sdf'
 
 // Round-join acute-fold threshold on |prevTan + dir| (unit vectors → length is
@@ -205,12 +207,16 @@ const TILE = uniformStruct(
     // (polygon-line-uniform-parity).
     _pad_tile_ecef_center_h: vec4fT,
     _pad_tile_ecef_center_l: vec4fT,
-    _pad_cam_ecef_center_h: vec4fT,
+    // #2042 INC-6 — REAL now, not padding: the flat arm reads .w as the umbrella
+    // recombine flag (one flag for both arms, set by VTR._writeRtcAnchors).
+    cam_ecef_center_h: vec4fT,
+    // Still SIZE-only: the line shader has no 3D arm, so nothing reads the lo half.
     _pad_cam_ecef_center_l: vec4fT,
-    // #2042 INC-6 — mirror polygon Uniforms' appended Mercator anchors
-    // (tile_origin_merc_hl / cam_merc_center_hl). SIZE-only, same as above.
-    _pad_tile_origin_merc_hl: vec4fT,
-    _pad_cam_merc_center_hl: vec4fT,
+    // #2042 INC-6 — the ABSOLUTE Mercator anchors whose f64 difference IS cam_h/cam_l.
+    // Real lanes here now (they were the byte-mirror of polygon's Uniforms while the
+    // line shader kept the CPU-packed pair); mercCamRel() recombines them.
+    tile_origin_merc_hl: vec4fT,
+    cam_merc_center_hl: vec4fT,
   },
 )
 
@@ -360,26 +366,45 @@ const sprite_samp = spriteSampB.node
 
 // ── Helper fns ──
 
-const lineEndpoint = fn('line_endpoint', { p_h: vec2fT, p_l: vec2fT }, (p) => {
-  const projParams = TILE.field.proj_params
-  // single-exit: Mercator (proj<0.5) subtracts the camera; else hi+lo. select() is
-  // branchless — both arms are pure reads, computing both is free of side effects.
-  const mercRel = p.p_h.sub(TILE.field.cam_h).add(p.p_l.sub(TILE.field.cam_l))
-  return select(projParams.x.lt(0.5), mercRel, p.p_h.add(p.p_l))
-})
+// #2042 INC-6 — the flag-selected Mercator camera-relative pair, from the ONE authority
+// (merc-cam-rel.ts, shared with polygon.ts; see it for why it returns expressions rather
+// than `Let`s). Fresh tree per call, deduped at emit — same shape as `finalizeCorner`.
+const tileCamRel = (): { h: ReadonlyNode<'vec2<f32>'>; l: ReadonlyNode<'vec2<f32>'> } =>
+  mercCamRel({
+    camMercCenterHl: TILE.field.cam_merc_center_hl,
+    tileOriginMercHl: TILE.field.tile_origin_merc_hl,
+    camEcefCenterH: TILE.field.cam_ecef_center_h,
+    camH: TILE.field.cam_h,
+    camL: TILE.field.cam_l,
+  })
+
+// line_endpoint lives in line-endpoint.ts (#2042 INC-6) with the camera lanes as
+// parameters; this adapter feeds the recombined pair so every call site reads as before.
+const lineEndpoint: LineEndpointAdapter = (a) => {
+  const rel = tileCamRel()
+  return lineEndpointWith({
+    p_h: a.p_h,
+    p_l: a.p_l,
+    cam_h: rel.h,
+    cam_l: rel.l,
+    proj_params: TILE.field.proj_params,
+  })
+}
 
 // finalize_corner + pattern_unit_to_m live in line-corner.ts (#1003 LOC
 // ceiling extraction) with the TILE lanes as parameters; this adapter feeds
 // this module's TILE fields so every call site reads as before.
-const finalizeCorner: FinalizeCornerAdapter = (a) =>
-  finalizeCornerWith({
+const finalizeCorner: FinalizeCornerAdapter = (a) => {
+  const rel = tileCamRel()
+  return finalizeCornerWith({
     corner: a.corner,
     proj_params: TILE.field.proj_params,
     tile_origin: TILE.field.tile_origin_merc,
-    cam_h: TILE.field.cam_h,
-    cam_l: TILE.field.cam_l,
+    cam_h: rel.h,
+    cam_l: rel.l,
     tile_extent_m: TILE.field.tile_extent_m,
   })
+}
 
 const endpointCosC = fn('endpoint_cos_c', { p_h: vec2fT, p_l: vec2fT }, (p) => {
   const tileOrigin = TILE.field.tile_origin_merc
@@ -474,11 +499,8 @@ const computeLineColor = fn('compute_line_color', { input: LineOut }, vec4fT, (p
     .and(clipBounds.z.gt(clipBounds.x))
     .and(clipBounds.w.gt(clipBounds.y))
   If(clipValid, () => {
-    const camOffset = select(
-      projParams.x.lt(0.5),
-      TILE.field.cam_h.add(TILE.field.cam_l),
-      vec2(0, 0),
-    )
+    const camRel = tileCamRel() // #2042 INC-6 — same authority as the two sites above
+    const camOffset = select(projParams.x.lt(0.5), camRel.h.add(camRel.l), vec2(0, 0))
     const absMercClip = inp.world_local.add(camOffset).add(tileOrigin)
     If(absMercClip.x.lt(clipBounds.x), () => {
       Discard()

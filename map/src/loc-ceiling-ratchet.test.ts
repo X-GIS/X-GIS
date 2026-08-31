@@ -1281,6 +1281,31 @@ const CEILINGS: Record<string, number> = {
   // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
   // polygon-line-uniform-parity). MEASURED post-prettier.
   // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
+  // 1539→1641 (#2089): the 12 ECEF endpoint-lane struct fields, the lane/ENU
+  // corner construction that replaced the in-shader `ecefFromMerc` re-derivation,
+  // and the reviewed error-budget rationale the construction rests on (the
+  // spherical-vs-ellipsoidal cos(lat) residual, the exact-affine tangent-plane
+  // argument, and the δφ·|off| vs δφ·R statement of what the migration buys).
+  // The arm closes over base/isStart/sego, so it lives with the VS builder
+  // rather than extracting; the growth is comment-heavy by design — a wrong
+  // justification here is what a later reader would build on.
+  // 1641→1651: the measured before/after (1.17e3 m → 2.1e-1 m, from
+  // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
+  // PACKED while the shader recombines in f32 — the distinction a later reader
+  // would otherwise have to rediscover from a failing tolerance.
+  // 1651→1673 (#2042 INC-6, the LINE half): the flat arm now RECOMBINES the Mercator
+  // camera-relative pair from the absolute anchors instead of reading the CPU-packed
+  // cam_h/cam_l lanes. That is a real added code path, not padding: three un-padded lane
+  // declarations + their reasons, a `tileCamRel()` adapter over the shared merc-cam-rel.ts
+  // authority, and a `lineEndpoint` adapter over the extracted helper. `line_endpoint`
+  // itself MOVED OUT to line-endpoint.ts (the #1003 line-corner.ts idiom — lanes as
+  // parameters), which is why the growth is 22 and not 30; the extraction was required by
+  // the increment anyway, since that function's cam read is one of the three sites the
+  // recombination replaces and the pair it needs is flag-selected, not a raw lane.
+  // The file's path back DOWN is identified and measured: `compute_line_color`
+  // (map/src/shaders/dsl/line.ts, ~497 lines — a third of the file) is the next extraction,
+  // deliberately not folded in here so this increment's diff stays about the recombination.
+  // MEASURED after prettier.
   // 1651→1673 (#2117 line-gradient, on top of #2089's 1539→1651). #2089 paid 112 lines
   // for the ECEF endpoint lanes and the error-budget rationale under them; #2117 adds
   // 22: the two ramp uniform arrays + `gradient_count` on LineLayer (which takes the
@@ -1289,6 +1314,10 @@ const CEILINGS: Record<string, number> = {
   // loop and the 4-per-vec4 position unpack — is extracted to line-gradient.ts, the
   // same relief valve #1496 used, so only the struct fields and one `If` block land
   // here. Headroom is re-justified per phase, never banked. MEASURED post-merge.
+  // BOTH histories above start from 1651 and BOTH add 22 — #2042 INC-6 and #2117 each
+  // reached 1673 independently, which is exactly the merge where taking either side's
+  // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
+  'map/src/shaders/dsl/line.ts': 1695,
   'map/src/shaders/dsl/line.ts': 1673,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
