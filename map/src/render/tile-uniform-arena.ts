@@ -37,7 +37,7 @@ import {
   type RhiDevice,
 } from '@xgis/engine'
 import { tileBlockU } from '../shaders/dsl/tile-block'
-import type { TileCameraAnchor } from './tile-camera-anchor'
+import { witnessSkew, type TileCameraAnchor } from './tile-camera-anchor'
 
 const COPY_BIAS = 2
 const COPY_LANES = 5 // worldOff −2..+2 × 360°
@@ -53,6 +53,22 @@ export class TileUniformArena {
    *  Mirrors GpuTileStore.gpuCache's nested-map shape so the per-tile hot
    *  path stays free of composite-string allocation. */
   private readonly slots = new Map<string, Map<number, (number | undefined)[]>>()
+  /** #2165 — the §5 witness skew the resident slots were packed WITH.
+   *
+   *  `_rtc-recombine-parity-gate` injects its flags post-ready and says why
+   *  it may: "flags are read LIVE per frame at the uniform write site". That
+   *  was true while `_writeRtcAnchors` was the only writer of the tile
+   *  anchors. This arena packs a slot ONCE and reuses it forever, so once
+   *  INC-4b bound the tile lanes here the premise quietly died: a skew set
+   *  after boot could never reach an already-resident tile, and the witness
+   *  measured 0 moved pixels on the shipping bind path — a live assertion
+   *  that would have certified a dead recombination.
+   *
+   *  Comparing the packed value against the live one restores the premise:
+   *  when the witness moves, every resident pack is stale and is dropped.
+   *  Unset it is 0 === 0 — one number compare per established slot, and
+   *  production never changes it, so no reset can fire in shipping code. */
+  private packedSkew = 0
 
   constructor(
     /** Lazy device provider — VTR's `rhi` is assigned in its ctor body,
@@ -98,6 +114,12 @@ export class TileUniformArena {
     dequantScale: number,
     dequantHalf: number,
   ): number {
+    // #2165 — the witness moved: every resident pack carries the old anchor.
+    const skew = witnessSkew()
+    if (skew !== this.packedSkew) {
+      this.packedSkew = skew
+      this.resetAll()
+    }
     const lane = worldOffDeg / 360 + COPY_BIAS
     if (lane < 0 || lane >= COPY_LANES || !Number.isInteger(lane)) return -1
     let inner = this.slots.get(sourceLayer)

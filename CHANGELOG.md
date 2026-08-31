@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 642e507d7c379bfcfd72e8ed3e304d6d21c10879
+  Generated from: 3c346261c883340428832bc9045ecfa8a80066fb
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 642e507d7c37
+    bun scripts/emit-changelog.ts --since 3c346261c883
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **line:** line-gradient paints its authored ramp, sampled from the arc the dash phase already rides ([#2136](https://github.com/X-GIS/X-GIS/pull/2136)) `1e3b93a`
 - **render:** #2042 INC-7 — split-bind ON by default, behind an opt-out ([#2151](https://github.com/X-GIS/X-GIS/pull/2151)) `642e507`
 - **line:** #2042 INC-6 — recombine the Mercator cam-rel pair in the LINE shader ([#2142](https://github.com/X-GIS/X-GIS/pull/2142)) `18367f4`
 - **compiler:** ["distance-from-center"] lowers and evaluates, with its units written down ([#2133](https://github.com/X-GIS/X-GIS/pull/2133)) `e85335b`
@@ -125,6 +126,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
 - **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
 - **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
@@ -260,6 +262,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** the render-loop.ts:682 clobber concern is checked — latent, not a bug ([#2164](https://github.com/X-GIS/X-GIS/pull/2164)) `3c34626`
+- **map:** getMissingTileCount() is not a convergence signal — stop saying it is ([#2163](https://github.com/X-GIS/X-GIS/pull/2163)) `b5b24c2`
+- **plans:** correct Phase 5's "four drifting convergence predicates" premise ([#2158](https://github.com/X-GIS/X-GIS/pull/2158)) `56a9ad5`
 - record the four lessons #2120 paid for, and correct the #2103 taxonomy ([#2124](https://github.com/X-GIS/X-GIS/pull/2124)) `4f9af24`
 - **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
 - **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
@@ -289,6 +294,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **arch:** Gate 10 — every safeFetch caller is a classified async resource ([#2161](https://github.com/X-GIS/X-GIS/pull/2161)) `4d360e2`
 - **e2e:** #2042 INC-6 — a LINE-only witness, landed BEFORE the half it judges ([#2141](https://github.com/X-GIS/X-GIS/pull/2141)) `d0a0464`
 - **e2e:** re-pin the polygon arm-revert tokens to the #2042 INC-6 flag-selected cam_rel Lets (#2073) ([#2074](https://github.com/X-GIS/X-GIS/pull/2074)) `e4b1d39`
 - **playground:** capture-canvas skill — chrome-free, event-driven map capture for e2e specs ([#2062](https://github.com/X-GIS/X-GIS/pull/2062)) `6ccae6c`
