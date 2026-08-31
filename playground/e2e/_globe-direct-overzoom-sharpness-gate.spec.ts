@@ -303,7 +303,7 @@ async function coastProfile(page: Page, png: Buffer): Promise<CoastProfile> {
   }, png.toString('base64'))
 }
 
-test('#2093 — the #2024 overzoom camera renders DIRECT, and stays sharper than the drape', async ({
+test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from the drape', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 720 })
