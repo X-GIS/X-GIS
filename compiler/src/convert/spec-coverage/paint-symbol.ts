@@ -40,7 +40,7 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-translate-anchor',
     status: 'supported',
-    note: 'viewport (default) = screen-space (byte-identical historical path); map = world-space: the converter emits `label-translate-anchor-map` (layers-symbol.ts text-translate-anchor) → LabelDef.translateAnchorMap → TextStage.prepare rotates the [dx,dy] text-translate by the map bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake — Phase S Batch 2) before the per-anchor pixel add; the rotated value also re-keys the layout cache so a bearing change never serves a stale offset. Pitch foreshortening of the offset not reproduced.',
+    note: 'The spec default is `map`, but X-GIS resolves an ABSENT anchor as viewport — that inversion is #2170, not a documented choice. viewport = screen-space (byte-identical historical path); map = world-space: the converter emits `label-translate-anchor-map` (layers-symbol.ts text-translate-anchor) → LabelDef.translateAnchorMap → TextStage.prepare rotates the [dx,dy] text-translate by the map bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake — Phase S Batch 2) before the per-anchor pixel add; the rotated value also re-keys the layout cache so a bearing change never serves a stale offset. Pitch foreshortening of the offset not reproduced.',
     source: 'layers-symbol.ts text-translate-anchor / text-stage.ts rotateLabelTranslate',
   },
   {
@@ -83,7 +83,7 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'icon-translate-anchor',
     status: 'supported',
-    note: 'viewport (default) = screen-space (byte-identical); map = world-space: the converter emits `label-icon-translate-anchor-map` (layers-symbol.ts icon-translate-anchor) → LabelDef.iconTranslateAnchorMap → dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by the map bearing (icon-offset, a layout nudge, stays screen-space) before IconStage.addIcon — mirror of text-translate-anchor / fill/line Phase S Batch 2. Pitch foreshortening of the offset not reproduced.',
+    note: 'The spec default is `map`, but X-GIS resolves an ABSENT anchor as viewport — that inversion is #2170, not a documented choice. viewport = screen-space (byte-identical); map = world-space: the converter emits `label-icon-translate-anchor-map` (layers-symbol.ts icon-translate-anchor) → LabelDef.iconTranslateAnchorMap → dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by the map bearing (icon-offset, a layout nudge, stays screen-space) before IconStage.addIcon — mirror of text-translate-anchor / fill/line Phase S Batch 2. Pitch foreshortening of the offset not reproduced.',
     source: 'layers-symbol.ts icon-translate-anchor / label-pass.ts dispatchIcon',
   },
 ]
