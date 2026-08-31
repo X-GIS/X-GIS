@@ -2065,6 +2065,30 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
         },
       ],
     })
+  } else if (id === 'vertical_labels') {
+    // #2144 — the three fixtures the CJK-vertical design doc names: Hangul,
+    // Han, and a MIXED Latin+Han string (one upright codepoint is enough).
+    // Spread far apart so no column can collide with another.
+    map.setSourceData('places', {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [126.978, 37.5665] },
+          properties: { name: '서울특별시' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [139.69, 35.68] },
+          properties: { name: '東京都' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [133.0, 44.0] },
+          properties: { name: 'Tokyo 東京' },
+        },
+      ],
+    })
   } else if (id === 'fixture_typed_array_points') {
     map.setSourcePoints('tracks', {
       lon: new Float32Array([-40, -20, 0, 20, 40]),

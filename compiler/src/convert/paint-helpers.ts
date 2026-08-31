@@ -528,18 +528,17 @@ const ANCHOR_PARENT: Record<string, string> = {
  */
 const SPEC_DEFAULT_NO_WARN: Record<string, unknown> = {
   'raster-resampling': 'linear',
-  // *-translate-anchor: spec default 'map' for fill/line/circle/
-  // fill-extrusion translate-anchor, but X-GIS today only implements
-  // viewport-space translates (matches the 'viewport' value). Authors
-  // writing 'viewport' explicitly match X-GIS behaviour — no warning.
-  // 'map' is the real gap (would shift in world coords on bearing).
-  'line-translate-anchor': 'viewport',
-  'circle-translate-anchor': 'viewport',
-  'fill-translate-anchor': 'viewport',
-  'fill-extrusion-translate-anchor': 'viewport',
-  // text-translate-anchor / icon-translate-anchor: same shape but
-  // handled in the symbol layout path, not via surfaceIgnoredPaint.
-  // Add future spec-defaults here when they enter surfaceIgnoredPaint.
+  // NOTE (#2170): the four `*-translate-anchor` props used to live here
+  // mapped to 'viewport', on the stated belief that viewport was their
+  // spec default. It is not — reference/v8.json gives fill / line /
+  // circle / fill-extrusion translate-anchor default='map'. The entries
+  // were also DEAD: none of the three surfaceIgnoredPaint call sites
+  // lists an anchor in its candidates (paint-fill.ts, paint-line.ts,
+  // paint-fill-extrusion.ts), and circle keeps its own inline mirror in
+  // layers-circle.ts. fill / line / fill-extrusion now honour BOTH enum
+  // values (addTranslateAnchor), so neither is a gap to surface; circle
+  // has no map arm and warns from its own block. Add future
+  // spec-defaults here when they enter surfaceIgnoredPaint.
   // fill-extrusion-vertical-gradient already handled inline because
   // its conditional is at the candidate-list site (cleaner there).
   // fill-antialias has its own value-aware emit before this fn.
@@ -766,16 +765,15 @@ export function addFillTranslate(
 }
 
 /** Mapbox `*-translate-anchor` → optional `<prefix>-translate-anchor-map`
- *  flag. anchor=viewport (the spec default for symbol props and X-GIS'
- *  historical behaviour for fill/line) emits NOTHING — the runtime's
- *  default viewport (screen-space) translate is byte-identical to today.
- *  Only anchor=map emits the flag, which the runtime threads to the
- *  per-tile bake so the [dx,dy] offset rotates with the map bearing
- *  (map/world-space anchor) instead of staying screen-fixed.
- *
- *  prefix is the xgis utility namespace ('fill' or 'stroke' for the
- *  line layer). Skipped entirely when the parent `*-translate` is
- *  absent — the anchor is a no-op without an offset to anchor. */
+ *  flag. The spec default is **map**, not viewport (reference/v8.json:
+ *  paint_fill / paint_line / paint_circle / paint_fill-extrusion all carry
+ *  default='map'), so an ABSENT anchor emits the flag exactly as an explicit
+ *  'map' does (#2170) and the runtime rotates the [dx,dy] offset with the map
+ *  bearing instead of leaving it screen-fixed. Only an explicit 'viewport'
+ *  emits nothing — that value selects the screen-space path. prefix is the
+ *  xgis utility namespace ('fill', or 'stroke' for the line layer); skipped
+ *  entirely when the parent `*-translate` is absent, since the anchor is a
+ *  no-op with no offset to anchor. */
 export function addTranslateAnchor(
   out: string[],
   prefix: 'fill' | 'stroke',
@@ -783,21 +781,20 @@ export function addTranslateAnchor(
   parentTranslate: unknown,
   warnings: string[],
 ): void {
-  if (isOmitted(anchorRaw)) return
-  // No-op without the parent translate (anchor only selects the
-  // offset's coordinate space). Mirror of surfaceIgnoredPaint's
-  // ANCHOR_PARENT skip.
+  // Checked FIRST so the spec default below cannot flag a layer that has no
+  // offset. Mirror of surfaceIgnoredPaint's ANCHOR_PARENT skip.
   if (isOmitted(parentTranslate)) return
   let v: unknown = anchorRaw
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
-  if (v === 'viewport') return // spec/X-GIS default — byte-identical, emit nothing
-  if (v === 'map') {
-    out.push(`${prefix}-translate-anchor-map`)
-    return
+  if (v === 'viewport') return // the one value that picks screen-space
+  if (!isOmitted(v) && v !== 'map') {
+    warnings.push(
+      `paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as the spec default "map".`,
+    )
   }
-  warnings.push(
-    `paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as viewport.`,
-  )
+  // Absent (⇒ spec default), explicit 'map', and an invalid enum (⇒ default)
+  // all anchor the offset in world space.
+  out.push(`${prefix}-translate-anchor-map`)
 }
 
 /** Build a scalar zoom-interpolate bracket-binding body for ONE axis

@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 0d9f09da80a6de0645590073c987e9f2a8b48664
+  Generated from: 867803d9aa0f14045d5d8f6f7dd87c4cf2cd29d9
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 0d9f09da80a6
+    bun scripts/emit-changelog.ts --since 867803d9aa0f
 -->
 
 # Changelog
@@ -29,6 +29,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **convert:** *-translate-anchor spec default is map, not viewport ([#2180](https://github.com/X-GIS/X-GIS/pull/2180)) `867803d`
 - **raster:** position the grid VS from CPU-exact trig instead of building ECEF from angles ([#2140](https://github.com/X-GIS/X-GIS/pull/2140)) `4372e89`
 - **data:** bound the one keep-warm signal a hanging fetch could pin ([#2183](https://github.com/X-GIS/X-GIS/pull/2183)) `2d6023a`
 - **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`

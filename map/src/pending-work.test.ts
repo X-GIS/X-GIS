@@ -28,10 +28,12 @@ import { fileURLToPath } from 'node:url'
 import {
   PENDING_WORK_KINDS,
   SCOPE_RASTER_DEM,
+  SCOPE_VT_PIPELINE,
   buildPendingWorkRegistry,
   type PendingWorkKind,
   type PendingWorkRegistry,
   type TileLoadArm,
+  type VtPendingArm,
 } from './pending-work'
 import { FailedTileLedger, InflightLedger, MAX_TILE_ATTEMPTS } from './render/tile-retry'
 import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
@@ -122,7 +124,18 @@ const coldArm = (): TileLoadArm => ({
   pendingLoadCount: () => 0,
   failedTiles: { hasPendingRetries: () => false },
 })
-const coldArms = () => ({ rasterRenderer: coldArm(), hillshadeRenderer: coldArm() })
+const coldArms = () => ({
+  rasterRenderer: coldArm(),
+  hillshadeRenderer: coldArm(),
+  vtSources: new Map<string, VtPendingArm>(),
+})
+
+/** A drained VT renderer arm for fixtures whose kind-under-test is one of its siblings. */
+const quietVtRenderer = (): VtPendingArm['renderer'] => ({
+  hasPendingUploads: () => false,
+  getDrawStats: () => ({ missedTiles: 0 }),
+  _selection: { _czPendingAdvance: null },
+})
 
 /** Keyed by the SAME union as the registry — a kind added without a fixture is a compile
  *  error here before it is a green test anywhere. */
@@ -267,6 +280,71 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
   // expire() := the budget exhausts — the ledger's own terminal state.
   'raster-retry': { inFlight: () => retryHarness('rasterRenderer') },
   'dem-retry': { inFlight: () => retryHarness('hillshadeRenderer') },
+  // #2149 increment 5 — the VT family. These fixtures drive the REGISTRATIONS through
+  // structural source arms, not the real TileCatalog/VectorTileRenderer: both are
+  // GPU/worker-bound, and their BOUNDS already have real-chain owners this suite
+  // deliberately delegates to (named in VtPendingArm's doc): vt-fetch/vt-missed →
+  // tile-decision's #1596 terminal rule (render-loop-keep-warm.test.ts drives the real
+  // classifyTile); vt-lod → the readiness gate's reach-or-timeout contract
+  // (readiness-gate-unreachable-target.test.ts drives the real TileSelectionCache);
+  // vt-replaced → the #1448 swap application; vt-upload → the per-frame drain. What THIS
+  // suite owns for these kinds is the transport: probe → registration → registry →
+  // scopes → the map wire, plus the cuts that distinguish each half. succeed/fail/expire
+  // all settle the flag — the underlying settle semantics are the delegated owners'.
+  'vt-fetch': vtFixture((warm) => ({
+    source: { hasPendingLoads: () => warm() },
+    renderer: quietVtRenderer(),
+  })),
+  'vt-replaced': vtFixture((warm) => ({
+    source: { hasReplacedKeys: () => warm() },
+    renderer: quietVtRenderer(),
+  })),
+  'vt-upload': vtFixture((warm) => ({
+    source: {},
+    renderer: { ...quietVtRenderer(), hasPendingUploads: () => warm() },
+  })),
+  'vt-missed': vtFixture((warm) => ({
+    source: {},
+    renderer: { ...quietVtRenderer(), getDrawStats: () => ({ missedTiles: warm() ? 3 : 0 }) },
+  })),
+  'vt-lod': vtFixture((warm) => ({
+    source: {},
+    renderer: {
+      ...quietVtRenderer(),
+      // A getter, not a plain property: the arm is built once, so an eager object would
+      // freeze the flag at construction — the exact one-shot-capture shape #1972 warns
+      // about, here in miniature.
+      get _selection() {
+        return { _czPendingAdvance: warm() ? { target: 2, since: 0 } : null }
+      },
+    },
+  })),
+}
+
+/** One VT kind's harness: a single attached source whose arm reads the shared flag. */
+function vtFixture(arm: (warm: () => boolean) => VtPendingArm): KindFixture {
+  return {
+    inFlight() {
+      let warm = true
+      const registry = buildPendingWorkRegistry({
+        textStage: null,
+        iconStage: null,
+        ...coldArms(),
+        vtSources: new Map([['s', arm(() => warm)]]),
+      })
+      const settle = async (): Promise<void> => {
+        warm = false
+      }
+      return {
+        registry,
+        succeed: settle,
+        fail: settle,
+        expire: () => {
+          warm = false
+        },
+      }
+    },
+  }
 }
 
 /** Fetch-kind harness: one key checked out of a REAL InflightLedger, surfaced through
@@ -502,6 +580,80 @@ describe('XGISMap — raster/DEM pending work keeps the real shouldRenderThisFra
     }
     expect(ask()).toBe(true)
     ;(h.rasterRenderer as { pendingLoadCount: () => number }).pendingLoadCount = () => 0
+    expect(ask()).toBe(false)
+  })
+})
+
+describe('PendingWorkScope — SCOPE_VT_PIPELINE is exactly the burst-exit set', () => {
+  const withVt = (arm: VtPendingArm) =>
+    buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      vtSources: new Map([['s', arm]]),
+    })
+
+  it('sees a pending VT fetch', () => {
+    const r = withVt({ source: { hasPendingLoads: () => true }, renderer: quietVtRenderer() })
+    expect(r.hasPending(SCOPE_VT_PIPELINE)).toBe(true)
+  })
+
+  it('does NOT see vt-lod — the burst never read it, and widening is #2150-gated', () => {
+    const r = withVt({
+      source: {},
+      renderer: { ...quietVtRenderer(), _selection: { _czPendingAdvance: { target: 2 } } },
+    })
+    expect(r.hasPending(SCOPE_VT_PIPELINE)).toBe(false)
+    expect(r.hasPending()).toBe(true)
+  })
+
+  it('does NOT see glyph work', () => {
+    const r = buildPendingWorkRegistry({
+      textStage: { hasPendingGlyphLoads: () => true },
+      iconStage: null,
+      ...coldArms(),
+    })
+    expect(r.hasPending(SCOPE_VT_PIPELINE)).toBe(false)
+  })
+})
+
+describe('XGISMap — VT pending work keeps the real shouldRenderThisFrame warm (#2149 inc 5)', () => {
+  // HONEST SCOPE: until increment 6 deletes the legacy `hasPendingSourceWork()` term,
+  // shouldRenderThisFrame is DOUBLE-WIRED for the vt-* kinds — this test passes through
+  // either route (verified: cutting the vt-fetch registration leaves it green via the
+  // legacy term). It pins the map-level truth today and becomes the registry-only pin
+  // the moment increment 6 lands; the registration-level cut coverage lives in the
+  // contract arm + the SCOPE_VT_PIPELINE test, which the same cut DOES red.
+  it('an attached source with a pending fetch flips the settled-frame verdict', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const h = map as unknown as Record<string, unknown>
+    h._needsRender = false
+    h._sceneHasAnimation = false
+    h.textStage = null
+    const c = (map as unknown as { camera: Record<string, number> }).camera
+    h._lastSigZoom = c.zoom
+    h._lastSigCX = c.centerX
+    h._lastSigCY = c.centerY
+    h._lastSigBearing = c.bearing
+    h._lastSigPitch = c.pitch
+    h._lastSigW = 0
+    h._lastSigH = 0
+    const ask = (): boolean =>
+      (map as unknown as { shouldRenderThisFrame: () => boolean }).shouldRenderThisFrame()
+    expect(ask()).toBe(false)
+    let pending = true
+    h.vtSources = new Map([
+      [
+        's',
+        {
+          source: { hasPendingLoads: () => pending },
+          renderer: quietVtRenderer(),
+        },
+      ],
+    ])
+    expect(ask()).toBe(true)
+    pending = false
     expect(ask()).toBe(false)
   })
 })

@@ -41,6 +41,11 @@ export const PENDING_WORK_KINDS = [
   'raster-retry',
   'dem-fetch',
   'dem-retry',
+  'vt-fetch',
+  'vt-replaced',
+  'vt-upload',
+  'vt-missed',
+  'vt-lod',
 ] as const
 export type PendingWorkKind = (typeof PENDING_WORK_KINDS)[number]
 
@@ -87,10 +92,37 @@ class PendingLedger implements PendingWorkSource {
 export interface PendingWorkHost {
   textStage: { hasPendingGlyphLoads(): boolean } | null
   iconStage: { hasPendingAtlasLoad(): boolean } | null
+  /** The map's per-source registry — probes iterate it per count() call, the same
+   *  O(sources) walk `hasPendingSourceWork` always did per tick. */
+  vtSources: { values(): IterableIterator<VtPendingArm> }
   /** Definite-assignment fields on the map (`!`), so the probes optional-chain: before
    *  the GPU boots they are undefined at runtime and the kinds read 0. */
   rasterRenderer: TileLoadArm | undefined
   hillshadeRenderer: TileLoadArm | undefined
+}
+
+/** The slice of one attached vector-tile source the vt-* kinds read. Every probe is
+ *  optional-guarded exactly as `hasPendingSourceWork` guarded it (a source mid-attach can
+ *  lack a method), EXCEPT `_selection._czPendingAdvance`, reached directly for the reason
+ *  render-loop-keep-warm.ts documented: the transition state has ONE owner
+ *  (`TileSelectionCache`) and both owning files sit on shrink-only LOC ceilings, so the
+ *  forwarder this would otherwise be cannot be added — the coupling is typechecked here
+ *  instead. BOUNDS live with the owners and are pinned by their own suites: vt-fetch by
+ *  tile-decision's KEEP_WARM_MAX_FAILURES (#1596, render-loop-keep-warm.test.ts),
+ *  vt-lod by the readiness gate's reach-or-timeout contract (#2091/#2103,
+ *  readiness-gate-unreachable-target.test.ts), vt-replaced by the swap applying on the
+ *  next frame (#1448), vt-upload by the per-frame drain, vt-missed by the same #1596
+ *  terminal-decision rule that stops counting an unfetchable tile. */
+export interface VtPendingArm {
+  source: {
+    hasPendingLoads?(): boolean
+    hasReplacedKeys?(): boolean
+  }
+  renderer: {
+    hasPendingUploads?(): boolean
+    getDrawStats?(): { missedTiles?: number }
+    _selection: { _czPendingAdvance: unknown }
+  }
 }
 
 /** The slice of a tile renderer (raster or DEM) the fetch/retry kinds read. Both
@@ -114,6 +146,17 @@ export const SCOPE_RASTER_DEM: PendingWorkScope = [
   'raster-retry',
   'dem-fetch',
   'dem-retry',
+]
+
+/** EXACTLY `hasPendingSourceWork()`'s signal set (map.ts) — the cold-start burst's exit
+ *  hysteresis consumes this scope so its semantics stay byte-for-byte (design non-goal:
+ *  widening the burst signal set is a MEASURED decision deferred to #2150). vt-lod is
+ *  deliberately NOT here: the burst never read it. */
+export const SCOPE_VT_PIPELINE: PendingWorkScope = [
+  'vt-fetch',
+  'vt-replaced',
+  'vt-upload',
+  'vt-missed',
 ]
 
 export class PendingWorkRegistry {
@@ -182,6 +225,49 @@ export function buildPendingWorkRegistry(host: PendingWorkHost): PendingWorkRegi
       'dem-fetch': { count: () => host.hillshadeRenderer?.pendingLoadCount() ?? 0 },
       'dem-retry': {
         count: () => (host.hillshadeRenderer?.failedTiles.hasPendingRetries() ? 1 : 0),
+      },
+      // The VT family (#1448 #1596 #1997) — one O(sources) walk per kind, early-exit,
+      // mirroring hasPendingSourceWork's guards; bounds delegated per VtPendingArm's doc.
+      'vt-fetch': {
+        count: () => {
+          for (const { source } of host.vtSources.values()) {
+            if (source.hasPendingLoads?.()) return 1
+          }
+          return 0
+        },
+      },
+      'vt-replaced': {
+        count: () => {
+          for (const { source } of host.vtSources.values()) {
+            if (source.hasReplacedKeys?.()) return 1
+          }
+          return 0
+        },
+      },
+      'vt-upload': {
+        count: () => {
+          for (const { renderer } of host.vtSources.values()) {
+            if (renderer.hasPendingUploads?.()) return 1
+          }
+          return 0
+        },
+      },
+      'vt-missed': {
+        count: () => {
+          let missed = 0
+          for (const { renderer } of host.vtSources.values()) {
+            missed += renderer.getDrawStats?.().missedTiles ?? 0
+          }
+          return missed
+        },
+      },
+      'vt-lod': {
+        count: () => {
+          for (const { renderer } of host.vtSources.values()) {
+            if (renderer._selection._czPendingAdvance !== null) return 1
+          }
+          return 0
+        },
       },
     },
     { coverage },

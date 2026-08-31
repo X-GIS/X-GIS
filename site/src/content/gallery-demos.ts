@@ -436,6 +436,7 @@ export const unlistedDemoIds: string[] = [
   'animate_line',
   'procedural_circles',
   // Renderer-behaviour probes — regression scenes, not teaching examples.
+  'vertical_labels',
   'bucket_order',
   'line_antimeridian',
   'long_chords',
