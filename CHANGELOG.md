@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 4b8433e230ba4323000c58db8d31e001befe1b8a
+  Generated from: 063001e9f91155c12875a6227e5ac131299647d5
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 4b8433e230ba
+    bun scripts/emit-changelog.ts --since 063001e9f911
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **circle:** circle-pitch-alignment "map" lays the disc in the ground plane ([#2138](https://github.com/X-GIS/X-GIS/pull/2138)) `063001e`
 - **map/render:** T5 P1 — the MapLibre sky root paints the globe's sky, anchored on the limb ([#2107](https://github.com/X-GIS/X-GIS/pull/2107)) `4b8433e`
 - **line:** line-gradient paints its authored ramp, sampled from the arc the dash phase already rides ([#2136](https://github.com/X-GIS/X-GIS/pull/2136)) `1e3b93a`
 - **render:** #2042 INC-7 — split-bind ON by default, behind an opt-out ([#2151](https://github.com/X-GIS/X-GIS/pull/2151)) `642e507`
