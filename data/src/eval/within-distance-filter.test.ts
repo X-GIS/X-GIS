@@ -11,8 +11,12 @@
 // warns nowhere, so neither the converter nor the runtime said a word.
 //
 // Both call sites now route through ONE authority, `sliceFilterAccepts`,
-// which owns the bag; this file drives THAT function, so a future copy
-// that drifts cannot pass here.
+// which owns the bag. The blocks below drive THAT function — which is the
+// behaviour, but NOT the wiring: re-inlining the pre-fix bag at either call
+// site restores the bug and leaves every behavioural assertion here green,
+// because neither call site is ever loaded. The SINGLE AUTHORITY block at the
+// bottom is what closes that hole, and it is the reason the extraction is the
+// fix rather than patching two copies.
 //
 // Ordering is deliberate (CLAUDE.md §12, "assert the CAUSE before the
 // EFFECT"): the first block probes ONLY that `$geometry` reaches the
@@ -26,6 +30,9 @@
 // clipping + buffering cannot move a point's lng/lat, so evaluating a
 // per-tile fragment answers the same as evaluating the whole feature.
 
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 import {
   Lexer,
@@ -161,5 +168,62 @@ describe('negative control — a geometry-free filter is unaffected', () => {
 
   it('a property filter still routes on properties alone', () => {
     expect(keptBy(ast)).toEqual(['inside'])
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────
+// SINGLE AUTHORITY — the wiring, not the behaviour.
+//
+// Every block above calls `sliceFilterAccepts` directly, so none of them
+// can see the two production call sites. That matters: the bug this file
+// exists for lived AT those call sites, each carrying its own hand-built
+// bag, and the fix is that neither builds one any more. Restoring either
+// copy leaves all four assertions above green.
+//
+// So assert the property the fix actually rests on: within `data/src`,
+// the slice-filter props bag has exactly ONE builder. `evalFilterExpr` is
+// the function a hand-built bag is fed to, so requiring that no
+// production module outside `filter-eval.ts` calls it pins the shape of
+// the regression rather than a symptom of it. Tests may call it freely —
+// several do, and they are not the wiring.
+// ─────────────────────────────────────────────────────────────────────
+describe('single authority — no second props bag under data/src', () => {
+  const OWNER = 'data/src/eval/filter-eval.ts'
+
+  const sources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = join(dir, e.name)
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : sources(full)
+      return e.name.endsWith('.ts') && !e.name.endsWith('.test.ts') ? [full] : []
+    })
+
+  it('only filter-eval.ts feeds evalFilterExpr — a re-inlined bag at a call site fails here', () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url)) // data/
+    const offenders = sources(join(root, 'src'))
+      .map((f) => [f.slice(f.indexOf('data/src')), readFileSync(f, 'utf8')] as const)
+      .filter(([rel]) => rel !== OWNER)
+      .filter(([, src]) => /\bevalFilterExpr\b/.test(src))
+      .map(([rel]) => rel)
+
+    expect(
+      offenders,
+      `these modules build their own filter props bag instead of routing through ` +
+        `sliceFilterAccepts (${OWNER}). That is exactly the drift this PR removed: ` +
+        `each hand-built bag omitted \`geometry:\`, so every ["within"] / ["distance"] ` +
+        `filter on a vector-tile source silently kept ZERO features.\n  ` +
+        offenders.join('\n  '),
+    ).toEqual([])
+  })
+
+  it('and both call sites do route through it — so the check above is not vacuous', () => {
+    const root = fileURLToPath(new URL('../..', import.meta.url))
+    for (const rel of ['src/workers/mvt-worker.ts', 'src/sources/pmtiles-backend.ts']) {
+      const routed = readFileSync(join(root, rel), 'utf8').includes('sliceFilterAccepts(')
+      // Boolean, not `toContain` on the source: a failing `toContain` prints the
+      // whole module and buries the one line that names the cause.
+      expect(routed, `${rel} no longer routes its slice filter through sliceFilterAccepts`).toBe(
+        true,
+      )
+    }
   })
 })

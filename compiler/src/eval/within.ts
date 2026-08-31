@@ -89,7 +89,10 @@ export function evalWithin(geometry: unknown, polygons: unknown): boolean {
     return true
   }
 
-  // LineString / MultiLineString / Polygon tested-geometry: deferred to a
-  // follow-up slice (needs segment-vs-ring intersection). Fail closed.
+  // Anything that is not Point / MultiPoint: fail closed. Of these only
+  // LineString is a real gap (it needs segment-vs-ring intersection, and the
+  // reference `within` evaluates Point and LineString only) — Polygon and the
+  // rest are out of scope upstream, so returning false for them is the
+  // reference behaviour rather than a deferral.
   return false
 }
