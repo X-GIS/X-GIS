@@ -27,6 +27,11 @@ import { AtmosphereDraper } from '../material/atmosphere-material'
 import { atmosphereCameraRays } from '../atmosphere-uniform'
 import { atmosphereU } from '../../shaders/dsl/atmosphere'
 
+/** The sky colours written when the style authored no `sky` root — never read by the
+ *  fragment (`sky_params.y` is 0 there), present only so every field of the shared staging
+ *  block is rewritten each frame. */
+const ZERO4: [number, number, number, number] = [0, 0, 0, 0]
+
 interface AtmosphereEntry {
   draper: AtmosphereDraper
   buf: RhiBuffer
@@ -60,6 +65,7 @@ class AtmospherePass implements RenderPass {
       ctx.scene.h,
       ctx.scene.dpr,
     )
+    const sky = atmosphere.sky
     const rays = atmosphereCameraRays(frame.matrix)
     // A degenerate (near-orthographic) matrix this frame — no usable camera ray field to draw
     // with. The globe orbit camera's `ortho` arm is a telephoto, not a true parallel
@@ -90,6 +96,13 @@ class AtmospherePass implements RenderPass {
       up: [up[0], up[1], up[2], 0],
       inner_color: atmosphere.innerColor,
       outer_color: atmosphere.outerColor,
+      // #2052 — the MapLibre `sky` root. With no sky authored the colours are irrelevant
+      // (the enable flag in `sky_params.y` gates the whole ramp out of the fragment) but
+      // still have to be WRITTEN: the block is one reused CPU staging buffer, so leaving a
+      // field unset would ship the previous frame's — or another map's — bytes.
+      sky_color: sky ? sky.color : ZERO4,
+      horizon_color: sky ? sky.horizonColor : ZERO4,
+      sky_params: [sky ? sky.horizonBlend : 0, sky ? 1 : 0, 0, 0],
     })
     host.ctx.rhi.writeBuffer(entry.buf, 0, this._block.buffer)
     ctx.passScope('atmosphere', () => {

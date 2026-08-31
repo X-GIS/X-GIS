@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b759e321f538de4598f981e17c99c3c968367e19
+  Generated from: 96e668e729e0d766796306d2bbd2aa2d51f647a0
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b759e321f538
+    bun scripts/emit-changelog.ts --since 96e668e729e0
 -->
 
 # Changelog
@@ -28,6 +28,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **circle:** circle-pitch-alignment "map" lays the disc in the ground plane ([#2138](https://github.com/X-GIS/X-GIS/pull/2138)) `063001e`
+- **map/render:** T5 P1 — the MapLibre sky root paints the globe's sky, anchored on the limb ([#2107](https://github.com/X-GIS/X-GIS/pull/2107)) `4b8433e`
 - **line:** line-gradient paints its authored ramp, sampled from the arc the dash phase already rides ([#2136](https://github.com/X-GIS/X-GIS/pull/2136)) `1e3b93a`
 - **render:** #2042 INC-7 — split-bind ON by default, behind an opt-out ([#2151](https://github.com/X-GIS/X-GIS/pull/2151)) `642e507`
 - **line:** #2042 INC-6 — recombine the Mercator cam-rel pair in the LINE shader ([#2142](https://github.com/X-GIS/X-GIS/pull/2142)) `18367f4`
@@ -126,6 +128,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/convert:** resolved-locale reads only the collator locale ([#2171](https://github.com/X-GIS/X-GIS/pull/2171)) `96e668e`
 - **map/render:** apply the RTC witness skew at the single anchor producer, and make the parity gate name its bind path ([#2167](https://github.com/X-GIS/X-GIS/pull/2167)) `b759e32`
 - **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
