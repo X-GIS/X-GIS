@@ -36,10 +36,29 @@ Reaffirmed as deliberate decisions, not backlog: `fill-sort-key` /
 `line-sort-key` / `circle-sort-key` (single-merged-mesh/buffer draw model),
 `symbol-avoid-edges` (frame-global cross-tile collision makes it moot),
 `feature-state`, `icon-halo-*` (until an SDF sprite source is an actual target),
-`distance-from-center` (expression model has no per-frame camera hook — revisit
-only if such a hook is ever designed), `metadata` / `version` / `ref`, and
-heatmap-only accessors outside heatmap context. Reversing any of these is a new
-ADR, not a task.
+`metadata` / `version` / `ref`, and heatmap-only accessors outside heatmap
+context. Reversing any of these is a new ADR, not a task.
+
+`distance-from-center` was listed here for want of a per-frame camera hook. #2119
+designed the hook — `compiler/src/eval/reserved-keys.ts` DISTANCE_FROM_CENTER_KEY,
+with the units math in `compiler/src/eval/distance-from-center.ts` — so the
+_reason_ this ADR gave for the exclusion no longer holds, and the converter now
+accepts the accessor instead of warning it away. It is NOT yet supported
+end-to-end: no render-path caller injects a value, so `["distance-from-center"]`
+evaluates to null at runtime today, exactly as `["pitch"]` does at a decode-time
+site. Two things stand between here and a live value, and both are recorded rather
+than assumed away:
+
+- **The label pass's per-feature expression cache is keyed on `(props ref,
+zoomBucket)`** (`map/src/render/passes/label-pass.ts` `applyFeatureExprs`), and
+  it exists because per-feature `evaluate()` was 73 % of the frame. A quantity
+  that changes on _pan_ — which moves no zoom bucket and no props ref — cannot be
+  injected there without either serving stale values or destroying the cache the
+  profile bought. Choosing between those is a render-path decision with a
+  measurable cost, not a wiring step.
+- **A line-placed label has no single anchor** to measure from. That half is
+  settled here and now: a precise per-layer warning
+  (`distanceFromCenterAnchorWarning`), never a silent drop.
 
 ### 3. Phases
 

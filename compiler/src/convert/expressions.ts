@@ -98,8 +98,10 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // `accumulated` is now SUPPORTED — handled by accumulatedHandler in the
       // expr-lookup cluster (#2050), which returns the bare `accumulated` identifier
       // the evaluator resolves through ACCUMULATED_KEY. It never reaches this table.
-      'distance-from-center':
-        'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
+      // `distance-from-center` is now SUPPORTED (#2119) — handled by
+      // distanceFromCenterHandler in the expr-lookup cluster, which routes through
+      // get("$distanceFromCenter") like `geometry-type` / `id`. It never reaches
+      // this fallback table.
       // `pitch` is now SUPPORTED — handled by the `case 'pitch'` arm
       // above (returns the bare `pitch` identifier), so it never reaches
       // this fallback table.
