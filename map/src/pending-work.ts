@@ -33,7 +33,7 @@ export interface PendingWorkTicket {
 /** The registered async resource classes. Growing per migration increment — see the
  *  header. Adding a kind here without a registration (and a contract fixture) is a
  *  compile error via the `Record<PendingWorkKind, …>` consumers. */
-export const PENDING_WORK_KINDS = ['glyph', 'coverage'] as const
+export const PENDING_WORK_KINDS = ['glyph', 'sprite', 'coverage'] as const
 export type PendingWorkKind = (typeof PENDING_WORK_KINDS)[number]
 
 /** The ledger-flavor subset of the union — kinds whose in-flight stamps the registry
@@ -78,6 +78,7 @@ class PendingLedger implements PendingWorkSource {
  *  RenderLoopHost pattern) so this module names no XGISMap. */
 export interface PendingWorkHost {
   textStage: { hasPendingGlyphLoads(): boolean } | null
+  iconStage: { hasPendingAtlasLoad(): boolean } | null
 }
 
 export class PendingWorkRegistry {
@@ -114,6 +115,14 @@ export class PendingWorkRegistry {
  *  first-visit poses before their glyphs arrived. Bounded at the provider
  *  (GlyphProvider.hasPendingLoads → GlyphPbfCache's deadline-pruned in-flight set).
  *
+ *  sprite (#2122, probe flavor): IconStage is built lazily on the first frame that needs
+ *  it and its SpriteAtlasHost kicks off the atlas fetch WITHOUT arming `_needsRender`, so
+ *  the next frame idles with icons unresolved and a fill-pattern still stubbed —
+ *  `fixture-bg-pattern.xgis` reaches it with no labels and no VT source at all. Bounded at
+ *  the host (SPRITE_INFLIGHT_KEEP_WARM_MS): `isAtlasTerminal()` is the WRONG predicate
+ *  here — it is the prepare-skip question and stays false forever against a host that
+ *  accepts a connection and never answers, which is #2091 one resource class over.
+ *
  *  coverage (#2129, ledger flavor): a catalogue cell whose bytes are still being read was
  *  observable NOWHERE in the idle decision — the loop idled on a pre-coverage frame,
  *  `idle` fired, and every settle-on-idle harness sampled it. The cell read checks a
@@ -125,6 +134,7 @@ export function buildPendingWorkRegistry(host: PendingWorkHost): PendingWorkRegi
   return new PendingWorkRegistry(
     {
       glyph: { count: () => (host.textStage?.hasPendingGlyphLoads() ? 1 : 0) },
+      sprite: { count: () => (host.iconStage?.hasPendingAtlasLoad() ? 1 : 0) },
       coverage,
     },
     { coverage },

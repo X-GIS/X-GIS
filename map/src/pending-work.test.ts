@@ -35,6 +35,8 @@ import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
 import { PbfRasterizer } from './text/sdf/pbf-rasterizer'
 import { createRasterizer, createMetricsRasterizer } from './text/sdf/glyph-rasterizer'
 import { TextStage } from './text/text-stage'
+import { SpriteAtlasHost } from './sprite/sprite-atlas-host'
+import { IconStage } from './sprite/icon-stage'
 import { syncCoverageResidency, type CoverageSourceDeps } from './coverage-source'
 import { XGISMap } from './map'
 
@@ -103,6 +105,57 @@ const realStageProbe = (
   TextStage.prototype as unknown as { hasPendingGlyphLoads: (this: unknown) => boolean }
 ).hasPendingGlyphLoads
 
+// The real IconStage probe body against a hand-built `{ host }` — the recipe
+// sprite-idle-keep-warm.test.ts established, so no GPUDevice is needed to reach it.
+const realIconProbe = (
+  IconStage.prototype as unknown as { hasPendingAtlasLoad: (this: unknown) => boolean }
+).hasPendingAtlasLoad
+
+const SPRITE_URL = 'https://tiles.example.com/sprite'
+const SPRITE_JSON = { pin: { x: 0, y: 0, width: 16, height: 16, pixelRatio: 1 } }
+const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/** A sprite fetch the test settles by hand. The host issues the json and the png (and a
+ *  1x fallback if @2x 404s), so `settle` drains repeatedly rather than once. */
+function deferredSpriteFetch(): {
+  fetch: typeof globalThis.fetch
+  settle: () => Promise<void>
+  reject: () => Promise<void>
+} {
+  type Waiter = { url: string; ok: (r: Response) => void; no: (e: unknown) => void }
+  let waiting: Waiter[] = []
+  const fetch = ((input: RequestInfo | URL) =>
+    new Promise<Response>((ok, no) => {
+      waiting.push({ url: String(input), ok, no })
+    })) as unknown as typeof globalThis.fetch
+  const drain = async (settleOne: (w: Waiter) => void): Promise<void> => {
+    for (let round = 0; round < 4; round++) {
+      const batch = waiting
+      waiting = []
+      for (const w of batch) settleOne(w)
+      await flush()
+    }
+  }
+  return {
+    fetch,
+    settle: () =>
+      drain((w) =>
+        w.ok(
+          w.url.endsWith('.json')
+            ? new Response(JSON.stringify(SPRITE_JSON), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              })
+            : new Response(TINY_PNG, {
+                status: 200,
+                headers: { 'content-type': 'image/png' },
+              }),
+        ),
+      ),
+    reject: () => drain((w) => w.no(new Error('network down'))),
+  }
+}
+
 /** Keyed by the SAME union as the registry — a kind added without a fixture is a compile
  *  error here before it is a green test anywhere. */
 const FIXTURES: Record<PendingWorkKind, KindFixture> = {
@@ -125,6 +178,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
         textStage: {
           hasPendingGlyphLoads: () => realStageProbe.call({ pbfRasterizer: rasterizer }),
         },
+        iconStage: null,
       })
       cache.ensure('Open Sans Semibold', 65, () => {})
       return {
@@ -145,6 +199,48 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
       }
     },
   },
+  // #2122 — probe flavor, bounded at the HOST (SPRITE_INFLIGHT_KEEP_WARM_MS, stamped in
+  // kickOffLoad). Drives the real chain: SpriteAtlasHost → the real
+  // IconStage.hasPendingAtlasLoad body → buildPendingWorkRegistry's probe. The SUCCESS arm
+  // is the load-bearing one here — it is the arm whose absence let the mutant
+  // `status !== 'failed'` survive all nine of the original #2122 tests.
+  sprite: {
+    inFlight() {
+      let clock = 1_000
+      vi.spyOn(performance, 'now').mockImplementation(() => clock)
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      // vitest ships no image decoder; the PNG decode is stubbed exactly as
+      // sprite-atlas-host.test.ts does, so the SUCCESS arm reaches 'loaded'.
+      const g = globalThis as { createImageBitmap?: unknown }
+      const originalDecode = g.createImageBitmap
+      g.createImageBitmap = async () =>
+        ({ width: 256, height: 256, close: () => {} }) as ImageBitmap
+      vi.spyOn(globalThis, 'setTimeout')
+      const net = deferredSpriteFetch()
+      const host = new SpriteAtlasHost({ spriteUrl: SPRITE_URL, fetch: net.fetch })
+      const registry = buildPendingWorkRegistry({
+        textStage: null,
+        iconStage: { hasPendingAtlasLoad: () => realIconProbe.call({ host }) },
+      })
+      return {
+        registry,
+        succeed: async () => {
+          await net.settle()
+          g.createImageBitmap = originalDecode
+        },
+        fail: async () => {
+          await net.reject()
+          g.createImageBitmap = originalDecode
+        },
+        // The deadline is host-internal (SPRITE_INFLIGHT_KEEP_WARM_MS, 10 s); 20 s is
+        // comfortably past it, mirroring the glyph arm above.
+        expire: () => {
+          clock += 20_000
+        },
+      }
+    },
+  },
   // #2129 — ledger flavor: the registry owns the stamps and the deadline
   // (COVERAGE_INFLIGHT_KEEP_WARM_MS, pending-work.ts), so this fixture drives the real
   // ledger through the real `begin()`. Success and failure both settle through the ONE
@@ -156,7 +252,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
     inFlight() {
       let clock = 1_000
       vi.spyOn(performance, 'now').mockImplementation(() => clock)
-      const registry = buildPendingWorkRegistry({ textStage: null })
+      const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
       const ticket = registry.begin('coverage')
       return {
         registry,
@@ -174,7 +270,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('PendingWorkRegistry — a map with nothing registered in flight is cold', () => {
   it('reports no pending work when every probe reads a drained/absent stage', () => {
-    expect(buildPendingWorkRegistry({ textStage: null }).hasPending()).toBe(false)
+    expect(buildPendingWorkRegistry({ textStage: null, iconStage: null }).hasPending()).toBe(false)
   })
 })
 
@@ -242,7 +338,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('begins the ticket SYNCHRONOUSLY — warm before the first await', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
     const hang = (() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
     void syncCoverageResidency(buildDeps(hang, registry), 's')
     expect(registry.hasPending()).toBe(true)
@@ -250,7 +346,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('dones the ticket in the settle finally — a FAILED read releases the loop', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
     const reject = (() =>
       Promise.reject(new Error('network down'))) as unknown as typeof globalThis.fetch
     await syncCoverageResidency(buildDeps(reject, registry), 's')

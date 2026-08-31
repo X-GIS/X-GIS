@@ -4452,19 +4452,9 @@ export class XGISMap {
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
     // #2149 — the registered async resource classes (pending-work.ts): each kind's
     // bounded in-flight probe holds the loop warm, and the per-kind reasons live on the
-    // registrations. Glyph (#2116) migrated first; further kinds join per the design doc.
+    // registrations. Glyph (#2116), sprite (#2122) and coverage (#2129) have migrated;
+    // further kinds join per the design doc's increment plan.
     if (this._pendingWork.hasPending()) return true
-    // Sprite keep-alive (#2122) — the other half of the same hole the line above closes.
-    // IconStage is built lazily on the first frame that needs it and its SpriteAtlasHost
-    // kicks off the atlas fetch WITHOUT arming `_needsRender`, so the next frame idles with
-    // icons unresolved and a fill-pattern still stubbed. `fixture-bg-pattern.xgis` reaches
-    // this with no labels and no VT source at all, and `background-pattern-atlas.ts:15-19`
-    // already records the symptom in the past tense ("the async atlas landed on a frozen
-    // canvas"). Bounded at the host (SPRITE_INFLIGHT_KEEP_WARM_MS) for the same reason the
-    // glyph probe is: `isAtlasTerminal()` is the WRONG predicate here — it is the
-    // prepare-skip question and stays false forever against a host that accepts a
-    // connection and never answers, which is #2091 one resource class over.
-    if (this.iconStage !== null && this.iconStage.hasPendingAtlasLoad()) return true
     // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
     // while any raster tile is mid-cross-fade the loop keeps rendering so the
     // per-tile ramp advances; the renderer clears the flag once every tile hits

@@ -229,7 +229,14 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    window in `readCatalogueItem`; mechanism (b) stays for post-deadline arrivals.
    Cut-verified three ways: the map.ts injection, the cell-read checkout, and the
    central deadline each red only their own test.
-3. **`sprite`** migrated (probe flavor, #2126 tests re-pointed).
+3. **`sprite`** migrated — **LANDED**: probe flavor, `host.iconStage?.hasPendingAtlasLoad()`.
+   The standalone `shouldRenderThisFrame` term and its 11-line reason left `map.ts` (5489 →
+   5479, a ceiling **lowering**) and the reason now lives on the registration. #2126's tests
+   needed no re-pointing — its WIRED arm is behavioural (it sets `h.iconStage` and asks the
+   real `shouldRenderThisFrame`), so it passes unchanged _through the registry route_, which
+   is the behaviour-preservation evidence. Cut-verified: severing `_pendingWork.hasPending()`
+   now reds the sprite WIRED arm as well as the glyph one — before this increment the sprite
+   arm had its own term and survived that cut.
 4. **Raster/DEM family** (`raster-fetch/retry`, `dem-fetch/retry`) — probe adapters over
    the existing ledgers; `render-loop-keep-warm.ts` still exists, now reading the registry
    for these kinds (transitional).
