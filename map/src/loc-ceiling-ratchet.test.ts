@@ -859,10 +859,19 @@ const CEILINGS: Record<string, number> = {
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
   // 5482→5486 (#2118): the ONE line only map.ts can write — `show.circlePitchAlignmentMap`
   // into the geojson-point `addLayer` tail — plus its three-line note on why the knob is
-  // trailing. Composition-root wiring, nothing extract-worthy (§2). MEASURED post-merge
-  // (`wc -l`), set EXACTLY to the count — headroom is re-justified per phase, never
-  // banked. Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 5486,
+  // trailing. Composition-root wiring, nothing extract-worthy (§2).
+  // 5482→5485 (#2162, main): both `getMissingTileCount` docstrings claimed it "settles to 0
+  // exactly when the scene converges". It does not — the sum carries three of
+  // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
+  // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
+  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
+  // →5489 (this merge): the two bumps above were authored against the SAME base 5482 and
+  // the merged file takes BOTH deltas, so neither branch's number is right afterwards.
+  // Set from `wc -l` on the merged file, not from arithmetic — and note that git only
+  // conflicted here because the two numbers happened to DIFFER; had both branches landed
+  // on the same value it would have merged clean at a ceiling one change too low
+  // (CLAUDE.md §12). Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 5489,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1606,7 +1615,11 @@ const CEILINGS: Record<string, number> = {
   // where the fields live; this file keeps one call reading the resolved kind.
   // Two now-orphaned @xgis/geo imports (isGlobeProj, promotesToGlobeWhenTilted)
   // went with it. Measured, not arithmetic.
-  'map/src/render-loop.ts': 934,
+  // 934->935 (#2162): the end-of-frame `_missingTileCount` comment asserted the sum
+  // "settles to 0 exactly when that gate stops re-arming" -- it is three of the gate's
+  // six terms (retries, pending VT uploads and `_czPendingAdvance` absent). One line,
+  // comment-only. MEASURED post-prettier.
+  'map/src/render-loop.ts': 935,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

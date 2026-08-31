@@ -2098,16 +2098,13 @@ export class VectorTileRenderer {
    *  ortho bake stays all-zero → flag 0 → legacy, its dedicated block never
    *  carries stale lanes). */
   private _writeRtcAnchors(anchor: TileCameraAnchor): void {
-    const g = globalThis as { __XGIS_RTC_RECOMBINE?: boolean; __XGIS_RTC_RECOMBINE_SKEW?: number }
-    const on = g.__XGIS_RTC_RECOMBINE === true
-    // Test-only witness (the §5 A/B gate's cut-the-mechanism arm): a metre
-    // skew on the tile anchor X moves geometry IFF the VS recombine path is
-    // live — flag ON + skew must change the frame, flag OFF + skew must not.
-    // Distinguishes "both arms byte-equal because the paths agree" from
-    // "byte-equal because the flag never reached the shader" (#996 vacuity).
-    const skew = g.__XGIS_RTC_RECOMBINE_SKEW ?? 0
+    const on = (globalThis as { __XGIS_RTC_RECOMBINE?: boolean }).__XGIS_RTC_RECOMBINE === true
+    // The §5 witness skew is NOT applied here: it is baked into the anchor by
+    // computeTileCameraAnchor, so the split-bind packer (TileUniformArena)
+    // inherits it too. Applying it at this legacy-uniform site left it inert
+    // under the shipping split bind — #2165.
     const B = this.frameBlock
-    B.set.tile_ecef_center_h(anchor.tileEcefXH + skew, anchor.tileEcefYH, anchor.tileEcefZH, 0)
+    B.set.tile_ecef_center_h(anchor.tileEcefXH, anchor.tileEcefYH, anchor.tileEcefZH, 0)
     B.set.tile_ecef_center_l(anchor.tileEcefXL, anchor.tileEcefYL, anchor.tileEcefZL, 0)
     B.set.cam_ecef_center_h(anchor.camEcefXH, anchor.camEcefYH, anchor.camEcefZH, on ? 1 : 0)
     B.set.cam_ecef_center_l(anchor.camEcefXL, anchor.camEcefYL, anchor.camEcefZL, 0)
@@ -2115,7 +2112,7 @@ export class VectorTileRenderer {
     // flag, same skew witness — the skew moves flat geometry iff the
     // Mercator recombination is live, mirroring the ECEF witness on globe).
     B.set.tile_origin_merc_hl(
-      anchor.tileMercXH + skew,
+      anchor.tileMercXH,
       anchor.tileMercYH,
       anchor.tileMercXL,
       anchor.tileMercYL,
