@@ -22,6 +22,16 @@
 // vector layer at a displaced, divergent transform (#1044's measured
 // double-image). One authority, three callers — the seam cannot drift
 // again (guarded by tile-camera-anchor-authority.test.ts).
+//
+// #2165 — the §5 witness skew lives HERE, not in a packer. It used to be
+// applied by vector-tile-renderer's _writeRtcAnchors, which writes the
+// LEGACY monolithic polygon uniform; once #2151 made the split bind the
+// shipping default the tile anchors are packed by TileUniformArena instead,
+// which reads this anchor straight and never saw the skew. The witness went
+// inert under the default bind path — the exact §12 vacuity it exists to
+// prevent — and `_rtc-recombine-parity-gate` went red because its cut arm
+// could no longer move a pixel. Applying it at the single producer means
+// every packer inherits it by construction; there is no second site to drift.
 
 import { activeBody, EARTH } from '@xgis/shared'
 
@@ -32,6 +42,15 @@ const MERC_LIMIT = 85.051129
  *  (±85.051129°) — the same clamp every Mercator-metre conversion in the
  *  tile draw path must share (anchor math here; clip_bounds in the caller). */
 export const clampMercLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
+
+/** Test-only witness (the §5 A/B gate's cut-the-mechanism arm): a metre skew
+ *  applied to the ABSOLUTE tile anchors — and to those lanes only. The
+ *  CPU-packed offset lanes (camXH/L, ecefXH/L) stay clean, so the skew moves
+ *  geometry IFF the vertex shader is recombining the absolute pair. That
+ *  asymmetry IS the witness: flag ON + skew must change the frame, flag OFF +
+ *  skew must not. Default 0 → every lane byte-identical to the unskewed math. */
+export const witnessSkew = (): number =>
+  (globalThis as { __XGIS_RTC_RECOMBINE_SKEW?: number }).__XGIS_RTC_RECOMBINE_SKEW ?? 0
 
 export interface TileCameraAnchor {
   /** Mercator camera-relative DSFUN pair (hi/lo), worldOff applied. */
@@ -105,7 +124,11 @@ export function computeTileCameraAnchor(
   const camRelY = camMercY - tileMercY
   const camXH = Math.fround(camRelX)
   const camYH = Math.fround(camRelY)
-  const tileMercXH = Math.fround(tileMercX)
+  // The absolute origin X carries the witness skew; the legacy single-f32
+  // lane and the cam-rel pair above are computed from the clean value.
+  const skew = witnessSkew()
+  const tileMercXW = tileMercX + skew
+  const tileMercXH = Math.fround(tileMercXW)
   const tileMercYH = Math.fround(tileMercY)
   const camMercXH = Math.fround(camMercX)
   const camMercYH = Math.fround(camMercY)
@@ -134,7 +157,8 @@ export function computeTileCameraAnchor(
   const ecefXH = Math.fround(offX)
   const ecefYH = Math.fround(offY)
   const ecefZH = Math.fround(offZ)
-  const tileEcefXH = Math.fround(tileX)
+  const tileXW = tileX + skew
+  const tileEcefXH = Math.fround(tileXW)
   const tileEcefYH = Math.fround(tileY)
   const tileEcefZH = Math.fround(tileZ)
   const camEcefXH = Math.fround(camX)
@@ -146,10 +170,10 @@ export function computeTileCameraAnchor(
     camXL: Math.fround(camRelX - camXH),
     camYH,
     camYL: Math.fround(camRelY - camYH),
-    tileMercX: tileMercXH,
+    tileMercX: Math.fround(tileMercX),
     tileMercY: tileMercYH,
     tileMercXH,
-    tileMercXL: Math.fround(tileMercX - tileMercXH),
+    tileMercXL: Math.fround(tileMercXW - tileMercXH),
     tileMercYH,
     tileMercYL: Math.fround(tileMercY - tileMercYH),
     camMercXH,
@@ -163,7 +187,7 @@ export function computeTileCameraAnchor(
     ecefZH,
     ecefZL: Math.fround(offZ - ecefZH),
     tileEcefXH,
-    tileEcefXL: Math.fround(tileX - tileEcefXH),
+    tileEcefXL: Math.fround(tileXW - tileEcefXH),
     tileEcefYH,
     tileEcefYL: Math.fround(tileY - tileEcefYH),
     tileEcefZH,
