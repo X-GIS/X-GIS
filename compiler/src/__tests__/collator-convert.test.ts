@@ -65,4 +65,40 @@ describe('resolved-locale converter', () => {
     expect(result).toBeNull()
     expect(warnings.some((w) => /resolved-locale/.test(w))).toBe(true)
   })
+
+  // resolved-locale reads ONLY the collator's locale. A non-constant SIBLING
+  // option (case-sensitive here) is irrelevant to the returned tag, so it must
+  // not drop the whole expression — the comparison path's all-or-nothing
+  // extractor is not this handler's contract.
+  it('constant locale survives a non-constant SIBLING option', () => {
+    const { result, warnings } = convert([
+      'resolved-locale',
+      ['collator', { locale: 'de', 'case-sensitive': ['get', 'cs'] }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('resolved_locale("de")')
+  })
+
+  it('a collator with no options → default locale', () => {
+    const { result, warnings } = convert(['resolved-locale', ['collator']])
+    expect(warnings).toEqual([])
+    expect(result).toBe('resolved_locale("")')
+  })
+
+  // Negative control: the change is "read only the option I need", not "stop
+  // validating". A non-constant LOCALE is still undecidable at compile time.
+  it('non-constant locale still warns + drops', () => {
+    const { result, warnings } = convert([
+      'resolved-locale',
+      ['collator', { locale: ['get', 'loc'] }],
+    ])
+    expect(result).toBeNull()
+    expect(warnings.some((w) => /resolved-locale/.test(w))).toBe(true)
+  })
+
+  it('a non-collator argument still warns + drops', () => {
+    const { result, warnings } = convert(['resolved-locale', ['get', 'lang']])
+    expect(result).toBeNull()
+    expect(warnings.some((w) => /resolved-locale/.test(w))).toBe(true)
+  })
 })
