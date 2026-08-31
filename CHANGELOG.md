@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1e3b93a7978876c721ce264bffed6ef10ccdbf6e
+  Generated from: b759e321f538de4598f981e17c99c3c968367e19
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1e3b93a79788
+    bun scripts/emit-changelog.ts --since b759e321f538
 -->
 
 # Changelog
@@ -126,6 +126,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/render:** apply the RTC witness skew at the single anchor producer, and make the parity gate name its bind path ([#2167](https://github.com/X-GIS/X-GIS/pull/2167)) `b759e32`
+- **e2e:** the #1190 encode sweep must not report a per-frame cost from a zero-frame window ([#2156](https://github.com/X-GIS/X-GIS/pull/2156)) `f97ec8a`
 - **render:** globe native-zoom quality — zoom-gated drape→direct on the sphere route (#2093) ([#2086](https://github.com/X-GIS/X-GIS/pull/2086)) `c5fcdac`
 - **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
 - **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
@@ -261,6 +263,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** the render-loop.ts:682 clobber concern is checked — latent, not a bug ([#2164](https://github.com/X-GIS/X-GIS/pull/2164)) `3c34626`
+- **map:** getMissingTileCount() is not a convergence signal — stop saying it is ([#2163](https://github.com/X-GIS/X-GIS/pull/2163)) `b5b24c2`
+- **plans:** correct Phase 5's "four drifting convergence predicates" premise ([#2158](https://github.com/X-GIS/X-GIS/pull/2158)) `56a9ad5`
 - record the four lessons #2120 paid for, and correct the #2103 taxonomy ([#2124](https://github.com/X-GIS/X-GIS/pull/2124)) `4f9af24`
 - **plans:** sky/fog design — sky layer, MapLibre sky root, Mapbox v3 fog root (ADR-0012 D6 track) ([#2035](https://github.com/X-GIS/X-GIS/pull/2035)) `37a12e8`
 - **plans:** CJK vertical text design — text-writing-mode per-glyph rotation pipeline (ADR-0012 D7 track) ([#2034](https://github.com/X-GIS/X-GIS/pull/2034)) `5218cfc`
@@ -290,6 +295,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **arch:** Gate 10 — every safeFetch caller is a classified async resource ([#2161](https://github.com/X-GIS/X-GIS/pull/2161)) `4d360e2`
 - **e2e:** #2042 INC-6 — a LINE-only witness, landed BEFORE the half it judges ([#2141](https://github.com/X-GIS/X-GIS/pull/2141)) `d0a0464`
 - **e2e:** re-pin the polygon arm-revert tokens to the #2042 INC-6 flag-selected cam_rel Lets (#2073) ([#2074](https://github.com/X-GIS/X-GIS/pull/2074)) `e4b1d39`
 - **playground:** capture-canvas skill — chrome-free, event-driven map capture for e2e specs ([#2062](https://github.com/X-GIS/X-GIS/pull/2062)) `6ccae6c`

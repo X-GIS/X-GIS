@@ -857,7 +857,13 @@ const CEILINGS: Record<string, number> = {
   // that question has drifted three times already. Reads a deadlined probe rather than the
   // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
-  'map/src/map.ts': 5482,
+  // 5482->5485 (#2162): both `getMissingTileCount` docstrings claimed it "settles to 0
+  // exactly when the scene converges". It does not -- the sum carries three of
+  // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
+  // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
+  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines after
+  // trimming a first draft that cost +11. MEASURED post-prettier.
+  'map/src/map.ts': 5485,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1601,7 +1607,11 @@ const CEILINGS: Record<string, number> = {
   // where the fields live; this file keeps one call reading the resolved kind.
   // Two now-orphaned @xgis/geo imports (isGlobeProj, promotesToGlobeWhenTilted)
   // went with it. Measured, not arithmetic.
-  'map/src/render-loop.ts': 934,
+  // 934->935 (#2162): the end-of-frame `_missingTileCount` comment asserted the sum
+  // "settles to 0 exactly when that gate stops re-arming" -- it is three of the gate's
+  // six terms (retries, pending VT uploads and `_czPendingAdvance` absent). One line,
+  // comment-only. MEASURED post-prettier.
+  'map/src/render-loop.ts': 935,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
