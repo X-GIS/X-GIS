@@ -4438,6 +4438,26 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
+    // Glyph keep-alive (#2116): a label whose PBF range is still in flight draws
+    // metrics-only (all-zero SDF, correctly spaced and inkless), and the range lands on a
+    // network callback that no tile/upload/LOD signal can see. Without this the loop idles
+    // on that frame and `idle` means "converged except for text" — which is how a
+    // settle-on-idle harness came to sample first-visit poses before their glyphs arrived,
+    // and why the parity gate needed an 8 s sleep plus a warm-up pass to be reproducible.
+    // Bounded at the provider (GlyphProvider.hasPendingLoads), so a glyph host that never
+    // answers costs one deadline of warm frames, not a map that never idles.
+    if (this.textStage !== null && this.textStage.hasPendingGlyphLoads()) return true
+    // Sprite keep-alive (#2122) — the other half of the same hole the line above closes.
+    // IconStage is built lazily on the first frame that needs it and its SpriteAtlasHost
+    // kicks off the atlas fetch WITHOUT arming `_needsRender`, so the next frame idles with
+    // icons unresolved and a fill-pattern still stubbed. `fixture-bg-pattern.xgis` reaches
+    // this with no labels and no VT source at all, and `background-pattern-atlas.ts:15-19`
+    // already records the symptom in the past tense ("the async atlas landed on a frozen
+    // canvas"). Bounded at the host (SPRITE_INFLIGHT_KEEP_WARM_MS) for the same reason the
+    // glyph probe is: `isAtlasTerminal()` is the WRONG predicate here — it is the
+    // prepare-skip question and stays false forever against a host that accepts a
+    // connection and never answers, which is #2091 one resource class over.
+    if (this.iconStage !== null && this.iconStage.hasPendingAtlasLoad()) return true
     // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
     // while any raster tile is mid-cross-fade the loop keeps rendering so the
     // per-tile ramp advances; the renderer clears the flag once every tile hits

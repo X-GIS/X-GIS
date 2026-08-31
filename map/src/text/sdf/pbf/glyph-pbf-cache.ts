@@ -25,6 +25,20 @@ const MAX_GLYPH_BYTES = 8 * 1024 * 1024
  *  a real bilingual session, bounded against an unbounded pan. */
 const MAX_RETAINED_BYTES = 32 * 1024 * 1024
 
+/** How long one outstanding range request holds the render loop awake (#2116).
+ *
+ *  The loop must stay warm while a glyph range is in flight — otherwise `idle` fires on a
+ *  frame whose labels are still metrics-only (all-zero SDF) and a settle-on-idle harness
+ *  samples inkless text. But it must stop, unconditionally: `safeFetch` has no timeout, so
+ *  a glyph host that accepts the connection and never answers would otherwise pin the loop
+ *  for the session — the exact never-idle wedge #2091 was, one resource class over. Past
+ *  this deadline the range is simply no longer counted; nothing else about it changes (a
+ *  late arrival still fires `onLanded` and still upgrades the atlas slot).
+ *
+ *  Sized off the sibling safety nets rather than invented: the LOD readiness gate holds for
+ *  5 s and the raster ledger abandons a tile after ~10.5 s of retries. */
+const GLYPH_INFLIGHT_KEEP_WARM_MS = 10_000
+
 type RangeState =
   | { status: 'loading' }
   | { status: 'loaded'; glyphs: Map<number, PbfGlyph>; bytes: number }
@@ -138,6 +152,7 @@ export class GlyphPbfCache implements GlyphProvider {
     // Fresh fetch.
     this.ranges.set(key, { status: 'loading' })
     this.pendingCallbacks.set(key, [onReady])
+    this.loadingSince.set(key, performance.now())
     const url = buildUrl(this.glyphsUrl, fontstack, start)
 
     // SSRF guard: a private/loopback or non-http(s) glyph URL degrades to
@@ -148,6 +163,7 @@ export class GlyphPbfCache implements GlyphProvider {
     } catch {
       this.ranges.set(key, { status: 'failed' })
       this.pendingCallbacks.delete(key)
+      this.loadingSince.delete(key)
       return
     }
 
@@ -196,6 +212,10 @@ export class GlyphPbfCache implements GlyphProvider {
    *  isolated: one throwing host `onReady` must not cost its siblings their notification,
    *  and it must not reach the load state at all. */
   private fireCallbacks(key: string): void {
+    // Terminal state reached (loaded or failed) — stop holding the loop awake for it. This
+    // is the single funnel every settled range passes through, which is why the stamp is
+    // cleared HERE and not in the `.then`/`.catch` arms that would each need their own.
+    this.loadingSince.delete(key)
     const cbs = this.pendingCallbacks.get(key)
     this.pendingCallbacks.delete(key)
     if (!cbs) return
@@ -224,5 +244,27 @@ export class GlyphPbfCache implements GlyphProvider {
     }
   }
 
+  /** GlyphProvider.hasPendingLoads — is a range request outstanding AND still inside its
+   *  keep-warm deadline? Iterates only the in-flight set (normally empty, a handful during
+   *  a cold label frame), never the resident cache, so the per-frame cost is O(in-flight).
+   *
+   *  Ranges past `GLYPH_INFLIGHT_KEEP_WARM_MS` are dropped from the set as they are
+   *  observed, so a hung host costs one deadline's worth of warm frames once — not a
+   *  permanently re-rendering map, and not a growing map of dead keys. */
+  hasPendingLoads(): boolean {
+    if (this.loadingSince.size === 0) return false
+    const now = performance.now()
+    let warm = false
+    for (const [key, since] of this.loadingSince) {
+      if (now - since <= GLYPH_INFLIGHT_KEEP_WARM_MS) warm = true
+      else this.loadingSince.delete(key)
+    }
+    return warm
+  }
+
   private readonly pendingCallbacks = new Map<string, Array<() => void>>()
+  /** Start time of every range whose request has not reached a terminal state. Kept
+   *  separate from `ranges` so the resident cache's LRU/eviction machinery stays a pure
+   *  content store — the in-flight set has a different lifetime and a different reader. */
+  private readonly loadingSince = new Map<string, number>()
 }
