@@ -857,13 +857,21 @@ const CEILINGS: Record<string, number> = {
   // that question has drifted three times already. Reads a deadlined probe rather than the
   // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
-  // 5482->5485 (#2162): both `getMissingTileCount` docstrings claimed it "settles to 0
-  // exactly when the scene converges". It does not -- the sum carries three of
+  // 5482→5486 (#2118): the ONE line only map.ts can write — `show.circlePitchAlignmentMap`
+  // into the geojson-point `addLayer` tail — plus its three-line note on why the knob is
+  // trailing. Composition-root wiring, nothing extract-worthy (§2).
+  // 5482→5485 (#2162, main): both `getMissingTileCount` docstrings claimed it "settles to 0
+  // exactly when the scene converges". It does not — the sum carries three of
   // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
   // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
-  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines after
-  // trimming a first draft that cost +11. MEASURED post-prettier.
-  'map/src/map.ts': 5485,
+  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
+  // →5489 (this merge): the two bumps above were authored against the SAME base 5482 and
+  // the merged file takes BOTH deltas, so neither branch's number is right afterwards.
+  // Set from `wc -l` on the merged file, not from arithmetic — and note that git only
+  // conflicted here because the two numbers happened to DIFFER; had both branches landed
+  // on the same value it would have merged clean at a ceiling one change too low
+  // (CLAUDE.md §12). Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 5489,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1692,7 +1700,17 @@ const CEILINGS: Record<string, number> = {
   // (the tile-point pack scalar cache + retire queue moved out to tile-point-cache.ts,
   // keyed per show) are non-overlapping and compose. Value is the MEASURED post-merge,
   // post-prettier count.
-  'map/src/render/point-renderer.ts': 1211,
+  // 1211→1247 (#2118): `circle-pitch-alignment: map`. The pitch MODE CODE replaces the
+  // pitch-scale flag in circle_params.w (the two knobs stop being independent once the
+  // disc leaves the screen plane, so a bit field would let both fire and count the
+  // perspective twice), the `mvp_pitch0` lane is packed from a module-level
+  // `Pitch0Unprojector` — the SAME producer label-pass hands `groundBasisAt`, so the two
+  // ground-aligned features cannot drift onto different ideas of the unpitched camera —
+  // and `addLayer` grows one TRAILING optional. Most of the +36 is the rationale for the
+  // `camera.pitch > 0` suppression, which is what makes the unpitched frame provably
+  // byte-identical rather than arithmetically equal. MEASURED post-prettier (`wc -l`), set
+  // EXACTLY to the count — headroom is re-justified per phase, never banked.
+  'map/src/render/point-renderer.ts': 1247,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -1989,6 +2007,23 @@ const CEILINGS: Record<string, number> = {
   // vertex projection directly and subtract a df64 camera term itself (flat_rel
   // does that subtract in f32, which cancels and shakes). +6, irreducible.
   'map/src/shaders/dsl/projections.ts': 841,
+  // NEW ENTRY (#2118). point.ts was unlisted at 766 because it sat under NEW_FILE_CAP;
+  // `circle-pitch-alignment: map` takes it to 921 and it needs a ceiling of its own. The
+  // +155 is one feature and is mostly PROSE: the ground-basis block is ~45 lines of
+  // arithmetic and ~40 lines of header explaining that it is the WGSL image of
+  // map/src/text/ground-basis.ts — which authority it transcribes, why it is transcribed
+  // instead of called (that module is CPU code over projector callbacks; a per-point CPU
+  // basis would repack feat_data every frame), why both Jacobians are EXACT here rather
+  // than finite differences, which px convention it works in, and why the globe stays
+  // deferred. Not extract-worthy: it is one branch of one vertex entry point, reads four
+  // uniform fields and the local `relPos`, and lifting it out would put the basis in a
+  // different file from the quad expansion it exists to transform — but the basis math
+  // itself IS extracted, into a named `ground_basis_2x2` fn, because inlining it pushed
+  // `vs_point` past shader-static-analysis's 60-statement lint ceiling (80 measured). The
+  // extraction moved ~33 statements out of the entry point and cost this file a few lines
+  // of function scaffolding. MEASURED post-prettier
+  // (`wc -l`), set EXACTLY to the count — headroom is re-justified per phase, never banked.
+  'map/src/shaders/dsl/point.ts': 950,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster
@@ -2068,7 +2103,14 @@ const CEILINGS: Record<string, number> = {
   // its acc read, the acc-literal key and the `gradientStops:` field on the emitted
   // StrokeValue — the four-site shape every stroke paint axis already has here, no new
   // branch. Headroom is re-justified per phase, never banked. MEASURED post-prettier.
-  'compiler/src/ir/lower.ts': 1519,
+  // 1514→1522 (#2118): `circlePitchAlignmentMap` through lower's three seams (the `let`
+  // + its doc, the acc read, the two RenderNode spreads). The doc line earns its keep —
+  // it is where the OPPOSITE spec defaults of the two circle pitch knobs are recorded, and
+  // that asymmetry is the part a re-derivation gets wrong. MEASURED post-prettier (`wc -l`),
+  // set EXACTLY to the count — headroom is re-justified per phase, never banked.
+  // MERGE: main and this branch each raised this ceiling from a shared base;
+  // neither side's number is right. MEASURED post-merge (`wc -l`): 1527.
+  'compiler/src/ir/lower.ts': 1527,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -2119,7 +2161,19 @@ const CEILINGS: Record<string, number> = {
   // 989→995 (#2117 line-gradient): `StrokeValue.gradientStops` + the 5-line doc that
   // records WHY the ramp replaces the solid colour and which arc it is sampled over.
   // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
-  'compiler/src/ir/render-node.ts': 995,
+  // 989→995 (#2118): the `circlePitchAlignmentMap` RenderNode field + its doc, and a
+  // correction to the sibling's doc, which claimed "viewport" was `circle-pitch-scale`'s
+  // spec default. It is not — v8 defaults that knob to "map" — and the wrong claim was
+  // load-bearing enough to be worth the lines. MEASURED post-prettier (`wc -l`), set EXACTLY
+  // to the count — headroom is re-justified per phase, never banked.
+  // 989→995 twice, INDEPENDENTLY: #2117 line-gradient added StrokeValue.gradientStops and
+  // #2118 circle-pitch added ShowCommand.circlePitchAlignmentMap, each +6 from the same base.
+  // Both branches therefore wrote the IDENTICAL ceiling line `995`, so git merged it with NO
+  // CONFLICT while the file itself grew by BOTH deltas — the one shape of ceiling drift that
+  // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
+  // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
+  // type, const or function name occurs twice in the file.
+  'compiler/src/ir/render-node.ts': 1001,
   'compiler/src/convert/paint-helpers.ts': 826,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
@@ -2136,7 +2190,12 @@ const CEILINGS: Record<string, number> = {
   // 805→810 (#2117 line-gradient): `LinePaint.strokeGradientStops` + doc + the one
   // `node.stroke.gradientStops` wire line. Headroom is re-justified per phase, never
   // banked. MEASURED post-prettier.
-  'compiler/src/ir/emit-commands.ts': 810,
+  // 805→812 (#2118): the `circlePitchAlignmentMap` field on CirclePaint + its doc, and the
+  // node→ShowCommand carry. MEASURED post-prettier (`wc -l`), set EXACTLY to the count —
+  // headroom is re-justified per phase, never banked.
+  // MERGE: main and this branch each raised this ceiling from a shared base;
+  // neither side's number is right. MEASURED post-merge (`wc -l`): 817.
+  'compiler/src/ir/emit-commands.ts': 817,
   // 785→826 (#1269 item 3): retry backoff jitter, so tiles that fail together
   // don't retry in lockstep — the injectable-rng test seam (mirrors the log-throttle/
   // negative-cache module-state + test-only-setter shape already in this file) +

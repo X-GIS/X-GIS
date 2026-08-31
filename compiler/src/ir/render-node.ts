@@ -208,9 +208,15 @@ export interface RenderNodeCirclePaint {
   /** Mapbox `paint.circle-blur` — extends the point fragment's
    *  smoothstep AA band. 0 = crisp edge (default/no-op). */
   circleBlur?: number
-  /** Mapbox `paint.circle-pitch-scale`="map". Undefined/false="viewport"
-   *  (spec default, byte-identical). True scales radius by w_ref/clip.w. */
+  /** Mapbox `paint.circle-pitch-scale`="map". Undefined/false="viewport".
+   *  True scales radius by w_ref/clip.w. NOTE: viewport is NOT the spec
+   *  default for this knob — Mapbox defaults it to "map" — see
+   *  convert/layers-circle.ts, which records the gap this leaves. */
   circlePitchScaleMap?: boolean
+  /** Mapbox `paint.circle-pitch-alignment`="map" (#2118). Undefined/false=
+   *  "viewport" (the spec default HERE — the two knobs default opposite ways).
+   *  True lays the disc in the ground plane via the point VS ground basis. */
+  circlePitchAlignmentMap?: boolean
 }
 
 /** 3D extrusion paint axes (Mapbox `fill-extrusion-*`). */
