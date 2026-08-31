@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bc5644b1a56508af3fa6eda356393cd53e8a3271
+  Generated from: 0d9f09da80a6de0645590073c987e9f2a8b48664
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bc5644b1a565
+    bun scripts/emit-changelog.ts --since 0d9f09da80a6
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map:** raster/DEM fetch and retry join the pending-work registry, deadline-bounded (#2149 increment 4) ([#2186](https://github.com/X-GIS/X-GIS/pull/2186)) `0d9f09d`
 - **map:** sprite atlas joins the pending-work registry (#2149 increment 3) ([#2177](https://github.com/X-GIS/X-GIS/pull/2177)) `f1bf7e4`
 - **map:** convergence-authority design + pending-work registry — glyph and coverage registered (#2149) ([#2153](https://github.com/X-GIS/X-GIS/pull/2153)) `eebe3e3`
 
