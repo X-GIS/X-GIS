@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 642e507d7c379bfcfd72e8ed3e304d6d21c10879
+  Generated from: 1e3b93a7978876c721ce264bffed6ef10ccdbf6e
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 642e507d7c37
+    bun scripts/emit-changelog.ts --since 1e3b93a79788
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **line:** line-gradient paints its authored ramp, sampled from the arc the dash phase already rides ([#2136](https://github.com/X-GIS/X-GIS/pull/2136)) `1e3b93a`
 - **render:** #2042 INC-7 — split-bind ON by default, behind an opt-out ([#2151](https://github.com/X-GIS/X-GIS/pull/2151)) `642e507`
 - **line:** #2042 INC-6 — recombine the Mercator cam-rel pair in the LINE shader ([#2142](https://github.com/X-GIS/X-GIS/pull/2142)) `18367f4`
 - **compiler:** ["distance-from-center"] lowers and evaluates, with its units written down ([#2133](https://github.com/X-GIS/X-GIS/pull/2133)) `e85335b`
