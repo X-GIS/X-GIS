@@ -14,7 +14,7 @@ import geojsonVt from 'geojson-vt'
 import vtpbf from 'vt-pbf'
 import { decomposeFeatures, compileSingleTile, tileKey, type CompiledTile } from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
-import { TileCatalog } from '../tile-catalog'
+import { LOADING_KEEP_WARM_MS, TileCatalog } from '../tile-catalog'
 import type { VirtualTileFetcher } from '../tile-types'
 
 function buildSyntheticCompiledTile(z: number, x: number, y: number): CompiledTile | null {
@@ -362,5 +362,75 @@ describe('a persistently failing fetcher backs off instead of refetching every f
     // A recovered tile must not keep paying the longer backoff window.
     expect(source.getTileFailureCount(key), 'success did not reset the count').toBe(0)
     expect(source.getTileState(key)).toBe('cached')
+  })
+})
+
+describe('a fetcher that HANGS stops holding the loop warm past the deadline (#2182)', () => {
+  // The third shape of the same wedge. #2103 closed the SYNCHRONOUS THROW case and
+  // #2181 closed the REJECTION case; both work by reaching `releaseLoading`. A fetch
+  // that neither resolves nor rejects reaches neither, and nothing else could save it:
+  // `safeFetch` has no timeout (shared/src/safety.ts:209), and `cancelStale` is keyed
+  // on the ACTIVE key set, so a tile the camera still wants is never cancelled. The
+  // key sat in `loadingTiles` for the session, `hasPendingLoads()` stayed true, and
+  // `idle` never fired again.
+  //
+  // Unlike its two siblings this one lives in TileCatalog, so it covered EVERY
+  // backend, not just this legacy adapter.
+  const hangs = (): VirtualTileFetcher => () => new Promise<never>(() => {})
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('goes quiet once the window closes, so idle can finally fire', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(5_000_000)
+    const source = new TileCatalog()
+    source.setVirtualCatalog({
+      fetcher: hangs(),
+      minZoom: 0,
+      maxZoom: 0,
+      bounds: [-180, -85, 180, 85],
+    })
+    const key = tileKey(0, 0, 0)
+
+    source.requestTiles([key])
+    await new Promise((r) => setTimeout(r, 50))
+    expect(source.hasPendingLoads(), 'an in-flight fetch must hold the loop warm').toBe(true)
+
+    // Still inside the window: the obligation stands. This half is what stops the
+    // deadline from being a disguised "never wait for anything".
+    now.mockReturnValue(5_000_000 + LOADING_KEEP_WARM_MS - 1)
+    expect(source.hasPendingLoads(), 'gave up one ms EARLY').toBe(true)
+
+    // THE ORACLE: past the window the loop is released. Pre-#2182 this stayed true
+    // for the lifetime of the page.
+    now.mockReturnValue(5_000_000 + LOADING_KEEP_WARM_MS + 1)
+    expect(source.hasPendingLoads(), 'a hung fetch still wedges idle').toBe(false)
+  })
+
+  it('bounds ONLY the keep-warm question — dedupe and tile state are untouched', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000_000)
+    const source = new TileCatalog()
+    let calls = 0
+    const fetcher: VirtualTileFetcher = () => {
+      calls++
+      return new Promise<never>(() => {})
+    }
+    source.setVirtualCatalog({ fetcher, minZoom: 0, maxZoom: 0, bounds: [-180, -85, 180, 85] })
+    const key = tileKey(0, 0, 0)
+
+    source.requestTiles([key])
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls).toBe(1)
+
+    now.mockReturnValue(6_000_000 + LOADING_KEEP_WARM_MS + 1)
+    // The fetch was never cancelled and the key was never released — it is still
+    // genuinely in flight, so it must still read as loading and must NOT be
+    // re-dispatched. Only `hasPendingLoads` was time-bounded.
+    expect(source.getTileState(key), 'the key stopped reading as loading').toBe('loading')
+    expect(source.getPendingLoadCount(), 'the raw in-flight count must not shrink').toBe(1)
+    source.requestTiles([key])
+    await new Promise((r) => setTimeout(r, 50))
+    expect(calls, 'the deadline re-dispatched a fetch that is still in flight').toBe(1)
   })
 })

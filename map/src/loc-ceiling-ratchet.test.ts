@@ -1451,7 +1451,15 @@ const CEILINGS: Record<string, number> = {
   // addTileLevel's body. +12 is the two parameters, the three passthroughs and the doc that
   // says WHY the slot has to be named — the catalog is the storage authority the VTR's
   // `computeSliceKey` lookup has to agree with. MEASURED.
-  'data/src/tile-catalog.ts': 1456,
+  // 1456->1478 (#2182): `loadingTiles` becomes a Map (key -> dispatch ms) so
+  // `hasPendingLoads()` can be DEADLINED. It was the one keep-warm signal still
+  // unbounded: `safeFetch` has no timeout, backends release only from `.then`/`.catch`,
+  // and `cancelStale` is keyed on the ACTIVE set, so a still-visible tile whose fetch
+  // HANGS was stranded for the session and `idle` never fired again (#2091's shape, at
+  // the catalog level, so every backend). +22 is the constant with its bound rationale,
+  // the field doc, the deadline loop and the accessor doc. A first draft cost +39 and was
+  // trimmed. MEASURED post-prettier.
+  'data/src/tile-catalog.ts': 1478,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

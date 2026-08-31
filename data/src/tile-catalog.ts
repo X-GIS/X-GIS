@@ -70,6 +70,14 @@ import {
  *  allocate, it is drained once per frame per renderer. */
 const EMPTY_KEYS: number[] = []
 
+/** How long an unsettled tile fetch keeps the render loop warm (#2182). Above any
+ *  legitimate fetch (a tile arriving at 30 s is already broken, and it is not lost
+ *  — it draws on the next tick), below "forever", which is what a hanging fetch
+ *  used to mean. Longer than the sibling deadlines (sprite 10 s, readiness 5 s):
+ *  those cover one resource each, this covers every visible tile, so firing early
+ *  would make `idle` mean "converged except for tiles" — the #2116 regression. */
+export const LOADING_KEEP_WARM_MS = 30_000
+
 // ═══ Catalog ═══
 
 export class TileCatalog {
@@ -96,7 +104,13 @@ export class TileCatalog {
    *  the accounting MECHANISM. */
   private cache = new TileDataCache()
   private _destroyed = false // #1570 — latched by destroy(); guards acceptResult
-  private loadingTiles = new Set<number>()
+  /** In-flight tile keys → dispatch timestamp. A Map rather than a Set purely so
+   *  `hasPendingLoads()` can be deadlined (#2182): `safeFetch` has no timeout,
+   *  backends release only from `.then`/`.catch`, and `cancelStale` is keyed on the
+   *  ACTIVE set — so a still-visible tile whose fetch HANGS was stranded here for
+   *  the session, pinning the idle gate exactly as #2091 did. Dedupe, `getTileState`
+   *  and `getLoadingCount()` still read raw membership. */
+  private loadingTiles = new Map<number, number>()
   /** #1371 — keys whose cached slice was OVERWRITTEN (not first-written) since the last
    *  `consumeReplacedKeys()`. A host data push re-tiles the same keys against a new backend;
    *  the renderer drains this set to re-upload exactly those tiles, so the previously uploaded
@@ -254,7 +268,7 @@ export class TileCatalog {
     return {
       hasTileData: (key) => this.cache.has(key),
       trackLoading: (key) => {
-        this.loadingTiles.add(key)
+        this.loadingTiles.set(key, Date.now())
       },
       releaseLoading: (key) => {
         this.loadingTiles.delete(key)
@@ -668,10 +682,18 @@ export class TileCatalog {
     return { cached: c.size, loading: this.loadingTiles.size, bytes: c.cachedBytes }
   }
 
-  /** True when any tile is still being fetched. Read each frame by the
-   *  render-loop idle-skip so late arrivals trigger a redraw. */
+  /** True when a tile is still being fetched RECENTLY ENOUGH to hold the loop warm.
+   *  Read each frame by the render-loop idle-skip so late arrivals trigger a redraw.
+   *  Bounded by construction (#2182) — the rule #2116/#2122 set for every keep-warm
+   *  signal. Costs no correctness: the fetch is not cancelled, and `map.ts:4376`
+   *  re-schedules the rAF tick even on a skipped frame, so a tile landing after the
+   *  window is picked up next tick via `hasPendingUploads()`. */
   hasPendingLoads(): boolean {
-    return this.loadingTiles.size > 0
+    const cutoff = Date.now() - LOADING_KEEP_WARM_MS
+    for (const startedAt of this.loadingTiles.values()) {
+      if (startedAt > cutoff) return true
+    }
+    return false
   }
 
   /** #1448 — true when a re-seed replacement is waiting for a frame to swap it in.
