@@ -186,11 +186,15 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   // split bind (and with it the per-tile walk-skip), so the sweep can
   // measure the encode slope flag-OFF vs flag-ON on one commit. The
   // factory reads the flag ONCE at build() → must be set pre-boot.
-  if (process.env.XGIS_SPLIT_BIND === '1') {
-    await page.addInitScript(() => {
-      ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = true
-    })
-  }
+  // #2042 INC-7 — the flag now defaults ON, so the baseline arm must set it FALSE
+  // EXPLICITLY. Without this the `XGIS_SPLIT_BIND` env var stopped selecting anything:
+  // both arms would boot split and the sweep would measure split-vs-split while still
+  // labelling one arm "legacy" — a comparison that reports a difference of zero for the
+  // wrong reason (§12, the assertion that failed either way).
+  const wantSplit = process.env.XGIS_SPLIT_BIND === '1'
+  await page.addInitScript((on: boolean) => {
+    ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = on
+  }, wantSplit)
 
   const rows: Array<{
     n: number

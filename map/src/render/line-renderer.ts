@@ -84,8 +84,10 @@ import {
   PATTERN_ANCHOR_CENTER,
   checkPatternParams,
   packLineLayerUniform,
+  LINE_GRADIENT_MAX_STOPS,
   type DashConfig,
   type PatternSlot,
+  type LineGradientStop,
 } from './line-pattern'
 import { lineLayerUniformStride } from './line-uniform-slots'
 // Re-export so test files (line-renderer.test, line-pattern-guards.test, etc.)
@@ -113,8 +115,10 @@ export {
   PATTERN_ANCHOR_CENTER,
   checkPatternParams,
   packLineLayerUniform,
+  LINE_GRADIENT_MAX_STOPS,
   type DashConfig,
   type PatternSlot,
+  type LineGradientStop,
 }
 
 // ═══ Segment Buffer Layout ═══
@@ -467,6 +471,8 @@ export class LineRenderer {
     /** Mapbox line-round-limit (default 1.05). 0 = use the shader's
      *  historical round-join fold constant (byte-identical default). */
     roundLimit: number = 0,
+    /** Mapbox line-gradient ramp stops (#2117). null = solid stroke colour. */
+    gradient: readonly LineGradientStop[] | null = null,
   ): number {
     // Pattern sanity checks (deduped, one warning per condition per
     // LineRenderer instance). Runs on the parameter set BEFORE packing so
@@ -496,6 +502,7 @@ export class LineRenderer {
       lineTranslateX,
       lineTranslateY,
       roundLimit,
+      gradient,
     )
     // Stage into the CPU mirror; flushLayerStaging (called from the
     // map's render loop via `endFrame()`) emits a single writeBuffer

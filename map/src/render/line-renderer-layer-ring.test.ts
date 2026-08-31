@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
   INDEX: 16,
 }
 import { LineRenderer, lineUniformSize, packLineLayerUniform } from './line-renderer'
+import { lineLayerUniformStride } from './line-uniform-slots'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 
@@ -27,7 +28,12 @@ describe('LineRenderer layer uniform ring', () => {
     expect(data.byteLength).toBe(lineUniformSize())
   })
 
-  it('writeLayerSlot returns distinct, 256-aligned offsets per call', () => {
+  it('writeLayerSlot returns distinct, stride-aligned offsets per call', () => {
+    // The stride is DERIVED from reflect (`lineLayerUniformStride()`) and rounds the
+    // LineLayer struct up to WebGPU's 256 B minUniformBufferOffsetAlignment — it became
+    // 512 when #2117 grew the struct past 256 B. Reading it from the SoT is what keeps
+    // this test asserting the RING MATH rather than a frozen struct size.
+    const STRIDE = lineLayerUniformStride()
     // Fake GPU device — record writeBuffer offsets only.
     const writes: { offset: number; byteLen: number }[] = []
     const fakeBuffer = {} as GPUBuffer
@@ -69,8 +75,8 @@ describe('LineRenderer layer uniform ring', () => {
     const b = lr.writeLayerSlot([0, 1, 0, 1], 3, 1, 1)
     const c = lr.writeLayerSlot([0, 0, 1, 1], 4, 1, 1)
     expect(a).toBe(0)
-    expect(b).toBe(256)
-    expect(c).toBe(512)
+    expect(b).toBe(STRIDE)
+    expect(c).toBe(2 * STRIDE)
     // After batching: three writeLayerSlot calls now stage into a CPU
     // mirror without issuing any GPU writes. The flush happens in
     // endFrame() just before queue.submit. Assertion on the offsets
@@ -81,7 +87,7 @@ describe('LineRenderer layer uniform ring', () => {
     // Flush writes one contiguous range covering all 3 slots.
     expect(writes).toHaveLength(1)
     expect(writes[0].offset).toBe(0)
-    expect(writes[0].byteLen).toBe(3 * 256)
+    expect(writes[0].byteLen).toBe(3 * STRIDE)
 
     lr.beginFrame()
     const d = lr.writeLayerSlot([1, 1, 1, 1], 1, 1, 1)
@@ -90,6 +96,6 @@ describe('LineRenderer layer uniform ring', () => {
     // Second frame flushes only its own staged slot.
     expect(writes).toHaveLength(2)
     expect(writes[1].offset).toBe(0)
-    expect(writes[1].byteLen).toBe(256)
+    expect(writes[1].byteLen).toBe(STRIDE)
   })
 })
