@@ -275,6 +275,16 @@ export const DEMOS_CORE: Record<string, Demo> = {
     source: load('multiline-labels.xgis'),
   },
 
+  vertical_labels: {
+    name: 'CJK vertical labels',
+    tag: 'basic',
+    description:
+      'text-writing-mode: ["vertical"] — 서울특별시 / 東京都 / Tokyo 東京 laid out as downward columns at the em pitch, every glyph upright (#2144)',
+    source: load('vertical-labels.xgis'),
+    zoom: 3,
+    center: [133, 36],
+  },
+
   pmtiles_v4: {
     name: 'PMTiles — protomaps v4',
     tag: 'vector-tiles',

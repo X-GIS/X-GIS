@@ -570,7 +570,7 @@ async function runParity(
 
     // STRUCTURAL FLOOR — the reason `drawnPixelCount` exists (#2042 INC-6 wrote it, then
     // orphaned it by flipping LINE_HALF_WIRED to true in the same commit, which retired the
-    // only arm that called it; TS6133 was the only thing that noticed).
+    // only arm that called it; TS6133 was the only thing that noticed). See #2148.
     //
     // It is needed MORE now, not less. Witness 2 below asserts `offSkew.hash === off.hash`,
     // and TWO BLANK CANVASES satisfy that perfectly — a live assertion that a scene drawing

@@ -857,6 +857,8 @@ const CEILINGS: Record<string, number> = {
   // that question has drifted three times already. Reads a deadlined probe rather than the
   // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  // 5482→5468 (#2144): `getDumpedLabels`'s inline return type — the third
+  // hand-written copy of `DumpedLabel` — becomes the imported interface.
   // 5482→5486 (#2118): the ONE line only map.ts can write — `show.circlePitchAlignmentMap`
   // into the geojson-point `addLayer` tail — plus its three-line note on why the knob is
   // trailing. Composition-root wiring, nothing extract-worthy (§2).
@@ -865,23 +867,22 @@ const CEILINGS: Record<string, number> = {
   // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
   // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
-  // →5489 (main's #2138 merge note): bumps authored against the same base SUM — set from
-  // `wc -l` on the merged file, never from arithmetic (CLAUDE.md §12).
-  // Merge union (#2149 ⨯ #2138): branch carried 5485 (#2129's +1 injection net of the
-  // glyph-term −1), main carried 5489 (#2138's +4); the merged file MEASURES 5489 —
-  // the branch's net-zero rides inside it. Lower as #991 decomposes map.ts.
-  // →5478 (#2149 increment 3): the sprite keep-alive block (11 lines) moved onto its
+  // →5478 (#2149 increment 3, main): the sprite keep-alive block (11 lines) moved onto its
   // registration in pending-work.ts — the shared registry term already covers it.
-  // MEASURED post-prettier.
-  'map/src/map.ts': 5478,
+  // →5464 (this merge): FIVE bumps have now been authored against the same base — this
+  // branch's −14 (#2144), #2118's +4, #2162's +3, #2149's net-zero and #2149-inc3's −11 —
+  // so no branch's number survives and arithmetic on any subset of them is wrong. Set from
+  // `wc -l` on the merged file. Every bump note above is kept because each documents a
+  // different change; only the number is re-derived (CLAUDE.md §12). Lower as #991
+  // decomposes map.ts.
+  'map/src/map.ts': 5464,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
   // The keep-warm reason lives on the registration (pending-work.ts); this file carries
   // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
   // #2138 merge (main did not touch this file): 801.
-  'map/src/coverage-source.ts': 801,
-  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  'map/src/coverage-source.ts': 801, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
@@ -1104,7 +1105,30 @@ const CEILINGS: Record<string, number> = {
   // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
   // size derivation and their reasoning. The ceiling drops to the measured post-merge size
   // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2175,
+  // 2175→2164 (#2144, D7 P2 — CJK vertical writing). The file had ZERO headroom
+  // and the column needed ~24 lines (the `vertical` gate, the rotations arena
+  // alloc, the `fillVerticalColumn` call, the vertical bbox metrics, the two
+  // draw sites, the cache-entry field and the layoutCacheKey term), so the
+  // increment is paid for by THREE extractions rather than a bump:
+  // (1) the plain-text per-line pen loop is DELETED, not moved: with no sprites
+  //     `fillPointGlyphOffsetsWithImages` degrades to exactly it, so the second
+  //     copy of the justify + advance arithmetic is gone and one copy can no
+  //     longer drift from the other (the `labelSizePx` rationale, one level down);
+  // (2) `anchorVAlign` (MapLibre getAnchorAlignment's vertical half) and
+  //     `resolveJustify` (`text-justify: auto` against the anchor) move to
+  //     text-stage-helpers.ts, each landing beside its only consumer there
+  //     (`mlVerticalLayout` and `fillPointGlyphOffsetsWithImages`);
+  // (3) the 20-line #608 autopsy above the `pairedTextCentreShift` call moves
+  //     into that function's docblock in paired-symbol-box.ts — the file whose
+  //     own header says the split exists "so each has room to carry its own
+  //     rationale".
+  // (4) `getDumpedLabels`'s inline return shape — a hand-written mirror of
+  //     `DumpedLabel`, written out a THIRD time in map.ts — collapses to the
+  //     exported interface. P2 adds two fields to that shape (`rot`, `vertical`),
+  //     and three copies of one type are three chances to add a field to two.
+  // The ceiling drops to the measured post-prettier size rather than being left
+  // slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2149,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

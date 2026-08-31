@@ -57,6 +57,13 @@ export interface TextDraw {
    *  positions each glyph at its sample point). When set, `rotateRad`
    *  is ignored. */
   glyphRotations?: Float32Array
+  /** #2144 (§11.1) — WHICH composition produced `glyphOffsets`/`glyphRotations`.
+   *  Diagnostics used to read `glyphRotations !== undefined` as "curved", which
+   *  was sound only while `addCurvedLineLabel` was the array's sole writer; a
+   *  vertical POINT column now writes it too, so an inferred answer would report
+   *  every CJK column as a road name. ABSENT = the horizontal point path.
+   *  Side-channel only: the renderer never reads it. */
+  glyphLayout?: 'curved' | 'vertical'
   /** Label font is italic. Latin glyphs carry a real italic in their
    *  SDF, but the italic glyph PBF serves CJK/Hangul/Kana ideographs
    *  UPRIGHT — so the renderer applies a synthetic oblique shear to the
