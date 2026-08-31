@@ -870,7 +870,10 @@ const CEILINGS: Record<string, number> = {
   // Merge union (#2149 ⨯ #2138): branch carried 5485 (#2129's +1 injection net of the
   // glyph-term −1), main carried 5489 (#2138's +4); the merged file MEASURES 5489 —
   // the branch's net-zero rides inside it. Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 5489,
+  // →5478 (#2149 increment 3): the sprite keep-alive block (11 lines) moved onto its
+  // registration in pending-work.ts — the shared registry term already covers it.
+  // MEASURED post-prettier.
+  'map/src/map.ts': 5478,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

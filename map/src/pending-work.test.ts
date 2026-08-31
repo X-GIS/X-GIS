@@ -36,6 +36,8 @@ import { PbfRasterizer } from './text/sdf/pbf-rasterizer'
 import { createRasterizer, createMetricsRasterizer } from './text/sdf/glyph-rasterizer'
 import { TextStage } from './text/text-stage'
 import { syncCoverageResidency, type CoverageSourceDeps } from './coverage-source'
+import { SpriteAtlasHost } from './sprite/sprite-atlas-host'
+import { IconStage } from './sprite/icon-stage'
 import { XGISMap } from './map'
 
 const GLYPHS_URL = 'https://tiles.example.com/fonts/{fontstack}/{range}.pbf'
@@ -103,6 +105,15 @@ const realStageProbe = (
   TextStage.prototype as unknown as { hasPendingGlyphLoads: (this: unknown) => boolean }
 ).hasPendingGlyphLoads
 
+// The real IconStage probe body, same prototype recipe (sprite-idle-keep-warm.test.ts).
+const realIconProbe = (
+  IconStage.prototype as unknown as { hasPendingAtlasLoad: (this: unknown) => boolean }
+).hasPendingAtlasLoad
+// Sprite fixture payloads, mirroring sprite-idle-keep-warm.test.ts (vitest ships no image
+// decoder, so the PNG decode is stubbed during the success arm).
+const SPRITE_JSON = { pin: { x: 0, y: 0, width: 16, height: 16, pixelRatio: 1 } }
+const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
 /** Keyed by the SAME union as the registry — a kind added without a fixture is a compile
  *  error here before it is a green test anywhere. */
 const FIXTURES: Record<PendingWorkKind, KindFixture> = {
@@ -145,6 +156,67 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
       }
     },
   },
+  // #2122 — probe flavor over the real chain: SpriteAtlasHost (real; it issues its
+  // fetches at construction, so the harness queues the resolvers and answers by URL
+  // shape) → the real IconStage.hasPendingAtlasLoad body → the registration's probe.
+  sprite: {
+    inFlight() {
+      let clock = 1_000
+      vi.spyOn(performance, 'now').mockImplementation(() => clock)
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const pending: Array<{ url: string; res: (r: Response) => void; rej: (e: Error) => void }> =
+        []
+      const fetchFn = ((input: RequestInfo | URL) =>
+        new Promise<Response>((res, rej) => {
+          pending.push({ url: String(input), res, rej })
+        })) as unknown as typeof globalThis.fetch
+      const host = new SpriteAtlasHost({
+        spriteUrl: 'https://tiles.example.com/sprite',
+        fetch: fetchFn,
+      })
+      const registry = buildPendingWorkRegistry({
+        textStage: null,
+        iconStage: { hasPendingAtlasLoad: () => realIconProbe.call({ host }) },
+      })
+      return {
+        registry,
+        succeed: async () => {
+          const g = globalThis as { createImageBitmap?: unknown }
+          const original = g.createImageBitmap
+          g.createImageBitmap = async () =>
+            ({ width: 256, height: 256, close: () => {} }) as ImageBitmap
+          for (let i = 0; i < 8; i++) {
+            while (pending.length) {
+              const p = pending.shift()!
+              p.res(
+                p.url.endsWith('.json')
+                  ? new Response(JSON.stringify(SPRITE_JSON), {
+                      status: 200,
+                      headers: { 'content-type': 'application/json' },
+                    })
+                  : new Response(TINY_PNG, {
+                      status: 200,
+                      headers: { 'content-type': 'image/png' },
+                    }),
+              )
+            }
+            await flush()
+          }
+          g.createImageBitmap = original
+          // Actually loaded, not merely terminal — the success arm must be the real one.
+          expect(host.getState().status).toBe('loaded')
+        },
+        fail: async () => {
+          pending.shift()?.rej(new Error('network down'))
+          await flush()
+        },
+        expire: () => {
+          clock += 20_000
+        },
+      }
+    },
+  },
   // #2129 — ledger flavor: the registry owns the stamps and the deadline
   // (COVERAGE_INFLIGHT_KEEP_WARM_MS, pending-work.ts), so this fixture drives the real
   // ledger through the real `begin()`. Success and failure both settle through the ONE
@@ -156,7 +228,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
     inFlight() {
       let clock = 1_000
       vi.spyOn(performance, 'now').mockImplementation(() => clock)
-      const registry = buildPendingWorkRegistry({ textStage: null })
+      const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
       const ticket = registry.begin('coverage')
       return {
         registry,
@@ -174,7 +246,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('PendingWorkRegistry — a map with nothing registered in flight is cold', () => {
   it('reports no pending work when every probe reads a drained/absent stage', () => {
-    expect(buildPendingWorkRegistry({ textStage: null }).hasPending()).toBe(false)
+    expect(buildPendingWorkRegistry({ textStage: null, iconStage: null }).hasPending()).toBe(false)
   })
 })
 
@@ -242,7 +314,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('begins the ticket SYNCHRONOUSLY — warm before the first await', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
     const hang = (() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
     void syncCoverageResidency(buildDeps(hang, registry), 's')
     expect(registry.hasPending()).toBe(true)
@@ -250,7 +322,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('dones the ticket in the settle finally — a FAILED read releases the loop', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
     const reject = (() =>
       Promise.reject(new Error('network down'))) as unknown as typeof globalThis.fetch
     await syncCoverageResidency(buildDeps(reject, registry), 's')

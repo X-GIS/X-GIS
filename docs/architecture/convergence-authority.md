@@ -229,7 +229,10 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    window in `readCatalogueItem`; mechanism (b) stays for post-deadline arrivals.
    Cut-verified three ways: the map.ts injection, the cell-read checkout, and the
    central deadline each red only their own test.
-3. **`sprite`** migrated (probe flavor, #2126 tests re-pointed).
+3. **`sprite`** migrated — **LANDED** (probe flavor; the 11-line map.ts term/comment
+   moved onto its registration, the existing #2126 WIRED test now pins the registry
+   route, and the probe-severing cut reds exactly the sprite half while glyph stays
+   green).
 4. **Raster/DEM family** (`raster-fetch/retry`, `dem-fetch/retry`) — probe adapters over
    the existing ledgers; `render-loop-keep-warm.ts` still exists, now reading the registry
    for these kinds (transitional).
