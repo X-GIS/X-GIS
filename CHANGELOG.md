@@ -7,17 +7,23 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 96e668e729e0d766796306d2bbd2aa2d51f647a0
+  Generated from: eebe3e312a8392ecb9c39a6056e5671df06940d3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 96e668e729e0
+    bun scripts/emit-changelog.ts --since eebe3e312a83
 -->
 
 # Changelog
 
 This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
+
+### 2026-09
+
+#### feat
+
+- **map:** convergence-authority design + pending-work registry — glyph and coverage registered (#2149) ([#2153](https://github.com/X-GIS/X-GIS/pull/2153)) `eebe3e3`
 
 ### 2026-08
 
