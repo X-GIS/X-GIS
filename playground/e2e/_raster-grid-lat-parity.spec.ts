@@ -280,22 +280,25 @@ test.describe('#2137 raster grid latitude — GPU vertex ≡ CPU f64 truth', () 
         `fix=${worstFix.toExponential(2)} m, bound=${bound.toExponential(2)} m (software=${SOFTWARE_GPU})`,
     )
 
-    // WITNESS: the bound is reachable — a CPU-exact latitude lands inside it.
-    // Without this a red CUR could be dismissed as an impossible tolerance.
-    expect(worstFix, 'CPU-exact latitude must land inside the f32 floor').toBeLessThanOrEqual(bound)
+    // WHAT THIS GATE CAN AND CANNOT SEE. It runs a standalone compute pass over a
+    // TRANSCRIPTION of the two formulations — it does not execute the emitted
+    // `vs_tile`, so it cannot observe whether the shipped shader uses the table.
+    // That wiring proof is `raster-grid-trig-wiring.test.ts`, which asserts the
+    // emitted WGSL reads `row_trig`/`col_trig` and was RED before #2137 landed.
+    // Kept separate on purpose: conflating "the math is right" with "the shader
+    // uses it" is how a gate ends up measuring something its assertion does not own.
 
-    // TEETH: the two arms must actually differ, or this gate would pass on a
-    // backend whose atan/exp happen to be exact and prove nothing.
+    // The TABLE formulation — what #2137 ships — lands inside the f32 floor. This
+    // is the WITNESS that the bound is reachable, so the angle arm's displacement
+    // below cannot be waved off as an impossible tolerance.
+    expect(worstFix, 'the CPU-trig table must land inside the f32 floor').toBeLessThanOrEqual(bound)
+
+    // TEETH — the retired angle-derived formulation must be displaced by orders
+    // more at the SAME points. Without this a backend whose trig happened to be
+    // exact would green this gate while proving nothing about the migration.
     expect(
       worstCur,
-      'the shipping arm must be measurably worse than the CPU-exact one — otherwise this gate is vacuous here',
-    ).toBeGreaterThan(worstFix)
-
-    // PRODUCTION assertion — RED until #2137 moves the grid VS off the in-shader
-    // atan(exp()). This is the whole point of the gate; do not relax it.
-    expect(
-      worstCur,
-      `the shipping grid arm derives latitude in f32 and is displaced by ${worstCur.toExponential(2)} m`,
-    ).toBeLessThanOrEqual(bound)
+      'the angle-derived formulation must be measurably worse — otherwise this gate is vacuous on this backend',
+    ).toBeGreaterThan(Math.max(50 * worstFix, bound))
   })
 })

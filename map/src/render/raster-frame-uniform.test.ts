@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { uniformBlock } from '@xgis/engine'
+import { rasterTileBytes } from './raster-uniform-slots'
 import { reflect } from '@xgis/shader-dsl'
 import {
   buildRasterModule,
@@ -199,8 +200,19 @@ describe('raster tile uniform — block bytes ≡ retired drawTileF32 writer', (
         MERC_DIFF,
         GRID_N,
       )
-      expect(block.byteLength).toBe(48)
-      expect([...new Uint8Array(block.buffer)]).toEqual([...new Uint8Array(tf.buffer.slice(0))])
+      // #2137 grew the struct 48 → 336 B (row_trig + col_trig). The invariant this
+      // gate owns is the LEGACY lanes, so it still compares them byte-for-byte —
+      // just over the first 48 B rather than the whole buffer, which would now be
+      // comparing against a shorter reference and pass vacuously if truncated.
+      expect(block.byteLength).toBe(rasterTileBytes())
+      expect([...new Uint8Array(block.buffer, 0, 48)]).toEqual([
+        ...new Uint8Array(tf.buffer.slice(0)),
+      ])
+      // GRID_N is 64 here, and the trig table is filled only for gridN 8 (where
+      // `rasterGridN` floors for tileZoom ≥ 4). So the tail must be ZERO — pinning
+      // that a tile the table does not cover cannot carry stale lanes into the
+      // shader, which would position it off a half-written table.
+      expect([...new Uint8Array(block.buffer, 48)].every((b) => b === 0)).toBe(true)
     })
   }
 })

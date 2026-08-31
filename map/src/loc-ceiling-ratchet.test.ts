@@ -1875,7 +1875,14 @@ const CEILINGS: Record<string, number> = {
   // `loadImageTexture` raw-device fork removed — both backends now load through the RHI
   // (`rhi.createTexture`/`copyExternalImage`/`generateMipmaps`), which also deletes the
   // `device: GPUDevice` field the fork was the only reader of.
-  'map/src/render/raster-renderer.ts': 1029,
+  // 1029→1034 (#2137): the CPU trig table wiring. `vs_tile` used to build the
+  // ~6.4e6 m ECEF from angles on the GPU, where every transcendental multiplies
+  // the Earth radius (1.17e+3 m of ground displacement measured on SwiftShader);
+  // the table hands it CPU-f64 sin/cos/N so it only multiplies. The 53-line
+  // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
+  // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
+  // import, one call, and the two new struct fields the packer must write.
+  'map/src/render/raster-renderer.ts': 1034,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
