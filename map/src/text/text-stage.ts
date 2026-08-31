@@ -70,8 +70,14 @@ import {
   STAGE_DEFAULTS,
   rotateLabelTranslate,
   deriveLabelBbox,
+  labelSizePx,
 } from './text-stage-helpers'
-import type { TextStageOptions, PendingLabel, PendingLineLabel } from './text-stage-types'
+import type {
+  TextStageOptions,
+  PendingLabel,
+  PendingLineLabel,
+  CurvedGroundArgs,
+} from './text-stage-types'
 import { walkCurvedGlyphs, invertGroundBasis } from './curved-glyph-walk'
 import { groundBasisAabb } from './ground-basis'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
@@ -591,11 +597,7 @@ export class TextStage {
      *  `basis` may still be absent when it degenerated, in which case the label
      *  keeps the plane cadence and billboards. The caller may reuse one holder —
      *  the fields are copied out here. */
-    ground?: {
-      liveX: Float32Array
-      liveY: Float32Array
-      basis: ArrayLike<number> | undefined
-    },
+    ground?: CurvedGroundArgs,
   ): void {
     // #777 I-G — strip inline-image markers before curved shaping. Inline
     // images along a curved road are not laid out (the along-path sampler
@@ -636,7 +638,9 @@ export class TextStage {
         ? {
             livePolylineX: ground.liveX,
             livePolylineY: ground.liveY,
-            ...(ground.basis !== undefined ? { groundBasis: ground.basis } : {}),
+            ...(ground.basis !== undefined
+              ? { groundBasis: ground.basis, groundSizeScale: ground.sizeScale }
+              : {}),
           }
         : {}),
       centerOffsetPx,
@@ -1054,25 +1058,17 @@ export class TextStage {
         p.text,
         cjkBucketFor(p.text, p.def.size, dpr),
       )
-      // CSS-px → physical-px. The atlas is in physical px (anchors
-      // arrive projected to canvas.width/height) so every length
-      // sourced from the LabelDef has to scale by DPR.
-      // Floor CJK-bearing labels to a legible display size: a dense Han glyph
-      // minified from the 24-px atlas to the ~9-px zoom-clamped low-zoom size
-      // renders as a solid box. Latin-only labels keep their style size.
-      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
-      // #1081 — fold the per-anchor perspective attenuation into sizePx, the SINGLE
-      // quad authority: advances / glyphOffsets / bbox / fontSize all derive from
-      // it, so the collision box AND the draw quad scale together (and the #1042 R3
-      // limb gate below then compares the SCALED half-height — a shrunken far label
-      // needs less inset). Wrapping is scale-invariant (advances and maxWidthPx both
-      // scale), so line breaks are unchanged. Quantised to 1/64 (≤1.5% steps, sub-
-      // pixel) so the across-frame layout cache (keyed on sizePx) still hits during a
-      // pitched pan; perspScale 1 (default) leaves sizePx byte-identical to before.
-      // #777 IV3 — mutually exclusive; see PendingLabel.groundBasis for why.
-      const perspScale = p.groundBasis !== undefined ? 1 : (p.perspectiveScale ?? 1)
-      const rawSizePx = p.def.size * dpr * (Math.round(perspScale * 64) / 64)
-      const sizePx = rawSizePx
+      // CSS-px → physical-px, with this anchor's perspective size multiplier
+      // folded in — the reasoning, the 1/64 quantisation and the layout-cache
+      // contract all live on `labelSizePx` (text-stage-helpers.ts).
+      // #421: no CJK floor — CJK is crisp via local-ideograph; sizePx = authored
+      // size (ML parity).
+      // #2012 INC-5 — ONE multiplier, in the branch the label's own alignment
+      // selects, resolved by the producer that also derived the basis. A
+      // ground-aligned label carries the MAP branch here (it grows with distance);
+      // a billboard carries #1081's viewport branch. This line used to force 1
+      // whenever a basis was present, which is neither branch — design §8 R6.
+      const sizePx = labelSizePx(p.def.size, dpr, p.perspectiveScale ?? 1)
       // Label italic → renderer shears CJK/Hangul glyphs (synthetic oblique).
       const labelItalic = p.def.fontStyle === 'italic'
       // letter-spacing in em units (Mapbox convention) — multiplies
@@ -1590,14 +1586,17 @@ export class TextStage {
         cjkBucketFor(p.text, p.def.size, dpr),
       )
       if (glyphs.length === 0) continue
-      // Mirror the point-loop CJK display-size floor (~:716): a dense Han
-      // glyph minified from the 24-px atlas to the low-zoom size renders as
-      // a solid box. Curved/line labels were missing this floor, so CJK road
-      // labels boxed out at low zoom. Everything downstream (verticalOffset,
-      // halfH, letterSpacing, advances) derives from sizePx → single site.
-      // #421: floor removed — CJK crisp via local-ideograph; sizePx = authored size (ML parity).
-      const rawSizePx = p.def.size * dpr
-      const sizePx = rawSizePx
+      // Everything downstream (verticalOffset, halfH, letterSpacing, advances)
+      // derives from sizePx → single site, the same one the point loop uses.
+      // #421: no CJK floor — CJK is crisp via local-ideograph (ML parity).
+      // #2012 INC-5 — a curved label that lies in the ground plane takes the map
+      // branch of MapLibre's perspective size correction, which is what makes a
+      // far road name hold at ~0.5× instead of foreshortening away. Absent (every
+      // billboarded run, and every unpitched frame) it is 1 and this is
+      // byte-identical to the authored size × DPR. The curved branch has never
+      // applied the VIEWPORT branch — it is a whole-run walk, not a per-anchor
+      // billboard — so there is nothing here to be mutually exclusive with.
+      const sizePx = labelSizePx(p.def.size, dpr, p.groundSizeScale ?? 1)
       const labelItalic = p.def.fontStyle === 'italic'
       // Same per-font override path as the point-label branch above —
       // see the comment there for rationale. Curve labels reuse the

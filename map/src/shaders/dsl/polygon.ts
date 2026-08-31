@@ -93,6 +93,7 @@ import {
 } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
+import { mercCamRel } from './merc-cam-rel'
 
 // ── Struct declarations ──
 //
@@ -406,32 +407,21 @@ const emitPolygonProjectionLadder = (args: {
   const deg2rad = DEG2RAD
   const earthR = EARTH_R
   const pi = PI
-  // #2042 INC-6 — flag-selected Mercator camera rel: the flat-arm analogue
-  // of the 3D arm's INC-1 recombination (same flag lane,
-  // cam_ecef_center_h.w). Legacy: the CPU-packed cam_h/cam_l DSFUN pair.
-  // Recombine: (camMercH − originH, camMercL − originL) — hi−hi is
-  // Sterbenz-exact when the camera is near the tile, lo−lo recovers the
-  // low bits the single-f32 tile_origin_merc lost. Substituted for every
-  // cam_h/cam_l read in the flat arms below; the 3D arm never reads them.
-  const _mercHL = U.field.cam_merc_center_hl
-  const _originHL = U.field.tile_origin_merc_hl
-  const _mercRecombine = U.field.cam_ecef_center_h.w.gt(0.5)
-  const camRelH = Let(
-    'cam_rel_h',
-    select(
-      _mercRecombine,
-      vec2(_mercHL.x.sub(_originHL.x), _mercHL.y.sub(_originHL.y)),
-      U.field.cam_h,
-    ),
-  )
-  const camRelL = Let(
-    'cam_rel_l',
-    select(
-      _mercRecombine,
-      vec2(_mercHL.z.sub(_originHL.z), _mercHL.w.sub(_originHL.w)),
-      U.field.cam_l,
-    ),
-  )
+  // #2042 INC-6 — flag-selected Mercator camera rel: the flat-arm analogue of the 3D arm's
+  // INC-1 recombination, same flag lane (cam_ecef_center_h.w). Substituted for every cam_h/cam_l
+  // read in the flat arms below; the 3D arm never reads them. The recipe itself now lives in
+  // merc-cam-rel.ts so line.ts can share it rather than spell out a second copy — see that
+  // module for why it returns raw expressions and why these two `Let`s must stay HERE, at this
+  // exact point in the body, for the emitted bytes to be unchanged.
+  const _rel = mercCamRel({
+    camMercCenterHl: U.field.cam_merc_center_hl,
+    tileOriginMercHl: U.field.tile_origin_merc_hl,
+    camEcefCenterH: U.field.cam_ecef_center_h,
+    camH: U.field.cam_h,
+    camL: U.field.cam_l,
+  })
+  const camRelH = Let('cam_rel_h', _rel.h)
+  const camRelL = Let('cam_rel_l', _rel.l)
   // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
   // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
   // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1397 this was

@@ -666,6 +666,39 @@ export function rotateLabelTranslate(
   return [dx * c - dy * s, dx * s + dy * c]
 }
 
+/** Display size in PHYSICAL px for one label — the SINGLE quad authority.
+ *
+ *  Everything a label's geometry is made of derives from this number: per-glyph
+ *  advances, letter-spacing, the wrap width, the line height, the SDF raster
+ *  scale, the collision box and the drawn quad. Changing it therefore scales the
+ *  box AND the quad together — which is why the perspective correction is folded
+ *  in HERE rather than applied to the quad at draw time (a quad that shrinks while
+ *  its collision box does not reserves a footprint it no longer occupies).
+ *
+ *  `perspScale` is MapLibre's `perspective_ratio` for this label, already resolved
+ *  to the branch its alignment selects (`symbol_sdf.vertex.glsl:93-101`):
+ *    - viewport-aligned (billboard) — #1081's shrink-only viewport branch, handed
+ *      down per anchor by the projector;
+ *    - ground-aligned (`text-pitch-alignment: map`) — the map branch, which GROWS
+ *      with distance (`groundPerspectiveScale`, #2012 INC-5 / design §3.3).
+ *  1 is the no-correction identity and leaves the result byte-identical to the
+ *  authored size × DPR, so every path that has no perspective term is unaffected.
+ *
+ *  QUANTISED TO 1/64 (≤1.5 % steps, sub-pixel at any legible size). The across-
+ *  frame layout cache is keyed on the resulting sizePx, so an unquantised factor
+ *  would mint a fresh cache entry on every frame of a pitched pan and turn a
+ *  steady scene into an all-miss shaping loop. Wrapping is unaffected either way —
+ *  advances and maxWidth both scale with sizePx, so line breaks are scale-
+ *  invariant.
+ *
+ *  It lives here, beside the bbox arithmetic and unit-testable, because it is now
+ *  the arithmetic BOTH prepare() loops perform: the point loop has folded a
+ *  perspective factor in since #1081 and the curved loop does since INC-5, and two
+ *  copies of it are two chances to quantise one and not the other. */
+export function labelSizePx(authoredSize: number, dpr: number, perspScale: number): number {
+  return authoredSize * dpr * (Math.round(perspScale * 64) / 64)
+}
+
 /** The screen box a laid-out label occupies — the ONE place that arithmetic
  *  lives. It had been written twice, identically, in the cache-hit and shaping
  *  paths of prepare(); a ground basis has to reach both, and two copies of a
