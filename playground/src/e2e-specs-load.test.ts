@@ -120,6 +120,8 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
   // ---- CURATED -- individually researched (test.yml's own documented "NOT here" specs, the #1349 census exact matches, and specs whose header text resolves ambiguity explicitly). See the cited issue/PR in each reason. (35) ----
   '_cold-start-perf.spec.ts':
     'mixed local+network cases (#1349 census: 2 of the 47 stability/perf specs) -- local + openfreemap/PMTiles cases in one file; needs splitting before any CI use (#1349)',
+  '_raster-grid-lat-parity.spec.ts':
+    'FAIL-BEFORE gate for #2137, deliberately RED until the fix lands: the raster grid VS builds absolute ECEF from angles in f32, measured 1.17e+3 m vs a derived 2 m bound. Registering it now would make CI red for everyone, so it is knowingly dark for exactly as long as the defect it asserts is unfixed -- this row is DELETED and the spec registered in test.yml in the same commit as the fix (#2137)',
   '_convert-page-redesign.spec.ts':
     "targets the SITE Astro dev server (port 4321) via a throwaway static server the spec itself spins up -- Playwright's dev-server config here points only at the playground harness registered specs use; needs separate CI wiring before registration (#1349)",
   '_desktop-baseline-z10.spec.ts':
