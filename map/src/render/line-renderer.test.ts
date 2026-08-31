@@ -311,7 +311,7 @@ describe('buildLineSegments', () => {
       [0, 0.5],
       [1, 2.5],
     ])
-    const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, widths)
+    const seg = buildLineSegments(vertices, indices, 6, null, 0, 0, undefined, widths)
     // First 3 segments belong to featId=0 → width 0.5
     for (let s = 0; s < 3; s++) {
       expect(seg[s * LINE_SEGMENT_STRIDE_F32 + OFF_WIDTH_OVERRIDE]).toBe(0.5)
@@ -329,7 +329,7 @@ describe('buildLineSegments', () => {
     vertices[1 * 6 + 0] = 100
     vertices[1 * 6 + 4] = 0
     const indices = new Uint32Array([0, 1])
-    const seg = buildLineSegments(vertices, indices, 6)
+    const seg = buildLineSegments(vertices, indices, 6, null)
     // 0 = "no override" sentinel — line shader falls through to
     // layer.width_px (legacy / unmerged path).
     expect(seg[OFF_WIDTH_OVERRIDE]).toBe(0)
@@ -359,7 +359,7 @@ describe('buildLineSegments', () => {
       [0, f0Color >>> 0],
       [1, f1Color >>> 0],
     ])
-    const seg = buildLineSegments(vertices, indices, 6, 0, 0, undefined, undefined, colors)
+    const seg = buildLineSegments(vertices, indices, 6, null, 0, 0, undefined, undefined, colors)
     const segU32 = new Uint32Array(seg.buffer)
     expect(segU32[0 * LINE_SEGMENT_STRIDE_F32 + OFF_COLOR_PACKED]).toBe(f0Color >>> 0)
     expect(segU32[1 * LINE_SEGMENT_STRIDE_F32 + OFF_COLOR_PACKED]).toBe(f1Color >>> 0)
@@ -377,7 +377,7 @@ describe('buildLineSegments', () => {
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
 
-    const segData = buildLineSegments(vertices, indices, 6)
+    const segData = buildLineSegments(vertices, indices, 6, null)
 
     expect(segData.length).toBe(2 * LINE_SEGMENT_STRIDE_F32)
 
@@ -398,7 +398,7 @@ describe('buildLineSegments', () => {
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
 
-    const segData = buildLineSegments(vertices, indices, 6)
+    const segData = buildLineSegments(vertices, indices, 6, null)
 
     // Segment 0: no prev (first seg), next should point toward v2
     const seg0PrevX = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PREV_TANGENT + 0]
@@ -427,7 +427,7 @@ describe('buildLineSegments', () => {
         [1000, 0],
       ])
       const indices = new Uint32Array([0, 1])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       expect(segData[OFF_PAD_P0]).toBe(1)
       expect(segData[OFF_PAD_P1]).toBe(1)
     })
@@ -442,7 +442,7 @@ describe('buildLineSegments', () => {
         [2000, 0],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       // seg 0: p0 is a cap (no prev) → 1. p1 is a straight join → 1.
       expect(segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P0]).toBe(1)
       expect(segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]).toBe(1)
@@ -461,7 +461,7 @@ describe('buildLineSegments', () => {
         [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       const seg0PadP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
       expect(seg0PadP1).toBeCloseTo(1.0, 1)
       const seg1PadP0 = segData[1 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P0]
@@ -480,7 +480,7 @@ describe('buildLineSegments', () => {
         [1000 + 1000 * Math.cos(a), 1000 * Math.sin(a)],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       const seg0PadP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
       expect(seg0PadP1).toBe(1)
     })
@@ -496,7 +496,7 @@ describe('buildLineSegments', () => {
         [2000, 2000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2, 2, 3, 3, 4])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       const segCount = segData.length / LINE_SEGMENT_STRIDE_F32
       for (let i = 0; i < segCount; i++) {
         const pad0 = segData[i * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P0]
@@ -523,7 +523,9 @@ describe('buildLineSegments', () => {
       [2000, 0],
     ])
     const indices = new Uint32Array([0, 1, 1, 2])
-    expect(() => buildLineSegments(vertices, indices, 5)).toThrow(/stride.*6|outlineVertices/i)
+    expect(() => buildLineSegments(vertices, indices, 5, null)).toThrow(
+      /stride.*6|outlineVertices/i,
+    )
   })
 
   // Ports the miter-offset formula from vs_line and asserts that two
@@ -571,7 +573,7 @@ describe('buildLineSegments', () => {
         [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
 
       const s0 = 0 * LINE_SEGMENT_STRIDE_F32
       const s1 = 1 * LINE_SEGMENT_STRIDE_F32
@@ -663,7 +665,7 @@ describe('buildLineSegments', () => {
         [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const seg = buildLineSegments(vertices, indices, 6)
+      const seg = buildLineSegments(vertices, indices, 6, null)
 
       // Seg 0: end side (p1 = shared join vertex), use next_tangent
       const s0 = 0 * LINE_SEGMENT_STRIDE_F32
@@ -913,7 +915,7 @@ describe('buildLineSegments', () => {
         [1000, 1000],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
       expect(padP1).toBeCloseTo(1.0, 1)
     })
@@ -927,7 +929,7 @@ describe('buildLineSegments', () => {
         [3000, 0],
       ])
       const indices = new Uint32Array([0, 1, 1, 2])
-      const segData = buildLineSegments(vertices, indices, 6)
+      const segData = buildLineSegments(vertices, indices, 6, null)
       const padP1 = segData[0 * LINE_SEGMENT_STRIDE_F32 + OFF_PAD_P1]
       // For this geometry tan(θ/2) ≈ 1.333 while 1/sin(θ/2) ≈ 1.25
       expect(padP1).toBeGreaterThan(1.25)
