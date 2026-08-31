@@ -31,8 +31,9 @@ export const LAYER_COMMON: readonly CoverageEntry[] = [
   },
   {
     name: 'metadata',
-    status: 'na',
-    note: 'na — informational only; the Mapbox spec defines `metadata` as arbitrary author data that does NOT affect rendering, so there is nothing to render. Silently dropped (no visual effect).',
+    status: 'unsupported',
+    impact: 'low',
+    note: 'Silently dropped by convertLayer — informational only, so no visual effect, but `unsupported` not `na`: the ROOT `metadata` row is `supported` because the converter preserves that level as a comment, which is a live counterexample to `na`\'s "no xgis equivalent and no plan to add". The two rows are bound to the converter\'s actual per-level behaviour by style-metadata-preserved.test.ts, so neither can drift from it or from the other again.',
   },
   { name: 'ref', status: 'na', note: 'Deprecated layer-ref shorthand (Mapbox style spec v7).' },
 ]

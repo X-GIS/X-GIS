@@ -194,6 +194,17 @@ export function convertMapboxStyle(
     lines.push('')
   }
 
+  if (style.metadata !== undefined && style.metadata !== null) {
+    // Same preservation channel as `name` above (including the `*/` strip):
+    // root `metadata` is arbitrary author data that does not affect rendering,
+    // so a comment is the whole of the xgis form it can have — but dropping it
+    // silently loses the licence / schema-version pointers real styles carry
+    // there (the MapLibre demo style's MapTiler licence + openmaptiles:version).
+    const safeMetadata = JSON.stringify(style.metadata).replace(/\*\//g, '* /')
+    lines.push(`/* Mapbox style metadata: ${safeMetadata} */`)
+    lines.push('')
+  }
+
   // ── Top-level style fields without an X-GIS equivalent ─────────────
   // The Mapbox style spec defines several top-level fields beyond
   // `sources` / `layers` / `name`. The CONVERTER doesn't encode any

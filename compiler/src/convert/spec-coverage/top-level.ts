@@ -11,9 +11,9 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
   },
   {
     name: 'metadata',
-    status: 'unsupported',
-    impact: 'low',
-    note: 'Silent drop — informational only in Mapbox.',
+    status: 'supported',
+    note: 'Preserved as a leading /* comment */ in the converted xgis, the same channel `name` uses. The spec defines root `metadata` as arbitrary author data that does not affect rendering, so a comment is the whole of the xgis form it can have — but real styles put load-bearing pointers there (the MapLibre demo style carries a MapTiler licence + `openmaptiles:version`), which the pre-#2166 silent drop lost with no warning. Bound to the converter — and to the layer-level `metadata` row, which is NOT preserved — by style-metadata-preserved.test.ts.',
+    source: 'mapbox-to-xgis.ts',
   },
   {
     name: 'center',
