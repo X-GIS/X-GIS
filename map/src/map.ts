@@ -133,6 +133,7 @@ import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage } from './text/text-stage'
 import type { TextStageOptions } from './text/text-stage-types'
+import type { DumpedLabel } from './text/text-stage-diagnostics'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import { GraphicsManager } from './graphics/graphics-manager'
@@ -2339,22 +2340,7 @@ export class XGISMap {
   setLabelDumpFilter(substr: string | null): void {
     this.textStage?.setLabelDumpFilter(substr)
   }
-  getDumpedLabels(): ReadonlyArray<{
-    text: string
-    anchorX: number
-    anchorY: number
-    fontSize: number
-    slotSize: number
-    curved: boolean
-    glyphs: ReadonlyArray<{
-      cp: number
-      x: number
-      y: number
-      bearingY: number
-      height: number
-      rfs: number
-    }>
-  }> | null {
+  getDumpedLabels(): ReadonlyArray<DumpedLabel> | null {
     return this.textStage?.getDumpedLabels() ?? null
   }
   /** iter-343 — paired-icon placement dump (debug-labels page). Pairs

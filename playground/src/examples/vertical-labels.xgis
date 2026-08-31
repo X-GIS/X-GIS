@@ -1,0 +1,24 @@
+xgis 1
+
+/* CJK vertical labels — `text-writing-mode: ["vertical"]` (#2144, ADR-0012 D7).
+ *
+ * Three point anchors, one per fixture the design doc names: `서울특별시`
+ * (Hangul), `東京都` (Han) and `Tokyo 東京` (mixed Latin + Han, which
+ * verticalizes because ONE upright codepoint is enough — UAX#50, not a
+ * CJK-dominance ratio). Each label lays out as a downward COLUMN at the em
+ * pitch with every glyph upright, including the Latin ones (MapLibre parity —
+ * see the truth table in map/src/text/vertical-writing.ts).
+ *
+ * Anchors are GeoJSON Points pushed via setSourceData after run(), so the
+ * demo needs no network; glyphs come from the local Canvas2D rasterizer.
+ */
+
+source places { type: geojson }
+
+layer place_labels {
+  source: places
+  | label-[.name] label-color-#fff label-size-28
+    label-halo-2 label-halo-color-#000
+    label-writing-mode-vertical
+    label-allow-overlap
+}

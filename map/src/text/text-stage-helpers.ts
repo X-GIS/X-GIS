@@ -216,6 +216,11 @@ export function layoutCacheKey(
   // standalone label hangs the ink below. Same font/text/size/anchor but
   // different glyphOffsets, so the two must NOT share a cache entry.
   paired: boolean,
+  // #2144 (design §10) — writing mode. Identical font/text/size/anchor/halo/
+  // offsets with one label horizontal and one vertical hashed to the SAME key,
+  // so whichever was laid out first won and the other rendered in the wrong
+  // orientation with no error anywhere. Same hazard, same fix as `paired`.
+  vertical: boolean,
 ): number {
   let h = glyphsKey | 0
   h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
@@ -232,6 +237,7 @@ export function layoutCacheKey(
   h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
   h = Math.imul(h ^ (paired ? 1 : 0), 0x01000193)
+  h = Math.imul(h ^ (vertical ? 1 : 0), 0x01000193)
   return h | 0
 }
 
@@ -289,6 +295,18 @@ export const SHAPING_DEFAULT_OFFSET = -17
  *  diverged from MapLibre whenever line scripts had different ink
  *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
  *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
+/** MapLibre `getAnchorAlignment`'s VERTICAL half — top→0, bottom→1, else 0.5.
+ *  Feeds `mlVerticalLayout`'s constant-lineHeight box (and, for #2144, the
+ *  vertical column's block alignment): `dy` carries no ink-metric anchor term,
+ *  only text-offset / translate / variable, so this is the whole story of where
+ *  a label's block sits relative to its anchor. Extracted from the candidates
+ *  loop of TextStage.prepare() (#2144) — pure, and its consumer lives here. */
+export function anchorVAlign(anchor: string): 0 | 0.5 | 1 {
+  if (anchor === 'top' || anchor.startsWith('top-')) return 0
+  if (anchor === 'bottom' || anchor.startsWith('bottom-')) return 1
+  return 0.5
+}
+
 export function mlVerticalLayout(
   vAlign: 0 | 0.5 | 1,
   lineCount: number,
@@ -556,6 +574,17 @@ export function fillLineWithInlineImages(
   return pen - startX
 }
 
+/** Mapbox `text-justify: auto` resolved against the anchor — left-anchors →
+ *  left, right-anchors → right, else center. A non-auto value passes through.
+ *  Extracted from the candidates loop of TextStage.prepare() (#2144) — pure,
+ *  and its consumer (`fillPointGlyphOffsetsWithImages`) lives here. */
+export function resolveJustify(justify: string, anchor: string): 'left' | 'right' | 'center' {
+  if (justify === 'left' || justify === 'right' || justify === 'center') return justify
+  if (anchor === 'left' || anchor.endsWith('-left')) return 'left'
+  if (anchor === 'right' || anchor.endsWith('-right')) return 'right'
+  return 'center'
+}
+
 /** Fill a whole point label's `glyphOffsets` with inline images spliced in,
  *  across every wrapped line — the image-bearing counterpart of the plain
  *  per-line pen loop in TextStage.prepare(). Each image is assigned to the
@@ -564,6 +593,8 @@ export function fillLineWithInlineImages(
  *  matches the plain path but measures line width INCLUDING that line's
  *  image advances, so a centred/right label with an inline image stays
  *  centred. Appends every placement to `out`. Pure; exported for testing. */
+const NO_INLINE_SPRITES: readonly InlineImageSprite[] = []
+
 export function fillPointGlyphOffsetsWithImages(
   glyphOffsets: Float32Array,
   advances: ArrayLike<number>,
@@ -580,11 +611,17 @@ export function fillPointGlyphOffsetsWithImages(
   for (let li = 0; li < lines.length; li++) {
     const ln = lines[li]!
     const lastLine = li === lines.length - 1
-    const lineSprites = inlineSprites.filter(
-      (s) =>
-        s.glyphIndex >= ln.start &&
-        (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
-    )
+    // #2144 — the plain-text point label now comes through here too, and it is
+    // the hot one: skip the per-line `filter` allocation when there is nothing
+    // to splice rather than handing every label an empty array per line.
+    const lineSprites =
+      inlineSprites.length === 0
+        ? NO_INLINE_SPRITES
+        : inlineSprites.filter(
+            (s) =>
+              s.glyphIndex >= ln.start &&
+              (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
+          )
     let lineImgAdv = 0
     for (const s of lineSprites) lineImgAdv += s.advancePx
     const lineWidth = ln.width + lineImgAdv

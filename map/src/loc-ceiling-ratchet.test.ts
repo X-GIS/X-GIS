@@ -852,7 +852,9 @@ const CEILINGS: Record<string, number> = {
   // that question has drifted three times already. Reads a deadlined probe rather than the
   // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
   // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
-  'map/src/map.ts': 5482,
+  // 5482→5468 (#2144): `getDumpedLabels`'s inline return type — the third
+  // hand-written copy of `DumpedLabel` — becomes the imported interface. MEASURED.
+  'map/src/map.ts': 5468,
   // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
@@ -1076,7 +1078,30 @@ const CEILINGS: Record<string, number> = {
   // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
   // size derivation and their reasoning. The ceiling drops to the measured post-merge size
   // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2175,
+  // 2175→2164 (#2144, D7 P2 — CJK vertical writing). The file had ZERO headroom
+  // and the column needed ~24 lines (the `vertical` gate, the rotations arena
+  // alloc, the `fillVerticalColumn` call, the vertical bbox metrics, the two
+  // draw sites, the cache-entry field and the layoutCacheKey term), so the
+  // increment is paid for by THREE extractions rather than a bump:
+  // (1) the plain-text per-line pen loop is DELETED, not moved: with no sprites
+  //     `fillPointGlyphOffsetsWithImages` degrades to exactly it, so the second
+  //     copy of the justify + advance arithmetic is gone and one copy can no
+  //     longer drift from the other (the `labelSizePx` rationale, one level down);
+  // (2) `anchorVAlign` (MapLibre getAnchorAlignment's vertical half) and
+  //     `resolveJustify` (`text-justify: auto` against the anchor) move to
+  //     text-stage-helpers.ts, each landing beside its only consumer there
+  //     (`mlVerticalLayout` and `fillPointGlyphOffsetsWithImages`);
+  // (3) the 20-line #608 autopsy above the `pairedTextCentreShift` call moves
+  //     into that function's docblock in paired-symbol-box.ts — the file whose
+  //     own header says the split exists "so each has room to carry its own
+  //     rationale".
+  // (4) `getDumpedLabels`'s inline return shape — a hand-written mirror of
+  //     `DumpedLabel`, written out a THIRD time in map.ts — collapses to the
+  //     exported interface. P2 adds two fields to that shape (`rot`, `vertical`),
+  //     and three copies of one type are three chances to add a field to two.
+  // The ceiling drops to the measured post-prettier size rather than being left
+  // slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2149,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

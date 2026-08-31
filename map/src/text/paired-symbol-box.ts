@@ -21,7 +21,32 @@ export interface PairedGlyphMetric {
  *  centre-anchored paired text, pin the band CENTROID instead by shifting on
  *  (maxAscender − maxDescender) / 2 — one shared per-block shift.
  *
- *  `paired` false, or a vertical alignment other than centre, keeps the hang. */
+ *  `paired` false, or a vertical alignment other than centre, keeps the hang.
+ *
+ *  MOVED HERE from the text-stage call site (#2144), where it sat above this
+ *  call and cost the file lines it no longer had; the rationale belongs with
+ *  the arithmetic it explains:
+ *
+ *  #608 — vertical-placement parity with MapLibre. MapLibre's
+ *  `SHAPING_DEFAULT_OFFSET = -17` baseline term exists to convert
+ *  from its glyph-metric origin (MapLibre `metrics.top` is
+ *  ASCENDER-relative — `glyphTop - topAdjustment`, negative for a
+ *  normal cap) down to the alphabetic baseline. X-GIS's `bearingY`
+ *  is ALREADY a true baseline ascent (the pbf-rasterizer recovers a
+ *  positive ascent from the ascender-relative PBF `top`), so the
+ *  renderer's `y0 = baseline - bearingY*sc` places ink correctly
+ *  relative to the baseline on its own. Re-applying the -17 SHAPING
+ *  term in the baseline DOUBLE-COUNTS the origin shift, lifting the
+ *  ink ~17/24-em ABOVE where MapLibre puts it (measured: Houston z12
+ *  ink ~19px too HIGH; confirmed for center + bottom anchors). Cancel
+ *  the SHAPING term (`-shapingBaselineOff`) so the per-line baseline
+ *  is just MapLibre's `align` shiftY (li·LH spacing preserved); the
+ *  ink then hangs from that baseline by the glyph's own
+ *  metrics (-bearingY + height/2), exactly as MapLibre — a
+ *  GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
+ *  differ), NOT a constant. This is the STANDALONE place-label hang; the
+ *  #608-scope EXCEPTION for icon-paired / shield text is the `paired` branch
+ *  below. */
 export function pairedTextCentreShift(
   glyphs: readonly PairedGlyphMetric[],
   sizePx: number,

@@ -71,6 +71,8 @@ import {
   rotateLabelTranslate,
   deriveLabelBbox,
   labelSizePx,
+  anchorVAlign,
+  resolveJustify,
 } from './text-stage-helpers'
 import type {
   TextStageOptions,
@@ -79,9 +81,10 @@ import type {
   CurvedGroundArgs,
 } from './text-stage-types'
 import { walkCurvedGlyphs, invertGroundBasis } from './curved-glyph-walk'
+import { verticalWritingActive, fillVerticalColumn } from './vertical-writing'
 import { groundBasisAabb } from './ground-basis'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
-import { TextStageDiagnostics } from './text-stage-diagnostics'
+import { TextStageDiagnostics, type DumpedLabel } from './text-stage-diagnostics'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs
@@ -269,6 +272,10 @@ export class TextStage {
       blockBottom: number
       padding: number
       glyphOffsets: Float32Array
+      /** #2144 — present only for a vertical column, whose orientation lives
+       *  here and NOT in the offsets; `vertical` is a layoutCacheKey term so a
+       *  horizontal entry can never be served in its place. */
+      glyphRotations?: Float32Array
       glyphs: import('./sdf/glyph-atlas-host').GlyphInfo[]
       /** iter-190 — atlas generation at cache write. On read, compare
        *  with host.getGeneration(); mismatch → glyphs[] slot references
@@ -677,22 +684,7 @@ export class TextStage {
    *  bearingY*(fontSize/rfs) - (slotSize - height)*(fontSize/rfs)/2).
    *  A correct label has uniform RENDERED y per line; a mixed-rfs glyph
    *  renders at the wrong height even when its offset y is correct. */
-  getDumpedLabels(): ReadonlyArray<{
-    text: string
-    anchorX: number
-    anchorY: number
-    fontSize: number
-    slotSize: number
-    curved: boolean
-    glyphs: ReadonlyArray<{
-      cp: number
-      x: number
-      y: number
-      bearingY: number
-      height: number
-      rfs: number
-    }>
-  }> {
+  getDumpedLabels(): ReadonlyArray<DumpedLabel> {
     return this._diag.getDumpedLabels()
   }
 
@@ -1137,6 +1129,12 @@ export class TextStage {
       const { sprites: inlineSprites, totalAdvancePx: inlineImageAdvancePx } =
         resolveInlineImageSprites(p.inlineImages, this.spriteSource, dpr)
       totalAdvance += inlineImageAdvancePx
+      // #2144 — a column needs `text-writing-mode: ["vertical"]`, a script that
+      // supports it (the property is a HINT — §1.1/§1.4), and no inline image (an
+      // image-bearing label keeps the horizontal pen instead of dropping sprites).
+      const vertical =
+        inlineSprites.length === 0 && verticalWritingActive(p.def.writingMode, p.text)
+      if (vertical) totalAdvance = sizePx
       // Variable anchor (Mapbox `text-variable-anchor`): runtime
       // tries each candidate during collision and picks the first
       // non-overlapping one. Single-anchor labels always have one
@@ -1235,6 +1233,9 @@ export class TextStage {
           // #608-scope — paired (shield) vs standalone produce different
           // glyphOffsets for identical font/text/size/anchor; key them apart.
           p.pairKey !== undefined,
+          // #2144 (design §10) — same hazard one axis over: a column and a row
+          // of the same string are the same key without this term.
+          vertical,
         )
         const hit = this._layoutCache.get(_layoutKey)
         // iter-190 generation guard + Audit ④ B1 text-identity guard.
@@ -1286,6 +1287,9 @@ export class TextStage {
                   letterSpacingPx: hit.letterSpacingPx,
                   rotateRad: hit.rotateRad,
                   glyphOffsets: hit.glyphOffsets,
+                  ...(hit.glyphRotations !== undefined
+                    ? { glyphRotations: hit.glyphRotations, glyphLayout: 'vertical' as const }
+                    : {}),
                   sdfRadius: this.opts.sdfRadius,
                   ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
                 },
@@ -1316,18 +1320,7 @@ export class TextStage {
         if (anchor === 'left' || anchor.endsWith('-left')) dx = 0
         else if (anchor === 'right' || anchor.endsWith('-right')) dx = -totalAdvance
         else dx = -totalAdvance / 2
-        // Vertical placement follows MapLibre `shapeLines`+`align()`:
-        // a constant lineHeight box per line + a fixed
-        // SHAPING_DEFAULT_OFFSET baseline, aligned by getAnchorAlignment
-        // (top→0, bottom→1, else 0.5). `dy` no longer carries an
-        // ink-metric anchor term — it's purely text-offset / translate
-        // / variable below; the per-line baseline comes from `vlay`.
-        const vAlign: 0 | 0.5 | 1 =
-          anchor === 'top' || anchor.startsWith('top-')
-            ? 0
-            : anchor === 'bottom' || anchor.startsWith('bottom-')
-              ? 1
-              : 0.5
+        const vAlign = anchorVAlign(anchor)
         // iter-242 (Plan AAA B.2) — pass arena so baselineY scratches
         // from FrameArena instead of allocating a fresh `new Array`.
         const vlay = mlVerticalLayout(vAlign, lines.length, lineHeightPx, sizePx, this._frameArena)
@@ -1387,39 +1380,28 @@ export class TextStage {
         // #777 I-G — inline-image quads for THIS candidate (empty for the
         // common plain-text label; filled by the image-aware pen path below).
         const imgPlacements: ShapedInlineImage[] = []
-        {
-          // text-justify: auto resolves per anchor — left-anchors →
-          // left, right-anchors → right, else center.
-          const isLeftAnchor = anchor === 'left' || anchor.endsWith('-left')
-          const isRightAnchor = anchor === 'right' || anchor.endsWith('-right')
-          const effectiveJustify =
-            justify === 'auto'
-              ? isLeftAnchor
-                ? 'left'
-                : isRightAnchor
-                  ? 'right'
-                  : 'center'
-              : justify
-          // #608 — vertical-placement parity with MapLibre. MapLibre's
-          // `SHAPING_DEFAULT_OFFSET = -17` baseline term exists to convert
-          // from its glyph-metric origin (MapLibre `metrics.top` is
-          // ASCENDER-relative — `glyphTop - topAdjustment`, negative for a
-          // normal cap) down to the alphabetic baseline. X-GIS's `bearingY`
-          // is ALREADY a true baseline ascent (the pbf-rasterizer recovers a
-          // positive ascent from the ascender-relative PBF `top`), so the
-          // renderer's `y0 = baseline - bearingY*sc` places ink correctly
-          // relative to the baseline on its own. Re-applying the -17 SHAPING
-          // term in the baseline DOUBLE-COUNTS the origin shift, lifting the
-          // ink ~17/24-em ABOVE where MapLibre puts it (measured: Houston z12
-          // ink ~19px too HIGH; confirmed for center + bottom anchors). Cancel
-          // the SHAPING term (`-shapingBaselineOff`) so the per-line baseline
-          // is just MapLibre's `align` shiftY (li·LH spacing preserved); the
-          // ink then hangs from that baseline by the glyph's own
-          // metrics (-bearingY + height/2), exactly as MapLibre — a
-          // GLYPH-METRIC-DEPENDENT offset (all-caps vs mixed-case vs CJK
-          // differ), NOT a constant. This is the STANDALONE place-label hang.
-          // The #608-scope EXCEPTION for icon-paired / shield text lives with the
-          // logic in paired-symbol-box.ts (pairedTextCentreShift).
+        // #2144 — a vertical label composes the SAME two arrays the curved path
+        // already uses; the column IS the offsets and the orientation IS the
+        // rotations, so nothing downstream of here changes (design §3).
+        let glyphRotations: Float32Array | undefined
+        let vcol: { blockTop: number; blockBottom: number } | undefined
+        if (vertical) {
+          bumpAlloc('text-stage.prepare.glyphRotations.point.FrameArena')
+          glyphRotations = this._frameArena.allocF32(glyphs.length)
+          vcol = fillVerticalColumn(
+            glyphs,
+            advances,
+            sizePx,
+            letterSpacingPx,
+            vAlign,
+            glyphOffsets,
+            glyphRotations,
+          )
+        } else {
+          const effectiveJustify = resolveJustify(justify, anchor)
+          // #608 — the standalone place-label hang vs the icon-paired box-centre.
+          // Both conventions and the measured autopsy live with the logic, in
+          // paired-symbol-box.ts (pairedTextCentreShift).
           const centreShift = pairedTextCentreShift(
             glyphs,
             sizePx,
@@ -1428,45 +1410,30 @@ export class TextStage {
             p.pairKey !== undefined,
             vAlign,
           )
-          if (inlineSprites.length > 0) {
-            // #777 I-G — image-aware pen: splices each sprite's advance into
-            // the glyph run (post-image text shifts right) and records the
-            // quad placements (relative to drawX/drawY) into imgPlacements.
-            fillPointGlyphOffsetsWithImages(
-              glyphOffsets,
-              advances,
-              lines,
-              vlay.baselineY,
-              centreShift,
-              letterSpacingPx,
-              totalAdvance,
-              effectiveJustify,
-              sizePx,
-              inlineSprites,
-              imgPlacements,
-            )
-          } else {
-            for (let li = 0; li < lines.length; li++) {
-              const ln = lines[li]!
-              let lineX = 0
-              if (effectiveJustify === 'right') lineX = totalAdvance - ln.width
-              else if (effectiveJustify === 'left') lineX = 0
-              else lineX = (totalAdvance - ln.width) * 0.5
-              const lineY = vlay.baselineY[li]! + centreShift
-              let pen = lineX
-              for (let gi = ln.start; gi < ln.end; gi++) {
-                glyphOffsets[gi * 2] = pen
-                glyphOffsets[gi * 2 + 1] = lineY
-                pen += advances[gi]!
-                if (gi < ln.end - 1) pen += letterSpacingPx
-              }
-            }
-          }
+          // #777 I-G — image-aware pen: splices each sprite's advance into
+          // the glyph run (post-image text shifts right) and records the
+          // quad placements (relative to drawX/drawY) into imgPlacements.
+          // #2144 — and the plain-text pen too: with no sprites this degrades
+          // to exactly the per-line justify + advance loop that used to sit
+          // here as a second copy, and one copy cannot drift from the other.
+          fillPointGlyphOffsetsWithImages(
+            glyphOffsets,
+            advances,
+            lines,
+            vlay.baselineY,
+            centreShift,
+            letterSpacingPx,
+            totalAdvance,
+            effectiveJustify,
+            sizePx,
+            inlineSprites,
+            imgPlacements,
+          )
         }
         const bboxMetrics = {
           totalAdvance,
-          blockTop: vlay.blockTop,
-          blockBottom: vlay.blockBottom,
+          blockTop: vcol ? vcol.blockTop : vlay.blockTop,
+          blockBottom: vcol ? vcol.blockBottom : vlay.blockBottom,
           padding,
         }
         const bbox = deriveLabelBbox(drawX, drawY, bboxMetrics, p.groundBasis)
@@ -1493,6 +1460,9 @@ export class TextStage {
             letterSpacingPx,
             rotateRad: p.def.rotate ? (p.def.rotate * Math.PI) / 180 : undefined,
             glyphOffsets,
+            ...(glyphRotations !== undefined
+              ? { glyphRotations, glyphLayout: 'vertical' as const }
+              : {}),
             sdfRadius: this.opts.sdfRadius,
             ...(p.groundBasis !== undefined ? { groundBasis: p.groundBasis } : {}),
           },
@@ -1516,6 +1486,9 @@ export class TextStage {
             dy,
             ...bboxMetrics,
             glyphOffsets: cachedGlyphOffsets,
+            ...(glyphRotations !== undefined
+              ? { glyphRotations: new Float32Array(glyphRotations) }
+              : {}),
             glyphs,
             generation: this.host.getGeneration(),
             // Audit ④ B1 — `_isCacheable` here ⟹ `_srcKey` was assigned
@@ -1705,6 +1678,7 @@ export class TextStage {
         letterSpacingPx,
         glyphOffsets: walked.glyphOffsets,
         glyphRotations: walked.glyphRotations,
+        glyphLayout: 'curved' as const,
         sdfRadius: this.opts.sdfRadius,
         // #2012 INC-4 — lay the quads in the ground plane. The pivot is
         // mandatory here: this draw's anchor is (0,0), so a basis pivoted on
