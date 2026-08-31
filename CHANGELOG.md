@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b0df728a85b67e922fdc507d4fcba4c6a86ca178
+  Generated from: 74610ede05261b7f15f089f52bc9174bb611f440
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b0df728a85b6
+    bun scripts/emit-changelog.ts --since 74610ede0526
 -->
 
 # Changelog
@@ -31,6 +31,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data:** inject $geometry into the vector-tile slice filter ([#2192](https://github.com/X-GIS/X-GIS/pull/2192)) `74610ed`
 - **convert:** *-translate-anchor spec default is map, not viewport ([#2180](https://github.com/X-GIS/X-GIS/pull/2180)) `867803d`
 - **raster:** position the grid VS from CPU-exact trig instead of building ECEF from angles ([#2140](https://github.com/X-GIS/X-GIS/pull/2140)) `4372e89`
 - **data:** bound the one keep-warm signal a hanging fetch could pin ([#2183](https://github.com/X-GIS/X-GIS/pull/2183)) `2d6023a`
