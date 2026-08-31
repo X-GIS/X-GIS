@@ -869,13 +869,16 @@ const CEILINGS: Record<string, number> = {
   // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
   // →5478 (#2149 increment 3, main): the sprite keep-alive block (11 lines) moved onto its
   // registration in pending-work.ts — the shared registry term already covers it.
-  // →5464 (this merge): FIVE bumps have now been authored against the same base — this
-  // branch's −14 (#2144), #2118's +4, #2162's +3, #2149's net-zero and #2149-inc3's −11 —
-  // so no branch's number survives and arithmetic on any subset of them is wrong. Set from
-  // `wc -l` on the merged file. Every bump note above is kept because each documents a
-  // different change; only the number is re-derived (CLAUDE.md §12). Lower as #991
-  // decomposes map.ts.
-  'map/src/map.ts': 5464,
+  // →5464 (merge union): FIVE bumps were authored against the same base — #2144's −14,
+  // #2118's +4, #2162's +3, #2149's net-zero and #2149-inc3's −11 — so no branch's number
+  // survives and arithmetic on any subset of them is wrong. Set from `wc -l` on the merged
+  // file; every bump note above is kept because each documents a different change
+  // (CLAUDE.md §12).
+  // →5432 (#2149 increment 6): hasPendingSourceWork() + its doc + its call line deleted
+  // (the registry's full-union read covers the set); the burst dep re-wired to
+  // hasPending(SCOPE_VT_PIPELINE) with a 4-line comment. MEASURED (`wc -l`) on the
+  // increment-6 tree over the #2154 base. Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 5432,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1660,7 +1663,9 @@ const CEILINGS: Record<string, number> = {
   // "settles to 0 exactly when that gate stops re-arming" -- it is three of the gate's
   // six terms (retries, pending VT uploads and `_czPendingAdvance` absent). One line,
   // comment-only. MEASURED post-prettier.
-  'map/src/render-loop.ts': 935,
+  // →933 (#2149 increment 6): keepLoopWarm's vtRenderers input died — the VT signals ride
+  // the registry scope, so the call site passes one input fewer. MEASURED post-prettier.
+  'map/src/render-loop.ts': 933,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

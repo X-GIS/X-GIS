@@ -29,7 +29,10 @@ test('capture compare panes', async ({ page }) => {
         const tick = () => {
           let ok = false
           try {
-            ok = m?.hasPendingSourceWork?.() === false
+            // #2149 inc 6: registry probe first; legacy method for older builds.
+            ok = m?._pendingWork?.hasPending
+              ? m._pendingWork.hasPending() === false
+              : m?.hasPendingSourceWork?.() === false
           } catch {}
           s = ok ? s + 1 : 0
           s >= 8 || performance.now() - t0 > 15_000 ? res() : requestAnimationFrame(tick)

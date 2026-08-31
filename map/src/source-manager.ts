@@ -4,7 +4,7 @@
 // `_attachGeoJSONViaVirtualPMTiles` / `_attachInlineGeoJSONViaVirtualPMTiles` / `_reprojectIngest`
 // / `setSourceData`) live here. XGISMap keeps the source-state Maps (`rawDatasets` / `sourceCRS`)
 // as the SHARED references — SourceManager receives the SAME Map instances by reference, so every
-// internal read in renderFrame / rebuildLayers / hasPendingSourceWork / diagnostics stays
+// internal read in renderFrame / rebuildLayers / the pending-work probes / diagnostics stays
 // untouched. `vtSources` registration routes through the injected `registerVtSource` callback
 // (XGISMap's `_registerVtSource`) so the #1155 F3 cold-start burst flag is applied at the single
 // write authority.

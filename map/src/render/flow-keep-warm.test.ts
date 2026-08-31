@@ -58,7 +58,12 @@ describe('flow-field keep-alive (#1333)', () => {
     // If the flow gate drifted into a different method, a reader auditing "what keeps the loop
     // warm" would read a complete-looking list that is missing one.
     const body = idleDecision()
-    for (const sibling of ['hasFadingTiles()', 'hasAnimatedGraphics()', 'hasPendingSourceWork()']) {
+    // (#2149 inc 6: the per-source data terms merged into the one registry read.)
+    for (const sibling of [
+      'hasFadingTiles()',
+      'hasAnimatedGraphics()',
+      '_pendingWork.hasPending()',
+    ]) {
       expect(body, `${sibling} should share the idle decision with the flow gate`).toContain(
         sibling,
       )

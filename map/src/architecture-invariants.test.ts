@@ -316,11 +316,11 @@ describe('arch ratchet: Gate-10 — every safeFetch caller is a classified async
   const REGISTRY: Record<string, { sites: number; why: string }> = {
     'data/src/vector-tile-loader.ts': {
       sites: 2,
-      why: '(a) VT tiles — source.hasPendingLoads() via hasPendingSourceWork (map.ts:4513)',
+      why: '(a) VT tiles — source.hasPendingLoads() via the vt-fetch registration (pending-work.ts, #2149)',
     },
     'data/src/tile-select.ts': {
       sites: 1,
-      why: '(a) raster image tiles — input.raster.hasPendingLoads() in keepLoopWarm',
+      why: '(a) raster image tiles — rasterRenderer.pendingLoadCount() via the raster-fetch registration (#2149)',
     },
     'map/src/text/sdf/pbf/glyph-pbf-cache.ts': {
       sites: 1,

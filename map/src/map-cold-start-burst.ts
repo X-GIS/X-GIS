@@ -45,8 +45,9 @@ export interface ColdStartBurstDeps {
    *  registration time, not through this hook. */
   applyToAllSources: (on: boolean) => void
   /** True while any source still has pipeline work that didn't fit last frame's
-   *  budgets (XGISMap.hasPendingSourceWork — HTTP fetches, deferred uploads,
-   *  last-frame missed tiles). The idle hysteresis reads this each tick. */
+   *  budgets (the map wires this to the pending-work registry's SCOPE_VT_PIPELINE —
+   *  HTTP fetches, owed swaps #1448, deferred uploads, last-frame missed tiles).
+   *  The idle hysteresis reads this each tick. */
   hasPendingSourceWork: () => boolean
   /** #1167 — viewport-class gate. Burst engages ONLY when this returns true.
    *  Returns false on mobile-class viewports, so mobile keeps the steady 4/1

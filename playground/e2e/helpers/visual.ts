@@ -114,19 +114,26 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
   // render loop to start. __xgisReady flips true when the loop starts, but
   // URL/inline source data loads ASYNC and paints a frame or two later via
   // invalidate(); the engine renders on-demand, so a fixed rAF count can
-  // screenshot the empty pre-data frame. Poll `hasPendingSourceWork()` (the
-  // engine's own "source fetch/upload/missed-tile still draining" check, the
-  // same gate render-on-demand uses) until it has been clear for a few
-  // consecutive frames. A data-bearing demo keeps it true while its fetch is
-  // in flight, so this waits for the real first paint; an animated scene
-  // (which never goes idle) still settles once its source work drains; a
-  // static demo settles in ~80ms; the bounded fallback prevents a hang.
-  // `_wasIdle` is the field fallback for builds without the method.
+  // screenshot the empty pre-data frame. Poll the pending-work registry
+  // (`_pendingWork.hasPending()`, #2149 — the engine's own "async resource
+  // work still draining" union, every kind deadline-bounded by construction)
+  // until it has been clear for a few consecutive frames. A data-bearing demo
+  // keeps it true while its fetch is in flight, so this waits for the real
+  // first paint; an animated scene (which never goes idle) still settles once
+  // its registered work drains; a static demo settles in ~80ms; the bounded
+  // fallback prevents a hang. The legacy `hasPendingSourceWork()` probe is
+  // kept for pre-#2149 builds, and `_wasIdle` for builds without either —
+  // when the method was deleted (#2149 increment 6) this chain missing the
+  // registry arm made EVERY capture burn the full timeout before resolving.
   await page.evaluate((timeoutMs) => {
     return new Promise<void>((resolve) => {
       const m = (
         window as unknown as {
-          __xgisMap?: { hasPendingSourceWork?: () => boolean; _wasIdle?: boolean }
+          __xgisMap?: {
+            _pendingWork?: { hasPending?: () => boolean }
+            hasPendingSourceWork?: () => boolean
+            _wasIdle?: boolean
+          }
         }
       ).__xgisMap
       if (!m) {
@@ -139,9 +146,11 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
         let settled = false
         try {
           settled =
-            typeof m.hasPendingSourceWork === 'function'
-              ? m.hasPendingSourceWork() === false
-              : m._wasIdle === true
+            typeof m._pendingWork?.hasPending === 'function'
+              ? m._pendingWork.hasPending() === false
+              : typeof m.hasPendingSourceWork === 'function'
+                ? m.hasPendingSourceWork() === false
+                : m._wasIdle === true
         } catch {
           settled = false
         }

@@ -27,6 +27,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   PENDING_WORK_KINDS,
+  SCOPE_KEEP_WARM,
   SCOPE_RASTER_DEM,
   SCOPE_VT_PIPELINE,
   buildPendingWorkRegistry,
@@ -617,13 +618,86 @@ describe('PendingWorkScope — SCOPE_VT_PIPELINE is exactly the burst-exit set',
   })
 })
 
+// ═══ #2149 increment 6 — the end-of-frame gate's scope, and the burst re-wire ═══
+describe('PendingWorkScope — SCOPE_KEEP_WARM is the end-of-frame gate set', () => {
+  const withVt = (arm: VtPendingArm) =>
+    buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      vtSources: new Map([['s', arm]]),
+    })
+
+  it('sees a deferred VT upload and an in-flight LOD ramp', () => {
+    const uploads = withVt({
+      source: {},
+      renderer: { ...quietVtRenderer(), hasPendingUploads: () => true },
+    })
+    expect(uploads.hasPending(SCOPE_KEEP_WARM)).toBe(true)
+    const ramp = withVt({
+      source: {},
+      renderer: { ...quietVtRenderer(), _selection: { _czPendingAdvance: { target: 2 } } },
+    })
+    expect(ramp.hasPending(SCOPE_KEEP_WARM)).toBe(true)
+  })
+
+  it('sees raster work (the increment-4 family rides along via SCOPE_RASTER_DEM)', () => {
+    const r = buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      rasterRenderer: {
+        pendingLoadCount: () => 1,
+        failedTiles: { hasPendingRetries: () => false },
+      },
+    })
+    expect(r.hasPending(SCOPE_KEEP_WARM)).toBe(true)
+  })
+
+  it('does NOT see a VT fetch, and does NOT see glyph work', () => {
+    // The gate never read the fetch signal — that reaches shouldRenderThisFrame through
+    // the full-union read — and widening to the animation/label kinds would change which
+    // signals re-arm _needsRender. Both exclusions are the byte-for-byte guarantee.
+    const fetch = withVt({ source: { hasPendingLoads: () => true }, renderer: quietVtRenderer() })
+    expect(fetch.hasPending(SCOPE_KEEP_WARM)).toBe(false)
+    expect(fetch.hasPending()).toBe(true)
+    const glyph = buildPendingWorkRegistry({
+      textStage: { hasPendingGlyphLoads: () => true },
+      iconStage: null,
+      ...coldArms(),
+    })
+    expect(glyph.hasPending(SCOPE_KEEP_WARM)).toBe(false)
+  })
+})
+
+describe('XGISMap — the burst exit hysteresis reads the registry scope (#2149 inc 6)', () => {
+  it('the deps probe sees an armed VT fetch and goes quiet when it settles', () => {
+    // The one-line re-wire in map.ts: `hasPendingSourceWork` (the ColdStartBurstDeps
+    // field keeps its name) is now `_pendingWork.hasPending(SCOPE_VT_PIPELINE)`. Cutting
+    // that lambda back to a constant reds exactly this test; the SCOPE_VT_PIPELINE
+    // describe above owns the set's identity, so together they pin "the burst exit reads
+    // the registry, and the registry scope is the legacy signal set".
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const h = map as unknown as Record<string, unknown>
+    let pending = true
+    h.vtSources = new Map([
+      ['s', { source: { hasPendingLoads: () => pending }, renderer: quietVtRenderer() }],
+    ])
+    const dep = (map as unknown as { _burst: { deps: { hasPendingSourceWork: () => boolean } } })
+      ._burst.deps.hasPendingSourceWork
+    expect(dep()).toBe(true)
+    pending = false
+    expect(dep()).toBe(false)
+  })
+})
+
 describe('XGISMap — VT pending work keeps the real shouldRenderThisFrame warm (#2149 inc 5)', () => {
-  // HONEST SCOPE: until increment 6 deletes the legacy `hasPendingSourceWork()` term,
-  // shouldRenderThisFrame is DOUBLE-WIRED for the vt-* kinds — this test passes through
-  // either route (verified: cutting the vt-fetch registration leaves it green via the
-  // legacy term). It pins the map-level truth today and becomes the registry-only pin
-  // the moment increment 6 lands; the registration-level cut coverage lives in the
-  // contract arm + the SCOPE_VT_PIPELINE test, which the same cut DOES red.
+  // Increment 6 deleted the legacy `hasPendingSourceWork()` term, so this is the
+  // registry-ONLY pin the increment-5 comment here promised to become: the vt-* kinds
+  // reach shouldRenderThisFrame through `_pendingWork.hasPending()` alone, and cutting
+  // the vt-fetch registration now reds THIS test — not just the contract arm and the
+  // SCOPE_VT_PIPELINE test it already redded under the double-wired interim.
   it('an attached source with a pending fetch flips the settled-frame verdict', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)

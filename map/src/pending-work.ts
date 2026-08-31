@@ -138,15 +138,26 @@ export interface TileLoadArm {
  *  so the two cannot be edited apart (the OVERLAY_PASSES precedent, pass-order.ts). */
 export type PendingWorkScope = readonly PendingWorkKind[]
 
-/** The four raster/DEM kinds — `keepLoopWarm`'s transitional read (design §5.4): the
- *  end-of-frame gate keeps its place in the composed chain (#2158) but its raster/DEM
- *  signal list now comes from the registry instead of a second hand-maintained copy. */
+/** The four raster/DEM kinds (#2149 increment 4) — a named component of SCOPE_KEEP_WARM
+ *  below, kept on its own so the scope tests can pin the family's identity directly. */
 export const SCOPE_RASTER_DEM: PendingWorkScope = [
   'raster-fetch',
   'raster-retry',
   'dem-fetch',
   'dem-retry',
 ]
+
+/** `keepLoopWarm`'s registry read (design §5.6) — the raster/DEM four plus the two VT
+ *  signals the end-of-frame gate always scanned itself: `vt-upload` (#1575) and `vt-lod`
+ *  (#1997 — the state every other signal is structurally blind to: the readiness gate
+ *  advances the tile LOD one step per RENDERED frame, and an unconverged selection can be
+ *  legitimately EMPTY, requesting/missing/uploading nothing in the exact frame the ramp
+ *  still owes work; idling there is unrecoverable because the LOD and its 5 s timeout
+ *  only advance inside a rendered frame). `vt-fetch`/`vt-replaced`/`vt-missed` are
+ *  deliberately NOT here — the gate never read them: the fetch/swap signals reach
+ *  `shouldRenderThisFrame` through the full-union read, and the missed count reaches the
+ *  gate as its `totalMissed` input (the frame's OWN output — see KeepWarmInputs). */
+export const SCOPE_KEEP_WARM: PendingWorkScope = [...SCOPE_RASTER_DEM, 'vt-upload', 'vt-lod']
 
 /** EXACTLY `hasPendingSourceWork()`'s signal set (map.ts) — the cold-start burst's exit
  *  hysteresis consumes this scope so its semantics stay byte-for-byte (design non-goal:

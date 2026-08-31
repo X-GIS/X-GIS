@@ -255,11 +255,19 @@ idle-sensitive gates in the tree) and must be hash-stable step-for-step.
    `hasPendingSourceWork` + registry) until increment 6 deletes the legacy body and the
    wiring test pins registry-only. Cut-verified: severing the `vt-fetch` registration
    reds exactly its arm + the scope test, siblings green.
-6. **Simplify the composed helpers** (rescoped 2026-08-31 per #2158 — this was
-   "Collapse"): `keepLoopWarm` and `hasPendingSourceWork` keep their places in the
-   composed chain but their hand-maintained signal lists become registry scope reads;
-   burst deps re-wired to `SCOPE_VT_PIPELINE` (same signal set); `_missingTileCount`
-   untouched (#2162 option (B) is the owner's); `map-event-bus` untouched.
+6. **Simplify the composed helpers** — **LANDED** (rescoped 2026-08-31 per #2158 — this
+   was "Collapse"): the legacy `hasPendingSourceWork()` body is DELETED (its four signals
+   ride `shouldRenderThisFrame`'s full-union read; the burst dep — field name kept — is
+   `_pendingWork.hasPending(SCOPE_VT_PIPELINE)`, byte-for-byte); `keepLoopWarm`'s body is
+   `totalMissed > 0 || hasPending(SCOPE_KEEP_WARM)` where the new scope = raster/DEM four
+   - `vt-upload` + `vt-lod` (the exact set its hand-rolled VT loop read). `totalMissed`
+     stays a direct input: the loop sums it over `hasData()` sources only, a skip the
+     `vt-missed` probe deliberately lacks — routing it through the registry would widen the
+     signal. `_missingTileCount` untouched (#2162 option (B) is the owner's);
+     `map-event-bus` untouched. The increment-5 wiring test flipped to its promised
+     registry-only pin; the characterization suite characterizes the successor read (its
+     own change-deliberately rule); readiness-gate's `loopWarm` now routes the real cache
+     through a REAL registry. This closes the double-routed interim recorded in item 5.
 7. ~~**L3 ratchet**~~ — **DONE ON MAIN** as Gate 10 (#2161,
    `architecture-invariants.test.ts`); see §4.5 L3. Nothing to build here.
 
