@@ -6,19 +6,18 @@
 // through a full GPU frame — the exact shape CLAUDE.md's own lessons ledger records as
 // having been paid for once already.
 
-/** The subset of a tile renderer this gate reads. The ledger is reached directly rather
- *  than through a per-renderer forwarder, so the raster and DEM arms cannot drift into
- *  answering this question differently — which is how that pair has failed before. */
-export interface KeepWarmTiles {
-  hasPendingLoads(): boolean
-  readonly failedTiles: { hasPendingRetries(): boolean }
-}
+import { SCOPE_RASTER_DEM, type PendingWorkRegistry } from './pending-work'
 
 export interface KeepWarmInputs {
   /** Unresolved VT placeholders counted this frame. */
   totalMissed: number
-  raster: KeepWarmTiles
-  hillshade: KeepWarmTiles
+  /** #2149 increment 4 — the raster/DEM signals (mid-fetch + retry backoff, both arms)
+   *  now come from the pending-work registry's SCOPE_RASTER_DEM read instead of a second
+   *  hand-maintained list here. Same four signals, same bounds (the fetch counts are
+   *  deadline-bounded in the shared InflightLedger, the retries by MAX_TILE_ATTEMPTS);
+   *  the composed chain (#2158: this → _needsRender → shouldRenderThisFrame's first
+   *  term) is unchanged. */
+  pendingWork: Pick<PendingWorkRegistry, 'hasPending'>
   /** The VT sources' renderers — scanned only when nothing above already fired.
    *
    *  `_selection._czPendingAdvance` is reached DIRECTLY rather than through a
@@ -67,13 +66,7 @@ export interface KeepWarmInputs {
  *     indefinitely; one `invalidate()` finished the ramp in two frames (cz 0→1→2,
  *     tiles 0→4→8). */
 export function keepLoopWarm(input: KeepWarmInputs): boolean {
-  if (
-    input.totalMissed > 0 ||
-    input.raster.hasPendingLoads() ||
-    input.hillshade.hasPendingLoads() ||
-    input.raster.failedTiles.hasPendingRetries() ||
-    input.hillshade.failedTiles.hasPendingRetries()
-  ) {
+  if (input.totalMissed > 0 || input.pendingWork.hasPending(SCOPE_RASTER_DEM)) {
     return true
   }
   for (const { renderer } of input.vtRenderers) {

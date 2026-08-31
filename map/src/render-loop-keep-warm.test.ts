@@ -13,14 +13,21 @@
 
 import { describe, it, expect } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { keepLoopWarm, type KeepWarmTiles } from './render-loop-keep-warm'
+import { keepLoopWarm } from './render-loop-keep-warm'
+import { SCOPE_RASTER_DEM, type PendingWorkScope } from './pending-work'
 import { classifyTile, KEEP_WARM_MAX_FAILURES } from './tile-decision'
 
-const tiles = (loads: boolean, retries: boolean): KeepWarmTiles => ({
-  hasPendingLoads: () => loads,
-  failedTiles: { hasPendingRetries: () => retries },
+/** #2149 increment 4 — the four raster/DEM signals now reach this gate through ONE
+ *  registry read. The per-arm truths (raster vs DEM, mid-fetch vs retry, and their
+ *  bounds) are pinned against the REAL ledgers in pending-work.test.ts; what THIS suite
+ *  owns is the gate's contract: the scoped read is consulted, its verdict passes
+ *  through, and it is the RASTER_DEM scope — not SCOPE_ALL — that is read. */
+const work = (pending: boolean, seen?: PendingWorkScope[]) => ({
+  hasPending: (scope: PendingWorkScope = []) => {
+    seen?.push(scope)
+    return pending
+  },
 })
-const quiet = (): KeepWarmTiles => tiles(false, false)
 
 /** One VT renderer as the gate sees it. BOTH arms are explicit so a case meaning to
  *  exercise one cannot pass on the other still firing. */
@@ -39,8 +46,7 @@ const vt = (
 function inputs(over: Partial<Parameters<typeof keepLoopWarm>[0]> = {}) {
   return {
     totalMissed: 0,
-    raster: quiet(),
-    hillshade: quiet(),
+    pendingWork: work(false),
     vtRenderers: [] as Array<ReturnType<typeof vt>>,
     ...over,
   }
@@ -53,20 +59,21 @@ describe('keepLoopWarm', () => {
     expect(keepLoopWarm(inputs())).toBe(false)
   })
 
-  it('#1575 — a raster tile awaiting a retry keeps the loop warm', () => {
-    expect(keepLoopWarm(inputs({ raster: tiles(false, true) }))).toBe(true)
+  it('#1575/#2149 — pending raster/DEM work in the registry keeps the loop warm', () => {
+    expect(keepLoopWarm(inputs({ pendingWork: work(true) }))).toBe(true)
   })
 
-  it('#1575 — and so does a DEM tile: the hillshade sibling is not forgotten', () => {
-    // This pair has drifted before (#1057 reached two of four renderers, #1436 landed on
-    // one of two backend arms, #1477 on one of two fade ramps). Pin both arms.
-    expect(keepLoopWarm(inputs({ hillshade: tiles(false, true) }))).toBe(true)
+  it('#2149 — the read is the RASTER_DEM scope, not SCOPE_ALL', () => {
+    // Scope identity is load-bearing: an unscoped read here would silently widen this
+    // end-of-frame gate to every registered kind (glyphs, sprites, coverage), changing
+    // which signals re-arm _needsRender — a semantics drift no verdict check can see.
+    const seen: PendingWorkScope[] = []
+    keepLoopWarm(inputs({ pendingWork: work(false, seen) }))
+    expect(seen).toEqual([SCOPE_RASTER_DEM])
   })
 
-  it('keeps every pre-existing signal — missed tiles, both mid-fetch arms, VT uploads', () => {
+  it('keeps every pre-existing signal — missed tiles and VT uploads', () => {
     expect(keepLoopWarm(inputs({ totalMissed: 1 }))).toBe(true)
-    expect(keepLoopWarm(inputs({ raster: tiles(true, false) }))).toBe(true)
-    expect(keepLoopWarm(inputs({ hillshade: tiles(true, false) }))).toBe(true)
     expect(keepLoopWarm(inputs({ vtRenderers: [vt(true, false)] }))).toBe(true)
   })
 

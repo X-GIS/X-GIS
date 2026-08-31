@@ -33,7 +33,15 @@ export interface PendingWorkTicket {
 /** The registered async resource classes. Growing per migration increment — see the
  *  header. Adding a kind here without a registration (and a contract fixture) is a
  *  compile error via the `Record<PendingWorkKind, …>` consumers. */
-export const PENDING_WORK_KINDS = ['glyph', 'sprite', 'coverage'] as const
+export const PENDING_WORK_KINDS = [
+  'glyph',
+  'sprite',
+  'coverage',
+  'raster-fetch',
+  'raster-retry',
+  'dem-fetch',
+  'dem-retry',
+] as const
 export type PendingWorkKind = (typeof PENDING_WORK_KINDS)[number]
 
 /** The ledger-flavor subset of the union — kinds whose in-flight stamps the registry
@@ -79,7 +87,34 @@ class PendingLedger implements PendingWorkSource {
 export interface PendingWorkHost {
   textStage: { hasPendingGlyphLoads(): boolean } | null
   iconStage: { hasPendingAtlasLoad(): boolean } | null
+  /** Definite-assignment fields on the map (`!`), so the probes optional-chain: before
+   *  the GPU boots they are undefined at runtime and the kinds read 0. */
+  rasterRenderer: TileLoadArm | undefined
+  hillshadeRenderer: TileLoadArm | undefined
 }
+
+/** The slice of a tile renderer (raster or DEM) the fetch/retry kinds read. Both
+ *  probes are deadline-bounded in their OWN ledgers (tile-retry.ts): `pendingLoadCount`
+ *  counts through `InflightLedger.liveCount()` (RASTER_INFLIGHT_KEEP_WARM_MS), and the
+ *  retry ledger abandons a tile after MAX_TILE_ATTEMPTS (~10.5 s of backoff). */
+export interface TileLoadArm {
+  pendingLoadCount(): number
+  failedTiles: { hasPendingRetries(): boolean }
+}
+
+/** A named kind subset — `hasPending(scope)` ORs only these. Declared next to the union
+ *  so the two cannot be edited apart (the OVERLAY_PASSES precedent, pass-order.ts). */
+export type PendingWorkScope = readonly PendingWorkKind[]
+
+/** The four raster/DEM kinds — `keepLoopWarm`'s transitional read (design §5.4): the
+ *  end-of-frame gate keeps its place in the composed chain (#2158) but its raster/DEM
+ *  signal list now comes from the registry instead of a second hand-maintained copy. */
+export const SCOPE_RASTER_DEM: PendingWorkScope = [
+  'raster-fetch',
+  'raster-retry',
+  'dem-fetch',
+  'dem-retry',
+]
 
 export class PendingWorkRegistry {
   constructor(
@@ -90,8 +125,8 @@ export class PendingWorkRegistry {
   /** True while ANY registered kind still counts in-flight work. Read by
    *  `shouldRenderThisFrame` every rAF tick: true keeps the loop warm, and every source
    *  is deadline-bounded, so a hung host releases the loop (#2091). */
-  hasPending(): boolean {
-    for (const kind of PENDING_WORK_KINDS) {
+  hasPending(scope: PendingWorkScope = PENDING_WORK_KINDS): boolean {
+    for (const kind of scope) {
       if (this.sources[kind].count() > 0) return true
     }
     return false
@@ -136,6 +171,18 @@ export function buildPendingWorkRegistry(host: PendingWorkHost): PendingWorkRegi
       glyph: { count: () => (host.textStage?.hasPendingGlyphLoads() ? 1 : 0) },
       sprite: { count: () => (host.iconStage?.hasPendingAtlasLoad() ? 1 : 0) },
       coverage,
+      // #1575/#1596 — the raster/DEM arms. Fetch counts are deadline-bounded in the
+      // shared InflightLedger (a hung host stops counting at 10 s); retry counts are
+      // bounded by MAX_TILE_ATTEMPTS in FailedTileLedger. Optional-chained: the
+      // renderers are `!`-declared and undefined before the GPU boots.
+      'raster-fetch': { count: () => host.rasterRenderer?.pendingLoadCount() ?? 0 },
+      'raster-retry': {
+        count: () => (host.rasterRenderer?.failedTiles.hasPendingRetries() ? 1 : 0),
+      },
+      'dem-fetch': { count: () => host.hillshadeRenderer?.pendingLoadCount() ?? 0 },
+      'dem-retry': {
+        count: () => (host.hillshadeRenderer?.failedTiles.hasPendingRetries() ? 1 : 0),
+      },
     },
     { coverage },
   )

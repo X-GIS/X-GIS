@@ -179,3 +179,71 @@ export class FailedTileLedger {
     return this.failed.size
   }
 }
+
+/** #2149 — how long one in-flight raster/DEM tile fetch keeps the render loop awake.
+ *  The load path frees its `loadingTiles` slot only when the fetch SETTLES (the
+ *  renderers' `.catch(() => null).then(...)` chains), and the guarded fetch carries no
+ *  timeout — so against a host that accepts the connection and never answers, the raw
+ *  `size` stayed > 0 for the session: the #2091 never-idle wedge, one resource class
+ *  over again. Sized off the shipped siblings (glyph / sprite / coverage: 10 000 ms). */
+export const RASTER_INFLIGHT_KEEP_WARM_MS = 10_000
+
+/** The in-flight half of a tile renderer's load state: the `Map<key, AbortController>`
+ *  both the raster and DEM arms kept, plus a checkout stamp per key so the KEEP-WARM
+ *  question is deadline-bounded (#2149). Everything else is byte-identical to the bare
+ *  Map: entries are still freed by the load promise's settle handler, the zoom sweep
+ *  still iterates `[key, controller]`, and a hung fetch still pins its concurrency slot
+ *  exactly as before — past the deadline it merely stops holding the render loop awake,
+ *  mirroring the glyph ledger (glyph-pbf-cache.ts). Owned HERE beside FailedTileLedger
+ *  so the raster and DEM arms cannot drift into two interpretations — #1575's lesson,
+ *  same file for the same reason. */
+export class InflightLedger {
+  private readonly inflight = new Map<string, { ctrl: AbortController; since: number }>()
+
+  set(key: string, ctrl: AbortController): void {
+    this.inflight.set(key, { ctrl, since: nowMs() })
+  }
+
+  delete(key: string): void {
+    this.inflight.delete(key)
+  }
+
+  has(key: string): boolean {
+    return this.inflight.has(key)
+  }
+
+  /** Raw in-flight count — the CONCURRENCY-BUDGET quantity (hung slots included, as the
+   *  bare Map counted them). The keep-warm quantity is `liveCount()`. */
+  get size(): number {
+    return this.inflight.size
+  }
+
+  /** Teardown / re-arm sweeps empty the ledger exactly as the bare Map did. */
+  clear(): void {
+    this.inflight.clear()
+  }
+
+  /** The abort sweeps read the controllers exactly as the bare Map's values did. */
+  *values(): IterableIterator<AbortController> {
+    for (const entry of this.inflight.values()) yield entry.ctrl
+  }
+
+  /** The zoom-abort sweep iterates `[key, controller]` exactly as the bare Map did. */
+  *[Symbol.iterator](): IterableIterator<[string, AbortController]> {
+    for (const [key, entry] of this.inflight) yield [key, entry.ctrl]
+  }
+
+  /** Deadline-bounded in-flight count — the KEEP-WARM quantity. A pure read: entries are
+   *  never pruned or aborted here (the settle handler and the zoom sweep own removal);
+   *  one past the deadline simply stops counting, so a hung host costs one deadline of
+   *  warm frames, not a map that never idles (#2091). */
+  liveCount(): number {
+    if (this.inflight.size === 0) return 0
+    const now = nowMs()
+    let live = 0
+    for (const entry of this.inflight.values()) {
+      if (now - entry.since <= RASTER_INFLIGHT_KEEP_WARM_MS) live++
+    }
+    return live
+  }
+}
