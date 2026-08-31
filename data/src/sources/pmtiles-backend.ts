@@ -22,7 +22,6 @@ import {
   tileKeyUnpack,
   decomposeFeatures,
   compileSingleTile,
-  makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
@@ -34,7 +33,7 @@ import {
   type TileSourceMeta,
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
-import { evalFilterExpr } from '../eval/filter-eval'
+import { sliceFilterAccepts } from '../eval/filter-eval'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
 import {
@@ -711,15 +710,7 @@ export class PMTilesBackend implements TileSource {
           const layerFeatures = byLayer.get(desc.sourceLayer)
           if (!layerFeatures || layerFeatures.length === 0) continue
           const subset = desc.filterAst
-            ? layerFeatures.filter((f) => {
-                const bag = makeEvalProps({
-                  props: f.properties ?? undefined,
-                  geometryType: f.geometry?.type,
-                  featureId: (f as { id?: string | number }).id,
-                  cameraZoom: z,
-                })
-                return evalFilterExpr(desc.filterAst, bag)
-              })
+            ? layerFeatures.filter((f) => sliceFilterAccepts(desc.filterAst, f, z))
             : layerFeatures
           emitSlice(desc.sliceKey, desc.sourceLayer, subset)
         }

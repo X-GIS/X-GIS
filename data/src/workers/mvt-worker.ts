@@ -27,7 +27,7 @@ import { decodeMvtTile } from '../mvt-decoder'
 import { buildLineSegments } from '../line-segment-build'
 import { buildPointFeatureIds } from '../point-feature-patch'
 import { evalExtrudeExpr } from '../eval/extrude-eval'
-import { evalFilterExpr } from '../eval/filter-eval'
+import { sliceFilterAccepts } from '../eval/filter-eval'
 
 /** Build the featId → properties Map the SDF label pipeline + data-driven
  *  feature buffer read from. When `keys` is non-empty, clone ONLY those
@@ -518,15 +518,7 @@ const onMessage = (e: MessageEvent<InMsg>): void => {
         const layerFeatures = byLayer.get(desc.sourceLayer)
         if (!layerFeatures || layerFeatures.length === 0) continue
         const subset = desc.filterAst
-          ? layerFeatures.filter((f) => {
-              const bag = makeEvalProps({
-                props: f.properties ?? undefined,
-                geometryType: f.geometry?.type,
-                featureId: (f as { id?: string | number }).id,
-                cameraZoom: msg.z,
-              })
-              return evalFilterExpr(desc.filterAst, bag)
-            })
+          ? layerFeatures.filter((f) => sliceFilterAccepts(desc.filterAst, f, msg.z))
           : layerFeatures
         emitSlice(
           desc.sliceKey,

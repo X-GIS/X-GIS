@@ -14,9 +14,13 @@
 // callBuiltin('within', [geometry, polygons]) then calls evalWithin here.
 //
 // FIRST SLICE — Point / MultiPoint tested-geometry only, against a
-// Polygon / MultiPolygon argument (holes honoured). LineString / Polygon
-// tested-geometry and MVT-source tile-coordinate reprojection are deferred
-// (return false); spec-coverage marks the property `partial` accordingly.
+// Polygon / MultiPolygon argument (holes honoured). LineString tested-
+// geometry is deferred (return false) — it needs segment-vs-ring
+// intersection; spec-coverage marks the property `partial` accordingly.
+// There is NO reprojection clause on any source: the MVT decoder
+// un-quantizes tile coordinates to lng/lat before a filter sees a
+// feature, so vector-tile and GeoJSON features reach here in the same
+// space the polygon argument is emitted in.
 
 /** A linear ring: a list of [x, y] vertices. */
 type Ring = ReadonlyArray<ReadonlyArray<number>>
