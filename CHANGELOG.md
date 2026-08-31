@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c5fcdacc23447d2371ff56ca22e0977706dde0c5
+  Generated from: e85335b846d0b34f941cf6598c00e10c0d0c395b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c5fcdacc2344
+    bun scripts/emit-changelog.ts --since e85335b846d0
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** ["distance-from-center"] lowers and evaluates, with its units written down ([#2133](https://github.com/X-GIS/X-GIS/pull/2133)) `e85335b`
 - **map/text:** D1 INC-5 — a ground-aligned label is sized by the map branch of the perspective ratio, not forced to 1 ([#2106](https://github.com/X-GIS/X-GIS/pull/2106)) `cd67bbe`
 - **compiler/tiler:** clustering P2 — the cluster index, CPU-only ([#2105](https://github.com/X-GIS/X-GIS/pull/2105)) `60a33b5`
 - **compiler:** T2 P2 — terrain block parses, converts, and warns precisely; displacement stays honestly unapplied ([#2104](https://github.com/X-GIS/X-GIS/pull/2104)) `5b3844f`

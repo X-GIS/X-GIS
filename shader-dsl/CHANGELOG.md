@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: c5fcdacc23447d2371ff56ca22e0977706dde0c5
+  Generated from: e85335b846d0b34f941cf6598c00e10c0d0c395b
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since c5fcdacc2344
+    bun scripts/emit-changelog.ts --path shader-dsl --since e85335b846d0
 -->
 
 # Changelog — shader-dsl
