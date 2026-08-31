@@ -445,29 +445,29 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       : []),
     'circle-sort-key',
   ]) {
-    // Treat null the same as undefined — see the symbol-ignored
-    // gate above for the rationale.
     const pv = paint[k]
-    if (pv === undefined || pv === null) continue
-    // Special-case circle-translate-anchor: when parent
-    // circle-translate is ABSENT, the anchor is a no-op (anchor only
-    // changes the translate's coordinate space). Skip the warning
-    // in that case — mirror of the surfaceIgnoredPaint ANCHOR_PARENT
-    // check for fill / line equivalents.
-    if (
-      k === 'circle-translate-anchor' &&
-      (paint['circle-translate'] === undefined || paint['circle-translate'] === null)
-    ) {
-      continue
-    }
-    // circle-translate-anchor='viewport' matches X-GIS behaviour
-    // (viewport-space translate); only 'map' is the real gap. Mirror
-    // of the SPEC_DEFAULT_NO_WARN suppression in surfaceIgnoredPaint.
+    // circle-translate-anchor is decided by the SPEC DEFAULT, not by
+    // presence (#2170). reference/v8.json gives it default='map', and
+    // the point renderer has no map arm — it always applies
+    // circle-translate in viewport/NDC space (there is no
+    // circle-translate-anchor-map utility, unlike fill / line /
+    // fill-extrusion). So an ABSENT anchor means the spec's world-space
+    // 'map' and is just as real a gap as an explicit one; only an
+    // explicit 'viewport' is honoured. Still a no-op without the parent
+    // circle-translate — the anchor only selects the offset's
+    // coordinate space.
     if (k === 'circle-translate-anchor') {
+      const parent = paint['circle-translate']
+      if (parent === undefined || parent === null) continue
       let av: unknown = pv
       while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
       if (av === 'viewport') continue
+      ignored.push(k)
+      continue
     }
+    // Treat null the same as undefined — see the symbol-ignored
+    // gate above for the rationale.
+    if (pv === undefined || pv === null) continue
     ignored.push(k)
   }
   // Reuse the safePropsBag-guarded `layout` const from the top of

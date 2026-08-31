@@ -21,7 +21,7 @@ export const PAINT_FILL_EXTRUSION: readonly CoverageEntry[] = [
     name: 'fill-extrusion-translate-anchor',
     status: 'supported',
     impact: 'low',
-    note: 'viewport (default) = screen-space, byte-identical (emits nothing). map = world-space: fill-extrusion-translate rides the SAME fill-translate-{x,y} utilities + slot 46/47 uniform as fill (the extrude vertex shaders apply u.fill_translate_x/y), so the converter emits `fill-translate-anchor-map` (addTranslateAnchor, fill prefix) → RenderNode.fillTranslateAnchorMap → ShowCommand → VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake — the extrude path inherits the rotation for free. Pitch foreshortening not reproduced. Depends on fill-extrusion-translate.',
+    note: 'map is the SPEC DEFAULT (reference/v8.json default="map") and is what an ABSENT anchor now means (#2170 — previously the absent case fell through to the viewport path). map = world-space: fill-extrusion-translate rides the SAME fill-translate-{x,y} utilities + slot 46/47 uniform as fill (the extrude vertex shaders apply u.fill_translate_x/y), so the converter emits `fill-translate-anchor-map` (addTranslateAnchor, fill prefix) → RenderNode.fillTranslateAnchorMap → ShowCommand → VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake — the extrude path inherits the rotation for free. An explicit viewport = screen-space and emits nothing. Pitch foreshortening not reproduced. Depends on fill-extrusion-translate.',
     source: 'paint-fill-extrusion.ts addTranslateAnchor + vector-tile-renderer.ts bearing rotate',
   },
   {

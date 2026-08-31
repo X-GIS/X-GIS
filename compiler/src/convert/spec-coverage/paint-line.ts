@@ -47,7 +47,7 @@ export const PAINT_LINE: readonly CoverageEntry[] = [
     name: 'line-translate-anchor',
     status: 'supported',
     impact: 'low',
-    note: 'viewport (default) = screen-space offset, byte-identical to the historical path (emits nothing). map = world-space: the converter emits `stroke-translate-anchor-map` (addTranslateAnchor; the line translate rides the stroke-translate namespace) → lower sets RenderNode.strokeTranslateAnchorMap → ShowCommand → VTR rotates the [dx,dy] offset by camera.bearing before the CSS-px → NDC bake. Pitch foreshortening of a map-anchored offset is not reproduced by the clip-space bake (bearing rotation is the dominant/flat behaviour). Depends on line-translate.',
+    note: 'map is the SPEC DEFAULT (reference/v8.json default="map") and is what an ABSENT anchor now means (#2170 — previously the absent case fell through to the viewport path). map = world-space: the converter emits `stroke-translate-anchor-map` (addTranslateAnchor; the line translate rides the stroke-translate namespace) → lower sets RenderNode.strokeTranslateAnchorMap → ShowCommand → VTR rotates the [dx,dy] offset by camera.bearing before the CSS-px → NDC bake. An explicit viewport = screen-space offset and emits nothing. Pitch foreshortening of a map-anchored offset is not reproduced by the clip-space bake (bearing rotation is the dominant/flat behaviour). Depends on line-translate.',
     source: 'paint-line.ts addTranslateAnchor + vector-tile-renderer.ts bearing rotate',
   },
   {

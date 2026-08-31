@@ -48,7 +48,7 @@ export const PAINT_CIRCLE: readonly CoverageEntry[] = [
     name: 'circle-translate-anchor',
     status: 'partial',
     impact: 'low',
-    note: "viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour.",
+    note: "map is the SPEC DEFAULT (reference/v8.json default='map'), and it is the mode X-GIS does NOT have: the point renderer always applies circle-translate in viewport/NDC space, and unlike fill / line / fill-extrusion there is no circle-translate-anchor-map utility and no runtime flag (no circleTranslateAnchorMap anywhere). So an explicit 'viewport' is the only honoured value, and BOTH an explicit 'map' and an ABSENT anchor (which means map) warn + drop — the absent case previously warned on no route at all (#2170). Still suppressed when circle-translate is absent: the anchor only selects the offset's coordinate space, so it is a no-op with nothing to anchor.",
     source: 'layers-circle.ts:circle-translate-anchor block',
   },
   {

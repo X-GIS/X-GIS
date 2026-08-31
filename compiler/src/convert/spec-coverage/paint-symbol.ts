@@ -40,7 +40,7 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-translate-anchor',
     status: 'supported',
-    note: 'viewport (default) = screen-space (byte-identical historical path); map = world-space: the converter emits `label-translate-anchor-map` (layers-symbol.ts text-translate-anchor) → LabelDef.translateAnchorMap → TextStage.prepare rotates the [dx,dy] text-translate by the map bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake — Phase S Batch 2) before the per-anchor pixel add; the rotated value also re-keys the layout cache so a bearing change never serves a stale offset. Pitch foreshortening of the offset not reproduced.',
+    note: 'map is the SPEC DEFAULT (reference/v8.json paint_symbol.text-translate-anchor default="map"), NOT viewport — an earlier note here had it backwards. map = world-space: the converter emits `label-translate-anchor-map` (layers-symbol.ts text-translate-anchor) → LabelDef.translateAnchorMap → TextStage.prepare rotates the [dx,dy] text-translate by the map bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake — Phase S Batch 2) before the per-anchor pixel add; the rotated value also re-keys the layout cache so a bearing change never serves a stale offset. viewport = screen-space and emits nothing. KNOWN GAP (#2170 follow-up): the emit still gates on an EXPLICIT "map", so an ABSENT anchor takes the viewport path instead of the spec default. Not converted with the paint translates because the symbol path re-keys the layout cache on every bearing change, so flipping its default has a perf blast radius the paint path does not. Pitch foreshortening of the offset not reproduced.',
     source: 'layers-symbol.ts text-translate-anchor / text-stage.ts rotateLabelTranslate',
   },
   {
@@ -83,7 +83,7 @@ export const PAINT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'icon-translate-anchor',
     status: 'supported',
-    note: 'viewport (default) = screen-space (byte-identical); map = world-space: the converter emits `label-icon-translate-anchor-map` (layers-symbol.ts icon-translate-anchor) → LabelDef.iconTranslateAnchorMap → dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by the map bearing (icon-offset, a layout nudge, stays screen-space) before IconStage.addIcon — mirror of text-translate-anchor / fill/line Phase S Batch 2. Pitch foreshortening of the offset not reproduced.',
+    note: 'map is the SPEC DEFAULT (reference/v8.json paint_symbol.icon-translate-anchor default="map"), NOT viewport — an earlier note here had it backwards. map = world-space: the converter emits `label-icon-translate-anchor-map` (layers-symbol.ts icon-translate-anchor) → LabelDef.iconTranslateAnchorMap → dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by the map bearing (icon-offset, a layout nudge, stays screen-space) before IconStage.addIcon — mirror of text-translate-anchor / fill/line Phase S Batch 2. viewport = screen-space and emits nothing. KNOWN GAP (#2170 follow-up): the emit still gates on an EXPLICIT "map", so an ABSENT anchor takes the viewport path instead of the spec default — same shape as text-translate-anchor and deferred with it. Pitch foreshortening of the offset not reproduced.',
     source: 'layers-symbol.ts icon-translate-anchor / label-pass.ts dispatchIcon',
   },
 ]
