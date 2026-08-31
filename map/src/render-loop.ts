@@ -682,8 +682,7 @@ export class RenderLoop {
 
     this.host._needsRender = keepLoopWarm({
       totalMissed,
-      raster: this.host.rasterRenderer,
-      hillshade: this.host.hillshadeRenderer,
+      pendingWork: this.host._pendingWork,
       vtRenderers: this.host.vtSources.values(),
     })
 

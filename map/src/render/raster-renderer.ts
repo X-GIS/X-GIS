@@ -8,7 +8,7 @@ import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
-import { FailedTileLedger } from './tile-retry'
+import { FailedTileLedger, InflightLedger } from './tile-retry'
 import { clipTilesToBounds, normalizeSourceBounds, type SourceBounds } from './source-bounds-clip'
 import {
   admitTile,
@@ -258,7 +258,7 @@ export class RasterRenderer {
   /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
-  private loadingTiles = new Map<string, AbortController>()
+  private loadingTiles = new InflightLedger()
   private frameCount = 0
   private lastZoom = -1
   /** Visible-tile keys captured from the previous frame's render(). Used by
@@ -460,14 +460,14 @@ export class RasterRenderer {
   }
 
   hasPendingLoads(): boolean {
-    return this.loadingTiles.size > 0
+    return this.loadingTiles.liveCount() > 0
   }
 
-  /** Count of raster tiles currently mid-fetch (the set `hasPendingLoads`
-   *  tests). Feeds the map's per-frame `getMissingTileCount()` so a loading
-   *  affordance covers network raster sources, not just vector tiles. */
+  /** Count of raster tiles currently mid-fetch, DEADLINE-BOUNDED (#2149 — a hung fetch
+   *  stops counting past RASTER_INFLIGHT_KEEP_WARM_MS). Feeds `getMissingTileCount()`
+   *  and the pending-work registry's `raster-fetch` kind. */
   pendingLoadCount(): number {
-    return this.loadingTiles.size
+    return this.loadingTiles.liveCount()
   }
 
   /** Lazily build the 256×256 RGBA checker as an RHI texture (WebGl2Device path). */

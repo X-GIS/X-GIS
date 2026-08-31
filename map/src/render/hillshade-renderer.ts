@@ -39,7 +39,7 @@ import {
   rasterTileU as RASTER_TILE_U,
 } from '../shaders/dsl/raster'
 import { hillshadeU as HILLSHADE_U } from '../shaders/dsl/hillshade'
-import { FailedTileLedger, leafLoadBudget } from './tile-retry'
+import { FailedTileLedger, InflightLedger, leafLoadBudget } from './tile-retry'
 import { clipTilesToBounds, normalizeSourceBounds, type SourceBounds } from './source-bounds-clip'
 import {
   writeRasterFrameUniform,
@@ -326,7 +326,7 @@ export class HillshadeRenderer {
   /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
-  private loadingTiles = new Map<string, AbortController>()
+  private loadingTiles = new InflightLedger()
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */
@@ -451,14 +451,14 @@ export class HillshadeRenderer {
   }
 
   hasPendingLoads(): boolean {
-    return this.loadingTiles.size > 0
+    return this.loadingTiles.liveCount() > 0
   }
 
-  /** Count of DEM tiles currently mid-fetch (the set `hasPendingLoads`
-   *  tests). Feeds the map's per-frame `getMissingTileCount()` so a loading
-   *  affordance covers hillshade DEM sources too. */
+  /** Count of DEM tiles currently mid-fetch, DEADLINE-BOUNDED (#2149 — mirrors the
+   *  raster arm through the shared InflightLedger). Feeds `getMissingTileCount()`
+   *  and the pending-work registry's `dem-fetch` kind. */
   pendingLoadCount(): number {
-    return this.loadingTiles.size
+    return this.loadingTiles.liveCount()
   }
 
   /** Tile load, through the RHI on BOTH backends (#1623 — WebGPU used to bypass the RHI

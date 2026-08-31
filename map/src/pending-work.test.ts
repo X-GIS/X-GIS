@@ -27,10 +27,13 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   PENDING_WORK_KINDS,
+  SCOPE_RASTER_DEM,
   buildPendingWorkRegistry,
   type PendingWorkKind,
   type PendingWorkRegistry,
+  type TileLoadArm,
 } from './pending-work'
+import { FailedTileLedger, InflightLedger, MAX_TILE_ATTEMPTS } from './render/tile-retry'
 import { GlyphPbfCache } from './text/sdf/pbf/glyph-pbf-cache'
 import { PbfRasterizer } from './text/sdf/pbf-rasterizer'
 import { createRasterizer, createMetricsRasterizer } from './text/sdf/glyph-rasterizer'
@@ -114,6 +117,13 @@ const realIconProbe = (
 const SPRITE_JSON = { pin: { x: 0, y: 0, width: 16, height: 16, pixelRatio: 1 } }
 const TINY_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
+/** Drained raster/DEM arms for hosts whose kind-under-test is elsewhere. */
+const coldArm = (): TileLoadArm => ({
+  pendingLoadCount: () => 0,
+  failedTiles: { hasPendingRetries: () => false },
+})
+const coldArms = () => ({ rasterRenderer: coldArm(), hillshadeRenderer: coldArm() })
+
 /** Keyed by the SAME union as the registry — a kind added without a fixture is a compile
  *  error here before it is a green test anywhere. */
 const FIXTURES: Record<PendingWorkKind, KindFixture> = {
@@ -137,6 +147,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
           hasPendingGlyphLoads: () => realStageProbe.call({ pbfRasterizer: rasterizer }),
         },
         iconStage: null,
+        ...coldArms(),
       })
       cache.ensure('Open Sans Semibold', 65, () => {})
       return {
@@ -179,6 +190,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
       const registry = buildPendingWorkRegistry({
         textStage: null,
         iconStage: { hasPendingAtlasLoad: () => realIconProbe.call({ host }) },
+        ...coldArms(),
       })
       return {
         registry,
@@ -229,7 +241,7 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
     inFlight() {
       let clock = 1_000
       vi.spyOn(performance, 'now').mockImplementation(() => clock)
-      const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
+      const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null, ...coldArms() })
       const ticket = registry.begin('coverage')
       return {
         registry,
@@ -241,13 +253,90 @@ const FIXTURES: Record<PendingWorkKind, KindFixture> = {
       }
     },
   },
+  // #2149 increment 4 — the raster/DEM arms, against the REAL shared ledgers
+  // (tile-retry.ts). The fetch kinds drive a real InflightLedger: warm while a key is
+  // checked out, released when the settle handler deletes it (success and failure share
+  // that one line in both renderers' `.then` chains), and deadline-bounded by
+  // RASTER_INFLIGHT_KEEP_WARM_MS — the arm a hung host used to hold open forever.
+  'raster-fetch': { inFlight: () => inflightHarness('rasterRenderer') },
+  'dem-fetch': { inFlight: () => inflightHarness('hillshadeRenderer') },
+  // The retry kinds drive a real FailedTileLedger. Their bound is ATTEMPT-count, not a
+  // wall stamp: hasPendingRetries stays true across the backoff (that is its purpose —
+  // more failures keep it warm) and goes false at MAX_TILE_ATTEMPTS, ~10.5 s of schedule.
+  // So for these kinds succeed() := the tile finally loads (clear), and both fail() and
+  // expire() := the budget exhausts — the ledger's own terminal state.
+  'raster-retry': { inFlight: () => retryHarness('rasterRenderer') },
+  'dem-retry': { inFlight: () => retryHarness('hillshadeRenderer') },
+}
+
+/** Fetch-kind harness: one key checked out of a REAL InflightLedger, surfaced through
+ *  the named renderer arm exactly as the renderers surface it (pendingLoadCount =
+ *  liveCount). */
+function inflightHarness(arm: 'rasterRenderer' | 'hillshadeRenderer'): KindHarness {
+  // tile-retry's clock is nowMs() = Date.now() (deliberate, #1575) — spy THAT, not
+  // performance.now, or the deadline arm silently measures the real wall clock.
+  let clock = 1_000
+  vi.spyOn(Date, 'now').mockImplementation(() => clock)
+  const ledger = new InflightLedger()
+  const host = {
+    textStage: null,
+    iconStage: null,
+    ...coldArms(),
+    [arm]: {
+      pendingLoadCount: () => ledger.liveCount(),
+      failedTiles: { hasPendingRetries: () => false },
+    },
+  }
+  const registry = buildPendingWorkRegistry(host)
+  ledger.set('8/1/2', new AbortController())
+  const settle = async (): Promise<void> => {
+    ledger.delete('8/1/2')
+  }
+  return {
+    registry,
+    succeed: settle,
+    fail: settle,
+    expire: () => {
+      clock += 20_000
+    },
+  }
+}
+
+/** Retry-kind harness: one failed tile in a REAL FailedTileLedger, surfaced through the
+ *  named renderer arm. */
+function retryHarness(arm: 'rasterRenderer' | 'hillshadeRenderer'): KindHarness {
+  // The retry bound is ATTEMPT-count; the pinned clock only keeps stamps deterministic.
+  const clock = 1_000
+  vi.spyOn(Date, 'now').mockImplementation(() => clock)
+  const ledger = new FailedTileLedger()
+  const host = {
+    textStage: null,
+    iconStage: null,
+    ...coldArms(),
+    [arm]: { pendingLoadCount: () => 0, failedTiles: ledger },
+  }
+  const registry = buildPendingWorkRegistry(host)
+  ledger.noteOutcome('8/1/2', false)
+  const exhaust = async (): Promise<void> => {
+    for (let i = 1; i < MAX_TILE_ATTEMPTS; i++) ledger.noteOutcome('8/1/2', false)
+  }
+  return {
+    registry,
+    succeed: async () => ledger.clear('8/1/2'),
+    fail: exhaust,
+    expire: () => {
+      void exhaust()
+    },
+  }
 }
 
 afterEach(() => vi.restoreAllMocks())
 
 describe('PendingWorkRegistry — a map with nothing registered in flight is cold', () => {
   it('reports no pending work when every probe reads a drained/absent stage', () => {
-    expect(buildPendingWorkRegistry({ textStage: null, iconStage: null }).hasPending()).toBe(false)
+    expect(
+      buildPendingWorkRegistry({ textStage: null, iconStage: null, ...coldArms() }).hasPending(),
+    ).toBe(false)
   })
 })
 
@@ -315,7 +404,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('begins the ticket SYNCHRONOUSLY — warm before the first await', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null, ...coldArms() })
     const hang = (() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch
     void syncCoverageResidency(buildDeps(hang, registry), 's')
     expect(registry.hasPending()).toBe(true)
@@ -323,7 +412,7 @@ describe('coverage — the ticket spans the real catalogue cell read (#2129)', (
 
   it('dones the ticket in the settle finally — a FAILED read releases the loop', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null })
+    const registry = buildPendingWorkRegistry({ textStage: null, iconStage: null, ...coldArms() })
     const reject = (() =>
       Promise.reject(new Error('network down'))) as unknown as typeof globalThis.fetch
     await syncCoverageResidency(buildDeps(reject, registry), 's')
@@ -358,6 +447,61 @@ describe('XGISMap — a coverage ticket keeps the real shouldRenderThisFrame war
     const ticket = deps.beginPendingWork()
     expect(ask()).toBe(true)
     ticket.done()
+    expect(ask()).toBe(false)
+  })
+})
+
+// ═══ #2149 increment 4 — the scope reads, and the raster wire into the real map ═══
+describe('PendingWorkScope — SCOPE_RASTER_DEM discriminates', () => {
+  it('sees raster work, and does NOT see glyph work', () => {
+    const warmRaster = buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      rasterRenderer: {
+        pendingLoadCount: () => 1,
+        failedTiles: { hasPendingRetries: () => false },
+      },
+    })
+    expect(warmRaster.hasPending(SCOPE_RASTER_DEM)).toBe(true)
+    const warmGlyph = buildPendingWorkRegistry({
+      textStage: { hasPendingGlyphLoads: () => true },
+      iconStage: null,
+      ...coldArms(),
+    })
+    expect(warmGlyph.hasPending(SCOPE_RASTER_DEM)).toBe(false)
+    expect(warmGlyph.hasPending()).toBe(true)
+  })
+})
+
+describe('XGISMap — raster/DEM pending work keeps the real shouldRenderThisFrame warm', () => {
+  it('a pre-boot map (renderers undefined) reads the kinds as drained, then a stubbed warm arm flips it', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const h = map as unknown as Record<string, unknown>
+    h._needsRender = false
+    h._sceneHasAnimation = false
+    h.textStage = null
+    const c = (map as unknown as { camera: Record<string, number> }).camera
+    h._lastSigZoom = c.zoom
+    h._lastSigCX = c.centerX
+    h._lastSigCY = c.centerY
+    h._lastSigBearing = c.bearing
+    h._lastSigPitch = c.pitch
+    h._lastSigW = 0
+    h._lastSigH = 0
+    const ask = (): boolean =>
+      (map as unknown as { shouldRenderThisFrame: () => boolean }).shouldRenderThisFrame()
+    // Pre-boot: rasterRenderer/hillshadeRenderer are undefined — the optional-chained
+    // probes must read 0, not throw (the settled control every arm below leans on).
+    expect(ask()).toBe(false)
+    h.rasterRenderer = {
+      pendingLoadCount: () => 1,
+      failedTiles: { hasPendingRetries: () => false },
+      hasFadingTiles: () => false,
+    }
+    expect(ask()).toBe(true)
+    ;(h.rasterRenderer as { pendingLoadCount: () => number }).pendingLoadCount = () => 0
     expect(ask()).toBe(false)
   })
 })
