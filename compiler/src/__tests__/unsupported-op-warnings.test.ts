@@ -26,7 +26,9 @@ describe('unsupported op warnings — specific not generic', () => {
     // `pitch`); see source-cluster-emit.test.ts.
     ['heatmap-density', [], 'Heatmap density accessor'],
     ['line-progress', [], 'Line-progress accessor'],
-    ['distance-from-center', [], 'Distance-from-center accessor'],
+    // `distance-from-center` was here — now SUPPORTED (#2119: routes through
+    // get("$distanceFromCenter"), mirror of the `geometry-type` / `id`
+    // accessor pattern); see expressions-distance-from-center.test.ts.
     // `pitch` was here — now SUPPORTED (lowers to a bare `pitch`
     // identifier, mirror of `zoom`); see expressions-pitch.test.ts.
     // `image` was here — now SUPPORTED (#777 I-G: inline format images
