@@ -1,10 +1,16 @@
-// ═══ Globe atmosphere — limb-glow gradient (#1258) ═══
+// ═══ Globe atmosphere — limb-glow gradient (#1258) + MapLibre `sky` root (#2052) ═══
 //
 // Phase 1 of #1258: a screen-space radial gradient banded around the globe's projected
 // silhouette (inner: horizon tint; outer: falloff to space black), drawn as its own
 // fullscreen-triangle pass immediately after the background clear (background-pass.ts's
 // own header already named this "a separate, deferred pass" — this module is that pass's
 // shader half). NO scattering simulation, NO sun/time-of-day — a gradient, not a model.
+//
+// #2052 T5 Phase 1 adds the MapLibre `sky` ROOT's zenith-angle ramp to the SAME fragment
+// — the design doc's load-bearing observation is that the sky root, the Mapbox sky LAYER
+// and 6/7 of the Mapbox `fog` root are one `f(ray)` evaluator with three converter
+// front-ends, so this is a shader-body change inside an existing pass, not a new pass.
+// See "WHERE THE HORIZON IS" below for the one piece of geometry that is NOT free.
 //
 // ── WHY A RAY-SPHERE TEST, NOT A 2D SCREEN CIRCLE ──
 //
@@ -26,6 +32,23 @@
 // which is invisible in a soft gradient. Using the plain constant keeps this module free of
 // the whole `projections.ts` const-table dependency for one number nothing here needs exactly.
 //
+// ── WHERE THE HORIZON IS, AND WHY IT IS NOT `dot(ray, up)` (#2052) ──
+//
+// The design doc parameterises the sky root as a gradient in ZENITH ANGLE — `sky-color`
+// overhead, `horizon-color` at the horizon. On the globe arm the horizon is the sphere
+// LIMB, and the limb is NOT at `dot(ray, up) == 0`: for an eye at altitude h the tangent
+// rays make an angle α with the eye→centre direction where sin α = R/(R+h), so the limb
+// sits at `dot(ray, up) == −cos α` — which is 0 only for an eye ON the surface and runs to
+// −1 as the eye recedes. A ramp anchored on the up-plane therefore paints the horizon
+// colour in open space at every globe altitude the camera actually uses.
+//
+// So the ramp is parameterised against the limb itself, in the one variable that already
+// exists here: `cos γ = dot(ray, normalize(centre − eye))`, +1 at the nadir and −1 at the
+// zenith, against `cos α = sqrt(1 − (R/d)²)`. `cos γ < cos α` is EXACTLY the existing
+// `t > 0 && tca > 0` miss test (substitute distClosest² = d² − tca²), so no second
+// silhouette test is introduced — the sky and the glow agree about where the limb is by
+// construction, not by two tunings that must be kept in sync.
+//
 // ── NO GL-SPECIFIC VERTEX TWIN ──
 //
 // `scene-upscale.ts`'s vertex twin exists because it SAMPLES a previously-rendered texture,
@@ -43,9 +66,14 @@ import {
   pow,
   select,
   mix,
+  max,
+  sqrt,
+  length,
+  smoothstep,
   vec2,
   vec4,
   Let,
+  Var,
   If,
   module,
   emitModule,
@@ -70,6 +98,12 @@ const ATMOSPHERE_OUTER_SCALE = 1.025
 /** Falloff shape from the limb (t=0) to the outer radius (t=1). Higher = a tighter band
  *  hugging the silhouette; 2.0 is a soft, unremarkable gradient — not a tuned physical curve. */
 const ATMOSPHERE_GLOW_EXPONENT = 2.0
+/** Floor under the authored `sky-horizon-blend` (#2052). `smoothstep(0, e1, x)` is undefined
+ *  at e1 == 0, and MapLibre's spec range is `[0, 1]` inclusive, so the "sharp horizon" end of
+ *  that range has to land on a width rather than on a division by zero. 1/256 of the
+ *  limb→zenith arc is well under a pixel at any viewport this renders at, so the clamp is
+ *  invisible where it bites and the ramp stays total over the whole authored domain. */
+const SKY_HORIZON_BLEND_MIN = 1 / 256
 
 const VsAtmosphereOut = ioStruct('VsAtmosphereOut', {
   pos: builtin('position', vec4fT),
@@ -107,6 +141,16 @@ const atmosphereU = uniformStruct(
     /** Straight-alpha RGBA at the glow's outer radius (t=1) — typically alpha 0, so the
      *  already-black space background shows through unchanged past the rim. */
     outer_color: vec4fT,
+    /** #2052 — MapLibre `sky-color`: straight-alpha RGBA at the ZENITH end of the sky ramp. */
+    sky_color: vec4fT,
+    /** #2052 — MapLibre `horizon-color`: straight-alpha RGBA at the LIMB end of the ramp. */
+    horizon_color: vec4fT,
+    /** #2052 — x = `sky-horizon-blend` (0..1, the ramp width as a fraction of the limb→zenith
+     *  arc); y = the sky ENABLE flag (0 = the style authored no `sky` root). y is a hard flag
+     *  rather than "both colours at alpha 0" because it gates a BRANCH: with the sky off the
+     *  fragment must take the pre-#2052 path expression-for-expression, so a style with no sky
+     *  stays bit-identical instead of merely arithmetically-equal. z, w unused. */
+    sky_params: vec4fT,
   },
 )
 const atm = atmosphereU.field
@@ -169,7 +213,51 @@ export const fsAtmosphere = fn(
     // half the exponent's worth of visible screen width, on a band that was already only a
     // few pixels wide to begin with.
     const a = Let(mix(atm.outer_color.w, atm.inner_color.w, glow))
-    return vec4(rgb, a)
+
+    // ── MapLibre `sky` root — the zenith-angle ramp (#2052 T5 Phase 1) ──
+    //
+    // Everything below reads the SAME ray/sphere quantities the glow just used; see the
+    // header for why the ramp is anchored on the limb angle rather than on `dot(ray, up)`.
+    const dSafe = Let(max(length(center.sub(eye)), f32(1)))
+    // cos of the angle between the ray and the eye→centre direction. `tca` is already that
+    // dot against the UN-normalised eye→centre vector, so this is one divide, not a second dot.
+    const cosRay = Let(tca.div(dSafe))
+    // cos of the limb half-angle. Written as `1 − (R/d)²` rather than `1 − R²/d²` to keep
+    // every term O(1): R² is 4.07e13 and would spend most of an f32's mantissa before the
+    // subtraction. `max(…, 0)` covers an eye at or inside the surface (d ≤ R), where there is
+    // no limb — the ramp then degenerates to the hemisphere test, bounded rather than NaN.
+    const rOverD = Let(f32(ATMOSPHERE_EARTH_R_M).div(dSafe))
+    const cosLimb = Let(sqrt(max(f32(1).sub(rOverD.mul(rOverD)), f32(0))))
+    // 0 exactly AT the limb, 1 exactly at the zenith (cosRay = −1); negative on the rays that
+    // hit the planet. The denominator is cosLimb + 1 ∈ [1, 2] and so needs no guard.
+    const skyT = Let(cosLimb.sub(cosRay).div(cosLimb.add(f32(1))))
+    const skyBlend = Let(max(atm.sky_params.x, f32(SKY_HORIZON_BLEND_MIN)))
+    const skyMix = Let(smoothstep(f32(0), skyBlend, skyT))
+    const skyRgb = Let(mix(atm.horizon_color.swizzle('xyz'), atm.sky_color.swizzle('xyz'), skyMix))
+    // Zero on the planet's own disc: the sky must REPLACE the space background above the
+    // horizon, never paint over the earth surface the later passes draw.
+    const skyA = Let(
+      select(skyT.gt(f32(0)), mix(atm.horizon_color.w, atm.sky_color.w, skyMix), f32(0)),
+    )
+
+    const out = Var(vec4(rgb, a))
+    // Glow OVER sky, straight alpha (the pass's colour target blends `src·a + dst·(1−a)`).
+    // Deliberately a BRANCH, not an algebraic `select`: at skyA = 0 the composite reduces to
+    // (rgb·a)/a, which is the identity in ℝ and a rounding in f32 — a style that authors no
+    // `sky` has to be bit-identical to pre-#2052, not merely close, because that byte-identity
+    // is the invariant the whole phase is gated on. The condition is uniform across the draw,
+    // so both backends take it coherently.
+    If(atm.sky_params.y.gt(f32(0.5)), () => {
+      const oa = Let(a.add(skyA.mul(f32(1).sub(a))))
+      const orgb = Let(
+        rgb
+          .mul(a)
+          .add(skyRgb.mul(skyA.mul(f32(1).sub(a))))
+          .div(max(oa, f32(1e-6))),
+      )
+      out.assign(vec4(orgb, oa))
+    })
+    return out
   },
   { stage: 'fragment', retAttr: '@location(0)' },
 )
