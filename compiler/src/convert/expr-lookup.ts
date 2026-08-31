@@ -8,7 +8,6 @@
 // is taken as a parameter (`recurse`) to avoid importing expressions.ts.
 
 import type { ExprHandler } from './expr-handler-types'
-import { extractCollatorOpts } from './collator-opts'
 
 export const getHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox spec: ["get", key] or ["get", key, object]. The field
@@ -465,21 +464,39 @@ export const distanceHandler: ExprHandler = (v, warnings) => {
 export const resolvedLocaleHandler: ExprHandler = (v, warnings) => {
   // Mapbox `["resolved-locale", ["collator", opts]]` → the BCP-47 tag the
   // collator resolves to. Lowered to the CPU `resolved_locale("<locale>")`
-  // builtin (eval/collator.ts). Requires a constant collator locale.
+  // builtin (eval/collator.ts). Reads ONLY the collator's `locale`: the
+  // case- / diacritic-sensitivity opts cannot change the resolved tag, so a
+  // non-constant SIBLING opt must not drop the whole expression. That is why
+  // this does NOT call the shared `extractCollatorOpts` — that extractor is
+  // all-or-nothing by design, because the comparison path bakes EVERY opt
+  // into `collator_cmp`.
   if (v.length !== 2) {
     warnings.push(
       `Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`,
     )
     return null
   }
-  const opts = extractCollatorOpts(v[1])
-  if (opts === null) {
-    warnings.push(
-      `["resolved-locale"] argument must be a ["collator", …] with constant options; dropped.`,
-    )
+  const collator = v[1]
+  if (!Array.isArray(collator) || collator[0] !== 'collator') {
+    warnings.push(`["resolved-locale"] argument must be a ["collator", …]; dropped.`)
     return null
   }
-  return `resolved_locale(${JSON.stringify(opts.locale)})`
+  const opts: unknown = collator[1]
+  // `["collator"]` with no opts object → the platform default locale.
+  if (opts === undefined) return 'resolved_locale("")'
+  if (typeof opts !== 'object' || opts === null || Array.isArray(opts)) {
+    warnings.push(`["resolved-locale"] collator options must be an object literal; dropped.`)
+    return null
+  }
+  // Peel v8 `["literal", v]` wraps a preprocessor may add around the opt.
+  let locale: unknown = (opts as Record<string, unknown>)['locale']
+  while (Array.isArray(locale) && locale.length === 2 && locale[0] === 'literal') locale = locale[1]
+  if (locale === undefined) return 'resolved_locale("")'
+  if (typeof locale !== 'string') {
+    warnings.push(`["resolved-locale"] collator locale must be a constant string; dropped.`)
+    return null
+  }
+  return `resolved_locale(${JSON.stringify(locale)})`
 }
 
 export const inHandler: ExprHandler = (v, warnings, recurse) => {
