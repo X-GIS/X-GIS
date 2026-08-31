@@ -18,6 +18,7 @@ import { test, expect } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { analyzeStrokeColumns } from '../src/wrap-continuity-analysis'
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '__1245-wrap-sweep__')
 
@@ -54,9 +55,16 @@ async function hideChrome(page: import('@playwright/test').Page): Promise<void> 
   })
 }
 
-/** Per-column stroke analysis of the rose-500 line over the GL readback. */
+/** Per-column stroke analysis of the rose-500 line over the GL readback.
+ *
+ *  The READBACK stays in the page (it needs the GL context); the JUDGEMENT moved out to
+ *  `playground/src/wrap-continuity-analysis.ts` (#2110), where a unit test can drive it
+ *  over column shapes directly instead of having to find a camera that produces them.
+ *  That is how the end-taper case got in: it only appears at cameras where the clipped
+ *  stroke's taper is wider than the fixed cuff, so no e2e camera in this sweep was ever
+ *  going to pin it. */
 async function measure(page: import('@playwright/test').Page) {
-  return page.evaluate(() => {
+  const raw = await page.evaluate(() => {
     const w = window as unknown as {
       __xgisMap?: { ctx?: { rhi?: { gl?: WebGL2RenderingContext } } }
     }
@@ -75,32 +83,10 @@ async function measure(page: import('@playwright/test').Page) {
       for (let y = 0; y < H; y++) if (isStroke((y * W + x) * 4)) n++
       cols[x] = n
     }
-    let x0 = -1
-    let x1 = -1
-    for (let x = 0; x < W; x++)
-      if (cols[x]! > 0) {
-        if (x0 < 0) x0 = x
-        x1 = x
-      }
-    if (x0 < 0) return { W, H, x0, x1, median: 0, gaps: [], dips: [], strokeCols: 0 }
-    // median thickness over struck columns
-    const ns = cols
-      .slice(x0, x1 + 1)
-      .filter((n) => n > 0)
-      .sort((a, b) => a - b)
-    const median = ns[Math.floor(ns.length / 2)] ?? 0
-    // Skip a 2 px cuff at each visible end (frame-clip AA), then look for full
-    // gaps (n==0 flanked by stroke) and sub-40%-median dips.
-    const gaps: [number, number][] = []
-    const dips: [number, number][] = []
-    for (let x = x0 + 2; x <= x1 - 2; x++) {
-      if (cols[x]! === 0 && cols[x - 1]! > 0 && cols[x + 1]! > 0) gaps.push([x, cols[x]!])
-      if (cols[x]! > 0 && median > 0 && cols[x]! < median * 0.4) dips.push([x, cols[x]!])
-    }
-    let strokeCols = 0
-    for (let x = x0; x <= x1; x++) if (cols[x]! > 0) strokeCols++
-    return { W, H, x0, x1, median, gaps: gaps.slice(0, 20), dips: dips.slice(0, 20), strokeCols }
+    return { W, H, cols }
   })
+  if (!raw) return null
+  return { W: raw.W, H: raw.H, ...analyzeStrokeColumns(raw.cols) }
 }
 
 test('#1245 wrap continuation is continuous across a camera sweep', async ({ page }) => {
