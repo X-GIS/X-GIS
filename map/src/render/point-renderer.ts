@@ -28,6 +28,7 @@ import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import { reflectionToBindGroupLayoutEntries } from '@xgis/rhi-webgpu'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { cameraAnchorDsfun } from './camera-anchor-dsfun'
+import { Pitch0Unprojector } from '../camera/pitch0-unproject'
 import type { GeoJSONGeometry } from '@xgis/data'
 import {
   type TilePointFrameArgs,
@@ -69,6 +70,18 @@ function pointReflection(): ReturnType<typeof reflect> {
 function pointBlock(): UniformBlockOf<typeof POINT_U> {
   return (_pointBlock ??= uniformBlock(POINT_U))
 }
+/** #2118 — the pitch-0 MVP producer behind `circle-pitch-alignment: map`, and the
+ *  SAME one label-pass feeds to `groundBasisAt` (camera/pitch0-unproject.ts), so
+ *  the two ground-aligned features cannot drift onto different ideas of the
+ *  unpitched camera. ONE module-level instance, like `_pointBlock` above:
+ *  `matrix()` hands back its own buffer by reference and this file's only consumer
+ *  copies it into the uniform block on the very next statement, so no second
+ *  caller can observe it mid-flight. Its cache shadow keys on the camera, so the
+ *  many per-layer uniform writes in one frame rebuild it at most once. */
+let _pitch0: Pitch0Unprojector | null = null
+function pitch0Unprojector(): Pitch0Unprojector {
+  return (_pitch0 ??= new Pitch0Unprojector())
+}
 /** Canonical point `Uniforms` byte size, derived from the reflected layout.
  *  Exported so wiring tests size/identify the global uniform write from the SAME
  *  layout source the renderer uses, not a hand-coded 160. */
@@ -100,8 +113,12 @@ function buildPointBglEntries(): GPUBindGroupLayoutEntry[] {
  *    per-feature ECEF against the camera-at-ENU-origin MVP via
  *    (ecefH−camH)+(ecefL−camL).
  *  · circle_params: x/y = translate baked CSS-px → NDC-per-pixel (px * 2 / w/h,
- *    y negated — NDC y is UP), z = blur_px, w = pitch-scale flag (0 = viewport,
- *    1 = map: VS scales quad expansion by w_ref/clip.w, MapLibre pitch-scale:map).
+ *    y negated — NDC y is UP), z = blur_px, w = the pitch MODE CODE (#2118):
+ *    0 = pitch-alignment viewport + pitch-scale viewport (the historical path),
+ *    1 = pitch-alignment viewport + pitch-scale map (VS scales the radius by
+ *    w_ref/clip.w, MapLibre pitch-scale:map), 2 = pitch-alignment map (the VS
+ *    maps the quad's local axes through the ground basis instead).
+ *  · mvp_pitch0: the live MVP with pitch forced to 0 — the basis's P₀ half.
  *  · globe_eye: #600 globe(7) eye-horizon cull — frame.eye is set only on the
  *    globe/ECEF branch → all-zero on flat (flat/disc cull arms ignore it). */
 // (exported for the byte-equality gate — point-frame-uniform.test.ts)
@@ -119,6 +136,7 @@ export function writePointFrameUniform(
   circleTranslateY = 0,
   circleBlur = 0,
   circlePitchScaleMap = false,
+  circlePitchAlignmentMap = false,
 ): void {
   // #739 — the world scale the frozen low-zoom flat MVP actually renders at
   // (single authority, mirrors getViewForProjection's cap), NOT the uncapped
@@ -132,6 +150,22 @@ export function writePointFrameUniform(
   // 3D / globe anchors on the ECEF centre (getECEFCenter, sphere).
   const { hi: camH, lo: camL } = cameraAnchorDsfun(camera, projType)
   const ge = globeEyeUniform(frame.eye)
+  // #2118 — the pitch MODE CODE (point.ts documents the enum). AN UNPITCHED
+  // CAMERA SUPPRESSES GROUND ALIGNMENT, and it does so on `pitch` rather than on
+  // the computed basis — the same short-circuit, for the same two reasons, as
+  // `makeGroundBasisFor` (dispatch-point-labels.ts): at pitch 0 the pitch-0 matrix
+  // IS the live matrix element for element, so the basis is exactly the identity
+  // and building it spends six mat4 lanes reaching a foregone conclusion; and it
+  // makes "an unpitched frame is bit-identical to before #2118" a property of this
+  // code rather than of a float argument about how exactly the identity comes out.
+  const groundAligned = circlePitchAlignmentMap && camera.pitch > 0
+  const pitchMode = groundAligned ? 2 : circlePitchScaleMap ? 1 : 0
+  // The lane is written EVERY frame — the live matrix whenever the basis is off —
+  // so it can never be read as stale garbage; the pitch-0 matrix is only BUILT
+  // when a layer actually asked for the ground basis.
+  const mvpPitch0 = groundAligned
+    ? pitch0Unprojector().matrix(camera, canvasWidth, canvasHeight, dpr)
+    : frame.matrix
   block.write({
     mvp: frame.matrix,
     proj_params: [projType, projCenterLon, projCenterLat, 0],
@@ -142,7 +176,7 @@ export function writePointFrameUniform(
       canvasWidth > 0 ? (circleTranslateX * 2) / canvasWidth : 0,
       canvasHeight > 0 ? -(circleTranslateY * 2) / canvasHeight : 0,
       circleBlur,
-      circlePitchScaleMap ? 1 : 0,
+      pitchMode,
     ],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
     // #1635 — the camera zoom a `@color`/`@stroke` stage block reads as `u.zoom`.
@@ -150,6 +184,7 @@ export function writePointFrameUniform(
     // (vector-tile-renderer's `currentCameraZoom = camera.zoom`), so the three
     // composer hosts agree on what `zoom` means.
     zoom: camera.zoom,
+    mvp_pitch0: mvpPitch0,
   })
 }
 
@@ -734,6 +769,11 @@ export class PointRenderer {
      *  mid-list; every call site here either passes this explicitly or
      *  relies on the default, never shifts a positional argument. */
     shaderVariant?: ShaderVariantInfo | null,
+    /** Mapbox `paint.circle-pitch-alignment` = "map" (#2118). Trailing and
+     *  optional for the same reason `shaderVariant` is: every existing call site
+     *  passes its arguments positionally, so a new knob goes on the END or it
+     *  silently re-binds someone else's. */
+    circlePitchAlignmentMap?: boolean,
   ): void {
     const points: { lon: number; lat: number }[] = []
 
@@ -912,6 +952,7 @@ export class PointRenderer {
       baseCircleTranslateY: circleTranslateY ?? 0,
       lastDynTranslateZoom: Number.NaN,
       circlePitchScaleMap: circlePitchScaleMap ?? false,
+      circlePitchAlignmentMap: circlePitchAlignmentMap ?? false,
       shaderVariant: shaderVariant ?? null,
     })
 
@@ -1161,6 +1202,7 @@ export class PointRenderer {
         layer.circleTranslateY,
         layer.circleBlur,
         layer.circlePitchScaleMap,
+        layer.circlePitchAlignmentMap,
       )
       this.rhi.writeBuffer(this.uniformBuffer, 0, this.frameBlock.buffer)
       // Through the RHI Material seam (P1: the sole path), same as the tile-point draw.

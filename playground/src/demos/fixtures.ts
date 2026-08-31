@@ -47,6 +47,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Two point-label layers over the SAME anchors (#777 IV3-a): `label-pitch-alignment-map` lies in the ground plane, `label-pitch-alignment-viewport` stays an upright billboard. Purpose-built because point labels resolve to viewport by DEFAULT and no real basemap authors the property, so the ground basis has nothing to act on elsewhere. §5 probe: pitch>0 must make the two arms diverge; at pitch 0 they must be identical (the basis is the identity there and is withheld, so the ground arm takes exactly the billboard path).',
     source: load('fixture-label-pitch-alignment.xgis'),
   },
+  fixture_circle_pitch: {
+    name: 'Fixture: circle-pitch-alignment / -scale, three isolated arms',
+    tag: 'fixture',
+    description:
+      'Three circle layers on three SEPARATE sources (#2118): `c_default` (no pitch utility), `c_align` (circle-pitch-alignment-map — the disc lies in the ground plane) and `c_scale` (circle-pitch-scale-map — the radius shrinks with distance). Purpose-built because no shipped basemap authors either knob and X-GIS resolves both to their viewport behaviour by default, so a gate pointed at a real style would measure a no-op. One source per arm so the spec draws exactly ONE disc per frame — an ink BBOX is only meaningful over a single blob. The feature is pushed into the FAR FIELD via setSourceData after run(): at the camera target w_ref/clip.w is exactly 1, so the scale arm would be pixel-identical to the default there. §5 probe: at pitch 0 all three arms must be hash-identical (the basis is the identity and the mode is suppressed on `pitch`); at pitch 60 `c_align` must flatten measurably in ink-box aspect ratio while the other two stay circular, and `c_scale` must move the radius while `c_default` does not.',
+    source: load('fixture-circle-pitch.xgis'),
+  },
   fixture_curved_label_ground: {
     name: 'Fixture: curved line labels, ground plane vs billboard',
     tag: 'fixture',
