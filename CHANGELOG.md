@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6c98bd69ea543c3b48fe6d7b986423e87226818c
+  Generated from: cd67bbeb32b7e7f3375ee00cd2dc20b79681527b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6c98bd69ea54
+    bun scripts/emit-changelog.ts --since cd67bbeb32b7
 -->
 
 # Changelog
@@ -28,6 +28,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map/text:** D1 INC-5 — a ground-aligned label is sized by the map branch of the perspective ratio, not forced to 1 ([#2106](https://github.com/X-GIS/X-GIS/pull/2106)) `cd67bbe`
+- **compiler/tiler:** clustering P2 — the cluster index, CPU-only ([#2105](https://github.com/X-GIS/X-GIS/pull/2105)) `60a33b5`
+- **compiler:** T2 P2 — terrain block parses, converts, and warns precisely; displacement stays honestly unapplied ([#2104](https://github.com/X-GIS/X-GIS/pull/2104)) `5b3844f`
 - **line:** position the globe line VS from CPU-exact ECEF endpoint lanes ([#2089](https://github.com/X-GIS/X-GIS/pull/2089)) `0bf3cd0`
 - **map/text:** D1 INC-4 — curved line labels walk the label plane and draw through a pivoted ground basis (#2012) ([#2092](https://github.com/X-GIS/X-GIS/pull/2092)) `65b1319`
 - **map:** #2042 INC-5b — ring-free bundle keys drop the live ringCursor for a sentinel ([#2098](https://github.com/X-GIS/X-GIS/pull/2098)) `e26ba5d`
@@ -119,6 +122,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** #1245's dip scan read the clipped stroke's own end-taper as a discontinuity ([#2113](https://github.com/X-GIS/X-GIS/pull/2113)) `889695c`
 - **map:** #2122 — `idle` must not mean "converged except for images" either ([#2126](https://github.com/X-GIS/X-GIS/pull/2126)) `6c98bd6`
 - **map/playground:** #2116 — the idle contract, and three render gates that measured the wrong thing ([#2120](https://github.com/X-GIS/X-GIS/pull/2120)) `6864afd`
 - **map:** #2091 — the readiness gate pinned an unreachable LOD target, so the map never idled ([#2103](https://github.com/X-GIS/X-GIS/pull/2103)) `91c7b73`
@@ -240,6 +244,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **shaders:** #2042 — one authority for the Mercator cam-rel recombination ([#2132](https://github.com/X-GIS/X-GIS/pull/2132)) `9ea58d1`
 - **map:** T5 P0 — extract the top-level style root family from map.ts into style-top-level.ts (#2052) ([#2076](https://github.com/X-GIS/X-GIS/pull/2076)) `a680c43`
 - **rhi-webgpu:** derive bind-group visibility from BindEntry.stages ([#1917](https://github.com/X-GIS/X-GIS/pull/1917)) `deb5dfa`
 - **geo,map:** latToMercatorY authority; five packers stop re-spelling it ([#1831](https://github.com/X-GIS/X-GIS/pull/1831)) `56c6f47`
@@ -280,6 +285,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** #2042 INC-6 — a LINE-only witness, landed BEFORE the half it judges ([#2141](https://github.com/X-GIS/X-GIS/pull/2141)) `d0a0464`
 - **e2e:** re-pin the polygon arm-revert tokens to the #2042 INC-6 flag-selected cam_rel Lets (#2073) ([#2074](https://github.com/X-GIS/X-GIS/pull/2074)) `e4b1d39`
 - **playground:** capture-canvas skill — chrome-free, event-driven map capture for e2e specs ([#2062](https://github.com/X-GIS/X-GIS/pull/2062)) `6ccae6c`
 - **e2e:** make the dateline gate name which failure it saw ([#1981](https://github.com/X-GIS/X-GIS/pull/1981)) `7732050`
