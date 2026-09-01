@@ -19,6 +19,13 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  // Playwright owns `.spec.ts`; vitest owns `.test.ts`. Without this, the
+  // DEFAULT testMatch is `**/*.@(spec|test).?(c|m)[jt]s?(x)` — it would collect
+  // e2e/helpers' vitest suites too, and a `import { describe } from 'vitest'`
+  // at their module scope throws during collection, which aborts the run for
+  // ALL 417 specs (#1638's failure mode; `playground/src/e2e-specs-load.test.ts`
+  // caught exactly that when the first such helper test landed, #2231).
+  testMatch: '**/*.spec.ts',
   globalTeardown: './e2e/_demo-audit-report.ts',
   timeout: 60_000,
   // Worker parallelization. The bottleneck is GPU contention, not
