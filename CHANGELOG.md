@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c68f0e2f1f20354a3f348f2387fcd095e34b14c9
+  Generated from: 702cd726a1293148d54ebf36a76aaa886e888739
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c68f0e2f1f20
+    bun scripts/emit-changelog.ts --since 702cd726a129
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** zoom-axis bezier colour densify + per-feature collator options ([#2217](https://github.com/X-GIS/X-GIS/pull/2217)) `702cd72`
 - **compiler:** make Mapbox ["array", …] a real type assertion ([#2202](https://github.com/X-GIS/X-GIS/pull/2202)) `9da727d`
 - **compiler:** fog and transition leave the ignored-roots lump for precise warnings ([#2199](https://github.com/X-GIS/X-GIS/pull/2199)) `fdeb8cf`
 - **map:** keepLoopWarm and the burst exit read the registry; legacy hasPendingSourceWork deleted (#2149 increment 6) ([#2195](https://github.com/X-GIS/X-GIS/pull/2195)) `e4db558`
