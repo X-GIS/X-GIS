@@ -19,6 +19,7 @@ import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
 import type { SceneView } from '../scene-view'
 import { resolveNumberShape, resolveColorShape } from '../paint-shape-resolve'
+import type { InputStore } from '../input-store'
 import type { HillshadeRenderer } from '../hillshade-renderer'
 import { requireRhiFrame, type RenderPass, type HillshadePassHost } from './pass'
 
@@ -42,12 +43,16 @@ export function applyHillshadePaint(
     | undefined,
   zoom: number,
   elapsedMs: number,
+  /** Live `input` values (#2166). Without it an `input-dependent` opacity
+   *  shape — `| opacity-[dim]`, a per-frame constant — takes the per-feature
+   *  fallback of 1 and the authored default never reaches the relief. */
+  inputs?: InputStore | null,
 ): void {
   // Layer opacity is a COMMON paint (independent of the hillshade relief bundle) — resolve
   // + set it FIRST, so a default hillshade layer (no authored relief paint, early-returns
   // below) still honours `opacity` like every other layer type (#777 gap).
   const common = hillshadeShow?.paintShapes.common
-  if (common) hr.setOpacity(resolveNumberShape(common.opacity, zoom, elapsedMs).value)
+  if (common) hr.setOpacity(resolveNumberShape(common.opacity, zoom, elapsedMs, inputs).value)
 
   const hs = hillshadeShow?.paintShapes.hillshade
   if (!hs) return
@@ -105,7 +110,7 @@ class HillshadePass implements RenderPass {
   execute(ctx: FrameContext, scene: SceneView, host: HillshadePassHost): void {
     const hr = host.hillshadeRenderer
     if (!hr || !hr.hasSource()) return
-    applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs)
+    applyHillshadePaint(hr, host._hillshadeShow, host.camera.zoom, host._elapsedMs, host.inputs)
 
     // F3b: RHI origination — descriptor-equivalent on WebGPU, executable on
     // WebGL2 after the flip. hr.render takes RhiRenderPass ONLY (narrowed in

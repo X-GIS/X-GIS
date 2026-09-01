@@ -40,7 +40,7 @@ export const LAYER_TYPES: readonly CoverageEntry[] = [
   {
     name: 'hillshade',
     status: 'supported',
-    note: '#777 Phase II — rendered end-to-end on both backends: raster-dem DEM decode → 3×3 Sobel → the full MapLibre v5 method set (standard / basic / combined / igor / multidirectional, up to 4 sources) in HillshadeRenderer/HillshadePass. Residuals: resampling:linear smoothing (its own partial row) and the ≤1-DEM-texel cross-tile edge seam (CLAMP_TO_EDGE; backfill deferred).',
+    note: '#777 Phase II — rendered end-to-end on both backends: raster-dem DEM decode → 3×3 Sobel → the full MapLibre v5 method set (standard / basic / combined / igor / multidirectional, up to 4 sources) in HillshadeRenderer/HillshadePass. Residuals: the spec-default `resampling: linear` is not rendered — X-GIS shades per fragment from a nearest-sampled DEM, so the relief is flat across each DEM texel, the MapLibre `nearest` look (`resampling` selects the relief filter, not the DEM sampler, which the packed decode pins to nearest in both engines; its own partial row, and an explicitly authored linear warns) — and the ≤1-DEM-texel cross-tile edge seam (CLAMP_TO_EDGE; backfill deferred).',
     source: 'layer-converters/generic.ts',
   },
   {
