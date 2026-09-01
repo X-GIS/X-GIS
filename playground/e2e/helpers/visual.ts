@@ -641,31 +641,90 @@ export async function awaitMapIdle(page: Page, timeoutMs = 30_000): Promise<'idl
           on?: (t: string, l: () => void) => void
           off?: (t: string, l: () => void) => void
         }
-        const bus = (window as unknown as { __xgisMap?: { _eventBus?: MapLike } & MapLike })
-          .__xgisMap
-        if (!bus) {
-          resolve('timeout')
-          return
+        const w = window as unknown as {
+          __xgisMap?: { _eventBus?: MapLike } & MapLike
+          __xgisAwaitIdleStats?: { ticks: number; sawBusy: boolean; resolvedBy: string }
         }
-        const idleNow = bus._eventBus?._wasIdle === true || bus._wasIdle === true
-        if (idleNow) {
-          resolve('idle')
+        // FIRST, before any early return: a stale object left by a previous call
+        // in the same page would let a broken helper read someone else's numbers.
+        const stats = { ticks: 0, sawBusy: false, resolvedBy: '' }
+        w.__xgisAwaitIdleStats = stats
+        const bus = w.__xgisMap
+        if (!bus) {
+          stats.resolvedBy = 'no-map'
+          resolve('timeout')
           return
         }
         if (typeof bus.on !== 'function' || typeof bus.off !== 'function') {
           resolve('timeout')
           return
         }
+        const readIdle = (): boolean => bus._eventBus?._wasIdle === true || bus._wasIdle === true
+
         let done = false
-        const finish = (r: 'idle' | 'timeout'): void => {
+        let raf = 0
+        const finish = (r: 'idle' | 'timeout', by: string): void => {
           if (done) return
           done = true
+          stats.resolvedBy = by
           bus.off!('idle', onIdle)
           clearTimeout(timer)
+          clearTimeout(stall)
+          cancelAnimationFrame(raf)
           resolve(r)
         }
-        const onIdle = (): void => finish('idle')
-        const timer = setTimeout(() => finish('timeout'), budget)
+        const onIdle = (): void => finish('idle', 'event')
+        const timer = setTimeout(() => finish('timeout', 'budget'), budget)
+
+        // `_wasIdle` is recomputed ONCE PER rAF TICK (map-event-bus.ts, driven
+        // from map.ts's renderLoop), so immediately after a camera mutation it
+        // still holds the PREVIOUS tick's answer. The old one-shot read of it
+        // therefore resolved 'idle' on a map that had just been told to move —
+        // a settle helper that does not settle (#2101).
+        //
+        // TWO CONSECUTIVE ticks, not one: the map re-arms its own rAF from
+        // inside its frame callback, so depending on registration order this
+        // poll's callback for a given frame can run BEFORE the bus recomputes.
+        // One `true` can still be the stale value; two cannot, because at least
+        // one full recompute separates them.
+        let consecutive = 0
+        const tick = (): void => {
+          if (done) return
+          stats.ticks++
+          if (readIdle()) {
+            if (++consecutive >= 2) {
+              finish('idle', 'poll')
+              return
+            }
+          } else {
+            consecutive = 0
+            stats.sawBusy = true
+          }
+          raf = requestAnimationFrame(tick)
+        }
+        raf = requestAnimationFrame(tick)
+
+        // Bounded no-progress guard. `RenderLoop.render()` early-returns on
+        // device loss WITHOUT re-arming rAF (map.ts), and a hidden page stops
+        // rAF outright — in both the poll would never advance and a caller with
+        // a long budget (220 s at _split-bind-parity-gate) would sit out the
+        // whole thing, where the old snapshot returned at once. If no tick has
+        // run at all, fall back to the snapshot: a loop that is not rendering
+        // has nothing left to draw, which is what idle means.
+        // 5 s, not 1 s, and the threshold is the whole point. This escape cannot
+        // distinguish "rAF is dead" from "rAF is slow" — it only sees that no tick
+        // has run yet — so a threshold under the worst frame time re-creates the
+        // very bug above: on a scene whose frames cost ~1-2 s (measured on
+        // SwiftShader, see _adaptive-quality-ladder-gate's header) the first tick
+        // lands after 1 s, this fires with `ticks === 0`, and `readIdle()` returns
+        // the stale pre-mutation value. That is exactly the slow-tick regime where
+        // the CDP round-trip no longer masks the staleness — i.e. the only regime
+        // where the fix matters. 5 s clears the measured worst frame; the cost when
+        // rAF really is dead is 5 s against budgets of 30-220 s.
+        const stall = setTimeout(() => {
+          if (stats.ticks === 0) finish(readIdle() ? 'idle' : 'timeout', 'no-raf')
+        }, 5000)
+
         bus.on('idle', onIdle)
       }),
     timeoutMs,
