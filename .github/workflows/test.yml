@@ -956,6 +956,30 @@ jobs:
             fi
             echo "dynamic linkage complete"
           fi
+
+          # Fonts are the other half of what `--with-deps` installed, and unlike libraries
+          # they are invisible to `ldd` — a missing one surfaces only as a changed glyph in
+          # a gate below. So record which families this runner has, HERE, in the log a red
+          # gate is already being read in, rather than making the next reader download a
+          # diff artifact to ask the question.
+          #
+          # MEASURED when `--with-deps` was dropped (run 32239002658, identical on all six
+          # shards): Liberation present, the other five ABSENT — and every render gate
+          # green. That is the evidence that no gated pixel uses them, and this line is
+          # what keeps that answer checkable instead of a claim in a comment.
+          #
+          # No pipes: `grep -q` closing the pipe early would SIGPIPE `fc-list` into a 141
+          # under `bash -eo pipefail`. And the `if !` matters — swallowing the failure into
+          # an empty `fams` would print six ABSENTs on a runner that simply has no
+          # fontconfig, which reads as "this runner has no fonts" when the truth is "the
+          # probe could not ask". Two different states must not print the same thing.
+          if ! fams=$(fc-list : family 2>/dev/null); then
+            echo "font probe: fc-list unavailable — families not reported"
+          else
+            for f in Liberation IPAGothic WenQuanYi Loma FreeSans Unifont; do
+              case "$fams" in *"$f"*) echo "font $f: present" ;; *) echo "font $f: ABSENT" ;; esac
+            done
+          fi
       - name: Render gates under SwiftShader
         if: needs.changes.outputs.render == 'true'
         working-directory: playground
