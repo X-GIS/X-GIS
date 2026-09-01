@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 3b843ff0657eae714a3d69f95dae86916c51a443
+  Generated from: 67fc3268c172f1ec22d23176d0d9b74f72fa86f2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 3b843ff0657e
+    bun scripts/emit-changelog.ts --since 67fc3268c172
 -->
 
 # Changelog
@@ -45,6 +45,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **site:** add diagram-first blog post "The engine in seven pictures" ([#2210](https://github.com/X-GIS/X-GIS/pull/2210)) `67fc326`
 - **tech:** add dual-edition technical deep-dive series ([#2206](https://github.com/X-GIS/X-GIS/pull/2206)) `3b843ff`
 
 #### test
