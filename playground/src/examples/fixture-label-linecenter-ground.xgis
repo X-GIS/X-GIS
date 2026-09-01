@@ -1,0 +1,47 @@
+xgis 1
+
+/* #2166 — the RESIDUAL of text-pitch-alignment, made measurable.
+ *
+ * The spec resolves `line-center` placement to pitch-alignment `map` by the same
+ * default chain that routes `line` there (auto -> text-rotation-alignment, whose
+ * own auto is `map` for both line placements). The runtime does NOT honour it
+ * for line-center: that placement emits ONE label per feature through the
+ * non-curved fallback (place-labels-along-line.ts emitLabelAlongSegment), which
+ * calls addLabel with no ground basis at all.
+ *
+ * The coverage note and the converter warning now both SAY that, and a claim in
+ * a note is exactly the thing CI cannot check. This fixture is the witness: same
+ * roads, same camera, same everything as fixture_curved_label_ground — only the
+ * placement differs — so `labels.groundAligned` reading 0 here while the sibling
+ * fixture reads > 0 is attributable to the placement and to nothing else.
+ *
+ * Geometry is EMBEDDED so the pair of gates needs no network, matching the
+ * sibling fixture's reasoning.
+ */
+
+source roads {
+  type: geojson
+  data: { "type": "FeatureCollection", "features": [
+    {"type": "Feature", "properties": {"name": "EASTROADS"}, "geometry": {"type": "LineString", "coordinates": [[126.77902, 37.79012], [126.80302, 37.79012]]}},
+    {"type": "Feature", "properties": {"name": "EASTROADN"}, "geometry": {"type": "LineString", "coordinates": [[126.77902, 37.79332], [126.80302, 37.79332]]}},
+    {"type": "Feature", "properties": {"name": "NORTHROADW"}, "geometry": {"type": "LineString", "coordinates": [[126.78502, 37.78572], [126.78502, 37.79772]]}},
+    {"type": "Feature", "properties": {"name": "NORTHROADE"}, "geometry": {"type": "LineString", "coordinates": [[126.79702, 37.78572], [126.79702, 37.79772]]}},
+    {"type": "Feature", "properties": {"name": "DIAGONALROADA"}, "geometry": {"type": "LineString", "coordinates": [[126.78002, 37.78672], [126.80202, 37.79672]]}},
+    {"type": "Feature", "properties": {"name": "DIAGONALROADB"}, "geometry": {"type": "LineString", "coordinates": [[126.78002, 37.79672], [126.80202, 37.78672]]}}
+  ] }
+}
+
+layer road_lines {
+  source: roads
+  | stroke-#9aa0a6 stroke-8
+}
+
+/* label-line-center + an EXPLICIT pitch-alignment-map: the strongest form of the
+ * residual. Even authored outright, the runtime cannot honour it here. */
+layer center_roads {
+  source: roads
+  | label-[.name] label-line-center
+    label-color-#ffffff label-size-20
+    label-halo-2 label-halo-color-#000000
+    label-pitch-alignment-map
+}

@@ -884,16 +884,24 @@ export function convertTextLayoutProperties(
   // Mapbox `symbol-sort-key` — lower values place first, winning
   // collisions against higher-keyed labels (state/city > town >
   // road shield ordering). Extracted from layout into LabelDef.
-  // sortKey downstream. Constant numeric form only for now —
-  // expression form (`["get", "rank"]`) drops to 0 with a warning
-  // so the layer still routes through the collision system.
+  // sortKey (constant) or LabelDef.sortKeyExpr (per-feature, #2166 —
+  // the runtime evaluates it in applyFeatureExprs at dispatch, in
+  // time for the same frame's collision pass). fmtSigned already
+  // spells a NEGATIVE constant in the bracket form, so the two
+  // shapes share a syntax and only the binding tells them apart;
+  // the constant arm stays FIRST so `-3` keeps folding to a constant.
   const sortKey = unwrapLiteralScalar(layout['symbol-sort-key'])
   if (typeof sortKey === 'number' && Number.isFinite(sortKey)) {
     utils.push(`label-sort-key-${fmtSigned(sortKey)}`)
   } else if (sortKey !== undefined && sortKey !== null) {
-    warnings.push(
-      `Symbol layer "${layer.id}" — symbol-sort-key expression form not supported yet; flattened to 0.`,
-    )
+    const expr = exprToXgis(sortKey, warnings)
+    if (expr !== null) {
+      utils.push(`label-sort-key-[${expr}]`)
+    } else {
+      warnings.push(
+        `Symbol layer "${layer.id}" — symbol-sort-key expression could not be converted; the layer collides at the default key 0.`,
+      )
+    }
   }
   // icon-overlap / icon-allow-overlap / icon-ignore-placement —
   // icon-side collision policy (Phase S Batch 4). Icon and text

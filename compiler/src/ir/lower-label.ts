@@ -105,6 +105,7 @@ export function lowerLabelProps(
   let labelIgnorePlacement: boolean | undefined
   let labelPadding: number | undefined
   let labelSortKey: number | undefined
+  let labelSortKeyExpr: { ast: unknown } | undefined
   let labelRotate: number | undefined
   let labelLetterSpacing: number | undefined
   let labelFontStack: string[] | undefined
@@ -415,6 +416,15 @@ export function lowerLabelProps(
             labelIconSize = n
             continue
           }
+        }
+        // #2166 — the per-feature sort key. AFTER the constant fold above and
+        // BEFORE the X-GIS0005 fallthrough below, both deliberately: the
+        // converter spells a negative CONSTANT as `label-sort-key-[-3]`, so an
+        // arm placed earlier would capture every negative literal as an
+        // expression and break the byte-identity of the constant path.
+        if (name === 'label-sort-key') {
+          labelSortKeyExpr = { ast: item.binding }
+          continue
         }
         // Non-label binding items (fill / stroke / size / opacity /
         // fill-extrusion / fill-translate / unhandled non-label bracket
@@ -887,6 +897,7 @@ export function lowerLabelProps(
     labelIgnorePlacement,
     labelPadding,
     labelSortKey,
+    labelSortKeyExpr,
     labelRotate,
     labelLetterSpacing,
     labelFontStack,

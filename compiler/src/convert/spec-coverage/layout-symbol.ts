@@ -22,8 +22,8 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'symbol-sort-key',
     status: 'partial',
     impact: 'medium',
-    note: 'Constant numeric value plumbed end-to-end (iter 399-405). Runtime collision pass sorts CollisionItems by sortKey ascending — lower wins. Expression form (`["get", "rank"]`) flattens to 0 with a warning.',
-    source: 'layers.ts:702',
+    note: 'Constant AND per-feature expression forms plumbed end-to-end. Constant: iter 399-405. Expression (`["get","rank"]`, match/case): converter emits `label-sort-key-[<expr>]` (#2166) → LabelDef.sortKeyExpr → applyFeatureExprs evaluates it per feature at dispatch → the collision pass sorts CollisionItems by sortKey ascending in the SAME frame (greedyPlaceBboxes), lower wins. RESIDUAL, and why this stays partial: X-GIS applies the key to COLLISION priority only. MapLibre `symbol-z-order: auto` also uses it as painter order; X-GIS draws near-first within a layer there, so two labels that overlap without colliding (an allow-overlap style) can paint in a different order. An expression resolving to a non-number falls back to the constant key, i.e. 0 — the same value the pre-#2166 drop produced.',
+    source: 'layers-symbol.ts:893',
   },
   {
     name: 'symbol-z-order',
@@ -122,8 +122,8 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'text-pitch-alignment',
     status: 'partial',
     impact: 'medium',
-    note: 'Converter emits, runtime ignores — labels never project onto ground plane (`LabelDef.pitchAlignment` has NO consumer in map/src; the text vertex path emits screen-px quads at z=0). NOT opt-in, and this was under-reported until #777 IV3 was re-scoped: the spec default `auto` matches text-rotation-alignment, whose own `auto` is `map` for line / line-center placement, so EVERY line-placed label resolves to map without authoring anything — 5 text-bearing layers per OFM style (road names, waterway names, along-line shields), 0 of which author the property. The converter now warns on the RESOLVED value, not just an explicit `map`; only an explicit `viewport` (on either knob) or point placement stays silent. Icon-only line layers are excluded — their gap is icon-pitch-alignment.',
-    source: 'map.ts:2461',
+    note: 'Ground projection SHIPS on both dispatch paths. Point placement: makeGroundBasisFor derives a per-label ground basis from the frame matrix and its pitch-0 twin and withholds it at pitch 0 (identity), so unpitched frames stay byte-identical. Line placement: the tangent-rotated curved branch walks a pitch-0 label plane and hands the same basis to each stop. The spec default `auto` matches text-rotation-alignment, whose own `auto` is `map` for line / line-center placement, so every line-placed label is ground-projected without authoring anything. RESIDUAL, and why this is still partial: (1) `line-center` placement emits one label per feature through the non-curved fallback (emitLabelAlongSegment), which supplies no basis; (2) `line` with text-rotation-alignment `viewport` never reaches the curved branch; (3) inline raw-GeoJSON line labels (placeInlineLineLabels) carry no basis parameter; (4) the globe projection has no map plane to lie in and is deferred by design, so a label ground-projects on the flat projections only. The converter warns on exactly (1) and (2) — the set groundAlignsAtRuntime withholds — and is silent on everything that works.',
+    source: 'dispatch-point-labels.ts:116',
   },
   {
     name: 'text-keep-upright',

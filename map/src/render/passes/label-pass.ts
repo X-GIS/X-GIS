@@ -16,7 +16,7 @@
 // (label-node-local state, no longer a FrameContext field). The text-overlay
 // sub-pass originates through the RHI frame shell (#1046 F3b).
 
-import { evaluate, makeEvalProps, resolveColor, resolvePitchAlignment } from '@xgis/compiler'
+import { evaluate, groundAlignsAtRuntime, makeEvalProps, resolveColor } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
@@ -986,6 +986,12 @@ class LabelPass implements RenderPass {
         // Per-feature icon-translate expression (#777 I-F) — evaluates to
         // a `[dx,dy]` pair overriding iconTranslateX/Y at dispatch.
         const iconTranslateExprAst = def.iconTranslateExpr?.ast ?? null
+        // #2166 — per-feature `symbol-sort-key`. Resolved HERE, at dispatch,
+        // which is early enough by construction: every dispatch path hands the
+        // def this returns to addLabel, and TextStage.prepare() — which reads
+        // `p.def.sortKey` into the collision input — runs after the frame's last
+        // addLabel. Nothing in text-stage.ts or text-collision.ts changes.
+        const sortKeyExprAst = def.sortKeyExpr?.ast ?? null
         const cameraZoom = host.camera.zoom
         // iter-259 (Plan AAA B.7) — applyFeatureExprs cache. Key
         // on props ref + zoomBucket (0.25 zoom resolution). For
@@ -1009,7 +1015,8 @@ class LabelPass implements RenderPass {
             iconImageExprAst === null &&
             iconSizeExprAst === null &&
             iconOpacityExprAst === null &&
-            iconTranslateExprAst === null
+            iconTranslateExprAst === null &&
+            sortKeyExprAst === null
           )
             return effectiveDef
           const cached = host._featureExprsCache.get(props)
@@ -1096,6 +1103,18 @@ class LabelPass implements RenderPass {
               }
             } catch {
               /* fall back to effectiveDef.iconTranslateX/Y */
+            }
+          }
+          if (sortKeyExprAst !== null) {
+            try {
+              const v = evaluate(sortKeyExprAst as import('@xgis/compiler').Expr, bag)
+              // Non-numeric / non-finite keeps effectiveDef.sortKey (undefined
+              // unless a constant was also authored), which the collision pass
+              // reads as 0 — the same fallback the iconSize / iconOpacity arms
+              // above take, and the same value the pre-#2166 drop produced.
+              if (typeof v === 'number' && isFinite(v)) out.sortKey = v
+            } catch {
+              /* fall back to effectiveDef.sortKey */
             }
           }
           // iter-259 — cache the result. Stores the resolved
@@ -1268,20 +1287,22 @@ class LabelPass implements RenderPass {
             const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
             const useTangentRotation = lineRotAlign !== 'viewport'
             // #2012 INC-4 — does this layer's curved branch lie in the ground
-            // plane? Gated on the SHARED spec authority the converter's runtime-gap
-            // warning uses (compiler/src/ir/label-alignment.ts) AND on a frame that
-            // can produce a pitch-0 twin at all, so an unpitched frame and every
+            // plane? ONE authority answers that now (#2166): groundAlignsAtRuntime
+            // (compiler/src/ir/label-alignment.ts) carries the spec chain AND the
+            // tangent-rotation gate this branch imposes, and the converter's
+            // runtime-gap warning is derived from the same predicate, so the warning
+            // cannot describe a runtime that no longer exists. Plus a frame that can
+            // produce a pitch-0 twin at all: an unpitched frame and every
             // `text-rotation-alignment: viewport` layer pay literally nothing — the
             // extra projection per sample is what keeps the byte-identity rung
             // reachable, and it must not be spent where it cannot be used.
             const groundAlignedLine =
-              useTangentRotation &&
               groundMercPitch0 !== undefined &&
-              resolvePitchAlignment(
+              groundAlignsAtRuntime(
                 effectiveDef.placement,
                 effectiveDef.rotationAlignment,
                 effectiveDef.pitchAlignment,
-              ) === 'map'
+              )
             // #1314 — viewport edge-inset cull for this layer's line labels, at every
             // along-line emit site below; re-set per polyline from the feature's own
             // extent (lineLabelEdgeInsetPx). Point labels are unaffected.

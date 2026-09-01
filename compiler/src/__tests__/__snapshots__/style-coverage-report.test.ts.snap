@@ -34,11 +34,9 @@ exports[`style coverage > maplibre-demotiles coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "geolines-label",
-      "reasons": [
-        "Symbol layer "geolines-label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -72,7 +70,6 @@ exports[`style coverage > maplibre-demotiles coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "GeoJSON source "crimea" has inline data — emitted as no-URL stub; call map.setSourceData() after run().",
-    "Symbol layer "geolines-label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
   ],
 }
 `;
@@ -657,11 +654,9 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "waterway_line_label",
-      "reasons": [
-        "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -671,11 +666,9 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "water_name_line_label",
-      "reasons": [
-        "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -703,27 +696,21 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-path",
-      "reasons": [
-        "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-minor",
-      "reasons": [
-        "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-major",
-      "reasons": [
-        "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -817,11 +804,6 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
-    "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
     "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }
@@ -1359,11 +1341,9 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "waterway_line_label",
-      "reasons": [
-        "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1373,11 +1353,9 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "water_name_line_label",
-      "reasons": [
-        "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1405,27 +1383,21 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-path",
-      "reasons": [
-        "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-minor",
-      "reasons": [
-        "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-major",
-      "reasons": [
-        "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1524,11 +1496,6 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
     },
   ],
   "warnings": [
-    "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
     "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }
@@ -1754,11 +1721,9 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "type": "line",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "waterway_line_label",
-      "reasons": [
-        "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1768,35 +1733,27 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "water_name_line_label",
-      "reasons": [
-        "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-path",
-      "reasons": [
-        "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-minor",
-      "reasons": [
-        "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "highway-name-major",
-      "reasons": [
-        "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1890,11 +1847,6 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
-    "Symbol layer "waterway_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "water_name_line_label" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-path" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-minor" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
-    "Symbol layer "highway-name-major" — text-pitch-alignment resolves to "map" (spec default: auto → text-rotation-alignment → map for "line" placement) but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. Labels stay upright billboards under pitch instead of lying in the ground plane.",
     "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }

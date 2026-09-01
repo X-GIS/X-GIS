@@ -31,8 +31,8 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     property: 'text-pitch-alignment',
     layerType: 'symbol',
     variant: 'constant',
-    supported: false,
-    note: 'Runtime never projects labels onto ground plane',
+    supported: true,
+    note: 'Ground projection wired on both dispatch paths — makeGroundBasisFor for point placement (dispatch-point-labels.ts) and the pitch-0 label-plane walk for the tangent-rotated curved line branch (label-pass.ts → dispatch-curved-line-labels.ts); the basis reaches the renderer through TextStage as groundBasis. Residual: `line-center` and `line` + text-rotation-alignment `viewport` take the non-curved fallback and stay billboards, and the globe projection has no map plane so it billboards by design.',
   },
 
   // Icon paint
@@ -86,8 +86,8 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     property: 'symbol-sort-key',
     layerType: 'symbol',
     variant: 'data-driven',
-    supported: false,
-    note: 'Expression flattens to 0; per-feature key plumbing pending',
+    supported: true,
+    note: 'get/match/case → label-sort-key-[<expr>] (converter exprToXgis) → LabelDef.sortKeyExpr; runtime applyFeatureExprs (label-pass.ts) evaluates the AST per feature into the dispatched def, which TextStage.prepare reads into the collision input the same frame. #2166. Approximation: the key drives collision priority, not painter order in the `auto` z-order mode.',
   },
 
   // Symbol layout — common

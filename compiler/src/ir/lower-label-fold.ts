@@ -54,6 +54,7 @@ export function foldLabelKnobs(
     labelIgnorePlacement?: boolean
     labelPadding?: number
     labelSortKey?: number
+    labelSortKeyExpr?: { ast: unknown }
     labelRotate?: number
     labelLetterSpacing?: number
     labelFontStack?: string[]
@@ -161,6 +162,7 @@ export function foldLabelKnobs(
       : {}),
     ...(knobs.labelPadding !== undefined ? { padding: knobs.labelPadding } : {}),
     ...(knobs.labelSortKey !== undefined ? { sortKey: knobs.labelSortKey } : {}),
+    ...(knobs.labelSortKeyExpr !== undefined ? { sortKeyExpr: knobs.labelSortKeyExpr } : {}),
     ...(knobs.labelRotate !== undefined ? { rotate: knobs.labelRotate } : {}),
     ...(knobs.labelLetterSpacing !== undefined ? { letterSpacing: knobs.labelLetterSpacing } : {}),
     ...(knobs.labelFontStack !== undefined && knobs.labelFontStack.length > 0

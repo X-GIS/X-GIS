@@ -98,5 +98,6 @@ export {
   isLinePlacement,
   resolveRotationAlignment,
   resolvePitchAlignment,
+  groundAlignsAtRuntime,
   type ResolvedAlignment,
 } from './label-alignment'

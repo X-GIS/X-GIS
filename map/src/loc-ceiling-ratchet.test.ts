@@ -1241,7 +1241,12 @@ const CEILINGS: Record<string, number> = {
   // run identity being derived on `text-rotation-alignment: viewport` layers, where
   // no consumer exists. The ceiling drops to the measured post-prettier size rather
   // than being left slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/render/passes/label-pass.ts': 1977,
+  // 1977→1998 (#2166): the per-feature `symbol-sort-key` arm in applyFeatureExprs
+  // — the ast hoist + its 5-line why (the collision pass reads the dispatched def in
+  // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
+  // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
+  // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
+  'map/src/render/passes/label-pass.ts': 1998,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -2185,7 +2190,12 @@ const CEILINGS: Record<string, number> = {
   // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
   // spec default chain that resolves to it) moved out to
   // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
-  'compiler/src/convert/layers-symbol.ts': 1357,
+  // 1357→1365 (#2166 symbol-sort-key): the warn-and-drop else for the expression
+  // form becomes an exprToXgis emit + a precise unconvertible-form warning, and the
+  // block's comment now records WHY the constant arm stays first (fmtSigned already
+  // spells a negative constant in the bracket form, so the two shapes share a
+  // syntax). MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'compiler/src/convert/layers-symbol.ts': 1365,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2195,7 +2205,12 @@ const CEILINGS: Record<string, number> = {
   // label sub-pass — moved verbatim to lower-label-fold.ts so the writingMode knob
   // could land at zero net growth. LOWERED per this header's shrink rule — headroom
   // is re-justified per phase, never banked. MEASURED.
-  'compiler/src/ir/lower-label.ts': 941,
+  // 941→952 (#2166 symbol-sort-key): the labelSortKeyExpr local, the
+  // `label-sort-key` binding arm placed BETWEEN the constant fold and the X-GIS0005
+  // fallthrough, its 5-line why (an earlier arm would capture `label-sort-key-[-3]`,
+  // the converter's spelling of a negative CONSTANT), and the knob return entry.
+  // MEASURED post-prettier (`wc -l`).
+  'compiler/src/ir/lower-label.ts': 952,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2226,7 +2241,10 @@ const CEILINGS: Record<string, number> = {
   // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
-  'compiler/src/ir/render-node.ts': 1001,
+  // 1001→1006 (#2166): `LabelDef.sortKeyExpr` + its doc, and the sibling `sortKey`
+  // doc loses the two lines that claimed the expression form flattens to 0 — it no
+  // longer does. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'compiler/src/ir/render-node.ts': 1006,
   'compiler/src/convert/paint-helpers.ts': 826,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the

@@ -54,3 +54,45 @@ export function resolvePitchAlignment(
   if (pitchAlignment === 'map' || pitchAlignment === 'viewport') return pitchAlignment
   return resolveRotationAlignment(placement, rotationAlignment)
 }
+
+/** Does map/src actually lay this label INTO the ground plane?
+ *
+ *  `resolvePitchAlignment` above answers what the SPEC asks for. This answers
+ *  what the runtime delivers, and the two are different sets — which is the
+ *  whole content of the converter's runtime-gap warning (#2166). It lives beside
+ *  its sibling for the reason at the head of this file: the warning and the
+ *  runtime must read ONE model, or the warning drifts into describing a runtime
+ *  that no longer exists (it did, on 100 % of what it fired on).
+ *
+ *  The runtime has exactly two ground-aligned dispatch paths, each with its own
+ *  gate, and both are reproduced here:
+ *
+ *  • POINT — `makeGroundBasisFor` withholds the basis unless the resolved pitch
+ *    alignment is `map`, and narrows on nothing else
+ *    (map/src/render/passes/dispatch-point-labels.ts).
+ *  • LINE — the CURVED branch of the label pass walks a pitch-0 label plane and
+ *    hands the basis to each stop, but it is reached only when the label follows
+ *    the tangent, i.e. `text-rotation-alignment` is anything but `viewport`
+ *    (map/src/render/passes/label-pass.ts). A converted `line` layer always
+ *    carries a positive `label-spacing` — the converter's symbol-spacing arm
+ *    emits the 250 px default when the style omits it — so the curved branch is
+ *    the branch every `line` layer takes.
+ *
+ *  `line-center` has neither: it emits one label per feature through the
+ *  non-curved fallback (map/src/render/passes/place-labels-along-line.ts), whose
+ *  `emitLabelAlongSegment` calls `addLabel` with no basis argument at all. So it
+ *  stays an upright billboard however the chain resolves — the residual this
+ *  predicate exists to keep honest, together with the globe (projType 7 has no
+ *  map plane to lie in and is deferred with its reason in map/src/text/
+ *  ground-basis.ts), which is a per-FRAME condition no per-layer predicate can
+ *  see. */
+export function groundAlignsAtRuntime(
+  placement: unknown,
+  rotationAlignment: unknown,
+  pitchAlignment: unknown,
+): boolean {
+  if (resolvePitchAlignment(placement, rotationAlignment, pitchAlignment) !== 'map') return false
+  if (placement === 'line-center') return false
+  if (placement === 'line') return rotationAlignment !== 'viewport'
+  return true
+}

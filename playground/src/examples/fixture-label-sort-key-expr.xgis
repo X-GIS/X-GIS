@@ -1,0 +1,27 @@
+xgis 1
+
+/* #2166 — per-feature `symbol-sort-key` (`["get","rank"]` → label-sort-key-[.rank]).
+ *
+ * TWO labels at the SAME anchor, so they collide and exactly one survives; which
+ * one is the whole experiment. The collision pass orders by sortKey ASCENDING
+ * (lower wins), so with rank 1 on ZALPHA and rank 9 on ZBRAVO the survivor must
+ * be ZALPHA — and swapping the ranks must swap the survivor. A count alone
+ * cannot distinguish those two states (both drop exactly one label), so the gate
+ * reads the surviving TEXT out of the post-collision draw list via
+ * setLabelDumpFilter / getDumpedLabels.
+ *
+ * Both texts begin with "Z" so one dump filter captures both candidates and the
+ * gate cannot accidentally measure a different label.
+ *
+ * Anchors are pushed via setSourceData after run(), so the fixture needs no
+ * network and the spec owns the ranks.
+ */
+
+source pins { type: geojson }
+
+layer ranked_labels {
+  source: pins
+  | label-[.name] label-color-#ffffff label-size-28
+    label-halo-2 label-halo-color-#000000
+    label-sort-key-[.rank]
+}
