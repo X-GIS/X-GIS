@@ -21,10 +21,14 @@ describe('unsupported op warnings — specific not generic', () => {
     // `resolved_locale` CPU builtin); see collator-convert.test.ts.
     // A STANDALONE collator (not attached to a comparison op) still warns.
     ['collator', [{}], 'collator object'],
-    ['accumulated', [], 'Accumulated accessor'],
+    // `accumulated` was here — now SUPPORTED (#2050: lowers to a bare `accumulated`
+    // identifier the evaluator resolves through ACCUMULATED_KEY, mirror of `zoom` /
+    // `pitch`); see source-cluster-emit.test.ts.
     ['heatmap-density', [], 'Heatmap density accessor'],
     ['line-progress', [], 'Line-progress accessor'],
-    ['distance-from-center', [], 'Distance-from-center accessor'],
+    // `distance-from-center` was here — now SUPPORTED (#2119: routes through
+    // get("$distanceFromCenter"), mirror of the `geometry-type` / `id`
+    // accessor pattern); see expressions-distance-from-center.test.ts.
     // `pitch` was here — now SUPPORTED (lowers to a bare `pitch`
     // identifier, mirror of `zoom`); see expressions-pitch.test.ts.
     // `image` was here — now SUPPORTED (#777 I-G: inline format images

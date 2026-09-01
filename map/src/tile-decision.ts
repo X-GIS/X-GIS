@@ -16,7 +16,7 @@
 import { EARTH } from '@xgis/shared'
 import { tileKey, tileKeyChildren, tileKeyParent } from '@xgis/compiler'
 import type { TileCoord } from '@xgis/data'
-import { visibleTilesFrustum, visibleTilesFrustumSampled, makeTileCoord } from '@xgis/data'
+import { visibleTilesSSE, makeTileCoord } from '@xgis/data'
 import type { Camera } from './camera'
 import { type Projection, mercatorYToLat } from '@xgis/geo'
 import { routeToSphereSelector } from '@xgis/geo'
@@ -64,13 +64,20 @@ export type TileDecision =
       wantsRequestKey: number | null
     }
 
-  /** Children at z+1 found cached — deck.gl `best-available` /
-   *  Mapbox `findLoadedChildren`. Cover with up to 4 children, the
-   *  uncached quadrants stay blank for one frame. */
+  /** Cached descendants found within {@link MAX_UNDERZOOM_LEVELS} of the
+   *  visible tile — deck.gl `best-available` / Mapbox `findLoadedChildren`
+   *  (MapLibre `maxUnderzooming`). Cover with whatever descendants are
+   *  cached; the uncached quadrants stay blank for one frame.
+   *  `wantsRequestKey` advances the fetch frontier exactly as the
+   *  parent-fallback's does (iter-284): without it a covered tile is
+   *  never requested at its own z, and the deeper the stretch reaches
+   *  (#2013) the longer the view would sit on stretched children —
+   *  observed as a z13 camera settling permanently on z14/z15 content. */
   | {
       kind: 'child-fallback'
       childKeys: number[]
       childrenNeedingUpload: number[]
+      wantsRequestKey: number | null
     }
 
   /** Sliced source: tile loaded, this layer empty here. Skip
@@ -110,6 +117,14 @@ export type TileDecision =
  *  interaction, while a genuinely unfetchable tile stops pinning the loop
  *  inside a minute instead of forever. */
 export const KEEP_WARM_MAX_FAILURES = 3
+
+/** How many levels BELOW a visible tile the children-stretch fallback
+ *  searches for cached descendants (#2013). MapLibre's `maxUnderzooming`
+ *  default — deep enough that a fast zoom-out across 2-3 LODs keeps
+ *  drawing the just-left viewport's cached tiles until the new LOD lands,
+ *  shallow enough that the walk stays ≤ 4+16+64 key lookups per missing
+ *  tile (lookups, not draws: only cached slices are ever pushed). */
+export const MAX_UNDERZOOM_LEVELS = 3
 
 export interface ClassifyTileInputs {
   visible: TileCoord
@@ -379,18 +394,41 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
     }
   }
 
-  // Children stretch (deck.gl best-available).
+  // Children stretch (deck.gl best-available), up to MAX_UNDERZOOM_LEVELS
+  // deep — MapLibre `maxUnderzooming` parity (#2013). One level was not
+  // enough: a fast zoom-out crossing ≥ 2 LODs skips the z+1 fetches
+  // entirely, so the just-left viewport's tiles sit cached at z+2/z+3
+  // while the 1-level stretch found nothing → the visible tile went
+  // BLANK until its own fetch landed (missedTiles 8→20 in the #2013
+  // trace; hits exactly the layers whose data minzoom is above the
+  // skeleton, e.g. protomaps roads z≥6). Only cached slices are pushed,
+  // so the drawn set is bounded by cache content — the same tiles that
+  // were on screen a moment ago — and a cached tile terminates its
+  // branch (it fully covers its quadrant; descending past it would draw
+  // the same area twice).
   if (tileZ < maxLevel) {
     const childKeys: number[] = []
     const childrenNeedingUpload: number[] = []
-    for (const ck of tileKeyChildren(visibleKey)) {
-      if (hasSliceInCatalog(ck)) {
-        childKeys.push(ck)
-        if (!layerCache.has(ck)) childrenNeedingUpload.push(ck)
+    const deepestZ = Math.min(tileZ + MAX_UNDERZOOM_LEVELS, maxLevel)
+    const collect = (key: number, childZ: number): void => {
+      for (const ck of tileKeyChildren(key)) {
+        if (hasSliceInCatalog(ck)) {
+          childKeys.push(ck)
+          if (!layerCache.has(ck)) childrenNeedingUpload.push(ck)
+        } else if (childZ < deepestZ) {
+          collect(ck, childZ + 1)
+        }
       }
     }
+    collect(visibleKey, tileZ + 1)
     if (childKeys.length > 0) {
-      return { kind: 'child-fallback', childKeys, childrenNeedingUpload }
+      // Fetch-frontier push — mirror of the parent-fallback's (iter-284
+      // rationale above): the children COVER the tile visually, so nothing
+      // else will ever request the visible z, and the render would stay on
+      // stretched descendants forever.
+      const wantsRequestKey =
+        !hasSliceInCatalog(visibleKey) && hasEntryInIndex(visibleKey) ? visibleKey : null
+      return { kind: 'child-fallback', childKeys, childrenNeedingUpload, wantsRequestKey }
     }
   }
 
@@ -617,6 +655,10 @@ export function computeZoomDirectionPrefetchKeys(input: {
   selectorProj: Projection
   offsetMarginPx: number
   isCached: (k: number) => boolean
+  /** #1393/#2013 — the adaptive far-field notch the frame's DRAWING selection
+   *  runs at. The prefetch must probe the same notch or it fetches tiles the
+   *  degraded selection never asks for. 1 = ladder inactive (the default). */
+  farTargetBoost?: number
 }): number[] {
   const {
     camera,
@@ -635,6 +677,7 @@ export function computeZoomDirectionPrefetchKeys(input: {
     selectorProj,
     offsetMarginPx,
     isCached,
+    farTargetBoost = 1,
   } = input
   let prefetchZ = -1
   if (cameraZoom > currentZ + 0.5 && currentZ + 1 <= maxSubTileZ) {
@@ -671,25 +714,23 @@ export function computeZoomDirectionPrefetchKeys(input: {
           bearing,
         ).map((t) => makeTileCoord(t.z, t.x, t.y, 0))
       })()
-    : pitch < 30
-      ? visibleTilesFrustumSampled(
-          camera,
-          selectorProj,
-          prefetchZ,
-          canvasWidth,
-          canvasHeight,
-          offsetMarginPx,
-          dpr,
-        )
-      : visibleTilesFrustum(
-          camera,
-          selectorProj,
-          prefetchZ,
-          canvasWidth,
-          canvasHeight,
-          offsetMarginPx,
-          dpr,
-        )
+    : // #2013 — SSE, not the legacy frustum/sampled pair, for the same two
+      // reasons the readiness gate moved (#1078, tile-selection-cache.ts):
+      // the exact frustum walk costs up to ~66 ms at pitch ≥ 60 (this now
+      // runs MID-GESTURE since the cameraIdle un-gate), and it emits a
+      // DIFFERENT tile set than the SSE drawing selection — prefetching
+      // far-field tiles the renderer never asks for. SSE's mixed-LOD output
+      // is kept whole: it IS the set the renderer will demand at prefetchZ.
+      visibleTilesSSE(
+        camera,
+        selectorProj,
+        prefetchZ,
+        canvasWidth,
+        canvasHeight,
+        offsetMarginPx,
+        dpr,
+        { farTargetBoost },
+      )
   const prefetchKeys: number[] = []
   for (const t of prefetchTiles) {
     const k = tileKey(t.z, t.x, t.y)

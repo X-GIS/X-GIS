@@ -130,4 +130,21 @@ describe('UniformRing', () => {
     ring.destroy()
     expect(ring.rhiBuffer).toBeNull()
   })
+
+  it('#1190: slotCursor tracks allocations and rewinds with resetSlot', () => {
+    const { ring } = makeRing(4)
+    ring.ensure()
+    expect(ring.slotCursor()).toBe(0)
+    ring.allocSlot()
+    ring.allocSlot()
+    expect(ring.slotCursor()).toBe(2)
+    // Grow does not disturb the cursor (offsets stay measured from the
+    // same base — the property the bundle key relies on).
+    ring.allocSlot()
+    ring.allocSlot()
+    ring.allocSlot() // 5th alloc on capacity 4 → grow
+    expect(ring.slotCursor()).toBe(5)
+    ring.resetSlot()
+    expect(ring.slotCursor()).toBe(0)
+  })
 })

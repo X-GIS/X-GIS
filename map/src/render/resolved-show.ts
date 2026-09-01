@@ -22,7 +22,12 @@
 // not the compiler's, so those field accesses type-check.
 import type { PropertyShape } from '@xgis/compiler'
 import type { ShowCommand } from './renderer-types'
-import { resolveNumberShape, resolveColorShape, resolveArrayShape } from './paint-shape-resolve'
+import {
+  resolveNumberShape,
+  resolveColorShape,
+  resolveArrayShape,
+  resolveSteppedShape,
+} from './paint-shape-resolve'
 import type { InputStore } from './input-store'
 
 type ShapeRef = PropertyShape<unknown> | null | undefined
@@ -125,6 +130,13 @@ export interface ResolvedShow {
    *  `null` when the layer has no dash shape (VTR falls back to the static
    *  `ShowCommand.dashArray`). STEPped to the nearest zoom stop. */
   readonly dashArray: readonly number[] | null
+
+  /** #1995 — Mapbox `fill-antialias` in force this frame. `true` (the spec
+   *  default) keeps the fill fragment's sphere-rim alpha smoothstep; `false`
+   *  gates it off for hard rim edges. Collapses BOTH authored forms — the
+   *  constant flag and the 0/1 zoom step — so VTR has one value to bake into
+   *  the polygon uniform's `cam_ecef_off_h.w` lane. */
+  readonly fillAntialias: boolean
 }
 
 /** Per-frame camera + clock context the resolver needs. Keeps the
@@ -244,6 +256,16 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
   // zoom-keyed resolve-cache keeps it fresh. null → VTR uses show.dashArray.
   const dashArray = show.dashArrayShape ? resolveArrayShape(show.dashArrayShape, cameraZoom) : null
 
+  // #1995 — fill-antialias. Boolean (or absent) is the constant form; an
+  // object is the 0/1 zoom curve, STEPped rather than lerped because the
+  // Mapbox spec types fill-antialias `interpolated: false`. A shape that
+  // resolves to nothing (empty stops / a per-feature expr, neither of which
+  // the converter emits here) falls back to the default `true`, exactly as an
+  // unauthored property does. Zoom-only → the zoom-keyed cache stays fresh.
+  const aa = show.fillAntialias
+  const fillAntialias =
+    typeof aa === 'object' && aa !== null ? resolveSteppedShape(aa, cameraZoom) !== 0 : aa !== false
+
   // Fill / stroke colour — `null` from the resolver means "the
   // ShowCommand's static `fill` hex is authoritative this frame".
   //
@@ -290,6 +312,7 @@ export function resolveShow(show: ShowCommand, env: ResolveEnv): ResolvedShow {
     strokeTranslateX,
     strokeTranslateY,
     dashArray,
+    fillAntialias,
   }
 
   const hasTimeDep =

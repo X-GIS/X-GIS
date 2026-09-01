@@ -17,7 +17,11 @@ import twinCorpusRaw from '@xgis/compiler/builder/twin-corpus?raw'
 import { installCoopsCurrents } from './examples/coops-currents.recipe'
 import coopsRecipeRaw from './examples/coops-currents.recipe?raw'
 import { DEMOS } from './demos'
-import { extractMapboxProjectionName, extractMapboxLight } from './mapbox-projection'
+import {
+  extractMapboxProjectionName,
+  extractMapboxLight,
+  extractMapboxSky,
+} from './mapbox-projection'
 import {
   registerXGISLanguage,
   registerXGISTheme,
@@ -39,6 +43,15 @@ const demoIds = Object.keys(DEMOS)
 const params = new URLSearchParams(location.search)
 let currentIdx = Math.max(0, demoIds.indexOf(params.get('id') ?? 'minimal'))
 let currentMap: XGISMap | null = null
+
+// `?measure=<scenario>` — in-page measurement harness (measure-harness.ts):
+// drives repro cameras, converges, reads the canvas back and reports
+// cross-section numbers, so real-hardware runs produce the same JSON a
+// headless SwiftShader probe does (#2053). Dynamic import keeps the normal
+// demo path at zero extra bytes; the harness itself waits for map boot.
+if (params.get('measure')) {
+  void import('./measure-harness').then((mod) => mod.runMeasureHarness(params))
+}
 
 // Module-scope sprite / glyphs URL stash for the Mapbox-import flows
 // (`__xgisImportMapbox` direct call AND `__xgisImportSource` session-
@@ -2052,6 +2065,30 @@ function applyFixtureAutoPush(id: string, map: InstanceType<typeof XGISMap>): vo
         },
       ],
     })
+  } else if (id === 'vertical_labels') {
+    // #2144 — the three fixtures the CJK-vertical design doc names: Hangul,
+    // Han, and a MIXED Latin+Han string (one upright codepoint is enough).
+    // Spread far apart so no column can collide with another.
+    map.setSourceData('places', {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [126.978, 37.5665] },
+          properties: { name: '서울특별시' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [139.69, 35.68] },
+          properties: { name: '東京都' },
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [133.0, 44.0] },
+          properties: { name: 'Tokyo 東京' },
+        },
+      ],
+    })
   } else if (id === 'fixture_typed_array_points') {
     map.setSourcePoints('tracks', {
       lon: new Float32Array([-40, -20, 0, 20, 40]),
@@ -2164,6 +2201,11 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
       // when the style declares none.
       const styleLight = extractMapboxLight(styleObj)
       if (styleLight) currentMap?.setLight(styleLight)
+      // #2052 T5 Phase 1 — honour the style's top-level `sky` block (host-applied,
+      // MapLibre's zenith-angle sky ramp). Left OFF when the style authors none, which
+      // is what keeps a sky-less style's frame byte-identical to pre-#2052.
+      const styleSky = extractMapboxSky(styleObj)
+      if (styleSky) currentMap?.setAtmosphere({ sky: styleSky })
       // Apply style-declared camera when nothing else (URL hash or
       // bounds-fit) explicitly positioned us yet. URL hash camera
       // (parseHash → markCameraPositioned at boot) wins because the

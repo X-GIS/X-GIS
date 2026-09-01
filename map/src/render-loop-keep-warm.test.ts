@@ -10,24 +10,31 @@
 // `render()`, so on a static camera the loop stopped and the backoff was never read: a
 // transiently failed basemap tile stayed a hole after the server had recovered. (With the
 // backoff on a rendered-FRAME counter it was worse still — the clock itself froze.)
+//
+// #2149 increment 6 — every signal except `totalMissed` now reaches the gate through ONE
+// registry scope read (SCOPE_KEEP_WARM). The per-kind truths (the real ledgers, their
+// bounds, the VT walks) are pinned against the real chains in pending-work.test.ts; what
+// THIS suite owns is the gate's contract: the scoped read is consulted, its verdict
+// passes through, the scope is SCOPE_KEEP_WARM exactly, and `totalMissed` short-circuits
+// ahead of it.
 
 import { describe, it, expect } from 'vitest'
 import { tileKey } from '@xgis/compiler'
-import { keepLoopWarm, type KeepWarmTiles } from './render-loop-keep-warm'
+import { keepLoopWarm } from './render-loop-keep-warm'
+import { SCOPE_KEEP_WARM, type PendingWorkScope } from './pending-work'
 import { classifyTile, KEEP_WARM_MAX_FAILURES } from './tile-decision'
 
-const tiles = (loads: boolean, retries: boolean): KeepWarmTiles => ({
-  hasPendingLoads: () => loads,
-  failedTiles: { hasPendingRetries: () => retries },
+const work = (pending: boolean, seen?: PendingWorkScope[]) => ({
+  hasPending: (scope: PendingWorkScope = []) => {
+    seen?.push(scope)
+    return pending
+  },
 })
-const quiet = (): KeepWarmTiles => tiles(false, false)
 
 function inputs(over: Partial<Parameters<typeof keepLoopWarm>[0]> = {}) {
   return {
     totalMissed: 0,
-    raster: quiet(),
-    hillshade: quiet(),
-    vtRenderers: [] as Array<{ renderer: { hasPendingUploads(): boolean } }>,
+    pendingWork: work(false),
     ...over,
   }
 }
@@ -39,45 +46,31 @@ describe('keepLoopWarm', () => {
     expect(keepLoopWarm(inputs())).toBe(false)
   })
 
-  it('#1575 — a raster tile awaiting a retry keeps the loop warm', () => {
-    expect(keepLoopWarm(inputs({ raster: tiles(false, true) }))).toBe(true)
+  it('#1575/#2149 — pending registered work keeps the loop warm', () => {
+    expect(keepLoopWarm(inputs({ pendingWork: work(true) }))).toBe(true)
   })
 
-  it('#1575 — and so does a DEM tile: the hillshade sibling is not forgotten', () => {
-    // This pair has drifted before (#1057 reached two of four renderers, #1436 landed on
-    // one of two backend arms, #1477 on one of two fade ramps). Pin both arms.
-    expect(keepLoopWarm(inputs({ hillshade: tiles(false, true) }))).toBe(true)
+  it('#2149 — the read is SCOPE_KEEP_WARM exactly, not SCOPE_ALL and not a subset', () => {
+    // Scope identity is load-bearing in BOTH directions: an unscoped read would silently
+    // widen this end-of-frame gate to every registered kind (glyphs, sprites, coverage),
+    // and a narrowed one would re-open the #1997 fossilised-mid-ramp hole — either drift
+    // changes which signals re-arm _needsRender without any verdict check going red.
+    const seen: PendingWorkScope[] = []
+    keepLoopWarm(inputs({ pendingWork: work(false, seen) }))
+    expect(seen).toEqual([SCOPE_KEEP_WARM])
   })
 
-  it('keeps every pre-existing signal — missed tiles, both mid-fetch arms, VT uploads', () => {
+  it('keeps the pre-existing totalMissed signal', () => {
     expect(keepLoopWarm(inputs({ totalMissed: 1 }))).toBe(true)
-    expect(keepLoopWarm(inputs({ raster: tiles(true, false) }))).toBe(true)
-    expect(keepLoopWarm(inputs({ hillshade: tiles(true, false) }))).toBe(true)
-    expect(
-      keepLoopWarm(inputs({ vtRenderers: [{ renderer: { hasPendingUploads: () => true } }] })),
-    ).toBe(true)
   })
 
-  it('the VT upload scan is reached only when nothing cheaper fired', () => {
-    // Ordering is load-bearing: the upload scan is the one signal that costs a loop over
-    // every source, so it must sit behind the O(1) checks rather than beside them.
-    let scanned = 0
-    keepLoopWarm(
-      inputs({
-        totalMissed: 1,
-        vtRenderers: [
-          {
-            renderer: {
-              hasPendingUploads: () => {
-                scanned++
-                return false
-              },
-            },
-          },
-        ],
-      }),
-    )
-    expect(scanned, 'an earlier signal short-circuits the scan').toBe(0)
+  it('totalMissed short-circuits ahead of the registry read', () => {
+    // Ordering is load-bearing: the scope's VT kinds each cost a loop over the sources,
+    // so the cheap per-frame count must sit in front of the registry read, not beside it
+    // — the same cheap-first ordering the hand-rolled body kept.
+    const seen: PendingWorkScope[] = []
+    keepLoopWarm(inputs({ totalMissed: 1, pendingWork: work(false, seen) }))
+    expect(seen, 'an earlier signal short-circuits the registry read').toEqual([])
   })
 })
 

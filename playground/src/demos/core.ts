@@ -275,6 +275,16 @@ export const DEMOS_CORE: Record<string, Demo> = {
     source: load('multiline-labels.xgis'),
   },
 
+  vertical_labels: {
+    name: 'CJK vertical labels',
+    tag: 'basic',
+    description:
+      'text-writing-mode: ["vertical"] — 서울특별시 / 東京都 / Tokyo 東京 laid out as downward columns at the em pitch, every glyph upright (#2144)',
+    source: load('vertical-labels.xgis'),
+    zoom: 3,
+    center: [133, 36],
+  },
+
   pmtiles_v4: {
     name: 'PMTiles — protomaps v4',
     tag: 'vector-tiles',
@@ -296,6 +306,14 @@ export const DEMOS_CORE: Record<string, Demo> = {
     description:
       'Live one-line `import "…/styles/bright"` — the runtime fetches the OpenFreeMap "bright" Mapbox style and converts it in full, including the place/POI/road-name/shield labels (the old static snapshot dropped every symbol layer). OpenMapTiles schema. Use this to stress-test pitched / panned views against a real-world style. Navigate to a city: #14/35.68/139.76 (Tokyo), #14/40.78/-73.97 (Manhattan).',
     source: load('openfreemap-bright.xgis'),
+  },
+
+  openfreemap_positron: {
+    name: 'OpenFreeMap Positron (live)',
+    tag: 'vector-tiles',
+    description:
+      'Live one-line `import "…/styles/positron"` — the runtime fetches the OpenFreeMap "positron" Mapbox style and converts it in full, including the place/POI/road-name/shield labels. OpenMapTiles schema. Added to reproduce two user-reported cameras: #9.70/37.54704/126.81412 (Seoul, native zoom) and #21.10/37.38823/126.9468 (Seoul, deep overzoom — source maxzoom 14).',
+    source: load('openfreemap-positron.xgis'),
   },
 
   pmtiles_only_landuse: {

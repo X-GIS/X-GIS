@@ -95,6 +95,52 @@ export interface BundleKeyState {
   /** Identifying label of the line pipeline (variant cache key
    *  proxy). Null if no line pipeline (fill-only show). */
   readonly linePipelineLabel: string | null
+
+  /** UniformRing slot cursor at key-build time (#1190). The recorded
+   *  draws bake dynamic offsets = (this base + position in the walk);
+   *  the base depends on every allocation EARLIER in the frame — other
+   *  shows of the same VTR, fallback walks — which no show-local field
+   *  pins. A key hit with a shifted base replayed stale offsets: the
+   *  previously-undiagnosed "mostly empty canvas during interactive
+   *  navigation" that kept the bundle path disabled. -1 = ring not yet
+   *  created (no allocations possible → any recorded offsets start at
+   *  base 0 once it is; the first real frame keys with the true cursor).
+   *  -2 (#2042 INC-5b) = the walk is RING-FREE (every draw split-bound —
+   *  VTR._walkRingFree, whose inputs are all pinned by this key): nothing
+   *  baked reads a per-tile ring slot, so the live base is not a replay
+   *  dependency, and keying it anyway made one tile's residency flip
+   *  re-record every downstream show (PR #2090's sweep measured
+   *  bundleMisses ≈ N shows per window). */
+  readonly ringCursor: number
+
+  /** Layer-slot dynamic offset baked into the recorded stroke draws. */
+  readonly lineLayerOffset: number
+
+  /** Second (gap) layer-slot offset for the road-casing double-stroke
+   *  draw pair; -1 sentinel = single-stroke path (no second draw). */
+  readonly lineLayerOffsetGap: number
+
+  /** #2093 — whether the globe vector DRAPE owns this show's fills
+   *  (`VectorTileRenderer._drapeGlobeFills`). It selects `drawFills` in
+   *  renderTileKeys, so the two arms record DIFFERENT command sets into the
+   *  bundle while no other cell here need move. `allocUniformSlot()` runs once
+   *  per tile at tile-loop scope, ABOVE the `if (drawFills …)` guard, so the
+   *  walk allocates identically on both arms and the hit-path alloc-count
+   *  invariant cannot fire; `ringCursor` separates them only on a frame where
+   *  the drape actually (re-)bakes — `bakeTileToTexture` takes one slot per
+   *  bake — which is exactly what the bake cache stops happening. In the steady
+   *  state (bakes cached, ring rewound by beginFrame's resetSlot) the cursor at
+   *  key-build time is identical. Before the #2093 LOD ceiling the flag was
+   *  camera-invariant per show; the ceiling makes it zoom-dependent and
+   *  `__XGIS_FORCE_VECTOR_DRAPE` flips it live at a FIXED camera — every other
+   *  cell identical, so a direct-arm bundle would HIT under a held drape and
+   *  replay its fill draws ON TOP of the draped ones. */
+  readonly drapeGlobeFills: boolean
+
+  /** #2093 — the stroke half of the above (`VectorTileRenderer._drapeStrokes`
+   *  → `drawStrokes`): when the drape baked this show's strokes into the tile
+   *  texture the bundle records no direct ECEF-chord stroke draws. */
+  readonly drapeStrokes: boolean
 }
 
 /** Type guard — pinned for tests + future runtime assertions. */
@@ -108,6 +154,8 @@ export function isBundleKeyState(v: unknown): v is BundleKeyState {
     Array.isArray(o.epochs) &&
     typeof o.bindGroupEpoch === 'number' &&
     typeof o.pickOn === 'boolean' &&
-    typeof o.samples === 'number'
+    typeof o.samples === 'number' &&
+    typeof o.drapeGlobeFills === 'boolean' &&
+    typeof o.drapeStrokes === 'boolean'
   )
 }

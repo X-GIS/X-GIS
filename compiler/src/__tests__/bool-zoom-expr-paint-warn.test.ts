@@ -10,16 +10,38 @@
 //
 // Fix (this scope): warn so the loss is surfaced. Full zoom-expr
 // antialias / vertical-gradient support is explicitly out of scope.
+//
+// #1995 UPDATE: the fill-antialias ZOOM-step form is no longer a loss — it
+// lifts to a per-frame 0/1 shape (see fill-antialias-expr.test.ts), so the
+// warning it used to raise is gone by design. What this file still pins for
+// that property is the form with NO lane to land in: a per-feature input.
+// fill-extrusion-vertical-gradient is unchanged (still warn+drop).
 
 import { describe, it, expect } from 'vitest'
 import { convertLayer } from '../convert/layers'
 
 const STEP_ZOOM_BOOL = ['step', ['zoom'], false, 9, true] as unknown
+const STEP_FEATURE_BOOL = ['step', ['get', 'class'], false, 1, true] as unknown
 
 describe('boolean paint prop as zoom-expression warns instead of dropping silently', () => {
-  it('fill-antialias zoom-expression → warning fires (fail-before: was silent)', () => {
+  it('fill-antialias DATA-driven expression → warning fires (no per-feature lane)', () => {
     const warnings: string[] = []
     convertLayer(
+      {
+        id: 'landcover-wood',
+        type: 'fill',
+        source: 'osm',
+        'source-layer': 'landcover',
+        paint: { 'fill-color': '#a0c0a0', 'fill-antialias': STEP_FEATURE_BOOL },
+      } as never,
+      warnings,
+    )
+    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(true)
+  })
+
+  it('fill-antialias ZOOM expression → no warning any more, it converts (#1995)', () => {
+    const warnings: string[] = []
+    const out = convertLayer(
       {
         id: 'landcover-wood',
         type: 'fill',
@@ -29,7 +51,8 @@ describe('boolean paint prop as zoom-expression warns instead of dropping silent
       } as never,
       warnings,
     )
-    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(true)
+    expect(out).toContain('fill-antialias-[step(zoom, 0, 9, 1)]')
+    expect(warnings.some((w) => /fill-antialias/i.test(w))).toBe(false)
   })
 
   it('fill-extrusion-vertical-gradient zoom-expression → warning fires (fail-before: was silent)', () => {

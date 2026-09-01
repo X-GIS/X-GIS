@@ -47,6 +47,20 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Two point-label layers over the SAME anchors (#777 IV3-a): `label-pitch-alignment-map` lies in the ground plane, `label-pitch-alignment-viewport` stays an upright billboard. Purpose-built because point labels resolve to viewport by DEFAULT and no real basemap authors the property, so the ground basis has nothing to act on elsewhere. §5 probe: pitch>0 must make the two arms diverge; at pitch 0 they must be identical (the basis is the identity there and is withheld, so the ground arm takes exactly the billboard path).',
     source: load('fixture-label-pitch-alignment.xgis'),
   },
+  fixture_circle_pitch: {
+    name: 'Fixture: circle-pitch-alignment / -scale, three isolated arms',
+    tag: 'fixture',
+    description:
+      'Three circle layers on three SEPARATE sources (#2118): `c_default` (no pitch utility), `c_align` (circle-pitch-alignment-map — the disc lies in the ground plane) and `c_scale` (circle-pitch-scale-map — the radius shrinks with distance). Purpose-built because no shipped basemap authors either knob and X-GIS resolves both to their viewport behaviour by default, so a gate pointed at a real style would measure a no-op. One source per arm so the spec draws exactly ONE disc per frame — an ink BBOX is only meaningful over a single blob. The feature is pushed into the FAR FIELD via setSourceData after run(): at the camera target w_ref/clip.w is exactly 1, so the scale arm would be pixel-identical to the default there. §5 probe: at pitch 0 all three arms must be hash-identical (the basis is the identity and the mode is suppressed on `pitch`); at pitch 60 `c_align` must flatten measurably in ink-box aspect ratio while the other two stay circular, and `c_scale` must move the radius while `c_default` does not.',
+    source: load('fixture-circle-pitch.xgis'),
+  },
+  fixture_curved_label_ground: {
+    name: 'Fixture: curved line labels, ground plane vs billboard',
+    tag: 'fixture',
+    description:
+      'Two CURVED (tangent-rotated) line-label layers over the SAME lines (#2012 INC-4): `label-pitch-alignment-map` walks the LABEL PLANE and lies in it, `label-pitch-alignment-viewport` walks the screen and stands up. Purpose-built so the D1 payload has an OFFLINE §5 witness — the resolving layers on a real basemap are road names, which need the network. Geometry is pushed with setSourceData after run(). §5 probe: pitch>0 must make the two arms diverge in glyph SPACING as well as quad shape; at pitch 0 they must be hash-identical (the pitch-0 twin of the polyline is the polyline, the basis is the identity and is withheld).',
+    source: load('fixture-curved-label-ground.xgis'),
+  },
   fixture_format_image: {
     name: 'Fixture: inline image in label text (local sprite)',
     tag: 'fixture',
@@ -106,6 +120,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
     tag: 'fixture',
     description: '2-vertex line, no join.',
     source: load('fixture-line.xgis'),
+  },
+  fixture_line_gradient: {
+    name: 'Fixture: line-gradient (#2117)',
+    tag: 'fixture',
+    description:
+      'Two straight lines, same base colour and width, from inline data: the upper one carries a blue→red ramp over ["line-progress"], the lower one carries none. The base colour is GREEN — neither ramp endpoint — so a dropped ramp is a different colour, not a shade. §5 probe: /demo.html?id=fixture_line_gradient&forcegl2=1.',
+    source: load('fixture-line-gradient.xgis'),
   },
   fixture_line_join: {
     name: 'Fixture: line join',

@@ -28,7 +28,8 @@ fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_newton(vo: VsOut) -> @location(0) vec4<f32> {
   let _licm0 = vec2<f32>(2.0, 0.0);
-  let _licm1 = vec2<f32>(0.0, 0.0);
+  let _cse5 = bitcast<f32>(bitcast<u32>(0.0));
+  let _licm1 = vec2<f32>(_cse5, _cse5);
   let _v0 = pow(10.0, (-u.zoom_exp));
   let _v1 = (vo.uv.x * 2.0);
   let _cse0 = (vo.uv.x < 0.5);

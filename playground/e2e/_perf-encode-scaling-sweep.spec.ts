@@ -174,10 +174,33 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   await page.addInitScript(() => {
     ;(window as unknown as { __xgisPerfMarks?: boolean }).__xgisPerfMarks = true
   })
+  // #1190 A/B arm: `XGIS_BUNDLE_OFF=1` env disables the (default-ON)
+  // render-bundle path so this meter can measure direct re-encode vs
+  // bundle replay on the same build. Unset = the production default.
+  if (process.env.XGIS_BUNDLE_OFF === '1') {
+    await page.addInitScript(() => {
+      ;(globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF = true
+    })
+  }
+  // #2042 INC-5 A/B arm: `XGIS_SPLIT_BIND=1` enables the three-range
+  // split bind (and with it the per-tile walk-skip), so the sweep can
+  // measure the encode slope flag-OFF vs flag-ON on one commit. The
+  // factory reads the flag ONCE at build() → must be set pre-boot.
+  // #2042 INC-7 — the flag now defaults ON, so the baseline arm must set it FALSE
+  // EXPLICITLY. Without this the `XGIS_SPLIT_BIND` env var stopped selecting anything:
+  // both arms would boot split and the sweep would measure split-vs-split while still
+  // labelling one arm "legacy" — a comparison that reports a difference of zero for the
+  // wrong reason (§12, the assertion that failed either way).
+  const wantSplit = process.env.XGIS_SPLIT_BIND === '1'
+  await page.addInitScript((on: boolean) => {
+    ;(globalThis as { __XGIS_SPLIT_BIND?: boolean }).__XGIS_SPLIT_BIND = on
+  }, wantSplit)
 
   const rows: Array<{
     n: number
     layers: number
+    /** null when the row is a real measurement; otherwise WHY it is not one. */
+    invalid: 'NO-FRAMES' | 'NOT-CONVERGED' | null
     encodeMean: number
     encodeWorst: number
     frameP50: number
@@ -186,17 +209,139 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
 
   for (const n of [8, 32, 128]) {
     const layers = await bootAt(page, n)
-    const frames = (await runSweep(page, 8000)).slice(2)
+    // ── Steady-state gate (#2042 INC-5) ── the fixed 6 s settle measured
+    // WARMUP on SwiftShader: at n=128 the first frame (uploads + pipeline
+    // compiles + arena-growth invalidateAll storms + clip-fallback draws)
+    // takes 20-40 s, so the old 8 s window held 0-2 frames, all records —
+    // the read slope was the record path, not navigation. Gate instead on
+    // bundleMisses convergence: invalidate a probe frame each poll and
+    // wait until three consecutive polls add no misses (bundles replay).
+    const steady = await (async () => {
+      // A poll only counts when at least one rAF tick landed since the
+      // previous poll — under SwiftShader backpressure rAF stalls for
+      // seconds, and an unchanged miss count with NO frames in between
+      // says nothing (the poller-zero lesson).
+      await page.evaluate(() => {
+        const w = window as unknown as { __sweepTicks?: number }
+        if (w.__sweepTicks === undefined) {
+          w.__sweepTicks = 0
+          const tick = (): void => {
+            w.__sweepTicks = (w.__sweepTicks ?? 0) + 1
+            requestAnimationFrame(tick)
+          }
+          requestAnimationFrame(tick)
+        }
+      })
+      let last = -1
+      let lastTicks = -1
+      let stable = 0
+      const t0 = Date.now()
+      while (Date.now() - t0 < 240_000) {
+        await page.evaluate(() => {
+          ;(window as unknown as { __xgisMap: { invalidate: () => void } }).__xgisMap.invalidate()
+        })
+        await page.waitForTimeout(1_500)
+        const s = await page.evaluate(() => ({
+          misses:
+            (window as unknown as { __xgisMap?: { stats?: { bundleMisses: number } } }).__xgisMap
+              ?.stats?.bundleMisses ?? -1,
+          ticks: (window as unknown as { __sweepTicks?: number }).__sweepTicks ?? 0,
+        }))
+        if (s.ticks === lastTicks) continue
+        lastTicks = s.ticks
+        if (s.misses === last) {
+          if (++stable >= 3) return { ok: true, waitedMs: Date.now() - t0, misses: s.misses }
+        } else {
+          stable = 0
+          last = s.misses
+        }
+      }
+      return { ok: false, waitedMs: Date.now() - t0, misses: last }
+    })()
+    console.log(`[encode-sweep] n=${n} steady=${JSON.stringify(steady)}`)
+    // Zero the mechanism counters + snapshot bundle stats so the printed
+    // diagnostics cover EXACTLY the measured window.
+    const base = await page.evaluate(() => {
+      const g = globalThis as {
+        __xgisVtrSplitDraws?: number
+        __xgisVtrWalkSkips?: number
+        __xgisVtrFillRhiDraws?: number
+      }
+      g.__xgisVtrSplitDraws = 0
+      g.__xgisVtrWalkSkips = 0
+      g.__xgisVtrFillRhiDraws = 0
+      const s = (
+        window as unknown as {
+          __xgisMap?: {
+            stats?: { bundleHits: number; bundleMisses: number; bundleEvictions: number }
+          }
+        }
+      ).__xgisMap?.stats
+      return { h: s?.bundleHits ?? 0, m: s?.bundleMisses ?? 0, e: s?.bundleEvictions ?? 0 }
+    })
+    // Window scaled to N: SwiftShader steady frames at n=128 run seconds
+    // each; a longer window keeps ≥5 sampled frames per N.
+    const windowMs = Math.max(10_000, n * 300)
+    const frames = (await runSweep(page, windowMs)).slice(2)
     const phases = await readPhases(page)
     const enc = phases.find((p) => p.name === 'frame.encode')
+    // #2042 INC-5 diagnostics — attribute a slope change before believing it:
+    // bundle hit/miss separates "steady replay but slow walk" from a
+    // re-record storm; the split/skip counters say which mechanism ran.
+    const diag = await page.evaluate((b) => {
+      const g = globalThis as {
+        __xgisVtrSplitDraws?: number
+        __xgisVtrWalkSkips?: number
+        __xgisVtrFillRhiDraws?: number
+      }
+      const s = (
+        window as unknown as {
+          __xgisMap?: {
+            stats?: { bundleHits: number; bundleMisses: number; bundleEvictions: number }
+          }
+        }
+      ).__xgisMap?.stats
+      return {
+        splitFills: g.__xgisVtrSplitDraws ?? 0,
+        walkSkips: g.__xgisVtrWalkSkips ?? 0,
+        fillDraws: g.__xgisVtrFillRhiDraws ?? 0,
+        bundleHits: (s?.bundleHits ?? 0) - b.h,
+        bundleMisses: (s?.bundleMisses ?? 0) - b.m,
+        bundleEvictions: (s?.bundleEvictions ?? 0) - b.e,
+      }
+    }, base)
+    console.log(
+      `[encode-sweep] n=${n} windowMs=${windowMs} frames=${frames.length} diag=${JSON.stringify(diag)}`,
+    )
+    // VALIDITY, not just measurement (#1190). `frame.encode` is a PER-RENDERED-FRAME cost,
+    // so a window in which the compositor produced ZERO frames cannot report one — and a
+    // scene that never reached steady state was not measured at the layer count it claims.
+    // Both happen here under SwiftShader: at 33+ full-frame country-fill layers the GPU
+    // process starves rAF even at 320x240 with MSAA off, so the window closes with frames=0
+    // while page.evaluate keeps sampling. Printed unguarded, that yields a clean-looking
+    // 46 -> 142 -> 216 ms "scaling curve" computed over windows that rendered nothing (§12:
+    // a blind instrument reports a number, and the number reads as a finding).
+    //
+    // The harness still has no pass/fail assertions — it is a measurement tool — but it now
+    // refuses to emit a figure it cannot stand behind, and says which precondition failed.
+    const invalid = frames.length === 0 ? 'NO-FRAMES' : steady.ok === false ? 'NOT-CONVERGED' : null
+    if (invalid !== null) {
+      console.log(
+        `[encode-sweep] n=${n}: INVALID (${invalid}) — frames=${frames.length} steady.ok=${steady.ok}; ` +
+          'frame.encode is per-rendered-frame, so no figure is reported for this row. ' +
+          'Re-measure on real hardware (measure-harness) rather than trusting a SwiftShader mean here.',
+      )
+    }
     rows.push({
       n,
       layers,
+      invalid,
       encodeMean: enc?.perFrameMs ?? -1,
       encodeWorst: enc?.maxFrameMs ?? -1,
       frameP50: pct(frames, 50),
       frameP95: pct(frames, 95),
     })
+    if (invalid !== null) continue
     console.log(
       `[encode-sweep] n=${n}: layers=${layers} frame.encode mean=${rows.at(-1)!.encodeMean.toFixed(2)}ms worst=${rows.at(-1)!.encodeWorst.toFixed(1)}ms  frame p50=${rows.at(-1)!.frameP50.toFixed(1)} p95=${rows.at(-1)!.frameP95.toFixed(1)}`,
     )
@@ -205,8 +350,24 @@ test('encode scaling sweep — frame.encode vs layer count (#1190)', async ({ pa
   console.log('\n=== #1190 encode scaling sweep (countries.geojson, 8s rotate, SwiftShader) ===')
   console.log('n | layers(actual) | frame.encode mean ms | worst ms | frame p50 | p95')
   for (const r of rows) {
+    if (r.invalid !== null) {
+      console.log(
+        `  ${r.n} | ${r.layers} | INVALID (${r.invalid}) — no frames rendered in the window; ` +
+          'a per-frame cost cannot be derived from it',
+      )
+      continue
+    }
     console.log(
       `  ${r.n} | ${r.layers} | ${r.encodeMean.toFixed(2)} | ${r.encodeWorst.toFixed(1)} | ${r.frameP50.toFixed(1)} | ${r.frameP95.toFixed(1)}`,
     )
   }
+  const usable = rows.filter((r) => r.invalid === null).length
+  console.log(
+    `\n[encode-sweep] ${usable}/${rows.length} rows usable. ` +
+      (usable < rows.length
+        ? 'The INVALID rows are a SwiftShader limit, not a result: this container cannot render ' +
+          'the high-layer scenes at all, so #1190 numbers at those layer counts must come from ' +
+          'real hardware (see .claude/skills/measure-harness).'
+        : ''),
+  )
 })

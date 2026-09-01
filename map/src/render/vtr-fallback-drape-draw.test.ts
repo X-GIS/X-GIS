@@ -161,6 +161,10 @@ describe('globe fallback draws under a drape-active primary (#1076)', () => {
 // and sit adjacent in projections-table.ts — an inviting "dedup the near-identical
 // predicates" refactor could swap this site back with every predicate-level test
 // still green, silently re-draping oblique(6). This source gate closes that.
+//
+// The same call site also carries the #2093 F1 LOD CEILING (`drapesAtSelectionZ`),
+// pinned below for the same reason: the predicate gate in projections-table.test.ts
+// proves the arithmetic, not that this derivation consults it.
 describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6) exclusion)', () => {
   it('`_drapeGlobeFills` is derived from bakesVectorDrape, NOT routeToSphereSelector', () => {
     expect(
@@ -168,6 +172,24 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
       'the `_drapeGlobeFills` gate must call `bakesVectorDrape(projType, camera.globeMode)` — ' +
         'reverting it to `routeToSphereSelector` re-drapes oblique(6) and restores the ' +
         'native-z14 bake displayed at 2582–4926px (5.04–9.6× soft-fill magnification, non-healing).',
+    ).toBe(true)
+  })
+
+  it('`_drapeGlobeFills` is ALSO gated on drapesAtSelectionZ (#2093 LOD ceiling)', () => {
+    // Anchored to the derivation region (the `_drapeGlobeFills =` assignment up to
+    // the `if (` that consumes it), so the term cannot be satisfied by a mention
+    // somewhere else in the file.
+    const dStart = SOURCE.indexOf('this._drapeGlobeFills =\n')
+    const dEnd = SOURCE.indexOf('if (\n      this._drapeGlobeFills &&', dStart)
+    expect(dStart, 'the `_drapeGlobeFills` derivation was not found').toBeGreaterThan(-1)
+    expect(dEnd, 'the consuming `if (this._drapeGlobeFills && …)` was not found').toBeGreaterThan(
+      dStart,
+    )
+    expect(
+      SOURCE.slice(dStart, dEnd).includes('drapesAtSelectionZ(currentZ'),
+      'the `_drapeGlobeFills` derivation must gate on `drapesAtSelectionZ(currentZ)` (#2093) — ' +
+        'dropping the LOD ceiling restores the 512px bake at NATIVE zoom, where its texel ' +
+        '(and its whole AA feather) is wider than the chord sagitta the drape exists to remove.',
     ).toBe(true)
   })
 })

@@ -48,7 +48,7 @@ export const PAINT_CIRCLE: readonly CoverageEntry[] = [
     name: 'circle-translate-anchor',
     status: 'partial',
     impact: 'low',
-    note: "viewport (spec default) is the only honoured mode — X-GIS point renderer always applies the translate in viewport/NDC space. 'map'-anchor (world-space shift) is unsupported and warns + drops. The anchor no-op suppression (when circle-translate is absent) mirrors fill-translate-anchor behaviour.",
+    note: "map is the SPEC DEFAULT (reference/v8.json default='map'), and it is the mode X-GIS does NOT have: the point renderer always applies circle-translate in viewport/NDC space, and unlike fill / line / fill-extrusion there is no circle-translate-anchor-map utility and no runtime flag (no circleTranslateAnchorMap anywhere). So an explicit 'viewport' is the only honoured value, and BOTH an explicit 'map' and an ABSENT anchor (which means map) warn + drop — the absent case previously warned on no route at all (#2170). Still suppressed when circle-translate is absent: the anchor only selects the offset's coordinate space, so it is a no-op with nothing to anchor.",
     source: 'layers-circle.ts:circle-translate-anchor block',
   },
   {
@@ -60,8 +60,10 @@ export const PAINT_CIRCLE: readonly CoverageEntry[] = [
   },
   {
     name: 'circle-pitch-alignment',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'low',
-    note: "viewport (spec default — billboard, byte-identical) vs map. X-GIS uses viewport-aligned (camera-facing) circles; 'map' mode (disc lies flat on the ground plane, tilts/foreshortens with pitch) needs a per-projection ground-tangent quad expansion across the flat-Merc / ECEF / globe vertex spaces and is deferred. 'map' still warns + drops.",
+    note: "viewport (the SPEC DEFAULT here — billboard, byte-identical to today) vs map (the disc lies in the ground plane and foreshortens into an ellipse under pitch). #2118 wired 'map': the converter emits a circle-pitch-alignment-map utility, the IR carries it as ShowCommand.circlePitchAlignmentMap on its OWN field, and PointRenderer raises the point uniform's circle_params.w to mode 2, at which the point VS maps the quad's local axes through the ground basis (the same groundBasisAt/groundPerspectiveScale pair the curved-label path uses — one authority, not a second). NOTE THE ASYMMETRY: this knob's default is 'viewport' while its sibling circle-pitch-scale's is 'map' — they are OPPOSITES, and that is what a re-derivation gets wrong. circle_params.w is an ENUM (0 = viewport/viewport, 1 = viewport align + map scale, 2 = map align), not a bit field, because under alignment:map the ground basis ALREADY carries the distance foreshortening and mode 2 must not also take mode 1's w_ref radius multiplier — a bit field would let both fire and count the perspective twice. An unpitched camera suppresses the whole mode on `pitch` rather than on the computed basis, which is what makes 'an unpitched frame is bit-identical to before #2118' a property of the code instead of a float argument. PARTIAL for one refused pairing: alignment 'map' with an EXPLICIT scale 'viewport' emits nothing and degrades to today, because approximating it would show the author a disc that shrinks with distance when they explicitly asked it not to.",
+    source:
+      'layers-circle.ts / render/point-renderer.ts writePointFrameUniform / shaders/dsl/point.ts',
   },
 ]

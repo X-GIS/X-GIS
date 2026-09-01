@@ -93,6 +93,7 @@ import {
 } from './projections'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
+import { mercCamRel } from './merc-cam-rel'
 
 // ── Struct declarations ──
 //
@@ -190,6 +191,33 @@ const U = uniformStruct(
     input_color_1: vec4fT,
     input_color_2: vec4fT,
     input_color_3: vec4fT,
+    // #2042 INC-1 — the ABSOLUTE anchors whose f64 difference IS cam_ecef_off
+    // (above): .xyz = WGS84-ellipsoid ECEF of the tile anchor / the camera
+    // centre, DSFUN hi/lo. tile_ecef_center_h.w spare (0); cam_ecef_center_h.w
+    // is the RECOMBINE flag (1 = the VS derives the RTC offset in-shader as
+    // (tileH − camH) + (tileL − camL); 0 = legacy CPU-packed cam_ecef_off);
+    // cam_ecef_center_l.w spare (0). Divergence from the CPU pair is ulp-
+    // relative (≤ |off|·2⁻²³): measured ≤ 2.3e-4 px whole-domain, bound 1e-3
+    // (rtc-recombine-precision.test.ts). Step toward the Frame/Show/Tile
+    // block split (docs/plans/2026-08-24-uniform-block-split.md): with the
+    // flag on, the last per-(tile × frame) uniform dependency is derivable
+    // from per-tile-static + per-frame inputs. Appended AFTER the input pool
+    // (the #1539 discipline) so no existing offset moves.
+    tile_ecef_center_h: vec4fT,
+    tile_ecef_center_l: vec4fT,
+    cam_ecef_center_h: vec4fT,
+    cam_ecef_center_l: vec4fT,
+    // #2042 INC-6 — the flat-arm analogue of the ECEF anchors above: the
+    // ABSOLUTE Mercator anchors whose f64 difference IS cam_h/cam_l.
+    // tile_origin_merc_hl = worldOff-shifted tile origin (.xy hi, .zw lo —
+    // the legacy tile_origin_merc is the SINGLE-f32 .xy only, so the
+    // recombination needs these recovered low bits); cam_merc_center_hl =
+    // camera centre (.xy hi, .zw lo; copy-independent). Gated by the SAME
+    // recombine flag (cam_ecef_center_h.w) — one umbrella flag for both
+    // arms. Divergence envelope: rtc-recombine-precision.test.ts (Mercator
+    // section). Appended after INC-1's anchors — no existing offset moves.
+    tile_origin_merc_hl: vec4fT,
+    cam_merc_center_hl: vec4fT,
   },
 )
 // Exported (distinct barrel name) for the CPU packers' UniformBlock (#733 P2):
@@ -379,6 +407,21 @@ const emitPolygonProjectionLadder = (args: {
   const deg2rad = DEG2RAD
   const earthR = EARTH_R
   const pi = PI
+  // #2042 INC-6 — flag-selected Mercator camera rel: the flat-arm analogue of the 3D arm's
+  // INC-1 recombination, same flag lane (cam_ecef_center_h.w). Substituted for every cam_h/cam_l
+  // read in the flat arms below; the 3D arm never reads them. The recipe itself now lives in
+  // merc-cam-rel.ts so line.ts can share it rather than spell out a second copy — see that
+  // module for why it returns raw expressions and why these two `Let`s must stay HERE, at this
+  // exact point in the body, for the emitted bytes to be unchanged.
+  const _rel = mercCamRel({
+    camMercCenterHl: U.field.cam_merc_center_hl,
+    tileOriginMercHl: U.field.tile_origin_merc_hl,
+    camEcefCenterH: U.field.cam_ecef_center_h,
+    camH: U.field.cam_h,
+    camL: U.field.cam_l,
+  })
+  const camRelH = Let('cam_rel_h', _rel.h)
+  const camRelL = Let('cam_rel_l', _rel.l)
   // Extruded plane-z in METRES: `base` at the wall bottom, `height` at the top
   // + roof — Mapbox treats BOTH as ABSOLUTE altitudes, so a wall spans
   // [base, height] (`max` mirrors the wall-mesh's clamp). Pre-#1397 this was
@@ -402,12 +445,12 @@ const emitPolygonProjectionLadder = (args: {
       // single f32 but sub-mm at every zoom (magnitude ≤ tile extent), unlike
       // the absolute-degree project() path below (~1.35 m at |lon|≈127° → the
       // ~10 px fill/outline split at deep over-zoom this fixes).
-      const relLocal = localMerc.sub(U.field.cam_h).sub(U.field.cam_l)
+      const relLocal = localMerc.sub(camRelH).sub(camRelL)
       clip.assign(transformMat4(mvp, vec4(relLocal.x, relLocal.y, zPlane, 1)))
       return
     }
     const p2d = project(absLon, absLat, projParamsV)
-    const rel2d = p2d.sub(U.field.tile_origin_merc).sub(U.field.cam_h).sub(U.field.cam_l)
+    const rel2d = p2d.sub(U.field.tile_origin_merc).sub(camRelH).sub(camRelL)
     // World-copy offset (world-copy fill-gap fix): project() returns the
     // PRIMARY-world absolute X (abs_lon ∈ [−180,180], worldOff-blind), and
     // tile_origin_merc carries (tileWest+worldOff)·DEG2RAD·R while cam_h+cam_l
@@ -440,7 +483,7 @@ const emitPolygonProjectionLadder = (args: {
       // Latitude is untouched (discLat/absLat), shared identically with the outline.
       if (localMerc) {
         const clon = projParamsV.y
-        const relMercX = localMerc.x.sub(U.field.cam_h.x).sub(U.field.cam_l.x)
+        const relMercX = localMerc.x.sub(camRelH.x).sub(camRelL.x)
         const dLon = relMercX.div(deg2rad.mul(earthR))
         const projParamsRel = vec4(projParamsV.x, f32(0), projParamsV.z, projParamsV.w)
         const tileRefLonRel = U.field.tile_origin_merc.x
@@ -472,9 +515,35 @@ const emitPolygonProjectionLadder = (args: {
       // to the camera-origin tile on projType 7 globe pitch>0.
       const camOffH = U.field.cam_ecef_off_h
       const camOffL = U.field.cam_ecef_off_l
-      const ecefCam = ecefRtc
-        .add(vec3(camOffH.x, camOffH.y, camOffH.z))
-        .add(vec3(camOffL.x, camOffL.y, camOffL.z))
+      // #2042 INC-1 — flag-selected RTC source. Legacy: the CPU-packed
+      // cam_ecef_off pair. Recombine: derive the SAME pair in-shader from the
+      // absolute anchors — hi−hi first (Sterbenz-exact when the tile is near
+      // the camera, which is exactly where sub-pixel precision matters), then
+      // lo−lo. The summation shape below (rtc + H + L) is UNCHANGED either
+      // way, so the flag flips only where the pair comes from. select() is an
+      // exact pick (no mix() rounding).
+      const tileCH = U.field.tile_ecef_center_h
+      const tileCL = U.field.tile_ecef_center_l
+      const camCH = U.field.cam_ecef_center_h
+      const camCL = U.field.cam_ecef_center_l
+      const recombine = camCH.w.gt(0.5)
+      const offH = Let(
+        'rtc_off_h',
+        select(
+          recombine,
+          vec3(tileCH.x, tileCH.y, tileCH.z).sub(vec3(camCH.x, camCH.y, camCH.z)),
+          vec3(camOffH.x, camOffH.y, camOffH.z),
+        ),
+      )
+      const offL = Let(
+        'rtc_off_l',
+        select(
+          recombine,
+          vec3(tileCL.x, tileCL.y, tileCL.z).sub(vec3(camCL.x, camCL.y, camCL.z)),
+          vec3(camOffL.x, camOffL.y, camOffL.z),
+        ),
+      )
+      const ecefCam = ecefRtc.add(offH).add(offL)
       clip.assign(transformMat4(mvp, vec4(ecefCam, 1)))
     })
 }

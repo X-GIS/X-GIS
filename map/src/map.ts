@@ -12,10 +12,7 @@ import {
   makeEvalProps,
   deserializeXGB,
   resolveImportsAsync,
-  resolveUtilities,
   resolveColor,
-  extractInterpolateZoomColorStops,
-  extractInterpolateZoomStops,
   // The PURE style-domain half of the palette pipeline (zoom-stop eval +
   // packing) lives with the Palette collector in the compiler (#929 A).
   packPalette,
@@ -26,9 +23,14 @@ import { warnStageBlockUnsupported } from './render/stage-block-warning'
 import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warning'
 import { toComposerPointVariant } from './render/point-shader-cache'
 import {
-  ATMOSPHERE_DEFAULT_INNER_COLOR,
-  ATMOSPHERE_DEFAULT_OUTER_COLOR,
-} from './render/atmosphere-uniform'
+  applyAtmosphere,
+  applyLight,
+  parseBackgroundBlock,
+  type TopLevelAtmosphere,
+  type TopLevelAtmospherePatch,
+  type TopLevelLight,
+  type TopLevelLightPatch,
+} from './style-top-level'
 import { isOverdrawActive } from './debug-flags'
 import { readsWgsl } from './render/material/wgsl-for'
 import type * as AST from '@xgis/compiler'
@@ -81,6 +83,7 @@ import {
 } from './map-accessibility'
 import { parseHash, formatHash, updateHashFragment } from './map-hash'
 import { showWebGPUUnavailableDefault } from './map-webgpu-unavailable'
+import { buildPendingWorkRegistry, SCOPE_VT_PIPELINE } from './pending-work'
 import { ViewportModeController } from './render/viewport-mode-controller'
 import { settleSourceLoads } from './source-load-outcome'
 import { isLegacyGeoJSONOptOut, SourceManager } from './source-manager'
@@ -131,6 +134,7 @@ import { DirtyTracker, DirtyDomain, DIRTY_ALL } from './state/dirty'
 import { VectorTileRenderer } from './render/vector-tile-renderer'
 import { TextStage } from './text/text-stage'
 import type { TextStageOptions } from './text/text-stage-types'
+import type { DumpedLabel } from './text/text-stage-diagnostics'
 import type { GlyphProvider } from './text/sdf/pbf/glyph-provider'
 import { IconStage } from './sprite/icon-stage'
 import { GraphicsManager } from './graphics/graphics-manager'
@@ -234,31 +238,6 @@ const MAX_STYLE_BYTES = 32 * 1024 * 1024
 // A .xgb scene is a serialized binary map (geometry-heavy); 256 MB matches
 // the GeoJSON-source cap in source-manager — the practical interactive ceiling.
 const MAX_XGB_BYTES = 256 * 1024 * 1024
-
-/** WS-1 — true when a background `fill:` / `opacity:` style-property value
- *  is a zoom interpolate call (the converter emits these for Mapbox
- *  `["interpolate", …, ["zoom"], …]` background paints). The constant
- *  hex / named-colour / numeric forms don't start with this prefix and
- *  fall through to the legacy constant path. */
-function isInterpolateString(raw: string): boolean {
-  return raw.startsWith('interpolate(') || raw.startsWith('interpolate_exp(')
-}
-
-/** WS-1 — lex+parse a `interpolate(zoom, …)` style-property string back
- *  into the FnCall AST.Expr so the compiler's stop extractors can pull
- *  its (zoom, value) stops. The converter captured the call as a single
- *  string (parser.captureFnCallAsString); re-parse it as a single
- *  expression (`parseSingleExpression` — no version pragma, no
- *  statement grammar). Returns null on any parse failure so the caller
- *  falls through to the constant path instead of throwing on a
- *  malformed value. */
-function parseFillInterpolate(raw: string): AST.Expr | null {
-  try {
-    return new Parser(new Lexer(raw).tokenize()).parseSingleExpression()
-  } catch {
-    return null
-  }
-}
 
 /** Extract a converted style's trailing "Conversion notes (review before
  *  running)" block comment (emitted by `convertMapboxStyle` when the
@@ -374,7 +353,11 @@ export class XGISMap {
         renderer.setColdStartBurst(on)
       }
     },
-    hasPendingSourceWork: () => this.hasPendingSourceWork(),
+    // #2149 increment 6 — the registry's SCOPE_VT_PIPELINE pins exactly the four-signal
+    // set the deleted hasPendingSourceWork() walked (fetches, owed swaps, deferred
+    // uploads, last-frame missed tiles), so the burst-exit hysteresis is byte-for-byte.
+    // Lazy: read at tick time, after every field below it is initialised.
+    hasPendingSourceWork: () => this._pendingWork.hasPending(SCOPE_VT_PIPELINE),
     // #1167 — desktop-only burst: a CONSERVATIVE default, not a measured mobile
     // regression (the +262 ms it once cited did not survive a permutation test;
     // the desktop convergence win did). Same `isMobileClassViewport(window.
@@ -417,6 +400,9 @@ export class XGISMap {
 
   // SDF text overlay stage. Lazy — first `addOverlay` call instantiates.
   textStage: TextStage | null = null
+  /** #2149 — the ONE list of async resource classes whose bounded in-flight work keeps the
+   *  loop warm (pending-work.ts). Probes read lazily; package-internal for the host Pick. */
+  readonly _pendingWork = buildPendingWorkRegistry(this)
   overlays: TextOverlay[] = []
   /** Resource bundle the TextStage uses to populate its glyph chain
    *  on first construction. Mutated by `setGlyphsUrl`, `addGlyph
@@ -603,6 +589,7 @@ export class XGISMap {
     refresh: this._coverageRefresh,
     guardedFetch: (label) => (u, init) =>
       safeFetch(String(u), { ...init, signal: init?.signal ?? this._coverageAbort.signal }, label),
+    beginPendingWork: () => this._pendingWork.begin('coverage'),
     destroyed: () => this._destroyed,
     runEpoch: () => this._runEpoch,
     catalogues: this._coverageCatalogues,
@@ -795,15 +782,22 @@ export class XGISMap {
    *  investing in the full snapshot/replay refactor. */
   _labelDispatchHits = 0
   _labelDispatchMisses = 0
+  /** #1177/#2013 — frames on which the label dispatch loop BODY actually
+   *  entered (counted inside the first iteration). On an S16 hit the loop is
+   *  skipped entirely (its queue would be dropped unconsumed), so with any
+   *  labels present this tracks misses, never hits — the zoom-skip gate
+   *  asserts the skip itself through this counter, not through frame time. */
+  _labelDispatchLoopRuns = 0
   /** iter-261 — read this via __xgisMap.getLabelDispatchStats() to
    *  see Phase L.1 cache hit-rate without actually building the
    *  cache. */
-  getLabelDispatchStats(): { hits: number; misses: number; hitRate: number } {
+  getLabelDispatchStats(): { hits: number; misses: number; hitRate: number; loopRuns: number } {
     const total = this._labelDispatchHits + this._labelDispatchMisses
     return {
       hits: this._labelDispatchHits,
       misses: this._labelDispatchMisses,
       hitRate: total > 0 ? this._labelDispatchHits / total : 0,
+      loopRuns: this._labelDispatchLoopRuns,
     }
   }
   /** iter-266 — TextStage's per-label content-keyed layout cache
@@ -898,11 +892,7 @@ export class XGISMap {
    *  the camera-anchor ENU basis (the #420 default behaviour); the
    *  map/viewport bearing distinction is not yet modelled. Non-private so
    *  the render host reads it, like `_backgroundColor`. */
-  _light: {
-    position: [number, number, number]
-    intensity: number
-    color: [number, number, number]
-  } = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
+  _light: TopLevelLight = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
   /** #1258 — top-level atmosphere/sky (MapLibre-style `sky`), Phase 1: a screen-space
    *  limb-glow gradient banded around the globe's projected silhouette, drawn by its own
    *  pass ahead of the earth surface. Colours are straight-alpha RGBA 0..1 floats, like
@@ -910,10 +900,7 @@ export class XGISMap {
    *  frame is byte-identical to pre-#1258. Also inert on flat / non-tilted-disc projections
    *  (`camera.globeMode` false) regardless of this flag — see atmosphere-pass.ts. Non-private
    *  so the render host reads it, like `_light`. */
-  _atmosphere: {
-    innerColor: [number, number, number, number]
-    outerColor: [number, number, number, number]
-  } | null = null
+  _atmosphere: TopLevelAtmosphere | null = null
   /** P3 Step 3c — scene-scoped palette GPU textures. Held for
    *  destruction on the next scene reload; the underlying view is
    *  bound to every VTR + MapRenderer via setPaletteColorAtlas. */
@@ -1059,68 +1046,21 @@ export class XGISMap {
    *  light is a top-level style concern, not encoded in the xgis DSL.
    *  Omitted fields keep their current value; null resets to the Mapbox
    *  default. The render loop pushes `_light` into every VTR each frame. */
-  setLight(
-    light: {
-      position?: [number, number, number]
-      intensity?: number
-      color?: [number, number, number]
-    } | null,
-  ): void {
-    if (light === null) {
-      this._light = { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] }
-    } else {
-      if (
-        Array.isArray(light.position) &&
-        light.position.length === 3 &&
-        light.position.every((n) => Number.isFinite(n))
-      ) {
-        this._light.position = [light.position[0]!, light.position[1]!, light.position[2]!]
-      }
-      if (typeof light.intensity === 'number' && Number.isFinite(light.intensity)) {
-        this._light.intensity = Math.max(0, Math.min(1, light.intensity))
-      }
-      if (
-        Array.isArray(light.color) &&
-        light.color.length === 3 &&
-        light.color.every((n) => Number.isFinite(n))
-      ) {
-        this._light.color = [light.color[0]!, light.color[1]!, light.color[2]!]
-      }
-    }
+  setLight(light: TopLevelLightPatch | null): void {
+    applyLight(this, light)
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
   }
 
-  /** #1258 — set the top-level atmosphere/sky. Mirrors `setLight` / `setBackgroundFill`: a
-   *  top-level style concern threaded straight to the render host, not (yet) a style-spec
-   *  JSON property (Phase 2, per the issue). Pass `null` to turn it off (the frame reverts to
-   *  byte-identical pre-#1258); an options object with either colour omitted keeps the
-   *  MapLibre-ish default for that colour. Only ever visible on globe-class projections — see
-   *  `_atmosphere`'s own doc. */
-  setAtmosphere(
-    atmosphere: {
-      innerColor?: [number, number, number, number]
-      outerColor?: [number, number, number, number]
-    } | null,
-  ): void {
+  /** #1258 / #2052 — set the top-level atmosphere/sky. Mirrors `setLight` / `setBackgroundFill`:
+   *  a top-level style concern threaded straight to the render host. Pass `null` to turn it off
+   *  (the frame reverts to byte-identical pre-#1258); an options object with either colour
+   *  omitted keeps the MapLibre-ish default for that colour, and `sky` carries the MapLibre
+   *  `sky` root's zenith ramp (omitted ⇒ off). Only ever visible on globe-class projections —
+   *  see `_atmosphere`'s own doc. */
+  setAtmosphere(atmosphere: TopLevelAtmospherePatch | null): void {
     if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
-    if (atmosphere === null) {
-      this._atmosphere = null
-    } else {
-      const inner =
-        Array.isArray(atmosphere.innerColor) &&
-        atmosphere.innerColor.length === 4 &&
-        atmosphere.innerColor.every((n) => Number.isFinite(n))
-          ? atmosphere.innerColor
-          : ATMOSPHERE_DEFAULT_INNER_COLOR
-      const outer =
-        Array.isArray(atmosphere.outerColor) &&
-        atmosphere.outerColor.length === 4 &&
-        atmosphere.outerColor.every((n) => Number.isFinite(n))
-          ? atmosphere.outerColor
-          : ATMOSPHERE_DEFAULT_OUTER_COLOR
-      this._atmosphere = { innerColor: [...inner], outerColor: [...outer] }
-    }
+    applyAtmosphere(this, atmosphere)
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
   }
@@ -1353,7 +1293,7 @@ export class XGISMap {
     })
     // Source-ingest cluster — receives the SAME source-state Map
     // instances by reference so every internal read in renderFrame /
-    // rebuildLayers / hasPendingSourceWork / diagnostics stays untouched.
+    // rebuildLayers / the pending-work probes / diagnostics stays untouched.
     // ctx / renderer / lineRenderer are read fresh (populated in run())
     // via accessors; camera / canvas are stable ctor-time instances.
     this.sourceManager = new SourceManager({
@@ -1725,16 +1665,19 @@ export class XGISMap {
 
   /** Per-frame count of tiles the map is still waiting on: vector-tile cells
    *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
-   *  Written by the render-loop's end-of-frame bookkeeping as the sum of the
-   *  same three signals the loop ORs into its keep-warm `_needsRender` gate, so
-   *  it settles to 0 exactly when the scene converges. Public-by-convention (no
-   *  `private`) so `RenderLoopHost` can Pick it for the write. */
+   *  Written by the render-loop's end-of-frame bookkeeping. NOT a convergence
+   *  signal (#2162): it carries three of `keepLoopWarm`'s six terms and none of
+   *  what `shouldRenderThisFrame` adds. Public-by-convention (no `private`) so
+   *  `RenderLoopHost` can Pick it for the write. */
   _missingTileCount = 0
-  /** In-flight tile-load count for the last rendered frame: > 0 while vector,
-   *  raster, or hillshade tiles are still resolving; 0 once the scene settles.
+  /** Tiles with nothing drawable last frame, plus raster/DEM tiles mid-fetch.
    *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
    *  each call), so a host can poll it every rAF to drive a "loading N tiles"
-   *  affordance without churning GC. */
+   *  affordance without churning GC. Reads 0 while the scene is still resolving
+   *  (#2162) — the vector arm counts cells with NO fallback, so one showing a
+   *  magnified ancestor mid-download is 0 here where the raster arm's
+   *  fetch-count is 1. Drive an affordance with it; never `=== 0` as a settle
+   *  condition — `idle` is the honest one. */
   getMissingTileCount(): number {
     return this._missingTileCount
   }
@@ -2409,22 +2352,7 @@ export class XGISMap {
   setLabelDumpFilter(substr: string | null): void {
     this.textStage?.setLabelDumpFilter(substr)
   }
-  getDumpedLabels(): ReadonlyArray<{
-    text: string
-    anchorX: number
-    anchorY: number
-    fontSize: number
-    slotSize: number
-    curved: boolean
-    glyphs: ReadonlyArray<{
-      cp: number
-      x: number
-      y: number
-      bearingY: number
-      height: number
-      rfs: number
-    }>
-  }> | null {
+  getDumpedLabels(): ReadonlyArray<DumpedLabel> | null {
     return this.textStage?.getDumpedLabels() ?? null
   }
   /** iter-343 — paired-icon placement dump (debug-labels page). Pairs
@@ -3025,101 +2953,10 @@ export class XGISMap {
     // declared type still matches.
     this.inputs.reset(commands.inputs)
 
-    // background { fill: <color> } — Mapbox-style earth-surface fill. Phase 2 PR 2c.3 ships this
-    // through the standard polygon ECEF pipeline (SyntheticEarthSurfaceBackend serves a z=0
-    // lat/lon-grid mesh projected to ECEF; the synthetic ShowCommand prepended to `commands.shows`
-    // carries the fill paint). Sphere projections see the fill curve naturally; flat projections
-    // see the band fill at sort-order 0 just like the legacy BackgroundRenderer path. Color lookup:
-    // utility lines first (`| fill-sky-900` → resolveUtilities → hex), then style properties
-    // (`fill: sky-900` or `fill: #082f49`). StyleProperty stores the raw string; `sky-900` resolves
-    // via resolveColor(); bare `#rrggbb` passes through. WS-1 — reset the per-frame zoom-interp
-    // background shapes before the parse so a re-run() with a CONSTANT background clears a stale
-    // shape left by a previous zoom-interp style (the constant path below sets `_backgroundColor`
-    // but never touches these).
-    this._backgroundColorShape = null
-    this._backgroundOpacityShape = null
-    // #777 I-E — reset the background pattern before the parse (mirror of the
-    // shape resets) so a re-run() with a pattern-less style clears a stale name.
-    this._backgroundPattern = null
-    let bgColor: string | null = null
-    for (const stmt of ast.body) {
-      if (stmt.kind !== 'BackgroundStatement') continue
-      const items: AST.UtilityItem[] = []
-      for (const line of stmt.utilities) items.push(...line.items)
-      const resolved = resolveUtilities(items)
-      let color: string | null = resolved.fill ?? null
-      for (const sp of stmt.styleProperties) {
-        const raw = sp.value
-        if (sp.name === 'fill') {
-          // WS-1 — a zoom-interp `fill: interpolate(zoom, …)` (emitted by
-          // the converter for `["interpolate", …, ["zoom"], …]` colours)
-          // lexes back into a colour shape resolved per frame. Constant
-          // hex / named colours keep the legacy `_backgroundColor` path.
-          const expr = isInterpolateString(raw) ? parseFillInterpolate(raw) : null
-          const colorInterp = expr ? extractInterpolateZoomColorStops(expr) : null
-          if (colorInterp && colorInterp.stops.length > 0) {
-            const stops: { zoom: number; value: readonly [number, number, number, number] }[] = []
-            for (const s of colorInterp.stops) {
-              const rgba = hexToRgba(s.value)
-              if (rgba !== null) stops.push({ zoom: s.zoom, value: rgba })
-            }
-            if (stops.length > 0) {
-              this._backgroundColorShape =
-                colorInterp.base !== 1
-                  ? { kind: 'zoom-interpolated', stops, base: colorInterp.base }
-                  : { kind: 'zoom-interpolated', stops }
-            }
-          } else if (raw.startsWith('#')) {
-            color = raw
-          } else {
-            const hex = resolveColor(raw)
-            if (hex) color = hex
-          }
-        } else if (sp.name === 'opacity') {
-          // WS-1 — a zoom-interp `opacity: interpolate(zoom, …)` (0..100
-          // stops, like circle-opacity). Build a PropertyShape<number> in
-          // 0..1 the background pass multiplies into the clear alpha.
-          const expr = isInterpolateString(raw) ? parseFillInterpolate(raw) : null
-          const opInterp = expr ? extractInterpolateZoomStops(expr) : null
-          if (opInterp && opInterp.stops.length > 0) {
-            const stops = opInterp.stops.map((s) => ({ zoom: s.zoom, value: s.value / 100 }))
-            this._backgroundOpacityShape =
-              opInterp.base !== 1
-                ? { kind: 'zoom-interpolated', stops, base: opInterp.base }
-                : { kind: 'zoom-interpolated', stops }
-          }
-        } else if (sp.name === 'pattern') {
-          // #777 I-E — `pattern: <sprite>` (the converter's constant
-          // background-pattern lowering). The raw value is the sprite name the
-          // background pass looks up in the sprite atlas; a blank name leaves
-          // the pattern null (clear-only).
-          this._backgroundPattern = raw.length > 0 ? raw : null
-        }
-      }
-      if (color) bgColor = color
-    }
-    // An invalid hex shape falls through to the renderer's built-in
-    // default instead of silently painting black: hexToRgba's null
-    // surfaces the bad input as "no override" rather than "opaque
-    // black background". (Until #1666 the null-returning helper had a
-    // total twin that answered [0, 0, 0, 1] here; there is now one
-    // function and this is its only behaviour.)
-    if (bgColor) {
-      const parsed = hexToRgba(bgColor)
-      if (parsed !== null) this._backgroundColor = parsed
-    }
-    // A zoom-interp background-color has no constant `_backgroundColor`.
-    // Seed it from the first stop so the synthetic earth-surface install
-    // (sphere path) + the pre-frame clear have a sensible static colour
-    // before the first per-frame resolve, and so the existing
-    // `if (this._backgroundColor)` install gates still fire.
-    if (this._backgroundColor === null && this._backgroundColorShape !== null) {
-      const first =
-        this._backgroundColorShape.kind === 'zoom-interpolated'
-          ? this._backgroundColorShape.stops[0]?.value
-          : undefined
-      if (first) this._backgroundColor = [first[0], first[1], first[2], first[3]]
-    }
+    // background { fill / opacity / pattern } — the top-level style ROOT, parsed onto the
+    // four `_background*` fields the background pass and the synthetic earth-surface
+    // install read (style-top-level.ts).
+    parseBackgroundBlock(this, ast)
 
     console.log('[X-GIS] Parsed:', commands.loads.length, 'loads,', commands.shows.length, 'shows')
 
@@ -3472,11 +3309,9 @@ export class XGISMap {
     // Full scene (re)build — style, sources, geometry, labels, and possibly
     // projection/animation all replaced; DIRTY_ALL is the honest mask.
     this._markDirty(DIRTY_ALL)
-    // Cache the compute plan on `this` so non-run paths (e.g.
-    // rebuildLayers after a setProjection, which re-creates VTR
-    // sources WITHOUT a fresh emitCommands run) can still hand the
-    // current plan to VTR.setComputeContext. Cleared on binary load
-    // (which has no compute plan).
+    // Cache the compute plan on `this` so non-run paths (e.g. rebuildLayers after a setProjection,
+    // which re-creates VTR sources WITHOUT a fresh emitCommands run) can still hand the current
+    // plan to VTR.setComputeContext. Cleared on binary load (which has no compute plan).
     this._currentComputePlan = (
       commands as { computePlan?: import('@xgis/compiler').ComputePlanEntry[] }
     ).computePlan
@@ -3734,15 +3569,17 @@ export class XGISMap {
       // Raster tile source referenced by a layer → activate raster renderer
       const tileUrl = '_tileUrl' in data ? data._tileUrl : undefined
       if (tileUrl) {
-        this.rasterRenderer.setUrlTemplate(tileUrl)
+        this.rasterRenderer.setUrlTemplate(tileUrl, 'scheme' in data ? data.scheme : undefined)
         // Authored tileSize (256 | 512) biases the cover zoom; unauthored keeps
         // the renderer's 256 default (the de-facto XYZ raster standard).
         this.rasterRenderer.setTileSize('tileSize' in data ? data.tileSize : undefined)
         // Source-level maxzoom = the dataset's deepest real level. Without it the cover
-        // zoom outruns the data and every tile 404s past that depth.
+        // zoom outruns the data and every tile 404s past that depth. Its spatial twin
+        // (#1984) drops tiles the declared bounds cannot contain — the setter re-validates.
         this.rasterRenderer.setSourceMaxzoom(
           'maxzoom' in data && typeof data.maxzoom === 'number' ? data.maxzoom : undefined,
         )
+        this.rasterRenderer.setSourceBounds('bounds' in data ? data.bounds : undefined)
         // Style-authored `raster-fade-duration` (#1257) — constant-only, so
         // resolved once here (not per-frame, unlike the colour-adjust axes).
         // Undefined leaves the map-option/default duration already pushed by
@@ -4023,6 +3860,10 @@ export class XGISMap {
           perFeatureFills,
           perFeatureStrokes,
           show.shaderVariant ?? null, // #1605 Phase 2 — trailing
+          // circle-pitch-alignment:map (#2118) — the disc lies in the ground
+          // plane. Trailing, like every tail param before it, so no positional
+          // call site shifts. Default (viewport / false) is today's rendering.
+          show.circlePitchAlignmentMap ?? false,
         )
         continue
       }
@@ -4599,6 +4440,10 @@ export class XGISMap {
     // settle on the wall clock and this goes false again within
     // fadeDuration of the last placement change.
     if (this.textStage !== null && this.textStage.getFadeLedger().hasActive()) return true
+    // #2149 — the registered async resource classes (pending-work.ts): ONE read over the
+    // full twelve-kind union. Every per-class data term this method used to hand-list
+    // lives on a registration now; a new class joins by registering, not by editing here.
+    if (this._pendingWork.hasPending()) return true
     // Raster tile fade-in keep-alive (mirror of the symbol-fade keep-alive):
     // while any raster tile is mid-cross-fade the loop keeps rendering so the
     // per-tile ramp advances; the renderer clears the flag once every tile hits
@@ -4617,7 +4462,6 @@ export class XGISMap {
     // animation, it stops it. One HALF of the two-gate obligation (the other is the advection
     // step itself); see the note on GraphicsManager.hasAnimatedGraphics for why both.
     if (this.coverageRenderer?.hasFlowField() === true) return true
-    if (this.hasPendingSourceWork()) return true
     const c = this.camera
     const canvas = this.ctx?.canvas
     const w = canvas?.width ?? 0,
@@ -4631,41 +4475,6 @@ export class XGISMap {
       w !== this._lastSigW ||
       h !== this._lastSigH
     )
-  }
-
-  /** Returns true when any source still has work that didn't fit in
-   *  the previous frame's budgets — keeps render-on-demand running
-   *  until the whole pipeline converges. Without this, sub-tile
-   *  generation at deep over-zoom (z=17 over a z=15 PMTiles archive
-   *  produces 30+ tiles × 4 layer slices = 120 sub-tile clips, but
-   *  the per-frame budget caps at ~50) would partial-fill the
-   *  viewport and freeze: render-skip fires after the first paint,
-   *  leaving the remaining sub-tiles ungenerated until the camera
-   *  next moves. Symptoms: checker-pattern of missing layer slices,
-   *  visible sub-tile-aligned rectangular gaps.
-   *
-   *  Signals checked, in order of cost:
-   *    - HTTP fetches in flight (`source.hasPendingLoads`).
-   *    - VTR has pending uploads (deferred when the per-frame upload
-   *      budget hits its cap).
-   *    - Last frame had missed tiles (some visible cells couldn't
-   *      find a cached ancestor or didn't get sub-tiled in time). */
-  private hasPendingSourceWork(): boolean {
-    for (const { source, renderer } of this.vtSources.values()) {
-      if (source.hasPendingLoads?.()) return true
-      // #1448 — a swap OWED is pending work, not pending fetch: without this the loop stops
-      // with the replacement un-applied and the layer draws the previous seed for good.
-      if (source.hasReplacedKeys?.()) return true
-      if (renderer.hasPendingUploads?.()) return true
-      const stats = renderer.getDrawStats?.()
-      if (
-        stats &&
-        (stats as { missedTiles?: number }).missedTiles &&
-        (stats as { missedTiles: number }).missedTiles > 0
-      )
-        return true
-    }
-    return false
   }
 
   /** #1155 F3 — register a (catalog, renderer) pair into vtSources. Single

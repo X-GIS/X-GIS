@@ -28,6 +28,9 @@ const CAPS_FIELDS = [
   'timestampQuery',
   'executionModel',
   'shaderLanguage',
+  // #1190 — recorded render bundles (WebGPU true / WebGL2 false); consumer:
+  // VectorTileRenderer's shouldBundle gates.
+  'renderBundles',
 ] as const
 
 function fakeGpuDevice(features: string[] | null): GPUDevice {
@@ -73,6 +76,9 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
     // (wgslFor/glslStagesFor) emits from THIS, so an inverted value would build the
     // wrong language for every pipeline — pinned per backend beside its behaviour too.
     expect(caps.shaderLanguage).toBe('wgsl')
+    // #1190 — GPURenderBundleEncoder exists here; the VT retained-command
+    // path may engage.
+    expect(caps.renderBundles).toBe(true)
   })
 
   it('timestampQuery tracks the adapter feature the device was created with', () => {
@@ -105,6 +111,8 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     // Requires the split GLSL sources and never reads `code` — createPipeline fail-louds
     // on a WGSL-only desc (createpipeline-dual-source-guard.test.ts asserts both halves).
     expect(caps.shaderLanguage).toBe('glsl-es300')
+    // #1190 — no bundle equivalent on WebGL2; the VT bundle gate must stay off.
+    expect(caps.renderBundles).toBe(false)
   })
 
   it('floatBlendTargets = EXT_color_buffer_float && EXT_float_blend (both required)', () => {

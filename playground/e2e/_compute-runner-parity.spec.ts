@@ -38,3 +38,47 @@ test('createComputeRunner: the webgl2 and cpu tiers agree with the oracle', asyn
   expect(r.cases.length).toBeGreaterThanOrEqual(2)
   expect(r.ok, `NOTE: ${r.note}`).toBe(true)
 })
+
+// The WebGPU tier, on real SwiftShader WebGPU (#1903).
+//
+// NOT at `?forcegl2=1`: this arm needs `navigator.gpu`, which the playwright config already
+// enables headlessly (`--enable-unsafe-swiftshader` plus the dev server's secure context —
+// both are required, and a probe missing either concludes the platform has no WebGPU).
+//
+// This is the arm the WebGL2 one cannot stand in for. WebGL2 proves the compute→fragment
+// LOWERING is value-faithful; this proves the same authored kernel, emitted UNCHANGED as
+// `@compute`, computes the same thing — which is the portable tier's actual claim.
+test('createComputeRunner: the webgpu tier agrees with the oracle and with the cpu tier', async ({
+  page,
+}) => {
+  await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+  const r = await page.evaluate(async () => {
+    const mod = await import('/e2e/_compute-runner-parity.ts')
+    return mod.runComputeRunnerWebGpuParity()
+  })
+
+  // A missing device is a HARD failure here, not a skip: CLAUDE.md §5 records that WebGPU
+  // does run headlessly in this container, and a test.fixme() whose stated reason is "no
+  // real GPU here" is the exact claim that cost real work once already.
+  expect(r.unavailable ?? '', `WebGPU unavailable: ${r.unavailable ?? ''}`).toBe('')
+  // Asserted before any value: `prefer: ['webgpu']` is pinned, so a different backend here
+  // would mean the numbers below came from somewhere else entirely.
+  expect(r.backend, `NOTE: ${r.note}`).toBe('webgpu')
+  // A dispatch that never legally ran reads back a zero-filled buffer, which looks like a
+  // real answer for a zero input — so the validation log is checked, not just the values.
+  expect(r.gpuErrors, `uncaptured WebGPU errors: ${r.gpuErrors.join(' | ')}`).toEqual([])
+
+  for (const c of r.cases) {
+    expect(c.gotLen, `${c.name}: wrong output length`).toBe(c.n)
+    expect(
+      c.mismatches.length,
+      `${c.name}: webgpu tier diverged from the oracle — ${JSON.stringify(c.mismatches)}`,
+    ).toBe(0)
+  }
+  expect(r.cases.length).toBe(5)
+  expect(
+    r.crossTierMismatches.length,
+    `webgpu and cpu tiers disagree — ${JSON.stringify(r.crossTierMismatches)}`,
+  ).toBe(0)
+  expect(r.ok, `NOTE: ${r.note}`).toBe(true)
+})

@@ -43,6 +43,17 @@ export type RawDataset =
       readonly _tileUrl: string
       /** Raster tile pixel size (256 | 512) — cover-zoom bias (rasterCoverZoom). */
       readonly tileSize?: number
+      /** Source-level `maxzoom` — the DATASET's deepest real tile level (#1983). The
+       *  cover zoom clamps to it so the selector never asks for a tile that cannot
+       *  exist; undefined = unbounded. */
+      readonly maxzoom?: number
+      /** Source-level `bounds` [west, south, east, north] — the DATASET's spatial
+       *  extent (#1984). The selector drops every tile that does not overlap it;
+       *  undefined = unclipped. */
+      readonly bounds?: [number, number, number, number]
+      /** Source-level `scheme` — the DATASET's row origin (#1985). `'tms'` makes the
+       *  request path substitute `2^z − 1 − y` for `{y}`; undefined = `'xyz'`. */
+      readonly scheme?: 'xyz' | 'tms'
     }
   | {
       readonly _tileUrl: string
@@ -52,6 +63,12 @@ export type RawDataset =
       readonly encoding?: string
       /** Native DEM tile pixel size (256 / 512). */
       readonly tileSize?: number
+      /** Source-level `maxzoom` — same clamp as the raster marker above (#1983). */
+      readonly maxzoom?: number
+      /** Source-level `bounds` — same spatial clip as the raster marker above (#1984). */
+      readonly bounds?: [number, number, number, number]
+      /** Source-level `scheme` — same row origin as the raster marker above (#1985). */
+      readonly scheme?: 'xyz' | 'tms'
       /** `encoding: custom` elevation unpack factors. */
       readonly redFactor?: number
       readonly greenFactor?: number

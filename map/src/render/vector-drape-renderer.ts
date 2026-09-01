@@ -15,10 +15,13 @@
 // SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
+// COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
+// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the bake's blur would exceed the
+// chord sagitta it removes and the direct arm renders instead.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
-import { lonLatToECEF } from '@xgis/shared'
+import { EARTH, lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
 import { maxCachedEntriesFor } from './raster-cache-budget'
@@ -30,18 +33,46 @@ import {
 import {
   writeRasterFrameUniform,
   writeRasterTileUniform,
-  rasterGlobeCamAnchor,
+  rasterFrameCamAnchor,
 } from './raster-renderer'
 import type { GPUTile } from './vector-tile-renderer-types'
 
 const DEG2RAD = Math.PI / 180
+const RAD2DEG = 180 / Math.PI
 const MERC_LIMIT = 85.051129
 const clampLat = (v: number): number => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
 const mercY = (latDeg: number): number =>
   Math.log(Math.tan(Math.PI / 4 + (clampLat(latDeg) * DEG2RAD) / 2))
+// #2024 — the bake's tile-local frame is Mercator METRES on the tiler's sphere
+// radius (compiler ecef-packing DSFUN_EARTH_R = EARTH.sphereR; the VTR's bake
+// ortho spans TWO_PI_R_EARTH/2^z of the same frame). The window math below must
+// live on the SAME radius or every windowed bake shifts by the radius ratio.
+const SPHERE_R = EARTH.sphereR
+const TWO_PI_R = 2 * Math.PI * SPHERE_R
+/** North-edge latitude (deg) of Mercator tile row y at 2^z = tileN. */
+const tileRowLat = (y: number, tileN: number): number =>
+  Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / tileN))) * RAD2DEG
 const BAKE_PX = 512
 /** Bytes of one bake — RGBA8 at BAKE_PX², every entry the same size. */
 const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
+
+/** #2093 — consecutive drape-free frames after which the WHOLE bake cache is
+ *  released.
+ *
+ *  `planBakeEvictions` only trims ABOVE the cap, so a cache that stops being
+ *  sampled freezes at its high-water mark — up to `maxCachedEntriesFor(BAKE_BYTES)`
+ *  512² RGBA8 textures (384 desktop / 96 mobile, i.e. ~384 / ~96 MiB) held until
+ *  `destroy()`. Before the LOD ceiling the globe drape never went permanently
+ *  cold; past `GLOBE_DIRECT_MIN_SELECTION_Z` the direct arm renders every vector
+ *  layer, so nothing re-enters the cache and none of it can ever be sampled again.
+ *
+ *  30 frames (~0.5 s at 60 fps) is the compromise: an ACTIVE drape only ever
+ *  produces a drape-free frame transiently (a frame where every visible tile is
+ *  mid-reload, so every bake self-skips), and the cost of being wrong is a re-bake
+ *  of the VISIBLE set only — the entries dropped were by definition not on screen.
+ *  A map that renders no frames at all keeps its cache until it renders again;
+ *  that is the deliberate limit of a frame-counted release. */
+export const COLD_RELEASE_FRAMES = 30
 
 /** ECEF-frame view the drape projects with — the SAME matrix + log-depth + eye
  *  the vector / raster paths already compute (camera.getViewForProjection), so
@@ -62,13 +93,43 @@ export interface DrapeBakeProvider {
     sizePx: number,
     /** #1222 zoom-bucket stroke-width compensation; 1 = bake-native. */
     strokeWidthScale?: number,
+    /** #2024 — bake only this WINDOW of the tile (parent-local Mercator metres,
+     *  origin = tile SW corner): the virtual sub-tile rect at overzoom, so a
+     *  512px bake keeps native texel density past the source maxLevel. Absent =
+     *  the whole tile (byte-identical to the pre-#2024 bake). */
+    window?: BakeWindow,
   ): RhiTexture | null
+}
+
+/** #2024 — sub-rect of a tile's local-Mercator frame ([0, E]²) to bake. */
+export interface BakeWindow {
+  /** Window origin X in tile-local Mercator metres (0 = tile west edge). */
+  ox: number
+  /** Window origin Y in tile-local Mercator metres (0 = tile SOUTH edge). */
+  oy: number
+  /** Window extent (square) in tile-local Mercator metres. */
+  extent: number
+}
+
+/** #2024 — one virtual overzoom tile the drape renders as a windowed bake of
+ *  its resident maxLevel ancestor. Emitted by the VTR's globe overzoom
+ *  dispatch (globeVisibleTiles at the virtual z), so the set exactly tiles the
+ *  viewport — the drape draws EITHER these OR the parent tiles, never both
+ *  (double alpha-cover would darken translucent fills). */
+export interface DrapeOverzoomTile {
+  z: number
+  x: number
+  y: number
+  /** Compiler tileKey of the maxLevel ancestor whose geometry gets windowed. */
+  parentKey: number
 }
 
 /** Drape baked vector-fill tiles onto the raster sphere grid (#599 I2). Owns the
  *  shared RasterDraper + the raster global uniform + a per-tile baked-texture
  *  cache (validated by uploadEpoch + fill colour, so a static globe re-bakes
  *  nothing). I3 (#599): the cache is bounded by an LRU cap + freed on destroy;
+ *  #2093 also releases it in full once it goes COLD (the LOD ceiling can retire
+ *  the drape for good, and an LRU cap alone never frees an under-cap cache);
  *  eviction is deferred to beginFrame (see there for the lifecycle rationale). */
 export class VectorDrapeRenderer {
   private readonly draper: RasterDraper
@@ -107,6 +168,9 @@ export class VectorDrapeRenderer {
    *  submit still references ("Destroyed texture used in a submit"). One more frame
    *  guarantees the referencing submit has completed. */
   private readonly _retiredBakes: RhiTexture[] = []
+  /** #2093 — consecutive beginFrame()s that saw NO bake draped. Drives the
+   *  cold-cache release (see COLD_RELEASE_FRAMES). */
+  private _coldFrames = 0
 
   constructor(
     private readonly rhi: RhiDevice,
@@ -130,6 +194,9 @@ export class VectorDrapeRenderer {
     projType: number,
     projCenterLon: number,
     projCenterLat: number,
+    /** Camera 2D centre — feeds rasterFrameCamAnchor's Mercator/flat lanes (#2022).
+     *  Only centerX/centerY are read; the globe arm ignores them. */
+    camera: { centerX: number; centerY: number },
     opacity: number,
     fill: readonly [number, number, number, number],
     /** #599 line-drape — a 32-bit key over the show's stroke style (VTR.strokeBakeKey). Part of the
@@ -144,6 +211,14 @@ export class VectorDrapeRenderer {
     worldOffDeg: number[] | undefined,
     layerCache: Map<number, GPUTile>,
     provider: DrapeBakeProvider,
+    /** #2024 — when present and non-empty (globe overzoom past the source
+     *  maxLevel), drape THESE virtual sub-tiles — each a 512px WINDOWED bake of
+     *  its resident maxLevel ancestor — INSTEAD of neededKeys, restoring native
+     *  texel density at any camera depth. The caller passes this only when
+     *  every parentKey is resident, so the parent→virtual switch is atomic per
+     *  frame: parent and child cover are never mixed (double alpha cover would
+     *  darken translucent fills). */
+    overzoom?: DrapeOverzoomTile[],
   ): void {
     this.calls++
     // Cache-invalidation key: quantized fill RGBA. A colour change re-bakes; a
@@ -152,7 +227,74 @@ export class VectorDrapeRenderer {
     const fillKey = q(fill[0]) | (q(fill[1]) << 8) | (q(fill[2]) << 16) | (q(fill[3]) << 24)
 
     const tiles: RasterTile[] = []
-    for (let ki = 0; ki < neededKeys.length; ki++) {
+    const useOverzoom = overzoom !== undefined && overzoom.length > 0
+    if (useOverzoom) {
+      // ─── #2024 virtual overzoom sub-tiles (globe route) ───
+      // The set comes from globeVisibleTiles at the virtual z, so it exactly
+      // tiles the viewport; the globe is SINGLE_WORLD, so no world-copy offsets.
+      for (const vt of overzoom) {
+        const cached = layerCache.get(vt.parentKey)
+        if (!cached || cached.extruded) continue
+        // Stroke rebake bucket vs the VIRTUAL z: the windowed bake magnifies
+        // 2^(vz − parentZ) less than the parent bake would, so camZoom − vz is
+        // the residual magnification the #1222 width compensation must cancel.
+        const zoomBucket =
+          strokeKey !== 0 && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
+            ? drapeZoomBucket(camZoom, vt.z)
+            : 0
+        // Virtual tile bounds — the standard Mercator tile formulas (matches
+        // tile-catalog.ts), NOT derived from the parent's f32-quantized fields.
+        const tileN = Math.pow(2, vt.z)
+        const west = (vt.x / tileN) * 360 - 180
+        const east = ((vt.x + 1) / tileN) * 360 - 180
+        const north = tileRowLat(vt.y, tileN)
+        const south = tileRowLat(vt.y + 1, tileN)
+        // Bake window in the PARENT's tile-local Mercator-metre frame (origin =
+        // parent SW corner, the frame the packed vertex local_merc lanes live
+        // in). extent is exact (E / 2^Δz); the origin comes from the f64 bounds.
+        const parentE = TWO_PI_R / Math.pow(2, cached.tileZoom)
+        const extent = parentE / Math.pow(2, vt.z - cached.tileZoom)
+        const window: BakeWindow = {
+          ox: (west - cached.tileWest) * DEG2RAD * SPHERE_R,
+          oy: (mercY(south) - mercY(cached.tileSouth)) * SPHERE_R,
+          extent,
+        }
+        const cacheKey = `${sliceLayer}:${vt.parentKey}:${vt.z}/${vt.x}/${vt.y}`
+        const tex = this._obtainBake(
+          provider,
+          sliceLayer,
+          vt.parentKey,
+          cached,
+          fill,
+          fillKey,
+          strokeKey,
+          zoomBucket,
+          cacheKey,
+          window,
+        )
+        if (!tex) continue
+        const swEcef = lonLatToECEF(west, south)
+        const mercSouth = mercY(south)
+        const gridN = rasterGridN(projType, vt.z)
+        writeRasterTileUniform(
+          this.tileScratch,
+          west,
+          south,
+          east,
+          north,
+          swEcef,
+          mercSouth,
+          mercY(north) - mercSouth,
+          gridN,
+        )
+        tiles.push({
+          texture: tex,
+          tileBytes: new Float32Array(this.tileScratch.buffer.slice(0)),
+          gridN,
+        })
+      }
+    }
+    for (let ki = 0; !useOverzoom && ki < neededKeys.length; ki++) {
       const key = neededKeys[ki]!
       const cached = layerCache.get(key)
       // #599 line-drape — bake fill tiles AND line-only tiles (indexCount 0 but non-empty stroke
@@ -175,37 +317,18 @@ export class VectorDrapeRenderer {
         strokeKey !== 0 && (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
           ? drapeZoomBucket(camZoom, cached.tileZoom)
           : 0
-      let entry = this.baked.get(cacheKey)
-      if (
-        !entry ||
-        entry.uploadEpoch !== cached.uploadEpoch ||
-        entry.fillKey !== fillKey ||
-        entry.strokeKey !== strokeKey ||
-        entry.zoomBucket !== zoomBucket
-      ) {
-        const tex = provider.bakeTileToTexture(
-          sliceLayer,
-          key,
-          fill,
-          BAKE_PX,
-          drapeStrokeWidthScale(zoomBucket),
-        )
-        if (!tex) continue
-        if (entry) {
-          this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
-          this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
-        }
-        entry = {
-          tex,
-          uploadEpoch: cached.uploadEpoch,
-          fillKey,
-          strokeKey,
-          zoomBucket,
-          lastCall: this.calls,
-        }
-        this.baked.set(cacheKey, entry)
-      }
-      entry.lastCall = this.calls
+      const tex = this._obtainBake(
+        provider,
+        sliceLayer,
+        key,
+        cached,
+        fill,
+        fillKey,
+        strokeKey,
+        zoomBucket,
+        cacheKey,
+      )
+      if (!tex) continue
 
       // Per-tile drape bounds — the raster tile formula (tile-catalog.ts). The
       // world-copy offset shifts lon so the tile lands in its own copy; the
@@ -231,11 +354,9 @@ export class VectorDrapeRenderer {
         mercY(north) - mercSouth,
         gridN,
       )
-      // Mark this bake as draped this frame — the beginFrame eviction skip-set.
-      this.visibleKeys.add(cacheKey)
       // The scratch block is reused per tile — COPY its bytes for the batch entry.
       tiles.push({
-        texture: entry.tex,
+        texture: tex,
         tileBytes: new Float32Array(this.tileScratch.buffer.slice(0)),
         gridN,
       })
@@ -248,7 +369,12 @@ export class VectorDrapeRenderer {
         projType,
         projCenterLon,
         projCenterLat,
-        rasterGlobeCamAnchor(projCenterLon, projCenterLat),
+        // #2022 — the SAME per-projType anchor authority raster + hillshade pack.
+        // The drape serves {3,4,5} ∪ globeMode; on the flat-disc trio vs_tile's
+        // flat arm reads [clon, camProj0.x, camProj0.y], and the unconditional
+        // globe ECEF anchor put planet-scale metres in those lanes — every
+        // draped fill landed off-screen (fills invisible on ortho/azi/stereo).
+        rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat),
         { opacity, hueRotate: 0, brightnessMin: 0, brightnessMax: 1, saturation: 0, contrast: 0 },
       )
       this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled(), this._framePoolBase)
@@ -258,12 +384,69 @@ export class VectorDrapeRenderer {
     }
   }
 
+  /** Bake-cache lookup/refresh shared by the primary and #2024 virtual-overzoom
+   *  loops. Bakes (or re-bakes on any invalidation-key change), retires the
+   *  replaced texture into the post-submit-safe queue, marks the entry draped
+   *  this frame (the beginFrame eviction skip-set), and returns the texture —
+   *  null when the tile has nothing to bake (provider self-skips empties). */
+  private _obtainBake(
+    provider: DrapeBakeProvider,
+    sliceLayer: string,
+    providerKey: number,
+    cached: GPUTile,
+    fill: readonly [number, number, number, number],
+    fillKey: number,
+    strokeKey: number,
+    zoomBucket: number,
+    cacheKey: string,
+    window?: BakeWindow,
+  ): RhiTexture | null {
+    let entry = this.baked.get(cacheKey)
+    if (
+      !entry ||
+      entry.uploadEpoch !== cached.uploadEpoch ||
+      entry.fillKey !== fillKey ||
+      entry.strokeKey !== strokeKey ||
+      entry.zoomBucket !== zoomBucket
+    ) {
+      const tex = provider.bakeTileToTexture(
+        sliceLayer,
+        providerKey,
+        fill,
+        BAKE_PX,
+        drapeStrokeWidthScale(zoomBucket),
+        window,
+      )
+      if (!tex) return null
+      if (entry) {
+        this.draper.dropTexture(entry.tex) // invalidate the draper cache before freeing
+        this._retiredBakes.push(entry.tex) // destroy next frame — the prior submit may still reference it
+      }
+      entry = {
+        tex,
+        uploadEpoch: cached.uploadEpoch,
+        fillKey,
+        strokeKey,
+        zoomBucket,
+        lastCall: this.calls,
+      }
+      this.baked.set(cacheKey, entry)
+    }
+    entry.lastCall = this.calls
+    // Mark this bake as draped this frame — the beginFrame eviction skip-set.
+    this.visibleKeys.add(cacheKey)
+    return entry.tex
+  }
+
   /** Frame-boundary cache maintenance — MUST run once per frame BEFORE this
    *  frame's renderGlobeFills calls (VTR.beginFrame drives it). Evicts the
    *  least-recently-draped bakes past the viewport-aware cap (#1579 —
    *  `maxCachedEntriesFor`, sharing the raster cache's byte ceiling instead of a
    *  flat desktop-sized count), skipping the previous frame's visible set, then
-   *  rolls the visible set forward.
+   *  rolls the visible set forward. #2093 adds the cold-cache release below the
+   *  cap eviction: the same visible set that gates eviction also says whether the
+   *  cache was sampled AT ALL, and COLD_RELEASE_FRAMES drape-free frames drop it
+   *  entirely (through the same retire queue).
    *
    *  Eviction is DEFERRED here rather than run inline in renderGlobeFills for
    *  the SAME lifecycle reason the raster tile cache (raster-renderer.evictTiles)
@@ -289,6 +472,25 @@ export class VectorDrapeRenderer {
         this._retiredBakes.push(tex) // destroy next frame — the prior submit may still reference it
         this.baked.delete(k)
       }
+    }
+    // #2093 cold-cache release. `visibleKeys` is the set of bakes the frame that
+    // just ended actually draped, so an empty set means the cache went unsampled.
+    // The cap eviction above cannot free it — it only trims ABOVE the cap — so a
+    // cache that goes permanently cold (the LOD ceiling hands every vector layer
+    // to the direct arm) would sit at its high-water mark until destroy(). Drop
+    // the whole thing through the SAME retire queue the eviction uses, so the
+    // textures are destroyed one frame later, after the referencing submit has
+    // drained. The VTR's lazy `this._drape ??=` re-creates nothing — this
+    // renderer stays alive and simply re-bakes if draping resumes.
+    if (this.visibleKeys.size > 0 || this.baked.size === 0) {
+      this._coldFrames = 0
+    } else if (++this._coldFrames >= COLD_RELEASE_FRAMES) {
+      for (const e of this.baked.values()) {
+        this.draper.dropTexture(e.tex) // invalidate the draper cache before freeing
+        this._retiredBakes.push(e.tex) // destroy next frame — same deferred-retire discipline
+      }
+      this.baked.clear()
+      this._coldFrames = 0
     }
     this.visibleKeys.clear()
     // Restart the shared-pool base for the new frame (see _framePoolBase). #1142

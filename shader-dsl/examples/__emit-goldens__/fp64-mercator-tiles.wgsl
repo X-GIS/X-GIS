@@ -48,7 +48,8 @@ fn fs_tiles(vo: VsOut) -> @location(0) vec4<f32> {
   let _v10 = df64_narrow(_gv1);
   let _gv2 = df64_floor(_v9);
   let _v11 = df64_narrow(_gv2);
-  let _cse3 = vec2<f32>(0.0, 0.0);
+  let _cse4 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse3 = vec2<f32>(_cse4, _cse4);
   let _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
   let _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   let _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(_gv1, _gv2), vec2<f32>(0.5, 0.0)))) * 2.0);

@@ -93,12 +93,15 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       'heatmap-density':
         'Heatmap density accessor — only meaningful inside a heatmap-color ramp, which the heatmap converter lowers separately (layers-heatmap.ts heatmapRampToXgis); it has no value in a generic expression context.',
       'line-progress':
-        'Line-progress accessor — line-gradient requires source.lineMetrics + a per-fragment progress varying; not yet implemented.',
+        'Line-progress accessor — only meaningful inside a line-gradient ramp, which the line converter lowers separately (paint-line.ts addLineGradient); it has no value in a generic expression context.',
       'sky-radial-progress': 'Sky-radial-progress accessor — sky layer rendering not implemented.',
-      accumulated:
-        'Accumulated accessor — clusterProperties pipeline not implemented (clustering is host-side today).',
-      'distance-from-center':
-        'Distance-from-center accessor — globe-mode runtime queries not wired through to filter eval yet.',
+      // `accumulated` is now SUPPORTED — handled by accumulatedHandler in the
+      // expr-lookup cluster (#2050), which returns the bare `accumulated` identifier
+      // the evaluator resolves through ACCUMULATED_KEY. It never reaches this table.
+      // `distance-from-center` is now SUPPORTED (#2119) — handled by
+      // distanceFromCenterHandler in the expr-lookup cluster, which routes through
+      // get("$distanceFromCenter") like `geometry-type` / `id`. It never reaches
+      // this fallback table.
       // `pitch` is now SUPPORTED — handled by the `case 'pitch'` arm
       // above (returns the bare `pitch` identifier), so it never reaches
       // this fallback table.
@@ -110,10 +113,9 @@ function _exprToXgisImpl(v: unknown, warnings: string[]): string | null {
       // (imageHandler, #777 I-G) → an inline sprite quad on the baseline.
       // Neither reaches this fallback table.
       // `within` is now SUPPORTED (Point/MultiPoint vs Polygon/MultiPolygon
-      // on GeoJSON sources) — handled by withinHandler in the expr-lookup
-      // cluster, so it never reaches this fallback table. (LineString /
-      // Polygon tested-geometry and MVT tile-coordinate sources remain
-      // partial — see eval/within.ts.)
+      // on GeoJSON and MVT/PMTiles sources alike) — handled by withinHandler
+      // in the expr-lookup cluster, so it never reaches this fallback table.
+      // (LineString tested-geometry remains partial — see eval/within.ts.)
       // `is-supported-script` is now SUPPORTED — handled by
       // isSupportedScriptHandler in the expr-lookup cluster (lowers to
       // constant `true`, matching X-GIS' all-Unicode-renderable

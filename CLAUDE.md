@@ -93,13 +93,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 This OVERRIDES default behavior. Applies to EVERY claim that a render is correct, a
 parity fix works, or there is no regression — including before/after checks, multi-style
 sweeps, and post-merge confirmation. The methods below live as skills
-(`compare-parity-pixeldiff`, `tile-crop-review`); treating them as optional is the
+(`compare-parity-pixeldiff`, `tile-crop-review`, and `capture-canvas` for HOW a frame is
+captured and settled in the first place); treating them as optional is the
 recurring mistake. They are NOT optional here.
 
 **Forbidden:** judging a render by eyeballing a downscaled full frame or a downscaled
 side-by-side composite. `Read` downscales large images, so this silently loses the
 sub-pixel offsets, seams, missing shields, and width changes that real bugs live in.
-Eyeballing a downscaled composite is NOT verification.
+Eyeballing a downscaled composite is NOT verification. Equally forbidden: capturing a
+map frame with raw `locator('#map').screenshot()` / `page.screenshot()` (demo chrome
+lands in the measured pixels) or settling with `waitForTimeout` sleeps — use
+`captureMapFrame` / `awaitMapIdle` (e2e/helpers/visual.ts) per the `capture-canvas`
+skill, owner-mandated 2026-08-25.
 
 ### "There is no GPU here" is FALSE — for BOTH backends
 
@@ -245,11 +250,30 @@ waived — the blast-radius sweep a text search misses is then the reader's job.
 
 ## 7. Build & Test Discipline
 
-**Never run more than one heavy background process concurrently.** vitest, `tsc --build
---force`, `bun run build`, GPU/headed verification, and `astro build` each saturate the
-machine; running two at once has frozen the machine. Run them **sequentially** — start one,
-wait for it to finish, then start the next. If one is already backgrounded, wait for its
-completion before launching another.
+**Parallelize by default; serialize only where it corrupts results (owner-refined
+2026-08-25).** The old blanket "one heavy process at a time" over-serialized the pipeline.
+The rules that remain, and WHY:
+
+- **A TIMING MEASUREMENT owns the machine.** While a perf sweep / benchmark is running,
+  do not co-run other compute — contention corrupts the measured quantity itself. This is
+  instrument integrity, not ritual.
+- **Do not co-run two MAXIMALLY heavy jobs** (two of: full vitest, `tsc --build --force`,
+  `bun run build`, a SwiftShader render gate, `astro build`) — that combination has frozen
+  the machine before. One such job + light/medium work in parallel is fine.
+- Everything else runs CONCURRENTLY with a background gate: recon, design, code edits,
+  docs/issue records, single-file tests, patch preparation for the next increment.
+- **But never EDIT REPO SOURCES a running browser gate is serving.** The e2e gates run
+  against the Vite dev server, so a save mid-run hot-reloads the page and kills the
+  in-flight `page.evaluate` (`Execution context was destroyed, most likely because of a
+navigation`) — a green-looking pipeline that actually measured a moving tree. Paid for
+  2026-08-25: a comment-only edit during a gate's boot invalidated a 37-minute run.
+  Prepare edits as patches while a browser gate is in flight; apply them after it exits.
+
+**And NEVER idle-wait on a background gate (owner-mandated 2026-08-25).** Launch the heavy
+verification `run_in_background`, then IMMEDIATELY continue the NEXT work item — including
+its code, prepared as apply-ready patches when committing would widen an open PR's scope.
+Ending a turn with "waiting for the gate result" delays the queued work the gate exists to
+protect; the completion notification re-enters the loop and the verdict is handled then.
 
 ## 8. Bug Fixing
 
@@ -342,6 +366,13 @@ scripts/gap-matrix.md`) — read the script header before assuming write-in-plac
 build > log; grep -c "error TS" log` reports FAILURE on a clean build, because grep exits 1
   when it matches nothing. The mirror of the pipe-laundering entry above: that one hides a
   failure, this one invents one. Capture `$?` immediately, then diagnose.
+- `pgrep -f <pattern>` issued from a tool call MATCHES THE CALLING SHELL — the shell's own
+  command line contains the pattern. So `until ! pgrep -f 'bun run build'` never exits, and a
+  `pgrep -fc vitest` status poll returns nonzero while NOTHING is running: a job that never
+  started reads as "still running". Cost a full vitest sweep reported as in-flight for ~40
+  minutes that had never been launched (the log file did not exist). Use a bracket pattern
+  (`[v]itest`), or better, do not poll at all — launch with `run_in_background` and read the
+  harness's exit code. Same family as the poller entry under Verification.
 - `cd` PERSISTS across a compound command, so a relative path in a restore step resolves
   against the new directory — a `cd playground && … ; cp backup map/src/x.ts` silently writes
   to `playground/map/src/`, leaving the probe's edit live. Cost a reported "the fix does not
@@ -377,6 +408,11 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   surviving structural gates live in `map/src/architecture-invariants.test.ts`. The lesson
   stands: before adding a gate, check whether an existing one already owns the invariant.
   → `2026-07-14-the-second-ratchet.md`
+- A gate must CONVERGE ON, and MEASURE, exactly the quantity it asserts about. Three
+  violations surfaced in one day: a convergence poll keyed on ALL tiles while the assertion
+  counted only `z >= 1`, so it declared victory on a z=0-only set and blamed the page
+  (#2114); two parity gates hashing DOM chrome; and the same two letting a wall-clock-driven
+  controller move the tile set under them. Each read as a rendering regression. → #2114, #2120
 - A ratchet whose allowlist keys are FILE PATHS dies silently when the files move: two
   gates (projType branching, the layer-direction spine) sat vacuously green from the P3
   extraction until the runtime dissolution audited them. Any path-keyed gate needs a
@@ -392,6 +428,29 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   missing export and the missing emitter reached main under a green local run. Re-run the
   typecheck AFTER the final `git add`, and read `git show --stat HEAD` against the change
   you think you made — a file count that does not match is the tell.
+- Two branches raising the SAME ratchet key to the SAME number from the same base merge
+  with NO conflict, and the file then takes BOTH deltas — the ceiling is now one change too
+  low and the ratchet reds on main having been green on both branches. git cannot see it:
+  the resolved line is byte-identical to each side. RE-MEASURE every ceiling you raised
+  after the merge, never carry the number across.
+- A test-only WITNESS applied at a PACKER dies the day the packer is replaced. #2151 made
+  the uniform split-bind the default, so the tile anchors came from `TileUniformArena`
+  instead of the legacy block the §5 skew hook wrote — the witness stopped reaching the
+  shader, and the only reason anyone noticed is that it reddened first. A week later it
+  would have gone GREEN with its cut arm moving nothing. Apply a witness at the SINGLE
+  PRODUCER of the value it perturbs, so every packer inherits it by construction. → `#2165`
+- A gate that INHERITS a global default silently changes subject when the default flips.
+  `_rtc-recombine-parity-gate` is a CONSUMER of the bind path, not part of the split-bind
+  feature, so #2151's pre-merge check (which covered the two gates that SET the flag, and
+  were immune by construction) could not cover it. A gate must PIN the mode it measures —
+  and where two modes have different semantics, assert each mode's own (the split path has
+  no flag select at all, so "OFF + skew must be inert" is a premise it does not have).
+  → `#2165`, and it is §12's shared-path/consumer-gates rule one increment on.
+- A CACHE silently retires a "read live per frame" premise. The same gate injects its flags
+  post-ready and documents why it may; `TileUniformArena` packs a slot ONCE and reuses it
+  forever, so after INC-4b a flag set after boot could never reach a resident tile. When you
+  move a value behind a pack-once cache, go read what the tests assumed about how often it
+  is read. → `#2165`
 
 **Verification**
 
@@ -409,6 +468,28 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   emits the OLD markup with no warning, so a correct plugin looks broken and invites a "fix".
   `build-api-reference.ts` now drops that file on every run; if a plugin edit still seems inert,
   delete it before doubting the plugin.
+- A gate that screenshots the PAGE can hash its own CONVERGENCE STATE. `#status`'s opacity
+  AND its text are a direct function of `map.getMissingTileCount()`
+  (`playground/src/demo-runner.ts:1019-1033`), and it overlaps the canvas — so two parity
+  gates were printing "loading N tiles…" into the frames they then compared. ~53% of one
+  gate's step-0 diff, at maxΔ 218, which reads as a rendering regression. A clipped
+  `page.screenshot` over the canvas BOX is not chrome-free: `DEMO_CHROME_IDS`
+  (`e2e/helpers/visual.ts`) exists because those elements overlap it. Use `captureMapFrame`.
+  → #2120
+- A RENDER INPUT can be a function of WALL-CLOCK. The adaptive quality controller samples
+  measured rendered-frame intervals and runs live wherever `?adaptive=0` / `?scenescale` is
+  absent; measured on one scene at notch 0 → 3 → 4 with `adaptiveFarLodBoost` 1 → 4, and that
+  boost multiplies the tile selector's far-field error ceiling — so the SELECTOR asks for a
+  different tile set on a slower machine. A hash-equality rung has no tolerance to absorb it.
+  Pin with `?adaptive=0` (applied at module load, before the first frame is sampled).
+  `?scenescale=` is NOT a substitute: it pins the dpr half only and leaves the selector
+  moving. → #2120
+- CROSS-GATE AGREEMENT is cheap evidence and nobody was using it. Two gates toggling DISJOINT
+  flags produced the SAME unexplained hash pair — one pair cannot be caused by two different
+  flags, so it had to be the harness (it was boot order). After the fix the two gates agree
+  hash-for-hash across four flag states, which no single gate fixed to suit itself could
+  fake. When a parity gate is red, check whether a sibling gate on the same scene says the
+  same thing. → #2120
 - Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
   Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
   (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.
@@ -431,6 +512,30 @@ ladder-gate` asserted on triangles, and severing the controller→selector wire 
   uploaded a neighbouring renderer's bytes and drew nothing. Feed at least one input shaped the
   way real callers shape it, and plant a decoy around it.
   → `2026-08-14-every-test-passed-offset-zero.md`
+- One step earlier AGAIN: the assertions and the inputs can both be fine and the INSTRUMENT you
+  measure with can still be blind — and a blind instrument reports ZERO, which reads as a
+  finding. Counting optimizer opportunities by regex over EMITTED TEXT does exactly this: the
+  emitter CSEs every expression into a `let` chain, so `vec2(x,y).x` is spelled `_cseN.y` two
+  statements apart and a nested-shape regex finds none of it. 13 of 15 gcc-parity rules
+  measured "0 sites" that way; re-measured on the IR with let-bindings resolved,
+  member-of-construct alone is 37 sites in the default emit and 2,420 after
+  `forceInline('all')`. Worse, the same blind probe produced a FALSE SAFETY claim that reached
+  main ("adding this fold changed nothing") when a let-resolving fold deletes
+  `renormForCancel`'s twoSum — the #915 guard. Count on the IR, never the text; validate the
+  instrument against a KNOWN POSITIVE before believing a zero (one was already in hand, built
+  by hand two probes earlier); and read a uniform zero as a broken ruler, not a clean corpus.
+  → `#1972`
+- A POLLER is an instrument too, and the same zero lies. A CI wait-loop built on unauthenticated
+  `curl` got `{"message":"GitHub access is not enabled for this session..."}`, and its
+  `d.get('check_runs', [])` turned that into an empty list — no jobs busy, so it printed
+  `DONE all-green` on the FIRST poll and the push that followed supersede-cancelled three
+  live render shards plus the `render-gate` that runs after them. Two tells were on screen:
+  it "passed" in under a second, and the report was used to claim something stronger than the
+  authenticated API had actually shown. Never treat a missing key as an empty result — parse
+  strictly and fail loud on an unexpected shape; poll the WORKFLOW RUN, not a name-matched
+  subset of its jobs (`render-gate` has `needs: render-shard`, so shards-all-green is not
+  run-done); and check the wait actually WAITED before believing what it says.
+  → `#1972`
 - A change that REFACTORS a shared path owes the gates of that path's CONSUMERS, not the gates of
   the feature that motivated it — those are different sets, and the feature's own are the ones you
   will think of. Same incident: the integer-texture gates were run and green; the point/icon/line
@@ -459,6 +564,13 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   "exposed so a gate can assert the controller ACTED" and was surfaced on no public object —
   three rounds of inference circled a question the system already knew. Intent in a comment
   is not wiring; check the accessor is reachable from where a test runs.
+- A shader edit-probe that skips `bun run bake:shaders` proves NOTHING, and the way it fails
+  is to look like a vacuous gate. The page consumes the BAKED artifact, so cutting a
+  `map/src/shaders/dsl/` mechanism and re-running the render gate leaves it GREEN — read as
+  "this gate cannot distinguish", which is the opposite of true. Re-baked, the same cut
+  reddened naming exactly the severed half. Bake after the cut AND after the restore, and
+  assert `git status --porcelain map/src/shaders/baked/` is empty before believing either
+  run. → #2117
 
 **Process**
 

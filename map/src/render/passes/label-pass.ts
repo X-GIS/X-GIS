@@ -16,7 +16,7 @@
 // (label-node-local state, no longer a FrameContext field). The text-overlay
 // sub-pass originates through the RHI frame shell (#1046 F3b).
 
-import { evaluate, makeEvalProps, resolveColor } from '@xgis/compiler'
+import { evaluate, makeEvalProps, resolveColor, resolvePitchAlignment } from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
@@ -55,8 +55,15 @@ import { ensureBackgroundPatternAtlas } from './background-pattern-atlas'
 import { type ShowCommand } from '../renderer-types'
 import type { FrameContext } from '../frame-context'
 import { unwrapProjection } from '../projection-token'
-import { Pitch0Unprojector } from '../../camera/pitch0-unproject'
+import { Pitch0Unprojector, makeGroundMercProjector } from '../../camera/pitch0-unproject'
 import { dispatchPointLabel, makeGroundBasisFor } from './dispatch-point-labels'
+import {
+  curvedRunIdentity,
+  emitCurvedLineLabels,
+  measureRunCadence,
+  projectRunToLabelPlane,
+  type CurvedLineLabelDeps,
+} from './dispatch-curved-line-labels'
 import type { SceneView } from '../scene-view'
 import { requireRhiFrame, type RenderPass, type LabelPassHost } from './pass'
 import {
@@ -65,10 +72,8 @@ import {
   lineLabelSpacingPx,
   placeLabelsAlongLine,
   lineLabelFirstStopPx,
-  mercOffsetToScreenOffset,
   makeEmitLabelAlongSegment,
   placeInlineLineLabels,
-  sampleAlongPolyline,
   withinViewportInset,
 } from './place-labels-along-line'
 // Extracted helpers (re-exported: existing importers, tests included, are unaffected).
@@ -82,10 +87,8 @@ export {
 import {
   lineLabelDeduped,
   lineIconIsIconOnly,
-  lineLabelDedupeKey,
   pointLabelPairKey,
   shouldEmitPointDedup,
-  lineLabelCopyKey,
 } from './line-label-dedupe'
 
 /** #728 — STABLE per-feature collision identity, fed to the greedy collision
@@ -609,6 +612,12 @@ class LabelPass implements RenderPass {
       // clamped to that bound upstream). projMercatorCpu returns a fresh
       // tuple per call (no shared scratch), so there is no aliasing hazard.
       const camMerc = projMercatorCpu(centerLon, centerLat)
+      // Named rather than inlined so the ground basis composes against the SAME
+      // projection constants the anchors were placed with — one object, two
+      // projectors, no way for them to drift into different frames.
+      const flatArgs = isFlatProj
+        ? { projType, ccx: camMerc[0], ccy: camMerc[1], centerLon, centerLat, visibleWorldCopies }
+        : undefined
       const {
         projectMerc,
         projectLonLat,
@@ -620,16 +629,7 @@ class LabelPass implements RenderPass {
         labelView.matrix,
         w,
         h,
-        isFlatProj
-          ? {
-              projType,
-              ccx: camMerc[0],
-              ccy: camMerc[1],
-              centerLon,
-              centerLat,
-              visibleWorldCopies,
-            }
-          : undefined,
+        flatArgs,
         labelView.eye,
         // Globe RTC focus: the matrix is focus-relative, so the ECEF label
         // projector must anchor against the same camera focus the geometry
@@ -639,15 +639,27 @@ class LabelPass implements RenderPass {
       )
 
       // #777 IV3 — the ground-basis producer for `text-pitch-alignment: map`.
-      // Built here because it composes the SAME `projectLonLat` the anchors were
-      // placed with; pairing it with any other projector would put the quad in a
-      // different frame from its own anchor.
+      // Built here because it composes the SAME matrix and projection constants
+      // the anchors were placed with; pairing it with any other frame would put
+      // the quad in a different one from its own anchor. `pitch0` is per-HOST (it
+      // owns a matrix/inverse pair whose cache exists so a pure tilt is a hit).
       let pitch0 = this._pitch0ByHost.get(host)
       if (pitch0 === undefined) {
         pitch0 = new Pitch0Unprojector()
         this._pitch0ByHost.set(host, pitch0)
       }
-      const groundBasisFor = makeGroundBasisFor(host.camera, w, h, projectLonLat, pitch0)
+      // The pair the basis is a RATIO of: this frame's matrix and its pitch-0 twin.
+      const liveMvp = labelView.matrix
+      const p0Mvp = pitch0.matrix(host.camera, w, h, dpr)
+      const groundBasisFor = makeGroundBasisFor(host.camera, liveMvp, p0Mvp, w, h, flatArgs)
+      // #2012 INC-4 — the pitch-0 twin of the line pass's own merc projector, for
+      // the LABEL PLANE the curved branch walks (dispatch-curved-line-labels.ts).
+      // Built only when a frame can actually produce one, so an unpitched frame
+      // and the globe pay nothing and the whole curved branch stays byte-identical.
+      const groundMercPitch0 =
+        host.camera.pitch > 0 && flatArgs !== undefined
+          ? makeGroundMercProjector(p0Mvp, w, h, flatArgs)
+          : undefined
 
       // (a) Imperative overlays
       for (const ov of host.overlays) {
@@ -864,9 +876,23 @@ class LabelPass implements RenderPass {
       ) {
         labelReplay = _postSkip.replayOut
       }
+      // #1177/#2013 — on an S16 HIT frame the dispatch loop is skipped via the
+      // loop condition (not an `if` block, to avoid re-indenting the body):
+      // prepare() is skipped at the stage-prepare guard below, so everything
+      // the loop queues is dropped unconsumed by stage.reset()/iStage.reset()
+      // — the loop's only hit-frame effect was wasted CPU (applyFeatureExprs +
+      // per-anchor/per-vertex projectMercAny + addLabel). The visible frame
+      // replays the stages' persistent draws through labelReplay. The only
+      // skip-state write inside the loop (preparedStrideWant) is already
+      // miss-gated. _labelDispatchLoopRuns counts INSIDE the body (first
+      // iteration), not beside the predicate, so the zoom-skip gate's
+      // loopRuns === misses assertion goes red if the guard is ever removed
+      // while the counter survives — it measures the skip itself, not the
+      // intent (frame time alone cannot).
       // _showIdx = draw order (later show = higher layer) — point-label dedup precedence (#458).
-      for (let _showIdx = 0; _showIdx < labelShows.length; _showIdx++) {
+      for (let _showIdx = 0; !canSkipLabelPrepare && _showIdx < labelShows.length; _showIdx++) {
         const show = labelShows[_showIdx]!
+        if (_showIdx === 0) host._labelDispatchLoopRuns++
         // Per-show monotonic key for POINT-label text+icon pairing — mirrors
         // _lineLabelSeq (iter-176). A STABLE per-instance key; replaces the
         // old rounded-screen-coords pairKey whose sub-pixel camera drift
@@ -1158,7 +1184,6 @@ class LabelPass implements RenderPass {
                 layerName: labelLayerName,
                 nextPairKey: () => pointLabelPairKey(labelLayerName, _pointLabelSeq++),
                 groundBasisFor,
-                dpr,
               })
             }
           }
@@ -1242,6 +1267,21 @@ class LabelPass implements RenderPass {
             // 'map' (= tangent), matching the historical behaviour.
             const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
             const useTangentRotation = lineRotAlign !== 'viewport'
+            // #2012 INC-4 — does this layer's curved branch lie in the ground
+            // plane? Gated on the SHARED spec authority the converter's runtime-gap
+            // warning uses (compiler/src/ir/label-alignment.ts) AND on a frame that
+            // can produce a pitch-0 twin at all, so an unpitched frame and every
+            // `text-rotation-alignment: viewport` layer pay literally nothing — the
+            // extra projection per sample is what keeps the byte-identity rung
+            // reachable, and it must not be spent where it cannot be used.
+            const groundAlignedLine =
+              useTangentRotation &&
+              groundMercPitch0 !== undefined &&
+              resolvePitchAlignment(
+                effectiveDef.placement,
+                effectiveDef.rotationAlignment,
+                effectiveDef.pitchAlignment,
+              ) === 'map'
             // #1314 — viewport edge-inset cull for this layer's line labels, at every
             // along-line emit site below; re-set per polyline from the feature's own
             // extent (lineLabelEdgeInsetPx). Point labels are unaffected.
@@ -1338,6 +1378,24 @@ class LabelPass implements RenderPass {
                 emittedLineIconKeys.add(key)
                 return false
               }
+              // #2012 INC-4 — the curved emitter's frame/layer bindings, built
+              // ONCE per layer rather than per polyline × world copy. The pair
+              // sequence is a FUNCTION for the reason `EmitLabelAlongSegmentDeps`
+              // gives: it is shared with the viewport branch's emitter, and
+              // copying its value forks it into two counters minting the same keys.
+              const curvedDeps: CurvedLineLabelDeps = {
+                addCurvedLineLabel: stage.addCurvedLineLabel.bind(stage),
+                dispatchIcon,
+                bumpDrop: (k) => this._dropStats.bump(k),
+                anchorInView,
+                isTooCloseToSameText,
+                recordTextPosition,
+                // Read through the outer `let`: it is assigned just above, after
+                // `emitLabelAlongSegment` already closed over the same binding.
+                isLineIconDuplicate: (sx, sy) => isLineIconDuplicate(sx, sy),
+                nextPairKey: () => `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`,
+                layerName: labelLayerName,
+              }
               const SUBDIVS_PER_SEG = 32
               // Polyline projection scratch — sized once per show, big
               // enough to hold the worst-case sample count across any
@@ -1354,14 +1412,15 @@ class LabelPass implements RenderPass {
               // above. f64: these are absolute mercator metres (~10^7), where f32
               // quantises to ~1 m and would jitter the world anchor by a pixel.
               let _pmScratch = new Float64Array(0)
-              // Static return holder for samplePosAt — closure used to
-              // return `{ x, y }` on every call, which fired in the
-              // hot loop below per spacing point.
-              // [x, y, tangentDeg] — tangent angle (degrees CCW from +x)
-              // is the segment direction at the sample point. Used by
-              // icon-rotation-alignment=map to rotate per-segment icons
-              // with the line direction (OFM road_oneway arrows).
-              const _samplePosOut: [number, number, number] = [0, 0, 0]
+              // #2012 INC-4 — the LABEL PLANE (pitch-0) twin of the two screen
+              // arrays, and the merc coordinate of each retained sample (the
+              // label's own ground point, where its basis is derived). All five
+              // arrays are index-parallel; only these two f64 pairs are filled on a
+              // ground-aligned layer, so a viewport layer's loop is unchanged.
+              let _p0xScratch = new Float32Array(0)
+              let _p0yScratch = new Float32Array(0)
+              let _pmxScratch = new Float64Array(0)
+              let _pmyScratch = new Float64Array(0)
               // Screen-space subdivision density (fixes the deep-zoom road-label
               // vanish). Project the camera centre and a +1 m east neighbour; the
               // px gap = on-screen pixels per mercator metre. Drives the per-
@@ -1410,6 +1469,12 @@ class LabelPass implements RenderPass {
                   _pxScratch = new Float32Array(upper * 2) // 2× to amortise growth
                   _pyScratch = new Float32Array(upper * 2)
                   _pmScratch = new Float64Array(upper * 2)
+                  if (groundAlignedLine) {
+                    _p0xScratch = new Float32Array(upper * 2)
+                    _p0yScratch = new Float32Array(upper * 2)
+                    _pmxScratch = new Float64Array(upper * 2)
+                    _pmyScratch = new Float64Array(upper * 2)
+                  }
                 }
                 // #727 (C) — tile LINE labels fan out per visible world copy
                 // (points already do, ~#1700). The projector carries the copy
@@ -1466,6 +1531,15 @@ class LabelPass implements RenderPass {
                       _pxScratch[pn] = proj[0]
                       _pyScratch[pn] = proj[1]
                       _pmScratch[pn] = accM + segLenM * t
+                      // #2012 INC-4 — the retained sample's own merc coordinate,
+                      // recorded HERE because nothing downstream can recover it:
+                      // `_pmScratch` is an arc LENGTH, and the retained run can
+                      // start mid-polyline. It is what lets a label's basis be
+                      // derived at the label's own ground point.
+                      if (groundAlignedLine) {
+                        _pmxScratch[pn] = sx
+                        _pmyScratch[pn] = sy
+                      }
                       pn++
                     }
                     accM += segLenM
@@ -1476,106 +1550,43 @@ class LabelPass implements RenderPass {
                     continue
                   }
                   perfMarkStart('encoder.label-dispatch.line.emit')
-                  // INC-1/INC-2 — the world anchor (where this run crosses into its
-                  // own tile, which is where MapLibre starts its chain) expressed as
-                  // an along-screen offset from this run's first sample. Normally
-                  // NEGATIVE: MVT geometry carries a buffer, so the crossing sits
-                  // behind the run start. Both branches below phase off it.
-                  const worldPhasePx = mercOffsetToScreenOffset(
+                  // #2012 INC-4 — the LABEL PLANE: the pitch-0 image of the SAME
+                  // retained samples, index-parallel to the live run. All-or-
+                  // nothing (see projectRunToLabelPlane): a run that cannot be
+                  // fully imaged keeps its live walk, which is what it did before.
+                  const planeOk =
+                    groundAlignedLine &&
+                    projectRunToLabelPlane(
+                      _pmxScratch,
+                      _pmyScratch,
+                      pn,
+                      wo,
+                      groundMercPitch0!,
+                      _p0xScratch,
+                      _p0yScratch,
+                    )
+                  // The WALK arrays — the plane's when there is one. The curved
+                  // branch derives its own cadence from them inside
+                  // emitCurvedLineLabels, which is what makes design Q7's
+                  // "phase and walk in the same space" unrepresentable here.
+                  const walkX = planeOk ? _p0xScratch : _pxScratch
+                  const walkY = planeOk ? _p0yScratch : _pyScratch
+                  // INC-1/INC-2 — the VIEWPORT branch's cadence: the world anchor
+                  // (where this run crosses into its own tile, which is where
+                  // MapLibre starts its chain) as an along-screen offset from this
+                  // run's first sample, plus the run length. Normally NEGATIVE: MVT
+                  // geometry carries a buffer, so the crossing sits behind the run
+                  // start. That branch never leaves the live screen, so it measures
+                  // on the live arrays by definition.
+                  const { total, worldPhasePx } = measureRunCadence(
                     _pxScratch,
                     _pyScratch,
                     _pmScratch,
                     pn,
                     tileEntryM,
                   )
-                  let total = 0
-                  for (let i = 0; i < pn - 1; i++) {
-                    const dx = _pxScratch[i + 1]! - _pxScratch[i]!
-                    const dy = _pyScratch[i + 1]! - _pyScratch[i]!
-                    total += Math.sqrt(dx * dx + dy * dy)
-                  }
                   const featDef = applyFeatureExprs(props)
                   _edgeInset = lineLabelEdgeInsetPx(featDef, spriteOf, dpr)
-                  // Iter 112 paired-symbol collision for CURVED shields.
-                  // Mirror of emitLabelAlongSegment (~line 538): a
-                  // tangent-rotated line label with a paired icon-image
-                  // (OFM highway-shield-* / road_shield_us at z>=11) must
-                  // place/drop with its badge. Each emitted stop below
-                  // gets a fresh `${layer}:seq${_lineLabelSeq++}` shared
-                  // by the curved label AND its dispatchIcon, so a
-                  // collision-rejected number drops the orphaned box.
-                  const curvePairedWithIcon =
-                    featDef.iconImage !== undefined &&
-                    featDef.iconImage !== null &&
-                    featDef.iconImage !== ''
-                  // Cross-tile dedupe key.
-                  //
-                  // #605 — a route-number SHIELD (text+icon line symbol,
-                  // OFM highway-shield-*: text-field = ["to-string",["get",
-                  // "ref"]]) is identified by its REF ("82"), not the road
-                  // `name`. A national route overlays many differently-named
-                  // OSM road segments — some carry a street `name`, some only
-                  // `ref` — so the `name`-preferring key below diverges per
-                  // segment and the same "82" shield stamps once PER distinct
-                  // name across the tiles a route fills at high zoom (~6× at
-                  // z19 vs MapLibre ~1×). Key shields on the RESOLVED drawn
-                  // text (the ref) instead, which is stable across every
-                  // segment of one route, so the existing along-walk dedupe
-                  // (isTooCloseToSameText, checked at each screen-space spacing
-                  // stop) collapses the whole route to one shield — MapLibre's
-                  // per-route cadence. The ref is monolingual, so the
-                  // bilingual-divergence concern that motivates the `name`
-                  // path does not apply to shields.
-                  //
-                  // For a plain road-NAME label (no paired icon) resolveText()
-                  // DOES vary across segments when one carries `name:nonlatin`
-                  // and the next doesn't — the concat expression returns
-                  // different strings even though the road is the same. Prefer
-                  // the most stable name field (`name` → `name_en` → resolved
-                  // fallback) so the dedupe matches across heterogeneous
-                  // segments. See lineLabelDedupeKey for the full rationale.
-                  const resolvedTextForDedupe = lineLabelDedupeKey(
-                    curvePairedWithIcon,
-                    featDef.text,
-                    props,
-                    host.camera.zoom,
-                  )
-                  const copyTextKey = lineLabelCopyKey(resolvedTextForDedupe, wo)
-                  // #605 — TILE-STABLE lineId for the screen-space along-line
-                  // collision (greedyPlaceBboxes minLineSpacingPx). The
-                  // dispatch-side `isTooCloseToSameText` cap (c5064d3a) collapses
-                  // repeats WITHIN one ShowCommand's polyline walk, but PMTiles
-                  // slices a long route into a SEPARATE per-tile featId/polyline,
-                  // so at z19 each tile's dispatch re-emits the same "82" shield —
-                  // ~one per tile survives on screen. The collision pass caps that
-                  // in SCREEN space: same-lineId anchors within MIN_LINE_SPACING_PX
-                  // collide/drop regardless of which tile dispatched them. The id
-                  // must be stable ACROSS tiles, so it is the route identity
-                  // (resolvedTextForDedupe — the ref for a shield, the name for a
-                  // plain label), NOT the tile; qualified by layer (NUL-joined, a
-                  // char no ref/name contains) so two layers' identical refs stay
-                  // independent lines. Empty key (icon-only symbols render no text,
-                  // so addCurvedLineLabel no-ops anyway) ⇒ undefined: not subject
-                  // to same-line spacing, exactly like a point label.
-                  const lineId =
-                    copyTextKey !== '' ? `${labelLayerName ?? ''}\u0000${copyTextKey}` : undefined
-                  // #728 — stable collision identity: layer precedence + the
-                  // tile-stable route identity (lineId). Fed to the greedy pass
-                  // as its tie-break so the surviving shield among cross-tile
-                  // duplicates is deterministic (no pan-swap). lineId-less
-                  // (icon-only) symbols render no text and no-op downstream.
-                  const lineCollisionId =
-                    lineId !== undefined
-                      ? labelCollisionId(_showIdx, labelShows.length, lineId)
-                      : undefined
-                  // Walk the polyline and compute the screen-pixel
-                  // position for an offset s along it. Used by the
-                  // cross-tile dedupe to evaluate "is this position
-                  // too close to one already labelled with the same
-                  // text?" without re-running the full glyph layout.
-                  // Returns true into `_samplePosOut` (shared) or false.
-                  const samplePosAt = (s: number): boolean =>
-                    sampleAlongPolyline(_pxScratch, _pyScratch, pn, s, _samplePosOut)
                   if (useTangentRotation) {
                     // Curved-text path: pack the projected polyline
                     // and ask TextStage to lay each glyph along it.
@@ -1588,94 +1599,64 @@ class LabelPass implements RenderPass {
                     // beginFrame(); stage.prepare() consumes it within
                     // this frame. All stops emitted below share the one
                     // interned pair (read both slots before the next
-                    // polyline's intern overwrites the holder).
-                    const _interned = stage.internCurvedPolyline(_pxScratch, _pyScratch, pn)
-                    const polyX = _interned[0]
-                    const polyY = _interned[1]
-                    // No fontKey override — see note at line ~2370.
-                    // #603 — text-less line icons (road_oneway, icon-only
-                    // shields) render no text, so isTooCloseToSameText
-                    // (keyed on resolvedTextForDedupe) doesn't gate them. Apply
-                    // the position-bucket dedup so two adjacent tiles' polylines
-                    // don't emit duplicate icons at the same screen spot.
-                    // Gate on the symbol's OWN resolved text-field being
-                    // empty (lineIconIsIconOnly): an icon-only symbol emits
-                    // text === '""', so featDef.text is never undefined — the
-                    // old `featDef.text !== undefined` test was always true and
-                    // the dedup never fired (#603). NB resolvedTextForDedupe
-                    // can't be reused for icon-only symbols: for a plain label
-                    // it falls back to the feature's `name` prop, which a
-                    // road_oneway arrow may carry from its source road even
-                    // though it renders no text — that would make the icon-only
-                    // test a false negative.
-                    const curveIsIconOnly = lineIconIsIconOnly(
-                      featDef.text,
+                    // polyline's intern overwrites the holder). #2012
+                    // INC-4 interns the LIVE twin in the SAME call, so the
+                    // two runs cannot be interned with different counts.
+                    const _interned = planeOk
+                      ? stage.internCurvedPolyline(walkX, walkY, pn, _pxScratch, _pyScratch)
+                      : stage.internCurvedPolyline(walkX, walkY, pn)
+                    const ident = curvedRunIdentity(
+                      featDef,
                       props,
                       host.camera.zoom,
+                      wo,
+                      labelLayerName,
+                      (lineId) => labelCollisionId(_showIdx, labelShows.length, lineId),
                     )
-                    // One emission body for both cadences (short line → a single
-                    // midpoint stop; otherwise → one per spacing stop). They differed
-                    // only in the offset, and the paired-symbol seq, the icon dispatch
-                    // and the dedupe bookkeeping must stay in lockstep between them —
-                    // two copies is how that drifts.
-                    const emitCurvedStop = (stop: number): void => {
-                      if (!samplePosAt(stop)) return this._dropStats.bump('offRun')
-                      const sx = _samplePosOut[0],
-                        sy = _samplePosOut[1]
-                      const tang = _samplePosOut[2]
-                      if (!anchorInView(sx, sy)) return this._dropStats.bump('edgeInset')
-                      if (isTooCloseToSameText(copyTextKey, sx, sy))
-                        return this._dropStats.bump('sameTextNearby')
-                      if (curveIsIconOnly && curvePairedWithIcon && isLineIconDuplicate(sx, sy))
-                        return this._dropStats.bump('iconDuplicate')
-                      const pairKey = curvePairedWithIcon
-                        ? `${labelLayerName ?? ''}:seq${_lineLabelSeq++}`
-                        : undefined
-                      stage.addCurvedLineLabel(
-                        featDef.text,
-                        props,
-                        polyX,
-                        polyY,
-                        stop,
+                    // The stop cadence + per-stop emit live in
+                    // dispatch-curved-line-labels.ts (#2012 INC-4) — extracted
+                    // to pay this file's LOC ceiling with a move that has its
+                    // own reason, and so the label-plane walk it now performs
+                    // gets a unit gate the inline loop could not have had.
+                    // No fontKey override — see note at line ~2370.
+                    emitCurvedLineLabels(
+                      {
+                        polyX: _interned[0],
+                        polyY: _interned[1],
+                        ...(planeOk
+                          ? {
+                              liveX: _interned[2],
+                              liveY: _interned[3],
+                              mercX: _pmxScratch,
+                              mercY: _pmyScratch,
+                              groundBasisFor,
+                            }
+                          : {}),
+                        pn,
+                        mercArc: _pmScratch,
+                        tileEntryM,
+                        spacingPx,
                         featDef,
-                        undefined,
-                        labelLayerName,
-                        pairKey,
-                        // #605 — same-route screen-space cap: lineId is the
-                        // tile-stable route identity; anchorDistancePx is the
-                        // anchor's along-polyline screen offset.
-                        lineId,
-                        stop,
-                        lineCollisionId,
-                      )
-                      // OFM road shield + similar: icon-along-line approximation.
-                      // Dispatch the icon at the line label's anchor so
-                      // highway-shield-* layers (symbol-placement=line at z≥11)
-                      // render road badges. Per-stop icon spacing matches the
-                      // per-stop text spacing — better than no icons at all. User
-                      // report 2026-05-18. tang carries the segment direction so
-                      // icon-rotation-alignment=map (OFM road_oneway arrows) follows
-                      // the road tangent. Same pairKey as the label so the badge
-                      // drops when the road number loses collision.
-                      dispatchIcon(featDef, sx, sy, tang, pairKey, true, props, 1, lineCollisionId)
-                      recordTextPosition(copyTextKey, sx, sy)
-                      this._dropStats.bump('emitted')
-                    }
-                    if (total < spacingPx * 0.5) {
-                      emitCurvedStop(total * 0.5)
-                      perfMarkEnd('encoder.label-dispatch.line.emit')
-                      continue
-                    }
-                    // INC-2 — the same world lattice the viewport branch walks: the
-                    // chain starts at the tile-entry anchor's residue mod the step,
-                    // not half a step into whatever the viewport happens to show.
-                    let nextStop = lineLabelFirstStopPx(worldPhasePx, spacingPx)
-                    if (latticeMissesRun(nextStop, spacingPx, total))
-                      this._dropStats.bump('noLatticeStop')
-                    while (nextStop <= total) {
-                      emitCurvedStop(nextStop)
-                      nextStop += spacingPx
-                    }
+                        props,
+                        copyTextKey: ident.copyTextKey,
+                        lineId: ident.lineId,
+                        lineCollisionId: ident.lineCollisionId,
+                        // #603 — text-less line icons (road_oneway, icon-only
+                        // shields) render no text, so the resolved-text dedupe
+                        // does not gate them; the position-bucket one does.
+                        // Gate on the symbol's OWN resolved text-field being
+                        // empty: an icon-only symbol emits text === '""', so
+                        // featDef.text is never undefined and the old
+                        // `!== undefined` test never fired (#603). The dedupe
+                        // key cannot stand in for it — for a plain label it
+                        // falls back to the feature's `name`, which a
+                        // road_oneway arrow may carry from its source road
+                        // even though it renders no text.
+                        isIconOnly: lineIconIsIconOnly(featDef.text, props, host.camera.zoom),
+                        pairedWithIcon: ident.pairedWithIcon,
+                      },
+                      curvedDeps,
+                    )
                     perfMarkEnd('encoder.label-dispatch.line.emit')
                     continue
                   }

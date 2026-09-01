@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 22b7c957070f21aab1027dee31cd3994062a902d
+  Generated from: 67fc3268c172f1ec22d23176d0d9b74f72fa86f2
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 22b7c957070f
+    bun scripts/emit-changelog.ts --path shader-dsl --since 67fc3268c172
 -->
 
 # Changelog — shader-dsl
@@ -23,8 +23,19 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 ### 2026-08
 
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** fold forceInline into inline({ opaque }) — one factory, one axis ([#2071](https://github.com/X-GIS/X-GIS/pull/2071)) `9ae788c`
+
 #### feat
 
+- **shader-dsl:** bound inline({ opaque: 'all' }) with a growth budget, and report the decisions ([#2082](https://github.com/X-GIS/X-GIS/pull/2082)) `00ea2c1`
+- **map/shader-dsl:** #2042 INC-4b — split-bind fill family behind __XGIS_SPLIT_BIND ([#2070](https://github.com/X-GIS/X-GIS/pull/2070)) `2536fd7`
+- **shader-dsl:** inline single-exit helpers with control flow, not just linear ones ([#2065](https://github.com/X-GIS/X-GIS/pull/2065)) `147f3ed`
+- **shader-dsl/map:** #2042 INC-4a — split-mode polygon emit by IR derivation ([#2063](https://github.com/X-GIS/X-GIS/pull/2063)) `132f241`
+- unlock fp64 inlining — barrier the renorm zero, ship the member-of-construct fold, and expose it on the site ([#1972](https://github.com/X-GIS/X-GIS/pull/1972)) `22889e6`
+- **shader-dsl:** optBarrier, forceInline, and the gcc -O2 identity gap ([#1969](https://github.com/X-GIS/X-GIS/pull/1969)) `510010f`
+- **shader-dsl:** the webgpu tier of createComputeRunner ([#1957](https://github.com/X-GIS/X-GIS/pull/1957)) `09dcb28`
 - **shader-dsl:** one compute entry point across the cpu and webgl2 tiers ([#1946](https://github.com/X-GIS/X-GIS/pull/1946)) `fe30559`
 - **shader-dsl:** reflect() publishes entry IO locations and per-binding stages ([#1909](https://github.com/X-GIS/X-GIS/pull/1909)) `c1cbcc5`
 - **ci,shader-dsl:** land the changelog regeneration through a PR, and gate the public API surface (#1842) ([#1843](https://github.com/X-GIS/X-GIS/pull/1843)) `e874bf0`

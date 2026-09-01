@@ -25,18 +25,53 @@ export interface MapboxStyle {
    *  and `${sprite}.png` (or `@2x` variants on hidpi) to load icon
    *  metadata + raster. Same plumbing pattern as `glyphs` — the
    *  importer forwards this to `XGISMap.setSpriteUrl()`; the
-   *  compiler does NOT encode it into xgis source. */
-  sprite?: string
+   *  compiler does NOT encode it into xgis source.
+   *
+   *  MapLibre also permits the multi-sprite array form —
+   *  `[{ id: "default", url: "…" }, { id: "extra", url: "…" }]` —
+   *  for styles that address more than one atlas via an
+   *  `otherId:icon-name` prefixed `icon-image` value (#2007). X-GIS
+   *  renders a single atlas, so the converter collects only one entry
+   *  (see mapbox-to-xgis.ts) and warns about the rest. */
+  sprite?: string | { id?: string; url?: string }[]
+  /** Mapbox v3 / MapLibre top-level terrain block (#2095, T2 Phase 2) — both dialects
+   *  spell it identically: `{ source, exaggeration }`. Loosely typed (both fields
+   *  `unknown`) because convert/terrain.ts owns the actual shape validation, the same
+   *  division MapboxSource/MapboxLayer use for their own loosely-typed fields; kept out
+   *  of the "known-but-unsupported" cluster below since this one now IS converted. */
+  terrain?: { source?: unknown; exaggeration?: unknown }
   /** Known-but-unsupported top-level fields — declared only so the
    *  converter can detect them and warn; never encoded into xgis source. */
   fog?: unknown
   lights?: unknown
-  terrain?: unknown
-  sky?: unknown
   transition?: unknown
   imports?: unknown
   models?: unknown
-  // Other top-level fields (metadata) still ignored.
+  /** MapLibre `sky` root — the zenith-angle sky gradient. Host-applied
+   *  like `light` (T5 Phase 1, #2052): the demo-runner + compare-runner
+   *  read the block and call `XGISMap.setAtmosphere({ sky })`, so it is
+   *  NOT in the ignored-top-level list. The converter still reads it to
+   *  warn about the sub-properties this phase does not carry. */
+  sky?: unknown
+  /** MapLibre object-form camera projection (`{ type: "globe" }` etc).
+   *  Genuinely host/runtime territory in X-GIS (XGISMap.setProjection) —
+   *  unlike fog/lights/terrain above this isn't an unimplemented
+   *  feature, but the COMPILER itself never reads or maps it (#2007);
+   *  declared here only so the ignored-top-level warning can name it. */
+  projection?: unknown
+  /** MapLibre global-state defaults (paired with the `["global-state"]`
+   *  expression). Not read by the converter (#2007) — declared only so
+   *  the ignored-top-level warning can name it. */
+  state?: unknown
+  /** MapLibre local font-face declarations. Not read by the converter
+   *  (#2007) — declared only so the ignored-top-level warning can name
+   *  it. */
+  'font-faces'?: unknown
+  /** Arbitrary author data the spec says does not affect rendering. The
+   *  converter preserves it as a leading block comment in the emitted xgis —
+   *  the same channel `name` uses — rather than dropping it, so a style's
+   *  licence / schema-version pointers survive the conversion. */
+  metadata?: unknown
 }
 
 export interface MapboxSource {

@@ -84,7 +84,8 @@ void main() {
   vec2 _v9 = df64_mul(_v8, _v5);
   vec2 _v10 = df64_mul(_v7, _v7);
   vec2 _v11 = df64_mul(_v10, _v5);
-  vec2 _cse2 = vec2(0.0, 0.0);
+  float _cse6 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse2 = vec2(_cse6, _cse6);
   vec2 _cse3 = vec2(7.0, 0.0);
   vec2 _cse4 = vec2(21.0, 0.0);
   vec2 _cse5 = vec2(35.0, 0.0);

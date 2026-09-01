@@ -6,8 +6,9 @@
 //
 //   1. REFERENCE BYTES — a frozen verbatim copy of the retired lane writer
 //      (fixed slots: mvp 0, proj_params 16, viewport 20, cam_ecef_h 24,
-//      cam_ecef_l 28, circle_params 32, globe_eye 36, zoom 40 — 44 f32 slots /
-//      176 B after #1635 added the camera-zoom lane a stage block reads)
+//      cam_ecef_l 28, circle_params 32, globe_eye 36, zoom 40, mvp_pitch0 44 —
+//      60 f32 slots / 240 B after #2118 appended the pitch-0 MVP the
+//      circle-pitch-alignment ground basis is built from)
 //      packed over a fixture matrix (flat centre / globe ECEF+eye / translate+
 //      blur+pitch-scale / degenerate 0×0 canvas) must equal the block bytes.
 //   2. LAYOUT PARITY — uniformBlock(U) (handle-only wgslLayout path) resolves
@@ -117,7 +118,7 @@ const FIXTURES: readonly Fixture[] = [
 
 /** Frozen verbatim reference: the retired lane-arithmetic writer, fixed slots. */
 function referenceBytes(f: Fixture): Uint8Array {
-  const uf = new Float32Array(44)
+  const uf = new Float32Array(60)
   const U_MVP = 0,
     U_PROJ = 16,
     U_VIEWPORT = 20,
@@ -125,8 +126,14 @@ function referenceBytes(f: Fixture): Uint8Array {
     U_CAM_L = 28,
     U_CIRCLE = 32,
     U_EYE = 36,
-    U_ZOOM = 40 // #1635
+    U_ZOOM = 40, // #1635
+    U_MVP0 = 44 // #2118 — the pitch-0 MVP lane
   uf.set(MVP, U_MVP)
+  // #2118 — every fixture leaves circle-pitch-alignment at its spec default
+  // (viewport), so no ground basis is asked for and the lane carries the LIVE
+  // matrix verbatim. That is the writer's contract for the off case, and pinning
+  // it here is what keeps a future "write zeros instead" from passing unnoticed.
+  uf.set(MVP, U_MVP0)
   // proj_params + globe_eye written inline as one coupled unit (the retired writer).
   uf[U_PROJ] = f.projType
   uf[U_PROJ + 1] = f.projCenterLon
@@ -196,7 +203,7 @@ describe('point frame uniform — block bytes ≡ retired lane writer', () => {
         f.circleBlur,
         f.circlePitchScaleMap,
       )
-      expect(block.byteLength).toBe(176)
+      expect(block.byteLength).toBe(240)
       expect([...new Uint8Array(block.buffer)]).toEqual([...referenceBytes(f)])
     })
   }

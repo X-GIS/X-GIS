@@ -8,7 +8,8 @@
 
 import { parenthesizeTernary } from './utils'
 import { substituteVars } from './expressions-helpers'
-import { resolveColor } from '../tokens/colors'
+import { resolveColor, resolveColorToRgba } from '../tokens/colors'
+import { colorToXgis } from './colors'
 import type { ExprHandler } from './expr-handler-types'
 
 export const literalHandler: ExprHandler = (v, warnings, recurse) => {
@@ -56,15 +57,19 @@ export const literalHandler: ExprHandler = (v, warnings, recurse) => {
 
 export const arrayHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["array", value]` / `["array", "type", value]` /
-  // `["array", "type", N, value]` — type assertion that returns
-  // the value if it's an array (with optional element-type / length
-  // checks). X-GIS arrays carry no per-element type tag so we
-  // just pass the underlying value through; the spec's "abort if
-  // not array" semantic is lost but for paint/filter use that's
-  // already implicit (an interpolate over a missing array would
-  // null-cascade anyway).
+  // `["array", "type", N, value]` — a type ASSERTION: the value comes
+  // back only when it IS an array (of the given element type and
+  // length). Lowers to the `assert_array` CPU builtin
+  // (eval/evaluator-helpers.ts callBuiltin), which fails to null.
+  // Pre-fix this dropped the assertion and returned the inner value on
+  // the theory that X-GIS arrays carry no per-element type tag — a
+  // GPU-lane fact about an op ir/classify.ts sends to per-feature-CPU,
+  // where `Array.isArray` and `typeof` see the real runtime value. The
+  // pass-through was not harmless either: `length` and `slice` both
+  // accept a string, so `["length", ["array", ["get","pts"]]]` measured
+  // a string property (5 for "abcde") instead of failing.
   // Last arg is always the value; preceding args are type/length
-  // metadata we ignore.
+  // metadata.
   // Pre-fix a bare `["array"]` (no value) picked v[0] = "array"
   // itself and emitted the literal string `"array"` as a quoted
   // identifier. Require at least one arg beyond the op.
@@ -72,8 +77,20 @@ export const arrayHandler: ExprHandler = (v, warnings, recurse) => {
     warnings.push(`Malformed ["array"] expression: missing inner value.`)
     return null
   }
-  const value = v[v.length - 1]
-  return recurse(value, warnings)
+  const value = recurse(v[v.length - 1], warnings)
+  if (value === null) return null
+  // Only the three spec item types are assertable. Anything else is a
+  // style Mapbox rejects at parse time; keep the arrayness half rather
+  // than dropping the expression. N rides with the type — the spec
+  // grammar has no length argument without one.
+  const itemType = v.length >= 3 ? v[1] : null
+  if (itemType !== 'string' && itemType !== 'number' && itemType !== 'boolean') {
+    return `assert_array(${value})`
+  }
+  const n = v.length >= 4 ? v[2] : null
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0
+    ? `assert_array(${value}, "${itemType}", ${n})`
+    : `assert_array(${value}, "${itemType}")`
 }
 
 export const typeCoercionHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op) => {
@@ -523,4 +540,67 @@ export const hslHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op
   const parts = ch.map((c) => recurse(c, warnings))
   if (parts.some((p) => p === null)) return null
   return `${op}(${parts.join(', ')})`
+}
+
+export const splitHandler: ExprHandler = (v, warnings, recurse) => {
+  // Mapbox `["split", input, separator]` → array<string> (#2008 C-tier).
+  // Spec (@maplibre/maplibre-gl-style-spec 24.8.5,
+  // expression/compound_expression.ts:511-514): `s.evaluate(ctx).split(delim.evaluate(ctx))`
+  // — plain JS String#split, no MapLibre-specific edge cases. Lowers to the
+  // xgis `split(input, separator)` builtin (eval/evaluator-helpers.ts).
+  if (v.length !== 3) {
+    warnings.push(
+      `Malformed ["split"] expression: expected 2 arguments (input, separator), got ${v.length - 1}.`,
+    )
+    return null
+  }
+  const parts = v.slice(1).map((a) => recurse(a, warnings))
+  if (parts.some((p) => p === null)) return null
+  return `split(${parts.join(', ')})`
+}
+
+export const joinHandler: ExprHandler = (v, warnings, recurse) => {
+  // Mapbox `["join", input, separator]` → string (#2008 C-tier). Spec
+  // (@maplibre/maplibre-gl-style-spec 24.8.5, expression/compound_expression.ts:516-520):
+  // `arr.evaluate(ctx).join(delim.evaluate(ctx))` — plain JS Array#join.
+  // Lowers to the xgis `join(input, separator)` builtin.
+  if (v.length !== 3) {
+    warnings.push(
+      `Malformed ["join"] expression: expected 2 arguments (input, separator), got ${v.length - 1}.`,
+    )
+    return null
+  }
+  const parts = v.slice(1).map((a) => recurse(a, warnings))
+  if (parts.some((p) => p === null)) return null
+  return `join(${parts.join(', ')})`
+}
+
+export const toRgbaHandler: ExprHandler = (v, warnings, recurse) => {
+  // Mapbox `["to-rgba", color]` → four-element [r, g, b, a] array (#2008
+  // C-tier). Spec (@maplibre/maplibre-gl-style-spec 24.8.5,
+  // expression/compound_expression.ts:228-234): `[r*255, g*255, b*255, a]`
+  // from the colour's normalised [0,1] channels — r/g/b are 0-255, a stays
+  // 0-1 (symmetric with the `rgba()` constructor's own channel convention,
+  // see rgbHandler above).
+  if (v.length !== 2) {
+    warnings.push(
+      `Malformed ["to-rgba"] expression: expected 1 argument (color), got ${v.length - 1}.`,
+    )
+    return null
+  }
+  // Constant fold — reuse the SAME resolver the paint-color pipeline uses
+  // (colorToXgis: hex / CSS name / rgb()/hsl() string / rgb-rgba-hsl-hsla
+  // array / to-color wrap) so a literal colour never pays a runtime
+  // dispatch. Its warnings are discarded on failure: an unresolvable
+  // CONSTANT here just means "try the dynamic path", not an error.
+  const hex = colorToXgis(v[1], [])
+  if (hex !== null) {
+    const [r, g, b, a] = resolveColorToRgba(hex)
+    return `[${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${a}]`
+  }
+  // Dynamic (data-driven) colour — emit a runtime CPU builtin call to
+  // the evaluator's to_rgba dispatch (eval/evaluator-helpers.ts callBuiltin).
+  const colorExpr = recurse(v[1], warnings)
+  if (colorExpr === null) return null
+  return `to_rgba(${colorExpr})`
 }

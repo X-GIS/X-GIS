@@ -77,17 +77,27 @@ interface Snapshot {
 function findBothAntimeridianSides(tiles: Array<{ z: number; x: number; y: number }>): {
   found: boolean
   detail: string
+  /** Tiles at z>=1 — the ONLY ones this function looks at. Returned so the caller's
+   *  "nothing was selected" branch keys on the same quantity that makes `detail` say
+   *  `(none)`, instead of on `tiles.length` and drifting from it. */
+  considered: number
 } {
   const byZ = new Map<number, Set<number>>()
+  let considered = 0
   for (const t of tiles) {
     if (t.z < 1) continue
+    considered++
     if (!byZ.has(t.z)) byZ.set(t.z, new Set())
     byZ.get(t.z)!.add(t.x)
   }
   for (const [z, xs] of byZ) {
     const tileN = Math.pow(2, z)
     if (xs.has(0) && xs.has(tileN - 1)) {
-      return { found: true, detail: `z=${z} has tiles at x=0 AND x=${tileN - 1} (tileN=${tileN})` }
+      return {
+        found: true,
+        detail: `z=${z} has tiles at x=0 AND x=${tileN - 1} (tileN=${tileN})`,
+        considered,
+      }
     }
   }
   const dump = [...byZ.entries()]
@@ -96,12 +106,17 @@ function findBothAntimeridianSides(tiles: Array<{ z: number; x: number; y: numbe
   return {
     found: false,
     detail: `no z level had tiles on both x=0 and x=(tileN-1); selected: ${dump || '(none)'}`,
+    considered,
   }
 }
 
 test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
   test.setTimeout(150_000)
   await page.setViewportSize({ width: 1024, height: 720 })
+  // Collected for the "nothing was selected" branch below: when the page never gets as
+  // far as requesting a tile, the reason is usually here and nowhere else.
+  const pageErrors: string[] = []
+  page.on('pageerror', (e) => pageErrors.push(e.message.slice(0, 200)))
   await page.goto('/demo.html?id=dark&proj=globe#2/0/180', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
@@ -200,27 +215,52 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
       return w.__xgisSnapshot ? await w.__xgisSnapshot() : null
     })) as Snapshot | null
 
+  // #2114 — CONVERGE ON THE QUANTITY THE ASSERTION COUNTS. `findBothAntimeridianSides`
+  // skips `t.z < 1` before incrementing `considered` (:86-90), so a tile set of exactly
+  // [{z:0,x:0,y:0}] is `considered === 0` — but without this filter it is also a stable,
+  // NON-EMPTY key, so the poll below declared convergence on it and the spec then threw
+  // "the page did not get as far as requesting one" at a page that had requested one.
+  //
+  // Not a hypothesis: CI job 97942408291 printed `converged=true, 10544ms of the 120000ms
+  // budget, 1 raw tile(s), 0 page error(s)` — one raw tile, converged in 10.5 s, 109 s of
+  // budget left unused. With the filter that read is `''`, the poll keeps waiting, and the
+  // spec either sees the z>=1 tiles arrive or times out honestly with converged=false —
+  // which is the diagnosis the throw's own text asks the reader to make.
+  //
+  // The spec's comment at :80-84 records that the CALLER was de-drifted onto `considered`;
+  // the poll never was. This is that half.
   const tileKey = (s: Snapshot | null): string =>
     (s?.sources.world?.tiles ?? [])
+      .filter((t) => t.z >= 1)
       .map((t) => `${t.z}/${t.x}/${t.y}`)
       .sort()
       .join(',')
 
-  const deadline = Date.now() + 120_000
+  const SELECT_BUDGET_MS = 120_000
+  const selectStart = Date.now()
+  const deadline = selectStart + SELECT_BUDGET_MS
   let snap = await readSnapshot()
   let prevKey = tileKey(snap)
   let stable = 0
+  // Recorded, not inferred: the loop exits two ways and the caller must tell them
+  // apart. Falling through on the deadline and asserting on the last read is how a
+  // never-loaded page came to be reported as a broken selector.
+  let converged = false
   while (Date.now() < deadline) {
     await page.waitForTimeout(500)
     snap = await readSnapshot()
     const key = tileKey(snap)
     if (key !== '' && key === prevKey) {
-      if (++stable >= 2) break // three identical non-empty reads in a row
+      if (++stable >= 2) {
+        converged = true
+        break // three identical non-empty reads in a row
+      }
     } else {
       stable = 0
     }
     prevKey = key
   }
+  const selectMs = Date.now() - selectStart
 
   // The EFFECT sample now costs one screenshot, not one per second.
   let dark = await sampleDarkFill()
@@ -234,6 +274,44 @@ test('globe @ dateline renders the Pacific hemisphere', async ({ page }) => {
   if (!snap) throw new Error('window.__xgisSnapshot is unavailable on this page')
   const worldTiles = snap.sources.world?.tiles ?? []
   const both = findBothAntimeridianSides(worldTiles)
+
+  // ─── Which failure IS this? Split the two states the fall-through conflates ──
+  //
+  // The convergence loop falls through when its budget expires and then asserts on
+  // whatever it last read. That makes ONE message carry TWO different failures: a
+  // selector that stably picked one side, and a page that never selected anything.
+  //
+  // On CI it has been the second. Run 32366886231 failed all three attempts with
+  // `selected: (none)` — zero tiles at any z — while the message blamed
+  // `routeToSphereSelector`, which is never even reached with an empty set. Timing
+  // corroborated it: failing attempts took ~2.1 min ≈ the whole budget, passing ones
+  // 34-55 s, and locally the set converges in 18-25 s with ~5x margin. So the next
+  // person was sent to a file that was working (#1924).
+  //
+  // Asserting the DISTINGUISHABLE state first is the fix — §12's "order decides which
+  // half a red run accuses", which this spec already applies between cause and effect
+  // and simply did not apply between these two causes.
+  //
+  // NOT raising the budget: nothing shows 120 s is nearly enough on CI, and a bigger
+  // number would only move the same misattribution later.
+  if (both.considered === 0) {
+    throw new Error(
+      `No tile was ever selected — the page did not get as far as requesting one.
+` +
+        `  converged=${converged}, ${selectMs}ms of the ${SELECT_BUDGET_MS}ms budget, ` +
+        `${worldTiles.length} raw tile(s), ${pageErrors.length} page error(s).
+` +
+        (pageErrors.length
+          ? `  page errors: ${pageErrors.join(' | ')}
+`
+          : '') +
+        `  This is NOT a routeToSphereSelector verdict. That selector decides WHICH ` +
+        `tiles are kept and cannot produce an empty set; with nothing selected it was ` +
+        `never consulted. Look at boot/data — a stalled fetch, a page error above — or ` +
+        `at the runner being too slow for the budget. Do not "fix" the selector.`,
+    )
+  }
+
   expect(
     both.found,
     `Sphere-routed tile selection must keep tiles on BOTH sides of the ` +

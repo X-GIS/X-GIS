@@ -1,7 +1,8 @@
 // Regression test for the bundle-cache compaction use-after-free (LATENT).
 //
-// THE BUG (preventive — GPURenderBundles are default-OFF behind
-// `globalThis.__XGIS_BUNDLE_FORCE_ON === true`):
+// THE BUG (preventive at authoring time, when GPURenderBundles were
+// default-OFF; #1190 made them default-ON on WebGPU, so this seam is
+// now live production behaviour):
 //
 //   recordTileFill records a BUFFER REFERENCE into the bundle via
 //   `setVertexBuffer(0, cached.vertexBuffer, …)` / `setIndexBuffer`. The
@@ -56,6 +57,9 @@ function makeVtr(opts: {
   inject._selection = { invalidateFrame() {} }
   inject._frameClassifyMemo = new Map()
   inject.uniformRing = undefined // optional-chained: resetSlot/takeRetired skip
+  // #2042 INC-4b prep — the tile-arena drain sits beside the ring drain; the
+  // harness never grows the arena, so the inert stub is the honest shape.
+  inject._tileUniforms = { takeRetired: () => [] }
   // Upload pipeline now lives on the coordinator; beginFrame calls
   // resetFrameCap() + passes the isActive() probe into runFrameMaintenance.
   inject._uploads = { resetFrameCap() {}, isActive: () => false }

@@ -216,6 +216,11 @@ export function layoutCacheKey(
   // standalone label hangs the ink below. Same font/text/size/anchor but
   // different glyphOffsets, so the two must NOT share a cache entry.
   paired: boolean,
+  // #2144 (design §10) — writing mode. Identical font/text/size/anchor/halo/
+  // offsets with one label horizontal and one vertical hashed to the SAME key,
+  // so whichever was laid out first won and the other rendered in the wrong
+  // orientation with no error anywhere. Same hazard, same fix as `paired`.
+  vertical: boolean,
 ): number {
   let h = glyphsKey | 0
   h = Math.imul(h ^ ((sizePx * 10) | 0), 0x01000193)
@@ -232,6 +237,7 @@ export function layoutCacheKey(
   h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)
   h = Math.imul(h ^ (paired ? 1 : 0), 0x01000193)
+  h = Math.imul(h ^ (vertical ? 1 : 0), 0x01000193)
   return h | 0
 }
 
@@ -289,6 +295,18 @@ export const SHAPING_DEFAULT_OFFSET = -17
  *  diverged from MapLibre whenever line scripts had different ink
  *  metrics (bilingual Latin+Hangul). `vAlign` is MapLibre
  *  `getAnchorAlignment`: top→0, bottom→1, else 0.5. */
+/** MapLibre `getAnchorAlignment`'s VERTICAL half — top→0, bottom→1, else 0.5.
+ *  Feeds `mlVerticalLayout`'s constant-lineHeight box (and, for #2144, the
+ *  vertical column's block alignment): `dy` carries no ink-metric anchor term,
+ *  only text-offset / translate / variable, so this is the whole story of where
+ *  a label's block sits relative to its anchor. Extracted from the candidates
+ *  loop of TextStage.prepare() (#2144) — pure, and its consumer lives here. */
+export function anchorVAlign(anchor: string): 0 | 0.5 | 1 {
+  if (anchor === 'top' || anchor.startsWith('top-')) return 0
+  if (anchor === 'bottom' || anchor.startsWith('bottom-')) return 1
+  return 0.5
+}
+
 export function mlVerticalLayout(
   vAlign: 0 | 0.5 | 1,
   lineCount: number,
@@ -556,6 +574,17 @@ export function fillLineWithInlineImages(
   return pen - startX
 }
 
+/** Mapbox `text-justify: auto` resolved against the anchor — left-anchors →
+ *  left, right-anchors → right, else center. A non-auto value passes through.
+ *  Extracted from the candidates loop of TextStage.prepare() (#2144) — pure,
+ *  and its consumer (`fillPointGlyphOffsetsWithImages`) lives here. */
+export function resolveJustify(justify: string, anchor: string): 'left' | 'right' | 'center' {
+  if (justify === 'left' || justify === 'right' || justify === 'center') return justify
+  if (anchor === 'left' || anchor.endsWith('-left')) return 'left'
+  if (anchor === 'right' || anchor.endsWith('-right')) return 'right'
+  return 'center'
+}
+
 /** Fill a whole point label's `glyphOffsets` with inline images spliced in,
  *  across every wrapped line — the image-bearing counterpart of the plain
  *  per-line pen loop in TextStage.prepare(). Each image is assigned to the
@@ -564,6 +593,8 @@ export function fillLineWithInlineImages(
  *  matches the plain path but measures line width INCLUDING that line's
  *  image advances, so a centred/right label with an inline image stays
  *  centred. Appends every placement to `out`. Pure; exported for testing. */
+const NO_INLINE_SPRITES: readonly InlineImageSprite[] = []
+
 export function fillPointGlyphOffsetsWithImages(
   glyphOffsets: Float32Array,
   advances: ArrayLike<number>,
@@ -580,11 +611,17 @@ export function fillPointGlyphOffsetsWithImages(
   for (let li = 0; li < lines.length; li++) {
     const ln = lines[li]!
     const lastLine = li === lines.length - 1
-    const lineSprites = inlineSprites.filter(
-      (s) =>
-        s.glyphIndex >= ln.start &&
-        (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
-    )
+    // #2144 — the plain-text point label now comes through here too, and it is
+    // the hot one: skip the per-line `filter` allocation when there is nothing
+    // to splice rather than handing every label an empty array per line.
+    const lineSprites =
+      inlineSprites.length === 0
+        ? NO_INLINE_SPRITES
+        : inlineSprites.filter(
+            (s) =>
+              s.glyphIndex >= ln.start &&
+              (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
+          )
     let lineImgAdv = 0
     for (const s of lineSprites) lineImgAdv += s.advancePx
     const lineWidth = ln.width + lineImgAdv
@@ -664,6 +701,39 @@ export function rotateLabelTranslate(
   const c = Math.cos(r),
     s = Math.sin(r)
   return [dx * c - dy * s, dx * s + dy * c]
+}
+
+/** Display size in PHYSICAL px for one label — the SINGLE quad authority.
+ *
+ *  Everything a label's geometry is made of derives from this number: per-glyph
+ *  advances, letter-spacing, the wrap width, the line height, the SDF raster
+ *  scale, the collision box and the drawn quad. Changing it therefore scales the
+ *  box AND the quad together — which is why the perspective correction is folded
+ *  in HERE rather than applied to the quad at draw time (a quad that shrinks while
+ *  its collision box does not reserves a footprint it no longer occupies).
+ *
+ *  `perspScale` is MapLibre's `perspective_ratio` for this label, already resolved
+ *  to the branch its alignment selects (`symbol_sdf.vertex.glsl:93-101`):
+ *    - viewport-aligned (billboard) — #1081's shrink-only viewport branch, handed
+ *      down per anchor by the projector;
+ *    - ground-aligned (`text-pitch-alignment: map`) — the map branch, which GROWS
+ *      with distance (`groundPerspectiveScale`, #2012 INC-5 / design §3.3).
+ *  1 is the no-correction identity and leaves the result byte-identical to the
+ *  authored size × DPR, so every path that has no perspective term is unaffected.
+ *
+ *  QUANTISED TO 1/64 (≤1.5 % steps, sub-pixel at any legible size). The across-
+ *  frame layout cache is keyed on the resulting sizePx, so an unquantised factor
+ *  would mint a fresh cache entry on every frame of a pitched pan and turn a
+ *  steady scene into an all-miss shaping loop. Wrapping is unaffected either way —
+ *  advances and maxWidth both scale with sizePx, so line breaks are scale-
+ *  invariant.
+ *
+ *  It lives here, beside the bbox arithmetic and unit-testable, because it is now
+ *  the arithmetic BOTH prepare() loops perform: the point loop has folded a
+ *  perspective factor in since #1081 and the curved loop does since INC-5, and two
+ *  copies of it are two chances to quantise one and not the other. */
+export function labelSizePx(authoredSize: number, dpr: number, perspScale: number): number {
+  return authoredSize * dpr * (Math.round(perspScale * 64) / 64)
 }
 
 /** The screen box a laid-out label occupies — the ONE place that arithmetic

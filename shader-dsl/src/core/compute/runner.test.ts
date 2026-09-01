@@ -2,11 +2,15 @@
 //
 // What this file can and cannot prove, stated up front so the coverage is not mistaken for
 // more than it is. Node has no WebGL2 context and no WebGPU device, so the GPU tiers are
-// exercised here only through their REJECTION paths; their value parity is the e2e gate's
-// job (`playground/e2e/_compute-runner-parity.spec.ts`, real WebGL2 under SwiftShader).
-// What IS decidable here is everything that decides which tier runs, plus the CPU tier's
-// numbers against the interpreter oracle — and those are the parts a consumer's build
-// breaks on, not the raster.
+// exercised here only through RESOLUTION — which tier is chosen, why the others were not,
+// and what is handed to the device at construction. Their VALUE parity is the e2e gate's
+// job (`playground/e2e/_compute-runner-parity.spec.ts`, real WebGL2 and real WebGPU under
+// SwiftShader), and nothing here substitutes for it: the stub device below is deliberately
+// never `run()` against, because a dispatch recorded by a stub succeeds identically
+// whether or not it would have computed anything (CLAUDE.md §12 — the pipeline that was
+// right somewhere else). What IS decidable here is everything that decides which tier
+// runs, plus the CPU tier's numbers against the interpreter oracle — and those are the
+// parts a consumer's build breaks on, not the raster.
 
 import { describe, it, expect } from 'vitest'
 import {
@@ -27,7 +31,7 @@ import {
   vec4uT,
   type ModuleDecl,
 } from '../../index.js'
-import { createComputeRunner } from '../../compute.js'
+import { createComputeRunner, type GpuDeviceLike } from '../../compute.js'
 
 /** The gather-only shape, built fresh per call: `module()` collects declarator handles, so
  *  two modules must not share them. */
@@ -92,6 +96,54 @@ function oracle(m: ModuleDecl, entry: string, names: [string, string, string], d
   return Uint32Array.from(out)
 }
 
+/** What the runner asked the device for at construction. The stub records rather than
+ *  simulates: it answers every factory call with an inert handle, so it can prove WHICH
+ *  source and WHICH entry point were compiled and nothing at all about the numbers. */
+function stubDevice(): { device: GpuDeviceLike; seen: { code?: string; entryPoint?: string } } {
+  const seen: { code?: string; entryPoint?: string } = {}
+  const device = {
+    createShaderModule(d: { code: string }) {
+      seen.code = d.code
+      return {}
+    },
+    createComputePipeline(d: { compute: { entryPoint: string } }) {
+      seen.entryPoint = d.compute.entryPoint
+      return { getBindGroupLayout: () => ({}) }
+    },
+    createBuffer: () => ({}),
+    createBindGroup: () => ({}),
+    createCommandEncoder: () => ({}),
+    queue: {},
+  }
+  return { device, seen }
+}
+
+/** The same kernel one declaration off the WebGPU tier: every binding in `@group(1)`.
+ *  Legal in the portable tier (the analyzer constrains shapes, not group numbers) and
+ *  legal on WebGL2 and CPU, which flatten groups away — so this is the case that must
+ *  fall THROUGH rather than throw. */
+function makeGroup1Kernel(): ModuleDecl {
+  const featData = storageBuffer('feat_data', f32T, { group: 1, binding: 0, access: 'read' })
+  const outValue = storageBuffer('out_value', u32T, { group: 1, binding: 1, access: 'read_write' })
+  const dispatchU = resource('u_dispatch', vec4uT, { group: 1, binding: 2 })
+  const kernel = fn(
+    'scale_features',
+    { gid: builtin('global_invocation_id', vec3uT) },
+    ({ gid }) => {
+      const i = gid.x
+      If(i.ge(dispatchU.node.x), () => {
+        Return()
+      })
+      outValue.at(i).assign(bitcastU32(featData.at(i).mul(2).add(1)))
+    },
+    { stage: 'compute', workgroupSize: 64, portable: true },
+  )
+  return module({
+    bindings: [featData.binding, outValue.binding, dispatchU.binding],
+    funcs: [kernel],
+  })
+}
+
 const RAMP = new Float32Array(Array.from({ length: 10 }, (_, i) => ((i * 7) % 11) / 11 - 0.5))
 
 describe('createComputeRunner — tier resolution', () => {
@@ -111,6 +163,30 @@ describe('createComputeRunner — tier resolution', () => {
     await expect(createComputeRunner(makeKernel(), { prefer: ['webgl2'] })).rejects.toThrow(
       /no backend from \[webgl2\][\s\S]*no WebGL2 context/,
     )
+  })
+
+  it('a device present resolves the webgpu tier, on the NATIVE @compute source', async () => {
+    const { device, seen } = stubDevice()
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgpu'], device })
+    expect(r.backend).toBe('webgpu')
+    expect(r.rejected).toEqual([])
+    // Both emits are imported by the same module, so "which one did the webgpu tier
+    // reach for" is a live question: the portable declaration costs zero bytes here and
+    // must NOT go through the compute→fragment lowering.
+    expect(seen.code).toMatch(/@compute @workgroup_size\(64\)/)
+    expect(seen.code).not.toMatch(/#version 300 es/)
+    expect(seen.entryPoint).toBe('scale_features')
+  })
+
+  it('a binding outside @group(0) REJECTS webgpu and falls through — it does not throw', async () => {
+    // `layout: 'auto'` can only hand back a layout the pipeline derived, and the tier reads
+    // group 0. The other two tiers flatten groups away, so the right answer is a reported
+    // rejection and a working runner, not a hard failure.
+    const { device } = stubDevice()
+    const r = await createComputeRunner(makeGroup1Kernel(), { prefer: ['webgpu', 'cpu'], device })
+    expect(r.backend).toBe('cpu')
+    expect(r.rejected.map((x) => x.backend)).toEqual(['webgpu'])
+    expect(r.rejected[0]!.reason).toMatch(/@group\(1\)[\s\S]*getBindGroupLayout\(0\)/)
   })
 
   it('resolution is ORDER-driven, not capability-guessed', async () => {

@@ -6,9 +6,13 @@
 // the px → NDC bake (map/world-space anchor) instead of leaving it
 // screen-fixed (viewport anchor, the historical default).
 //
-// The DEFAULT (anchor absent or 'viewport') MUST leave the flag
-// undefined so styles that don't use map-anchor stay byte-identical
-// to today's render.
+// The spec default is 'map' (#2170 — reference/v8.json gives
+// default='map' for fill / line / circle / fill-extrusion), so an
+// ABSENT anchor sets the flag exactly as an explicit 'map' does. Only
+// an explicit 'viewport' leaves it undefined — that value selects the
+// screen-space path. The symbol arms at the bottom of this file still
+// gate on an explicit 'map': layers-symbol.ts has not been converted
+// (tracked as the #2170 follow-up).
 
 import { describe, expect, it } from 'vitest'
 import { Lexer } from '../lexer/lexer'
@@ -75,9 +79,9 @@ describe('fill-translate-anchor=map — converter emit', () => {
     expect(src).not.toContain('fill-translate-anchor')
   })
 
-  it('anchor absent → NO anchor utility (byte-identical default)', () => {
+  it('anchor absent → emits the flag (spec default is map, #2170)', () => {
     const src = convert(fillLayer({ 'fill-color': '#888', 'fill-translate': [2, 3] }))
-    expect(src).not.toContain('fill-translate-anchor')
+    expect(src).toContain('fill-translate-anchor-map')
   })
 
   it('anchor=map WITHOUT a fill-translate → no-op, no utility (nothing to anchor)', () => {
@@ -122,11 +126,11 @@ describe('line-translate-anchor=map — converter emit (stroke namespace)', () =
     expect(src).not.toContain('translate-anchor')
   })
 
-  it('anchor absent → NO anchor utility', () => {
+  it('anchor absent → emits the flag (spec default is map, #2170)', () => {
     const src = convert(
       lineLayer({ 'line-color': '#888', 'line-width': 2, 'line-translate': [4, 1] }),
     )
-    expect(src).not.toContain('translate-anchor')
+    expect(src).toContain('stroke-translate-anchor-map')
   })
 })
 
@@ -145,14 +149,14 @@ describe('translate-anchor=map → ShowCommand.{fill,stroke}TranslateAnchorMap',
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
 
-  it('DEFAULT (no anchor) → fillTranslateAnchorMap undefined — byte-identical screen-space', () => {
+  it('DEFAULT (no anchor) → fillTranslateAnchorMap === true — spec default map (#2170)', () => {
     const shows = compileToShows(
       fillLayer({
         'fill-color': '#888',
         'fill-translate': [2, 3],
       }),
     )
-    expect(shows[0]!.fillTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.fillTranslateAnchorMap).toBe(true)
     expect(shows[0]!.fillTranslateX).toBe(2)
     expect(shows[0]!.fillTranslateY).toBe(3)
   })
@@ -182,7 +186,7 @@ describe('translate-anchor=map → ShowCommand.{fill,stroke}TranslateAnchorMap',
     expect(shows[0]!.strokeTranslateY).toBe(1)
   })
 
-  it('DEFAULT line (no anchor) → strokeTranslateAnchorMap undefined — byte-identical', () => {
+  it('DEFAULT line (no anchor) → strokeTranslateAnchorMap === true — spec default map (#2170)', () => {
     const shows = compileToShows(
       lineLayer({
         'line-color': '#888',
@@ -190,7 +194,7 @@ describe('translate-anchor=map → ShowCommand.{fill,stroke}TranslateAnchorMap',
         'line-translate': [4, 1],
       }),
     )
-    expect(shows[0]!.strokeTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.strokeTranslateAnchorMap).toBe(true)
     expect(shows[0]!.strokeTranslateX).toBe(4)
     expect(shows[0]!.strokeTranslateY).toBe(1)
   })
@@ -223,7 +227,7 @@ describe('fill-extrusion-translate-anchor=map — reuses fill-translate slot', (
     expect(shows[0]!.fillTranslateY).toBe(4)
   })
 
-  it('DEFAULT (no anchor) → fillTranslateAnchorMap undefined — byte-identical extrude path', () => {
+  it('DEFAULT (no anchor) → fillTranslateAnchorMap === true — spec default map (#2170)', () => {
     const shows = compileToShows(
       fillExtrusionLayer({
         'fill-extrusion-color': '#888',
@@ -231,7 +235,7 @@ describe('fill-extrusion-translate-anchor=map — reuses fill-translate slot', (
         'fill-extrusion-translate': [3, 4],
       }),
     )
-    expect(shows[0]!.fillTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.fillTranslateAnchorMap).toBe(true)
     expect(shows[0]!.fillTranslateX).toBe(3)
     expect(shows[0]!.fillTranslateY).toBe(4)
   })

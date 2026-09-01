@@ -37,7 +37,26 @@ export interface DumpedLabel {
   fontSize: number
   slotSize: number
   curved: boolean
-  glyphs: Array<{ cp: number; x: number; y: number; bearingY: number; height: number; rfs: number }>
+  /** #2144 (§11.1) — a `text-writing-mode: vertical` point column. Disjoint
+   *  from `curved`: both carry per-glyph rotations, and before the explicit
+   *  `glyphLayout` tag every column reported as a curved line label. */
+  vertical: boolean
+  glyphs: Array<{
+    cp: number
+    x: number
+    y: number
+    /** Per-glyph rotation (rad). 0 for a horizontal label, the column's
+     *  0 / +π/2 for a vertical one, the local tangent for a curved one. */
+    rot: number
+    /** DISPLAY advance (px) — `advanceWidth × fontSize / rfs`, the renderer's
+     *  own per-glyph scale. `x` is the pen ORIGIN, so the cell/advance-box
+     *  centre a vertical column aligns on is `x + adv / 2`; without this the
+     *  cross-axis invariant cannot be checked from a dump at all. */
+    adv: number
+    bearingY: number
+    height: number
+    rfs: number
+  }>
 }
 
 export class TextStageDiagnostics {
@@ -163,10 +182,13 @@ export class TextStageDiagnostics {
       const text = String.fromCodePoint(...d.glyphs.map((g) => g.codepoint))
       if (!text.includes(filt)) continue
       const off = d.glyphOffsets
+      const rot = d.glyphRotations
       const glyphs = d.glyphs.map((g, gi) => ({
         cp: g.codepoint,
         x: off ? off[gi * 2]! : NaN,
         y: off ? off[gi * 2 + 1]! : NaN,
+        rot: rot ? rot[gi]! : 0,
+        adv: g.advanceWidth * (d.fontSize / (g.rasterFontSize ?? fallbackRfs)),
         // setDraws inputs: the final vertex top y =
         //   anchorY + y - bearingY*(fontSize/rfs) - (slotH - height*scale)/2.
         // A CJK glyph with anomalous bearingY/height rises into the
@@ -184,7 +206,12 @@ export class TextStageDiagnostics {
         // Line-following labels (roads/rivers, symbol-placement=line)
         // carry per-glyph rotations and place glyphs ALONG a curve —
         // the stacked-line render-y analysis does NOT apply to them.
-        curved: d.glyphRotations !== undefined,
+        // #2144 (§11.1) — read the EXPLICIT tag the producer sets. Inferring
+        // it from `glyphRotations !== undefined` was sound only while the
+        // curved path was that array's only writer; a vertical CJK column
+        // writes it too, and would have been reported as a road name.
+        curved: d.glyphLayout === 'curved',
+        vertical: d.glyphLayout === 'vertical',
         glyphs,
       })
     }

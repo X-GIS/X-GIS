@@ -10,6 +10,8 @@ import type { MapboxLayer } from './types'
 import type { SymbolLayerOverrides } from './layers-types'
 import { exprToXgis } from './expressions'
 import { interpolateZoomCall } from './paint'
+import { vec2AxisZoomInterp } from './paint-helpers'
+import { isZoomInterpCandidate } from './zoom-function-fold'
 import { colorToXgis } from './colors'
 import {
   unwrapLiteralTuple,
@@ -21,6 +23,8 @@ import {
   VALID_ANCHORS,
   parseMapboxFontName,
   pitchAlignmentGapWarning,
+  distanceFromCenterAnchorWarning,
+  convertIconOffset,
 } from './layers-helpers'
 
 /** TEXT PAINT pass — text-color / text-opacity / text-size / text-halo-*.
@@ -335,27 +339,11 @@ export function convertIconProperties(
       utils.push(`label-icon-anchor-${iconAnchor}`)
     }
   }
-  // Per-element v8 literal-wrap unwrap (mirror of text-offset / text-translate).
-  const iconOffsetRaw = unwrapLiteralTuple(layout['icon-offset'])
-  const iconOffset =
-    Array.isArray(iconOffsetRaw) && iconOffsetRaw.length === 2
-      ? iconOffsetRaw.map((c) => {
-          while (Array.isArray(c) && c.length === 2 && c[0] === 'literal') c = c[1]
-          return c
-        })
-      : null
-  if (
-    iconOffset !== null &&
-    typeof iconOffset[0] === 'number' &&
-    typeof iconOffset[1] === 'number'
-  ) {
-    // Two utilities so the xgis-utility-name grammar (`-` is the
-    // segment separator) can carry signed numbers without a custom
-    // string-comma syntax. Mirrors the `label-offset-x-N` /
-    // `label-offset-y-M` split for text-offset.
-    if (iconOffset[0] !== 0) utils.push(`label-icon-offset-x-${fmtSigned(iconOffset[0])}`)
-    if (iconOffset[1] !== 0) utils.push(`label-icon-offset-y-${fmtSigned(iconOffset[1])}`)
-  }
+  // icon-offset: constant-emit + (#1977) non-constant warn+drop — split out
+  // to layers-helpers.convertIconOffset to keep this file under its
+  // shrink-only LOC ceiling (mirror of the pitchAlignmentGapWarning
+  // extraction). Zero logic change.
+  convertIconOffset(layer, layout, utils, warnings)
   const iconRotate = unwrapLiteralScalar(layout['icon-rotate'])
   if (typeof iconRotate === 'number' && iconRotate !== 0) {
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
@@ -505,29 +493,18 @@ export function convertIconProperties(
   }
 }
 
-/** GAP-WARNINGS pass — deferred specific-gap notes (text-writing-mode,
- *  text-max-angle, symbol-z-order, symbol-avoid-edges) plus the consolidated
- *  ignored-properties note. Warning-only: appends to warnings[] in place. */
+/** GAP-WARNINGS pass — deferred specific-gap notes (symbol-avoid-edges) plus
+ *  the consolidated ignored-properties note. Warning-only: appends to
+ *  warnings[] in place. */
 export function convertGapWarnings(
   layer: MapboxLayer,
   layout: Record<string, unknown>,
   paint: Record<string, unknown>,
   warnings: string[],
 ): void {
-  // text-writing-mode: CJK / Arabic vertical text per Mapbox spec
-  // (`horizontal` default / `vertical`). X-GIS' TextStage walks glyph
-  // advances horizontally only; vertical text needs a per-glyph
-  // rotation + advance flip path. Surface specific gap.
-  const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
-  if (
-    Array.isArray(writingModeRaw) &&
-    writingModeRaw.length > 0 &&
-    !(writingModeRaw.length === 1 && writingModeRaw[0] === 'horizontal')
-  ) {
-    warnings.push(
-      `Symbol layer "${layer.id}" — text-writing-mode set but X-GIS' TextStage walks glyph advances horizontally only; CJK / Arabic vertical text needs per-glyph rotation + advance flip (Plan §4 deferred).`,
-    )
-  }
+  // text-writing-mode is now threaded end-to-end (#2051:
+  // label-writing-mode-vertical → LabelDef.writingMode). Emit handled in
+  // convertTextLayoutProperties; no gap warning.
   // text-max-angle is now threaded end-to-end (label-max-angle-N →
   // LabelDef.maxAngle → curved-label angular gate). Emit handled in
   // convertTextLayoutProperties; no gap warning.
@@ -791,10 +768,29 @@ export function convertTextLayoutProperties(
     // expression to a single bracket-binding utility (#777 I-F); lower.ts
     // parses it into LabelDef.iconTranslateExpr and the runtime
     // applyFeatureExprs evaluates it per feature to the resolved [dx,dy]
-    // pair. Zoom-`interpolate` of the tuple snaps to the nearest stop
-    // (evaluate does not component-interpolate arrays) — the residual
-    // partial sub-form.
-    const expr = exprToXgis(paint['icon-translate'], warnings)
+    // pair.
+    //
+    // A zoom-`interpolate` of the TUPLE would SNAP: the evaluator's
+    // interpolate builtin lerps only NUMERIC stop values and picks the
+    // closer stop for an array one, so a zoom-animated offset jumped
+    // between stops instead of sliding (#2166). Split the vec2 per axis
+    // at convert time — the same decomposition addFillTranslate does for
+    // fill-/line-translate — so each axis is an ordinary interpolatable
+    // number. The label path re-pairs them with an ARRAY LITERAL inside
+    // the one existing binding rather than emitting an x/y utility pair:
+    // applyFeatureExprs already carries the camera zoom into evaluate, so
+    // `[interpolate(zoom,…), interpolate(zoom,…)]` resolves per dispatch
+    // with no runtime change, no new LabelDef field, and the same
+    // [dx,dy] shape the dispatch guard expects. isZoomInterpCandidate is
+    // the shared pre-gate, so the legacy `{"stops": …}` spelling lifts
+    // through the same split (#1976).
+    const raw = paint['icon-translate']
+    const ix = isZoomInterpCandidate(raw) ? vec2AxisZoomInterp(raw, warnings, 0) : null
+    // Skip the y axis once x has failed: both axes run the SAME lift over
+    // the SAME value, so a diagnostic it pushes would otherwise be
+    // reported twice for one authored value (mirror of addFillTranslate).
+    const iy = ix === null ? null : vec2AxisZoomInterp(raw, warnings, 1)
+    const expr = ix !== null && iy !== null ? `[${ix}, ${iy}]` : exprToXgis(raw, warnings)
     if (expr !== null) utils.push(`label-icon-translate-[${expr}]`)
     else
       warnings.push(
@@ -1270,6 +1266,12 @@ export function convertTextLayoutProperties(
   const pitchGap = pitchAlignmentGapWarning(layer, layout, placement, rotAlign, pitchAlign)
   if (pitchGap !== null) warnings.push(pitchGap)
 
+  // ["distance-from-center"] has no well-defined anchor under line
+  // placement (#2119) — see the helper doc for why this is permanent,
+  // not a wiring gap.
+  const dfcGap = distanceFromCenterAnchorWarning(layer, layout, paint, placement)
+  if (dfcGap !== null) warnings.push(dfcGap)
+
   // symbol-spacing — distance between repeated labels along a line
   // in pixels. Only meaningful for placement: line. Default 250 in
   // Mapbox; emit explicitly when missing so road-name layers don't
@@ -1353,5 +1355,24 @@ export function convertTextLayoutProperties(
     warnings.push(
       `Symbol layer "${layer.id}" — symbol-z-order "${zOrder.slice(0, 40)}" is not a valid enum; expected 'auto' | 'viewport-y' | 'source'.`,
     )
+  }
+
+  // text-writing-mode (#2051) — the ordered orientation PRIORITY LIST for CJK
+  // labels (`["horizontal"]` default / `["vertical"]` / both). D7 ships ONE
+  // orientation, so P1 reads the array as a SET: `vertical` anywhere in it
+  // emits `label-writing-mode-vertical` → LabelDef.writingMode, while
+  // `["horizontal"]` and an absent property emit NOTHING — that silence is
+  // what keeps every style not authoring the property byte-identical.
+  // Honouring the priority ORDER needs the horizontal/vertical arbitration of
+  // the design doc §7 and is a recorded `partial` (§14.2), not a silent drop.
+  const writingModeRaw = unwrapLiteralTuple(layout['text-writing-mode'])
+  if (Array.isArray(writingModeRaw)) {
+    let vertical = false
+    for (let m of writingModeRaw) {
+      // Per-element v8 literal-wrap unwrap (the text-variable-anchor precedent).
+      while (Array.isArray(m) && m.length === 2 && m[0] === 'literal') m = m[1]
+      if (m === 'vertical') vertical = true
+    }
+    if (vertical) utils.push('label-writing-mode-vertical')
   }
 }

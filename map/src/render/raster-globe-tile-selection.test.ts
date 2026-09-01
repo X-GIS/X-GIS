@@ -29,6 +29,7 @@ import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
 import { globeVisibleTiles } from '@xgis/data'
 import { routeToSphereSelector } from '@xgis/geo'
+import { rasterTileBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 
@@ -112,7 +113,11 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
   const flatTiles = visibleTilesFrustum(camera, mercatorProj, currentZ, W, H, 0, DPR)
   for (const t of flatTiles) seedTile(t.z, t.x, t.y)
 
-  // Intercept 48-byte tile-uniform writes (one per draw call).
+  // Intercept per-tile uniform writes (one per draw call). The size is DERIVED
+  // (#2137 grew TileUniforms from 48 B to 336 B with the CPU trig table) — a
+  // hard-coded literal here silently counts ZERO once the struct changes, which
+  // reads as 'the renderer drew nothing' rather than 'the probe stopped matching'.
+  const TILE_BYTES = rasterTileBytes()
   let drawCount = 0
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (buf: unknown, off: number, data: ArrayBufferView | ArrayBuffer) => void }
@@ -123,7 +128,7 @@ function drawnTileCount(ctx: GPUContext, camera: Camera, projType: number): numb
     _data: ArrayBufferView | ArrayBuffer,
   ): void => {
     const size = (buf as { size?: number })?.size
-    if (size === 48) drawCount++
+    if (size === TILE_BYTES) drawCount++
   }
 
   const encoder = (

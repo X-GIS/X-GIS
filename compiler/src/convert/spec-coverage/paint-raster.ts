@@ -10,7 +10,7 @@ export const PAINT_RASTER: readonly CoverageEntry[] = [
   {
     name: 'raster-hue-rotate',
     status: 'supported',
-    note: 'Constant degrees. Rotates the sampled texel hue (MapLibre spinWeights) in the raster fragment shader. Default 0 is a no-op.',
+    note: "Constant degrees. Rotates the sampled texel hue in the raster fragment shader (MapLibre's spin-weights matrix, mirrored by `rasterSpinWeights` in shaders/dsl/raster-color.ts). Default 0 is a no-op.",
     source: 'paint-raster.ts',
   },
   {

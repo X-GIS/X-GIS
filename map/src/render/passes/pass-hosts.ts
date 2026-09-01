@@ -80,6 +80,7 @@ export type LabelPassHost = Pick<
   | 'effectiveFadeDurationMs'
   | '_labelDispatchHits'
   | '_labelDispatchMisses'
+  | '_labelDispatchLoopRuns'
   | '_pendingLabelDebugHook'
   | '_pendingTraceRecorder'
   | '_scratchEmittedLineIconKeys'
@@ -163,6 +164,8 @@ export type FrameLoopHost = Pick<
   | '_light'
   | '_missingTileCount'
   | '_needsRender'
+  // #2149 — keepLoopWarm reads the raster/DEM kinds through the registry scope.
+  | '_pendingWork'
   | '_spriteAtlasViewPushed'
   | '_scheduleFrame'
   | '_startTime'

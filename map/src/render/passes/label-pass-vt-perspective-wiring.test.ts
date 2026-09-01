@@ -96,9 +96,16 @@ describe('label-pass — VT point-label arms thread perspective attenuation (#10
 
   it('Path 1 (GeoJSON) still threads ps — now from dispatch-point-labels.ts', () => {
     expect(POINT_SRC).toContain('const ps = projected[2]')
-    // `ps` still occupies the perspectiveScale slot; #777 IV3 appended the
-    // ground basis AFTER it, so the guard pins the pair rather than the tail.
-    expect(POINT_SRC).toMatch(/pairKey,\s*undefined,\s*ps,\s*basis,\s*\)/)
+    // The perspectiveScale slot still carries a per-copy value derived from the
+    // projector's tuple; #2012 INC-5 made WHICH branch of MapLibre's
+    // `perspective_ratio` it holds depend on the label's own alignment, so the pin
+    // is on the slot and its two possible sources rather than on the bare name.
+    expect(POINT_SRC).toMatch(
+      /pairKey,\s*undefined,\s*(\/\/[^\n]*\n\s*)*align !== undefined \? align\.sizeScale : ps,\s*align\?\.basis,\s*\)/,
+    )
+    // The paired ICON keeps #1081's viewport branch verbatim — `ps`, not the
+    // label's. icon-pitch-alignment is ADR-0012 D3 and is deliberately unwired, so
+    // a future edit that "tidies" these onto one value has to fail here.
     expect(POINT_SRC).toContain(
       'deps.dispatchIcon(featDef, projected[0], projected[1], 0, pairKey, false, undefined, ps)',
     )

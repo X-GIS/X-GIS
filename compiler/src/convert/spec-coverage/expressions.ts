@@ -51,7 +51,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'in',
     status: 'supported',
     note: 'Both expression form and legacy form. Empty value list lowers to constant `false` per spec.',
-    source: 'expressions.ts:560',
+    source: 'expr-lookup.ts:502',
   },
   { name: '!in', status: 'supported' },
   // Arithmetic + math
@@ -66,6 +66,13 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   { name: 'length', status: 'supported' },
   { name: 'upcase / downcase', status: 'supported' },
   { name: 'at', status: 'supported', note: 'Array indexing.' },
+  {
+    name: 'split / join',
+    status: 'supported',
+    note: '#2008 C-tier. Plain JS String#split / Array#join — no MapLibre-specific edge-case handling, per the reference implementation (@maplibre/maplibre-gl-style-spec 24.8.5, expression/compound_expression.ts:511-520). CPU-only (arrays can\'t reach the GPU — ir/classify.ts). Witness: `["join", ["split", ["get", "name"], ","], " / "]` on a text-field converts to `join(split(.name, ","), " / ")` and evaluates "a,b,c" → "a / b / c".',
+    source:
+      'expr-string.ts splitHandler/joinHandler + eval/evaluator-helpers.ts callBuiltin split/join',
+  },
   // Coercions
   {
     name: 'to-number / number',
@@ -74,10 +81,17 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     source: 'evaluator.ts:to_number',
   },
   {
-    name: 'to-string / to-boolean / to-color',
+    name: 'to-string / string / to-boolean / boolean / to-color',
     status: 'supported',
-    note: 'Converter passes through to coalesce chains; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.); iter 541 added `to_color` (hex regex validation, X-GIS hex-only — converter pre-resolves CSS names like "red" via tokens/colors.ts:resolveColor).',
-    source: 'evaluator.ts:to_string + to_boolean + to_color',
+    note: 'Converter passes through to coalesce chains; iter 539 added spec-compliant `to_string` / `to_boolean` builtins in the evaluator (null → "", number → str, etc.); iter 541 added `to_color` (hex regex validation, X-GIS hex-only — converter pre-resolves CSS names like "red" via tokens/colors.ts:resolveColor). The bare ASSERTION forms `string` / `boolean` (as opposed to their `to-`-prefixed COERCION siblings) route through the identical typeCoercionHandler — same fallback-chain treatment, just previously untracked by name here (#2008 C-tier fold-in; converter-probed 2026-08-24, already implemented and tested — see type-coercion-fallback-coverage.test.ts).',
+    source:
+      'evaluator.ts:to_string + to_boolean + to_color; expr-registry.ts (typeCoercionHandler)',
+  },
+  {
+    name: 'object',
+    status: 'supported',
+    note: '#2008 C-tier. Mapbox `["object", value_1, …, value_n]` has the IDENTICAL fallback-chain overload shape as the `string` / `number` / `boolean` asserts above (first arg that converts wins) — reuses typeCoercionHandler verbatim, no new handler. Like its siblings this does not runtime-verify the value is actually an object; X-GIS has no per-value type tag (same trade-off the `array` row above documents).',
+    source: 'expr-registry.ts (typeCoercionHandler)',
   },
   // Colour
   {
@@ -85,6 +99,12 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     status: 'supported',
     note: 'Constant channels hex-encode at convert time; per-feature (data-driven) channels — `["rgb", ["get","r"], …]` — now lower to a runtime `rgb(…)` / `rgba(…)` call (expr-string.ts rgbHandler) that the evaluator\'s rgb/rgba builtin resolves per feature into a hex string (encoding byte-matches the constant path). Classified per-feature-CPU (rgb ∉ GPU_SAFE_BUILTINS). Per-channel v8 literal-wrap (`["literal", N]`) accepted.',
     source: 'expr-string.ts rgbHandler + eval/evaluator-helpers.ts callBuiltin rgb/rgba',
+  },
+  {
+    name: 'to-rgba',
+    status: 'supported',
+    note: '#2008 C-tier — real coercion, not pass-through (a pass-through would be UNSOUND: the spec output is a 4-element numeric array, not the input colour, so downstream `["at", 0, ["to-rgba", c]]` needs the actual decomposition). Spec (@maplibre/maplibre-gl-style-spec 24.8.5, expression/compound_expression.ts:228-234): `[r*255, g*255, b*255, a]` from the colour\'s normalised [0,1] channels — r/g/b 0-255, a 0-1. Constant colours fold to a literal xgis array at convert time (colorToXgis + tokens/colors.ts:resolveColorToRgba, same resolver the paint-color pipeline uses); data-driven colours emit a runtime `to_rgba(…)` CPU builtin call. Unresolvable input returns null (X-GIS evaluator convention: fail soft, not the spec\'s throw).',
+    source: 'expr-string.ts toRgbaHandler + eval/evaluator-helpers.ts callBuiltin to_rgba',
   },
   {
     name: 'hsl / hsla',
@@ -179,7 +199,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'resolved-locale',
     status: 'partial',
     impact: 'low',
-    note: 'Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). Non-constant collator options warn + drop.',
+    note: 'Returns the BCP-47 tag a collator resolves to. Constant collator locale supported: resolvedLocaleHandler lowers `["resolved-locale", ["collator", opts]]` to the `resolved_locale` CPU builtin (Intl.Collator.resolvedOptions().locale). The handler reads ONLY the collator\'s `locale`, so a non-constant case-/diacritic-sensitivity SIBLING opt no longer drops the expression — those opts cannot change the resolved tag. It deliberately does NOT go through the shared all-or-nothing `extractCollatorOpts`, which the COMPARISON path needs because `collator_cmp` bakes every opt. PARTIAL for one remaining reason: a non-constant LOCALE is undecidable at compile time and still warns + drops (as does a non-collator argument, or a non-object opts).',
   },
   {
     name: 'is-supported-script',
@@ -191,8 +211,8 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'array',
     status: 'partial',
     impact: 'low',
-    note: 'Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec\'s "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway).',
-    source: 'expressions.ts:163',
+    note: '#2166 B3 — a real assertion, not a pass-through. `["array", value]` / `["array", type, value]` / `["array", type, N, value]` lower to the `assert_array` CPU builtin (arrayHandler in expr-string.ts, dispatched by eval/evaluator-helpers.ts callBuiltin): the value comes back only when it IS an array whose elements match the declared type (string / number / boolean) and count, else null. Both halves of the previous note were false. "X-GIS arrays carry no per-element type tag" is a GPU-lane fact about an op classifyExpr routes to per-feature-CPU, where the evaluator holds the real JS values. And "in paint/filter use a non-array would null-cascade anyway" was measured wrong on the pre-fix base: only the `["at", …]` consumer nulled — `["length", ["array", ["get", "pts"]]]` measured a STRING property as 5 and `["slice", ["array", …], 0, 2]` returned a substring, because both builtins accept strings. PARTIAL for one remaining reason: the spec ABORTS a failed assertion (the enclosing property falls back to its default), while X-GIS has no evaluation-error channel and yields null, which the enclosing expression keeps computing with — that same `length` now returns 0, not the property default. An item type outside string / number / boolean (which the spec rejects at parse time) keeps the arrayness half rather than dropping the expression.',
+    source: 'expr-string.ts arrayHandler + eval/evaluator-helpers.ts callBuiltin assert_array',
   },
   {
     name: 'slice',
@@ -211,7 +231,7 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'zoom',
     status: 'supported',
     note: 'Lowers to bare `zoom` identifier. Works in `interpolate(zoom, …)` / `step(zoom, …)` AND anywhere else (filter compare, case condition, arithmetic).',
-    source: 'expressions.ts:471',
+    source: 'expr-lookup.ts:152',
   },
   {
     name: 'pitch',
@@ -222,24 +242,29 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
   },
   {
     name: 'distance-from-center',
-    status: 'unsupported',
+    status: 'partial',
     impact: 'low',
-    note: "Returns the current feature's screen-space distance from the viewport centre (globe-mode horizon fade). The converter RECOGNISES the op and emits a precise warning (expressions.ts KNOWN_UNSUPPORTED) so it never falls to the generic catch-all — but it returns null, NOT a value: X-GIS has no per-feature/per-frame camera-relative evaluation hook in the expression model (feature exprs evaluate against the property bag only; there is no live camera-centre distance), so it cannot be implemented faithfully without a new per-frame feature-distance pass. Warned, not supported.",
+    note: 'Feature anchor\'s distance from the viewport centre, in units of the viewport HALF-DIAGONAL (0 centre, 1 at any corner, >1 off-screen — eval/distance-from-center.ts owns that arithmetic and its witnesses; half-width or half-height alone is the silent bug, invisible on a square viewport). #2119 converted this from unsupported: the op no longer warns, distanceFromCenterHandler lowers it to `get("$distanceFromCenter")` — the same channel `geometry-type` / `id` use, because the hyphen makes a bare identifier impossible (the lexer reads `-` as Minus) — and DISTANCE_FROM_CENTER_KEY reserves the slot, so shadowing by a feature property literally named `distance-from-center` is structurally impossible rather than checked. PARTIAL, not supported, for one reason: NO render-path caller injects the value yet, so it evaluates to null at runtime, the same absence contract `["pitch"]` has at a decode-time site. The blocker is measured, not unexamined — label-pass.ts applyFeatureExprs caches per-feature evaluation on (props ref, zoomBucket) because it was 73% of frame time, and a quantity that changes on PAN moves neither key. Injecting it there either serves stale values or gives that cache up. Line-placed labels additionally have no single anchor at all, and get a precise per-layer warning (distanceFromCenterAnchorWarning) rather than a silent drop.',
+    source: 'expr-lookup.ts distanceFromCenterHandler / eval/distance-from-center.ts',
   },
   {
     name: 'distance',
     status: 'partial',
     impact: 'low',
-    note: 'Shortest distance (metres) between the feature and a target GeoJSON. Point/MultiPoint feature-geometry vs any target is supported on GeoJSON sources: distanceHandler decomposes the constant target into points/segments/polygons (compile time) and lowers to the `distance(get("$geometry"), …)` CPU builtin (eval/distance.ts), which uses a cheap-ruler (latitude-corrected planar) metre metric and treats inside-polygon as 0. Deferred (return null): LineString/Polygon feature-geometry and MVT/PMTiles tile-coordinate sources (the worker filter path does not inject `$geometry`).',
+    note: 'Shortest distance (metres) between the feature and a target GeoJSON. distanceHandler decomposes the constant target into points/segments/polygons (compile time) and lowers to the `distance(get("$geometry"), …)` CPU builtin (eval/distance.ts), which uses a cheap-ruler (latitude-corrected planar) metre metric and treats inside-polygon as 0. Point/MultiPoint feature-geometry is supported on GeoJSON AND MVT/PMTiles sources alike: #2166 gave the vector-tile slice-filter path the same `$geometry` injection applyFilter already did, via one shared helper both the MVT worker and the PMTiles inline compiler call. NO reprojection is involved on either path — the MVT decoder un-quantizes tile coordinates to lng/lat before any filter sees a feature, the space the target is emitted in, and tile clipping cannot move a point, so a per-tile fragment answers as the whole feature does. PARTIAL for two reasons that remain. (1) FILTER-ONLY: `$geometry` is injected at the filter-eval sites; every per-feature paint/layout/label eval bag still omits it, so `["distance"]` in a paint property resolves to null. (2) evalDistance reduces the feature through featurePoints, which returns null for anything but Point/MultiPoint — LineString/Polygon feature-geometry (which the reference implementation does evaluate) needs segment-vs-segment / ring-vs-ring math and is deferred.',
   },
   {
     name: 'within',
     status: 'partial',
     impact: 'low',
-    note: 'Geometry-containment filter. Point/MultiPoint tested-geometry vs Polygon/MultiPolygon argument is fully supported on GeoJSON sources: the converter lowers ["within", poly] to `within(get("$geometry"), <coords>)` (expr-lookup.ts withinHandler) and applyFilter injects the `$geometry` reserved key; the CPU even-odd containment test (eval/within.ts) honours holes + MultiPolygon. Deferred (return false): LineString/Polygon tested-geometry (needs segment-vs-ring intersection) and MVT/PMTiles tile-coordinate sources (the worker filter path does not inject `$geometry`, and the polygon arg would need lng/lat→tile reprojection).',
+    note: 'Geometry-containment filter. The converter lowers ["within", poly] to `within(get("$geometry"), <coords>)` (expr-lookup.ts withinHandler); the CPU even-odd containment test (eval/within.ts) honours holes + MultiPolygon. Point/MultiPoint tested-geometry vs a Polygon/MultiPolygon argument is supported on GeoJSON AND MVT/PMTiles sources alike: #2166 gave the vector-tile slice-filter path the same `$geometry` injection applyFilter already did, via one shared helper both the MVT worker and the PMTiles inline compiler call. NO reprojection is involved on either path — the MVT decoder un-quantizes tile coordinates to lng/lat before any filter sees a feature, the same space the polygon argument is emitted in, and tile clipping cannot move a point, so a per-tile fragment answers as the whole feature does. PARTIAL for two reasons that remain. (1) FILTER-ONLY: `$geometry` is injected at the filter-eval sites; every per-feature paint/layout/label eval bag still omits it. (2) evalWithin has no segment-vs-ring intersection routine, so LineString tested-geometry is deferred (returns false). Polygon tested-geometry is NOT a gap: the reference implementation evaluates Point and LineString only and returns false for anything else, so the earlier "LineString/Polygon" deferral over-stated the gap by one type.',
   },
   { name: 'accumulated', status: 'na', note: 'Heatmap-only.' },
   { name: 'heatmap-density', status: 'na', note: 'Heatmap-only.' },
-  { name: 'line-progress', status: 'na', note: 'line-gradient only.' },
+  {
+    name: 'line-progress',
+    status: 'na',
+    note: 'line-gradient only — and as of #2117 the line converter lowers that ramp itself (paint-line.ts addLineGradient), the way layers-heatmap.ts owns heatmap-density. It still has no value in a GENERIC expression context, which is what this row records; the generic path warns and says where it IS meaningful.',
+  },
   { name: 'sky-radial-progress', status: 'na' },
 ]

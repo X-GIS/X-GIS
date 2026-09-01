@@ -192,8 +192,19 @@ export {
   ONE_EM,
   SHAPING_DEFAULT_OFFSET,
   CJK_FALLBACK_CHAIN,
+  anchorVAlign,
+  resolveJustify,
   type LabelAnchor,
 } from './text/text-stage-helpers'
+// #2144 — CJK vertical writing (`text-writing-mode`). Pure column composition:
+// the offsets/rotations fill plus the two script predicates that gate it.
+export {
+  allowsVerticalWritingMode,
+  verticalWritingActive,
+  glyphVerticalizes,
+  fillVerticalColumn,
+  type VerticalColumn,
+} from './text/vertical-writing'
 // Render-loop label/projection helpers, point-renderer (its reflect(buildPointModule()) stays
 // LAZY+memoized = the #612 map-load-crash guard), resolved-show paint cache, viewport-mode-
 // controller, glyph-atlas GPU binder, text-renderer TextDraw types. SELECTIVE point-renderer:

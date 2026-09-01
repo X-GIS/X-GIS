@@ -18,8 +18,9 @@
 // share an identical filter share the slice (deduped by stable hash
 // of the AST + sourceLayer pair).
 
-import { evaluate } from '@xgis/compiler'
+import { evaluate, makeEvalProps } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
+import type { GeoJSONFeature } from '@xgis/compiler'
 
 export type FilterAst = unknown // structurally-typed AST node from the compiler
 
@@ -48,6 +49,38 @@ export function evalFilterExpr(ast: FilterAst, props: Record<string, unknown>): 
   // every feature through.
   if (typeof v === 'number') return v !== 0 && Number.isFinite(v)
   return !!v
+}
+
+/** Evaluate ONE slice descriptor's filter against ONE decoded vector-tile
+ *  feature. Single authority for the props bag the MVT worker and the
+ *  PMTiles inline compiler feed `evalFilterExpr`; both previously carried
+ *  byte-identical copies of this body, and the missing key below was
+ *  missing from BOTH — which is why extracting them is the fix rather
+ *  than patching two copies that can drift apart again.
+ *
+ *  `geometry` is the key Mapbox `["within"]` / `["distance"]` need: the
+ *  converter lowers them to `within(get("$geometry"), …)` /
+ *  `distance(get("$geometry"), …)`, so without it every feature
+ *  evaluates false / null and the layer draws NOTHING, silently. The
+ *  raw geometry is safe to pass as-is: mvt-decoder un-quantizes MVT
+ *  coordinates to lng/lat before any consumer sees a feature, which is
+ *  the space the polygon / target argument is emitted in — no
+ *  reprojection is owed here (mirror of feature-helpers applyFilter). */
+export function sliceFilterAccepts(
+  filterAst: FilterAst,
+  f: GeoJSONFeature,
+  tileZoom: number,
+): boolean {
+  return evalFilterExpr(
+    filterAst,
+    makeEvalProps({
+      props: f.properties ?? undefined,
+      geometryType: f.geometry?.type,
+      geometry: f.geometry,
+      featureId: (f as { id?: string | number }).id,
+      cameraZoom: tileZoom,
+    }),
+  )
 }
 
 /** Stable string key for a (sourceLayer, filterAst) pair. Slices with

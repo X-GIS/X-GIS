@@ -1,0 +1,51 @@
+xgis 1
+
+/* #2118 — `circle-pitch-alignment` / `circle-pitch-scale` on CIRCLE layers.
+ *
+ * Purpose-built, and it has to be: both knobs are paint properties no shipped
+ * basemap authors (bright.json has circle layers and zero pitch properties on
+ * them), and X-GIS resolves both to their viewport behaviour by default. So a
+ * render gate pointed at a real style would measure a no-op and call it a pass.
+ *
+ * THREE ARMS, EACH ON ITS OWN SOURCE, so the spec can draw exactly one at a time
+ * by pushing the feature into one source and an empty collection into the other
+ * two. One disc per frame is what makes an INK BOX measurable at all — three
+ * overlapping discs would merge into one blob whose bbox says nothing about any
+ * of them, and separating them on screen would put them at different distances,
+ * which is the very variable under test.
+ *
+ *   c_default  (no pitch utility)          screen-facing disc, constant radius
+ *   c_align    circle-pitch-alignment-map  disc lies IN the ground plane
+ *   c_scale    circle-pitch-scale-map      screen-facing, radius shrinks w/ distance
+ *
+ * The feature is placed in the FAR FIELD (north of the camera under bearing 0),
+ * not at the camera target, because that is the only place the two knobs are
+ * distinguishable: at the target `w_ref/clip.w` is exactly 1, so `c_scale` would
+ * be pixel-identical to `c_default` there and the gate would be vacuous.
+ *
+ * No stroke and a fully opaque fill: the measurement is an ink bbox over
+ * non-background pixels, and a stroke would add its own width to both axes and
+ * dilute the aspect ratio the alignment arm exists to move.
+ *
+ * Geometry is pushed via setSourceData after run(), so the fixture needs no
+ * network fetch — this container has no egress.
+ */
+
+source pt_default { type: geojson }
+source pt_align { type: geojson }
+source pt_scale { type: geojson }
+
+layer c_default {
+  source: pt_default
+  | fill-#ff3b30 size-40 stroke-0
+}
+
+layer c_align {
+  source: pt_align
+  | fill-#ff3b30 size-40 stroke-0 circle-pitch-alignment-map
+}
+
+layer c_scale {
+  source: pt_scale
+  | fill-#ff3b30 size-40 stroke-0 circle-pitch-scale-map
+}

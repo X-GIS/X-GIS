@@ -1,0 +1,4 @@
+flowchart LR
+  rq{"render this frame?"} -- "camera moved · animation ·<br/>any of 12 pending-work kinds" --> frame["13 passes<br/>background → opaque → … → labels"]
+  rq -- "nothing changed" --> skip(["skip — 0 alloc tick"])
+  frame --> bundles["render bundles<br/>270 draw calls → 1 replay"]

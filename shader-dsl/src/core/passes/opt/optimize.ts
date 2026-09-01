@@ -45,9 +45,11 @@ export type OptPass = (m: ModuleDecl) => ModuleDecl
  *  both per-fragment hot paths). Pure dedup, so the values are bit-identical — the
  *  re-bake moved bytes, never pixels.
  *
- *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns) and small fixed-count
- *  loop unrolling (`unrollLoops`, ./unroll — #627) are still deliberately NOT in
- *  this list — like `inlineFn` (../inline), they are available-but-unwired passes.
+ *  NB: whole-function tree-shaking (`deadFnElim`, ./dce-fns), small fixed-count loop
+ *  unrolling (`unrollLoops`, ./unroll — #627) and the member-of-construct fold
+ *  (`memberFold`, ./member-fold — #1972, applied by `passes/force-inline.ts`) are
+ *  still deliberately NOT in this list — like `inlineFn` (../inline), they are
+ *  available-but-unwired passes.
  *  The shaders that share a projection prelude emit it as one module of helper fns
  *  + the entry points, so tree-shaking would per-shader-prune the prelude and break
  *  the deliberately byte-stable shared-prelude emit (+ its golden-WGSL drift gate);

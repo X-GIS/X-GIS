@@ -86,6 +86,22 @@ export type PropertyShape<T> =
    *  AST against {feature props + camera-zoom prop}). */
   | { kind: 'data-driven'; expr: DataExpr }
 
+/** Mapbox `paint.fill-antialias` (#1995). ONE field carries both authored
+ *  forms because they are mutually exclusive by construction — a property is
+ *  either a constant or an expression — so a parallel `*Shape` sibling would
+ *  add a "which wins?" question with no answer the style can produce:
+ *
+ *    - `boolean` — the constant form. `false` is the opt-out the runtime
+ *      wires to the polygon uniform's spare `cam_ecef_off_h.w` lane (the
+ *      `fs_fill` sphere-rim alpha gate); `true` / absent is the default path.
+ *    - `PropertyShape<number>` — the zoom-expression form, a 0/1 curve
+ *      (1 = antialias on). Mapbox types fill-antialias `interpolated: false`,
+ *      so the runtime STEPS it (resolveSteppedShape) rather than lerping,
+ *      then feeds the SAME lane. Only `zoom-interpolated` is produced today
+ *      (from `["step", ["zoom"], …]`); the per-feature form has no lane and
+ *      still drops at convert time with a warning. */
+export type FillAntialiasValue = boolean | PropertyShape<number>
+
 // ─── PaintShapes sub-bundles (Tier-B B1, row 15) ───────────────────
 //
 // PaintShapes was a flat record where every layer-type's paint axis

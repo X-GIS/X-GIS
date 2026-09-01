@@ -104,7 +104,8 @@ void main() {
   float _v10 = df64_narrow(_gv1);
   vec2 _gv2 = df64_floor(_v9);
   float _v11 = df64_narrow(_gv2);
-  vec2 _cse3 = vec2(0.0, 0.0);
+  float _cse4 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _cse3 = vec2(_cse4, _cse4);
   float _v12 = df64_narrow(df64_fract(df64_add(_v8, _cse3)));
   float _v13 = df64_narrow(df64_fract(df64_add(_v9, _cse3)));
   float _v14 = (df64_narrow(df64_fract(df64_mul(df64_add(_gv1, _gv2), vec2(0.5, 0.0)))) * 2.0);

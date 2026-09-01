@@ -224,7 +224,94 @@ const CEILINGS: Record<string, number> = {
   // net +4 is the `extrudeShell` pass-through on `recordTileFill` plus the
   // comment that records why the shell phase answers to the extrude skip rule.
   // The shell's DRAW state lives in polygon-fill-material.ts (§2). MEASURED.
-  'map/src/render/vector-tile-renderer.ts': 4957,
+  // 4957→4976 (#2013): the Tier-2 zoom-direction prefetch is no longer gated on
+  // cameraIdle — the guard made it unreachable during the gesture it exists for —
+  // with the comment recording why, the farTargetBoost pass-through (prefetch
+  // probes the same far-field notch the drawing selection runs at), and the
+  // child-fallback fetch-frontier push (covered is not loaded — without it the
+  // deeper #2013 stretch let a view settle permanently on stretched children).
+  // 4976→4961 (#2028): the tile-point emit body moved to render/tile-point-emit.ts,
+  // which owns the ancestry-shadow rule (the per-point form of #616's label shadow).
+  // The file was AT its ceiling, so the fix could not have been written in place.
+  // 4961→4990 (#2024, merge union): the globe virtual-overzoom drape. The
+  // selection ladder itself lives in render/drape-overzoom-dispatch.ts (extracted
+  // at birth); the +29 kept here is the irreducible composition wiring — the
+  // dispatch call with its collaborator closure (uploadResident needs
+  // this.uploadTile), the bakeTileToTexture window parameter + windowed ortho
+  // (the bake matrix is this file's state), and one import. Deltas are disjoint
+  // (−15 #2028 extraction, +29 #2024 over the 4976 base). MEASURED post-merge.
+  // 4990→5078 (#1190, merge union atop #2024): bundle replay made correct-by-
+  // construction — ringCursor + stroke layer-slot offsets in both BundleKeyState
+  // literals, the hit-path alloc-count invariant at both sites, default-ON gate.
+  // Deltas disjoint (+29 #2024, +88 #1190 over the shared #2028 base). MEASURED.
+  // 5078→5101 (#1190 allocation ledger): the strokeQueue's per-call object
+  // array became instance parallel scratch (+ the offsets-pair scratch) — the
+  // O(stroked-tiles × layers)/frame nursery churn from the issue's ledger, plus
+  // the field docs that record why the reuse is re-entrancy-safe.
+  // 5101→5128 (#2042 INC-1): _writeRtcAnchors — the absolute tile/cam ECEF
+  // anchor staging (one helper, three per-tile call sites) + the §5 witness
+  // skew hook, behind the __XGIS_RTC_RECOMBINE flag. Shrinks back at INC-4/5
+  // when the legacy cam_ecef_off writes and the per-tile re-walk retire.
+  // 5128→5172 (#2042 INC-2): TileUniformArena wiring — the field + release-
+  // hook line + the per-tile ensureSlot call + the sliceLayer trailing param
+  // threaded through six renderTileKeys call sites + flush/reset/destroy
+  // pairing. The arena itself lives in tile-uniform-arena.ts (180 LOC, its
+  // own file); this is only the seam. Shrinks at INC-5 with the re-walk.
+  // 5172→5182 (#2042 INC-6): the two Mercator-anchor writes in
+  // _writeRtcAnchors (tile_origin_merc_hl carries the same skew witness).
+  // 5182→5186 (#2042 INC-4b prep): the tile-arena grow-retired drain beside
+  // the ring drain (leak fix — the arena pinned every outgrown buffer).
+  // 5186→5253 (#2042 INC-4b): the split-bind wiring — ctor construction +
+  // rebind wire, setFillRhi layout hand-off, the per-draw split resolve in
+  // renderTileKeys (qualify + offsets), recordTileFill's trailing param, and
+  // the flush/drain/destroy pairings. The write path itself lives in
+  // uniform-split-bind.ts (276 LOC, its own file); this is only the seam.
+  // Shrinks at INC-5 with the re-walk deletion.
+  // 5253→5254 (#2042 INC-4b fix): the sliceLayer argument threaded into
+  // syncShow — the show-slot identity gained the slice half (the gate-caught
+  // filter-bucket aliasing; see uniform-split-bind.ts's header).
+  // 5254→5303 (#2042 INC-4c): the stroke split — the resolve hoisted to
+  // tile-loop scope (fills + strokes share it), the _strokeQueueTileOff
+  // parallel array + its two pushes, and the stroke-emit split resolve +
+  // per-tile bind selection threaded through both drawSegments calls.
+  // Shrinks at INC-5 with the re-walk deletion.
+  // 5303→5379 (#2042 INC-5): the walk-skip — per-call splitWalkSkip
+  // qualification, the per-tile skip block (arena-resident tiles bypass the
+  // whole pack + ring alloc/stage after the first tile seeds the show/frame
+  // lanes), the pack block wrapped in if(!skipPack), the __xgisVtrWalkSkips
+  // executed-mechanism witness, and the _lastWalkRingFree exemption of the
+  // bundle-hit ring-alloc invariant (vacuous under a ring-reader-free walk).
+  // 5379→5397 (#2042 INC-4d): splitFillsCapable (default pipes OR an
+  // eligible per-style split twin) + the stroke clause widened to
+  // split-eligible line variants (splitStrokeEligible).
+  // 5397→5454 (#2042 INC-5b): the qualification extracted into the single
+  // ring-free authority _walkRingFree (shared by renderTileKeys' walk-skip
+  // and BOTH bundle-key sites) + the primary key's ringCursor -2 sentinel
+  // for ring-free walks (PR #2090's measured re-record coupling) + the
+  // opaque-layout-param note (#991).
+  // 5303→5311 (#2093 F1): the drape LOD ceiling at the `_drapeGlobeFills`
+  // derivation — the `drapesAtSelectionZ(currentZ)` conjunct + its
+  // __XGIS_FORCE_VECTOR_DRAPE A/B escape (6, incl. the 3-line rationale) and 2
+  // in the block comment above it. The arithmetic itself is NOT here: the
+  // chord-sagitta-vs-bake-texel derivation lives with the constant in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_SELECTION_Z), so this file
+  // gains only the call-site seam.
+  // 5311→5320 (#2093 E1): the two drape flags added as cells of BOTH bundle
+  // cache keys (primary + fallback) — 4 property lines + 5 of pointer comment.
+  // They SELECT what a bundle records (`drawFills` / `drawStrokes`) and the
+  // ceiling made them zoom-dependent, so a key that omits them lets a direct-arm
+  // bundle replay its fill draws over the drape. Irreducible: the contract is
+  // one property per key literal (`satisfies BundleKeyState`), and the full
+  // derivation lives with the fields in _cache/bundle-cache-key.ts, not here.
+  // 5454→5471 (#2093 F1+E1) and 5454→5466 (#2117 line-gradient) are two
+  // independent +17 / +12 on the SAME 5454 base. #2117 adds the `lineGradient`
+  // resolve (pattern-exclusion comment + one const) at BOTH stroke-write sites,
+  // the argument at the three writeLayerSlot calls, and the `bs.gradient` bake
+  // capture — no new branch, the ramp itself lives in line-pattern.ts /
+  // line-gradient.ts. Merged: 5483, MEASURED post-merge on the merged file
+  // (`wc -l`) — never side-picked, never summed by hand, exactly as main's own
+  // note above warns. Headroom is re-justified per phase, never banked.
+  'map/src/render/vector-tile-renderer.ts': 5483,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -746,8 +833,59 @@ const CEILINGS: Record<string, number> = {
   // the VTR's lookup string, that `vtKey` is the wrong one, and which shows this un-blanks.
   // Nothing extract-worthy: this is the ONE line only map.ts can write — it owns both the
   // ShowCommand the key is derived from and the catalog the key is handed to. MEASURED.
-  'map/src/map.ts': 5623,
-  // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // 5623→5630 (#1177/#2013): the `_labelDispatchLoopRuns` counter + its rationale and
+  // the `loopRuns` field in getLabelDispatchStats — the observable the zoom-skip gate
+  // asserts the dispatch-loop skip on (measure the skip, not the frame time).
+  // 5630→5462 (#2052, T5 sky/fog Phase 0): the top-level style ROOT family moved to
+  // style-top-level.ts — the `background { fill / opacity / pattern }` block parse (and the
+  // two lexer helpers only it used), plus the validate halves of setLight / setAtmosphere.
+  // map.ts keeps the composition-root wiring only IT can write: the `_destroyed` guard,
+  // the private `_dirty.tag(STYLE)`, and `invalidate()`. `setBackgroundFill` deliberately
+  // did NOT move — its body reaches map.ts PRIVATE members (`_syntheticBackend`,
+  // `_installSyntheticEarthSurfaceSource`) and setBackgroundFill-lifecycle.test.ts pins its
+  // text to THIS file. Pure extraction, no behaviour line. LOWERED by the extracted count
+  // per the doc's Phase 0 mandate — headroom is re-justified per phase, never banked. MEASURED.
+  // 5462→5471 (#2116): the glyph keep-alive in `shouldRenderThisFrame`. It sits HERE and
+  // not behind a forwarder because this method is the single authority that gates both
+  // rendering and `idle`, and the sibling symbol-fade keep-alive it stands next to answers
+  // the same question — a second place to decide "is the text finished?" is how #2091 /
+  // #2101 / #2116 became three faces of one defect. 1 predicate line + its 8-line reason.
+  // MEASURED.
+  // 5471→5482 (#2122): the sprite keep-alive, beside the glyph one #2120 added. Same
+  // authority for the same reason — `shouldRenderThisFrame` gates both rendering and
+  // `idle`, and a second place to decide "is this frame's async content finished?" is how
+  // that question has drifted three times already. Reads a deadlined probe rather than the
+  // existing `isAtlasTerminal()`, which is the prepare-skip question and stays false
+  // forever against a host that hangs. 1 predicate line + its 10-line reason. MEASURED.
+  // 5482→5468 (#2144): `getDumpedLabels`'s inline return type — the third
+  // hand-written copy of `DumpedLabel` — becomes the imported interface.
+  // 5482→5486 (#2118): the ONE line only map.ts can write — `show.circlePitchAlignmentMap`
+  // into the geojson-point `addLayer` tail — plus its three-line note on why the knob is
+  // trailing. Composition-root wiring, nothing extract-worthy (§2).
+  // 5482→5485 (#2162, main): both `getMissingTileCount` docstrings claimed it "settles to 0
+  // exactly when the scene converges". It does not — the sum carries three of
+  // `keepLoopWarm`'s six terms, and the vector arm counts cells with NO fallback, so a
+  // cell showing a magnified ancestor mid-download reads 0 where the raster arm's
+  // fetch-count reads 1. Comment-only correction on a PUBLIC accessor; +3 lines.
+  // →5478 (#2149 increment 3, main): the sprite keep-alive block (11 lines) moved onto its
+  // registration in pending-work.ts — the shared registry term already covers it.
+  // →5464 (merge union): FIVE bumps were authored against the same base — #2144's −14,
+  // #2118's +4, #2162's +3, #2149's net-zero and #2149-inc3's −11 — so no branch's number
+  // survives and arithmetic on any subset of them is wrong. Set from `wc -l` on the merged
+  // file; every bump note above is kept because each documents a different change
+  // (CLAUDE.md §12).
+  // →5432 (#2149 increment 6): hasPendingSourceWork() + its doc + its call line deleted
+  // (the registry's full-union read covers the set); the burst dep re-wired to
+  // hasPending(SCOPE_VT_PIPELINE) with a 4-line comment. MEASURED (`wc -l`) on the
+  // increment-6 tree over the #2154 base. Lower as #991 decomposes map.ts.
+  'map/src/map.ts': 5432,
+  // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
+  // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
+  // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
+  // The keep-warm reason lives on the registration (pending-work.ts); this file carries
+  // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
+  // #2138 merge (main did not touch this file): 801.
+  'map/src/coverage-source.ts': 801, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
@@ -945,7 +1083,55 @@ const CEILINGS: Record<string, number> = {
   // metrics-only placeholder is what made every Latin label inkless. The ceiling is
   // lowered to the measured post-hook figure rather than left slack — the extraction
   // paid for the fix's growth, so the win is banked, not spent twice.
-  'map/src/text/text-stage.ts': 2187,
+  // 2187→2167 (#2012 INC-4): the curved-label GLYPH WALK — cumulative arc length,
+  // the fit/clamp, the keep-upright reversal, the per-glyph sample + max-angle gate
+  // and the offsets/rotations fill — moved whole to text/curved-glyph-walk.ts. It is
+  // exactly the code the increment had to change, and inline it could not be gated:
+  // the LABEL-PLANE ↔ SCREEN index correspondence INC-4 introduces is now a pure
+  // function of its two polylines with a unit gate that can be severed on its own.
+  // The file had 2 lines of headroom and the increment needed ~40, so the extraction
+  // pays for it AND banks the rest: the ceiling drops to the measured post-prettier
+  // size rather than being left slack, because headroom is re-justified per phase,
+  // never banked. MEASURED.
+  // 2176→2175 (#2012 INC-5, on top of #2116's 2167→2176). #2116 added
+  // `hasPendingGlyphLoads()` (+9); INC-5 nets −1 here by paying for the pitched size
+  // correction out of TWO extractions, because the file had ZERO headroom to pay it from.
+  // (1) `labelSizePx` — authored size × DPR × the 1/64-quantised perspective factor —
+  // moved to text-stage-helpers.ts, taking the #1081 rationale and the layout-cache
+  // contract with it. It is exactly the arithmetic INC-5 makes SHARED: the point loop has
+  // folded a perspective factor in since #1081 and the curved loop now does too, and two
+  // copies are two chances to quantise one and not the other (the cache is keyed on the
+  // result, so the un-quantised arm would thrash on every frame of a tilt).
+  // (2) `CurvedGroundArgs` — the `addCurvedLineLabel` ground payload, which INC-5 showed
+  // was hand-written on BOTH sides of the stage boundary plus once more as the dispatch's
+  // reused holder: adding one field meant editing three copies of one shape, so it becomes
+  // one named type in text-stage-types.ts. What GREW here is only the two loops' one-line
+  // size derivation and their reasoning. The ceiling drops to the measured post-merge size
+  // rather than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  // 2175→2164 (#2144, D7 P2 — CJK vertical writing). The file had ZERO headroom
+  // and the column needed ~24 lines (the `vertical` gate, the rotations arena
+  // alloc, the `fillVerticalColumn` call, the vertical bbox metrics, the two
+  // draw sites, the cache-entry field and the layoutCacheKey term), so the
+  // increment is paid for by THREE extractions rather than a bump:
+  // (1) the plain-text per-line pen loop is DELETED, not moved: with no sprites
+  //     `fillPointGlyphOffsetsWithImages` degrades to exactly it, so the second
+  //     copy of the justify + advance arithmetic is gone and one copy can no
+  //     longer drift from the other (the `labelSizePx` rationale, one level down);
+  // (2) `anchorVAlign` (MapLibre getAnchorAlignment's vertical half) and
+  //     `resolveJustify` (`text-justify: auto` against the anchor) move to
+  //     text-stage-helpers.ts, each landing beside its only consumer there
+  //     (`mlVerticalLayout` and `fillPointGlyphOffsetsWithImages`);
+  // (3) the 20-line #608 autopsy above the `pairedTextCentreShift` call moves
+  //     into that function's docblock in paired-symbol-box.ts — the file whose
+  //     own header says the split exists "so each has room to carry its own
+  //     rationale".
+  // (4) `getDumpedLabels`'s inline return shape — a hand-written mirror of
+  //     `DumpedLabel`, written out a THIRD time in map.ts — collapses to the
+  //     exported interface. P2 adds two fields to that shape (`rot`, `vertical`),
+  //     and three copies of one type are three chances to add a field to two.
+  // The ceiling drops to the measured post-prettier size rather than being left
+  // slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/text/text-stage.ts': 2149,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1042,7 +1228,20 @@ const CEILINGS: Record<string, number> = {
   // 2005→1996 (#1046 F3b): the `ctx.rhiPass` twin arm (draw directly on the forced-
   // WebGL2 frame's live screen pass) deleted; the `else` branch (originate through
   // the RHI frame encoder) unconditional now that it is the only frame shape.
-  'map/src/render/passes/label-pass.ts': 1996,
+  // 1996→2010 (#1177/#2013): the S16 dispatch-loop skip — a loop-condition guard
+  // plus its safety rationale, and the loop-run counter incremented INSIDE the
+  // body so the zoom-skip gate's loopRuns === misses assertion measures the skip
+  // itself (removing the guard while keeping the counter turns the gate red).
+  // 2010→1977 (#2012 INC-4): the CURVED LINE dispatch — the per-stop emit body, the
+  // world-lattice cadence, and the run identity (dedupe key / lineId / collisionId)
+  // it feeds — moved to passes/dispatch-curved-line-labels.ts, mirroring how
+  // dispatch-point-labels.ts paid for #777 IV3 (see the note above). The file had
+  // ZERO headroom and INC-4 adds the label-plane projection, the merc sample arrays
+  // and the ground gate here; the extraction pays for all of it. It also stops the
+  // run identity being derived on `text-rotation-alignment: viewport` layers, where
+  // no consumer exists. The ceiling drops to the measured post-prettier size rather
+  // than being left slack: headroom is re-justified per phase, never banked. MEASURED.
+  'map/src/render/passes/label-pass.ts': 1977,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1090,7 +1289,23 @@ const CEILINGS: Record<string, number> = {
   // with the chain's RHI re-origination — win banked.
   // 1568→1496 (#1568): the ShaderVariantInfo→WGSL choke point + its memo moved to
   // polygon-shader-cache.ts to pay for the body-epoch key — win banked.
-  'map/src/render/pipeline-factory.ts': 1496,
+  // 1496→1553 (#2042 INC-4b): the split-bind fill family — the
+  // SPLIT_FILL_LAYOUT_ENTRIES static (drift-test-pinned), the flag-gated
+  // layout + twin build in build(), the two fields, and fillRhiState's
+  // split hand-off. The factory is the layout/pipeline owner, so the
+  // descriptor increment lands here by design.
+  // 1553→1650 (#2042 INC-4d): the lazy per-style split twin registry —
+  // perStyleSplitTwin (emitted-interface eligibility + build-on-first-use),
+  // the two cache maps, the registerFillMaterials info capture, and
+  // fillRhiState's perStyleTwin hand-off.
+  // 1650→1659 (#2042 INC-7): the split-bind default flips from opt-IN (`=== true`) to
+  // opt-OUT (`!== false`). One condition character, plus a 9-line reason recording why the
+  // escape hatch stays for one release, why INC-8's legacy deletion is gated on ON having
+  // SHIPPED green rather than merged, and why WebGPU-only here is structural — build()
+  // early-returns for webgl2 before the split layout is created, so the flip is inert on
+  // that backend and the "both backends" precondition is discharged by showing WebGL2
+  // UNCHANGED. MEASURED after prettier.
+  'map/src/render/pipeline-factory.ts': 1659,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -1114,7 +1329,52 @@ const CEILINGS: Record<string, number> = {
   // rationale comments for a rename whose reason is invisible from the token.
   // 1542→1543 (#1828): the saturate migration keeps one non-[0,1] clamp (t along the
   // segment), so the import list carries BOTH names — one structural line, zero logic.
-  'map/src/shaders/dsl/line.ts': 1543,
+  // 1543→1527 (#1496): the seam-crossing segment cull lands +15 in vs_line,
+  // paid for by extracting finalize_corner + pattern_unit_to_m to
+  // line-corner.ts (TILE lanes as parameters; a one-line adapter keeps the
+  // call sites). Net shrink banked per the shrink-only rule. MEASURED
+  // post-prettier.
+  // 1527→1535 (#2042 INC-1): the four `_pad_*_ecef_center_*` size-mirror pads
+  // for polygon's appended absolute RTC anchors (shared VTR group(0) buffer —
+  // polygon-line-uniform-parity). MEASURED post-prettier.
+  // 1535→1539 (#2042 INC-6): the two `_pad_*_hl` Mercator-anchor mirror pads.
+  // 1539→1641 (#2089): the 12 ECEF endpoint-lane struct fields, the lane/ENU
+  // corner construction that replaced the in-shader `ecefFromMerc` re-derivation,
+  // and the reviewed error-budget rationale the construction rests on (the
+  // spherical-vs-ellipsoidal cos(lat) residual, the exact-affine tangent-plane
+  // argument, and the δφ·|off| vs δφ·R statement of what the migration buys).
+  // The arm closes over base/isStart/sego, so it lives with the VS builder
+  // rather than extracting; the growth is comment-heavy by design — a wrong
+  // justification here is what a later reader would build on.
+  // 1641→1651: the measured before/after (1.17e3 m → 2.1e-1 m, from
+  // _line-ecef-lane-parity) and the scope note that the lanes are f64-exact as
+  // PACKED while the shader recombines in f32 — the distinction a later reader
+  // would otherwise have to rediscover from a failing tolerance.
+  // 1651→1673 (#2042 INC-6, the LINE half): the flat arm now RECOMBINES the Mercator
+  // camera-relative pair from the absolute anchors instead of reading the CPU-packed
+  // cam_h/cam_l lanes. That is a real added code path, not padding: three un-padded lane
+  // declarations + their reasons, a `tileCamRel()` adapter over the shared merc-cam-rel.ts
+  // authority, and a `lineEndpoint` adapter over the extracted helper. `line_endpoint`
+  // itself MOVED OUT to line-endpoint.ts (the #1003 line-corner.ts idiom — lanes as
+  // parameters), which is why the growth is 22 and not 30; the extraction was required by
+  // the increment anyway, since that function's cam read is one of the three sites the
+  // recombination replaces and the pair it needs is flag-selected, not a raw lane.
+  // The file's path back DOWN is identified and measured: `compute_line_color`
+  // (map/src/shaders/dsl/line.ts, ~497 lines — a third of the file) is the next extraction,
+  // deliberately not folded in here so this increment's diff stays about the recombination.
+  // MEASURED after prettier.
+  // 1651→1673 (#2117 line-gradient, on top of #2089's 1539→1651). #2089 paid 112 lines
+  // for the ECEF endpoint lanes and the error-budget rationale under them; #2117 adds
+  // 22: the two ramp uniform arrays + `gradient_count` on LineLayer (which takes the
+  // slot the 16-byte alignment pad occupied, so the struct grows only by the arrays),
+  // and the ramp substitution in compute_line_color. The ramp EVALUATION — the stop
+  // loop and the 4-per-vec4 position unpack — is extracted to line-gradient.ts, the
+  // same relief valve #1496 used, so only the struct fields and one `If` block land
+  // here. Headroom is re-justified per phase, never banked. MEASURED post-merge.
+  // BOTH histories above start from 1651 and BOTH add 22 — #2042 INC-6 and #2117 each
+  // reached 1673 independently, which is exactly the merge where taking either side's
+  // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
+  'map/src/shaders/dsl/line.ts': 1695,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -1153,7 +1413,20 @@ const CEILINGS: Record<string, number> = {
   // prunes the module before EACH emit, so the four polygon pipelines (three in VTR, one
   // graticule) each lowered + ran the optimizer fixpoint twice; the module build is 2 ms
   // against ~80 ms for one emit, so that lowering is the entire cost.
-  'map/src/shaders/dsl/polygon.ts': 1498,
+  // 1498→1540 (#2042 INC-1): the four absolute RTC anchor struct fields (with
+  // the recombine-flag contract doc) + the flag-selected rtc_off_h/l Let pair
+  // in the projection ladder's 3D arm. Shrinks at INC-4 when the legacy
+  // cam_ecef_off fields and the select retire. MEASURED post-prettier.
+  // 1540→1577 (#2042 INC-6): the two Mercator anchor fields + the flag-
+  // selected cam_rel_h/l Let pair at the ladder top (the flat-arm
+  // recombination). Same INC-4/5 shrink-back path. MEASURED post-prettier.
+  // 1577→1567 (#2042 INC-6 prep): the Mercator cam-rel recipe moved to the shared
+  // merc-cam-rel.ts so line.ts can consume the SAME authority instead of spelling out a second
+  // copy (it would have been the third, counting polygon-split.ts's `derived` map). Shrink-only
+  // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
+  // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
+  // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
+  'map/src/shaders/dsl/polygon.ts': 1567,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -1208,7 +1481,15 @@ const CEILINGS: Record<string, number> = {
   // addTileLevel's body. +12 is the two parameters, the three passthroughs and the doc that
   // says WHY the slot has to be named — the catalog is the storage authority the VTR's
   // `computeSliceKey` lookup has to agree with. MEASURED.
-  'data/src/tile-catalog.ts': 1456,
+  // 1456->1478 (#2182): `loadingTiles` becomes a Map (key -> dispatch ms) so
+  // `hasPendingLoads()` can be DEADLINED. It was the one keep-warm signal still
+  // unbounded: `safeFetch` has no timeout, backends release only from `.then`/`.catch`,
+  // and `cancelStale` is keyed on the ACTIVE set, so a still-visible tile whose fetch
+  // HANGS was stranded for the session and `idle` never fired again (#2091's shape, at
+  // the catalog level, so every backend). +22 is the constant with its bound rationale,
+  // the field doc, the deadline loop and the accessor doc. A first draft cost +39 and was
+  // trimmed. MEASURED post-prettier.
+  'data/src/tile-catalog.ts': 1478,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1378,7 +1659,13 @@ const CEILINGS: Record<string, number> = {
   // where the fields live; this file keeps one call reading the resolved kind.
   // Two now-orphaned @xgis/geo imports (isGlobeProj, promotesToGlobeWhenTilted)
   // went with it. Measured, not arithmetic.
-  'map/src/render-loop.ts': 934,
+  // 934->935 (#2162): the end-of-frame `_missingTileCount` comment asserted the sum
+  // "settles to 0 exactly when that gate stops re-arming" -- it is three of the gate's
+  // six terms (retries, pending VT uploads and `_czPendingAdvance` absent). One line,
+  // comment-only. MEASURED post-prettier.
+  // →933 (#2149 increment 6): keepLoopWarm's vtRenderers input died — the VT signals ride
+  // the registry scope, so the call site passes one input fewer. MEASURED post-prettier.
+  'map/src/render-loop.ts': 933,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -1459,7 +1746,17 @@ const CEILINGS: Record<string, number> = {
   // (the tile-point pack scalar cache + retire queue moved out to tile-point-cache.ts,
   // keyed per show) are non-overlapping and compose. Value is the MEASURED post-merge,
   // post-prettier count.
-  'map/src/render/point-renderer.ts': 1211,
+  // 1211→1247 (#2118): `circle-pitch-alignment: map`. The pitch MODE CODE replaces the
+  // pitch-scale flag in circle_params.w (the two knobs stop being independent once the
+  // disc leaves the screen plane, so a bit field would let both fire and count the
+  // perspective twice), the `mvp_pitch0` lane is packed from a module-level
+  // `Pitch0Unprojector` — the SAME producer label-pass hands `groundBasisAt`, so the two
+  // ground-aligned features cannot drift onto different ideas of the unpitched camera —
+  // and `addLayer` grows one TRAILING optional. Most of the +36 is the rationale for the
+  // `camera.pitch > 0` suppression, which is what makes the unpitched frame provably
+  // byte-identical rather than arithmetically equal. MEASURED post-prettier (`wc -l`), set
+  // EXACTLY to the count — headroom is re-justified per phase, never banked.
+  'map/src/render/point-renderer.ts': 1247,
   // 1106→1120 (#1043 state-hygiene): three unmask-before-clear / state-reset fixes for the
   // WebGL2 flicker class — beginScreenPass colorMask unmask (the colour sibling of #746/#780),
   // dispatchComputeToR32UI viewport snapshot+restore, and the setPipeline no-depth arm's
@@ -1520,7 +1817,10 @@ const CEILINGS: Record<string, number> = {
   // comment, and `...inputPoolValues(this.inputs)` spread into the polygon uniform
   // write — auto-merged cleanly (disjoint from this branch's F3b edits); two adjacent
   // comments' prettier-reflow saved a couple lines back. Measured post-hook.
-  'map/src/render/renderer.ts': 1003,
+  // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
+  // full-struct write() completeness net requires. MEASURED post-prettier.
+  // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
+  'map/src/render/renderer.ts': 1011,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -1577,7 +1877,9 @@ const CEILINGS: Record<string, number> = {
   // does a ONE-TIME reconcile: disable every real location up to MAX_VERTEX_ATTRIBS
   // (feature-detected; fixtures that don't stub getParameter/disableVertexAttribArray
   // fall back to 16 and no-op).
-  'rhi-webgl2/src/rhi-webgl2.ts': 1521,
+  // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
+  // the new render-bundle capability the VT bundle gate keys on.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -1642,7 +1944,17 @@ const CEILINGS: Record<string, number> = {
   // 0 forever despite a correct sphere selection and a correct draw. +23 = a new
   // `globeTilesSelected: number | null` field on `FrameTileCache` (stashed at
   // compute time) + re-setting the diagnostic from it on a cache HIT too.
-  'map/src/render/tile-selection-cache.ts': 1059,
+  // 1059→1066 (#2091): the readiness gate pinned `_czPendingAdvance` on a
+  // target the source could never reach (cz is clamped to `source.maxLevel`
+  // right after the gate, so `cz === target` was unsatisfiable for any source
+  // whose data stops below floor(z)) — `keepLoopWarm` reads that flag, so the
+  // loop re-rendered every frame and the map NEVER fired `idle`. +7 = the
+  // one-line reachability clamp on `target` plus the lesson comment that keeps
+  // it from being "simplified" back out. (An adversarial review pass caught a
+  // second edit as dead code — the `wantAdvance` false case was ALREADY
+  // cleared by the pre-existing `} else {` on the same block — and it was
+  // removed; the fix is the clamp alone, re-proven fail-before.)
+  'map/src/render/tile-selection-cache.ts': 1066,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -1713,7 +2025,14 @@ const CEILINGS: Record<string, number> = {
   // `loadImageTexture` raw-device fork removed — both backends now load through the RHI
   // (`rhi.createTexture`/`copyExternalImage`/`generateMipmaps`), which also deletes the
   // `device: GPUDevice` field the fork was the only reader of.
-  'map/src/render/raster-renderer.ts': 1029,
+  // 1029→1034 (#2137): the CPU trig table wiring. `vs_tile` used to build the
+  // ~6.4e6 m ECEF from angles on the GPU, where every transcendental multiplies
+  // the Earth radius (1.17e+3 m of ground displacement measured on SwiftShader);
+  // the table hands it CPU-f64 sin/cos/N so it only multiplies. The 53-line
+  // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
+  // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
+  // import, one call, and the two new struct fields the packer must write.
+  'map/src/render/raster-renderer.ts': 1034,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -1722,7 +2041,9 @@ const CEILINGS: Record<string, number> = {
   // 910→921 (#1402): the `replace` opt-out of `_dispatch`'s "already uploaded" short-circuit,
   // threaded through `uploadSync`. +11 is the two signatures, the amended guard, and the note
   // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
-  'map/src/render/upload-coordinator.ts': 921,
+  // 921→923 (#2089): the tileOriginMerc argument at the two buildLineSegments
+  // call sites (the ECEF endpoint-lane pack anchor).
+  'map/src/render/upload-coordinator.ts': 923,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
@@ -1739,6 +2060,23 @@ const CEILINGS: Record<string, number> = {
   // vertex projection directly and subtract a df64 camera term itself (flat_rel
   // does that subtract in f32, which cancels and shakes). +6, irreducible.
   'map/src/shaders/dsl/projections.ts': 841,
+  // NEW ENTRY (#2118). point.ts was unlisted at 766 because it sat under NEW_FILE_CAP;
+  // `circle-pitch-alignment: map` takes it to 921 and it needs a ceiling of its own. The
+  // +155 is one feature and is mostly PROSE: the ground-basis block is ~45 lines of
+  // arithmetic and ~40 lines of header explaining that it is the WGSL image of
+  // map/src/text/ground-basis.ts — which authority it transcribes, why it is transcribed
+  // instead of called (that module is CPU code over projector callbacks; a per-point CPU
+  // basis would repack feat_data every frame), why both Jacobians are EXACT here rather
+  // than finite differences, which px convention it works in, and why the globe stays
+  // deferred. Not extract-worthy: it is one branch of one vertex entry point, reads four
+  // uniform fields and the local `relPos`, and lifting it out would put the basis in a
+  // different file from the quad expansion it exists to transform — but the basis math
+  // itself IS extracted, into a named `ground_basis_2x2` fn, because inlining it pushed
+  // `vs_point` past shader-static-analysis's 60-statement lint ceiling (80 measured). The
+  // extraction moved ~33 statements out of the entry point and cost this file a few lines
+  // of function scaffolding. MEASURED post-prettier
+  // (`wc -l`), set EXACTLY to the count — headroom is re-justified per phase, never banked.
+  'map/src/shaders/dsl/point.ts': 950,
   // #1005 — carried from the runtime arch-invariants Gate 3 (re-measured
   // 2026-07-13; lower.ts had shrunk 1452→1409, the tighter value carried).
   // 1790→1546 (INC-0 extract): the conforming red-green subdivision cluster
@@ -1758,7 +2096,8 @@ const CEILINGS: Record<string, number> = {
   // geometry) instead of its array position, so data-driven paint stops reading
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
-  'compiler/src/tiler/vector-tiler.ts': 1601,
+  // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
+  'compiler/src/tiler/vector-tiler.ts': 1603,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
@@ -1813,7 +2152,18 @@ const CEILINGS: Record<string, number> = {
   // so `refresh: -5` reports "non-negative" instead of a misleading "not a
   // number"), and the return-object field. Mirrors the existing `maxzoom`/
   // `minzoom` numeric-prop shape.
-  'compiler/src/ir/lower.ts': 1514,
+  // 1514→1519 (#2117 line-gradient): the `strokeGradientStops` local + its one-line why,
+  // its acc read, the acc-literal key and the `gradientStops:` field on the emitted
+  // StrokeValue — the four-site shape every stroke paint axis already has here, no new
+  // branch. Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  // 1514→1522 (#2118): `circlePitchAlignmentMap` through lower's three seams (the `let`
+  // + its doc, the acc read, the two RenderNode spreads). The doc line earns its keep —
+  // it is where the OPPOSITE spec defaults of the two circle pitch knobs are recorded, and
+  // that asymmetry is the part a re-derivation gets wrong. MEASURED post-prettier (`wc -l`),
+  // set EXACTLY to the count — headroom is re-justified per phase, never banked.
+  // MERGE: main and this branch each raised this ceiling from a shared base;
+  // neither side's number is right. MEASURED post-merge (`wc -l`): 1527.
+  'compiler/src/ir/lower.ts': 1527,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
@@ -1835,13 +2185,26 @@ const CEILINGS: Record<string, number> = {
   // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
   // spec default chain that resolves to it) moved out to
   // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
-  'compiler/src/convert/layers-symbol.ts': 1357,
+  // 1357→1378 (#2166 icon-translate): the per-axis vec2 split on the
+  // non-constant icon-translate arm — the isZoomInterpCandidate pre-gate, the
+  // two vec2AxisZoomInterp lifts, the array-literal re-pair, and the comment
+  // recording WHY this path re-pairs inside one binding while fill-/line-
+  // translate emit an x/y utility pair. That asymmetry is the part a
+  // re-derivation gets wrong, so it is written down rather than inferred.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count — headroom is
+  // re-justified per phase, never banked. RE-MEASURE after any merge with a
+  // branch that also raised this key.
+  'compiler/src/convert/layers-symbol.ts': 1378,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
   // -300, and the label silently kept the layer default. +3 = the import + the two
   // wrapped call sites' shared 2-line why; the rewrite itself lives in lower-helpers.
-  'compiler/src/ir/lower-label.ts': 1190,
+  // 1190→941 (#2051, T4 CJK P1): foldLabelKnobs — the pure assembly half of the
+  // label sub-pass — moved verbatim to lower-label-fold.ts so the writingMode knob
+  // could land at zero net growth. LOWERED per this header's shrink rule — headroom
+  // is re-justified per phase, never banked. MEASURED.
+  'compiler/src/ir/lower-label.ts': 941,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -1857,13 +2220,65 @@ const CEILINGS: Record<string, number> = {
   // 980→982 (#1257): rasterFadeDurationMs? field + doc comment on RenderNodeRasterPaint.
   // 982→989 (#1304): `SourceDef.refresh?: number` field + doc comment (the declarative
   // live-source polling interval).
-  'compiler/src/ir/render-node.ts': 989,
+  // 989→995 (#2117 line-gradient): `StrokeValue.gradientStops` + the 5-line doc that
+  // records WHY the ramp replaces the solid colour and which arc it is sampled over.
+  // Headroom is re-justified per phase, never banked. MEASURED post-prettier.
+  // 989→995 (#2118): the `circlePitchAlignmentMap` RenderNode field + its doc, and a
+  // correction to the sibling's doc, which claimed "viewport" was `circle-pitch-scale`'s
+  // spec default. It is not — v8 defaults that knob to "map" — and the wrong claim was
+  // load-bearing enough to be worth the lines. MEASURED post-prettier (`wc -l`), set EXACTLY
+  // to the count — headroom is re-justified per phase, never banked.
+  // 989→995 twice, INDEPENDENTLY: #2117 line-gradient added StrokeValue.gradientStops and
+  // #2118 circle-pitch added ShowCommand.circlePitchAlignmentMap, each +6 from the same base.
+  // Both branches therefore wrote the IDENTICAL ceiling line `995`, so git merged it with NO
+  // CONFLICT while the file itself grew by BOTH deltas — the one shape of ceiling drift that
+  // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
+  // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
+  // type, const or function name occurs twice in the file.
+  'compiler/src/ir/render-node.ts': 1001,
   'compiler/src/convert/paint-helpers.ts': 826,
+  // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
+  // colour coercion added to callBuiltin's single-authority switch (the
+  // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
+  // not threaded into a second file) — 3 new BUILTIN_FN_NAMES entries + the
+  // `split`/`join`/`to_rgba` case blocks with their spec-citation comments.
+  // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP
+  // before (same situation emit-commands.ts hit at #1304, above).
+  // 845→868 (#2166 B3): `assert_array` — the runtime half of Mapbox's
+  // `["array", …]` type assertion, which the converter used to drop. Same
+  // single-authority reason as the bump above: every name callBuiltin
+  // dispatches lives in that one switch, so the case block (plus its
+  // BUILTIN_FN_NAMES entry and the comment recording why the assertion is
+  // load-bearing — `length`/`slice` accept strings) lands here rather than
+  // in a second file.
+  'compiler/src/eval/evaluator-helpers.ts': 868,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
   // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP before.
-  'compiler/src/ir/emit-commands.ts': 805,
+  // 805→810 (#2117 line-gradient): `LinePaint.strokeGradientStops` + doc + the one
+  // `node.stroke.gradientStops` wire line. Headroom is re-justified per phase, never
+  // banked. MEASURED post-prettier.
+  // 805→812 (#2118): the `circlePitchAlignmentMap` field on CirclePaint + its doc, and the
+  // node→ShowCommand carry. MEASURED post-prettier (`wc -l`), set EXACTLY to the count —
+  // headroom is re-justified per phase, never banked.
+  // MERGE: main and this branch each raised this ceiling from a shared base;
+  // neither side's number is right. MEASURED post-merge (`wc -l`): 817.
+  'compiler/src/ir/emit-commands.ts': 817,
+  // 785→826 (#1269 item 3): retry backoff jitter, so tiles that fail together
+  // don't retry in lockstep — the injectable-rng test seam (mirrors the log-throttle/
+  // negative-cache module-state + test-only-setter shape already in this file) +
+  // jitteredBackoffMs + its jitter-shape rationale doc comment. First CEILINGS entry
+  // for this file — it crossed NEW_FILE_CAP (800) with this change.
+  // 826→835 (#1269 item 3, adversarial review): full jitter swapped for EQUAL jitter —
+  // full jitter let both backoff attempts land near zero simultaneously (witness
+  // r1=r2=0.05 → 60ms total retry window vs the fixed schedule's 1200ms), burning all
+  // 3 attempts inside a sub-second upstream blip ~2.7% of the time and paying the
+  // 5-minute negative-cache penalty for it. The doc comment on jitteredBackoffMs was
+  // rewritten (not just the formula swapped) to argue from this path's own economics —
+  // 3 fixed attempts + a 5-minute exhaustion cost — rather than leave the prior AWS
+  // unbounded-retry citation standing unexplained against a different formula.
+  'data/src/vector-tile-loader.ts': 835,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {

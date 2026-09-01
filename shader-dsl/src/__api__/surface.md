@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 358 exports
+## `.` — 361 exports
 
 ```
 abs
@@ -222,6 +222,7 @@ NODE_BRAND
 NodeLike
 NonComposite
 normalize
+optBarrier
 OptLevel
 ORACLE_BUILTIN_NAMES
 ORACLE_GPU_STUB_NAMES
@@ -252,11 +253,13 @@ reflect
 Reflection
 ReflectOptions
 RegistryEntry
+renameVarrefsInFunc
 resource
 Resource
 ResourceKind
 Return
 ReturnIf
+rewriteExprsInFunc
 round
 samplerT
 saturate
@@ -411,7 +414,7 @@ SourceLoc
 summarize
 ```
 
-## `./emit-prod` — 17 exports
+## `./emit-prod` — 19 exports
 
 ```
 aliasShaderTypes
@@ -421,6 +424,8 @@ decodeShaderLog
 EmitOptions
 EmitPlugin
 inline
+InlineDecision
+InlineOpaque
 invertRenames
 mangle
 mangleModule
@@ -433,7 +438,7 @@ prune
 pruneRedundantPrototypes
 ```
 
-## `./core/ir` — 222 exports
+## `./core/ir` — 223 exports
 
 ```
 abs
@@ -559,6 +564,7 @@ NODE_BRAND
 NodeLike
 NonComposite
 normalize
+optBarrier
 outsideRange
 overrideConst
 OverrideDecl
@@ -660,7 +666,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 406 definitions
+## Shapes — 411 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -849,6 +855,7 @@ src/core/ir/node.ts#mix  const  <K extends FloatKey | Float64Key>(a: ReadonlyNod
 src/core/ir/node.ts#mod  const  <K extends FloatKey>(x: ReadonlyNode<K>, y: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#mulMat64  const  <N extends 2 | 3 | 4>(a: ReadonlyNode<`mat${N}x${N}<f64>`>, b: ReadonlyNode<`mat${N}x${N}<f64>`>) => Node<`mat${N}x${N}<f64>`>
 src/core/ir/node.ts#normalize  const  <K extends `vec${number}<f32>` | `vec${number}<f64>`>(x: ReadonlyNode<K>) => Node<K>
+src/core/ir/node.ts#optBarrier  const  (v: number | ReadonlyNode<"f32">) => Node<"f32">
 src/core/ir/node.ts#outsideRange  const  (x: ReadonlyNode<ScalarKey>, lo: number | ReadonlyNode<ScalarKey>, hi: number | ReadonlyNode<ScalarKey>) => Node<"bool">
 src/core/ir/node.ts#overrideRef  function  <T extends ShaderType>(name: string, type: T) => ReadonlyNode<KeyOf<T>>
 src/core/ir/node.ts#pack2x16float  const  (v: ReadonlyNode<"vec2<f32>">) => Node<"u32">
@@ -973,6 +980,8 @@ src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValu
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
+src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "over-budget" | "not-inlinable" }
+src/core/passes/force-inline.ts#InlineOpaque  type  "all" | "keep" | "single-call"
 src/core/passes/fp64-lower.ts#Fp64Flavor  type  "float" | "integer"
 src/core/passes/fp64-lower.ts#Fp64LowerOptions  interface  { flavor?: Fp64Flavor }
 src/core/passes/fp64-lower.ts#fp64Lower  function  (m: ModuleDecl, opts?: Fp64LowerOptions) => ModuleDecl
@@ -992,6 +1001,8 @@ src/core/passes/opt/optimize.ts#DEFAULT_PASSES  const  readonly OptPass[]
 src/core/passes/opt/optimize.ts#OptLevel  type  "O0" | "O1" | "O2"
 src/core/passes/opt/optimize.ts#fixpoint  function  (m: ModuleDecl, passes?: readonly OptPass[], maxIters?: number) => ModuleDecl
 src/core/passes/opt/optimize.ts#optimize  function  (m: ModuleDecl, passes?: readonly OptPass[]) => ModuleDecl
+src/core/passes/rename-varrefs.ts#renameVarrefsInFunc  function  (f: FuncDecl, rename: (name: string) => string) => FuncDecl
+src/core/passes/rename-varrefs.ts#rewriteExprsInFunc  function  (f: FuncDecl, rewrite: (e: Expr) => Expr) => FuncDecl
 src/core/passes/required-caps.ts#assertCaps  function  (backend: Backend, m: ModuleDecl) => void
 src/core/passes/required-caps.ts#requiredCaps  function  (m: ModuleDecl) => Capability[]
 src/core/passes/single-exit.ts#checkSingleExit  function  (f: FuncDecl) => string[]
@@ -1064,7 +1075,7 @@ src/core/variant-link.ts#WgslValidator  interface  { createShaderModule: (descri
 src/core/variant-link.ts#linkVariants  function  <A extends Record<string, readonly unknown[]>>(gl: GlLinker<unknown, unknown>, family: VariantFamily<A>, opts?: EmitOptions) => readonly VariantLinkResult[]
 src/core/variant-link.ts#validateVariantsWgsl  function  <A extends Record<string, readonly unknown[]>>(device: WgslValidator<unknown>, family: VariantFamily<A>, opts?: EmitOptions) => Promise<readonly VariantWgslResult[]>
 src/emit-prod.ts#aliasTypes  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin
-src/emit-prod.ts#inline  function  () => EmitPlugin
+src/emit-prod.ts#inline  function  (opts?: { opaque?: InlineOpaque; maxGrowth?: number; report?: InlineDecision[]; }) => EmitPlugin
 src/emit-prod.ts#mangle  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin
 src/emit-prod.ts#minify  function  (opts?: MinifyOptions) => EmitPlugin
 src/emit-prod.ts#obfuscate  function  (opts?: { renames?: Map<string, string>; }) => EmitPlugin[]

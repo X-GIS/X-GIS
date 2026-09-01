@@ -32,10 +32,29 @@ import type { EmitPlugin } from '@xgis/shader-dsl'
 /** Which emitted source a panel shows. Mirrors the code tabs. */
 export type ShipTarget = 'wgsl' | 'glsl-vs' | 'glsl-fs'
 
-/** The plugins the toggles expose, in EXECUTION order — inline() rewrites the IR, mangle()
- *  renames what survives, minify() compacts the text. Also the order of the bits in a
- *  combination string, so a page's toggles and its `${i}${m}${n}` cannot disagree. */
-export const SHIP_PLUGINS = ['inline', 'mangle', 'minify'] as const
+/** The plugins the toggles expose, in EXECUTION order — the two inline() settings rewrite the
+ *  IR, mangle() renames what survives, minify() compacts the text. Also the order of the
+ *  bits in a combination string, so a page's toggles and its bit string cannot disagree. */
+export const SHIP_PLUGINS = ['inline', 'forceInline', 'mangle', 'minify'] as const
+
+/** How a toggle spells its own call, when the bare name under-describes it. Both inline
+ *  toggles are the SAME factory at different `opaque` settings, so the label has to say
+ *  which — `inline()` and `inline({ opaque: 'all' })` are not comparable. */
+const SHIP_CALL: Partial<Record<(typeof SHIP_PLUGINS)[number], string>> = {
+  forceInline: `inline({ opaque: 'all' })`,
+}
+
+/** The caveat a toggle carries, shown as its label's tooltip. Only forceInline has one, and
+ *  it is not cosmetic: 'all' is the reason fp64 examples can show zero df64_ helpers, and
+ *  also the reason the byte badge jumps an order of magnitude. */
+export const SHIP_HINTS: Partial<Record<(typeof SHIP_PLUGINS)[number], string>> = {
+  forceInline:
+    'inline() honours FuncDecl.opaque, so it is a complete no-op on the fp64 examples — ' +
+    "the df64 library is never inlined and never removed. inline({ opaque: 'all' }) " +
+    'unlocks that opacity and tree-shakes the emptied declarations, so df64_* leaves the ' +
+    'output entirely. Costs 5-27x the emitted bytes, and FXC can TDR on ANGLE-D3D11 ' +
+    'compiling fully-inlined df64 bodies — this is a demonstration, not a shipping default.',
+}
 
 /** Every example module, as lazy dynamic imports — Vite code-splits one chunk per file, so
  *  a page pulls only its own. Filesystem-bound glob, hence the relative path (same reason
@@ -102,17 +121,30 @@ export async function shipToolchain(exampleFile: string): Promise<Toolchain> {
 /** Build the plugin array for a combination string like `101`. */
 export async function shipPlugins(bits: string): Promise<EmitPlugin[]> {
   const prod = await import('@xgis/shader-dsl/emit-prod')
-  const make = { inline: prod.inline, mangle: prod.mangle, minify: prod.minify }
+  const make = {
+    inline: prod.inline,
+    // 'all' rather than 'single-call': the point of exposing a second inline toggle is
+    // that this is the one setting under which the df64 call graph actually disappears.
+    // SHIP_HINTS carries what that costs.
+    forceInline: () => prod.inline({ opaque: 'all' }),
+    mangle: prod.mangle,
+    minify: prod.minify,
+  }
   return SHIP_PLUGINS.filter((_, i) => bits[i] === '1').map((n) => make[n]())
 }
 
 /** The names the call label prints, e.g. `['inline()', 'minify()']`. */
 export const shipPluginNames = (bits: string): string[] =>
-  SHIP_PLUGINS.filter((_, i) => bits[i] === '1').map((n) => `${n}()`)
+  SHIP_PLUGINS.filter((_, i) => bits[i] === '1').map((n) => SHIP_CALL[n] ?? `${n}()`)
+
+/** The all-off combination — derived from SHIP_PLUGINS rather than written as a literal,
+ *  so adding a toggle cannot leave a stale `'000'` silently matching nothing. */
+export const SHIP_BITS_NONE = '0'.repeat(SHIP_PLUGINS.length)
 
 /** `1,845 B` when a combination changes nothing, else `plain B → bytes B (±pct%)`.
- *  inline() can GROW the text (a multi-call helper is duplicated at each call site), so the
- *  delta is signed — growth there is expected, not a regression. */
+ *  inline() can GROW the text (a multi-call helper is duplicated at each call site) and
+ *  inline({ opaque: 'all' }) always does, by 5-27x, so the delta is signed — growth
+ *  there is the documented cost, not a regression. */
 export function shipBadge(bytes: number, plain: number): string {
   const fmt = (n: number): string => n.toLocaleString()
   if (bytes === plain) return `${fmt(bytes)} B`

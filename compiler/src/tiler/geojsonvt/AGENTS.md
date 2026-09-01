@@ -28,7 +28,7 @@ A 1:1 TypeScript port of mapbox/geojson-vt 4.0.2 (ISC license), bundled to avoid
 
 - These are **1:1 ports** — preserve the upstream algorithm shape and variable naming; the ISC license header / LICENSE provenance must stay. Don't "modernize" ported files casually.
 - The single intentional divergence from upstream is tile addressing: Morton `tileKey` from `../vector-tiler.ts` (accurate to z=25) vs geojson-vt's `1<<z` 32-bit pack that wraps at z=31. `MAX_ALLOWED_ZOOM=25` is the hard ceiling in `index.ts`. Keep that integration documented at the call site.
-- Upstream features deliberately dropped: cluster, lineMetrics, debug counters, tileCoords array — none feed the X-GIS render path.
+- Upstream features deliberately dropped: lineMetrics, debug counters, tileCoords array — none feed the X-GIS render path. **`cluster` is no longer in that list**: source-level point clustering lives in the sibling `../cluster/` directory (#2050, `docs/plans/2026-08-24-geojson-clustering.md`), a separate index serving `z ≤ clusterMaxZoom` for the same source. It is a sibling rather than a member of this directory precisely to keep the 1:1-port provenance claim above true — do not "restore" the drop here, and do not move clustering in.
 - `encode-mvt.ts` is the only X-GIS-original file here; MVT-spec output behavior belongs there, not in ported files.
 
 ### Testing Requirements

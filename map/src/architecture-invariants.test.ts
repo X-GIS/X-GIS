@@ -280,3 +280,154 @@ describe('arch ratchet: Gate-9 — only bake.ts value-imports the baked-shader r
     ).toBe(false)
   })
 })
+
+// ── Gate 10: every safeFetch caller is a CLASSIFIED async resource (#2160) ──
+// Twice in one campaign an async resource landed on a frame the render loop had already
+// stopped drawing — #2116 (in-flight glyph PBF ranges) and #2122 (the sprite atlas). Both
+// were found by a person noticing the symptom, because nothing enumerates the async
+// resource classes.
+//
+// The invariant is NOT "every resource registers in the keep-warm predicate" — that would
+// flag correct code. There are TWO valid mechanisms and a resource needs exactly one:
+//
+//   (a) hold the loop warm while in flight — a term in `shouldRenderThisFrame` /
+//       `keepLoopWarm`, deadline-bounded so a hung host cannot wedge the loop (#2091);
+//   (b) `invalidate()` on arrival — re-arm the loop when the resource lands, so no
+//       keep-warm window is needed at all (what the coverage source does).
+//
+// #2116 and #2122 did NEITHER, and that is the whole defect class. `safeFetch`
+// (`shared/src/safety.ts`) is the repo's single guarded-fetch entry point, which makes its
+// callers a usable census. This gate requires every caller to be registered with the
+// mechanism that covers it, and requires the SITE COUNT to match — so a new fetch added to
+// an ALREADY-registered file still trips it, which a file-keyed allowlist alone would miss.
+//
+// Comments are stripped before counting. The header of this file records a sibling gate
+// that counted comment text and so carried two warning COMMENTS among its eleven "code"
+// entries; several files below say "safeFetch follows manually" in prose.
+//
+// Honest limit, stated so nobody over-reads a green: this catches a new `safeFetch` caller.
+// It does not catch an async resource that never goes through `safeFetch` (a raw `fetch`, a
+// worker message, an `ImageBitmap` decode). `safeFetch` is the census because it is already
+// the single guarded entry point, not because it is exhaustive.
+describe('arch ratchet: Gate-10 — every safeFetch caller is a classified async resource (#2160)', () => {
+  /** file → how many `safeFetch(` CALL SITES it has, and what covers them. Classified by
+   *  reading each site (#2160 comment 5477030153); the census was fully green when the
+   *  gate landed, so its first red is a genuine finding, not known debt. */
+  const REGISTRY: Record<string, { sites: number; why: string }> = {
+    'data/src/vector-tile-loader.ts': {
+      sites: 2,
+      why: '(a) VT tiles — source.hasPendingLoads() via the vt-fetch registration (pending-work.ts, #2149)',
+    },
+    'data/src/tile-select.ts': {
+      sites: 1,
+      why: '(a) raster image tiles — rasterRenderer.pendingLoadCount() via the raster-fetch registration (#2149)',
+    },
+    'map/src/text/sdf/pbf/glyph-pbf-cache.ts': {
+      sites: 1,
+      why: '(a) glyph PBF ranges — textStage.hasPendingGlyphLoads(), map.ts:4449 (#2116)',
+    },
+    'map/src/sprite/sprite-atlas-host.ts': {
+      sites: 2,
+      why: '(a) sprite atlas — iconStage.hasPendingAtlasLoad(), map.ts:4460 (#2122)',
+    },
+    'map/src/source-manager.ts': {
+      sites: 2,
+      why:
+        '(b) then (a): _fetchGeoJSONDoc/_runCustomLoader are pure helpers; the live caller is ' +
+        'the refresh: tick (:672) -> setSourceData, which invalidates at :1046. The voided ' +
+        're-attach at :1042 is safe ONLY because registerVtSource runs synchronously before ' +
+        'the first await (documented :1011-1015) — add an await ahead of it and this becomes ' +
+        'a real #2116-shaped bug with the loop idle between the invalidate and the register.',
+    },
+    'map/src/map.ts': {
+      sites: 3,
+      why:
+        'MIXED. :582 guardedFetch (coverage/S-111) is (b)+(a) since #2129/#2149: arrival still ' +
+        'invalidates, and each catalogue cell read now also holds a deadlined pending-work ' +
+        'ticket (coverage-source.ts readCatalogueItem → pending-work.ts). ' +
+        ':4221 (.xgb scene binary) and :4295 (public loadSource) are ' +
+        'not on the frame path: both are awaited by an explicit host load call.',
+    },
+    'map/src/style-import-resolver.ts': {
+      sites: 1,
+      why: 'not on the frame path — resolved during style parse, before any frame depends on it',
+    },
+  }
+
+  /** `safeFetch(` call sites in `src`, comments stripped. Pure so the decoy test below can
+   *  feed it a literal instead of hunting for a file with the right shape. */
+  function countSafeFetchSites(src: string): number {
+    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+    return (stripped.match(/safeFetch\s*\(/g) ?? []).length
+  }
+
+  /** rel-path → site count, for every non-test module under map/src + data/src. */
+  function census(): Map<string, number> {
+    const found = new Map<string, number>()
+    for (const dir of ['map/src', 'data/src']) {
+      for (const abs of walkTs(join(ROOT, dir))) {
+        const n = countSafeFetchSites(readFileSync(abs, 'utf8'))
+        if (n > 0) found.set(rel(abs), n)
+      }
+    }
+    return found
+  }
+
+  it('every safeFetch caller is registered, with a matching site count', () => {
+    const problems: string[] = []
+    for (const [file, n] of [...census()].sort()) {
+      const entry = REGISTRY[file]
+      if (!entry) {
+        problems.push(
+          `${file}: ${n} safeFetch site(s), UNREGISTERED — say what keeps the loop alive for ` +
+            `this resource: (a) a deadline-bounded keep-warm term, or (b) invalidate() on ` +
+            `arrival. A resource that does neither lands on a stopped loop and is invisible ` +
+            `until the next interaction (#2116, #2122).`,
+        )
+      } else if (entry.sites !== n) {
+        problems.push(
+          `${file}: ${n} safeFetch site(s), registered as ${entry.sites} — a site was added or ` +
+            `removed. Re-read the new one and confirm it is covered, then update the count. ` +
+            `Current entry: ${entry.why}`,
+        )
+      }
+    }
+    expect(problems, `unclassified async resources:\n${problems.join('\n\n')}`).toEqual([])
+  })
+
+  it('every REGISTRY key still resolves to a real caller (#996 stale-allowlist guard)', () => {
+    // Without this the registry rots silently the first time a file moves or a fetch is
+    // deleted — the exact way two gates in this file's header went vacuously green.
+    const found = census()
+    const stale = Object.keys(REGISTRY)
+      .filter((f) => !found.has(f))
+      .sort()
+    expect(
+      stale,
+      `these REGISTRY keys no longer contain a safeFetch call — the file moved, or the fetch ` +
+        `was removed. Delete the entry (or re-key it) so the registry keeps describing the ` +
+        `real census:\n${stale.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('the detector is live — it counts real calls and ignores commented-out ones', () => {
+    // A counter that matched nothing would pass the first test on every file forever.
+    expect(
+      countSafeFetchSites(
+        readFileSync(join(ROOT, 'map/src/text/sdf/pbf/glyph-pbf-cache.ts'), 'utf8'),
+      ),
+      'glyph-pbf-cache.ts calls safeFetch once (#2116); a detector that misses it greens everything',
+    ).toBe(1)
+    // Planted decoy: prose and a commented-out call must not count, or the census inflates
+    // and a real new fetch hides inside a count that already looked right.
+    expect(
+      countSafeFetchSites(
+        ['// safeFetch(url) — commented out', '/* await safeFetch(u) */', 'const x = 1'].join('\n'),
+      ),
+      'commented-out calls must not count',
+    ).toBe(0)
+    expect(countSafeFetchSites('await safeFetch(url, undefined, "x")'), 'a real call counts').toBe(
+      1,
+    )
+  })
+})

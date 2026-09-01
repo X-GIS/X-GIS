@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" role="img" aria-label="Two dashed instanced quads generously bound a two-segment polyline; inside them the fragment shader's signed distance field carves the true stroke with a round join at the shared vertex and a butt cap at the start.">
+  <!-- Hand-authored figure (not a Mermaid render): the line renderer's
+       quad-bound vs fragment-SDF carve. Dark-theme palette to match
+       site/diagrams/mermaid.config.json. -->
+  <style>
+    text { font-family: 'DM Mono', ui-monospace, monospace; fill: #cbd5e1; font-size: 15px; }
+    .dim { fill: #94a3b8; font-size: 14px; }
+  </style>
+
+  <!-- ghost quads: the conservative per-segment bound the CPU emits -->
+  <polygon points="85,331 473,153 448,99 60,276" fill="rgba(148,163,184,0.07)"
+           stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <polygon points="389,160 860,291 876,233 405,102" fill="rgba(148,163,184,0.07)"
+           stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+
+  <!-- the stroke the fragment SDF actually carves -->
+  <path d="M 80 300 L 430 140 L 860 260" fill="none" stroke="#f59e0b"
+        stroke-width="40" stroke-linejoin="round" stroke-linecap="butt" opacity="0.92"/>
+  <!-- centerline -->
+  <path d="M 80 300 L 430 140 L 860 260" fill="none" stroke="#78350f"
+        stroke-width="2" stroke-dasharray="2 6" opacity="0.9"/>
+
+  <!-- round-join circle union, highlighted -->
+  <circle cx="430" cy="140" r="20" fill="none" stroke="#fef3c7" stroke-width="1.5"
+          stroke-dasharray="4 4"/>
+
+  <!-- callouts -->
+  <text x="120" y="70">CPU: one instanced quad per segment —</text>
+  <text x="120" y="92" class="dim">a generous bound; overdraw is the cheap failure mode</text>
+  <line x1="215" y1="102" x2="240" y2="180" stroke="#64748b" stroke-width="1.2"/>
+
+  <text x="520" y="52">round join = circle UNION in the SDF</text>
+  <line x1="510" y1="58" x2="446" y2="126" stroke="#64748b" stroke-width="1.2"/>
+
+  <text x="40" y="368">butt cap = half-plane clip</text>
+  <line x1="95" y1="352" x2="88" y2="322" stroke="#64748b" stroke-width="1.2"/>
+
+  <text x="520" y="360">fragment SDF carves body · joins · caps · dashes</text>
+  <text x="520" y="382" class="dim">AA feather = 0.5 device px</text>
+  <line x1="640" y1="344" x2="700" y2="290" stroke="#64748b" stroke-width="1.2"/>
+</svg>

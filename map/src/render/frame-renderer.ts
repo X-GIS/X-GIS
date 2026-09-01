@@ -339,6 +339,11 @@ export class FrameRenderer {
     return PipelineFactory.getFeatureLayoutEntries()
   }
 
+  /** #2042 INC-4b — public mirror of the factory's split-bind fill layout
+   *  entries for the drift test's sibling pin. Same array; do not duplicate. */
+  static readonly SPLIT_FILL_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] =
+    PipelineFactory.SPLIT_FILL_LAYOUT_ENTRIES
+
   /** Rebuild all pipelines + invalidate shader variant cache. Called by
    *  `map.setQuality()` when MSAA or picking flip at runtime — both force
    *  a pipeline `sampleCount` / fragment-target-count change that's baked
