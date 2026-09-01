@@ -165,3 +165,16 @@ export const MAPBOX_COVERAGE: readonly CoverageSection[] = [
 export function flattenCoverage(): readonly CoverageEntry[] {
   return MAPBOX_COVERAGE.flatMap((s) => s.entries)
 }
+
+/** The same enumeration, each entry tagged with the section it came from.
+ *  `name` is NOT unique across sections — `resampling` is both the MapLibre v3
+ *  raster alias (paint-raster, supported) and the hillshade DEM sampler
+ *  (paint-hillshade, partial) — so a consumer that resolves a row against a
+ *  LAYER-SCOPED table must use this and not `flattenCoverage()`, whose first
+ *  by-name match silently picks whichever section is spread first (#2216). */
+export function flattenCoverageBySection(): readonly {
+  readonly section: string
+  readonly entry: CoverageEntry
+}[] {
+  return MAPBOX_COVERAGE.flatMap((s) => s.entries.map((entry) => ({ section: s.id, entry })))
+}

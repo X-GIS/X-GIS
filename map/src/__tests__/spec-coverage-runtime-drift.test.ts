@@ -13,8 +13,44 @@
 // reaches production.
 
 import { describe, expect, it } from 'vitest'
-import { flattenCoverage } from '../../../compiler/src/convert/spec-coverage'
+import {
+  flattenCoverage,
+  flattenCoverageBySection,
+} from '../../../compiler/src/convert/spec-coverage'
 import { RUNTIME_CAPABILITIES } from '../capabilities'
+
+/** Section id → the ONE capability `layerType` that section's rows describe.
+ *  A coverage row is identified by (section, name), never by `name` alone:
+ *  `resampling` exists twice — paint-raster (the MapLibre v3 raster alias,
+ *  supported) and paint-hillshade (the DEM sampler, partial) — and a by-name
+ *  lookup returns whichever is spread first, so the moment the hillshade row
+ *  flips to "supported" the contradiction check below would resolve the RASTER
+ *  capability, find supported=true, and pass vacuously while
+ *  map/src/capabilities/hillshade.ts still said false (#2216).
+ *
+ *  Sections describing MORE than one layer type (layout-fill-line) or none
+ *  (expressions / filters / top-level / layer-common / source-types /
+ *  layer-types) are deliberately absent. Their rows keep the by-name lookup,
+ *  which is exact wherever a name matches at most one capability row — and the
+ *  ambiguity gate below is what stops that assumption from rotting. */
+const SECTION_LAYER_TYPE: Readonly<Record<string, string>> = {
+  'paint-background': 'background',
+  'paint-circle': 'circle',
+  'paint-fill': 'fill',
+  'paint-fill-extrusion': 'fill-extrusion',
+  'paint-heatmap': 'heatmap',
+  'paint-hillshade': 'hillshade',
+  'paint-line': 'line',
+  'paint-raster': 'raster',
+  'paint-symbol': 'symbol',
+  'layout-symbol': 'symbol',
+}
+
+/** Every capability row (constant variant) a coverage row named `name` could be
+ *  about. More than one ⇒ the name alone does not identify it. */
+function constantCaps(name: string): typeof RUNTIME_CAPABILITIES {
+  return RUNTIME_CAPABILITIES.filter((c) => c.property === name && c.variant === 'constant')
+}
 
 // Properties tracked by both tables. The capability table is more
 // granular (per value-form), so a "supported" spec-coverage entry is
@@ -36,9 +72,14 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     const drifts: string[] = []
     for (const cap of RUNTIME_CAPABILITIES) {
       if (cap.variant !== 'constant' || !cap.supported) continue
-      const specEntry = flattenCoverage().find(
-        (e) => e.name === specName(cap.layerType, cap.property),
-      )
+      // Layer-scoped first (#2216): a bare name like `resampling` appears in two
+      // sections, and the capability row knows which layer type it is about.
+      const specEntry =
+        flattenCoverageBySection().find(
+          (r) =>
+            r.entry.name === specName(cap.layerType, cap.property) &&
+            SECTION_LAYER_TYPE[r.section] === cap.layerType,
+        )?.entry ?? flattenCoverage().find((e) => e.name === specName(cap.layerType, cap.property))
       if (!specEntry) {
         drifts.push(
           `${cap.layerType}.${cap.property} → runtime supports constant, but no spec-coverage entry`,
@@ -265,19 +306,57 @@ describe('spec-coverage ↔ runtime capability drift', () => {
     //     surfaces a per-shape warning); the partial state is
     //     reflected in spec-coverage notes.
     const contradictions: string[] = []
-    for (const e of flattenCoverage()) {
+    for (const { section, entry: e } of flattenCoverageBySection()) {
       if (e.status !== 'supported') continue
-      const cap = RUNTIME_CAPABILITIES.find(
-        (c) => c.property === e.name && c.variant === 'constant',
-      )
-      if (!cap) continue // no capability row for this property (e.g. expression operator) — orphan test handles
+      const matches = constantCaps(e.name)
+      if (matches.length === 0) continue // e.g. an expression operator — the orphan test handles those
+      // One match ⇒ the name identifies it. Several ⇒ the SECTION decides which
+      // (#2216); refusing to guess is the point — picking the first match is the
+      // vacuity this replaced.
+      const cap =
+        matches.length === 1
+          ? matches[0]!
+          : matches.find((c) => c.layerType === SECTION_LAYER_TYPE[section])
+      if (!cap) {
+        contradictions.push(
+          `${section}/${e.name}: matches ${matches.length} capability rows (${matches
+            .map((m) => m.layerType)
+            .join(
+              ', ',
+            )}) and this section resolves to no layer type — add "${section}" to SECTION_LAYER_TYPE so the right row is checked (#2216).`,
+        )
+        continue
+      }
       if (!cap.supported) {
         contradictions.push(
-          `${e.name}: spec-coverage="supported" but capability(constant).supported=false (${cap.layerType}). Demote to "partial" with explanation.`,
+          `${section}/${e.name}: spec-coverage="supported" but capability(constant).supported=false (${cap.layerType}). Demote to "partial" with explanation.`,
         )
       }
     }
     expect(contradictions, contradictions.join('\n')).toEqual([])
+  })
+
+  it('every coverage row whose property matches 2+ capability rows is disambiguated by its section (#2216)', () => {
+    // Runs over rows of EVERY status, so a new collision is caught when it is
+    // INTRODUCED rather than when someone later flips it to "supported" — at
+    // which point the contradiction check above would have resolved the wrong
+    // capability row and passed. Today's collision (`resampling`: raster +
+    // hillshade) is disambiguated because both sections declare a layer type.
+    const ambiguous: string[] = []
+    for (const { section, entry } of flattenCoverageBySection()) {
+      const matches = constantCaps(entry.name)
+      if (matches.length < 2) continue
+      const lt = SECTION_LAYER_TYPE[section]
+      if (lt !== undefined && matches.some((c) => c.layerType === lt)) continue
+      ambiguous.push(
+        `${section}/${entry.name} matches capability rows [${matches
+          .map((m) => m.layerType)
+          .join(', ')}] and its section declares ${
+          lt === undefined ? 'no layer type' : `layerType "${lt}", which none of them carry`
+        }`,
+      )
+    }
+    expect(ambiguous, ambiguous.join('\n')).toEqual([])
   })
 
   it('no runtime capability with supported=true has a contradictory note', () => {
