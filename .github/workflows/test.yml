@@ -36,6 +36,20 @@ on:
     branches: [main]
   # `workflow_dispatch` keeps a manual on-demand run available for any ref.
   workflow_dispatch:
+  # BASE-RED PATROL (#2135). The render shards do not run on `push` (see that
+  # job for why), so before this trigger existed a combination that was green on
+  # every PR and red once MERGED was invisible to main's own CI — it could only
+  # surface inside somebody else's pull request, which is exactly how #2135 was
+  # found, five runtime merges after it landed.
+  #
+  # Not `push: main`: that leg runs ~60 min, and `changelog.yml` lands a
+  # regeneration push ~90 s after every code merge, so a per-merge render run
+  # would be superseded out of the pending slot on essentially every merge it
+  # exists to check (#1963) — the same hollowing-out the `concurrency` note
+  # below describes, one leg down. A schedule bounds base-red exposure to the
+  # interval at 4 runs/day instead of ~15, and never contends with a merge.
+  schedule:
+    - cron: '0 */6 * * *'
 
 # Cancel an older in-flight run when a new commit is pushed to the same ref —
 # iterative pushes used to leave 3-5min runs burning in parallel.
@@ -59,12 +73,28 @@ on:
 # `paths-ignore: CHANGELOG.md`) landing ~90 s later. So under `true` the guard
 # would have been cancelled on essentially every code merge it exists to check.
 # Conditioned on the event, PR behaviour is untouched — iterative pushes still
-# cancel — and main runs queue instead. They are bounded: `render-gate` opts out
-# of push, so a main run is minutes, well inside the ~22 min mean inter-merge
-# interval (#1842).
+# cancel. Main runs no longer queue at all; see the per-SHA note below. They stay
+# bounded either way: `render-gate` opts out of push, so a main run is minutes.
+#
+# THE GROUP IS PER-SHA OFF THE PR PATH (#1963). `cancel-in-progress: false` was
+# not enough: GitHub keeps at most ONE pending run per concurrency group, and a
+# newer run cancels the pending one regardless of that flag — the flag governs
+# the IN-PROGRESS run only. Measured on `bd677c2e`, a code-bearing merge:
+#
+#   03:48:31  2fe41502 (a merge)      -> starts, holds the group, 19 jobs
+#   03:49:35  e3db2c2c (changelog)    -> queued PENDING behind it
+#   03:49:59  bd677c2e (a merge)      -> cancels e3db2c2c at 03:50:01
+#   03:51:06  f3762255 (changelog)    -> cancels bd677c2e at 03:51:07
+#
+# `list_workflow_jobs(bd677c2e)` returned `total_count: 0` — that merge was
+# never checked at all. Since the changelog regeneration follows every code
+# merge by ~90 s, any two merges inside one main-run window guarantee the
+# second gets zero coverage. Giving each push/schedule run its own group
+# removes the shared pending slot entirely; PR runs keep the per-ref group so
+# iterative pushes still cancel their own predecessor.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Cheap filter job (sub-5s, no bun/build) that decides which downstream jobs
@@ -86,7 +116,12 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      render: ${{ steps.filter.outputs.render }}
+      # A scheduled or manually dispatched run has no diff base to filter
+      # against — the point of those runs is the TIP, not a change — so `render`
+      # is forced on. Without this the shards would check out, install, and then
+      # `if`-skip every step, reporting green having run nothing: the #2135
+      # vacuity this patrol exists to end, reintroduced by its own plumbing.
+      render: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'true' || steps.filter.outputs.render }}
       code: ${{ steps.filter.outputs.code }}
       site: ${{ steps.filter.outputs.site }}
     steps:
@@ -795,11 +830,12 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     name: render-shard (${{ matrix.shard }}/6)
-    # PR-only, unlike every other job here. This is the one leg that can outlast
-    # the merge cadence — #1862's took 63 min against the ~22 min mean inter-merge
-    # interval measured in #1842 — so on `push: main` the `concurrency` group above
-    # would cancel it before it reported, and a gate that never reports is not a
-    # gate. The post-merge guard is therefore the FAST legs: they are what
+    # Not on `push`, unlike every other job here. This is the one leg that can
+    # outlast the merge cadence — #1862's took 63 min against the ~22 min mean
+    # inter-merge interval measured in #1842 — so a per-merge render run would be
+    # superseded by the changelog push that follows every merge, and a gate that
+    # never reports is not a gate. It runs on the PR, and on the 6-hourly
+    # `schedule` that patrols main's tip for base-red (#2135). The post-merge guard is therefore the FAST legs: they are what
     # `test-result` aggregates, and they are what would have caught #1864 (a
     # `TS2305` that `typecheck` reached 1m23s in). A shader regression stays gated
     # where it CAN be gated — on the pull request, where this job still runs.
@@ -1327,9 +1363,11 @@ jobs:
   # every leg succeeded, `failure` if any failed, `skipped` if the whole job was
   # skipped.
   #
-  # `if: always()` because the shards are PR-only. On `push: main` they skip, this
+  # `if: always()` because the shards do not run on `push`. There they skip, this
   # job runs, reads `skipped`, and reports green in seconds — preserving the push
-  # opt-out that bounds the post-merge guard's cost, while still posting the context.
+  # opt-out that bounds the post-merge guard's cost, while still posting the
+  # context. On a `schedule` run they DO expand, so a green render-gate there is
+  # the one that carries information about main's tip (#2135).
   #
   # `cancelled` fails, for the reason spelled out at length in `test-result`: passing
   # on it would let a cancelled run turn a required context green with nothing having
