@@ -1732,7 +1732,13 @@ const CEILINGS: Record<string, number> = {
   // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
-  'map/src/render/hillshade-renderer.ts': 850,
+  // 850→742 (#2268 / D5 INC-0): DEM residency — the tile cache + byte accounting,
+  // both ledgers, the URL template/scheme and the whole fetch path — moved to
+  // dem-tile-store.ts. The file sat at EXACTLY its ceiling, so nothing could be
+  // added to it at all; that is why the extraction is a precondition for the
+  // terrain track rather than tidying. LOWERED per the shrink-only rule, measured
+  // post-prettier (`wc -l`) on the COMMITTED tree.
+  'map/src/render/hillshade-renderer.ts': 742,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
