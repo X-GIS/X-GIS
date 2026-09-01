@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 819fba2be3369a966b891335d0b54a277850aca4
+  Generated from: c8226eab3702c0a81ee1e4bf82e0eaaace777c48
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 819fba2be336
+    bun scripts/emit-changelog.ts --since c8226eab3702
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** _icons-gl2-gate counts the icon draw's own pixels, not the label's (#2223) ([#2232](https://github.com/X-GIS/X-GIS/pull/2232)) `c8226ea`
 - **test:** resolve a coverage row's capability by (layerType, property), not by name (#2216) ([#2234](https://github.com/X-GIS/X-GIS/pull/2234)) `819fba2`
 - **e2e:** awaitMapIdle polls rAF instead of resolving off a stale idle flag (#2101) ([#2230](https://github.com/X-GIS/X-GIS/pull/2230)) `4685144`
 - **map:** raster and DEM opacity resolve against the InputStore ([#2218](https://github.com/X-GIS/X-GIS/pull/2218)) `290eafe`
