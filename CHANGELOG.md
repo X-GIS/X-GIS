@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 96eba994c98fc61eef6bec29a85221a0a2003b9b
+  Generated from: b1174a2f18852ac2de490f063524404cf38dd548
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 96eba994c98f
+    bun scripts/emit-changelog.ts --since b1174a2f1885
 -->
 
 # Changelog
@@ -65,6 +65,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`
 - **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
 - **compiler:** check spec-coverage rows against the tree they describe ([#2178](https://github.com/X-GIS/X-GIS/pull/2178)) `bc5644b`
 
