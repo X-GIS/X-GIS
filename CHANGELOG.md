@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 702cd726a1293148d54ebf36a76aaa886e888739
+  Generated from: 50a0a8a5a5d88fe291461ac66dae827aa1f20a69
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 702cd726a129
+    bun scripts/emit-changelog.ts --since 50a0a8a5a5d8
 -->
 
 # Changelog
@@ -35,6 +35,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **rhi-webgl2:** bound both axes of the storage data texture by the device limit (#2111) ([#2225](https://github.com/X-GIS/X-GIS/pull/2225)) `50a0a8a`
 - **site:** rebase root-absolute src/href inside raw HTML blocks ([#2212](https://github.com/X-GIS/X-GIS/pull/2212)) `9f641e0`
 - **compiler:** split zoom-interpolated icon-translate per axis so it stops snapping ([#2200](https://github.com/X-GIS/X-GIS/pull/2200)) `ebb2fea`
 - **compiler:** fill-antialias gates the fill-outline draw, not MSAA ([#2194](https://github.com/X-GIS/X-GIS/pull/2194)) `260f77e`
