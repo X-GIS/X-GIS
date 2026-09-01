@@ -1248,6 +1248,9 @@ export class VectorTileRenderer {
       return missing
     }
     const opacity = resolvedShow.opacity
+    // #1999 — render()'s twin assignment is below the immediate-arm return, so on
+    // this backend the lane is only ever what THIS line puts in it.
+    this.currentFillAntialias = resolvedShow.fillAntialias ? 1 : 0
     // A data-driven fill's alpha lives inside the expression, so there is no CPU
     // alpha to threshold on — 1 is the "draw it, the shader decides" stand-in.
     const fillA = (fill?.[3] ?? 1) * opacity
@@ -1315,9 +1318,9 @@ export class VectorTileRenderer {
       )
       B.set.cam_h(anchor.camXH, anchor.camYH)
       B.set.cam_l(anchor.camXL, anchor.camYL)
-      // .w lanes carry the antialias / vertical-gradient flags
-      // (antialias on, gradient inert on this path).
-      B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, 1)
+      // .w lanes: antialias from the field above (#1999 — a literal here made
+      // `fill-antialias: false` inert); gradient stays literal, no extrusion draw.
+      B.set.cam_ecef_off_h(anchor.ecefXH, anchor.ecefYH, anchor.ecefZH, this.currentFillAntialias)
       B.set.cam_ecef_off_l(anchor.ecefXL, anchor.ecefYL, anchor.ecefZL, 1)
       this._writeRtcAnchors(anchor)
       B.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)

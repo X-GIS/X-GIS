@@ -28,6 +28,9 @@
 // reach the GPU is gone, and the test catches it before any render.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { resolveShow } from '../resolved-show'
 import {
   installWebGPUStub,
@@ -203,12 +206,14 @@ describe('fill-antialias opt-out wiring (uf[55] = currentFillAntialias)', () => 
 // compiler/src/__tests__/fill-antialias-expr.test.ts) and stages the resolved
 // flag through the REAL renderTileKeys, asserting the lane flips at z9.
 //
-// Scope note (honest): the ONE hop this GPU-free harness cannot execute is
+// Scope note (honest): the hop this GPU-free harness cannot execute is
 // render()'s own `currentFillAntialias = resolvedShow.fillAntialias ? 1 : 0`
 // statement — render() needs an attached tile source before it reaches that
 // line. Its two halves are each pinned: the resolve by
 // resolved-show.test.ts's "flips exactly at the authored zoom 9", the lane
-// write by the three cases above.
+// write by the three cases above. Nor does any of this reach the WebGL2 arm,
+// which has its own pack and never runs that statement — see the #1999 block
+// at the bottom of this file.
 const OFM_LANDCOVER_WOOD_AA = {
   kind: 'zoom-interpolated',
   stops: [
@@ -254,5 +259,66 @@ describe('fill-antialias zoom expression → the same uniform lane (#1995)', () 
     expect(laneAtZoom(false, 9)).toBe(0)
     expect(laneAtZoom(true, 9)).toBe(1)
     expect(laneAtZoom(undefined, 9)).toBe(1)
+  })
+})
+
+// ─── #1999: the WebGL2 arm packs the same lane, and used to hardcode it ──────
+//
+// Everything above drives `renderTileKeys`, and EVERY call site of that method
+// is inside `render()` — so none of it can witness the WebGL2 arm. That arm is
+// `renderFillsRhi`, a twin with its OWN `cam_ecef_off_h` pack, and it used to
+// write the .w lane as the literal `1` with a comment saying "antialias on".
+// The result: `fill-antialias: false` was inert on WebGL2, and the sibling
+// field `currentFillAntialias` was never even read there, so the fix #1999's
+// body proposed (assigning the field somewhere in the immediate arm) would have
+// changed nothing on screen while passing any field-level assertion.
+//
+// A SOURCE gate, for the reason paintless-show-acquires.test.ts states about
+// this exact method: `renderFillsRhi` needs a real device, source, layer cache
+// and camera, and a stub deep enough to execute it would pin the mock rather
+// than the code. So the property is asserted about the twin's TEXT — that it
+// derives the lane and packs what it derived, in that order.
+const VTR_SRC = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'vector-tile-renderer.ts'),
+  'utf8',
+)
+
+/** The `renderFillsRhi` body, from its signature to the next method. */
+function fillsRhiBody(): string {
+  const at = VTR_SRC.indexOf('  renderFillsRhi(')
+  expect(at, 'renderFillsRhi still exists').toBeGreaterThan(-1)
+  const end = VTR_SRC.indexOf('\n  renderLinesRhi(', at)
+  expect(end, 'renderLinesRhi still follows it').toBeGreaterThan(at)
+  return VTR_SRC.slice(at, end)
+}
+
+describe('the WebGL2 fills arm packs the resolved antialias lane (#1999)', () => {
+  const body = fillsRhiBody()
+  const iDerive = body.indexOf('this.currentFillAntialias = resolvedShow.fillAntialias')
+  const iPack = body.indexOf('B.set.cam_ecef_off_h(')
+
+  it('derives the lane from the PER-FRAME resolved show', () => {
+    // Fail-before: delete the assignment and this is -1. render()'s own
+    // assignment cannot stand in — it sits below the immediate-arm early
+    // return, so it is unreachable on this backend.
+    expect(
+      iDerive,
+      'renderFillsRhi must assign currentFillAntialias from resolvedShow.fillAntialias',
+    ).toBeGreaterThan(-1)
+  })
+
+  it('packs what it derived, not a literal', () => {
+    expect(iPack, 'renderFillsRhi still packs cam_ecef_off_h').toBeGreaterThan(-1)
+    const call = body.slice(iPack, body.indexOf(')', body.indexOf('ecefZH', iPack)) + 1)
+    // Fail-before: restore the pre-#1999 `..., anchor.ecefZH, 1)` and this fails
+    // naming the arm — the lane would carry 1 for every show again.
+    expect(
+      call.includes('this.currentFillAntialias'),
+      `the WebGL2 fills arm must pack currentFillAntialias into cam_ecef_off_h.w, not a constant — got: ${call.replace(/\s+/g, ' ')}`,
+    ).toBe(true)
+  })
+
+  it('derives BEFORE it packs (a later assignment would pack the prior frame)', () => {
+    expect(iDerive, 'the assignment must precede the pack').toBeLessThan(iPack)
   })
 })
