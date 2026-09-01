@@ -1,0 +1,6 @@
+flowchart TD
+  a["absolute Mercator metres<br/>~1.4e7 — one f32 ULP ≈ 1.7 m"] -- "① vertex − tileCenter · f64, CPU" --> b["tile-local metres<br/>≤ tile extent"]
+  b -- "② quantize" --> c["2×u16 per axis<br/>step ≈ 0.57 µm @ z14"]
+  cam["camera anchor"] -- "③ tileCenter − camCenter · f64 → hi/lo" --> e["RTC offset<br/>split hi + lo"]
+  c --> f["GPU only adds SMALL numbers<br/>bound = 512·2^−23 ≈ 6e−5 px — the zoom cancels"]
+  e --> f

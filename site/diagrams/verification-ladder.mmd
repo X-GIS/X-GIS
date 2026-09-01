@@ -1,0 +1,4 @@
+flowchart TD
+  r1["rung 1 — directional<br/>DC &gt; 0 and D1 &lt; D0"] --> r2["rung 2 — zero diff<br/>valid only after measuring the noise floor"]
+  r2 --> r3["rung 3 — hash equality<br/>three captures, one md5"]
+  det["engineered determinism<br/>pinned camera · pumped convergence ·<br/>software raster · chrome-free capture"] -.-> r3
