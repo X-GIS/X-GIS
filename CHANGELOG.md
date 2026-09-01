@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: fdeb8cf8242c2fdc69ac30b153565cc61d33570b
+  Generated from: c68f0e2f1f20354a3f348f2387fcd095e34b14c9
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since fdeb8cf8242c
+    bun scripts/emit-changelog.ts --since c68f0e2f1f20
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** make Mapbox ["array", …] a real type assertion ([#2202](https://github.com/X-GIS/X-GIS/pull/2202)) `9da727d`
 - **compiler:** fog and transition leave the ignored-roots lump for precise warnings ([#2199](https://github.com/X-GIS/X-GIS/pull/2199)) `fdeb8cf`
 - **map:** keepLoopWarm and the burst exit read the registry; legacy hasPendingSourceWork deleted (#2149 increment 6) ([#2195](https://github.com/X-GIS/X-GIS/pull/2195)) `e4db558`
 - **map:** the VT family joins the pending-work registry (#2149 increment 5) ([#2190](https://github.com/X-GIS/X-GIS/pull/2190)) `b0df728`
@@ -33,6 +34,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **site:** rebase root-absolute src/href inside raw HTML blocks ([#2212](https://github.com/X-GIS/X-GIS/pull/2212)) `9f641e0`
+- **compiler:** split zoom-interpolated icon-translate per axis so it stops snapping ([#2200](https://github.com/X-GIS/X-GIS/pull/2200)) `ebb2fea`
 - **compiler:** fill-antialias gates the fill-outline draw, not MSAA ([#2194](https://github.com/X-GIS/X-GIS/pull/2194)) `260f77e`
 - **data:** inject $geometry into the vector-tile slice filter ([#2192](https://github.com/X-GIS/X-GIS/pull/2192)) `74610ed`
 - **convert:** *-translate-anchor spec default is map, not viewport ([#2180](https://github.com/X-GIS/X-GIS/pull/2180)) `867803d`
@@ -41,9 +44,20 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`
 - **compiler:** three spec-coverage rows that misdescribed the engine ([#2172](https://github.com/X-GIS/X-GIS/pull/2172)) `ddbe76d`
 
+#### docs
+
+- **site:** add diagram-first blog post "The engine in seven pictures" ([#2210](https://github.com/X-GIS/X-GIS/pull/2210)) `67fc326`
+- **tech:** add dual-edition technical deep-dive series ([#2206](https://github.com/X-GIS/X-GIS/pull/2206)) `3b843ff`
+
 #### test
 
+- **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
 - **compiler:** check spec-coverage rows against the tree they describe ([#2178](https://github.com/X-GIS/X-GIS/pull/2178)) `bc5644b`
+
+#### ci
+
+- patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
+- **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
 ### 2026-08
 

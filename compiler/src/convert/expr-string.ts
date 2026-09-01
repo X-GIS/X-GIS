@@ -57,15 +57,19 @@ export const literalHandler: ExprHandler = (v, warnings, recurse) => {
 
 export const arrayHandler: ExprHandler = (v, warnings, recurse) => {
   // Mapbox `["array", value]` / `["array", "type", value]` /
-  // `["array", "type", N, value]` — type assertion that returns
-  // the value if it's an array (with optional element-type / length
-  // checks). X-GIS arrays carry no per-element type tag so we
-  // just pass the underlying value through; the spec's "abort if
-  // not array" semantic is lost but for paint/filter use that's
-  // already implicit (an interpolate over a missing array would
-  // null-cascade anyway).
+  // `["array", "type", N, value]` — a type ASSERTION: the value comes
+  // back only when it IS an array (of the given element type and
+  // length). Lowers to the `assert_array` CPU builtin
+  // (eval/evaluator-helpers.ts callBuiltin), which fails to null.
+  // Pre-fix this dropped the assertion and returned the inner value on
+  // the theory that X-GIS arrays carry no per-element type tag — a
+  // GPU-lane fact about an op ir/classify.ts sends to per-feature-CPU,
+  // where `Array.isArray` and `typeof` see the real runtime value. The
+  // pass-through was not harmless either: `length` and `slice` both
+  // accept a string, so `["length", ["array", ["get","pts"]]]` measured
+  // a string property (5 for "abcde") instead of failing.
   // Last arg is always the value; preceding args are type/length
-  // metadata we ignore.
+  // metadata.
   // Pre-fix a bare `["array"]` (no value) picked v[0] = "array"
   // itself and emitted the literal string `"array"` as a quoted
   // identifier. Require at least one arg beyond the op.
@@ -73,8 +77,20 @@ export const arrayHandler: ExprHandler = (v, warnings, recurse) => {
     warnings.push(`Malformed ["array"] expression: missing inner value.`)
     return null
   }
-  const value = v[v.length - 1]
-  return recurse(value, warnings)
+  const value = recurse(v[v.length - 1], warnings)
+  if (value === null) return null
+  // Only the three spec item types are assertable. Anything else is a
+  // style Mapbox rejects at parse time; keep the arrayness half rather
+  // than dropping the expression. N rides with the type — the spec
+  // grammar has no length argument without one.
+  const itemType = v.length >= 3 ? v[1] : null
+  if (itemType !== 'string' && itemType !== 'number' && itemType !== 'boolean') {
+    return `assert_array(${value})`
+  }
+  const n = v.length >= 4 ? v[2] : null
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0
+    ? `assert_array(${value}, "${itemType}", ${n})`
+    : `assert_array(${value}, "${itemType}")`
 }
 
 export const typeCoercionHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op) => {

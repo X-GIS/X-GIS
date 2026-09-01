@@ -27,10 +27,20 @@ import { parse } from 'yaml'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
-type Job = { readonly if?: string; readonly needs?: readonly string[] }
+type Job = {
+  readonly if?: string
+  readonly needs?: readonly string[]
+  readonly outputs?: Readonly<Record<string, string>>
+}
 type Workflow = {
-  readonly on?: { readonly push?: { readonly branches?: readonly string[] } }
-  readonly concurrency?: { readonly 'cancel-in-progress'?: unknown }
+  readonly on?: {
+    readonly push?: { readonly branches?: readonly string[] }
+    readonly schedule?: readonly { readonly cron?: string }[]
+  }
+  readonly concurrency?: {
+    readonly group?: unknown
+    readonly 'cancel-in-progress'?: unknown
+  }
   readonly jobs: Readonly<Record<string, Job>>
 }
 
@@ -90,5 +100,63 @@ describe('the post-merge guard on main (#1872)', () => {
         'the commit that changed code, and the changelog regeneration makes that the ' +
         'normal path, not a race — see the timeline in test.yml`s concurrency note.',
     ).toBe(true)
+  })
+
+  // The arm above is the one that was NOT enough, and this is its correction.
+  //
+  // It watches a FLAG, and the flag was correct the whole time the guard was
+  // being hollowed out. `cancel-in-progress: false` does not stop a PENDING run
+  // from being superseded: GitHub keeps one pending slot per concurrency group
+  // and a newer run cancels the occupant, whatever that flag says. Measured on
+  // `bd677c2e` — a code-bearing merge whose run reported
+  // `list_workflow_jobs -> total_count: 0`, i.e. no job was ever created (#1963).
+  //
+  // A guard-run that is cancelled while pending and one that completes leave the
+  // flag assertion identically green, so it cannot distinguish the two states it
+  // is named for. What DOES distinguish them is the group: give each push its own
+  // and there is no shared slot to be evicted from.
+  it('a push run cannot be evicted from a shared pending slot', () => {
+    const group = testWorkflow().concurrency?.group
+    expect(
+      typeof group === 'string' && group.includes('github.sha'),
+      `\`concurrency.group\` is ${JSON.stringify(group)} — off the pull_request ` +
+        'path it must vary per commit (e.g. include `github.sha`). A group shared by ' +
+        'every push to main holds ONE pending run, and since a changelog regeneration ' +
+        'follows every code merge by ~90 s, the merge that changed code is the one ' +
+        'evicted — measured at zero jobs created on bd677c2e (#1963). ' +
+        '`cancel-in-progress: false` does not prevent this; only a distinct group does.',
+    ).toBe(true)
+  })
+
+  // #2135: the render shards do not run on `push`, so main's own CI cannot see a
+  // base-red. The schedule is what looks. Both halves are pinned because either
+  // one alone is vacuous: a schedule whose `render` filter is false checks out,
+  // installs, `if`-skips every step and reports green having rendered nothing.
+  it('a schedule patrols main for base-red, and its render filter is forced on', () => {
+    const wf = testWorkflow()
+    expect(
+      (wf.on?.schedule ?? []).length,
+      'test.yml has no `schedule:` trigger. The render shards opt out of `push` ' +
+        '(they outlast the merge cadence), so without a scheduled run nothing ever ' +
+        "renders main's tip — a combination green on every PR and red once merged " +
+        'is then only discoverable inside an unrelated pull request, which is how ' +
+        '#2135 was found, five runtime merges late.',
+    ).toBeGreaterThan(0)
+
+    const render = wf.jobs['changes']?.outputs?.render ?? ''
+    expect(
+      render.includes('schedule'),
+      `\`changes.outputs.render\` is ${JSON.stringify(render)} — it must force ` +
+        "'true' on a schedule. A scheduled run has no diff base, so a path filter " +
+        'reports no change and every shard step `if`-skips: the job reports GREEN ' +
+        'having rendered nothing. That is the same vacuity #2135 exists to end, ' +
+        'reintroduced by the patrol itself.',
+    ).toBe(true)
+
+    expect(
+      wf.jobs['render-shard']?.if ?? '',
+      'render-shard must still admit non-push events, or the schedule fires and ' +
+        'the shards skip anyway.',
+    ).toContain("!= 'push'")
   })
 })

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { collectPageErrors } from './_page-errors'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-baseline__')
@@ -18,11 +19,7 @@ type W = {
 test('raster RHI parity: legacy vs RHI path pixel-identical', async ({ page }) => {
   test.setTimeout(60_000)
   mkdirSync(OUT, { recursive: true })
-  const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text())
-  })
+  const errors = collectPageErrors(page)
 
   await page.setViewportSize({ width: 800, height: 800 })
   await page.goto('/demo.html?id=raster&e2e=1#3/30/10', { waitUntil: 'domcontentloaded' })

@@ -58,7 +58,12 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
     expect(bezierWarn).toContain('dense piecewise-linear')
   })
 
-  it('non-numeric values (colors) still warn and fold to linear', () => {
+  // #2166: hex-colour stops used to land on the fold path here too, so a
+  // zoom-axis colour ramp emitted the same two stops a ["linear"] ramp did.
+  // interpolateZoomStops now densifies them at the bezier-eased fraction, the
+  // way its data-driven twin already did. See
+  // interpolate-bezier-color-zoom.test.ts for the full chain.
+  it('hex-colour values densify instead of folding to linear', () => {
     const style = build([
       'interpolate',
       ['cubic-bezier', 0.42, 0, 0.58, 1],
@@ -67,6 +72,29 @@ describe('Mapbox interpolate-cubic-bezier conversion → densified stops', () =>
       '#ff0000',
       20,
       '#0000ff',
+    ])
+    const warnings: string[] = []
+    convertMapboxStyle(style as unknown as string, {
+      coverage: { sources: [], layers: [], warnings },
+    })
+    expect(
+      warnings.find((w) => w.includes('cubic-bezier') && w.includes('colour stops approximated')),
+      `expected the colour-densify note; got: ${warnings.join('\n')}`,
+    ).toBeDefined()
+    expect(warnings.filter((w) => w.includes('cubic-bezier') && w.includes('folded'))).toEqual([])
+  })
+
+  it('non-numeric, non-hex values still warn and fold to linear', () => {
+    // An expression-valued stop is the genuine residual: its eased sample
+    // cannot be computed until feature eval.
+    const style = build([
+      'interpolate',
+      ['cubic-bezier', 0.42, 0, 0.58, 1],
+      ['zoom'],
+      10,
+      ['get', 'w0'],
+      20,
+      16,
     ])
     const warnings: string[] = []
     convertMapboxStyle(style as unknown as string, {

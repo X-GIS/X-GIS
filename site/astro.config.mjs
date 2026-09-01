@@ -29,8 +29,28 @@ function rehypeBaseLinks() {
     BASE && url.startsWith('/') && !url.startsWith('//') && !url.startsWith(BASE + '/')
       ? BASE + url
       : url
+  // A LITERAL HTML block in markdown (e.g. a `<figure><img src="/diagrams/x.svg">`
+  // figure) does not lower to a hast `element` at this point — it survives as ONE
+  // opaque `raw` node whose `value` is the whole HTML string. @astrojs/markdown-
+  // remark's own processor (dist/index.js) runs every user rehypePlugin — this one
+  // included — BEFORE its internal `rehype-raw` pass that turns `raw` nodes into
+  // real elements; that pass is what rehypeHeadingIds's sibling comment above already
+  // documents happening for Astro's id injector. So the `element` branch below never
+  // sees these `img`/`a` tags, and their `src`/`href` ship un-rebased — confirmed live:
+  // every `<figure><img src="/diagrams/…">` in the blog 404'd under the GitHub Pages
+  // `/X-GIS` base, while markdown-native `![]()` / `[]()` (which DO lower straight to
+  // `element` nodes) were unaffected. Rewrite raw HTML by regex on the same `rebase`
+  // policy instead of walking a tree that does not exist yet.
+  const rebaseRawHtml = (html) =>
+    html.replace(
+      /((?:src|href)=)(["'])(\/[^"']*)\2/g,
+      (_m, attr, q, url) => `${attr}${q}${rebase(url)}${q}`,
+    )
   return (tree) => {
     const walk = (node) => {
+      if (node.type === 'raw' && typeof node.value === 'string') {
+        node.value = rebaseRawHtml(node.value)
+      }
       if (node.properties) {
         if (node.tagName === 'a' && typeof node.properties.href === 'string') {
           node.properties.href = rebase(node.properties.href)

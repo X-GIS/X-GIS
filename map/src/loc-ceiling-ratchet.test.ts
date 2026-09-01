@@ -2185,7 +2185,16 @@ const CEILINGS: Record<string, number> = {
   // 1363→1357: the text-pitch-alignment gap report (authored "map" AND the
   // spec default chain that resolves to it) moved out to
   // layers-helpers.pitchAlignmentGapWarning, net-shrinking the caller.
-  'compiler/src/convert/layers-symbol.ts': 1357,
+  // 1357→1378 (#2166 icon-translate): the per-axis vec2 split on the
+  // non-constant icon-translate arm — the isZoomInterpCandidate pre-gate, the
+  // two vec2AxisZoomInterp lifts, the array-literal re-pair, and the comment
+  // recording WHY this path re-pairs inside one binding while fill-/line-
+  // translate emit an x/y utility pair. That asymmetry is the part a
+  // re-derivation gets wrong, so it is written down rather than inferred.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count — headroom is
+  // re-justified per phase, never banked. RE-MEASURE after any merge with a
+  // branch that also raised this key.
+  'compiler/src/convert/layers-symbol.ts': 1378,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2227,7 +2236,14 @@ const CEILINGS: Record<string, number> = {
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
   'compiler/src/ir/render-node.ts': 1001,
-  'compiler/src/convert/paint-helpers.ts': 826,
+  // 826→876→907 (#2166, and its review round): the cubic-bezier zoom-axis
+  // densifier gained the hex-colour branch its data-driven twin
+  // (expr-interpolate.ts) already had, so a colour ramp on the zoom axis keeps
+  // its authored curve instead of folding to linear; the review round then
+  // excluded interpolate-lab / interpolate-hcl from that sRGB branch and taught
+  // the Lab/LCh densifier the same bezier warp, so those two keep their authored
+  // colour space AND their curve. MEASURED post-prettier (`wc -l`): 912.
+  'compiler/src/convert/paint-helpers.ts': 912,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
@@ -2235,7 +2251,14 @@ const CEILINGS: Record<string, number> = {
   // `split`/`join`/`to_rgba` case blocks with their spec-citation comments.
   // First CEILINGS entry for this file — it sat exactly at NEW_FILE_CAP
   // before (same situation emit-commands.ts hit at #1304, above).
-  'compiler/src/eval/evaluator-helpers.ts': 845,
+  // 845→868 (#2166 B3): `assert_array` — the runtime half of Mapbox's
+  // `["array", …]` type assertion, which the converter used to drop. Same
+  // single-authority reason as the bump above: every name callBuiltin
+  // dispatches lives in that one switch, so the case block (plus its
+  // BUILTIN_FN_NAMES entry and the comment recording why the assertion is
+  // load-bearing — `length`/`slice` accept strings) lands here rather than
+  // in a second file.
+  'compiler/src/eval/evaluator-helpers.ts': 868,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
