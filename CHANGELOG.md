@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e4db5583f7a3da42c8b06df1d1e2adbdaa328c70
+  Generated from: fdeb8cf8242c2fdc69ac30b153565cc61d33570b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e4db5583f7a3
+    bun scripts/emit-changelog.ts --since fdeb8cf8242c
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** fog and transition leave the ignored-roots lump for precise warnings ([#2199](https://github.com/X-GIS/X-GIS/pull/2199)) `fdeb8cf`
 - **map:** keepLoopWarm and the burst exit read the registry; legacy hasPendingSourceWork deleted (#2149 increment 6) ([#2195](https://github.com/X-GIS/X-GIS/pull/2195)) `e4db558`
 - **map:** the VT family joins the pending-work registry (#2149 increment 5) ([#2190](https://github.com/X-GIS/X-GIS/pull/2190)) `b0df728`
 - **map/text:** CJK vertical P2 — the column, the cache key, and a bbox that turned out not to be offsets-driven ([#2154](https://github.com/X-GIS/X-GIS/pull/2154)) `40a7991`
