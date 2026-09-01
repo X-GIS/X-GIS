@@ -883,7 +883,12 @@ const CEILINGS: Record<string, number> = {
   // increment-6 tree over the #2154 base. Lower as #991 decomposes map.ts.
   // 5432->5428 (#2162 option B): the accessor's rationale moves to pending-work.ts, which
   // owns SCOPE_TILE_COUNT; map.ts keeps the contract and a pointer. A LOWERING.
-  'map/src/map.ts': 5428,
+  // 5428→5419 (#2121): the imported-style top-level wires (`sprite` from #1112
+  // and the `glyphs` this issue adds) moved out to render-adjacent
+  // `map/src/imported-top-level.ts` — the pair is one concern, and keeping them
+  // apart is how the second one came to be dropped. Measured with `wc -l` on
+  // the post-prettier tree.
+  'map/src/map.ts': 5419,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

@@ -131,7 +131,7 @@ export interface ConvertMapboxStyleOptions extends ConvertSourceOptions {
    *  arrows) renders nothing. First non-empty write wins (the primary imported
    *  style). Mirrors the `inlineGeoJSON` collector; omit for the string-only
    *  contract. */
-  topLevel?: { sprite?: string }
+  topLevel?: { sprite?: string; glyphs?: string }
 }
 
 /** Convert a Mapbox Style JSON (already parsed or raw string) into
@@ -176,6 +176,21 @@ export function convertMapboxStyle(
     style.sprite.length > 0
   ) {
     options.topLevel.sprite = style.sprite
+  }
+  // #2121 — the same channel for `glyphs`, and for the same reason. #1112
+  // stopped one field short: without this the runtime boots with
+  // `glyphsUrl === null`, glyph-rasterizer-wiring.ts:49 takes the plain
+  // Canvas2D case, and every `import "url"` scene draws its labels in system
+  // fonts instead of the style's own SDF fontstack — silently, because the
+  // converter's position is that the HOST forwards `glyphs`, and on this path
+  // there is no host that ever sees the raw JSON.
+  if (
+    options?.topLevel &&
+    options.topLevel.glyphs === undefined &&
+    typeof style.glyphs === 'string' &&
+    style.glyphs.length > 0
+  ) {
+    options.topLevel.glyphs = style.glyphs
   }
   // Mandatory version pragma (#1064) as the FIRST physical line: the
   // module resolver re-parses this output (`import "style.json"`), and
