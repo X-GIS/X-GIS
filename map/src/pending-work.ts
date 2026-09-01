@@ -163,6 +163,30 @@ export const SCOPE_KEEP_WARM: PendingWorkScope = [...SCOPE_RASTER_DEM, 'vt-uploa
  *  hysteresis consumes this scope so its semantics stay byte-for-byte (design non-goal:
  *  widening the burst signal set is a MEASURED decision deferred to #2150). vt-lod is
  *  deliberately NOT here: the burst never read it. */
+/** What `getMissingTileCount()` reports (#2162 option (B), design §4.3's reinstated
+ *  SCOPE_TILE_COUNT). Every TILE kind — the union minus `glyph`/`sprite`/`coverage`,
+ *  which are not tiles: the accessor drives a "loading N tiles…" affordance, and folding
+ *  text and icon work into a tile count would be a different bug.
+ *
+ *  This is a COUNT scope, so the encoding matters: `raster-fetch`/`dem-fetch`/`vt-missed`
+ *  contribute real counts and the boolean kinds contribute 1 each. That encoding was the
+ *  open question that made (B) an owner decision (#2162); the registrations below settled
+ *  it independently, so this scope inherits it rather than inventing a second one.
+ *
+ *  Reporting these does NOT make the accessor a convergence signal — glyph/sprite/coverage
+ *  stay outside it, so `=== 0` still is not "the scene converged" (#2163). What it fixes is
+ *  the UNDERCOUNT: before this the vector arm contributed only `vt-missed` (cells with NO
+ *  fallback), so a cell showing a magnified ancestor while its own tile downloaded counted
+ *  0 — where the raster arm, counting fetches, counted 1 for the same picture. */
+export const SCOPE_TILE_COUNT: PendingWorkScope = [
+  ...SCOPE_RASTER_DEM,
+  'vt-fetch',
+  'vt-replaced',
+  'vt-upload',
+  'vt-missed',
+  'vt-lod',
+]
+
 export const SCOPE_VT_PIPELINE: PendingWorkScope = [
   'vt-fetch',
   'vt-replaced',
@@ -184,6 +208,15 @@ export class PendingWorkRegistry {
       if (this.sources[kind].count() > 0) return true
     }
     return false
+  }
+
+  /** Summed in-flight units across a scope — design §4.3's numeric projection, taking a
+   *  scope for symmetry with `hasPending`. Unlike that predicate this does NOT early-exit:
+   *  every kind is asked, because the caller wants the total, not "is any". */
+  count(scope: PendingWorkScope): number {
+    let n = 0
+    for (const kind of scope) n += this.sources[kind].count()
+    return n
   }
 
   /** Check one unit of ledger-flavor work out of the registry. The registry stamps it

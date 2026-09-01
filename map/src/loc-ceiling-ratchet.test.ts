@@ -878,7 +878,9 @@ const CEILINGS: Record<string, number> = {
   // (the registry's full-union read covers the set); the burst dep re-wired to
   // hasPending(SCOPE_VT_PIPELINE) with a 4-line comment. MEASURED (`wc -l`) on the
   // increment-6 tree over the #2154 base. Lower as #991 decomposes map.ts.
-  'map/src/map.ts': 5432,
+  // 5432->5428 (#2162 option B): the accessor's rationale moves to pending-work.ts, which
+  // owns SCOPE_TILE_COUNT; map.ts keeps the contract and a pointer. A LOWERING.
+  'map/src/map.ts': 5428,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1670,7 +1672,9 @@ const CEILINGS: Record<string, number> = {
   // comment-only. MEASURED post-prettier.
   // →933 (#2149 increment 6): keepLoopWarm's vtRenderers input died — the VT signals ride
   // the registry scope, so the call site passes one input fewer. MEASURED post-prettier.
-  'map/src/render-loop.ts': 933,
+  // 933->932 (#2162 option B): the hand-maintained three-term `_missingTileCount` re-sum
+  // becomes one registry read (`count(SCOPE_TILE_COUNT)`). A LOWERING.
+  'map/src/render-loop.ts': 932,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its

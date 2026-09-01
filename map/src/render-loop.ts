@@ -32,6 +32,7 @@ import { invalidateResolvedShowCache } from './render/resolved-show'
 import { reportErrorScope } from './render-loop-helpers'
 import { GpuFaultDrain } from './render-loop-gpu-fault'
 import { keepLoopWarm } from './render-loop-keep-warm'
+import { SCOPE_TILE_COUNT } from './pending-work'
 import { pumpFramePrefetch } from './render-loop-prefetch'
 import {
   makeFrameContext,
@@ -656,15 +657,13 @@ export class RenderLoop {
     }
     this.host._frameCount++
     collectByteTelemetry(this.host.vtSources.values(), this.host._stats)
-    // Per-frame in-flight tile count for the public `getMissingTileCount()`
-    // accessor (loading affordance): VT cells without a drawable tile +
-    // raster/hillshade tiles mid-fetch. THREE of the gate's six terms, and it
-    // does NOT settle to 0 when the gate stops re-arming (#2162) — retries,
-    // pending VT uploads and `_czPendingAdvance` are all absent.
-    this.host._missingTileCount =
-      totalMissed +
-      this.host.rasterRenderer.pendingLoadCount() +
-      this.host.hillshadeRenderer.pendingLoadCount()
+    // Per-frame in-flight tile count for the public `getMissingTileCount()` accessor
+    // (loading affordance). #2162 option (B): every TILE kind, read from the registry,
+    // replacing the hand-maintained three-term re-sum that carried only `vt-missed` on
+    // the vector side — so a cell drawn from a magnified ancestor while its own tile
+    // downloaded reported 0 where the raster arm reported 1 for the same picture.
+    // Still NOT a convergence signal: glyph/sprite/coverage are outside SCOPE_TILE_COUNT.
+    this.host._missingTileCount = this.host._pendingWork.count(SCOPE_TILE_COUNT)
     this.host._stats.endFrame()
     this.host._statsPanel?.update(this.host._stats.get())
 

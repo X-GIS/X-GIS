@@ -85,9 +85,15 @@ type Frame = Awaited<ReturnType<typeof readFrame>>
  *
  *  Convergence is TWO conditions, and both are load-bearing:
  *
- *   1. `getMissingTileCount() === 0` — the map's own "nothing is still resolving"
- *      signal, documented at `map.ts:1617-1624` as settling to 0 exactly when the
- *      scene converges.
+ *   1. `getMissingTileCount() === 0` — the map's own in-flight TILE-work signal.
+ *      NOT "the scene converged": an earlier version of this comment cited a map.ts
+ *      docstring claiming it settled to 0 exactly then, and that claim was retracted
+ *      (#2162/#2163) — glyph, sprite and coverage work are outside it by design, so a
+ *      scene can read 0 here with text or icons still landing. Since #2162 option (B)
+ *      it does cover every TILE kind (`SCOPE_TILE_COUNT`: raster/DEM fetch+retry and
+ *      the VT fetch/swap/upload/missed/LOD arms), where before it carried only three
+ *      terms and missed a cell downloading behind a magnified ancestor. Condition 2
+ *      is what covers the rest.
  *   2. the same frame hash on three consecutive reads.
  *
  *  Neither alone is enough: a hash-only predicate accepts the plateau where tiles
