@@ -10,6 +10,7 @@
 
 import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
+import { collectPageErrors } from './_page-errors'
 
 const shootRaw = async (page: Page): Promise<Buffer> =>
   await page.locator('#xg-canv, canvas').first().screenshot()
@@ -81,10 +82,7 @@ async function settle(page: Page): Promise<Buffer> {
 
 test('re-run() on a live forcegl2 map re-boots and renders the same frame', async ({ page }) => {
   test.setTimeout(240_000)
-  const errors: string[] = []
-  page.on('console', (m) => {
-    if (m.type() === 'error' && !m.text().includes('Failed to load resource')) errors.push(m.text())
-  })
+  const errors = collectPageErrors(page)
 
   // `adaptive=0` pins the resolution ladder OFF for the duration (#1733).
   //

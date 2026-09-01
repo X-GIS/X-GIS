@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { collectPageErrors } from './_page-errors'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-baseline__')
@@ -16,11 +17,7 @@ type W = { __xgisReady?: boolean }
 test('line RHI seam: stress scene renders error-free', async ({ page }) => {
   test.setTimeout(45_000)
   mkdirSync(OUT, { recursive: true })
-  const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text())
-  })
+  const errors = collectPageErrors(page)
 
   await page.setViewportSize({ width: 600, height: 600 })
   await page.goto('/demo.html?id=fixture_stress_all_renderers&e2e=1', {

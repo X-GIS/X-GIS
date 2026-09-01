@@ -1,0 +1,6 @@
+flowchart LR
+  ir["ONE typed node graph<br/>TypeScript shader DSL"]
+  ir --> wgsl["WGSL<br/>WebGPU"]
+  ir --> glsl["GLSL ES 3.00<br/>WebGL2"]
+  ir --> cpu["CPU f64 oracle<br/>tile selection · label anchors"]
+  ir --> refl["reflection<br/>byte layouts · bind groups"]
