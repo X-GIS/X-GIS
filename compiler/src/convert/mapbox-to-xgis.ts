@@ -257,7 +257,7 @@ export function convertMapboxStyle(
   // standard-style glTF 3D placements) — none implemented. Pre-fix the
   // converter silently dropped them and the conversion-notes block
   // gave no hint that an authored lights setup wasn't carrying
-  // through. Same surfacing pattern as fog / light / terrain.
+  // through. Same surfacing pattern as `light` (fog, transition and terrain have since left this lump for precise warnings of their own).
   // `light` (v8 single directional light) is host-applied via
   // XGISMap.setLight() — same pattern as projection/camera — so it is NOT
   // listed here. `lights` (v3 standard-style ambient+directional rig) is a
@@ -334,31 +334,56 @@ export function convertMapboxStyle(
 
   // #2166 B1 — the Mapbox v3 `fog` root, out of the gapFields lump. Still
   // unsupported: no part of it is read here or applied at runtime. What the lump
-  // could not say is that the block is TWO unrelated halves and only one of them
-  // is hopeless. `range` / `color` / `vertical-range` fog rendered geometry by
-  // DEPTH, which needs a pass X-GIS does not have. `high-color` / `space-color` /
-  // `horizon-blend` describe the sky ABOVE the horizon — the thing the atmosphere
-  // pass already paints, and the thing XGISMap.setAtmosphere already carries for
-  // the MapLibre `sky` root above (extractMapboxSky). Nothing translates the
-  // Mapbox spelling into it, so an author who wanted the atmosphere look is told
-  // which spelling renders today instead of being told the block is a dead end.
+  // could not say is WHICH of the block's three kinds of key the author wrote,
+  // and only one of them is actually hopeless. The split is the one
+  // docs/plans/2026-08-24-sky-fog.md §5 already established, and this warning
+  // uses that taxonomy rather than inventing a second one:
+  //
+  //   * `range` is DISTANCE-dependent and needs per-fragment depth. That is the
+  //     one genuinely expensive half, and the reason this row is `unsupported`.
+  //   * `color` / `high-color` / `space-color` / `horizon-blend` /
+  //     `star-intensity` are DIRECTION-dependent — the sky evaluator's job, not
+  //     depth's. Most of that half already renders under the MapLibre `sky`
+  //     spelling, which XGISMap.setAtmosphere carries (extractMapboxSky).
+  //   * `vertical-range` is ALTITUDE-banded, which presumes terrain — sky-fog
+  //     §9.2 assigns it to ADR-0012 D5 (see the D5 scoping issue), so it is
+  //     neither a depth problem nor something `sky` can express.
+  //
+  // `star-intensity` is direction-dependent but is NOT pointed at `sky`: the
+  // atmosphere pass draws no stars, so naming that spelling would be a false
+  // promise. Every clause below names only keys the author ACTUALLY wrote —
+  // the "only warn about what is lost" guard the partial-sky block above uses.
   if (style.fog !== undefined && style.fog !== null) {
     const fog = style.fog
     const authored =
       typeof fog === 'object' && !Array.isArray(fog) ? Object.keys(fog as object) : []
-    // `star-intensity` is deliberately in neither half — the atmosphere pass
-    // draws no stars, so pointing it at the `sky` root would be a false promise.
-    const skyward = ['high-color', 'space-color', 'horizon-blend']
-    const atmospheric = authored.filter((k) => skyward.includes(k))
+    const SKY_SPELLED = ['color', 'high-color', 'space-color', 'horizon-blend']
+    const distance = authored.filter((k) => k === 'range')
+    const skyward = authored.filter((k) => SKY_SPELLED.includes(k))
+    const altitude = authored.filter((k) => k === 'vertical-range')
+    const clauses: string[] = []
+    if (distance.length > 0) {
+      clauses.push(
+        `range is distance-dependent and needs a per-fragment depth pass X-GIS does not have.`,
+      )
+    }
+    if (skyward.length > 0) {
+      clauses.push(
+        `${skyward.join(', ')} ${skyward.length === 1 ? 'is' : 'are'} direction-dependent — ` +
+          `that half already renders under the MapLibre spelling, so author a top-level "sky" ` +
+          `root, which the host applies via XGISMap.setAtmosphere; nothing translates the ` +
+          `Mapbox "fog" spelling into it.`,
+      )
+    }
+    if (altitude.length > 0) {
+      clauses.push(`vertical-range is altitude-banded and presumes 3D terrain (ADR-0012 D5).`)
+    }
+    if (authored.includes('star-intensity')) {
+      clauses.push(`star-intensity has no equivalent — the atmosphere pass draws no stars.`)
+    }
     warnings.push(
-      `Top-level "fog" is not applied${authored.length > 0 ? ` (${authored.join(', ')})` : ''} — ` +
-        `X-GIS has no depth-based fog pass, so nothing tints geometry by distance.` +
-        (atmospheric.length > 0
-          ? ` ${atmospheric.join(', ')} describe the sky ABOVE the horizon rather than distance ` +
-            `fog, and that half already renders under the MapLibre spelling — author a top-level ` +
-            `"sky" root, which the host applies via XGISMap.setAtmosphere; nothing translates the ` +
-            `Mapbox "fog" spelling into it.`
-          : ''),
+      `Top-level "fog" is not applied${authored.length > 0 ? ` (${authored.join(', ')})` : ''}.` +
+        (clauses.length > 0 ? ` ${clauses.join(' ')}` : ''),
     )
   }
 
@@ -370,20 +395,28 @@ export function convertMapboxStyle(
   // A block asking for no animation at all is what X-GIS already does, so it
   // warns nothing — the same "only warn about what is actually lost" guard the
   // partial-sky block above uses. Spec defaults: duration 300ms, delay 0ms.
+  // A NON-OBJECT `transition` is malformed and says so, rather than being
+  // described with spec-default numbers the author never wrote (the same
+  // posture the malformed-layer check further down takes).
   if (style.transition !== undefined && style.transition !== null) {
-    const t =
-      typeof style.transition === 'object' && !Array.isArray(style.transition)
-        ? (style.transition as { duration?: unknown; delay?: unknown })
-        : {}
-    const duration = typeof t.duration === 'number' ? t.duration : 300
-    const delay = typeof t.delay === 'number' ? t.delay : 0
-    if (duration > 0 || delay > 0) {
+    const raw = style.transition
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
       warnings.push(
-        `Top-level "transition" (duration ${duration}ms, delay ${delay}ms) is not applied — ` +
-          `X-GIS has no per-property transition clock, so a paint value that changes at runtime ` +
-          `steps straight to it. The converted style renders identically at rest; only the ` +
-          `animation between two states is lost.`,
+        `Top-level "transition" is malformed (expected an object, got ` +
+          `${Array.isArray(raw) ? 'an array' : typeof raw}) and is ignored.`,
       )
+    } else {
+      const t = raw as { duration?: unknown; delay?: unknown }
+      const duration = typeof t.duration === 'number' ? t.duration : 300
+      const delay = typeof t.delay === 'number' ? t.delay : 0
+      if (duration > 0 || delay > 0) {
+        warnings.push(
+          `Top-level "transition" (duration ${duration}ms, delay ${delay}ms) is not applied — ` +
+            `X-GIS has no per-property transition clock, so a paint value that changes at runtime ` +
+            `steps straight to it. The converted style renders identically at rest; only the ` +
+            `animation between two states is lost.`,
+        )
+      }
     }
   }
 

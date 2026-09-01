@@ -166,12 +166,18 @@ describe('converter warning coverage', () => {
     ).not.toContain('fog')
     const fogNote = w.find((s) => s.startsWith('Top-level "fog" is not applied'))
     expect(fogNote, `expected the precise fog warning, got: ${JSON.stringify(w)}`).toBeDefined()
-    // It names what the author actually wrote, splits the block's two halves,
-    // and says what a real implementation needs for the distance half.
+    // It names what the author actually wrote and sorts each key into the
+    // taxonomy docs/plans/2026-08-24-sky-fog.md §5 established — `range` is the
+    // distance half, everything sky-spelled is the direction half. The
+    // per-key clauses are gated separately below; this fixture authors one of
+    // each, so it pins that BOTH clauses appear together.
     expect(fogNote, `expected the authored keys named in: ${fogNote}`).toContain('range')
     expect(fogNote, `expected the authored keys named in: ${fogNote}`).toContain('high-color')
-    expect(fogNote, `expected the missing depth pass named in: ${fogNote}`).toContain(
-      'depth-based fog pass',
+    expect(fogNote, `expected the distance half named for range: ${fogNote}`).toContain(
+      'range is distance-dependent',
+    )
+    expect(fogNote, `expected the direction half named for high-color: ${fogNote}`).toContain(
+      'high-color is direction-dependent',
     )
     expect(
       fogNote,
@@ -221,6 +227,125 @@ describe('converter warning coverage', () => {
       w.filter((s) => s.includes('transition')),
       `a no-op transition must produce no warning at all, got: ${JSON.stringify(w)}`,
     ).toEqual([])
+  })
+
+  // ── The three mechanisms the #2199 review proved nothing watched ──────
+  //
+  // Each of these was found by CUTTING the mechanism and running the FULL
+  // compiler suite: all three stayed 4506/4506 green, because the existing
+  // fixtures happen to exercise only the shapes where the cut is invisible.
+  // A fixture that cannot distinguish the states of the thing it covers is
+  // not coverage (CLAUDE.md §12).
+
+  it('a DISTANCE-ONLY fog block is not told it authored atmosphere keys (#2166)', () => {
+    // CUT: `authored.filter(k => SKY_SPELLED.includes(k))` → the whole list.
+    // The suite stayed green because the only fog fixture authors BOTH halves
+    // and asserts with a substring, which passes either way. `{range, color}`
+    // is the commonest real Mapbox v3 shape, and under that cut it was told
+    // it wrote `high-color, space-color, horizon-blend` and pointed at a
+    // spelling it never asked for.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      fog: { range: [0.5, 10] },
+    })
+    const f = w.find((s) => s.startsWith('Top-level "fog"'))
+    expect(f, `expected the precise fog warning, got: ${JSON.stringify(w)}`).toBeDefined()
+    expect(f, `range is the distance half and must be named as such: ${f}`).toContain(
+      'distance-dependent',
+    )
+    for (const k of ['high-color', 'space-color', 'horizon-blend']) {
+      expect(f, `unauthored key "${k}" must not appear: ${f}`).not.toContain(k)
+    }
+    expect(f, `an author who wrote no sky-spelled key must not be sent to sky: ${f}`).not.toContain(
+      'setAtmosphere',
+    )
+  })
+
+  it('a DIRECTION-ONLY fog block is not told it lost distance fog, and agrees in number (#2166)', () => {
+    // The mirrored partial-sky block only ever names keys the author wrote;
+    // the first clause had lost that guard, so a sky-only block was told
+    // "nothing tints geometry by distance" — a loss that did not happen.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      fog: { 'high-color': '#245cdf' },
+    })
+    const f = w.find((s) => s.startsWith('Top-level "fog"'))!
+    expect(f, `no distance key was authored, so no depth clause: ${f}`).not.toContain(
+      'distance-dependent',
+    )
+    // Number agreement, which the mirrored block carries and this one dropped.
+    expect(f, `one key takes the singular verb: ${f}`).toContain(
+      'high-color is direction-dependent',
+    )
+  })
+
+  it('`star-intensity` is never pointed at the sky root — the atmosphere pass draws no stars (#2166)', () => {
+    // CUT: adding 'star-intensity' to the sky-spelled list left the suite
+    // green. The exclusion is stated as a deliberate correctness decision in
+    // the code comment AND the published coverage note, so it needs a witness.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      fog: { 'star-intensity': 0.8 },
+    })
+    const f = w.find((s) => s.startsWith('Top-level "fog"'))!
+    expect(f, `star-intensity must be named as having no equivalent: ${f}`).toContain(
+      'draws no stars',
+    )
+    expect(f, `star-intensity must NOT be sent to the sky root: ${f}`).not.toContain(
+      'setAtmosphere',
+    )
+  })
+
+  it('`vertical-range` is reported as altitude-banded, not as a depth gap (#2166)', () => {
+    // sky-fog §9.2 assigns it to ADR-0012 D5 (terrain). The first draft of
+    // this lane put it in the depth half, contradicting the plan of record.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      fog: { 'vertical-range': [0, 1000] },
+    })
+    const f = w.find((s) => s.startsWith('Top-level "fog"'))!
+    expect(f, `vertical-range is altitude-banded: ${f}`).toContain('altitude-banded')
+    expect(f, `it is not a depth problem: ${f}`).not.toContain('distance-dependent')
+  })
+
+  it('an EMPTY transition block reports the spec defaults, not silence (#2166)', () => {
+    // CUT: the `: 300` spec default → `: 0`. The suite stayed green because
+    // both existing fixtures pass `duration` explicitly, so the fallback is
+    // never exercised — and under the cut `{}` went completely SILENT,
+    // reinstating the very silent-drop class this lane removes.
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      transition: {},
+    })
+    const t = w.find((s) => s.startsWith('Top-level "transition"'))
+    expect(
+      t,
+      `an unauthored transition still animates at the spec default: ${JSON.stringify(w)}`,
+    ).toBeDefined()
+    expect(t, `spec default duration is 300ms: ${t}`).toContain('300ms')
+    expect(t, `spec default delay is 0ms: ${t}`).toContain('0ms')
+  })
+
+  it('a MALFORMED transition is flagged, not described with invented numbers (#2166)', () => {
+    const w = warningsOf({
+      version: 8,
+      sources: { v: { type: 'vector', url: 'x.pmtiles' } },
+      layers: [],
+      transition: 'fast' as unknown as Record<string, never>,
+    })
+    const t = w.find((s) => s.startsWith('Top-level "transition"'))!
+    expect(t, `a non-object transition is malformed: ${t}`).toContain('malformed')
+    expect(t, `numbers the author never wrote must not be reported: ${t}`).not.toContain('300ms')
   })
 
   it('GeoJSON source clustering → conversion-notes warning', () => {
