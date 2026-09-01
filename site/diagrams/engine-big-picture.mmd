@@ -1,0 +1,7 @@
+flowchart LR
+  xgis([".xgis style<br/>fill-blue-400 stroke-2"]) --> comp["compiler<br/>pure TS, no GPU"]
+  comp --> cmds["SceneCommands<br/>+ shader variants"]
+  tiles[("data<br/>PMTiles · GeoJSON · HDF5")] --> workers["workers<br/>decode · clip · earcut · pack"]
+  workers --> gpu
+  cmds --> gpu["GPU — WebGPU / WebGL2<br/>13-pass frame"]
+  gpu --> px(["pixels<br/>8 projections = one uniform switch"])

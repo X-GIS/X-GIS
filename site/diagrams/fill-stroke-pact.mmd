@@ -1,0 +1,7 @@
+flowchart TD
+  rings["ONE clipped ring set — Mercator metres"] --> fillp["fill packer<br/>quantized ECEF"]
+  rings --> linep["outline packer<br/>DSFUN hi/lo"]
+  auth["shared authorities<br/>tile anchor · projection fns · reflected uniform layout"] -.-> fillp
+  auth -.-> linep
+  fillp --> gate{"gates<br/>outline endpoint ≤ 1 m from fill edge<br/>decode split &lt; 0.25 px @ z19.4"}
+  linep --> gate

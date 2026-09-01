@@ -8,17 +8,11 @@
 // the language service disabled — a worker mismatch would surface here).
 
 import { test, expect } from '@playwright/test'
+import { collectPageErrors } from './_page-errors'
 
 test('JS tab shows the corpus construction for twin demos, hides otherwise', async ({ page }) => {
   test.setTimeout(120_000)
-  const errors: string[] = []
-  page.on('console', (msg) => {
-    // Network-blocked container: external fetches (fonts/tiles) reset — not
-    // an app error. Keep every real JS error (the Monaco worker-mismatch
-    // class this gate exists for surfaces as an uncaught Error).
-    if (msg.type() === 'error' && !msg.text().includes('Failed to load resource'))
-      errors.push(msg.text())
-  })
+  const errors = collectPageErrors(page)
 
   await page.goto('/demo.html?id=minimal&e2e=1&forcegl2=1', { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(

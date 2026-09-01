@@ -10,6 +10,8 @@ import type { MapboxLayer } from './types'
 import type { SymbolLayerOverrides } from './layers-types'
 import { exprToXgis } from './expressions'
 import { interpolateZoomCall } from './paint'
+import { vec2AxisZoomInterp } from './paint-helpers'
+import { isZoomInterpCandidate } from './zoom-function-fold'
 import { colorToXgis } from './colors'
 import {
   unwrapLiteralTuple,
@@ -766,10 +768,29 @@ export function convertTextLayoutProperties(
     // expression to a single bracket-binding utility (#777 I-F); lower.ts
     // parses it into LabelDef.iconTranslateExpr and the runtime
     // applyFeatureExprs evaluates it per feature to the resolved [dx,dy]
-    // pair. Zoom-`interpolate` of the tuple snaps to the nearest stop
-    // (evaluate does not component-interpolate arrays) — the residual
-    // partial sub-form.
-    const expr = exprToXgis(paint['icon-translate'], warnings)
+    // pair.
+    //
+    // A zoom-`interpolate` of the TUPLE would SNAP: the evaluator's
+    // interpolate builtin lerps only NUMERIC stop values and picks the
+    // closer stop for an array one, so a zoom-animated offset jumped
+    // between stops instead of sliding (#2166). Split the vec2 per axis
+    // at convert time — the same decomposition addFillTranslate does for
+    // fill-/line-translate — so each axis is an ordinary interpolatable
+    // number. The label path re-pairs them with an ARRAY LITERAL inside
+    // the one existing binding rather than emitting an x/y utility pair:
+    // applyFeatureExprs already carries the camera zoom into evaluate, so
+    // `[interpolate(zoom,…), interpolate(zoom,…)]` resolves per dispatch
+    // with no runtime change, no new LabelDef field, and the same
+    // [dx,dy] shape the dispatch guard expects. isZoomInterpCandidate is
+    // the shared pre-gate, so the legacy `{"stops": …}` spelling lifts
+    // through the same split (#1976).
+    const raw = paint['icon-translate']
+    const ix = isZoomInterpCandidate(raw) ? vec2AxisZoomInterp(raw, warnings, 0) : null
+    // Skip the y axis once x has failed: both axes run the SAME lift over
+    // the SAME value, so a diagnostic it pushes would otherwise be
+    // reported twice for one authored value (mirror of addFillTranslate).
+    const iy = ix === null ? null : vec2AxisZoomInterp(raw, warnings, 1)
+    const expr = ix !== null && iy !== null ? `[${ix}, ${iy}]` : exprToXgis(raw, warnings)
     if (expr !== null) utils.push(`label-icon-translate-[${expr}]`)
     else
       warnings.push(
