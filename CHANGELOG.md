@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: fdeb8cf8242c2fdc69ac30b153565cc61d33570b
+  Generated from: 9da727d52de45a1c5b2288fa340623bae1bc4452
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since fdeb8cf8242c
+    bun scripts/emit-changelog.ts --since 9da727d52de4
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** make Mapbox ["array", …] a real type assertion ([#2202](https://github.com/X-GIS/X-GIS/pull/2202)) `9da727d`
 - **compiler:** fog and transition leave the ignored-roots lump for precise warnings ([#2199](https://github.com/X-GIS/X-GIS/pull/2199)) `fdeb8cf`
 - **map:** keepLoopWarm and the burst exit read the registry; legacy hasPendingSourceWork deleted (#2149 increment 6) ([#2195](https://github.com/X-GIS/X-GIS/pull/2195)) `e4db558`
 - **map:** the VT family joins the pending-work registry (#2149 increment 5) ([#2190](https://github.com/X-GIS/X-GIS/pull/2190)) `b0df728`
