@@ -32,10 +32,10 @@ clipPolygonToRect (Sutherland-Hodgman, MM)
   adjacent tiles produce bit-identical shared vertices, and the perpendicular coordinate is
   additionally clamped into the segment's own span (snapping could round it past the rect
   corner, producing a spurious boundary stroke). Grid: ~100 m at z≤2 down to 0.1 m past z7.
-- **The FILL IS NEVER SIMPLIFIED.** Douglas-Peucker runs only as a *probe* whose output is
+- **The FILL IS NEVER SIMPLIFIED.** Douglas-Peucker runs only as a _probe_ whose output is
   discarded (it feeds the adaptive-subdivision heuristic). Recorded reason: a simplified
   fill diverged from its own stroke by up to the tolerance, and `simplify∘clip ≠
-  clip∘simplify` so the outline can't be repaired to match. LINE features are simplified,
+clip∘simplify` so the outline can't be repaired to match. LINE features are simplified,
   with tile-boundary vertices locked so adjacent tiles share edge geometry.
 - **Vertex dedup key is a string at 1 mm quantization** — deliberately not a packed int
   (the packed-int key overflowed after the pipeline moved to Mercator meters and produced
@@ -118,7 +118,8 @@ boundaries never stroke. Deferred into a stroke queue **after all fills** so a l
 fill can't cover an earlier tile's outline.
 
 Agreement is enforced four ways (beyond the shared clip space):
-- the compiler-level alignment test: extract fill *boundary* edges (triangle edges
+
+- the compiler-level alignment test: extract fill _boundary_ edges (triangle edges
   appearing in exactly one triangle — interior edges appear twice and cancel) and assert
   every outline endpoint lies within 1 m of one, across four zooms;
 - an encoding-coincidence fuzz: fill (quantized ECEF) and outline (Mercator DSFUN) are
@@ -132,7 +133,7 @@ Agreement is enforced four ways (beyond the shared clip space):
 Stroke-over-fill z-fighting is solved by fragment depth biases (coplanar bias above the
 fill's jitter amplitude + a per-LOD step), not geometry offsets.
 
-`fill-antialias: false` reproduces MapLibre semantics: MapLibre's only fill-edge AA *is*
+`fill-antialias: false` reproduces MapLibre semantics: MapLibre's only fill-edge AA _is_
 its 1 px outline pass, so X-GIS skips synthesizing the outline at convert time and disables
 the rim fade via the flag lane.
 
@@ -202,7 +203,7 @@ Emit stability is pinned by an 8-fixture **byte-equal** snapshot gate
 (`__polygon-variant-snapshots__/`), fixtures chosen at behavior boundaries (10-arm and
 13-arm match, zoom-interp, feat-data, palette). Engineering detail worth copying: the
 snapshot's baseline-ancestry check is skipped on shallow clones — at `--depth 50` the
-baseline commit *exists* but `merge-base --is-ancestor` cleanly answers "no," which would
+baseline commit _exists_ but `merge-base --is-ancestor` cleanly answers "no," which would
 have instructed the reader to destructively re-capture 8 correct baselines.
 
 A derived split-uniform module (`polygon-split.ts`) rewrites every `u.<field>` read to the
@@ -250,7 +251,7 @@ no outlines (see [`04-line-rendering.md`](./04-line-rendering.md) §8).
    layouts from it.**
 6. **Order coplanar ground layers by submission with depth off**; reserve depth for
    genuinely 3D content; stencil (not clipping) for parent/child tile coverage — but key
-   per-draw masks by the *visible* tile, not the fallback ancestor.
+   per-draw masks by the _visible_ tile, not the fallback ancestor.
 7. **World-anchor pattern UVs in world units** — screen- or tile-anchored patterns swim or
    seam.
 8. **Data-driven style variants are IR composition with derived identity keys**, pinned by
@@ -264,7 +265,7 @@ no outlines (see [`04-line-rendering.md`](./04-line-rendering.md) §8).
 ## 11. Code map
 
 - Tiler: `compiler/src/tiler/{polygon-tiler,vector-tiler,clip,simplify,
-  subdivide-conforming,ecef-packing,polygon-vertex-format,encoding}.ts`
+subdivide-conforming,ecef-packing,polygon-vertex-format,encoding}.ts`
 - Shader: `map/src/shaders/dsl/polygon.ts`, `polygon-split.ts`, `_polygon-fixtures.ts`,
   `__polygon-variant-snapshots__/`
 - Renderer: `map/src/render/vector-tile-renderer.ts`, `material/polygon-fill-material.ts`,

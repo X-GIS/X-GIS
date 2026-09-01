@@ -1,0 +1,27 @@
+xgis 1
+
+/* §5 render-gate fixture for #2166 (L3): a RASTER layer whose opacity is bound
+ * to a declared `input`.
+ *
+ * The sibling #1539 fixture (fixture-input-live.xgis) drives a geojson POLYGON,
+ * and its `input threshold: f32 = 1.0` default is deliberately 1.0 so an un-set
+ * default renders unchanged. That is exactly the hole a raster layer fell
+ * through: the opaque pass resolved `paintShapes.common.opacity` WITHOUT the
+ * live input store, so the shape took the per-feature fallback of 1 and both
+ * the authored default and every later `setInput` were invisible.
+ *
+ * So the default here is 0.4, NOT 1 — the un-set default is itself the witness.
+ * The url has no {z}/{x}/{y} placeholders, so every visible tile loads the same
+ * local checker PNG: an offline, deterministic raster render. */
+
+input dim: f32 = 0.4
+
+source basemap {
+  type: raster
+  url: "/checker-tile.png"
+}
+
+layer tiles {
+  source: basemap
+  | opacity-[dim]
+}

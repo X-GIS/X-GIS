@@ -72,7 +72,7 @@ member, construct, select, index, matchExpr) and `Stmt` (13). Invariants:
 - No identity semantics → subtrees are structurally shared freely (what makes CSE/GVN cheap).
 - Distinctions exist where a future pass could otherwise do something illegal:
   `overrideref` ≠ `constref` (a const may be folded; an override's value is fixed at
-  *pipeline creation* — opacity by construction); `externref` ≠ `varref` (mangling renames
+  _pipeline creation_ — opacity by construction); `externref` ≠ `varref` (mangling renames
   varrefs; externs must survive and reflect as host requirements); `logical` ≠ `binop`
   (short-circuit); `raw` is two union members so a payload-less raw is unrepresentable and
   each backend fails closed on the missing side.
@@ -81,8 +81,8 @@ member, construct, select, index, matchExpr) and `Stmt` (13). Invariants:
   A multisampled integer texture is likewise unrepresentable rather than a runtime throw.
 - `ConstDecl` carries a **dual-precision pair**: `wgslValue` (the truncated literal the GPU
   gets) and `cpuValue` (`Math.PI`) — the structural form of the two-tolerance reality.
-- Struct fields carry both the WGSL attr *spelling* and structured `location/builtin/
-  interpolate` *semantics*; backends read the structured fields, never re-parse the string.
+- Struct fields carry both the WGSL attr _spelling_ and structured `location/builtin/
+interpolate` _semantics_; backends read the structured fields, never re-parse the string.
 - `fn()` returns a handle that is simultaneously the FuncDecl and a typed callable; the
   typed object-param call form checks names/types/completeness (the positional form is
   deprecated precisely because a lon/lat swap compiles). Calls stamp a `declRef` so
@@ -116,7 +116,7 @@ ownership: the IR carries neutral ids; each backend maps id → spelling ("previ
 WAS the WGSL string and the GLSL writer had to UN-rename it — a WGSL leak at the core").
 
 A worked micro-lesson in why helpers beat inline text templates: a storage-fetch spelled as
-a text template duplicated its width computation *after* every optimizer pass had run
+a text template duplicated its width computation _after_ every optimizer pass had run
 (text doesn't exist until the writer produces it) — `textureSize(t,0).x` appeared 998
 times in the baked corpus; binding the width once inside an emitted helper cut raw bytes
 8.1 %.
@@ -131,17 +131,18 @@ per iteration; LICM owns loop motion). The emitted "let chain" is also why **any
 regexes emitted text is blind**: `vec2(x,y).x` is spelled `_cseN.y` two statements apart.
 The paid-for rule (§12 of CLAUDE.md): 13 of 15 optimizer-opportunity counts measured "0
 sites" by text regex; re-measured on the IR, one pattern alone had 37 sites (2,420 after
-full inlining) — *count on the IR, never the text; validate the instrument against a known
-positive before believing a zero.*
+full inlining) — _count on the IR, never the text; validate the instrument against a known
+positive before believing a zero._
 
 Pass tiers: `O0 = []`; `O1` = bit-exact value movers (constProp, copyProp, deadBranch, cse,
 cseLocal, gvn, dce); `O2` adds constFold + algebraic + licm — passes that can change
-*which* float ops execute, which is why O2 sits behind a real-GPU f32 differential gate.
+_which_ float ops execute, which is why O2 sits behind a real-GPU f32 differential gate.
 Measured effect of the full pipeline on production modules: 208 of 6,008 IR ops removed.
 
 ## 5. The CPU oracle (the most transferable idea)
 
 Two CPU backends over the SAME IR, bit-identical by construction:
+
 - a tree-walk interpreter evaluating the identical op tree in JS f64 (no `fround`),
 - a `new Function` codegen twin that inlines the same scalar ops and calls the same
   runtime helpers (exists because the interpreter was ~40 % of frame time in production
@@ -150,12 +151,12 @@ Two CPU backends over the SAME IR, bit-identical by construction:
 Uses: (1) **pass correctness** — every optimizer pass must leave oracle output identical;
 the projection module runs a bit-equality loop over every projection function; (2)
 **production CPU math** — the generated f64 lowering of the projection graph replaced a
-hand-maintained mirror, so tile selection and label anchors *are* the shader math; (3) the
+hand-maintained mirror, so tile selection and label anchors _are_ the shader math; (3) the
 executed-WGSL parity gate diffs a real GPU compute pass against this lowering.
 
-Its header carries the honesty clause every reference backend should copy: *"this is an f64
+Its header carries the honesty clause every reference backend should copy: _"this is an f64
 ALGEBRA oracle, NOT an f32-precision oracle … structurally BLIND to the codebase's worst
-bug class … A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity."* GPU
+bug class … A CPU↔CPU pass here is therefore NOT evidence of GPU precision parity."_ GPU
 stubs (`textureSample`, `fwidth`) **throw unless explicitly opted in** — "plausible-wrong
 is the worst failure mode for a reference backend." One deliberate f32 concession: `==`
 compares after `fround` on f32-typed operands (the GPU computes f32; exact f64 equality
@@ -163,7 +164,7 @@ silently disagrees on equality branches).
 
 ## 6. Reflection: the host never hand-computes a byte offset
 
-`emitModuleWithReflection` derives the shader string **and** a `Reflection` from the *same*
+`emitModuleWithReflection` derives the shader string **and** a `Reflection` from the _same_
 lowered module: bind groups (with per-entry `stages` derived from the same reachability
 walk the per-stage GLSL emit uses — "a host's stage mask can never describe a narrower
 program than the emit produces"), std140 uniform layouts, std430 storage layouts, vertex
@@ -180,7 +181,7 @@ Paid-for GLSL traps recorded in the reflection layer: a GLSL host must bind a un
 block by **struct name**, not instance name — getting it wrong doesn't fail to link, it
 silently lands on binding point 0 and aliases; and `group` has no GLSL counterpart, so the
 backend folds it as `group·8 + binding` for UBOs but raw binding for sampler units — the
-two namespaces are *not* folded the same way. `mat2` under std140 **throws** rather than
+two namespaces are _not_ folded the same way. `mat2` under std140 **throws** rather than
 silently picking between WGSL's column stride 8 and GLSL's 16.
 
 ## 7. Baking
@@ -195,7 +196,7 @@ bytes === a live emit right now (emission is byte-deterministic across processes
 six independent runs bit-identical — that's what makes equality, not tolerance, the right
 gate); (b) **completeness** — index keys equal registry ids in both directions; (c)
 **meta** — baked constants equal live ConstDecls (a bake under a different planet fails
-by *name*, not just by hash). The bake is deliberately **not** part of `bun run build`: CI
+by _name_, not just by hash). The bake is deliberately **not** part of `bun run build`: CI
 runs build before tests, and a bake wired into the build would regenerate the artifact it
 is about to be gated against — "green by construction, proving nothing."
 
@@ -222,12 +223,12 @@ The authoring guide's decision table, worth adopting verbatim:
    changed = override; different code = build parameter.
 3. **The HOST owns the axis at runtime → `variantFamily`**: a typed axes → module builder
    with a derived key; `emit()` returns a map of per-variant sources (the only WGSL shape),
-   and a GLSL-only `emitGuarded()` *generates* a `#if` ladder whose arms are asserted
+   and a GLSL-only `emitGuarded()` _generates_ a `#if` ladder whose arms are asserted
    byte-identical to the standalone emits — "a lowering of a typed matrix, not hand-written
    text — which is what makes it checkable."
 4. **Injecting expressions into seams → placeholder composition.** A base module lays down
    `placeholder('fill-return')` statements; `composeModule(base, swaps)` replaces them,
-   erroring on an un-swapped placeholder *and* on a typo'd swap key — both were previously
+   erroring on an un-swapped placeholder _and_ on a typo'd swap key — both were previously
    silent in the direction that matters (an un-swapped placeholder emits a comment and
    renders wrong with no error).
 
@@ -235,7 +236,7 @@ The cross-cutting rule: **whatever you specialize on becomes part of the shader'
 identity** — the pipeline cache key, and the baked id. An id that omits an axis hands one
 variant's compiled shader to another variant's draw: "it compiles, it links, it renders,
 and it is wrong — the failure has no error, only wrong pixels." `variantFamily` derives the
-key from the axes so it *cannot* omit one.
+key from the axes so it _cannot_ omit one.
 
 ## 9. Verification gates (what each proves)
 
@@ -243,10 +244,10 @@ key from the axes so it *cannot* omit one.
   compiler (Tint) via `createShaderModule` + `getCompilationInfo`. Closes the gap where
   unit tests byte-diff strings but never compile them — a rejected string ships CI-green
   and dies on a user's GPU as "nothing renders for layer X." Runs on SwiftShader because
-  *compilation needs no raster*. Anti-vacuity: variant count > 10, non-trivial lengths,
+  _compilation needs no raster_. Anti-vacuity: variant count > 10, non-trivial lengths,
   missing adapter = failure not skip.
 - **`_emit-obfuscate-gate`**: three claims — minified/mangled WGSL compiles (Tint); GLSL
-  compiles *and links* (linking proves the mangle is deterministic across the two separate
+  compiles _and links_ (linking proves the mangle is deterministic across the two separate
   per-stage emits — varyings must agree by name); and a **pixel-identity arm** draws three
   modules plain vs `[inline, mangle, minify]` and requires `diff === 0` over all bytes plus
   a non-flatness check (a varied UBO pattern — an all-1.0 fill once made a gradient
@@ -260,7 +261,7 @@ key from the axes so it *cannot* omit one.
 - **Byte-drift snapshots**: 8 polygon-variant fixtures, byte-equal (deliberately not
   AST-equivalent — semantic equivalence is covered end-to-end by pixel gates; the snapshot
   pins per-commit emit stability), each with a recorded ancestor SHA.
-- **Threshold-drift gate**: parses cull/rim literals back *out of the emitted WGSL* and
+- **Threshold-drift gate**: parses cull/rim literals back _out of the emitted WGSL_ and
   asserts they equal the projections-table rows — the direct fix for the "mutate a literal,
   suite stays green" incident.
 - Emit goldens (39 committed WGSL+GLSL pairs), semantic-diff corpus, minify safety, per-
@@ -271,7 +272,7 @@ key from the axes so it *cannot* omit one.
 
 1. **Author shaders as a typed IR in the host language; emit text only at the edge.** You
    get: multi-backend from one source, an optimizer, reflection, lintability, and the
-   ability to *count on the IR* instead of regexing text.
+   ability to _count on the IR_ instead of regexing text.
 2. **Phantom-key types + method chaining** give near-full shader type safety with zero
    runtime cost; make read-only-ness a type-level property of one runtime class.
 3. **Fully type the IR at construction; keep it plain data** with closed unions — every
@@ -292,7 +293,7 @@ key from the axes so it *cannot* omit one.
    must fail closed in both directions.
 9. **Verification is layered**: compile gate (cheap, CI) → link gate (cross-stage
    determinism) → pixel identity (semantics) → byte snapshots (stability) → literal
-   re-parse (authority coupling) — and record what each gate *cannot* see next to it.
+   re-parse (authority coupling) — and record what each gate _cannot_ see next to it.
 
 ## 11. Code map
 

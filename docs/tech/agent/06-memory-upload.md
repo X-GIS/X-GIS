@@ -18,12 +18,12 @@ true/false, `pickReadback` 'async'/'sync', `compute` 'native'/'fragment-emulated
 `shaderLanguage`. The three deep divergences:
 
 1. **Storage buffers → data textures.** GLSL ES 3.00 has no SSBO; `usage:'storage'` on
-   WebGL2 allocates a 2D-tiled R32F/R32UI/R32I texture (element *i* at texel
+   WebGL2 allocates a 2D-tiled R32F/R32UI/R32I texture (element _i_ at texel
    `(i%W, i/W)`). The internal format must match the sampler the emitted GLSL declares — a
    mismatch makes the texture INCOMPLETE and `texelFetch` silently returns 0, which is why
    the element type rides on the buffer **descriptor**, not inferred per write.
 2. **Uniform blocks**: dynamic offsets → `bindBufferRange`; layout entries carry the shader
-   block *name* so multi-resource groups bind order-independently, and a multi-same-kind
+   block _name_ so multi-resource groups bind order-independently, and a multi-same-kind
    group with an unnamed entry fails loudly at layout creation.
 3. **No pipeline/bind-group/view objects in GL**: a "pipeline" is a linked program +
    recorded state; a "bind group" is a recorded resource list replayed onto GL slots.
@@ -54,7 +54,7 @@ dynamic-offset ordering rule trivial.
 - Why an arena (measured): with render bundles ON, the residual 0.19 ms/layer of encode
   cost was the bundle-HIT path **re-staging a ~30-field uniform block per
   (show × tile × worldCopy) into the per-frame ring** — bytes the replayed bundle only
-  reads. And per-tile *buffers* were rejected long before: ~12,600 per-tile `createBuffer`s
+  reads. And per-tile _buffers_ were rejected long before: ~12,600 per-tile `createBuffer`s
   at z14 and ~300 vertex-binding swaps per frame. A stable byte offset in one shared buffer
   is also what lets a RenderBundle bake the offset once.
 - Slot key = (sourceLayer, numeric tileKey, worldCopy lane) via nested Maps — no composite
@@ -77,7 +77,7 @@ dynamic-offset ordering rule trivial.
 gate injected test flags post-boot on the premise "flags are read live per frame at the
 uniform write site." Once the tile lanes moved behind the pack-once arena, a flag set
 after boot could never reach an already-resident tile — the gate's witness measured zero
-moved pixels *on the shipping path*, i.e. a live assertion certifying a dead mechanism.
+moved pixels _on the shipping path_, i.e. a live assertion certifying a dead mechanism.
 Fix: the arena compares the packed witness value on every slot establishment and drops all
 resident packs when it changes. Generalized: **apply a test witness at the single producer
 of the value it perturbs, and when you move a value behind a pack-once cache, re-read what
@@ -95,7 +95,7 @@ after hoisting scratch Maps and moving per-frame typed arrays into the arena, st
 allocation → ~0 (the buffer grows monotonically to the session peak). Details that matter:
 
 - Typed helpers return **windowed views into the shared buffer** — `byteOffset ≠ 0 by
-  construction`. An `allocF64` exists because polyline math accumulates Mercator meters
+construction`. An `allocF64` exists because polyline math accumulates Mercator meters
   (±2e7) that overflow f32 at meter precision.
 - Growth 1.5× at frame start when peak ≥ 90 % of capacity, plus mid-frame auto-grow with
   copy (earlier it threw on the first frame exceeding initial capacity). Documented caveat:
@@ -112,7 +112,7 @@ allocation → ~0 (the buffer grows monotonically to the session peak). Details 
 (`new Uint32Array(data.buffer)` instead of `(data.buffer, data.byteOffset, len)`). Five
 new unit tests were green because each passed a **whole** array — `byteOffset 0`, the one
 input shape where the bug is invisible. Production passes frame-arena subarrays, so the
-WebGL2 storage-texture upload read a *different renderer's bytes* from offset 0 — no error
+WebGL2 storage-texture upload read a _different renderer's bytes_ from offset 0 — no error
 anywhere, the draw simply rendered nothing. Rules extracted: **feed at least one input
 shaped the way real callers shape it, and plant a decoy around it**; and a change to a
 shared path owes the gates of that path's **consumers** (the tests of the thing you were
@@ -129,7 +129,7 @@ the window explicitly before memcpy into the mapped range).
    z15.2 pitch-45 NYC frame needing ~104 MB and dropping ~19 building tiles per frame at
    the old 64 MB cap). Free-list keyed by **exact aligned size** (bump allocation makes
    size-class reuse an overrun risk; LIFO stacks preserve GPU-cache locality). DEV-only
-   live-offset map catches double-free *and size-mismatched free* (previously a silent
+   live-offset map catches double-free _and size-mismatched free_ (previously a silent
    fragmentation leak). `canServe()` is an O(1) exact probe (summed freeBytes is a false
    positive under fragmentation). `reclaimIfDrained()` resets the bump pointer only at
    zero live bytes — the only provably-correct mid-session reclaim without defrag.
@@ -138,7 +138,7 @@ the window explicitly before memcpy into the mapped range).
    auto-grow; callers run it in the post-submit safe window and destroy the old buffer
    after the next submit.
 2. **`GpuBufferPool`** — a power-of-two bucket recycler (2 KB–4 MB) for standalone
-   per-tile buffers (line/outline), with **two caps**: 16 entries per bucket *and* a 16 MB
+   per-tile buffers (line/outline), with **two caps**: 16 entries per bucket _and_ a 16 MB
    byte cap (the count cap alone bounds ~134 MB per usage combination), trimming
    largest-bucket-first (most bytes per driver call; small buckets are where reuse pays).
 3. **`StagingBufferPool`** (rhi-webgpu) — tiered MAP_WRITE rings (4 KB…16 MB, per-tier
@@ -167,14 +167,14 @@ release hooks (feature-data handle, tile uniform slot) → cache delete.
 
 ## 5. Budgets and eviction (every cache, one table)
 
-| Cache | Budget | Policy notes |
-|---|---|---|
-| GPU vector tiles | 256 desktop / 64 mobile **unique tile keys** + arena byte hysteresis (trigger at 75 % of high-water, drain to 60 %) | count is on unique keys, not (key × layer) entries — a sliced source yields ~4 entries/tile; the trigger reads the monotonic bump pointer (what the OOM throw checks) while the drain loop reads live bytes (falls on free) — looping on the bump pointer would thrash |
-| CPU tile data | **200 MB / 100 MB bytes** (count 256 as a drift net) | byte-exact accounting with a DEV invariant that recomputes and throws on drift (born from a "263 MB for 2 tiles" report); protection channels: a permanently pinned low-zoom skeleton (Cesium `_doNotDestroySubtree` analogue, so ancestor fallback always terminates), and a 2 s just-prefetched shield (cut from 5 s after a real device showed 62 shielded keys at 296 MB) |
-| Raster/hillshade textures | 384 MB / 96 MB **bytes** | a count cap cannot work: texture size is publisher-controlled (256 entries = 64 MB at 256² or 4 GB at 2048²); mip-charging is an explicit required parameter (DEM tiles are deliberately un-mipped — averaging elevation fabricates slopes); **visible tiles are exempt**, so the evictor may legitimately return still-over-budget for a frame |
-| Coverage regions | 64 MB, LRU | one region always stays resident even if it alone exceeds budget (the budget bounds accumulation, not region size); **draw order is decoupled from LRU order** (stable sort by relevance priority — ADR-0011) |
-| Glyph PBF ranges | 32 MB LRU | evict only 'loaded' ranges (evicting loading/failed frees nothing and turns a resolved miss into a re-fetch) |
-| Buffer pool / staging pools | 16 MB / ~35 MB per pool | above |
+| Cache                       | Budget                                                                                                              | Policy notes                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GPU vector tiles            | 256 desktop / 64 mobile **unique tile keys** + arena byte hysteresis (trigger at 75 % of high-water, drain to 60 %) | count is on unique keys, not (key × layer) entries — a sliced source yields ~4 entries/tile; the trigger reads the monotonic bump pointer (what the OOM throw checks) while the drain loop reads live bytes (falls on free) — looping on the bump pointer would thrash                                                                                                        |
+| CPU tile data               | **200 MB / 100 MB bytes** (count 256 as a drift net)                                                                | byte-exact accounting with a DEV invariant that recomputes and throws on drift (born from a "263 MB for 2 tiles" report); protection channels: a permanently pinned low-zoom skeleton (Cesium `_doNotDestroySubtree` analogue, so ancestor fallback always terminates), and a 2 s just-prefetched shield (cut from 5 s after a real device showed 62 shielded keys at 296 MB) |
+| Raster/hillshade textures   | 384 MB / 96 MB **bytes**                                                                                            | a count cap cannot work: texture size is publisher-controlled (256 entries = 64 MB at 256² or 4 GB at 2048²); mip-charging is an explicit required parameter (DEM tiles are deliberately un-mipped — averaging elevation fabricates slopes); **visible tiles are exempt**, so the evictor may legitimately return still-over-budget for a frame                               |
+| Coverage regions            | 64 MB, LRU                                                                                                          | one region always stays resident even if it alone exceeds budget (the budget bounds accumulation, not region size); **draw order is decoupled from LRU order** (stable sort by relevance priority — ADR-0011)                                                                                                                                                                 |
+| Glyph PBF ranges            | 32 MB LRU                                                                                                           | evict only 'loaded' ranges (evicting loading/failed frees nothing and turns a resolved miss into a re-fetch)                                                                                                                                                                                                                                                                  |
+| Buffer pool / staging pools | 16 MB / ~35 MB per pool                                                                                             | above                                                                                                                                                                                                                                                                                                                                                                         |
 
 Eviction runs in the **post-submit safe window** (`runFrameMaintenance` at frame start),
 not inside `render()` (racing the multi-render-per-frame bucket scheduler); the OOM lane
@@ -204,8 +204,8 @@ views/encoders; cold-path-only allocations annotated as such.
 
 Enforcement is **instrumentation, not lint**: an opt-in per-call-site allocation profiler
 (`__xgisAllocProfile`), perf marks, byte telemetry in the stats surface, and a DEV
-byte-accounting invariant. The 2026-08 audit's honest self-assessment is preserved: *"the
-runtime engineering is strong; the gates protecting it are absent"* — no memory soak in
+byte-accounting invariant. The 2026-08 audit's honest self-assessment is preserved: _"the
+runtime engineering is strong; the gates protecting it are absent"_ — no memory soak in
 CI, ~26 of 40 perf specs assert nothing. (For a new library: budget the gates with the
 features.)
 
@@ -277,7 +277,7 @@ sprite payloads (32 MB PNG / 16 MB JSON).
 - Engine: `engine/src/render/{frame-arena,uniform-slot-arena,uniform-ring,uniform-block}.ts`,
   `engine/src/gpu/gpu-arena.ts`
 - Map: `map/src/render/{tile-uniform-arena,uniform-split-bind,gpu-tile-store,
-  gpu-buffer-pool,upload-coordinator,raster-cache-budget,arena-compaction-budget}.ts`
+gpu-buffer-pool,upload-coordinator,raster-cache-budget,arena-compaction-budget}.ts`
 - Data: `data/src/{tile-data-cache,tile-eviction-policy,tile-compile-budget}.ts`,
   `data/src/workers/`
 - Postmortems: `every-test-passed-offset-zero`, `draped-at-the-wrong-tile`,

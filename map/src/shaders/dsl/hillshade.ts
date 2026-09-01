@@ -23,9 +23,23 @@
 // the per-tile zoom-dependent derivative scale in `HillshadeTileUniforms`
 // (group 1, binding 1).
 //
-// Residuals (design §3): `resampling: linear` decoded-height smoothing and the
-// cross-tile 1px edge backfill are the documented two-pass upgrade path; the MVP
-// fragment renders the nearest 3×3 field (byte-parity with MapLibre `nearest`).
+// The DEM sampler is therefore NOT selectable — but `resampling` never selected
+// it anyway. MapLibre binds its DEM nearest for BOTH values too, and applies the
+// flag to the texture filter on the Sobel-DERIVATIVE output of its prepare pass
+// (maplibre-gl 5.24.0, dist/maplibre-gl-dev.js lines 64424 / 64443 / 64453). Shading per
+// fragment from a nearest DEM makes the relief flat across each DEM texel — the
+// MapLibre `nearest` look — so `resampling: linear`, the Mapbox default, is not
+// what renders, and the compiler's `hillshade-resampling-nearest` utility reaches
+// no runtime reader (it describes what already happens). An explicitly authored
+// `linear` warns at convert time (#2166). Making it real means bilinearly blending
+// the DECODED neighbour heights in hs_elevation before the Sobel (design §5) —
+// equivalent to filtering the derivative, because the Sobel is a linear
+// convolution at integer texel offsets, and STILL SINGLE-PASS.
+//
+// Residuals: that 4-tap blend (#2215), and the cross-tile 1px edge backfill.
+// NOTE "two-pass" in the design doc names a DIFFERENT residual — the
+// DEM→derivative-FBO upgrade under "Upgrade path" — so do not size #2215
+// against it.
 
 import {
   fn,

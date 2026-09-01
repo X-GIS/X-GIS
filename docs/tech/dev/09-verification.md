@@ -11,8 +11,8 @@ this chapter is machinery for never being lied to like that again.
 
 ## Split by what each tier can honestly see
 
-The strategy fits in a sentence: *CI verifies what needs no rasterization (compilation,
-compute, math parity); pixels are verified locally on real GPUs.* Software rasterization
+The strategy fits in a sentence: _CI verifies what needs no rasterization (compilation,
+compute, math parity); pixels are verified locally on real GPUs._ Software rasterization
 (SwiftShader) turns out to cover more than assumed — compile/link/validate/draw
 correctness all run headlessly; what it can't give you is timing or hardware-raster
 fidelity, so tolerances are **GPU-class-aware** (tight on hardware, ~6× above measured
@@ -30,16 +30,16 @@ passes when both share a bug.
 Three rungs, in order of strength:
 
 1. **Directional**: for an intentional change, prove before≠after (`DC > 0`) and that the
-   change moved *toward* the reference (`D1 < D0`). Never gate on an absolute match
+   change moved _toward_ the reference (`D1 < D0`). Never gate on an absolute match
    percentage — the reference diff is noisy.
 2. **Zero-diff**, valid only after measuring the same-code noise floor. (A 0.02 %
-   "regression" was once settled by running the *same commit twice*: 0.023 % of pure
+   "regression" was once settled by running the _same commit twice_: 0.023 % of pure
    harness jitter, confined to a HUD strip.)
-3. **Hash equality.** Determinism isn't found, it's *engineered*: pin the camera, pump
+3. **Hash equality.** Determinism isn't found, it's _engineered_: pin the camera, pump
    frames until render-on-demand converges, use the software rasterizer, capture with a
    helper that hides on-canvas chrome (a status line whose text tracks tile loading was
    53 % of one gate's "regression"), and pin every wall-clock-driven render input (the
-   adaptive-quality controller changes the *selected tile set* on a slower machine).
+   adaptive-quality controller changes the _selected tile set_ on a slower machine).
    Do all that and three captures across a merge hash identically — "verification
    collapses from statistics to md5sum."
 
@@ -58,7 +58,7 @@ after a gate passed while wrong:
 1. **Does the test fail before the fix, for the right reason?** Green-only tests prove
    nothing.
 2. **Does it fail when you cut the mechanism it guards?** One gate asserted triangle
-   counts; severing the exact wire it existed to watch produced the *same* failure as the
+   counts; severing the exact wire it existed to watch produced the _same_ failure as the
    wire working — no fix could ever have greened it. Cut the mechanism, and check the
    failure message names the severed half. Assert causes before effects — the first
    assertion to fail is the one that gets blamed.
@@ -69,7 +69,7 @@ after a gate passed while wrong:
    as a finding. A text-regex over CSE-mangled shader output measured "no optimization
    opportunities" thirteen times; the IR said thousands. An unauthenticated CI poller
    turned an auth error into an empty list and declared "all green" in under a second.
-   *Validate the instrument against a known positive before believing any zero.*
+   _Validate the instrument against a known positive before believing any zero._
 
 The same paranoia is embedded in the gates: detector-liveness assertions (the gate's regex
 must see a planted positive and ignore a planted decoy), population proofs ("a gate that
@@ -103,12 +103,12 @@ gated on — with retries, fail-then-pass exits 0 and the default reporting drop
 ## The archive
 
 Seventy-four postmortems, each with a one-line abstract, and a standing rule to grep them
-*before* debugging in an area. Deliberately no index file — a hand-synced index would be a
+_before_ debugging in an area. Deliberately no index file — a hand-synced index would be a
 second authority, which is the drift disease the corpus itself documents. Recurring
 lessons get promoted to a short ledger, one actionable line plus a citation. And each
 session starts from the position that everything inherited — the green check, the
-installed dependencies, the "fixed" flake — is *a claim left by someone who is no longer
-here*, checked mechanically where possible and re-read where not.
+installed dependencies, the "fixed" flake — is _a claim left by someone who is no longer
+here_, checked mechanically where possible and re-read where not.
 
 ## What to steal
 

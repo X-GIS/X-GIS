@@ -19,7 +19,7 @@ Choices worth noticing:
 - **The fill is never simplified.** Douglas-Peucker runs only as a probe whose output is
   thrown away (it informs a subdivision heuristic). Reason: a simplified fill diverges
   from its own stroke by up to the tolerance, and since simplify∘clip ≠ clip∘simplify you
-  can't repair the outline to match. Lines *are* simplified — with tile-boundary vertices
+  can't repair the outline to match. Lines _are_ simplified — with tile-boundary vertices
   locked so adjacent tiles keep identical edges.
 - **Boundary snapping**: clip intersections snap to a per-zoom grid so the two tiles
   sharing an edge produce bit-identical vertices — with the snapped coordinate clamped
@@ -32,7 +32,7 @@ Choices worth noticing:
 - **When clipping splits a footprint, the pieces are emitted as separate polygons, holes
   re-bucketed by point-in-polygon.** The alternative — flattening all outers into one ring
   list — met a consumer that assumed "first ring outer, rest holes" and earcut-punched
-  piece two out of piece one's roof: *n* building pieces rendered *n−1* roofs, while the
+  piece two out of piece one's roof: _n_ building pieces rendered _n−1_ roofs, while the
   2D fill (a different consumer) stayed pixel-perfect. No test had ever fed that consumer
   more than one polygon. The lesson generalizes: "all rings this feature owns" and
   "outer + holes" are different contracts; make the boundary explicit and test with
@@ -51,7 +51,7 @@ fill/outline coincidence instead of breaking it.
 The 28-byte fill vertex (quantized ECEF-RTC position as u16 hi/lo pairs, feature id,
 tile-local Mercator x/y, unclamped latitude for the polar caps) is declared once as a
 field list from which the packer's byte offsets, the shader's `@location`s, and the
-pipeline's vertex layout are all *computed*. The two f32 tail slots have their own scar:
+pipeline's vertex layout are all _computed_. The two f32 tail slots have their own scar:
 they used to carry absolute degrees — one f32 ULP at longitude 127° is ~1.35 m, which
 became a ~10 px fill-vs-outline split at deep overzoom. Tile-local values made the error
 sub-millimeter at every zoom and, not incidentally, made the fill's flat-projection math

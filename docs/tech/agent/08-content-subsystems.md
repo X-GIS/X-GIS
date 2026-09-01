@@ -27,8 +27,7 @@
 - **CJK**: an engine-injected fallback font chain (stripped again before deriving the PBF
   fontstack name — a glyph server doesn't know CSS-only families); local ideograph
   rasterization at display-size buckets (a minified 24 px SDF turns small CJK into solid
-  boxes); **vertical writing composed directly** (offsets advance +y at em pitch, rotation
-  0) rather than reproducing MapLibre's rotate-then-counter-rotate pair — X-GIS composes
+  boxes); **vertical writing composed directly** (offsets advance +y at em pitch, rotation 0) rather than reproducing MapLibre's rotate-then-counter-rotate pair — X-GIS composes
   offsets on the CPU each frame, so the cancelling pair is removed, not mirrored. Two
   recorded traps: column pitch is the **em, never the glyph advance** (PBF has no vertical
   advance); and the cross-axis centerline is one value from the em box, never per-glyph
@@ -43,8 +42,8 @@
 - **Collision** is greedy first-claim-wins over a **deterministic 5-level order**:
   `symbol-sort-key` → layer-precedence group → **`nearY` descending** → stable per-feature
   identity → input index. Two postmortems built that order: the tie-break was once tile
-  *dispatch order* (the winner was whoever loaded last — fixed with a stable identity +
-  permutation test), and then at pitch 81° the stable identity was deciding a *depth*
+  _dispatch order_ (the winner was whoever loaded last — fixed with a stable identity +
+  permutation test), and then at pitch 81° the stable identity was deciding a _depth_
   question ("Seoul" < "Shanghai" let the far label occlude the near one) — **"stable is
   not the same as correct"**; `nearY` is the screen-space depth proxy slotted between
   precedence and identity. The same depth-blind bug was latent in the icon pass.
@@ -69,7 +68,7 @@
   it's evaluated where the label is (the predecessor linearized at the screen center and
   was 84-240 % wrong at the viewport edge). The identity case omits the field so
   pitch-0 vertices stay bit-identical. Collision boxes go through the same basis. Globe is
-  explicitly deferred with the reason recorded — *don't* patch it with a per-projection
+  explicitly deferred with the reason recorded — _don't_ patch it with a per-projection
   analytic fallback (that's the two-authorities drift the construction avoids).
 - Curved labels under pitch walk **two polylines sharing sample indices** — the pitch-0
   label plane (arc length, fit, max-angle, advance = uniform-on-the-ground quantities) and
@@ -80,7 +79,7 @@
   positions reproduce exactly while quads still transform through B.
 - Globe anchors must project through the **RTC (focus-relative) MVP as `e − focus`** —
   absolute ECEF into an RTC matrix splays labels off features (sharp probe: the
-  view-center anchor's ECEF *is* the RTC origin, so a correct projector centers it at any
+  view-center anchor's ECEF _is_ the RTC origin, so a correct projector centers it at any
   pitch). Horizon culling uses the shared ellipsoid-silhouette authority plus two margins:
   a **fractional** margin of the visibility headroom `(1 − cosH)` (an additive angular
   margin fails because headroom collapses with zoom: 0.0027 at z12, 4e-5 at z18), and a
@@ -95,7 +94,7 @@ Front end: lexer → recursive-descent parser → AST. The language is **purely 
 by the parser and resolved later.
 
 - **Utility vocabulary is a declarative registry** — one `{prefix, valueKind, unit,
-  animatable, appliesTo}` row per utility with **longest-match lookup** so table order is
+animatable, appliesTo}` row per utility with **longest-match lookup** so table order is
   irrelevant. It replaced ~78 prefixes dispatched through ordered `startsWith` ladders
   duplicated across four sites (with two silent-drop holes). Consumers derive from the
   table (keyframe animatability is a filter over it); an unmatched utility is a diagnostic
@@ -122,7 +121,7 @@ by the parser and resolved later.
 - **Safety invariant to copy**: the integer category ids baked into shader match-chains
   must equal what the runtime feature packer writes — both sides sort patterns
   alphabetically; breaking it silently mis-colors with no type error. Similarly, `input`
-  declarations are rewritten into a distinct `InputRef` node *before* any other pass —
+  declarations are rewritten into a distinct `InputRef` node _before_ any other pass —
   a distinct Expr kind forces every exhaustive switch to handle it (the prior
   bare-identifier fallback silently compiled unknown names to 0.0).
 - **Mapbox compatibility** is a converter plus a **spec-coverage table** assembled from 17
@@ -147,8 +146,8 @@ by the parser and resolved later.
   blob is not" — paid for twice (`.xgvt` → PMTiles, `.xgcov` → HDF5). CORS is a proxy
   concern, not a format concern.
 - The in-house HDF5 reader's range layer holds the **measured crossover**: on a real
-  4.5 MB NOAA cell, whole-file GET = 125 ms; ranged = 2,100 ms *and it transferred nearly
-  everything anyway* (an unwindowed read touches every chunk, and each address is known
+  4.5 MB NOAA cell, whole-file GET = 125 ms; ranged = 2,100 ms _and it transferred nearly
+  everything anyway_ (an unwindowed read touches every chunk, and each address is known
   only after its predecessor parses ⇒ K ≥ ~6 serial round-trips). Algebra:
   ranged = `K·RTT + needed/T` vs whole = `RTT + total/T` ⇒ whole wins while
   `(K−1)·RTT > (total − needed)/T`; hence a whole-file threshold at 8 MB, with ranging
@@ -182,10 +181,10 @@ by the parser and resolved later.
 
 1. **Stateless particles**: position = pure function `f(seed, t)` — no state buffer, no
    compute, GLSL twin free, and a pinned `t` gives byte-reproducible frames (the
-   determinism seam). Compute advection is a capability-gated *enhancement*, never the
+   determinism seam). Compute advection is a capability-gated _enhancement_, never the
    baseline, because the WebGL2 arm can't honestly carry it.
 2. **The drifting-glyph postmortem**: porting the particle lifecycle to large oriented
-   chart glyphs is *structurally* wrong — recycling is a position discontinuity, hiding it
+   chart glyphs is _structurally_ wrong — recycling is a position discontinuity, hiding it
    needs a fade, and a fade on a large recognizable object IS a blink. The particle model
    works only under perceptual conditions (sub-tracking-threshold dots, high density,
    trails). **"A lifecycle model is only as portable as the perceptual conditions that
@@ -199,7 +198,7 @@ by the parser and resolved later.
    and 10° to 180°); advection steps are anisotropic (`cos φ` — dividing both axes by the
    same number shears the flow).
 3. **Arrows ARE the particles** (S-111): the standard's portrayal catalog binds a
-   *function* (position → speed/direction → symbol/color/rotation) and contains **no
+   _function_ (position → speed/direction → symbol/color/rotation) and contains **no
    notion of time** — so a drifting arrow re-evaluated from the data wherever it arrives
    is conformant; one that keeps its old color after moving is not. Design: store a
    **displacement, not an absolute position** (origins keep the CPU-packed split-float
@@ -208,13 +207,13 @@ by the parser and resolved later.
    reprojection is the CPU/GPU-twin bug archetype). Then the state texture was removed
    entirely: **a phase holds no position** — `drift(origin, phase)` is pure, so instance
    count becomes a per-frame decision (no texture to size, no identity to preserve), fades
-   become possible, determinism is free, and frame 0 *is* the catalog placement. The
+   become possible, determinism is free, and frame 0 _is_ the catalog placement. The
    instance set is a **ground-anchored lattice generated from the view** (screen-seeded
    fields slide over the water; ground-seeded density is constant per screen area by
    construction — measured: holding spacing at z19 from a data-seeded set would need 355 M
    instances). Trains of glyphs at fixed arc spacing make recycling free: at phase 1 every
-   glyph lands where its neighbor was and the alpha ramp matches across the seam — *there
-   is nothing to blink*. The camera reaches the lattice as **four corner rays unprojected
+   glyph lands where its neighbor was and the alpha ramp matches across the seam — _there
+   is nothing to blink_. The camera reaches the lattice as **four corner rays unprojected
    through the f64 inverse** — not an inverse matrix (f32 inverse ≈ 1 m ≈ 8+ px at z17)
    and not a second basis derivation (a second statement of a composition the forward path
    owns = a lattice that slides).
@@ -239,7 +238,7 @@ by the parser and resolved later.
   vertices are shared by construction. The precision fix (#2137) is a chapter of its own:
   every transcendental on the in-shader ECEF path multiplies the Earth radius, so a
   backend's relative trig error lands as **meters** (measured 1.17e3 m on SwiftShader);
-  feeding a more precise latitude *measurably did not help* (the forward sin/cos/sqrt
+  feeding a more precise latitude _measurably did not help_ (the forward sin/cos/sqrt
   dominate) — the fix removes every transcendental (a CPU-f64 trig table; the shader only
   multiplies). Units trap recorded: one lane holds the dimensionless log-tangent, not
   Mercator meters — using the meter-inverse silently shifts every vertex. Edge blending is
@@ -294,7 +293,7 @@ by the parser and resolved later.
 - Coverage: `data/src/hdf5/`, `map/src/coverage-*.ts`, `map/src/render/coverage-renderer.ts`,
   `docs/adr/0010`, `docs/adr/0011`, `docs/standards/s-111/`
 - Flow/arrows: `map/src/shaders/dsl/{particle-retained,flow-advect,arrow-advected,
-  arrow-drift,field-lattice}.ts`, `map/src/render/flow-*.ts`,
+arrow-drift,field-lattice}.ts`, `map/src/render/flow-*.ts`,
   `docs/plans/2026-07-14-particle-flow-design.md` and successors
 - Globe surface: `map/src/synthetic-earth-surface-show.ts`,
   `map/src/render/passes/{background-pass,atmosphere-pass}.ts`,

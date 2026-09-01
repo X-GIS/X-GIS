@@ -8,7 +8,7 @@
 ## 1. Frame loop and render-on-demand
 
 One rAF authority, deduped, parked when the document is hidden; the tick closure is
-allocated **once**. Per tick: camera events are processed *before* the skip gate (events
+allocated **once**. Per tick: camera events are processed _before_ the skip gate (events
 fire on idle ticks too), cold-start hysteresis advances even on skipped frames, then
 `shouldRenderThisFrame()` decides; three consecutive render throws halt the loop with a
 typed error event.
@@ -21,7 +21,7 @@ keep-warm-scoped work is pending.
 
 **The pending-work registry** (`map/src/pending-work.ts`) is the generalizable piece.
 "Is async scene content in flight?" was hand-maintained per resource class, and six
-recorded incidents were *someone forgot to join the list* — the map either fossilized
+recorded incidents were _someone forgot to join the list_ — the map either fossilized
 half-loaded (an upload staging buffer invisible to the idle predicate stopped the loop
 mid-load; labels decayed 6980 → 0 px across probe runs, looking exactly like a rendering
 regression) or never idled. Now: one enumerated kind list (glyph, sprite, coverage,
@@ -64,7 +64,7 @@ effectiveTarget = baseTarget + farness · (farTargetSSE − baseTarget)
 `NEAR = 2` because an unpitched 45°-FOV frame's corner sits at ≈1.3 altitudes — so
 **low-pitch views are untouched by construction, not approximately**. `farTargetSSE` ramps
 only past pitch 60° (toward 12, then toward 24 past z17). The failure this replaced: a
-*global* coarsening target emitted **zero** native-zoom tiles at Paris z16 pitch 70 —
+_global_ coarsening target emitted **zero** native-zoom tiles at Paris z16 pitch 70 —
 buildings (z≥14 data) vanished as you pitched up. The adaptive-quality boost then
 **multiplies the ramp's own far target** (capped at 64), never the base — composing rather
 than competing, and inert on an unpitched camera by the same construction.
@@ -127,13 +127,13 @@ object, with lazy clear via a generation counter.
 Lever landing sites: the DPR lever scales an offscreen **scene** target that a
 `scene-upscale` pass reinflates, while overlay passes (labels, host graphics) render at
 native resolution — "a sounding numeral is not decoration that degrades gracefully." The
-LOD lever multiplies the SSE far target *and* is passed to the readiness gate's probe (a
+LOD lever multiplies the SSE far target _and_ is passed to the readiness gate's probe (a
 gate holding out for tiles a coarser selection never asks for would stall). **The boost is
 part of every selection memo key** — a static camera bumps no frame signature, so without
 it a ladder change would compute and never be observed, exactly when the controller most
 needs to act.
 
-Pinning: `?adaptive=0` disables at module load *before the first frame is sampled* and
+Pinning: `?adaptive=0` disables at module load _before the first frame is sampled_ and
 drops every sample; `?scenescale=N` pins only the DPR half **and leaves the selector
 moving** — a recorded trap for hash-equality gates (a render input that is a function of
 wall clock). Diagnostics surface the notch, boost and median; the controller's ring is
@@ -175,7 +175,7 @@ an A/B needs the same clock on both arms.
 - **Bucket scheduling** as a pure function (zero side effects — two releases shipped
   silent classification bugs a smoke test couldn't catch): opaque fills (consecutive
   same-source shows share a sub-pass) → translucent (offscreen MAX-blend + composite,
-  after the *whole* opaque bucket — interleaving by source let a translucent layer
+  after the _whole_ opaque bucket — interleaving by source let a translucent layer
   composite before an opaque one covered it) → points. Opacity < 0.005 drops the layer; a
   translucent-stroke layer appears in both buckets (fill half opaque).
 - **Render bundles**: encode once, replay (`270 draw calls → 1` measured at z14 Seoul).
@@ -184,9 +184,9 @@ an A/B needs the same clock on both arms.
   reviewing the invariant"; adding a dependency is a compile error at every call site).
   The paid-for field is `ringCursor`: recorded draws bake dynamic offsets = base + walk
   position, so a key hit with a shifted base replayed stale offsets ("mostly empty canvas
-  during interactive navigation" — the bug that kept bundles disabled). Uniform *data*
+  during interactive navigation" — the bug that kept bundles disabled). Uniform _data_
   updates do NOT invalidate (bundles hold bind-group references); bind-group
-  *reassignment* does, tracked by an epoch. Bundles can't record stencil-ref/viewport/
+  _reassignment_ does, tracked by an epoch. Bundles can't record stencil-ref/viewport/
   scissor — draws split so those change outside.
 - **Bind groups**: two source-level groups reused across all tiles; per-tile variation
   rides dynamic offsets into a uniform ring (reset per frame; CPU mirrors flushed just
@@ -194,7 +194,7 @@ an A/B needs the same clock on both arms.
   variant key; bind sizes derived lazily from `reflect()` of the same IR.
 - **Instancing**: retained host graphics draw N icons in O(copies × batches) draws,
   gated with zero slack: `drawCalls(10k) === drawCalls(100k)` — an N-independence
-  *invariant*, not a pinned count ("a gate that cannot fail is decoration": the gate was
+  _invariant_, not a pinned count ("a gate that cannot fail is decoration": the gate was
   trusted only after breaking batching on purpose and watching 100,000 draw calls).
 - **Selection memos**: a 16-slot LRU over visible-tile selections keyed by
   (cameraSig, z, maxLevel, farBoost, indexGeneration) — N shows with divergent stroke cull
@@ -209,7 +209,7 @@ pixel-quantized center, bearing/pitch/canvas/show-count, per-source cache sizes 
 not string: the string sig was itself a per-frame allocation). On a hit, `prepare()` — the
 O(N²) greedy collision + shaping + upload — is skipped entirely and persistent draws
 replay. Two things the signature can't capture force a re-collation: an async glyph/sprite
-landing after the signature settled, and time-driven label shapes. During an *active* zoom
+landing after the signature settled, and time-driven label shapes. During an _active_ zoom
 the comparison relaxes (|Δzoom| ≤ 0.15, center drift ≤ 48 px) because the exact key made
 every continuous-zoom frame a miss — putting full prepare cost on the wheel-zoom hot path;
 motion stopping restores the exact compare and forces one final prepare so idle is
@@ -230,7 +230,7 @@ never force a re-prepare).
 - **Raise the load, never lower the bar** when a perf gate's premise ("the host genuinely
   can't keep up") is marginal.
 - **Assert the quantity the subsystem moves**: the adaptive-ladder gate asserted triangles
-  and severing the controller→selector wire failed *identically* to the wire working (no
+  and severing the controller→selector wire failed _identically_ to the wire working (no
   premise fix could ever green it); fixed by asserting tiles. Method: don't just check
   fail-before goes red — **cut the specific mechanism and confirm the message names the
   severed half**. And never attribute causes from composite numbers (triangles = tiles ×

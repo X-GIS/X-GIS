@@ -6,14 +6,15 @@
 
 ## 1. The four spaces and the one-way rule
 
-| Code | Space | Units | Used for |
-|---|---|---|---|
-| **LL** | WGS84 lon/lat | degrees | source data, bbox-reject, area |
-| **MM** | Web Mercator EPSG:3857 | meters | ALL tiler clip/simplify/tessellate, arc length, DSFUN origin |
-| **DLM** | tile-local Mercator, split f32 hi/lo | meters | vertex output format |
-| **SP** | screen/NDC | px/clip | camera projection only |
+| Code    | Space                                | Units   | Used for                                                     |
+| ------- | ------------------------------------ | ------- | ------------------------------------------------------------ |
+| **LL**  | WGS84 lon/lat                        | degrees | source data, bbox-reject, area                               |
+| **MM**  | Web Mercator EPSG:3857               | meters  | ALL tiler clip/simplify/tessellate, arc length, DSFUN origin |
+| **DLM** | tile-local Mercator, split f32 hi/lo | meters  | vertex output format                                         |
+| **SP**  | screen/NDC                           | px/clip | camera projection only                                       |
 
 Rules (`docs/COORDINATES.md`):
+
 - **Project once at load (LL→MM), never invert inside the compile pipeline** (one documented
   exception). Tile origins are derived from LL bounds via `lonLatToMercF64`, never inverted.
 - **Sibling paths clip/simplify in the SAME space.** The pre-unification split (polygon
@@ -35,21 +36,21 @@ boundPx(z) = dominantM · 2^-23 · pxPerM(z)
 `dominantM` = the largest intermediate magnitude the path stores in f32. The whole
 architecture falls out of this table:
 
-| Frame | dominantM | error floor | crosses 0.5 px at | @ z20.55 |
-|---|---|---|---|---|
-| absolute Mercator meters (or degrees→reproject) | ~1.41e7 (Seoul) | 1.68 m | **z ≈ 14.5** | 33 px analytic / 56.7 px measured |
-| absolute ECEF meters | 6.38e6 | 0.76 m | z ≈ 15.6 | ~15 px |
-| **tile-local Mercator** | ≤ tile extent = 2πR/2^z | zoom-cancelling | **never** | 6.1e-5 px, constant |
-| **DSFUN hi/lo** | residual after hi | ~1e-8 m | never | ≪ 0.5 px |
+| Frame                                           | dominantM               | error floor     | crosses 0.5 px at | @ z20.55                          |
+| ----------------------------------------------- | ----------------------- | --------------- | ----------------- | --------------------------------- |
+| absolute Mercator meters (or degrees→reproject) | ~1.41e7 (Seoul)         | 1.68 m          | **z ≈ 14.5**      | 33 px analytic / 56.7 px measured |
+| absolute ECEF meters                            | 6.38e6                  | 0.76 m          | z ≈ 15.6          | ~15 px                            |
+| **tile-local Mercator**                         | ≤ tile extent = 2πR/2^z | zoom-cancelling | **never**         | 6.1e-5 px, constant               |
+| **DSFUN hi/lo**                                 | residual after hi       | ~1e-8 m         | never             | ≪ 0.5 px                          |
 
 The tile-local line is the key algebraic fact:
 `boundPx = (2πR/2^z)·2^-23·(512·2^z/2πR) = 512·2^-23 ≈ 6e-5 px` — **the zoom cancels
-exactly**. Choose a frame whose magnitude scales *with* the pixel scale and the linear term
+exactly**. Choose a frame whose magnitude scales _with_ the pixel scale and the linear term
 never needs f64 on the GPU. (The measured/analytic 1.7× gap has a named second term: the
 truncated shader constant `DEG2RAD_F32` carries ~1.4e-7 relative error — same order as one
 ULP, so it must be budgeted too.)
 
-**Jitter is a separate budget.** A stationary vertex *shakes* when the camera anchor is a
+**Jitter is a separate budget.** A stationary vertex _shakes_ when the camera anchor is a
 single f32: at |mercator| ≈ 6.1e6, one ULP is 0.73 m, and panning walks the rounding across
 the f32 grid frame-to-frame. Gates assert: old single-f32 anchor > 1 px shake at z18+; the
 shipped DSFUN hi/lo anchor < 0.05 px at every zoom (ratio > 100×). The same budget is run
@@ -89,9 +90,9 @@ anchor. Whole-domain bound ≤ 1e-3 px; measured worst case 2.3e-4 px.
 flat non-Mercator (compute a camera-relative `dLon`, re-center the projection onto
 `clon = 0` — exact because the projection depends only on `lon − clon`); and 3D/ECEF
 (`ecef_cam = ecef_rtc + rtc_off_h + rtc_off_l`). The Mercator hi/lo pair comes from one
-shared helper (`merc-cam-rel.ts`) used by polygon and line alike: *"hi−hi is
+shared helper (`merc-cam-rel.ts`) used by polygon and line alike: _"hi−hi is
 Sterbenz-exact when the camera is near the tile, and lo−lo recovers the low bits the
-single-f32 tile origin lost."*
+single-f32 tile origin lost."_
 
 ## 4. df64: emulated doubles as a compiler-adversarial technique
 
@@ -124,19 +125,19 @@ defense stack, each layer paid for by a specific device failure:
 2. **Per-cross-term renormalization in `df64_mul`** (not one renorm at the end as textbook
    QD): threading `one` through the cross terms does NOT help because the compiler factors
    `a` out of `a·b_hi + a·b_lo`, rounding `b_hi + b_lo` back to `b_hi` — the guard must sit
-   *outside* the distributable form. (Blog: "add held, mul collapsed" — on Apple, add read
+   _outside_ the distributable form. (Blog: "add held, mul collapsed" — on Apple, add read
    0.5 and mul read exactly 0.)
 3. **`renormForCancel` — the #915 guard.** A `lo` word that arrives from a uniform/attribute
    **load** is discardable to a reassociating backend right before a cancellation; a `lo`
    the compiler computed one instruction earlier, it keeps. So every operand feeding a
-   *cancelling* op (`sub`, `div`, and the lanes of `fract/mix/normalize/distance`) is
+   _cancelling_ op (`sub`, `div`, and the lanes of `fract/mix/normalize/distance`) is
    laundered loaded→computed by adding a **df64 zero**. Idempotent (byte-unchanged on
    correct GPUs) and opaque (it is a `df64_add` call, not `x+0`).
 4. **The zero itself is a bitcast barrier**: `vec2(bitcast<f32>(bitcast<u32>(0)), …)`.
    Written as a plain literal, a member-fold pass resolves it back to `0.0`, const-prop
    carries it into twoSum's `s = a+b`, and the pre-existing `x+0 → x` identity **deletes
    the add — and that add IS the renorm**. Measured: 408 flattened ops → 400 while the
-   guard-texture read *survives* (1→1), so a gate that only checks the guard binding passes
+   guard-texture read _survives_ (1→1), so a gate that only checks the guard binding passes
    straight through the regression. What catches it: an op-count ratchet plus a
    barrier-strip cut test that requires the drop to reappear.
 5. **Opacity is a decl flag, not a name prefix** (#1926): the mangler renames the df64
@@ -148,7 +149,7 @@ defense stack, each layer paid for by a specific device failure:
    same `vec2<f32>` contract, **no guard binding at all** — integer ops have nothing to
    reassociate. Selected per device (`recommendFp64Flavor`: Apple/Metal → integer; ANGLE-D3D
    stays float because FXC's compile cost on fully-inlined integer bodies can TDR).
-   The general lesson from the blog series: float-side guards die on Metal *by construction*
+   The general lesson from the blog series: float-side guards die on Metal _by construction_
    (fast-math deletes the error term); the durable answers are integer EFTs or
    restructuring so the high-precision multiply never happens — which is why deck.gl
    deprecated emulated fp64, and why X-GIS's coordinate pipeline needs df64 only where RTC
@@ -157,7 +158,7 @@ defense stack, each layer paid for by a specific device failure:
 Achieved precision (known-answer tests): `1/3` and `√2` to ~2^-44 relative; cross-term
 retention to ~2^-48. Fun fact with a lesson: the Veltkamp split constant was **never** the
 bug — 8193 and 4097 are both error-free for f32; the one that breaks is a constant too
-*small*.
+_small_.
 
 ## 5. Projection math (geo package)
 
@@ -169,7 +170,7 @@ bug — 8193 and 4097 are both error-free for f32; the one that breaks is a cons
   natural earth (Šavrič 6th-order polynomial; inverse = 5-iteration Newton on latitude),
   orthographic (`cosC < 0 → NaN` backface), azimuthal equidistant, stereographic, oblique
   Mercator — the last with a **singularity-only pole clamp** (`90° − 1e-4`): the standard
-  85.05° clamp is wrong in the *rotated* frame and collapsed distinct rotated latitudes to
+  85.05° clamp is wrong in the _rotated_ frame and collapsed distinct rotated latitudes to
   the same Y (degenerate mesh, tile tearing).
 - WGS84: `N = a/√(1−e²sin²φ)`; geodetic→ECEF standard; inverse via 4-iteration Bowring with
   a polar short-circuit. Constants come from one `Body` authority (`shared/src/body.ts`)
@@ -179,12 +180,12 @@ bug — 8193 and 4097 are both error-free for f32; the one that breaks is a cons
   anywhere else.
 
 **The geoid split (ADR-0002, revised).** Display/tiling projection (Web Mercator) is
-spherical *by EPSG:3857 definition*; the 3D position datum is the WGS84 ellipsoid. The
+spherical _by EPSG:3857 definition_; the 3D position datum is the WGS84 ellipsoid. The
 original implementation also had the **camera** on a sphere while vertices sat on the
 ellipsoid — a ~21 km frame mismatch (0 km at the equator, 24.5 km at lat 60). The
 subtlety: within one RTC subtraction the mismatch **cancels** (both endpoints carry it), so
 "force the constant to a sphere and assert a 10 km shift" measured **0.7 m** — differences
-forgive shared bias; only a guard that *breaks the symmetry* (mixed frame: ellipsoid tile,
+forgive shared bias; only a guard that _breaks the symmetry_ (mixed frame: ellipsoid tile,
 sphere camera) sees the real regression. The bug that did surface (#208): the globe arm
 computed `tileCenter − cameraCenter` across the two frames, baking the full 21 km into the
 offset — 0.8 px at z1.5, 69 px at z8, 4396 px (blank tile) at z14. Resolution: camera ECEF
@@ -222,12 +223,12 @@ lat 60 / z14 / pitch 45.
    twin exists because the interpreter was ~40 % of frame time in tile-selection probes).
    The memo is body-scoped — an unscoped memo once had "the CPU compute on Earth while the
    GPU drew the Moon, in one frame."
-2. **The f64 oracle's honest blind spot**, stated in its own header: it is an *algebra*
+2. **The f64 oracle's honest blind spot**, stated in its own header: it is an _algebra_
    oracle, structurally blind to f32-precision loss — "a CPU↔CPU pass here is NOT evidence
    of GPU precision parity." Named bugs it cannot catch (fill-vs-outline displacement, the
    polar black hole). One deliberate concession: `==`/`!=` on f32-typed operands compare
    after f32 rounding (exact f64 equality silently disagrees on equality branches).
-3. **Executed-WGSL parity**: a compute pass runs the *real* emitted WGSL projection
+3. **Executed-WGSL parity**: a compute pass runs the _real_ emitted WGSL projection
    functions over a lon/lat grid and diffs against the CPU f64 lowering, with a two-tier
    tolerance — hardware 100 m absolute; SwiftShader `max(3000, |v|·2e-3)` (its software
    transcendentals are ~3e-4 relative and stereographic's `2/(1+cos c)` amplifies that).
@@ -236,7 +237,7 @@ lat 60 / z14 / pitch 45.
    functions and executed standalone in a compute harness against a CPU `fround` mirror —
    "the verification kernel executes the EXACT shader logic, not a hand-retyped copy."
 
-**The known hole, named**: parity between two copies of the *same* bug passes (WGSL and CPU
+**The known hole, named**: parity between two copies of the _same_ bug passes (WGSL and CPU
 mirror share the DSL source). The counter is a **metamorphic** invariant — e.g. seam
 continuity across ±180 — not parity.
 
@@ -259,6 +260,7 @@ matrix") — the absolute matrix never reaches the GPU; (2) the absolute matrix 
 **f64 for the inverse** — at f32 the translation column quantizes to ~0.5 m/ULP, and the
 drag-anchor loop (unproject every frame, pin ground point under cursor) could not converge
 below that noise, shaking tens of px at z17+ (gate: f64/f64 < 0.05 px, f32 arm re-shakes
+
 > 1 px); (3) the per-tile camera anchor ships as DSFUN hi/lo (§3).
 
 ## 9. Horizon culling and the globe intersection
@@ -304,7 +306,7 @@ below that noise, shaking tens of px at z17+ (gate: f64/f64 < 0.05 px, f32 arm r
    and subtract a large anchor afterwards — that is catastrophic cancellation by
    construction.
 4. **The camera anchor must be split hi/lo everywhere** — Mercator, non-Mercator `clon`,
-   ECEF. A single-f32 anchor *is* the map-shake bug.
+   ECEF. A single-f32 anchor _is_ the map-shake bug.
 5. **One geodesy authority, one datum per role** — display projection may be spherical by
    spec; the 3D datum is the ellipsoid; brand the frames so a cross-frame subtraction is
    caught. Remember: differences forgive shared bias, so test guards must break the

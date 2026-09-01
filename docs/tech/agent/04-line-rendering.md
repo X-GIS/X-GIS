@@ -9,7 +9,7 @@
 ## 1. The model in one sentence
 
 X-GIS does **not** build join/cap geometry on the CPU. It emits **one instanced 6-vertex
-quad per segment** that is only a *conservative bound*, and computes the entire stroke —
+quad per segment** that is only a _conservative bound_, and computes the entire stroke —
 body, miter, bevel, round join, caps, dashes, patterns, anti-aliasing — as a **2-D signed
 distance field in the fragment shader, in tile-local Mercator meters**.
 
@@ -26,16 +26,16 @@ texture read with `texelFetch` (`line-material.ts:48-51`).
 `struct LineSegment`, 32 × f32 = 128 B, std430 (`line.ts:275-314`; written by
 `buildLineSegments`, layout doc `line-segment-build.ts:22-56`):
 
-| slots | field | meaning |
-|---|---|---|
-| 0-7 | `p0_h p1_h p0_l p1_l` (vec2f each) | endpoints, tile-local Mercator meters, split hi/lo (DSFUN) |
-| 8-11 | `prev_tangent`, `next_tangent` | unit tangents; **a ZERO tangent means "cap here"**, non-zero means "join here" — that one bit is also how tile-boundary cap suppression works |
-| 12-13 | `arc_start`, `line_length` | cumulative arc at p0; total arc of the whole polyline component |
-| 14-15 | `pad_ratio_p0/p1` | miter along-pad, in multiples of half-width (CPU-computed, §3) |
-| 16 | `z_lift_m` | per-feature roof height (extrusions) |
-| 17 | `width_px_override` | 0 ⇒ layer width |
-| 18 | `color_packed` | RGBA8 in an f32 slot via `Uint32Array` view; read with `unpack4x8unorm(bitcast<u32>(…))` |
-| 20-31 | `e0`, `e1` ECEF RTC hi/lo (3 axes each) | CPU-f64 ECEF endpoint lanes for the globe (#2089, §7) |
+| slots | field                                   | meaning                                                                                                                                       |
+| ----- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0-7   | `p0_h p1_h p0_l p1_l` (vec2f each)      | endpoints, tile-local Mercator meters, split hi/lo (DSFUN)                                                                                    |
+| 8-11  | `prev_tangent`, `next_tangent`          | unit tangents; **a ZERO tangent means "cap here"**, non-zero means "join here" — that one bit is also how tile-boundary cap suppression works |
+| 12-13 | `arc_start`, `line_length`              | cumulative arc at p0; total arc of the whole polyline component                                                                               |
+| 14-15 | `pad_ratio_p0/p1`                       | miter along-pad, in multiples of half-width (CPU-computed, §3)                                                                                |
+| 16    | `z_lift_m`                              | per-feature roof height (extrusions)                                                                                                          |
+| 17    | `width_px_override`                     | 0 ⇒ layer width                                                                                                                               |
+| 18    | `color_packed`                          | RGBA8 in an f32 slot via `Uint32Array` view; read with `unpack4x8unorm(bitcast<u32>(…))`                                                      |
+| 20-31 | `e0`, `e1` ECEF RTC hi/lo (3 axes each) | CPU-f64 ECEF endpoint lanes for the globe (#2089, §7)                                                                                         |
 
 The CPU↔GPU stride is locked by `map/src/render/line-segment-struct-layout.test.ts`, which
 recomputes std430 — its header notes that a stride mismatch produces **no WebGPU validation
@@ -59,25 +59,26 @@ segment. `data/src/line-segment-build.ts:85-124`:
 const cross = Math.abs(ax * by - ay * bx)
 const dotAB = ax * bx + ay * by
 const denom = 1 + dotAB
-if (denom < 1e-6) return 1                 // 180° reversal → bevel (#463 whisker fix)
-const padAlong = cross / denom             // == |tan(θ/2)|
-if (padAlong < 0.05) return 1              // collinear-ish
+if (denom < 1e-6) return 1 // 180° reversal → bevel (#463 whisker fix)
+const padAlong = cross / denom // == |tan(θ/2)|
+if (padAlong < 0.05) return 1 // collinear-ish
 const bisLen = Math.hypot(ax + bx, ay + by)
-const cosHalf = bisLen / 2                 // |A+B| = 2·cos(θ/2)
-if (cosHalf < 1 / miterLimit) return 1     // beyond miter limit → bevel
+const cosHalf = bisLen / 2 // |A+B| = 2·cos(θ/2)
+if (cosHalf < 1 / miterLimit) return 1 // beyond miter limit → bevel
 return Math.min(padAlong, miterLimit)
 ```
 
 Three bugs paid for in that snippet, each now an inline invariant:
+
 - The pad is `|tan(θ/2)| = |cross|/(1+dot)`, **not** `1/sin(θ/2)` — the latter is the miter
-  length along the bisector, which underestimates the *along-segment projection* for
+  length along the bisector, which underestimates the _along-segment projection_ for
   θ > 103.6°, leaving the miter tip outside the quad (a visible triangular gap).
 - The miter-limit test is `cos(θ/2) < 1/L`, **not** `sin(θ/2)` (#432) — the Mapbox miter
   ratio is `1/cos(θ/2)`; the sin form failed to bevel sharp corners and spuriously
   bevelled shallow ones. Key identity: for unit tangents, `|A+B| = 2·cos(θ/2)`.
 - A 180° reversal must return 1 (bevel), not "worst case miterLimit" — extending the quad
   along a reversed segment drew perpendicular whisker spikes at dense vertex clusters (#463).
-- The build-time limit (4.0) is deliberately *larger* than the runtime default (2.0), so an
+- The build-time limit (4.0) is deliberately _larger_ than the runtime default (2.0), so an
   over-generous quad only costs overdraw, never clipping.
 
 In the **fragment shader**, joins are half-plane and circle operations on the SDF
@@ -126,7 +127,7 @@ if (alpha < 0.005) { discard; }
 - The vertex shader pads the quad by `aa_width_px` on both sides
   (VS `halfWm = (w/2 + aa)·mpp` vs FS `halfWm = (w/2)·mpp`) so the feather is never
   clipped; a separate early-discard rejects fragments beyond `max(halfW, patternExtent) +
-  2·aa` (`line.ts:588-592`).
+2·aa` (`line.ts:588-592`).
 
 ## 5. Width model
 
@@ -139,14 +140,14 @@ and the fix's globe branch was left raw under an `UNVERIFIED` comment for a whol
 gate: `map/src/render/vtr-line-mpp-effective.test.ts`.
 
 Extrusion is **world-space** (along the segment normal in tile-local Mercator), then two
-projection-dependent corrections, both of which *measure on-screen distance* rather than
+projection-dependent corrections, both of which _measure on-screen distance_ rather than
 trusting the matrix:
 
 1. **Flat non-Mercator (#1246)** — the flat display MVP scales meters→pixels at the single
    Mercator `1/mpp` for every flat projType, so reprojection shrinks the across offset by
    the Mercator→projection Jacobian `J` (equirectangular N–S: `J = cos φ`) and a stroke
    collapses to `W·cos φ`. Fix (`line.ts:1321-1368`): project the base point and the
-   across-offset point through the projection ladder *and* through Mercator passthrough,
+   across-offset point through the projection ladder _and_ through Mercator passthrough,
    both via the same MVP; `widthScale = mercDist/projDist = 1/J`; widen **only the across
    component**. On Mercator the two probes are bit-equal ⇒ scale exactly 1 (no projType
    branch needed). The fragment frame (`world_local`) deliberately stays true-Mercator so
@@ -170,13 +171,13 @@ Per-fragment arc position: `arcPos = arc_start + clamp(dot(p − p0, dir), 0, se
   `dash_m = dash · strokeWidthPx · mpp`), even index = ON, `discard` otherwise. A `notInCap`
   predicate keeps dashes from chopping caps. Because `arc_start` is a per-chain cumulative
   f64 computed in the tiler, phase advances continuously across joins regardless of vertex
-  density; the documented caveat is that arc is measured along the *original* geometry, not
+  density; the documented caveat is that arc is measured along the _original_ geometry, not
   the offset stroke's parallel curve (sub-pixel for typical offsets).
 - **Procedural pattern stack** (`line.ts:886-943`): 3 uniform slots, each
   `{shapeId, flags(units+anchor), spacing, size, offset, start_offset}`; units m/px/km/nm.
   REPEAT anchors sample the nearest instance **plus both neighbours**
   (`kCenter = floor((arcPos − start)/spacing + 0.5)`, loop dk ∈ {−1,0,1}); START/END/CENTER
-  anchor in polyline-arc space using `line_length` (this is *why* line_length is union-found
+  anchor in polyline-arc space using `line_length` (this is _why_ line_length is union-found
   per component). Each instance evaluates `sdf_shape` (a ≤32-segment path SDF with winding,
   shared with point symbols) in the instance's local frame, and the result is **unioned
   into the stroke SDF** (`dM = min(dM, patD)`), so patterns extend the stroke rather than
@@ -195,7 +196,7 @@ See [`02-coordinates-precision.md`](./02-coordinates-precision.md) for the theor
 path's concrete mechanisms:
 
 1. **DSFUN camera-relative cancellation** (`line-endpoint.ts:25-32`):
-   `mercRel = (p_h − cam_h) + (p_l − cam_l)` — the ~1.4e7 m magnitude cancels *inside* the
+   `mercRel = (p_h − cam_h) + (p_l − cam_l)` — the ~1.4e7 m magnitude cancels _inside_ the
    split arithmetic before f32 ever sees a large number.
 2. **`finalize_corner` recentring (#598)** (`line-corner.ts:32-59`): for flat non-Mercator,
    feed the projection a camera-relative `dLon` and recenter the projection onto `clon = 0`
@@ -208,14 +209,14 @@ path's concrete mechanisms:
    in-shader via f32 `atan(exp())` on absolute Mercator; the documented budget
    (`line.ts:1172-1177`): the f32 chain's angle error δφ (~1.6e-7 rad; up to ~8e-5 on
    SwiftShader) was multiplied by the **Earth radius** (→ up to ~512 m); the new form
-   multiplies the same δφ only by `|offset|`. *"That change of multiplicand, not any change
-   of formula, is the whole migration."* Measured end-to-end on SwiftShader: **1.17e3 m
+   multiplies the same δφ only by `|offset|`. _"That change of multiplicand, not any change
+   of formula, is the whole migration."_ Measured end-to-end on SwiftShader: **1.17e3 m
    before → 2.1e-1 m after**. The CPU packs f64 geodetic→ECEF minus
    `tileEcefCenterFromMerc(tileOrigin)` as hi/lo lanes; the shader recombines `h + l` and
    rotates the local Mercator offset through the ENU basis. Residual budget is documented
-   honestly: recombination is f32 (~1 m at z2, ~0.15 mm at z14) — *and the polygon fill
+   honestly: recombination is f32 (~1 m at z2, ~0.15 mm at z14) — _and the polygon fill
    does the identical `pos_h + pos_l`, so fill and stroke carry the identical residual and
-   stay registered*. Crucially the anchor function is imported **from `@xgis/compiler`, not
+   stay registered_. Crucially the anchor function is imported **from `@xgis/compiler`, not
    the same-named `@xgis/shared` helper** — the shared twin resolves constants through the
    active planetary body, and mixing the two would compute anchor and endpoints on
    different bodies, breaking fill↔stroke single-authority (`line-segment-build.ts:7-15`).
@@ -231,7 +232,7 @@ path's concrete mechanisms:
 - Fragment writes `@builtin(frag_depth)` from **logarithmic depth** minus two biases
   (`line.ts:1487-1514`):
   - `LINE_COPLANAR_DEPTH_BIAS = 1e-5` — the polygon fill adds a per-feature depth jitter of
-    up to ±7.68e-6 (shared-wall z-fight fix), so a coplanar stroke drawn after it *ties*
+    up to ±7.68e-6 (shared-wall z-fight fix), so a coplanar stroke drawn after it _ties_
     under less-equal and survival becomes driver float luck (real symptom: half of every
     coastline dash vanished on SwiftShader GLES; a parity gate's IoU fell 0.958 → 0.34).
   - `LINE_LOD_DEPTH_STEP = 3e-6` scaled by `log(EARTH_R / tile_extent_m)` — line depth
@@ -243,7 +244,7 @@ path's concrete mechanisms:
   This is what kills double-darkening at self-intersections and corner overlaps: within a
   layer, overlap reduces to one max-coverage value per pixel. Each composite takes a fresh
   256 B uniform ring slot because WebGPU applies all `writeBuffer`s before any draw — a
-  shared slot would make every composite read the *last* layer's opacity
+  shared slot would make every composite read the _last_ layer's opacity
   (`line-renderer.ts:230-241`).
 - **Globe drape**: at coarse zoom, strokes are baked into the same offscreen tile texture
   as the fill (reusing the screen line pipeline through a single-sample 'bake' material
@@ -251,7 +252,7 @@ path's concrete mechanisms:
   `viewport_height=0` to skip the screen clamp) and draped on the sphere grid; widths
   compensate per zoom bucket by `2^(tileZ − camZoom)` (#1222).
 - **Extruded layers draw no outline at all** (MapLibre fill-extrusion semantics) — a
-  ground-height stroke with no depth interaction composites *across* raised geometry;
+  ground-height stroke with no depth interaction composites _across_ raised geometry;
   instead `z_lift_m` puts polygon outlines on their building roof per feature, and its
   fallback must match the wall mesh's, or the wall occludes its own roof outline.
 
@@ -279,37 +280,37 @@ Five mechanisms enforce fill/outline agreement:
    same post-MVP NDC translate the polygon VS does.
 
 The canonical failure (blog `2026-07-11-the-precision-fix-that-opened-a-seam.md`): a commit
-made the *outline's* longitude projection precise and left the fill's identical projection
+made the _outline's_ longitude projection precise and left the fill's identical projection
 alone. Both had been wrong **together** and moved as one; afterwards, at Seoul longitude
-they parted by ~0.4 m ≈ 3 px at z20 — a seam manufactured by a correctness fix. *"A
+they parted by ~0.4 m ≈ 3 px at z20 — a seam manufactured by a correctness fix. _"A
 precision fix is a change to arithmetic. Land it on one sibling only and you have
-manufactured a divergence out of a fix."* Corollary: you cannot tell which sibling is
+manufactured a divergence out of a fix."_ Corollary: you cannot tell which sibling is
 correct from the bug report — only from what each emits (the fill turned out to be the less
 precise one).
 
 ## 10. Bug ledger (compressed)
 
-| Cause → fix | Lesson |
-|---|---|
-| miter test used `sin(θ/2)` (#432) | derive limit math from `\|A+B\| = 2cos(θ/2)`, gate with fail-before on both a sharp and a shallow corner |
-| pad used bisector length (`1/sin`) | the quad extends along the segment ⇒ pad = `\|tan(θ/2)\|` |
-| 180° reversal extended the quad (#463) | degenerate cases return "bevel", never "worst case" |
-| fixed 0.5 CSS px AA band (#606) | feather in device px: `0.5/dpr` |
-| CSS target ÷ device viewport | every stroke 1/dpr thin — unit-check every screen-space formula |
-| raw `2^-zoom` mpp (#739) | one mpp authority incl. the low-zoom cap; an `UNVERIFIED` comment is a bug, not a note |
-| flat non-Mercator width `W·cosφ` (#1246) | measure the Jacobian on-screen via two probes through the same MVP |
-| absolute f32 longitude rebuilt in-shader (#598) | subtract first; prove with a closed-form error budget |
-| in-shader `atan(exp())` ECEF (#2053/#2025) | multiply the angle error by `\|offset\|`, not the Earth radius: CPU-f64 lanes |
-| precision fix on one sibling (seam blog) | fix both siblings or neither |
-| antimeridian wrap vertices clamped to ±180 (#1221) | a pixel-count gate passed on the broken image; only a contiguous-run **structure** gate separates a wall from a line |
-| branch-cut segment projecting 2πR wide (#1496) | camera-tracked cuts can't be pre-split; degenerate the quad in-shader when `\|Δx\| > πR` |
-| independently MVT-quantized abutting tiles (#1245) | extend boundary-continuation endpoints outward by one quantum so pieces overlap (safe under MAX blend) |
-| "real endpoint" marker fired on every clipped arc (#1223) | boundary position is a stronger signal than the marker; suppress caps on the tile boundary |
-| stroke depth tied fill's jittered depth | coplanar bias `1e-5` above the jitter amplitude |
-| equal depth across LODs (#1140) | LOD step scaled by tile extent |
-| RHI port hardcoded `dash = null` (#834) | cross-backend behavior ratios (continuous/dashed mask ≈ 3/2) catch a silently-dropped feature |
-| GLSL twin got `variant = null` (#1605) | compose the same variant into both source languages; guard variant-carrying ids out of the baked cache |
-| dense vertices → extreme bisectors + overdraw | simplify at the tiler (Douglas-Peucker), don't patch in the runtime |
+| Cause → fix                                               | Lesson                                                                                                               |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| miter test used `sin(θ/2)` (#432)                         | derive limit math from `\|A+B\| = 2cos(θ/2)`, gate with fail-before on both a sharp and a shallow corner             |
+| pad used bisector length (`1/sin`)                        | the quad extends along the segment ⇒ pad = `\|tan(θ/2)\|`                                                            |
+| 180° reversal extended the quad (#463)                    | degenerate cases return "bevel", never "worst case"                                                                  |
+| fixed 0.5 CSS px AA band (#606)                           | feather in device px: `0.5/dpr`                                                                                      |
+| CSS target ÷ device viewport                              | every stroke 1/dpr thin — unit-check every screen-space formula                                                      |
+| raw `2^-zoom` mpp (#739)                                  | one mpp authority incl. the low-zoom cap; an `UNVERIFIED` comment is a bug, not a note                               |
+| flat non-Mercator width `W·cosφ` (#1246)                  | measure the Jacobian on-screen via two probes through the same MVP                                                   |
+| absolute f32 longitude rebuilt in-shader (#598)           | subtract first; prove with a closed-form error budget                                                                |
+| in-shader `atan(exp())` ECEF (#2053/#2025)                | multiply the angle error by `\|offset\|`, not the Earth radius: CPU-f64 lanes                                        |
+| precision fix on one sibling (seam blog)                  | fix both siblings or neither                                                                                         |
+| antimeridian wrap vertices clamped to ±180 (#1221)        | a pixel-count gate passed on the broken image; only a contiguous-run **structure** gate separates a wall from a line |
+| branch-cut segment projecting 2πR wide (#1496)            | camera-tracked cuts can't be pre-split; degenerate the quad in-shader when `\|Δx\| > πR`                             |
+| independently MVT-quantized abutting tiles (#1245)        | extend boundary-continuation endpoints outward by one quantum so pieces overlap (safe under MAX blend)               |
+| "real endpoint" marker fired on every clipped arc (#1223) | boundary position is a stronger signal than the marker; suppress caps on the tile boundary                           |
+| stroke depth tied fill's jittered depth                   | coplanar bias `1e-5` above the jitter amplitude                                                                      |
+| equal depth across LODs (#1140)                           | LOD step scaled by tile extent                                                                                       |
+| RHI port hardcoded `dash = null` (#834)                   | cross-backend behavior ratios (continuous/dashed mask ≈ 3/2) catch a silently-dropped feature                        |
+| GLSL twin got `variant = null` (#1605)                    | compose the same variant into both source languages; guard variant-carrying ids out of the baked cache               |
+| dense vertices → extreme bisectors + overdraw             | simplify at the tiler (Douglas-Peucker), don't patch in the runtime                                                  |
 
 ## 11. Transferable design rules
 
@@ -317,11 +318,13 @@ precise one).
    GPU-first engine: zero per-vertex join code, every join/cap/dash/pattern is a distance
    operation, and quality is resolution-independent. Size the quad generously (build-time
    miter limit > runtime limit); overdraw is the cheap failure mode.
+
 - 2. **Vertex pulling from a storage buffer** (quad corners from `vertex_index`, segment
-   data from `instance_index`) removes vertex buffers entirely; on a GL backend, emulate
-   the storage buffer as a data texture behind the same interface.
+     data from `instance_index`) removes vertex buffers entirely; on a GL backend, emulate
+     the storage buffer as a data texture behind the same interface.
+
 3. **Put all stroke math in one frame** (tile-local world units) and convert to pixels via
-   a single mpp authority; correct projection-dependent width by *measuring* screen-space
+   a single mpp authority; correct projection-dependent width by _measuring_ screen-space
    distances through the real MVP, not by special-casing projections.
 4. **One arc coordinate funds dashes, patterns, and gradients.** Compute cumulative arc in
    f64 at tile build; anchor patterns in arc space; union pattern SDFs into the stroke SDF.

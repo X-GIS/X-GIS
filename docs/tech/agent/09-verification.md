@@ -14,9 +14,9 @@ see.
 
 ## 1. The organizing constraint
 
-*"CI = compute/compile only. Render-correctness = local, real GPU. That sentence is the
-whole strategy"* (STRATEGY.md). Forced, not preferred: CI runners have no GPU. Later
-**narrowed by measurement** (and the narrowing itself is a lesson): SwiftShader *does* run
+_"CI = compute/compile only. Render-correctness = local, real GPU. That sentence is the
+whole strategy"_ (STRATEGY.md). Forced, not preferred: CI runners have no GPU. Later
+**narrowed by measurement** (and the narrowing itself is a lesson): SwiftShader _does_ run
 both WebGL2 and WebGPU headlessly for compile/link/validate/draw correctness — an earlier
 "WebGPU does not run here" claim cost real work when quoted as a reason not to verify;
 what stays local-only is timing and hardware-raster fidelity. A `test.fixme()` whose
@@ -37,12 +37,12 @@ stated reason is "no real GPU here" is treated as a bug to re-check, not a fact.
    view: `gt128` (local sharp divergence) and `eqFloor` (global soft shift) — the second
    exists because halving every fill's alpha left `gt128` unchanged while exact-equality
    cratered 97→12 %. Label fidelity is gated on **position, not pixels** (adding correctly
-   placed labels *lowers* pixel-match at every tolerance).
+   placed labels _lowers_ pixel-match at every tolerance).
 4. **Cross-validation against independent references** (pyproj/mercantile/shapely) —
    everything else only proves "our CPU matches our WGSL" and cannot catch **the same bug
    in both**.
 
-A real GPU bug walks *up* the ladder: eyeball loop → characterize → local numeric gate →
+A real GPU bug walks _up_ the ladder: eyeball loop → characterize → local numeric gate →
 reduce to compute → CI merge blocker.
 
 ## 3. The render-gate ladder (within tier 3)
@@ -51,10 +51,10 @@ Rung 1 — **directional diff** for an intentional change: `DC > 0` (before-vs-a
 something changed) and `D1 < D0` (vs the reference proves the direction). Never gate on an
 absolute percentage — the reference diff is noisy.
 Rung 2 — **threshold `DC = 0`** for parity, valid only after measuring the same-code noise
-floor (a 0.020 % "regression" was once resolved by running the *same code twice* and
+floor (a 0.020 % "regression" was once resolved by running the _same code twice_ and
 measuring 0.023 % of harness jitter, confined to a HUD band).
-Rung 3 — **hash equality**. Reachable only because determinism is *engineered into the
-harness*: a pinned camera, N invalidate-pumped frames so render-on-demand converges before
+Rung 3 — **hash equality**. Reachable only because determinism is _engineered into the
+harness_: a pinned camera, N invalidate-pumped frames so render-on-demand converges before
 capture, and a software rasterizer with no frame-to-frame nondeterminism. Three captures
 (before at merge base, after at tip, after again as control) hashing identically upgrades
 a parity claim to bit equality — "verification collapses from statistics to md5sum."
@@ -65,7 +65,7 @@ chrome-hiding `captureMapFrame` (a clipped canvas-box screenshot is NOT chrome-f
 on-canvas status line whose text is a function of missing-tile count was ~53 % of one
 gate's diff); settling uses `awaitMapIdle` (transition-only event + loud timeout), never
 sleeps; wall-clock-driven render inputs are pinned (`?adaptive=0` at module load — the
-adaptive controller changes the *tile set* on a slower machine, and hash equality has no
+adaptive controller changes the _tile set_ on a slower machine, and hash equality has no
 tolerance to absorb it). Reading a diff means reading the **image at full resolution in a
 4×4 tile split** plus a magnified crop — `Read`-style downscaling silently erases the
 sub-pixel offsets real bugs live in; paired red/blue edges = positional shift, red both
@@ -81,8 +81,8 @@ across four states, "which no single gate fixed to suit itself could fake."
 A real-GPU sweep across projection × pitch × zoom × data × surface, explicitly "a
 tripwire, not an exhaustive gate: a green matrix does not prove correctness; a red cell
 proves something moved." Two structural safeguards worth copying: `effectiveGate(cell)`
-**forces a cell soft** whenever its status is candidate/expected_red *regardless of its
-declared gate* — "an unreviewed baseline or a documented bug can never block a push. That
+**forces a cell soft** whenever its status is candidate/expected_red _regardless of its
+declared gate_ — "an unreviewed baseline or a documented bug can never block a push. That
 is structural, not a matter of author discipline." And only the screenshot-diff oracle
 stores a baseline PNG (the one oracle needing a human gate); math/closed-form oracles
 regenerate every run so nothing goes stale. The single baseline writer refuses to
@@ -95,7 +95,7 @@ overwrite without `--force` and stamps reviewer/commit metadata.
    prove nothing.
 2. **Cut the mechanism**: a gate can be deterministic, loud, specific, and worthless — one
    asserted on triangles, and severing the exact wire it existed to watch failed
-   *identically* to the wire working. Don't just check fail-before goes red; **cut the
+   _identically_ to the wire working. Don't just check fail-before goes red; **cut the
    specific mechanism and confirm the failure message names the severed half.** Assert the
    cause before the effect (assertion order decides which half a red run accuses — a dead
    lever and an ignored live lever leave the same downstream histogram).
@@ -140,7 +140,7 @@ invariant `dc(10k) === dc(100k)`, not a pinned count).
   stale silently — the path-keyed-gate failure one level up).
 - **Vacuous-shard guard**: a shard matching zero tests exits 0 printing nothing, so the
   step greps for `Running [1-9]… test` and preserves the real exit code around the
-  diagnostic (a trailing grep otherwise *becomes* the exit code — the mirror of pipe
+  diagnostic (a trailing grep otherwise _becomes_ the exit code — the mirror of pipe
   laundering: one hides a failure, the other invents one).
 - **Flake accounting**: with retries, fail-then-pass exits 0 and the check-run API carries
   empty output, so flakes went unrecorded; a reporter lifts Playwright's own accounting
@@ -150,7 +150,7 @@ invariant `dc(10k) === dc(100k)`, not a pinned count).
   names immune to leg renames (requiring leg names once blocked every PR). Both treat
   `cancelled` as **failure** (passing on it would green a required context with nothing
   having run). Push runs are never auto-cancelled (each run's filter scopes to its own
-  diff, so "only the tip matters" is false of a run's *coverage*); a post-merge guard
+  diff, so "only the tip matters" is false of a run's _coverage_); a post-merge guard
   exists because a merge once landed 3m54s before its own red result reported, breaking
   main for 2.5 h.
 - Meta-gates test the CI itself: the paths-filter's actual matching semantics (a leading
@@ -176,7 +176,7 @@ index file** — a hand-synced index would be the exact two-authorities drift th
 own "second ratchet" entry documents. Rules are added to the CLAUDE.md ledger only when an
 incident recurred or plausibly will, one actionable line plus citation. Session-start
 discipline (§13): everything inherited from a previous session — a green check, "that
-flake was fixed", an installed node_modules — is *a claim left by someone no longer here*;
+flake was fixed", an installed node_modules — is _a claim left by someone no longer here_;
 a script checks the mechanical half (branch/HEAD/dirty/deps declared-but-not-installed),
 and the rest is re-reading evidence.
 
@@ -209,11 +209,11 @@ and the rest is re-reading evidence.
 
 - Strategy: `docs/verification/STRATEGY.md`, `MATRIX.md`, `docs/adr/0004`
 - CI: `.github/workflows/test.yml`, `scripts/{paths-filter-semantics,workflow-validity,
-  render-shard-coverage,post-merge-guard,flaky-report}.test.ts`,
+render-shard-coverage,post-merge-guard,flaky-report}.test.ts`,
   `playground/src/e2e-specs-load.test.ts`
 - Harness: `playground/e2e/helpers/visual.ts` (`captureMapFrame`, `awaitMapIdle`,
   `DEMO_CHROME_IDS`), `.claude/skills/{compare-parity-pixeldiff,tile-crop-review,
-  capture-canvas}/`
+capture-canvas}/`
 - Fail-before: `.claude/skills/spec-wiring-corpus/SKILL.md`, CLAUDE.md §5/§12
 - Postmortems: `site/src/content/blog/` — start with `the-second-ratchet`,
   `a-gate-that-cannot-fail-is-decoration`, `the-strongest-render-gate-is-hash-equality`,

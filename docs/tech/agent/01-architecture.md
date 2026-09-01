@@ -7,8 +7,8 @@
 ## 1. What the system is
 
 X-GIS is a domain-specific language plus a WebGPU/WebGL2 rendering engine for GIS maps —
-"HTML/CSS for maps." A `.xgis` source declares *what* data looks like (sources, layers,
-Tailwind-style utility classes, presets, functions, symbols); the compiler decides *how* to
+"HTML/CSS for maps." A `.xgis` source declares _what_ data looks like (sources, layers,
+Tailwind-style utility classes, presets, functions, symbols); the compiler decides _how_ to
 render it (WGSL/GLSL shaders, buffer layouts, render strategy). It renders vector/raster
 tiles across eight shader-baked projections (mercator, equirectangular, natural_earth,
 orthographic, azimuthal_equidistant, stereographic, oblique_mercator, true-3D globe);
@@ -17,21 +17,21 @@ switching projection is a GPU uniform change with **no re-tessellation**
 
 Scale, at the time of writing (non-test source / test code):
 
-| Package | src LOC | src files | test LOC | test files |
-|---|---:|---:|---:|---:|
-| map | 101,158 | 369 | 124,226 | 681 |
-| compiler | 46,022 | 218 | 63,587 | 458 |
-| shader-dsl | 27,054 | 104 | 22,854 | 135 |
-| data | 17,827 | 71 | 15,850 | 98 |
-| rhi-webgpu | 4,849 | 16 | 4,746 | 30 |
-| blueprint | 2,667 | 11 | 789 | 9 |
-| engine | 2,603 | 12 | 2,442 | 13 |
-| rhi-webgl2 | 1,974 | 6 | 1,573 | 13 |
-| shared | 1,547 | 11 | 1,557 | 11 |
-| pipeline | 1,460 | 11 | 958 | 8 |
-| geo | 1,384 | 5 | 2,228 | 14 |
-| rhi | 1,108 | 6 | 274 | 2 |
-| **library total** | **~209,653** | **840** | **~241,084** | **1,472** |
+| Package           |      src LOC | src files |     test LOC | test files |
+| ----------------- | -----------: | --------: | -----------: | ---------: |
+| map               |      101,158 |       369 |      124,226 |        681 |
+| compiler          |       46,022 |       218 |       63,587 |        458 |
+| shader-dsl        |       27,054 |       104 |       22,854 |        135 |
+| data              |       17,827 |        71 |       15,850 |         98 |
+| rhi-webgpu        |        4,849 |        16 |        4,746 |         30 |
+| blueprint         |        2,667 |        11 |          789 |          9 |
+| engine            |        2,603 |        12 |        2,442 |         13 |
+| rhi-webgl2        |        1,974 |         6 |        1,573 |         13 |
+| shared            |        1,547 |        11 |        1,557 |         11 |
+| pipeline          |        1,460 |        11 |          958 |          8 |
+| geo               |        1,384 |         5 |        2,228 |         14 |
+| rhi               |        1,108 |         6 |          274 |          2 |
+| **library total** | **~209,653** |   **840** | **~241,084** |  **1,472** |
 
 Test LOC exceeds source LOC (~1.15×) repo-wide. There are additionally 416 Playwright
 e2e specs (72,936 LOC) under `playground/e2e/`, of which ~170 run in CI; the rest are
@@ -45,21 +45,21 @@ The allowed dependency edges are a **literal table in a test**, not a document:
 `engine/src/dependency-direction-ratchet.test.ts:34-64`. The prose rendering
 (`docs/architecture/MODULES.md`) is explicitly labelled as derived from it.
 
-| Package | May import | Owns |
-|---|---|---|
-| `@xgis/shared` | — | WGS84/ECEF math, planetary `Body`/`EARTH` constants authority, quantization, logging, `safeFetch`, priority queue, dev-assert, mat4 |
-| `@xgis/shader-dsl` | — | Content-free shader IR + WGSL/GLSL/CPU-f64 emit, layout source-of-truth (`sot.ts`), intrinsic registry, optimizer passes |
-| `@xgis/rhi` | — | GPU interfaces only; never names a native GPU type. Neutral vertex-format + compute contract |
-| `@xgis/geo` | shared | `projections-table.ts` (projType authority), projection math, globe/ECEF surface, world scale |
-| `@xgis/compiler` | shader-dsl, shared, rhi | Lexer→Parser→`lower()`→IR→`optimize()`→`emitCommands()`; Mapbox style importer; the vector tiler. Emits **no** shader code and makes **no** GPU calls |
-| `@xgis/blueprint` | compiler | Visual node editor; catalogue derived from `LANGUAGE_SCHEMA` |
-| `@xgis/engine` | rhi, shader-dsl, shared | Content-blind GPU substrate: arenas, `UniformBlock`, `Material`/`executeItems`, `RenderContext`. Neutrality is **compiler-enforced** via `"types": []` in `engine/tsconfig.json` |
-| `@xgis/rhi-webgpu` | rhi, shader-dsl | The only package that sees `@webgpu/types` |
-| `@xgis/rhi-webgl2` | rhi, shader-dsl | WebGL2 backend, DOM lib types only |
-| `@xgis/data` | shared, geo, compiler | Tile catalog/selection/sources, MVT decode, worker pools, polar caps, EPSG reprojection, HDF5 coverage |
-| `@xgis/map` | every library layer | Composition root; renderers, camera, text/sprite stages, the shader graphs (`map/src/shaders/dsl/`), `XGISMap` facade. Curated public surface = `map/src/public.ts` |
-| `@xgis/pipeline` | shared only | Host-side ETL (ingest→join→transform→encode); zero-dep leaf **beside** the render stack |
-| playground, site | exempt | consumers |
+| Package            | May import              | Owns                                                                                                                                                                             |
+| ------------------ | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@xgis/shared`     | —                       | WGS84/ECEF math, planetary `Body`/`EARTH` constants authority, quantization, logging, `safeFetch`, priority queue, dev-assert, mat4                                              |
+| `@xgis/shader-dsl` | —                       | Content-free shader IR + WGSL/GLSL/CPU-f64 emit, layout source-of-truth (`sot.ts`), intrinsic registry, optimizer passes                                                         |
+| `@xgis/rhi`        | —                       | GPU interfaces only; never names a native GPU type. Neutral vertex-format + compute contract                                                                                     |
+| `@xgis/geo`        | shared                  | `projections-table.ts` (projType authority), projection math, globe/ECEF surface, world scale                                                                                    |
+| `@xgis/compiler`   | shader-dsl, shared, rhi | Lexer→Parser→`lower()`→IR→`optimize()`→`emitCommands()`; Mapbox style importer; the vector tiler. Emits **no** shader code and makes **no** GPU calls                            |
+| `@xgis/blueprint`  | compiler                | Visual node editor; catalogue derived from `LANGUAGE_SCHEMA`                                                                                                                     |
+| `@xgis/engine`     | rhi, shader-dsl, shared | Content-blind GPU substrate: arenas, `UniformBlock`, `Material`/`executeItems`, `RenderContext`. Neutrality is **compiler-enforced** via `"types": []` in `engine/tsconfig.json` |
+| `@xgis/rhi-webgpu` | rhi, shader-dsl         | The only package that sees `@webgpu/types`                                                                                                                                       |
+| `@xgis/rhi-webgl2` | rhi, shader-dsl         | WebGL2 backend, DOM lib types only                                                                                                                                               |
+| `@xgis/data`       | shared, geo, compiler   | Tile catalog/selection/sources, MVT decode, worker pools, polar caps, EPSG reprojection, HDF5 coverage                                                                           |
+| `@xgis/map`        | every library layer     | Composition root; renderers, camera, text/sprite stages, the shader graphs (`map/src/shaders/dsl/`), `XGISMap` facade. Curated public surface = `map/src/public.ts`              |
+| `@xgis/pipeline`   | shared only             | Host-side ETL (ingest→join→transform→encode); zero-dep leaf **beside** the render stack                                                                                          |
+| playground, site   | exempt                  | consumers                                                                                                                                                                        |
 
 Direction is strictly downward and acyclic. `map` is the only package allowed to import
 everything; leaves (`shared`, `shader-dsl`, `rhi`, `pipeline`) import nothing. Note that
@@ -75,23 +75,23 @@ everything; leaves (`shared`, `shader-dsl`, `rhi`, `pipeline`) import nothing. N
   dynamic-import edge and a package name containing a digit
   (`site/src/content/blog/2026-07-10-the-audit-grep-that-ate-a-digit.md`).
 - Assertion (a): **scanner sanity** — two known edges (`engine→rhi`, `map→engine`) must be
-  *seen*, otherwise the walker broke and the gate would be vacuously green.
+  _seen_, otherwise the walker broke and the gate would be vacuously green.
 - Assertion (b): no edge outside `ALLOWED ∪ BASELINE`.
 - Assertion (c): `BASELINE` (grandfathered violations) may only shrink; a stale entry fails.
-- The test lives in `engine/src` *deliberately*, so the CI leg that shards by directory
+- The test lives in `engine/src` _deliberately_, so the CI leg that shards by directory
   actually runs it.
 
 ## 3. The boundary-enforcement machine (ratchets)
 
-Governing convention, stated in the ratchet itself: *"a boundary survives only when
-violating it is a mechanical CI failure, not a review comment"*
+Governing convention, stated in the ratchet itself: _"a boundary survives only when
+violating it is a mechanical CI failure, not a review comment"_
 (`dependency-direction-ratchet.test.ts:7-9`). Three ratchet semantics are used, each chosen
 deliberately per gate:
 
 1. **Ceiling** (`actual > ceiling` fails) — low friction; permits silent re-growth below
    the ceiling.
 2. **STRICT-equal in both directions** (`actual !== baseline` fails) — closing a leak
-   forces lowering the baseline *in the same commit*, "locking the win". Used where a leak
+   forces lowering the baseline _in the same commit_, "locking the win". Used where a leak
    silently reopening between phases would otherwise pass CI
    (`map/src/raw-webgpu-ratchet.test.ts:23-32`).
 3. **Assert-zero** — the invariant is achieved; the gate keeps it there.
@@ -109,32 +109,32 @@ Two meta-rules apply to every gate:
 
 ### Catalog of structural gates
 
-| Gate | Invariant | Mechanism |
-|---|---|---|
-| `map/src/loc-ceiling-ratchet.test.ts` (2,300 L) | THE single LOC authority: baselined god-files ≤ per-file ceiling, all other files ≤ 800 | shrink-only high-water `CEILINGS` map; stale-key check; ~2,100 lines of the file are inline rationale per ceiling bump — the gate doubles as a change ledger |
-| `engine/src/dependency-direction-ratchet.test.ts` | package DAG | §2 above |
-| `map/src/architecture-invariants.test.ts` | six structural gates | see below |
-| `compiler/src/content-blindness-ratchet.test.ts` | compiler owns no geo/tile content | comment-stripped marker census; baseline now `{}` — closed out and locked |
-| `rhi-webgpu/src/content-blindness-ratchet.test.ts` | backends stay geo/style-blind | marker census over both backend packages; the webgl2 side is at zero so a *future* leak fails |
-| `map/src/raw-webgpu-ratchet.test.ts` | map touches the GPU only through the RHI | STRICT-equal per-file count of native `GPU*` tokens; tsc cannot catch this because `@webgpu/types` is legitimately in scope |
-| `data/src/raw-webgpu-ratchet.test.ts` | data is GPU-free | same signal, one grandfathered token |
-| `map/src/backend-adapter-ratchet.test.ts` | map never reaches into a concrete backend except at the composition root | counts imported symbols from the two backend packages; complements the DAG gate, which *allows* the edge |
-| `map/src/backend-identity-ratchet.test.ts` | `backend === 'webgl2'` identity switches shrink toward capability queries (`rhi.caps.*`) | counts `===`/`!==` sites, shrink-only |
-| `map/src/projtype-confinement-ratchet.test.ts` | projType dispatch lives only in `geo/src/projections-table.ts` | STRICT-equal union scan of 7 packages; its header records folding a duplicate gate that had been counting *comments* |
-| `map/src/forced-cast-ratchet.test.ts` | `as any` / `as unknown as` / `@ts-*` suppressions frozen per file | escape hatches counted on comment-stripped source; `@ts-*` counted at directive position on raw source |
-| `map/src/raw-shader-string-ratchet.test.ts` | no hand-authored WGSL/GLSL template literal anywhere in map+engine | empty baseline lock; exists because a prior gate's directory list omitted the two packages that author the most shaders |
-| `shader-codegen-srp-ratchet.test.ts` (map + compiler) | compiler never calls the DSL emitters | allowlist must EQUAL offenders — fixing a violation also fails until its entry is deleted |
-| `shared/src/earth-literal-ratchet.test.ts` | `shared/src/body.ts` is the only authority for WGS84 constants | regex for the literals (6378137 …) on comment-stripped source; permanent vs migration-temporary allowlist entries distinguished |
-| `scripts/paths-filter-semantics.test.ts` | what the CI paths filter *actually* matches | runs the filter library's own matcher against fixture diffs |
-| `scripts/render-shard-coverage.test.ts` | a `--shard=k/N` family covers all N | a missing shard leg reports green otherwise |
-| `scripts/post-merge-guard.test.ts` | something checks the state that actually landed on main | born from a merge that landed 3m54s before its CI reported failure |
-| `playground/src/e2e-specs-load.test.ts` | every e2e spec *loads* | `playwright test --list` (5 s, no browser); first asserts the population is >300 — "a gate that does not prove its own population is the bug it guards against, one level up" |
-| `map/src/render/passes/pass-order-parity.test.ts`, `target-role-partition.test.ts` | pass chain built constructively from one order authority | §6 below |
+| Gate                                                                               | Invariant                                                                                | Mechanism                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `map/src/loc-ceiling-ratchet.test.ts` (2,300 L)                                    | THE single LOC authority: baselined god-files ≤ per-file ceiling, all other files ≤ 800  | shrink-only high-water `CEILINGS` map; stale-key check; ~2,100 lines of the file are inline rationale per ceiling bump — the gate doubles as a change ledger                  |
+| `engine/src/dependency-direction-ratchet.test.ts`                                  | package DAG                                                                              | §2 above                                                                                                                                                                      |
+| `map/src/architecture-invariants.test.ts`                                          | six structural gates                                                                     | see below                                                                                                                                                                     |
+| `compiler/src/content-blindness-ratchet.test.ts`                                   | compiler owns no geo/tile content                                                        | comment-stripped marker census; baseline now `{}` — closed out and locked                                                                                                     |
+| `rhi-webgpu/src/content-blindness-ratchet.test.ts`                                 | backends stay geo/style-blind                                                            | marker census over both backend packages; the webgl2 side is at zero so a _future_ leak fails                                                                                 |
+| `map/src/raw-webgpu-ratchet.test.ts`                                               | map touches the GPU only through the RHI                                                 | STRICT-equal per-file count of native `GPU*` tokens; tsc cannot catch this because `@webgpu/types` is legitimately in scope                                                   |
+| `data/src/raw-webgpu-ratchet.test.ts`                                              | data is GPU-free                                                                         | same signal, one grandfathered token                                                                                                                                          |
+| `map/src/backend-adapter-ratchet.test.ts`                                          | map never reaches into a concrete backend except at the composition root                 | counts imported symbols from the two backend packages; complements the DAG gate, which _allows_ the edge                                                                      |
+| `map/src/backend-identity-ratchet.test.ts`                                         | `backend === 'webgl2'` identity switches shrink toward capability queries (`rhi.caps.*`) | counts `===`/`!==` sites, shrink-only                                                                                                                                         |
+| `map/src/projtype-confinement-ratchet.test.ts`                                     | projType dispatch lives only in `geo/src/projections-table.ts`                           | STRICT-equal union scan of 7 packages; its header records folding a duplicate gate that had been counting _comments_                                                          |
+| `map/src/forced-cast-ratchet.test.ts`                                              | `as any` / `as unknown as` / `@ts-*` suppressions frozen per file                        | escape hatches counted on comment-stripped source; `@ts-*` counted at directive position on raw source                                                                        |
+| `map/src/raw-shader-string-ratchet.test.ts`                                        | no hand-authored WGSL/GLSL template literal anywhere in map+engine                       | empty baseline lock; exists because a prior gate's directory list omitted the two packages that author the most shaders                                                       |
+| `shader-codegen-srp-ratchet.test.ts` (map + compiler)                              | compiler never calls the DSL emitters                                                    | allowlist must EQUAL offenders — fixing a violation also fails until its entry is deleted                                                                                     |
+| `shared/src/earth-literal-ratchet.test.ts`                                         | `shared/src/body.ts` is the only authority for WGS84 constants                           | regex for the literals (6378137 …) on comment-stripped source; permanent vs migration-temporary allowlist entries distinguished                                               |
+| `scripts/paths-filter-semantics.test.ts`                                           | what the CI paths filter _actually_ matches                                              | runs the filter library's own matcher against fixture diffs                                                                                                                   |
+| `scripts/render-shard-coverage.test.ts`                                            | a `--shard=k/N` family covers all N                                                      | a missing shard leg reports green otherwise                                                                                                                                   |
+| `scripts/post-merge-guard.test.ts`                                                 | something checks the state that actually landed on main                                  | born from a merge that landed 3m54s before its CI reported failure                                                                                                            |
+| `playground/src/e2e-specs-load.test.ts`                                            | every e2e spec _loads_                                                                   | `playwright test --list` (5 s, no browser); first asserts the population is >300 — "a gate that does not prove its own population is the bug it guards against, one level up" |
+| `map/src/render/passes/pass-order-parity.test.ts`, `target-role-partition.test.ts` | pass chain built constructively from one order authority                                 | §6 below                                                                                                                                                                      |
 
 `map/src/architecture-invariants.test.ts` itself asserts, mechanically: (Gate 2) the render
 loop imports the map facade as `import type` only, so the runtime cycle cannot re-form;
 (Gate 6) `engine/src` has zero `@xgis/map` imports (the terminal invariant of the
-core-extraction program); (Gate 7) `engine` has zero `@xgis/geo` imports *and* the old
+core-extraction program); (Gate 7) `engine` has zero `@xgis/geo` imports _and_ the old
 `engine/src/projection/` directory does not exist; (Gate 8) every package glob in CI's
 `code` paths-filter also appears in the `render` filter unless exempted with a written
 reason — the gate parses `.github/workflows/test.yml` and asserts the set difference is
@@ -149,25 +149,25 @@ on dead paths and two retired as genuine duplicates — one was **dropped rather
 
 The recurring X-GIS failure mode is two sibling paths that must agree drifting apart.
 The systematic countermeasure: for each concept, exactly one authority artifact, with every
-consumer *deriving* from it, and (where derivation can't be by construction) a gate.
+consumer _deriving_ from it, and (where derivation can't be by construction) a gate.
 
-| Concept | Authority | Consumers derive |
-|---|---|---|
-| projType → behavior | `geo/src/projections-table.ts` `PROJECTIONS` | shader ladder, CPU mirror, world-copy enumeration, tile routing (ADR-0003) |
-| geodesy constants | `shared/src/body.ts` `EARTH` | everything; literal ratchet above |
-| uniform/vertex layout | `shader-dsl` `sot.ts` + `reflect()` | CPU packers and pipelines read reflection, never hand-computed offsets |
-| render pass order | `map/src/render/passes/pass-order.ts` `PASS_CHAIN_ORDER` | pass chain is `ORDER.map(label => PASSES[label])` — constructive |
-| LOC budget | `loc-ceiling-ratchet.test.ts` | (a second LOC ratchet once existed; merging the two is the origin of the "second ratchet" lesson) |
-| coverage overlap winner | `coverage-source.ts:133` `regionPriority` | readout, drape, arrow suppression all take it as a parameter (ADR-0011) |
-| convergence ("is the map settled?") | `map/src/pending-work.ts` `PENDING_WORK_KINDS` | see `docs/architecture/convergence-authority.md` |
-| line/polygon shared math | one DSL function per formula (`projections.ts`, `merc-cam-rel.ts`, `log-depth.ts`) | both shaders import the same node graph — see [`04-line-rendering.md`](./04-line-rendering.md) §10 |
+| Concept                             | Authority                                                                          | Consumers derive                                                                                   |
+| ----------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| projType → behavior                 | `geo/src/projections-table.ts` `PROJECTIONS`                                       | shader ladder, CPU mirror, world-copy enumeration, tile routing (ADR-0003)                         |
+| geodesy constants                   | `shared/src/body.ts` `EARTH`                                                       | everything; literal ratchet above                                                                  |
+| uniform/vertex layout               | `shader-dsl` `sot.ts` + `reflect()`                                                | CPU packers and pipelines read reflection, never hand-computed offsets                             |
+| render pass order                   | `map/src/render/passes/pass-order.ts` `PASS_CHAIN_ORDER`                           | pass chain is `ORDER.map(label => PASSES[label])` — constructive                                   |
+| LOC budget                          | `loc-ceiling-ratchet.test.ts`                                                      | (a second LOC ratchet once existed; merging the two is the origin of the "second ratchet" lesson)  |
+| coverage overlap winner             | `coverage-source.ts:133` `regionPriority`                                          | readout, drape, arrow suppression all take it as a parameter (ADR-0011)                            |
+| convergence ("is the map settled?") | `map/src/pending-work.ts` `PENDING_WORK_KINDS`                                     | see `docs/architecture/convergence-authority.md`                                                   |
+| line/polygon shared math            | one DSL function per formula (`projections.ts`, `merc-cam-rel.ts`, `log-depth.ts`) | both shaders import the same node graph — see [`04-line-rendering.md`](./04-line-rendering.md) §10 |
 
 The convergence authority document is the cleanest worked example of the philosophy: six
-incidents shared one shape — *a new async resource class forgot to join the "is the map
-idle" predicate*. The fix was not to collapse the five predicates into one (they compose),
+incidents shared one shape — _a new async resource class forgot to join the "is the map
+idle" predicate_. The fix was not to collapse the five predicates into one (they compose),
 but to make the resource classes an enumerated type: registration is a compile error to
 forget where the type system can see it, and a ratchet (Gate 10) where it cannot. Stated
-goal G2: an unbounded registration must be *unrepresentable* — bounded by construction.
+goal G2: an unbounded registration must be _unrepresentable_ — bounded by construction.
 
 ## 5. ADR digest (decision · rejected · why)
 
@@ -184,19 +184,19 @@ regression."
   Polygon stride went 256→192 B.
 - **0002 Geoid split.** Vertices on the WGS84 ellipsoid (Cesium/3D-Tiles parity); camera
   anchor via a spherical helper — the ~21 km sphere/ellipsoid mismatch is **kept**.
-  Rejected: unifying the camera onto the ellipsoid — *measured*: 0.67 % north-axis
+  Rejected: unifying the camera onto the ellipsoid — _measured_: 0.67 % north-axis
   compression blew 19 of 24 cells past the ≤1.5 px parity gate. "The risk dominates the
   gain — the residual is already <1.5 px." Recorded gotcha: the globe 3D RTC arm MUST use
   the ellipsoid or the 21 km gap scales with zoom.
-- **0003 Shader-DSL single emit + PROJECTIONS as source of truth.** All WGSL is *emitted*
+- **0003 Shader-DSL single emit + PROJECTIONS as source of truth.** All WGSL is _emitted_
   from one TS DSL sharing one projection graph, and the projections table is the single
   authority everything per-projType derives from. Rejected: the status quo, where the
-  "table" was *pinned to* scattered literals rather than being their source — an authority
+  "table" was _pinned to_ scattered literals rather than being their source — an authority
   inversion. Discriminating evidence: mutating a cull literal in the WGSL string left the
   whole suite green.
 - **0004 Two-tier verification.** CI runs only what needs no rasterization (compute +
   compilation); pixel gates run locally on real GPUs. Forced, not preferred (runners have
-  no GPU). Note: later *narrowed* by measurement — SwiftShader does run both backends
+  no GPU). Note: later _narrowed_ by measurement — SwiftShader does run both backends
   headlessly for compile/link/validate/draw correctness; what stays local-only is timing
   and hardware-raster fidelity ([`09-verification.md`](./09-verification.md) §1).
 - **0005 Background = synthetic earth-surface tile.** The style background color renders as
@@ -222,17 +222,17 @@ regression."
   default must not double as "unset"; verify by domain invariant, not pinned example.
 - **0010 Read gridded standards in place.** HDF5/NetCDF/COG/PMTiles are read via HTTP
   range requests; the house container format (`.xgcov`) was **removed**. The transferable
-  line: *a READER for a standard is legitimate; TRANSCODING a standard into a house blob is
-  not* — a bespoke container loses the ecosystem and range-streamability. "If you're
+  line: _a READER for a standard is legitimate; TRANSCODING a standard into a house blob is
+  not_ — a bespoke container loses the ecosystem and range-streamability. "If you're
   writing a magic number, stop." (Paid for twice: `.xgvt`, then `.xgcov`.)
 - **0011 Coverage overlap decided by catalogue relevance.** Three consumers each answered
-  "who owns this water" separately; the bug was *recency standing in for relevance*. One
+  "who owns this water" separately; the bug was _recency standing in for relevance_. One
   authority function, passed to all three, so they agree by construction; the eviction
   LRU is deliberately untouched (it wants the opposite order). Gate: one test reads all
   three through their real code paths at one probe point.
 - **0012 Mapbox style-spec scope.** "Full support" = every spec row `supported`, or
   `partial` with a warning-backed degradation note; silent drops are defects. 15 `na` rows
-  are *reaffirmed architecture decisions, not backlog* ("reversing any of these is a new
+  are _reaffirmed architecture decisions, not backlog_ ("reversing any of these is a new
   ADR, not a task"). The ADR deliberately carries **no status column** — a second status
   authority would drift.
 
@@ -241,7 +241,7 @@ regression."
 Design stance (`docs/architecture/render-graph-pass-scheduler.md`,
 `map/src/render/render-node.ts:3-6`): the pass order is a fixed linear chain, so a
 scheduler graph buys nothing; a flat ordered list plus declared resource metadata is
-sufficient *and far easier to gate for byte-identity*. The general-DAG option is explicitly
+sufficient _and far easier to gate for byte-identity_. The general-DAG option is explicitly
 kept open in the doc, unexercised.
 
 `PASS_CHAIN_ORDER` (`map/src/render/passes/pass-order.ts:18-45`) is pure data with zero
@@ -255,14 +255,14 @@ scheduler is three lines (`map/src/render-loop.ts:501-503`):
 Why order alone is not the contract — the couplings a flat array cannot encode, each
 declared as metadata instead:
 
-1. **Split clear ownership** — background owns the whole-viewport *color* clear; opaque's
-   first sub-pass owns *depth+stencil+pick* clears.
+1. **Split clear ownership** — background owns the whole-viewport _color_ clear; opaque's
+   first sub-pass owns _depth+stencil+pick_ clears.
 2. **Feed-forward depth store** — an earlier pass's store-vs-discard depends on whether
    later passes exist (`persistDepth = !isLastOpaque || scene.hasPoints || scene.hasOit`).
 3. **Content-conditional MSAA resolve** — `scene.resolveOwner` picks the resolver, but the
    points and label passes resolve unconditionally; "resolve if I am the last color pass"
    inferred from array position would be wrong.
-4. **Two render-target domains** — some passes draw to the *resolved* screen view, not the
+4. **Two render-target domains** — some passes draw to the _resolved_ screen view, not the
    MSAA color view, and must run after the resolve barrier; array position cannot express
    that, so it is declared: `OVERLAY_PASSES = ['labels','graphics']` (read `ctx.screen`,
    which the adaptive-DPR ladder may not shrink — "a sounding numeral is not decoration
@@ -289,12 +289,12 @@ false) — a deferred delete, kept visible rather than half-removed.
 
 ## 7. The data-to-viz pipeline package: a placement decision worth studying
 
-`@xgis/pipeline` exists because *"rendering is not the gap — data processing is"*: public
+`@xgis/pipeline` exists because _"rendering is not the gap — data processing is"_: public
 data arrives code-keyed, tabular, temporal, geometry-less, and the path is
 unzip → parse → normalize → **join to geometry** → aggregate → shape → style; mainstream
 libraries own only the last step. Stages: `fromCSV/fromRows` (I/O is host-injected — no
 fs/fetch in the package), gazetteer join (centroids authored in WGS84 so the join never
-reprojects), a right-sized transform subset (explicitly *not* a dataframe engine), encode
+reprojects), a right-sized transform subset (explicitly _not_ a dataframe engine), encode
 recipes emitting GeoJSON or a typed-array `PointPatch`, and one blessed apply seam into the
 map's existing source setters.
 
@@ -302,9 +302,9 @@ The placement decision (recorded with its own refutation history): the first dra
 on `@xgis/data`'s types and called that "light coupling"; the critique refuted it
 (`@xgis/data` ships proj4/pmtiles/earcut and pulls the compiler across 21 files). Final:
 `pipeline` depends on `shared` **only**, and nothing depends on it; the public GeoJSON
-types moved *down* into `shared` so the claim is true by construction. Rejected: extending
+types moved _down_ into `shared` so the claim is true by construction. Rejected: extending
 `@xgis/data` (different SRP — but honestly recorded as "one emits into the other", not
-"zero overlap", because two *forked* ingest layers would be the repo's #1 recurrence bug);
+"zero overlap", because two _forked_ ingest layers would be the repo's #1 recurrence bug);
 baking ETL into the compiler (couples two 5-year surfaces prematurely); a general plugin
 framework ("infrastructure for a problem we do not have; the right-sized abstraction is a
 data loader"). One honest caveat is recorded rather than glossed: the CRS delegation is
@@ -328,7 +328,7 @@ real only after a small additive change to the map facade, which punctures the d
    cadence with one producer, build the pass chain constructively from the order authority,
    enumerate async resource classes in a type. Then delete the guard test.
 6. **Write ADRs for WHY, append-only, each naming the gate that fails on regression.**
-   Record rejected alternatives *with the measurement that rejected them* (the geoid ADR
+   Record rejected alternatives _with the measurement that rejected them_ (the geoid ADR
    rejects the "obvious fix" with a number, which is what stops it being re-proposed).
 7. **Keep the compiler GPU-free and the substrate content-blind**, and enforce both with
    marker-census ratchets; keep exactly one package that may see native GPU types.

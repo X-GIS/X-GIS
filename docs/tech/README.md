@@ -22,17 +22,17 @@ The editions mirror each other chapter-for-chapter; each links to its counterpar
 
 ## Chapters
 
-| # | Topic | dev | agent |
-|---|---|---|---|
-| 01 | Architecture: packages, boundaries, ratchets, ADRs, the pass chain | [dev](./dev/01-architecture.md) | [agent](./agent/01-architecture.md) |
-| 02 | Coordinates & precision: error budgets, RTC, df64, depth, parity | [dev](./dev/02-coordinates-precision.md) | [agent](./agent/02-coordinates-precision.md) |
-| 03 | The shader DSL: typed IR → WGSL + GLSL + CPU oracle + reflection | [dev](./dev/03-shader-dsl.md) | [agent](./agent/03-shader-dsl.md) |
-| 04 | Line rendering: instanced quads + fragment SDF | [dev](./dev/04-line-rendering.md) | [agent](./agent/04-line-rendering.md) |
-| 05 | Polygon rendering: tessellation, fill/outline agreement, patterns, extrusion | [dev](./dev/05-polygon-rendering.md) | [agent](./agent/05-polygon-rendering.md) |
-| 06 | Memory & upload: RHI, arenas, budgets, workers | [dev](./dev/06-memory-upload.md) | [agent](./agent/06-memory-upload.md) |
-| 07 | Performance: demand rendering, tile selection, adaptive quality, draw batching | [dev](./dev/07-performance.md) | [agent](./agent/07-performance.md) |
-| 08 | Content subsystems: text/labels, the style compiler, scientific coverage, flow, globe surface | [dev](./dev/08-content-subsystems.md) | [agent](./agent/08-content-subsystems.md) |
-| 09 | Verification: gate ladders, fail-before, hash-equality rendering | [dev](./dev/09-verification.md) | [agent](./agent/09-verification.md) |
+| #   | Topic                                                                                         | dev                                      | agent                                        |
+| --- | --------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------- |
+| 01  | Architecture: packages, boundaries, ratchets, ADRs, the pass chain                            | [dev](./dev/01-architecture.md)          | [agent](./agent/01-architecture.md)          |
+| 02  | Coordinates & precision: error budgets, RTC, df64, depth, parity                              | [dev](./dev/02-coordinates-precision.md) | [agent](./agent/02-coordinates-precision.md) |
+| 03  | The shader DSL: typed IR → WGSL + GLSL + CPU oracle + reflection                              | [dev](./dev/03-shader-dsl.md)            | [agent](./agent/03-shader-dsl.md)            |
+| 04  | Line rendering: instanced quads + fragment SDF                                                | [dev](./dev/04-line-rendering.md)        | [agent](./agent/04-line-rendering.md)        |
+| 05  | Polygon rendering: tessellation, fill/outline agreement, patterns, extrusion                  | [dev](./dev/05-polygon-rendering.md)     | [agent](./agent/05-polygon-rendering.md)     |
+| 06  | Memory & upload: RHI, arenas, budgets, workers                                                | [dev](./dev/06-memory-upload.md)         | [agent](./agent/06-memory-upload.md)         |
+| 07  | Performance: demand rendering, tile selection, adaptive quality, draw batching                | [dev](./dev/07-performance.md)           | [agent](./agent/07-performance.md)           |
+| 08  | Content subsystems: text/labels, the style compiler, scientific coverage, flow, globe surface | [dev](./dev/08-content-subsystems.md)    | [agent](./agent/08-content-subsystems.md)    |
+| 09  | Verification: gate ladders, fail-before, hash-equality rendering                              | [dev](./dev/09-verification.md)          | [agent](./agent/09-verification.md)          |
 
 ## Suggested reading orders
 

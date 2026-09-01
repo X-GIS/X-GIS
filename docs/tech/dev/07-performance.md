@@ -2,7 +2,7 @@
 
 > Edition: **dev**. Exhaustive version: [`../agent/07-performance.md`](../agent/07-performance.md).
 
-Map-engine performance is less about making code fast and more about *not doing things*:
+Map-engine performance is less about making code fast and more about _not doing things_:
 not rendering identical frames, not selecting tiles you can't see, not preparing labels
 that haven't changed, not letting one slow machine drag the design. X-GIS's performance
 layer is a set of "don't" machines, each with a story.
@@ -14,26 +14,26 @@ camera/canvas signature mismatch — or **pending async work**. That last clause
 hard one. "Is anything still in flight?" was once a hand-maintained list, and six separate
 incidents were the same failure: a new async resource class (an upload staging buffer, a
 sprite atlas, a coverage fetch) forgot to join it. The best of those bugs is a classic:
-the idle predicate couldn't see the staging buffer, so the loop stopped *mid-load* and the
+the idle predicate couldn't see the staging buffer, so the loop stopped _mid-load_ and the
 map fossilized half-drawn — and because probe runs kept catching it at different stages of
-decay, label pixel counts fell 6980 → 2138 → 76 → 0 across four runs *in commit order*,
+decay, label pixel counts fell 6980 → 2138 → 76 → 0 across four runs _in commit order_,
 looking exactly like a code regression gradient. One line making the buffer visible took
 labels from 0 to 7,081 pixels with zero interaction.
 
 The fix is structural: one enumerated registry of pending-work kinds, with two
 non-negotiables — every kind has a **deadline** (a server that accepts a connection and
 never answers must not keep the map awake forever), and consumers subscribe to named
-*scopes*, not the union. Alongside it, the project maintains an honest distinction between
+_scopes_, not the union. Alongside it, the project maintains an honest distinction between
 two "settled" signals: the missing-tile count is an affordance (it reads zero while a
 tile is showing a magnified ancestor — never use `=== 0` to settle a test), and the `idle`
 event is the truth — with a test helper that owns its two traps (it fires only on the
-busy→idle *transition*, and a never-idle scene must fail loudly, not hang).
+busy→idle _transition_, and a never-idle scene must fail loudly, not hang).
 
 ## Tile selection: screen-space error with a graded target
 
 Tile refinement is Cesium-style SSE — geometric error projected to pixels using the
 distance to the **closest point of the tile** (center distance under-refines the tile
-you're standing on). The distinctive part is the *target*: instead of one global "refine
+you're standing on). The distinctive part is the _target_: instead of one global "refine
 until error < X px", the target ramps with `distance/altitude`, engaging only past twice
 the altitude — chosen because an unpitched frame's far corner sits at ~1.3 altitudes, so
 **low-pitch views are untouched by construction, not by tuning**. The failure this
@@ -49,14 +49,14 @@ a plane has no horizon, so a pitched Mercator view cull uses `1.2·√(2Rh)`, cu
 distance-LOD term (`desiredZ = zoom + log2(distToTarget/distToTile)`) that measured 4-13×
 over-selection when missing, and a forced-descend clause for the tile containing the
 camera target (a tight high-zoom frustum otherwise prunes the branch under your feet and
-returns *nothing*).
+returns _nothing_).
 
 ## One quality controller
 
 Adaptive quality is a single controller over an ordered ladder — far-field LOD spent
 first, then device-pixel ratio down to 0.5 — because "two independent controllers on one
 signal fight: each reads the other's improvement as its own success," and because the
-levers compose: the LOD lever multiplies the SSE *far* target, so it's inert on unpitched
+levers compose: the LOD lever multiplies the SSE _far_ target, so it's inert on unpitched
 views by the same construction as above, and DPR alone bottoms out (a quarter of frame
 cost isn't pixel-proportional).
 
@@ -67,7 +67,7 @@ decide on the **median of a full window** (one GC frame can't cross a threshold)
 hysteresis gap (degrade at 33 ms — deliberately the 30 fps line, not 60: don't trade
 fidelity a mid-range machine didn't ask to lose — restore at 20 ms); **clear the window on
 every notch change** (the samples that justified the move were measured at the old notch).
-Scoping is split: the learned notch is global (it describes the *host* and survives
+Scoping is split: the learned notch is global (it describes the _host_ and survives
 remounts), but sample windows are per map (two maps interleaving one ring described
 neither). Two integration details carry disproportionate weight: the current boost is part
 of **every selection memo key** (a static camera invalidates nothing, which is exactly
@@ -75,7 +75,7 @@ when the controller acts), and overlay passes — labels, UI graphics — render
 resolution while only the scene target scales ("a sounding numeral is not decoration that
 degrades gracefully").
 
-For measurement, the controller pins off with a URL flag *at module load*, before the
+For measurement, the controller pins off with a URL flag _at module load_, before the
 first sample — a wall-clock-driven render input is fatal to hash-equality testing, since a
 slower machine literally selects a different tile set.
 
@@ -87,7 +87,7 @@ buffer writes in one frame once cost ~250 ms), a cold-start "burst mode" raises 
 caps in lockstep while there's nothing on screen to keep smooth (exiting on idle frames
 or a **non-rAF** timer — hidden tabs throttle rAF to ~0 Hz, so an rAF-only exit never
 fires), and prefetch routes each carry their own throttle discipline — including one
-deliberately *not* idle-gated, because the idle gate made it unreachable in the exact case
+deliberately _not_ idle-gated, because the idle gate made it unreachable in the exact case
 it exists for (during an active zoom, the camera is never idle).
 
 ## Draw calls: bundles with typed dependencies
@@ -118,7 +118,7 @@ settle by **stability polling** (identical readings 3× in a row), never fixed s
 (fixed waits read one host's settled state as another's regression — a −43.9 % phantom);
 when a stress gate's premise is marginal, raise the load, never lower the bar; and assert
 **the quantity the subsystem moves** — the adaptive-quality gate asserted triangles, and
-cutting the exact wire it watched failed *identically* to the wire working; only when it
+cutting the exact wire it watched failed _identically_ to the wire working; only when it
 asserted tiles could any outcome distinguish the two. The general form: don't just check
 that a new test fails before the fix — cut the mechanism it guards and confirm the failure
 message names the severed half. Even the profiler obeys the rules: perf marks are off by
@@ -129,7 +129,7 @@ second-hottest file.
 
 1. Demand rendering with an enumerated, deadline-bounded pending-work registry; an honest
    transition-based `idle`; "missing == 0" is an affordance.
-2. SSE with a distance-graded target — quality levers must be *inert by construction*
+2. SSE with a distance-graded target — quality levers must be _inert by construction_
    where they shouldn't act, and must multiply the far target, not the base.
 3. One controller, ordered levers, median-of-window, hysteresis, window-clear-on-change,
    rendered-frames-only; notch global, windows per source; notch in every memo key;
