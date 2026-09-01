@@ -375,3 +375,29 @@ describe('StagingBufferPool — R1 dispose is terminal (#1153 P2)', () => {
     expect(() => pool.dispose()).not.toThrow()
   })
 })
+
+describe('#2248 (ownership P0) — double-release guard', () => {
+  it('pooling the same slot twice throws — one mapped buffer must not serve two borrows', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    const slot = await pool.borrow(1000)
+    slot.buffer.unmap()
+    pool.release(slot)
+    expect(() => pool.release(slot)).toThrow(/double-release/)
+  })
+
+  it('the #782 mapAsync-reject release path still re-pools exactly once', async () => {
+    const device = makeMockDevice()
+    const pool = new StagingBufferPool(device)
+    const first = await pool.borrow(1000)
+    first.buffer.unmap()
+    pool.release(first)
+    // Next borrow pops the slot, then its re-map rejects (device loss): the
+    // catch routes it back through release() — the slot was POPPED so the
+    // membership guard must not fire, and it lands in the free-list once.
+    ;(first.buffer as unknown as { mapAsync: () => Promise<void> }).mapAsync = () =>
+      Promise.reject(new Error('device lost'))
+    await expect(pool.borrow(1000)).rejects.toThrow('device lost')
+    expect(pool.getFreeCounts()[0], 'exactly one slot back in tier 0').toBe(1)
+  })
+})

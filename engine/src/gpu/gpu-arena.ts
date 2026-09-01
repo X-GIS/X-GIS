@@ -63,7 +63,6 @@
 //   Callers don't need to pre-align their byte lengths.
 
 import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '@xgis/rhi'
-import { DEV } from '@xgis/shared'
 
 /** Configuration for a new arena. */
 export interface GPUArenaOptions {
@@ -200,13 +199,19 @@ export class GPUArena {
    *  preserves GPU-cache locality during steady-state pan / zoom (same
    *  offsets reused frame after frame). */
   private freeList = new Map<number, number[]>()
-  /** DEV-only map of currently live offsets → their ALIGNED footprint.
+  /** Always-on map of currently live offsets → their ALIGNED footprint.
    *  Populated on alloc(), cleared on free() / reset() / destroy() /
    *  rebuilt on compact(). The recorded size lets free() throw on a
    *  mismatched `bytes` (#783 — previously a SILENT fragmentation leak:
    *  the slot landed on the wrong exact-size free-list key and was never
-   *  reused at its real size). All operations are guarded by `if (DEV)`
-   *  — zero prod overhead, same convention as the double-free guard. */
+   *  reused at its real size) and on a double-free (which double-parks
+   *  the offset — two later allocs alias one range).
+   *
+   *  Promoted from DEV-only to always-on (#2248, ownership P0): alloc/free
+   *  are tile-grain operations (upload/evict), not per-draw, so the one Map
+   *  op each costs nothing measurable — and a prod double-free corrupting
+   *  two tiles silently is exactly the class the guard exists for. Matches
+   *  the standard UniformSlotArena.free already sets. */
   private _liveOffsets = new Map<number, number>()
 
   /** Bump high-water mark in bytes. Allocation-free O(1) field read.
@@ -273,7 +278,7 @@ export class GPUArena {
       this.liveBytes += aligned
       this.allocCount++
       this.reuseHits++
-      if (DEV) this._liveOffsets.set(offset, aligned)
+      this._liveOffsets.set(offset, aligned)
       return offset
     }
 
@@ -300,38 +305,35 @@ export class GPUArena {
     this.bumpPtr += aligned
     this.liveBytes += aligned
     this.allocCount++
-    if (DEV) this._liveOffsets.set(offset, aligned)
+    this._liveOffsets.set(offset, aligned)
     return offset
   }
 
   /** Return a previously-alloc'd range to the free-list. `bytes`
-   *  MUST match the SAME bytes value passed to alloc. In PROD the arena
-   *  tracks no per-offset sizes (callers pair alloc/free symmetrically),
-   *  so a mismatched `bytes` degrades to a silent fragmentation leak
-   *  (the slot lands on the wrong exact-size free-list key and is never
-   *  reused at its real size) — it can no longer corrupt memory.
+   *  MUST match the SAME bytes value passed to alloc.
    *
-   *  In DEV the guard map records each live offset's aligned footprint
-   *  and a mismatched free THROWS naming both sizes (#783 — the silent
-   *  leak was the last unguarded misuse; double-free already threw).
-   *  Zero prod overhead. */
+   *  The liveness ledger is enforced ALWAYS-ON (#2248, ownership P0 —
+   *  formerly DEV-only): a double-free / free of an un-alloc'd offset
+   *  THROWS (it would double-park the offset, aliasing two later allocs
+   *  onto one range), and a mismatched `bytes` THROWS naming both sizes
+   *  (#783 — formerly a silent fragmentation leak: the slot landed on
+   *  the wrong exact-size free-list key and was never reused at its
+   *  real size). */
   free(offset: number, bytes: number): void {
     if (bytes <= 0) return // silent no-op for caller convenience
-    if (DEV) {
-      const recorded = this._liveOffsets.get(offset)
-      if (recorded === undefined) {
-        throw new Error("gpu-arena: double-free or free of un-alloc'd offset " + offset)
-      }
-      if (recorded !== align4(bytes)) {
-        throw new Error(
-          `gpu-arena: size-mismatched free at offset ${offset} — freed as ${bytes} ` +
-            `(aligned ${align4(bytes)}) but allocated as aligned ${recorded}. The slot ` +
-            `would land on the wrong exact-size free-list key and leak as fragmentation; ` +
-            `pass the SAME bytes value alloc() received.`,
-        )
-      }
-      this._liveOffsets.delete(offset)
+    const recorded = this._liveOffsets.get(offset)
+    if (recorded === undefined) {
+      throw new Error("gpu-arena: double-free or free of un-alloc'd offset " + offset)
     }
+    if (recorded !== align4(bytes)) {
+      throw new Error(
+        `gpu-arena: size-mismatched free at offset ${offset} — freed as ${bytes} ` +
+          `(aligned ${align4(bytes)}) but allocated as aligned ${recorded}. The slot ` +
+          `would land on the wrong exact-size free-list key and leak as fragmentation; ` +
+          `pass the SAME bytes value alloc() received.`,
+      )
+    }
+    this._liveOffsets.delete(offset)
     const aligned = align4(bytes)
     let stack = this.freeList.get(aligned)
     if (stack === undefined) {
@@ -350,7 +352,7 @@ export class GPUArena {
     this.bumpPtr = 0
     this.liveBytes = 0
     this.freeList.clear()
-    if (DEV) this._liveOffsets.clear()
+    this._liveOffsets.clear()
     // allocCount / freeCount / reuseHits stay monotonic for diagnostics.
   }
 
@@ -362,7 +364,7 @@ export class GPUArena {
     this.bumpPtr = 0
     this.liveBytes = 0
     this.freeList.clear()
-    if (DEV) this._liveOffsets.clear()
+    this._liveOffsets.clear()
   }
 
   /** O(1) serviceability probe: can a request of `bytes` be satisfied
@@ -476,11 +478,9 @@ export class GPUArena {
     this.liveBytes = packed
     this.freeList.clear()
     this.compactionCount++
-    if (DEV) {
-      this._liveOffsets.clear()
-      for (let i = 0; i < newOffsets.length; i++) {
-        this._liveOffsets.set(newOffsets[i]!, align4(relocations[i]!.bytes))
-      }
+    this._liveOffsets.clear()
+    for (let i = 0; i < newOffsets.length; i++) {
+      this._liveOffsets.set(newOffsets[i]!, align4(relocations[i]!.bytes))
     }
     return { newOffsets, oldBuffer }
   }

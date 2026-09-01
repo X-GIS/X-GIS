@@ -191,6 +191,13 @@ export class Material {
    *  a fresh slot without leaving a hole — contiguous 0,1,2… callers are
    *  unaffected (the loop runs at most once, exactly as the old `if`). */
   poolSlot(idx: number): { write: (b: BufferSource) => void; bg: RhiBindGroup } {
+    // Always-on use-after-destroy guard (#2248, ownership P0): destroy() empties
+    // poolBufs, so a draw flowing through a destroyed Material would silently
+    // RE-CREATE slot buffers here — and the idempotent second destroy() (below)
+    // early-returns, leaving that resurrection unreclaimed forever.
+    if (this._destroyed) {
+      throw new Error('Material.poolSlot: material is destroyed — a draw is using a dead Material')
+    }
     while (idx >= this.poolBufs.length) {
       const buf = this.rhi.createBuffer({ size: this.poolSlotSize, usage: 'uniform' })
       this.poolBufs.push(buf)

@@ -127,4 +127,17 @@ describe('#1578 — Material.destroy releases every handle its constructor creat
     mat.destroy()
     expect(destroyed().some((h) => h.startsWith('bg') || h.startsWith('layout'))).toBe(false)
   })
+
+  it('poolSlot on a destroyed material throws instead of resurrecting slots (#2248)', () => {
+    // destroy() empties poolBufs, so a draw flowing through a dead Material
+    // would silently RE-CREATE slot buffers — and the idempotent second
+    // destroy() early-returns, leaving the resurrection unreclaimed forever.
+    const { rhi, created } = recordingRhi()
+    const mat = makeMaterial(rhi)
+    mat.poolSlot(0)
+    mat.destroy()
+    const before = created().length
+    expect(() => mat.poolSlot(0)).toThrow(/destroyed/)
+    expect(created().length, 'the throw fired BEFORE any create').toBe(before)
+  })
 })
