@@ -33,6 +33,7 @@ import type {
   StrokePattern,
   ShapeRef,
 } from './render-node'
+import type { FillAntialiasValue } from './property-types'
 import type { LowerOptions } from './lower-types'
 
 /** Inline per-axis zoom-interp scalar shape (structurally a
@@ -57,12 +58,16 @@ export interface LayerAccumulator {
   linePattern: string | null
   fillTranslateX: number | undefined
   fillTranslateY: number | undefined
-  fillAntialias: boolean | undefined
+  /** `false` (the constant opt-out utility) or a 0/1 zoom shape lifted from
+   *  the `["step", ["zoom"], …]` form (#1995). Same type as the RenderNode
+   *  field it seeds — one authority, so the two can't drift apart. */
+  fillAntialias: FillAntialiasValue | undefined
   fillExtrusionVerticalGradient: boolean | undefined
   circleTranslateX: number | undefined
   circleTranslateY: number | undefined
   circleBlur: number | undefined
   circlePitchScaleMap: boolean | undefined
+  circlePitchAlignmentMap: boolean | undefined
   strokeTranslateX: number | undefined
   strokeTranslateY: number | undefined
   fillTranslateAnchorMap: boolean | undefined
@@ -88,6 +93,7 @@ export interface LayerAccumulator {
   strokeOffset: number | undefined
   strokeAlign: 'center' | 'inset' | 'outset' | undefined
   strokeBlur: number | undefined
+  strokeGradientStops: { offset: number; rgba: [number, number, number, number] }[] | undefined
   dashArrayShape:
     | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
     | undefined

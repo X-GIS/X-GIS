@@ -63,6 +63,18 @@ export function globeVisibleTiles(
   pitchDeg = 0,
   bearingDeg = 0,
 ): GlobeTile[] {
+  // #2023 — callers derive centerLon as (camera.centerX / R) · (180/π); at the
+  // antimeridian (centerX = R·π) the f64 round-trip lands on
+  // ±180.00000000000003, which is OUTSIDE every inclusive [-180, 180]
+  // containment below (containsTarget / the pole-ownership lonInTile). The z0
+  // root then fails BOTH rescues (containsTarget false; its coarse ±180/±85
+  // samples also fail anyFront at low zoom), so a maxLevel-0 source — the
+  // per-source POLAR CAP — selects NOTHING on the dateline, and the focal-tile
+  // guarantee (iter 144) is dead there at every depth. Wrap ONLY out-of-range
+  // values so all in-range inputs (exact ±180 included) stay byte-identical.
+  if (centerLon < -180 || centerLon > 180) {
+    centerLon = ((((centerLon + 180) % 360) + 360) % 360) - 180
+  }
   // Memo lookup. String key is round-tripped through toFixed(4) so
   // micro-jitter (1e-9 lon drift after a re-projection) doesn't blow
   // the cache on every frame; 4 decimals of lon ≈ 11m at equator

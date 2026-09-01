@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
   INDEX: 16,
 }
 import { LineRenderer } from './line-renderer'
+import { lineLayerUniformStride } from './line-uniform-slots'
 import { WebGpuDevice } from '@xgis/rhi-webgpu'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 
@@ -99,6 +100,10 @@ describe('#1582 site 4 sibling — LineRenderer caches the layer-slot source vie
     // proving the view cache didn't disturb the staging/flush contract.
     expect(writes).toHaveLength(1)
     expect(writes[0]!.offset).toBe(0)
-    expect(writes[0]!.byteLen).toBe(2 * 256)
+    // Stride from the SoT (`lineLayerUniformStride()`), not a literal: it rounds the
+    // reflected LineLayer size up to the 256 B dynamic-offset alignment and moved to
+    // 512 when #2117 grew the struct. The claim here is "one contiguous flush covering
+    // both slots", which is stride-independent.
+    expect(writes[0]!.byteLen).toBe(2 * lineLayerUniformStride())
   })
 })

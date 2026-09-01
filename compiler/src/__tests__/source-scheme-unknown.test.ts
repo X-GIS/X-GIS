@@ -51,12 +51,17 @@ describe('source scheme unknown-value gate', () => {
     expect(w.some((s) => s.includes('scheme'))).toBe(false)
   })
 
-  it('scheme: "tms" warns with the Y-flipped message (existing gate)', () => {
+  it('scheme: "tms" no longer warns on a raster source — it is EMITTED (#1985)', () => {
+    // The Y-flip warning this file used to pin is retired: `scheme` now reaches the tile
+    // URL builder, which substitutes `2^z − 1 − y` for `{y}`. The unknown-value gate
+    // above is the half that survives, because an unrecognised value still falls back to
+    // xyz (matching MapLibre, which tests `scheme === 'tms'` and defaults everything
+    // else). The emit witness itself lives in source-scheme-emit.test.ts.
     const w = warningsOf({
       version: 8,
       sources: { v: { type: 'raster', tiles: ['https://x/{z}/{x}/{y}.png'], scheme: 'tms' } },
       layers: [],
     })
-    expect(w.some((s) => s.includes('tms') && s.includes('Y-flipped'))).toBe(true)
+    expect(w.some((s) => s.includes('scheme'))).toBe(false)
   })
 })

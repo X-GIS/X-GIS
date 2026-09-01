@@ -47,7 +47,8 @@ import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { isOverdrawActive } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { buildShader } from './polygon-shader-cache'
+import { buildShader, toComposerVariant } from './polygon-shader-cache'
+import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
 import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import {
   buildFlatFillMaterials,
@@ -55,7 +56,7 @@ import {
   buildPatternFillMaterials,
   type FillRhiState,
 } from './material/polygon-fill-material'
-import type { Material } from '@xgis/engine'
+import type { Material, RhiPipelineHandle } from '@xgis/engine'
 
 // ═══ Polygon shader emit ═══
 //
@@ -118,6 +119,28 @@ export class PipelineFactory {
    *  pipelines — always built. recordFillDraw routes pattern draws through these. */
   private _fillPatternMaterials: { patternGround: Material; patternExtruded: Material } | null =
     null
+  /** #2042 INC-4b — split-bind (Frame/Show/Tile) twins of the default flat/ground pair, built from
+   *  the DERIVED split module (polygon-split.ts) against the split layout below. Behind
+   *  `__XGIS_SPLIT_BIND` (read once at build); null keeps every draw on the legacy path. */
+  private _fillSplitMaterials: { flat: Material; ground: Material } | null = null
+  private _fillSplitLayout: GPUBindGroupLayout | null = null
+  /** #2042 INC-4d — per-style split twin cache, keyed like _fillPerStyle (one
+   *  entry per per-style pipeline). `null` = the style is INELIGIBLE (its
+   *  composed module needs group-0 bindings the split layout lacks — feat_data,
+   *  palette atlas/sampler, compute — or reads a lane outside the partition),
+   *  cached so the derivation check runs once per style. Twins build LAZILY on
+   *  first split-qualified use: an eager emit per style would re-create the F4
+   *  boot waste registerFillMaterials removed. Same lifetime discipline as
+   *  _fillPerStyle (factory-lifetime; no destroy path). */
+  private _fillPerStyleSplit = new Map<
+    RhiPipelineHandle,
+    { mat: Material; variant: number } | null
+  >()
+  /** Variant + pipeline-set back-reference for the lazy build above. */
+  private _fillPerStyleInfo = new Map<
+    RhiPipelineHandle,
+    { variant: ShaderVariantInfo; pipelines: CachedPipeline }
+  >()
   fillRhiState(): FillRhiState | null {
     if (!this._fillMaterials) return null
     return {
@@ -155,7 +178,85 @@ export class PipelineFactory {
             extrudedTest: this.fillPipelinePatternExtrudedFallback,
           }
         : null,
+      split:
+        this._fillSplitMaterials && this._fillSplitLayout
+          ? {
+              flat: this._fillSplitMaterials.flat,
+              ground: this._fillSplitMaterials.ground,
+              layout: this._fillSplitLayout,
+              perStyleTwin: (p) => this.perStyleSplitTwin(p),
+            }
+          : null,
     }
+  }
+
+  /** #2042 INC-4d — resolve (building lazily) the split twin for a per-style
+   *  fill pipeline; null = ineligible, keep the legacy bind. Eligibility is
+   *  decided from the DERIVED module itself: it must bind EXACTLY the three
+   *  split ranges at group(0) — a composed module with extra group-0 bindings
+   *  (feat_data, palette atlas/sampler, compute) has no home in the split
+   *  layout, and a read outside the Frame/Show/Tile partition throws in the
+   *  rewriter — both cache `null` (the same fallback class as pattern fills).
+   *  The eligibility derivation (compose + rewrite, no emit) is cheap; the
+   *  full emit + O2 + Material build runs ONCE per eligible style, on its
+   *  first split-qualified use (a few ms on the render thread, the same
+   *  lazy-build discipline as LineDraper.splitMat). */
+  perStyleSplitTwin(pipeline: RhiPipelineHandle): { mat: Material; variant: number } | null {
+    if (!this._fillSplitLayout) return null
+    const hit = this._fillPerStyleSplit.get(pipeline)
+    if (hit !== undefined) return hit
+    const info = this._fillPerStyleInfo.get(pipeline)
+    if (!info) {
+      this._fillPerStyleSplit.set(pipeline, null)
+      return null
+    }
+    const pickEnabled = isPickEnabled()
+    const cv = toComposerVariant(info.variant)
+    // Eligibility is decided on the EMITTED interface, not the IR decl list:
+    // the module statically declares sprite_atlas/samp (bindings 5/6) which
+    // the emit prunes when unused — exactly how the default split twins fit
+    // the three-range layout. A variant whose emitted WGSL still binds
+    // anything at group(0) beyond 7/10/11 (feat_data, palette atlas/sampler,
+    // compute), or whose derivation reads outside the partition (the
+    // rewriter throws), stays on the legacy bind.
+    let wgsl: string | null = null
+    try {
+      wgsl = emitPolygonSplitWgsl(cv, pickEnabled)
+      for (const m of wgsl.matchAll(/@group\(0\)\s*@binding\((\d+)\)/g)) {
+        const b = Number(m[1])
+        if (b !== 7 && b !== 10 && b !== 11) {
+          wgsl = null
+          break
+        }
+      }
+    } catch {
+      wgsl = null
+    }
+    const { pipelines } = info
+    const keys = [
+      pipelines.fillPipeline,
+      pipelines.fillPipelineFallback,
+      pipelines.fillPipelineGround,
+      pipelines.fillPipelineGroundFallback,
+    ]
+    if (wgsl === null) {
+      for (const k of keys) this._fillPerStyleSplit.set(k, null)
+      return null
+    }
+    const { flat, ground } = buildFlatFillMaterials({
+      rhi: this.ctx.rhi,
+      shader: wgsl,
+      format: this.ctx.format,
+      sampleCount: getSampleCount(),
+      bindGroupLayout: this._fillSplitLayout,
+      vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
+      pickEnabled,
+    })
+    this._fillPerStyleSplit.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
+    this._fillPerStyleSplit.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+    return this._fillPerStyleSplit.get(pipeline) ?? null
   }
   /** Build + register the per-style fill Material twins for a variant pipeline set (behind the flag).
    *  Keyed by each native per-style pipeline so recordFillDraw routes them via the Material seam. */
@@ -192,6 +293,16 @@ export class PipelineFactory {
     this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
     this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
     this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+    // #2042 INC-4d — remember the variant per per-style pipeline so the lazy
+    // split-twin build (perStyleSplitTwin) can derive its module on demand.
+    for (const p of [
+      pipelines.fillPipeline,
+      pipelines.fillPipelineFallback,
+      pipelines.fillPipelineGround,
+      pipelines.fillPipelineGroundFallback,
+    ]) {
+      this._fillPerStyleInfo.set(p, { variant, pipelines })
+    }
 
     // #1252 — a data-driven fill that ALSO extrudes needs a feature-layout
     // extrude Material twin (fs_fill_extrude re-lights the feat_data colour).
@@ -368,6 +479,27 @@ export class PipelineFactory {
       texture: { sampleType: 'float' as const, viewDimension: '2d' as const },
     },
     { binding: 6, visibility: /* FRAGMENT */ 2, sampler: { type: 'filtering' as const } },
+  ]
+
+  /** #2042 INC-4b — the split-bind fill layout: TileBlock(7) + ShowBlock(10)
+   *  dynamic, FrameBlock(11) plain. A NEW layout family — the shared
+   *  mr-*BindGroupLayouts are untouched (the INC-4 recon corollary: editing
+   *  those drags in every legacy consumer). Ascending binding order 7 < 10
+   *  keeps WebGPU's dynamic-offset ordering rule trivial: `[tileOff,
+   *  showOff]`. Raw visibility bits for the same module-load reason as
+   *  FEATURE_LAYOUT_ENTRIES. */
+  static readonly SPLIT_FILL_LAYOUT_ENTRIES: readonly GPUBindGroupLayoutEntry[] = [
+    {
+      binding: 7,
+      visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true },
+    },
+    {
+      binding: 10,
+      visibility: /* VERTEX|FRAGMENT */ 3,
+      buffer: { type: 'uniform' as const, hasDynamicOffset: true },
+    },
+    { binding: 11, visibility: /* VERTEX|FRAGMENT */ 3, buffer: { type: 'uniform' as const } },
   ]
 
   /** iter-204A — palette + sprite-atlas binding slots (bindings 2/4/5/6)
@@ -831,6 +963,37 @@ export class PipelineFactory {
       extrudedVertexLayout: extrudedVertexBufferLayout,
       pickEnabled,
     })
+
+    // #2042 INC-4b — the split-bind twins. The split module is the IR DERIVATION of the
+    // legacy one (polygon-split.ts) — same math, three-block addressing — and the twins are
+    // ordinary buildFlatFillMaterials products against the split layout, so the
+    // stencil/variant family stays byte-identical to flat/ground.
+    //
+    // #2042 INC-7 — DEFAULT ON. Read once at build (the flag is a page-load lever, not a
+    // live toggle), and the sense is now opt-OUT: `!== false`, so only an explicit
+    // `__XGIS_SPLIT_BIND = false` keeps a page on the legacy path. It stays as an escape
+    // hatch for one release, per docs/plans/2026-08-25-marathon-roadmap.md, and INC-8's
+    // deletion of the legacy path is gated on ON having SHIPPED green — not merely merged.
+    //
+    // WebGPU-only by construction, not by intent: build() early-returns for `webgl2` above
+    // (this method's backend fence), so on that backend the split layout is never created
+    // and this flip is inert. That is what makes the "both backends" precondition
+    // discharged by showing WebGL2 UNCHANGED rather than re-verified.
+    if ((globalThis as { __XGIS_SPLIT_BIND?: unknown }).__XGIS_SPLIT_BIND !== false) {
+      this._fillSplitLayout = device.createBindGroupLayout({
+        label: 'mr-splitFillBindGroupLayout',
+        entries: PipelineFactory.SPLIT_FILL_LAYOUT_ENTRIES as GPUBindGroupLayoutEntry[],
+      })
+      this._fillSplitMaterials = buildFlatFillMaterials({
+        rhi: this.ctx.rhi,
+        shader: emitPolygonSplitWgsl(null, pickEnabled),
+        format,
+        sampleCount: getSampleCount(),
+        bindGroupLayout: this._fillSplitLayout,
+        vertexLayout: vertexBufferLayout,
+        pickEnabled,
+      })
+    }
 
     // `?debug=overdraw` — fill + line debug mirrors. Same VS as the
     // opaque pipelines so the rasterizer produces matching fragment

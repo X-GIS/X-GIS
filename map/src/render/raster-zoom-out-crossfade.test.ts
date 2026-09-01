@@ -3,7 +3,7 @@
 // the parent's firstShownMs was already stamped (fadeAlpha=1), and the departing
 // children were not retained beneath it, so the higher-detail tiles popped out. This
 // gate drives the REAL RasterRenderer.render() against the WebGPU stub (same harness as
-// raster-globe-tile-selection.test.ts, intercepting the 48-byte per-tile uniform writes)
+// raster-globe-tile-selection.test.ts, intercepting the per-tile uniform writes)
 // and asserts, with no GPU:
 //   1. a fading tile with cached CHILDREN draws them beneath it (detail retention) — the
 //      child underlay adds draws over the no-children control;
@@ -20,6 +20,7 @@ import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { RasterRenderer, rasterCoverZoom, Camera } from '@xgis/map'
 import { visibleTilesFrustum } from '@xgis/data'
 import { mercator as mercatorProj } from '@xgis/geo'
+import { rasterTileBytes } from './raster-uniform-slots'
 
 let stub: StubInstallation
 beforeEach(() => {
@@ -59,14 +60,17 @@ function makeRenderer(
   return { renderer, cache }
 }
 
-/** Replace queue.writeBuffer with a 48-byte-write (one per tile draw) counter. */
+/** Replace queue.writeBuffer with a per-tile-uniform-write (one per tile draw)
+ *  counter. The size is DERIVED, not a literal: #2137 grew TileUniforms 48 → 336 B,
+ *  and a hard-coded probe silently counts ZERO after such a change — which reads as
+ *  "the renderer drew nothing" rather than "the probe stopped matching". */
 function interceptDraws(ctx: GPUContext): () => number {
   let n = 0
   const device = ctx.device as unknown as {
     queue: { writeBuffer: (b: unknown, o: number, d: unknown) => void }
   }
   device.queue.writeBuffer = (buf: unknown): void => {
-    if ((buf as { size?: number })?.size === 48) n++
+    if ((buf as { size?: number })?.size === rasterTileBytes()) n++
   }
   return () => n
 }

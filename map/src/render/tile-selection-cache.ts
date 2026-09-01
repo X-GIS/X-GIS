@@ -155,8 +155,8 @@ export class TileSelectionCache {
    *  user sees the previous LOD over-zoomed instead of blank tiles)
    *  until either every visible tile at `target` is cached OR
    *  `READINESS_TIMEOUT_MS` elapses. Cleared on advance + on any
-   *  frame the threshold is no longer crossed. */
-  private _czPendingAdvance: { target: number; since: number } | null = null
+   *  frame the threshold is no longer crossed. Read by keepLoopWarm (#1997). */
+  _czPendingAdvance: { target: number; since: number } | null = null
   /** Camera idle detection — prefetch is suppressed while the
    *  camera is actively moving (pinch zoom, pan) to keep mobile
    *  GPU + bandwidth budget on visible-only work. The moment the
@@ -388,7 +388,15 @@ export class TileSelectionCache {
       this._czPendingAdvance = null
     } else {
       cz = this._hysteresisZ
-      const target = Math.floor(z)
+      // #2091 — the target must be REACHABLE. `cz` is clamped to
+      // `source.maxLevel` right after this gate, so for a source whose data
+      // stops below floor(z) (the synthetic earth surface is maxLevel 0, and
+      // ships with every globe/background fill) `cz === target` was
+      // unsatisfiable: the gate stepped cz up, the clamp knocked it back, and
+      // `_czPendingAdvance` stayed pinned — which `keepLoopWarm` reads, so the
+      // map re-rendered every frame and NEVER fired `idle`. Same clamp
+      // authority as the post-gate line.
+      const target = Math.min(Math.floor(z), source.maxLevel)
       let wantAdvance = false
       // Match MapLibre's floor(z) promotion: advance the tile LOD
       // when the camera crosses the integer boundary. The earlier
@@ -419,7 +427,6 @@ export class TileSelectionCache {
         cz = target
         this._czPendingAdvance = null
       }
-
       // Per-layer minzoom skip: layers like protomaps `roads` (z≥6)
       // and `buildings` (z≥14) carry no features below their minzoom.
       // When the gate's step LOD is below that floor, no fetch will

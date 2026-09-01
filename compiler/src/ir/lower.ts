@@ -11,6 +11,9 @@ import { expandKeyframeTimeStops } from './lower-animation'
 import { dispatch, type LayerAccumulator, type BindingCtx } from './lower-bindings'
 import { MODIFIER_HANDLERS, BINDING_HANDLERS, UTILITY_HANDLERS } from './lower-bindings-registry'
 import { runFrontPasses } from './front-passes'
+import { lowerSourceBounds, type SourceBounds } from './source-bounds'
+import { isSourceClusterProp, lowerSourceCluster } from './source-cluster'
+import { lowerSourceScheme, type TileRowScheme } from './source-scheme'
 import {
   expandPresets,
   resolveStylePreset,
@@ -116,9 +119,8 @@ function lowerSource(
   let url = ''
   let layers: string[] | undefined
   let crs: string | undefined
-  /** Inline GeoJSON embedded via `data: {...}`. Converted from the
-   *  ObjectLiteral AST to a plain JS object; the runtime seeds it
-   *  instead of fetching `url`. */
+  /** Inline GeoJSON embedded via `data: {...}`. Converted from the ObjectLiteral AST to
+   *  a plain JS object; the runtime seeds it instead of fetching `url`. */
   let inlineData: unknown
   /** Non-reserved props for a custom `type` — collected into `SourceDef.options`
    *  (docs/architecture/source-loader-seam.md §5). Undefined for built-in sources. */
@@ -133,6 +135,8 @@ function lowerSource(
   let baseShift: number | undefined
   let srcMaxzoom: number | undefined
   let srcMinzoom: number | undefined
+  let bounds: SourceBounds | undefined
+  let scheme: TileRowScheme | undefined
   /** `refresh: <seconds>` — declarative live-source polling interval (#1304).
    *  Seconds, positive; 0/absent = off. Undefined for every non-declaring source
    *  (byte-identical lowering — the source-loader-seam §9 gate). */
@@ -180,9 +184,8 @@ function lowerSource(
         )
       }
     } else if (prop.name === 'layers') {
-      // Accept either `layers: "water"` (single MVT layer) or
-      // `layers: ["water", "roads"]` (subset). PMTiles backend uses
-      // this to filter MVT features before decompose+compile so each
+      // Accept either `layers: "water"` (single MVT layer) or `layers: ["water", "roads"]`
+      // (subset). PMTiles backend uses this to filter MVT features before decompose+compile so each
       // xgis layer can paint its own slice with its own style.
       if (prop.value.kind === 'StringLiteral') {
         layers = [prop.value.value]
@@ -212,22 +215,28 @@ function lowerSource(
       srcMaxzoom = prop.value.value
     } else if (prop.name === 'minzoom' && prop.value.kind === 'NumberLiteral') {
       srcMinzoom = prop.value.value
+    } else if (prop.name === 'bounds') {
+      // SOURCE-level spatial extent (#1984). An unusable box lowers to undefined, the
+      // same silent-ignore rule the tile props above follow — see ./source-bounds.
+      bounds = lowerSourceBounds(prop.value)
+    } else if (prop.name === 'scheme') {
+      // SOURCE-level row origin (#1985). Bare `tms` or quoted `"tms"`; an unknown value
+      // lowers to undefined = the xyz default, matching MapLibre — see ./source-scheme.
+      // Claimed here so it is RESERVED and cannot also leak into `options` below.
+      scheme = lowerSourceScheme(prop.value)
     } else if (prop.name === 'baseShift' && prop.value.kind === 'NumberLiteral') {
       baseShift = prop.value.value
     } else if (prop.name === 'refresh') {
-      // Declarative polling for a live source (#1304, the NOAA CO-OPS motivating
-      // case) — periodic re-fetch/re-load of a URL-backed source, no host timer.
-      // A bare number (`refresh: 300`) or an explicit seconds literal
-      // (`refresh: 300s`, the `s` unit already lexes — tokens.ts:100) both mean
-      // seconds; any OTHER unit is a compile error rather than a silent
-      // misinterpretation (a stray `300ms` would otherwise poll 1000x too fast).
+      // Declarative polling for a live source (#1304, the NOAA CO-OPS motivating case) — periodic
+      // re-fetch/re-load of a URL-backed source, no host timer. A bare number (`refresh: 300`) or
+      // an explicit seconds literal (`refresh: 300s`, the `s` unit already lexes — tokens.ts:100)
+      // both mean seconds; any OTHER unit is a compile error rather than a silent misinterpretation
+      // (a stray `300ms` would otherwise poll 1000x too fast).
       let refreshVal = prop.value
-      // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block
-      // properties parse as a full expression (parseBlockProperty), not a
-      // literal-only grammar, same reason `astLiteralToJS` above unwraps `-`
-      // for inline `data:` literals. Unwrap it so a negative value reaches the
-      // non-negative check below with its real number instead of mis-reporting
-      // "not a number".
+      // `refresh: -5` parses as a UnaryExpr wrapping a NumberLiteral — block properties parse as a
+      // full expression (parseBlockProperty), not a literal-only grammar, same reason
+      // `astLiteralToJS` above unwraps `-` for inline `data:` literals. Unwrap it so a negative
+      // value reaches the non-negative check below with a real number, not "not a number".
       if (
         refreshVal.kind === 'UnaryExpr' &&
         refreshVal.op === '-' &&
@@ -256,11 +265,11 @@ function lowerSource(
       }
       // 0 means "off", same as not declaring it — SourceDef.refresh stays undefined.
       if (refreshVal.value > 0) refresh = refreshVal.value
-    } else {
+    } else if (!isSourceClusterProp(prop.name)) {
       // Non-reserved property → the custom-loader options bag (source-loader-seam §5).
-      // Reserved keys (type/url/data/layers/crs) are claimed by the branches above, so
-      // only genuinely custom fields reach here. Scalars + string-arrays only, so the
-      // `.xgis` source block stays serialisable.
+      // Reserved keys (type/url/data/layers/crs) are claimed by the branches above and the five
+      // `cluster*` keys by this guard (#2050), so only genuinely custom fields reach here.
+      // Scalars + string-arrays only, so the `.xgis` source block stays serialisable.
       let v: string | number | readonly string[] | undefined
       if (prop.value.kind === 'StringLiteral') v = prop.value.value
       else if (prop.value.kind === 'NumberLiteral') v = prop.value.value
@@ -323,7 +332,10 @@ function lowerSource(
     baseShift,
     maxzoom: srcMaxzoom,
     minzoom: srcMinzoom,
+    bounds,
+    scheme,
     refresh,
+    ...lowerSourceCluster(stmt.properties),
   }
 }
 
@@ -532,9 +544,9 @@ function lowerLayer(
    *  (screen-space convention; runtime negates for NDC). */
   let fillTranslateY: number | undefined
   /** Mapbox `paint.fill-antialias` / `fill-extrusion-vertical-gradient`
-   *  opt-out flags. Undefined = spec default (true) = unchanged render;
-   *  only the explicit `false` utility sets these. */
-  let fillAntialias: boolean | undefined
+   *  opt-out flags. Undefined = spec default (true) = unchanged render; the
+   *  `false` utility or (antialias only, #1995) a 0/1 zoom shape sets these. */
+  let fillAntialias: import('./property-types').FillAntialiasValue | undefined
   let fillExtrusionVerticalGradient: boolean | undefined
   /** Mapbox `paint.circle-translate` x/y and `circle-blur`. */
   let circleTranslateX: number | undefined
@@ -544,6 +556,11 @@ function lowerLayer(
    *  "viewport" (spec default — radius constant in screen px; byte-identical
    *  to historical X-GIS). True = "map" (radius scales with perspective). */
   let circlePitchScaleMap: boolean | undefined
+  /** Mapbox `paint.circle-pitch-alignment` = "map" (#2118). Undefined / false =
+   *  "viewport", and THAT one really is the spec default — the two circle pitch
+   *  knobs default opposite ways. True = "map" (the disc lies in the ground
+   *  plane and foreshortens under pitch). */
+  let circlePitchAlignmentMap: boolean | undefined
   /** Mapbox `heatmap-*` paint axes (Phase R). `isHeatmap` is the marker the
    *  converter's `heatmap` utility sets; the rest carry the resolved scalars. */
   // Arrow layer (#1302): marker + per-feature bearing (bearing-[.dir] / bearing-N).
@@ -586,23 +603,20 @@ function lowerLayer(
   let strokeTranslateYShape: TranslateShape | undefined
   let strokeColor: ColorValue = colorNone()
   let strokeWidth = 1
-  /** Per-feature / zoom-interpolated stroke-width AST. Populated from
-   *  `stroke-[<expr>]` bracket bindings when the expression is numeric
-   *  (Mapbox `paint.line-width: ["interpolate", …]` or per-feature
-   *  case/match). Stroke colour zoom-interpolation takes a parallel
-   *  path through `strokeColor` (kind: 'zoom-interpolated'). */
+  /** Per-feature / zoom-interpolated stroke-width AST. Populated from `stroke-[<expr>]`
+   *  bracket bindings when the expression is numeric (Mapbox `paint.line-width:
+   *  ["interpolate", …]` or per-feature case/match). Stroke colour zoom-interpolation takes
+   *  a parallel path through `strokeColor` (kind: 'zoom-interpolated'). */
   let strokeWidthExpr: import('./render-node').DataExpr | undefined
-  /** Per-feature stroke-colour AST. Populated from `stroke-[<expr>]`
-   *  whose binding's `extractMatchDefaultColor` returns a hex —
-   *  parallel to fill's data-driven kind. Mirror of the merge-pass
-   *  synthesised strokeColorExpr; the runtime line-renderer's worker
-   *  evaluates this against each feature and packs RGBA8 into the
-   *  segment buffer's `color_packed` slot. */
+  /** Per-feature stroke-colour AST. Populated from `stroke-[<expr>]` whose binding's
+   *  `extractMatchDefaultColor` returns a hex — parallel to fill's data-driven kind. Mirror
+   *  of the merge-pass synthesised strokeColorExpr; the runtime line-renderer's worker
+   *  evaluates this against each feature and packs RGBA8 into the segment buffer's
+   *  `color_packed` slot. */
   let strokeColorExpr: import('./render-node').DataExpr | undefined
-  /** Pure zoom-only stroke-width stops — populated when the binding's
-   *  expression is a `interpolate(zoom, …)` / `interpolate_exp(zoom,
-   *  base, …)` with no feature-prop dependency. Routed through
-   *  `stroke.widthZoomStops` so the renderer recomputes width per
+  /** Pure zoom-only stroke-width stops — populated when the binding's expression is a
+   *  `interpolate(zoom, …)` / `interpolate_exp(zoom, base, …)` with no feature-prop
+   *  dependency. Routed through `stroke.widthZoomStops` so the renderer recomputes width per
    *  frame from camera zoom (avoids the tile-bake staleness). */
   let strokeWidthZoomStops: ZoomStop<number>[] | undefined
   let strokeWidthZoomStopsBase: number | undefined
@@ -615,6 +629,8 @@ function lowerLayer(
   let strokeOffset: number | undefined
   let strokeAlign: 'center' | 'inset' | 'outset' | undefined
   let strokeBlur: number | undefined
+  // #2117 — line-gradient ramp stops (progress → straight-alpha RGBA).
+  let strokeGradientStops: { offset: number; rgba: [number, number, number, number] }[] | undefined
   // WS-1 — per-frame zoom-interp dasharray (PropertyShape<number[]>, STEP).
   let dashArrayShape:
     | { kind: 'zoom-interpolated'; stops: { zoom: number; value: number[] }[]; base?: number }
@@ -798,6 +814,7 @@ function lowerLayer(
     circleTranslateY,
     circleBlur,
     circlePitchScaleMap,
+    circlePitchAlignmentMap,
     strokeTranslateX,
     strokeTranslateY,
     fillTranslateAnchorMap,
@@ -823,6 +840,7 @@ function lowerLayer(
     strokeOffset,
     strokeAlign,
     strokeBlur,
+    strokeGradientStops,
     dashArrayShape,
     strokeOpacityShape,
     strokeGapWidth,
@@ -890,12 +908,10 @@ function lowerLayer(
 
       // ── Modifier items ──
       if (ctx.mod) {
-        // STRICT: detect the deprecated `z<N>:` zoom-modifier shape.
-        // Until f2f8929 this meant "apply at zoom N"; afterwards `z8`
-        // is just an identifier the lower pass treats as a feature-
-        // property predicate, which silently always-fails on real
-        // data. We fail loud here so the issue surfaces in CI / on
-        // the /convert page instead of producing wrong output.
+        // STRICT: detect the deprecated `z<N>:` zoom-modifier shape. Until f2f8929 this meant
+        // "apply at zoom N"; afterwards `z8` is just an identifier the lower pass treats as a
+        // feature-property predicate, which silently always-fails on real data. We fail loud
+        // here so the issue surfaces in CI / on the /convert page instead of wrong output.
         if (/^z\d+$/.test(ctx.mod)) {
           const zoomLevel = ctx.mod.slice(1)
           diagnostics.push({
@@ -913,14 +929,12 @@ function lowerLayer(
           })
           continue
         }
-        // Data modifier: friendly:fill-green-500
-        // (Zoom-driven values used to live behind `zN:opacity-…`
-        // modifiers; they're now expressed as `opacity-[interpolate(
-        // zoom, …)]` and lowered in the binding handler.)
-        // Only `fill-*` has a modifier handler (MODIFIER_HANDLERS in
-        // lower-bindings-registry.ts) — every other utility used to fall
-        // through here silently (zero diagnostics), so a doc example like
-        // `hover:opacity-100` compiled clean into a no-op. Fail loud instead.
+        // Data modifier: friendly:fill-green-500 (Zoom-driven values used to live behind
+        // `zN:opacity-…` modifiers; they're now expressed as `opacity-[interpolate(zoom, …)]`
+        // and lowered in the binding handler.) Only `fill-*` has a modifier handler
+        // (MODIFIER_HANDLERS in lower-bindings-registry.ts) — every other utility used to fall
+        // through here silently (zero diagnostics), so a doc example like `hover:opacity-100`
+        // compiled clean into a no-op. Fail loud instead.
         if (dispatch(MODIFIER_HANDLERS, ctx) === 'none') {
           diagnostics.push({
             severity: 'error',
@@ -993,6 +1007,7 @@ function lowerLayer(
   circleTranslateY = acc.circleTranslateY
   circleBlur = acc.circleBlur
   circlePitchScaleMap = acc.circlePitchScaleMap
+  circlePitchAlignmentMap = acc.circlePitchAlignmentMap
   strokeTranslateX = acc.strokeTranslateX
   strokeTranslateY = acc.strokeTranslateY
   fillTranslateAnchorMap = acc.fillTranslateAnchorMap
@@ -1023,6 +1038,7 @@ function lowerLayer(
   strokeOffset = acc.strokeOffset
   strokeAlign = acc.strokeAlign
   strokeBlur = acc.strokeBlur
+  strokeGradientStops = acc.strokeGradientStops
   dashArrayShape = acc.dashArrayShape
   strokeOpacityShape = acc.strokeOpacityShape
   strokeGapWidth = acc.strokeGapWidth
@@ -1069,12 +1085,10 @@ function lowerLayer(
   heatmapOpacity = acc.heatmapOpacity
   heatmapColorStops = acc.heatmapColorStops
 
-  // Expand referenced keyframes into per-property time stops. Pure
-  // sub-pass (lower-animation.ts): reads only the animation meta set in
-  // the loop above + the keyframes table, returns the six time-stop
-  // arrays consumed by the promotion block below. The call stays here —
-  // AFTER the utility loop (so animationName/Duration are set) and
-  // BEFORE the promotion (DO-NOT-SPLIT #2).
+  // Expand referenced keyframes into per-property time stops. Pure sub-pass (lower-animation.ts):
+  // reads only the animation meta set in the loop above + the keyframes table, returns the six
+  // time-stop arrays consumed by the promotion block below. The call stays here — AFTER the utility
+  // loop (so animationName/Duration are set) and BEFORE the promotion (DO-NOT-SPLIT #2).
   const {
     opacityTimeStops,
     fillTimeStops,
@@ -1131,10 +1145,9 @@ function lowerLayer(
 
   // ── PR 3: build animated fill/stroke/width/size/dashOffset ──
   //
-  // Each list is only promoted if the keyframe block actually set the
-  // corresponding property at ≥2 frames. A single stop wouldn't animate
-  // anything — we'd just hold that value forever — so that case
-  // degenerates to a constant and we skip the promotion.
+  // Each list is only promoted if the keyframe block actually set the corresponding property
+  // at ≥2 frames. A single stop wouldn't animate anything — we'd just hold that value forever
+  // — so that case degenerates to a constant and we skip the promotion.
 
   if (fillTimeStops.length >= 2) {
     fillTimeStops.sort((a, b) => a.timeMs - b.timeMs)
@@ -1219,11 +1232,9 @@ function lowerLayer(
           p.size > 0 &&
           (p.spacing > 0 || (p.anchor !== 'repeat' && p.anchor !== undefined)),
       )
-      // Resolve the three local accumulators into a single
-      // discriminated union. Priority — per-feature AST wins over
-      // zoom stops, which win over the static constant — mirrors the
-      // runtime resolution order (worker bake > per-frame stops >
-      // layer uniform).
+      // Resolve the three local accumulators into a single discriminated union. Priority —
+      // per-feature AST wins over zoom stops, which win over the static constant — mirrors the
+      // runtime resolution order (worker bake > per-frame stops > layer uniform).
       let widthSource: import('./render-node').StrokeWidthValue
       if (strokeWidthExpr !== undefined) {
         widthSource = { kind: 'data-driven', expr: strokeWidthExpr }
@@ -1261,6 +1272,7 @@ function lowerLayer(
           strokeAlign ??
           (fill.kind !== 'none' && strokeColor.kind !== 'none' ? 'inset' : undefined),
         blur: strokeBlur,
+        gradientStops: strokeGradientStops,
         gapWidth: strokeGapWidth,
         timeWidthStops: strokeWidthTimeStops.length >= 2 ? strokeWidthTimeStops : undefined,
         timeDashOffsetStops: dashOffsetTimeStops.length >= 2 ? dashOffsetTimeStops : undefined,
@@ -1289,6 +1301,7 @@ function lowerLayer(
     circleTranslateY,
     circleBlur,
     circlePitchScaleMap,
+    circlePitchAlignmentMap,
     strokeTranslateX,
     strokeTranslateY,
     fillTranslateAnchorMap,

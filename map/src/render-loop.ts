@@ -657,9 +657,10 @@ export class RenderLoop {
     this.host._frameCount++
     collectByteTelemetry(this.host.vtSources.values(), this.host._stats)
     // Per-frame in-flight tile count for the public `getMissingTileCount()`
-    // accessor (loading affordance). Same three signals the keep-warm gate
-    // below ORs, summed: VT cells without a drawable tile + raster/hillshade
-    // tiles mid-fetch. Settles to 0 exactly when that gate stops re-arming.
+    // accessor (loading affordance): VT cells without a drawable tile +
+    // raster/hillshade tiles mid-fetch. THREE of the gate's six terms, and it
+    // does NOT settle to 0 when the gate stops re-arming (#2162) — retries,
+    // pending VT uploads and `_czPendingAdvance` are all absent.
     this.host._missingTileCount =
       totalMissed +
       this.host.rasterRenderer.pendingLoadCount() +
@@ -681,9 +682,7 @@ export class RenderLoop {
 
     this.host._needsRender = keepLoopWarm({
       totalMissed,
-      raster: this.host.rasterRenderer,
-      hillshade: this.host.hillshadeRenderer,
-      vtRenderers: this.host.vtSources.values(),
+      pendingWork: this.host._pendingWork,
     })
 
     this.host._scheduleFrame()

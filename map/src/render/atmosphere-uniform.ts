@@ -23,6 +23,18 @@ export const ATMOSPHERE_DEFAULT_INNER_COLOR: readonly [number, number, number, n
 export const ATMOSPHERE_DEFAULT_OUTER_COLOR: readonly [number, number, number, number] = [
   0.02, 0.05, 0.12, 0,
 ]
+/** MapLibre `sky-color`'s own spec default (`#88C6FC`), straight-alpha RGBA 0..1 — the
+ *  ZENITH end of the sky ramp (#2052). */
+export const SKY_DEFAULT_COLOR: readonly [number, number, number, number] = [
+  0x88 / 255,
+  0xc6 / 255,
+  0xfc / 255,
+  1,
+]
+/** MapLibre `horizon-color`'s own spec default (`#ffffff`) — the LIMB end of the ramp. */
+export const SKY_DEFAULT_HORIZON_COLOR: readonly [number, number, number, number] = [1, 1, 1, 1]
+/** MapLibre `sky-horizon-blend`'s own spec default. */
+export const SKY_DEFAULT_HORIZON_BLEND = 0.8
 
 const NDC_CORNERS: readonly [number, number][] = [
   [-1, -1],

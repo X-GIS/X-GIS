@@ -3,9 +3,9 @@
 exports[`Fixture conversion structural snapshot > maplibre-demotiles — converted output fingerprint 1`] = `
 {
   "layerCount": 8,
-  "outputBytes": 14284,
-  "outputLines": 141,
-  "outputSha256": "76e365719586f0c1fa866e9b4a4d3f3fe07847a60c1ff1338fbbc816e1cab604",
+  "outputBytes": 14514,
+  "outputLines": 143,
+  "outputSha256": "f6fcd96bda8e040cd3bc012526a29783e76c3f5ceb9fac3182bb3293a74fae8a",
   "warningCount": 2,
 }
 `;
@@ -13,20 +13,20 @@ exports[`Fixture conversion structural snapshot > maplibre-demotiles — convert
 exports[`Fixture conversion structural snapshot > openfreemap-bright — converted output fingerprint 1`] = `
 {
   "layerCount": 119,
-  "outputBytes": 42055,
-  "outputLines": 924,
-  "outputSha256": "1f6c72e27434c57f4e8f96145c3786bcb4bf94bdc14ee9748b59bbb7956ea9a4",
-  "warningCount": 8,
+  "outputBytes": 41974,
+  "outputLines": 923,
+  "outputSha256": "eafd81935d3db0f67f0ddb768b52d9e44be7ae3f7b98d3c4f0914d719ed5d5e9",
+  "warningCount": 7,
 }
 `;
 
 exports[`Fixture conversion structural snapshot > openfreemap-liberty — converted output fingerprint 1`] = `
 {
   "layerCount": 111,
-  "outputBytes": 37466,
+  "outputBytes": 36979,
   "outputLines": 869,
-  "outputSha256": "bfa1000e87ab7211f249b2d8dfe21bb93f9648523d9ccd2e19f7ac3540680548",
-  "warningCount": 8,
+  "outputSha256": "c12e9379c165f694573f39d73718c0329b32958d73a73afebbff06e143ff8ea3",
+  "warningCount": 6,
 }
 `;
 

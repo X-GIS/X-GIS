@@ -27,10 +27,12 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(noPick).toContain('fn dist_to_quadratic')
     expect(noPick).toContain('fn dist_to_cubic')
     expect(noPick).toContain('fn winding_line')
-    // ECEF prepend (mirrors raster-dsl.test): the line VS calls the shared
-    // lonlat_to_ecef primitive, so its definition + the WGS84 const must be
-    // prepended. Guards against a future dropped/doubled ECEF prepend in line.ts.
-    expect(noPick).toContain('fn lonlat_to_ecef(')
+    // #2089: the line VS no longer re-derives ECEF in-shader (position comes
+    // from the CPU-exact segment lanes; only the ENU frame uses inline
+    // trig), so `lonlat_to_ecef` must NOT be emitted here any more — its
+    // return would mean the lossy re-derivation came back. The WGS84 consts
+    // stay prepended (ECEF_CONSTS).
+    expect(noPick).not.toContain('fn lonlat_to_ecef(')
     expect(noPick).toContain('WGS84_A')
   })
   it('couples the fill viewport fill-translate onto polygon outlines (slots 46/47)', () => {
@@ -74,23 +76,52 @@ describe('Phase-2 line shader — DSL emission', () => {
     // h·(1−sin lat) below) the fill roof edge on globe (~44 m / ~37 px at z16
     // for h=50 at Seoul) — the user-visible fill-vs-outline offset.
     for (const w of [noPick, pick]) {
-      // final clip arm + both width-clamp draft corners take the height arg.
-      // The cse/inline migration dropped the hand `let <name>_lon_rad/_lat_rad`
-      // bindings, so the lon/lat args are now inlined exprs (or `_cseN` temps) —
-      // pin the call + the HEIGHT arg ending in `z_lift_m`, which is what proves
-      // z_lift rides INTO lonlat_to_ecef. The segment accessor may emit as
-      // `seg.z_lift_m` or `segments[...].z_lift_m`, so match the trailing field.
-      // (`[^\n]*?` stays within one emitted stmt line → cannot span calls.)
-      // 3 lifted call sites (clamp_base, clamp_corner, final_corner):
-      const liftedCalls = (w.match(/lonlat_to_ecef\([^\n]*?\.z_lift_m\)/g) ?? []).length
-      expect(liftedCalls).toBeGreaterThanOrEqual(3)
-      // the RTC anchor stays height-0 (polygon tile_ecef_center parity)
-      expect(w).toMatch(/lonlat_to_ecef\([^\n]*?, 0\.0\)/)
+      // #2089 spelling: position comes from the ECEF lanes and the corner
+      // offset rides the ENU frame, so the lift is now the up-axis PRODUCT
+      // `up · z_lift` folded into each ECEF component — emitted as
+      // MULTIPLICATIVE `* seg.z_lift_m)` terms (the up axis is
+      // (cosLat·cosLon, cosLat·sinLon, sinLat), so ≥3 product sites per arm;
+      // clamp draft + final ⇒ ≥6 total). The pre-fix polar-axis form ADDED
+      // z_lift to clip/ECEF Z (`, seg.z_lift_m,` as a bare vec4 z argument in
+      // the GLOBE arm) — additive-only lift cannot produce these products.
+      // Spelling-coupled to the emit (the #2079 class): if the optimizer
+      // respells multiplication, re-derive the token from the live emit.
+      const liftProducts = (w.match(/\* segments\[seg_id\]\.z_lift_m\)/g) ?? []).length
+      expect(liftProducts).toBeGreaterThanOrEqual(6)
       // the polar-axis post-add form must NOT come back
       expect(w).not.toContain('ecef_rtc_lifted')
       expect(w).not.toContain('base_rtc_lifted')
       expect(w).not.toContain('corner_rtc_lifted')
+      // and the in-shader re-derivation must stay gone (#2089)
+      expect(w).not.toContain('fn lonlat_to_ecef(')
     }
+  })
+  it('#2089 globe position CONSUMES the CPU-exact ECEF lanes', () => {
+    // The product-count pin above proves z_lift rides an up axis; it does NOT
+    // prove where the POSITION came from. Reverting `baseEcefLanes` to an
+    // in-shader `atan(exp())` re-derivation keeps the six products, emits no
+    // `fn lonlat_to_ecef(` (the DSL would inline it), and would sail through
+    // every other gate — i.e. the PR's entire reason for existing could be
+    // undone silently. Pin the lane READS themselves: all twelve, both
+    // variants. (Names, not offsets — the byte offsets are locked by
+    // line-segment-struct-layout.test.ts against the CPU writer.)
+    const LANES = [
+      'e0x_h',
+      'e0y_h',
+      'e0z_h',
+      'e0x_l',
+      'e0y_l',
+      'e0z_l',
+      'e1x_h',
+      'e1y_h',
+      'e1z_h',
+      'e1x_l',
+      'e1y_l',
+      'e1z_l',
+    ]
+    for (const w of [noPick, pick])
+      for (const lane of LANES)
+        expect(w, `vs_line must read segments[].${lane}`).toContain(`.${lane}`)
   })
   it('binds g0 tile + sprite + g1 layer + 3 storage<read>', () => {
     // Instance `u`, not `tile` (#1635): the composer splices compiler-generated
@@ -191,9 +222,13 @@ describe('Phase-2 line shader — DSL emission', () => {
     expect(off.globe_eye).toBe(64) // #600 — MUST equal polygon Uniforms.globe_eye (shared buffer)
     // #1539 — 272 → 368: polygon grew by the 96-byte reserved `input` pool, and
     // TileUniforms shares VTR's group(0) buffer, so it mirrors the SIZE with
-    // `_pad_input_*`. This literal is the hardcoded half of the guard;
+    // `_pad_input_*`. #2042 INC-1 — 368 → 432: polygon appended the four
+    // absolute RTC anchors (tile/cam_ecef_center hi/lo), mirrored here as
+    // `_pad_*_ecef_center_*`. #2042 INC-6 — 432 → 464: the two Mercator
+    // anchor vec4s (tile_origin_merc_hl / cam_merc_center_hl), mirrored as
+    // `_pad_*_hl`. This literal is the hardcoded half of the guard;
     // polygon-line-uniform-parity.test.ts is the one that reflects BOTH structs.
-    expect(Math.ceil(cur / maxA) * maxA).toBe(368)
+    expect(Math.ceil(cur / maxA) * maxA).toBe(464)
     // The final clip transform feeds vertex+offset through the MVP.
     const vs = noPick.slice(noPick.indexOf('fn vs_line'), noPick.indexOf('fn fs_line'))
     expect(vs).toContain('u.cam_ecef_off_h')

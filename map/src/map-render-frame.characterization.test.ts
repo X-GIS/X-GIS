@@ -1,16 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { XGISMap } from './map'
+import { SCOPE_VT_PIPELINE } from './pending-work'
 
 // ═══ CHARACTERIZATION — per-frame render path ═══════════════════════
 //
 // Safety net BEFORE an upcoming structural decoupling of XGISMap. These
 // tests PIN the CURRENT observable behaviour of the per-frame render
-// decision path — `shouldRenderThisFrame()`, `hasPendingSourceWork()`,
-// and the synchronous stats / dump / inspect accessors that report what
-// a frame produced. They are NOT correctness tests: every assertion
-// captures what the code does TODAY so a later refactor can prove it
-// unchanged. If a value here looks "wrong", do not fix it here — change
-// it deliberately in map.ts and update the pin with a note.
+// decision path — `shouldRenderThisFrame()`, the pending-source-work
+// read (#2149 increment 6: `_pendingWork.hasPending(SCOPE_VT_PIPELINE)`,
+// the successor of the deleted `hasPendingSourceWork()` — same signal
+// set, same verdicts, pinned below), and the synchronous stats / dump /
+// inspect accessors that report what a frame produced. They are NOT
+// correctness tests: every assertion captures what the code does TODAY
+// so a later refactor can prove it unchanged. If a value here looks
+// "wrong", do not fix it here — change it deliberately in map.ts and
+// update the pin with a note.
 //
 // WHY no real renderFrame() drive: `renderFrame()` (and the `run()` path
 // that populates `vtSources`) require a live WebGPU device — the same
@@ -24,7 +28,7 @@ import { XGISMap } from './map'
 //   - `shouldRenderThisFrame()` — pure decision over private dirty flags
 //     + camera/canvas signature (private; reached via the same cast seam
 //     the EPSG spec uses).
-//   - `hasPendingSourceWork()`   — iterates `vtSources` (empty pre-run()).
+//   - the pending-source-work read — iterates `vtSources` (empty pre-run()).
 //   - `invalidate()` / `_needsRender` — the explicit dirty trigger.
 //   - `stats` (RenderStats getter) — StatsTracker initial snapshot.
 //   - `getDumpedLabels()` / `getDumpedIcons()` — null until a TextStage /
@@ -36,14 +40,14 @@ function mockCanvas(width = 1200, height = 800): HTMLCanvasElement {
   return { width, height } as unknown as HTMLCanvasElement
 }
 
-/** Private render-path seam. `shouldRenderThisFrame` /
- *  `hasPendingSourceWork` are `private`; the EPSG + fit-zoom specs
- *  establish this single-cast access pattern for CPU-only proofs. The
- *  signature fields (`_lastSig*`) and `_needsRender` are read to
- *  characterise the idle-skip comparator's exact inputs. */
+/** Private render-path seam. `shouldRenderThisFrame` is `private` and
+ *  `_pendingWork` package-internal; the EPSG + fit-zoom specs establish
+ *  this single-cast access pattern for CPU-only proofs. The signature
+ *  fields (`_lastSig*`) and `_needsRender` are read to characterise the
+ *  idle-skip comparator's exact inputs. */
 interface RenderPathSeam {
   shouldRenderThisFrame(): boolean
-  hasPendingSourceWork(): boolean
+  _pendingWork: { hasPending(scope?: readonly string[]): boolean }
   _needsRender: boolean
   _sceneHasAnimation: boolean
   _lastSigZoom: number
@@ -66,6 +70,14 @@ interface RenderPathSeam {
 
 function seam(map: XGISMap): RenderPathSeam {
   return map as unknown as RenderPathSeam
+}
+
+/** #2149 increment 6 — the pending-source-work read this suite used to reach as the
+ *  private `hasPendingSourceWork()`. Same signal set (SCOPE_VT_PIPELINE pins it), same
+ *  verdicts; the per-source cost-order scan became per-KIND early-exit walks, which the
+ *  single-source pins below cannot distinguish — the one deliberate shape change. */
+function pendingSourceWork(s: RenderPathSeam): boolean {
+  return s._pendingWork.hasPending(SCOPE_VT_PIPELINE)
 }
 
 /** Drive the map into the "settled / idle" state the way `renderFrame()`
@@ -106,13 +118,13 @@ describe('XGISMap render-path characterization — fresh-construct invariants', 
     expect(s.shouldRenderThisFrame()).toBe(true)
   })
 
-  it('a fresh map has an empty vtSources and hasPendingSourceWork()=false', () => {
+  it('a fresh map has an empty vtSources and no pending source work', () => {
     // PIN: `vtSources` is populated only by run() (needs a GPU device).
     // With none registered, the pending-work scan finds nothing.
     const map = new XGISMap(mockCanvas())
     const s = seam(map)
     expect(s.vtSources.size).toBe(0)
-    expect(s.hasPendingSourceWork()).toBe(false)
+    expect(pendingSourceWork(s)).toBe(false)
   })
 
   it('the last-signature fields start as NaN (zoom/center/bearing/pitch) and 0 (w/h)', () => {
@@ -275,10 +287,10 @@ describe('XGISMap render-path characterization — shouldRenderThisFrame() decis
   })
 })
 
-describe('XGISMap render-path characterization — hasPendingSourceWork() over vtSources', () => {
+describe('XGISMap render-path characterization — the pending-source-work read over vtSources', () => {
   it('empty scene (no sources) → false', () => {
     const map = new XGISMap(mockCanvas())
-    expect(seam(map).hasPendingSourceWork()).toBe(false)
+    expect(pendingSourceWork(seam(map))).toBe(false)
   })
 
   it('a source with pending HTTP loads → true (first signal, highest priority)', () => {
@@ -291,7 +303,7 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
       source: { hasPendingLoads: () => true },
       renderer: { hasPendingUploads: () => false, getDrawStats: () => ({ missedTiles: 0 }) },
     })
-    expect(s.hasPendingSourceWork()).toBe(true)
+    expect(pendingSourceWork(s)).toBe(true)
   })
 
   it('a source with pending GPU uploads → true (second signal)', () => {
@@ -301,7 +313,7 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
       source: { hasPendingLoads: () => false },
       renderer: { hasPendingUploads: () => true, getDrawStats: () => ({ missedTiles: 0 }) },
     })
-    expect(s.hasPendingSourceWork()).toBe(true)
+    expect(pendingSourceWork(s)).toBe(true)
   })
 
   it('a source with missedTiles>0 last frame → true (third signal)', () => {
@@ -311,7 +323,7 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
       source: { hasPendingLoads: () => false },
       renderer: { hasPendingUploads: () => false, getDrawStats: () => ({ missedTiles: 3 }) },
     })
-    expect(s.hasPendingSourceWork()).toBe(true)
+    expect(pendingSourceWork(s)).toBe(true)
   })
 
   it('a fully-loaded source (no fetch, no upload, no misses) → false', () => {
@@ -323,7 +335,7 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
       source: { hasPendingLoads: () => false },
       renderer: { hasPendingUploads: () => false, getDrawStats: () => ({ missedTiles: 0 }) },
     })
-    expect(s.hasPendingSourceWork()).toBe(false)
+    expect(pendingSourceWork(s)).toBe(false)
   })
 
   it('missing optional accessors are treated as no-work (?. guards) → false', () => {
@@ -333,7 +345,7 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
     const map = new XGISMap(mockCanvas())
     const s = seam(map)
     s.vtSources.set('bare', { source: {}, renderer: {} })
-    expect(s.hasPendingSourceWork()).toBe(false)
+    expect(pendingSourceWork(s)).toBe(false)
   })
 
   it('getDrawStats() returning undefined missedTiles → false (nullish guard)', () => {
@@ -343,12 +355,12 @@ describe('XGISMap render-path characterization — hasPendingSourceWork() over v
       source: { hasPendingLoads: () => false },
       renderer: { hasPendingUploads: () => false, getDrawStats: () => ({}) },
     })
-    expect(s.hasPendingSourceWork()).toBe(false)
+    expect(pendingSourceWork(s)).toBe(false)
   })
 
   it('pending source work makes shouldRenderThisFrame()=true even when settled', () => {
-    // PIN: the integration of the two functions — `shouldRenderThisFrame`
-    // calls `hasPendingSourceWork()` as its third short-circuit, so a
+    // PIN: the integration — the vt-* kinds ride `shouldRenderThisFrame`'s
+    // full-union `_pendingWork.hasPending()` term (#2149 inc 6), so a
     // settled/clean camera still renders while a source has work.
     const canvas = mockCanvas()
     const map = new XGISMap(canvas)

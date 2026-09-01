@@ -137,11 +137,15 @@ function convertLines(
   }
 }
 
-function projectX(x: number): number {
+// Exported (the sole divergence from the upstream file, which keeps both module-private):
+// `tiler/cluster/` projects its own points into the SAME unit square and the two indexes
+// serve one source between them, so two copies of this formula would be two authorities
+// on where a point goes — the failure class #996 was filed on. The bodies are untouched.
+export function projectX(x: number): number {
   return x / 360 + 0.5
 }
 
-function projectY(y: number): number {
+export function projectY(y: number): number {
   const sin = Math.sin((y * Math.PI) / 180)
   const y2 = 0.5 - (0.25 * Math.log((1 + sin) / (1 - sin))) / Math.PI
   return y2 < 0 ? 0 : y2 > 1 ? 1 : y2

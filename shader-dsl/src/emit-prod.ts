@@ -29,7 +29,11 @@ import { mangleModule } from './core/passes/mangle.js'
 import { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
 import { aliasShaderTypes } from './core/emit-alias.js'
 import { pruneRedundantPrototypes } from './core/emit-prune.js'
-import { inlineLinearAll } from './core/passes/inline-linear.js'
+import {
+  forceInline as inlineModule,
+  type InlineOpaque,
+  type InlineDecision,
+} from './core/passes/force-inline.js'
 
 export type { EmitPlugin, EmitOptions } from './core/emit.js'
 export { minifyShaderText, type MinifyOptions } from './core/emit-minify.js'
@@ -37,6 +41,7 @@ export { aliasShaderTypes } from './core/emit-alias.js'
 export { pruneRedundantPrototypes } from './core/emit-prune.js'
 export { decodeShaderLog, invertRenames, type DecodedName } from './core/decode-log.js'
 export { mangleModule, type MangleResult } from './core/passes/mangle.js'
+export type { InlineOpaque, InlineDecision } from './core/passes/force-inline.js'
 
 /** Identifier-mangling plugin (a Vite-style factory returning an EmitPlugin).
  *  Renames the authored vocabulary — helper fns, plain structs, module consts
@@ -68,22 +73,76 @@ export function minify(opts?: MinifyOptions): EmitPlugin {
   return { name: 'minify', transformText: (code) => minifyShaderText(code, opts) }
 }
 
-/** Call-graph-flattening plugin (obfuscation): inlines every safely-inlinable
- *  helper at all its call sites, so those functions vanish from the output —
- *  single-return helpers by expression substitution, and LINEAR multi-statement
- *  helpers (a `let`/`var` prelude + one trailing `return`, like a value-noise
- *  fn) by lifting their statements into the caller. Control-flow bodies, the
- *  df64 emulation library, entry points, and recursive fns are all left intact.
+/** Call-graph-flattening plugin (obfuscation): inlines every safely-inlinable helper
+ *  at all its call sites, so those functions vanish from the output — single-return
+ *  helpers by expression substitution, and SINGLE-EXIT multi-statement helpers by
+ *  lifting their statements into the caller. The prelude may contain control flow;
+ *  what is refused is a second exit, a `break`/`continue` that would bind to the
+ *  caller's loop, `discard` (impure), and `raw` — see `preludeBlocker`. Entry points
+ *  and recursive fns are always left intact.
+ *
  *  NOT a size win (a multi-call helper is duplicated at each site; the point is
  *  removing structure a reader could follow — pair it with mangle() + minify()).
  *  Duplicated TEXT, though, is not duplicated WORK: flattening is followed by a
- *  bit-exact re-hoisting pass (#1860), so a value N inlined copies derive from
- *  the same argument is still computed ONCE — without it the emitted shader pays
- *  that arithmetic per call site. Opt-in only; NOT part of the obfuscate()
- *  preset, so no existing output changes. Runs in the IR stage, so place it
- *  before mangle() in the array. */
-export function inline(): EmitPlugin {
-  return { name: 'inline', transformIR: inlineLinearAll }
+ *  bit-exact re-hoisting pass (#1860), so a value N inlined copies derive from the
+ *  same argument is still computed ONCE.
+ *
+ *  `opaque` is the ONE axis this plugin has, and its three values are a monotone
+ *  ladder — each does everything the one before it does, plus more. It decides what
+ *  happens to `FuncDecl.opaque`, the function-granular do-not-optimize flag that
+ *  `fp64Lower` stamps on the df64 emulation library (#1926):
+ *
+ *   • `'keep'` (default) — opaque helpers are never touched. Safe, and a measured
+ *     complete NO-OP on every fp64 example: 39 of 39 emitted sources byte-identical
+ *     across WGSL and both GLSL stages, because the df64 library is all there is to
+ *     inline there. Non-fp64 examples move by −56 B to +9601 B.
+ *   • `'single-call'` — additionally unlocks opaque helpers with exactly ONE call
+ *     site, where removing the decl plus its single call duplicates nothing.
+ *     Measured on the fp64 corpus: 2-5 fewer functions per example, −5% to +8% bytes.
+ *   • `'all'` — unlocks every opaque helper, so `df64_*` leaves the output entirely
+ *     and the call graph really does disappear. Costs **5.1x to 27.2x** the emitted
+ *     bytes (fp64-sine-sweep 6,266 B → 170,419 B), and `core/fp64/flavor-select.ts`
+ *     records that FXC's compile cost on FULLY-INLINED df64 bodies can TDR on
+ *     ANGLE-D3D11. Reach for it when unreadable output is worth those two costs.
+ *
+ *  Unlocking also runs the scalar-replacement cleanup (`memberFold`) and tree-shakes
+ *  the emptied declarations, because both only have work to do once a df64 body has
+ *  been flattened — `memberFold` fires 0 times under `'keep'` and 2,632 under `'all'`.
+ *
+ *  Values are unchanged at every setting: `core/passes/force-inline.test.ts` runs the
+ *  df64 known-answer vectors through each policy under a correctly-rounding-f32 oracle
+ *  and requires bit-equality with the un-inlined module. What that CANNOT see is a
+ *  driver's fast-math — see the pass header.
+ *
+ *  BOUNDING IT. `maxGrowth` caps how far the module's IR-op count may grow while
+ *  unlocking, as a multiplier — gcc's `--param inline-unit-growth` (default 40, i.e.
+ *  +40%) in this codebase's units. Omitted is UNLIMITED, and deliberately so: the
+ *  goal here is obfuscation, where flattening everything is the point rather than a
+ *  cost to contain. Set it when the 5-27x is not worth paying. With a budget, helpers
+ *  are unlocked one at a time CHEAPEST FIRST (fewest call sites — a one-call helper
+ *  duplicates nothing), which generalises `'single-call'` rather than adding a second
+ *  rule; without one, `'all'` still opens every helper in a single batch exactly as
+ *  before, so no existing output moves.
+ *
+ *  `report` is an out-param array, the same idiom as `mangle({ renames })`: it
+ *  receives one {@link InlineDecision} per helper considered — call sites, resulting
+ *  op count, growth so far, and whether it was inlined, refused as `over-budget`, or
+ *  found `not-inlinable`. That is the `-fopt-info-inline` half; without it a budget
+ *  silently drops helpers and the output gives no account of which.
+ *
+ *  Opt-in: NOT part of the obfuscate() preset, so no existing output changes. Runs in
+ *  the IR stage, so place it before mangle() in the array. */
+export function inline(opts?: {
+  opaque?: InlineOpaque
+  maxGrowth?: number
+  report?: InlineDecision[]
+}): EmitPlugin {
+  const opaque = opts?.opaque ?? 'keep'
+  return {
+    name: 'inline',
+    transformIR: (m) =>
+      inlineModule(m, opaque, { maxGrowth: opts?.maxGrowth, report: opts?.report }),
+  }
 }
 
 /** Type-name aliasing plugin: gives each heavily-used TYPE a one-character name

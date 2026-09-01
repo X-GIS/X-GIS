@@ -37,7 +37,8 @@ fn fs_rtc(vo: VsOut) -> @location(0) vec4<f32> {
   let _v5 = (_cse0 || (u.fp64 < 0.5));
   let _cse1 = vec2<f32>(u.center.hi.x, u.center.lo.x);
   let _cse2 = vec2<f32>(u.mark.hi.x, u.mark.lo.x);
-  let _cse3 = vec2<f32>(0.0, 0.0);
+  let _cse6 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse3 = vec2<f32>(_cse6, _cse6);
   let _v6 = df64_narrow(df64_sub(df64_add(_cse1, vec2<f32>(_v3, 0.0)), df64_add(_cse2, _cse3)));
   let _cse4 = vec2<f32>(u.center.hi.y, u.center.lo.y);
   let _cse5 = vec2<f32>(u.mark.hi.y, u.mark.lo.y);

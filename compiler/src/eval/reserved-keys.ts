@@ -31,6 +31,44 @@ export const CAMERA_ZOOM_KEY = '$zoom' as const
  *  tileZoom. */
 export const CAMERA_PITCH_KEY = '$pitch' as const
 
+/** Reserved key for the RUNNING AGGREGATE of one `clusterProperties` key — Mapbox
+ *  `["accumulated"]` (#2050). The evaluator's `accumulated` identifier resolves to
+ *  `props[ACCUMULATED_KEY]`, the same injection contract `zoom` / `pitch` have.
+ *  A `clusterProperties` reduce is `accumulated <op> ["get", key]`: the reserved key
+ *  carries the value merged so far while the ordinary props bag carries the INCOMING
+ *  mapped values, so the two operands cannot collide. The injector is the cluster
+ *  index's merge step (design §4.3, T3 P2/P3 — `compiler/src/tiler/cluster/`, running
+ *  inside `data/src/workers/geojson-tiling-worker.ts`); every other eval site leaves it
+ *  absent and `["accumulated"]` resolves to null there, as `["pitch"]` does off-camera. */
+export const ACCUMULATED_KEY = '$accumulated' as const
+
+/** Reserved key for the feature ANCHOR's distance from the viewport centre —
+ *  Mapbox `["distance-from-center"]` (#2119), in units of the viewport
+ *  half-diagonal (0 at centre, ~1 at the edge, >1 off-screen; see
+ *  ./distance-from-center.ts for the exact arithmetic and its witnesses).
+ *  Camera-dependent like `zoom` / `pitch`, but NOT a per-frame scalar — the
+ *  anchor is per-FEATURE, so this is the one member of the family that is
+ *  per-feature, not per-frame; a render-path caller computes it once per
+ *  evaluated feature and passes the reduced number in, the same contract
+ *  `accumulated` has with the cluster merge step.
+ *
+ *  Routed differently than `zoom` / `pitch` / `accumulated`: those lower to
+ *  a BARE identifier the evaluator special-cases (`expr.name === 'pitch'`).
+ *  `distance-from-center` cannot — the lexer tokenizes `-` as Minus
+ *  (lexer.ts `readIdentifier` stops at `[a-zA-Z0-9_]`), so a bare
+ *  `distance-from-center` identifier would parse as three subtractions, not
+ *  one name. It rides the OTHER existing reserved-key channel instead — the
+ *  `get("$key")` form `["geometry-type"]` / `["id"]` already use for the
+ *  same reason (see GEOMETRY_TYPE_KEY / FEATURE_ID_KEY) — which evaluator.ts
+ *  needs zero new code for: the generic `get(...)` builtin already does
+ *  `props[key] ?? null` for any string-literal key. Shadowing a feature
+ *  property named literally "distance-from-center" is structural, not a
+ *  runtime check: the injected slot lives at `props['$distanceFromCenter']`,
+ *  the feature's own field (if any) at `props['distance-from-center']` —
+ *  disjoint keys, so `["get", "distance-from-center"]` and
+ *  `["distance-from-center"]` can never collide. */
+export const DISTANCE_FROM_CENTER_KEY = '$distanceFromCenter' as const
+
 /** Reserved key PREFIX for a declared `input`'s live value (#1539) —
  *  `props[INPUT_KEY_PREFIX + name]`. The evaluator's `InputRef` node
  *  (resolved from a bare identifier by ir/resolve-inputs.ts before
@@ -62,9 +100,15 @@ export const GEOMETRY_TYPE_KEY = '$geometryType' as const
 /** Reserved key for the feature's RAW geometry object ({ type, coordinates }).
  *  Mapbox `["within", polygon]` lowers to `within(get("$geometry"), …)` and
  *  needs the actual coordinates (not just the type) to test containment.
- *  `applyFilter` (GeoJSON path) injects `feature.geometry` here; paths that
- *  don't supply it (MVT tile-coordinate filter eval) leave it absent, so
- *  `within` degrades to false there — see eval/within.ts. */
+ *  Injected on every filter path: `applyFilter` for GeoJSON
+ *  (map/src/feature-helpers.ts) and `sliceFilterAccepts` for vector tiles
+ *  (data/src/eval/filter-eval.ts). No reprojection is owed on either — the
+ *  MVT decoder un-quantizes tile coordinates to lng/lat before a filter sees
+ *  a feature, which is the space the polygon / target argument is emitted in.
+ *  A bag that omits this key makes `within` return false and `distance`
+ *  return null for EVERY feature, silently; that was the vector-tile
+ *  behaviour until #2166. The paint/layout bags still omit it — `within` and
+ *  `distance` remain filter-only. */
 export const GEOMETRY_KEY = '$geometry' as const
 
 /** Normalize a raw GeoJSON geometry-type string to the form Mapbox's
@@ -82,6 +126,8 @@ export function normalizeGeometryType(t: string | undefined): string | undefined
 export type ReservedKey =
   | typeof CAMERA_ZOOM_KEY
   | typeof CAMERA_PITCH_KEY
+  | typeof ACCUMULATED_KEY
+  | typeof DISTANCE_FROM_CENTER_KEY
   | typeof FEATURE_ID_KEY
   | typeof GEOMETRY_TYPE_KEY
   | typeof GEOMETRY_KEY
@@ -108,6 +154,22 @@ export function makeEvalProps(opts: {
   /** Camera pitch in degrees — exposed to Mapbox `["pitch"]`. Only the
    *  render-path eval sites supply it; absent at worker/decode time. */
   cameraPitch?: number
+  /** Running aggregate for one `clusterProperties` key — exposed to Mapbox
+   *  `["accumulated"]` (#2050). Only the cluster-index merge step supplies it. */
+  accumulated?: unknown
+  /** This FEATURE's anchor distance from the viewport centre, already
+   *  normalized to half-diagonal units (0 centre, ~1 edge, >1 off-screen) —
+   *  exposed to Mapbox `["distance-from-center"]` (#2119). Compute via
+   *  `distanceFromCenterRatio` (./distance-from-center.ts); this option
+   *  takes the already-reduced number, same contract `accumulated` has.
+   *  Per-FEATURE, not per-frame — only a render-path caller that has
+   *  resolved a screen anchor for THIS feature supplies it. Left absent
+   *  (never null) for a feature whose anchor isn't well-defined (a
+   *  line-placed label, a non-point geometry) or at any site with no
+   *  camera at all (worker / decode-time) — `["distance-from-center"]`
+   *  resolves to null there, the same absence contract every other
+   *  reserved key has. */
+  distanceFromCenter?: number
   /** Stable feature ID — exposed via `["id"]` / `["get","$featureId"]`. */
   featureId?: string | number
   /** GeoJSON geometry type — exposed via `["geometry-type"]`. */
@@ -142,6 +204,8 @@ export function makeEvalProps(opts: {
   const out: Record<string, unknown> = { ...safeProps }
   if (opts.cameraZoom !== undefined) out[CAMERA_ZOOM_KEY] = opts.cameraZoom
   if (opts.cameraPitch !== undefined) out[CAMERA_PITCH_KEY] = opts.cameraPitch
+  if (opts.accumulated !== undefined) out[ACCUMULATED_KEY] = opts.accumulated
+  if (opts.distanceFromCenter !== undefined) out[DISTANCE_FROM_CENTER_KEY] = opts.distanceFromCenter
   if (opts.featureId !== undefined) out[FEATURE_ID_KEY] = opts.featureId
   if (opts.geometryType !== undefined) {
     out[GEOMETRY_TYPE_KEY] = normalizeGeometryType(opts.geometryType)

@@ -15,6 +15,7 @@
 import type { BindingHandler } from './lower-bindings'
 import {
   fillBindingHandler,
+  fillAntialiasBindingHandler,
   fillAntialiasUtilHandler,
   fillExtrusionVerticalGradientUtilHandler,
   fillPatternUtilHandler,
@@ -23,6 +24,7 @@ import {
 import {
   strokeDasharrayBindingHandler,
   strokeGapBindingHandler,
+  strokeGradientBindingHandler,
   strokeTranslateXBindingHandler,
   strokeTranslateYBindingHandler,
   strokeOpacityBindingHandler,
@@ -75,8 +77,14 @@ export const BINDING_HANDLERS: BindingHandler[] = [
   strokeTranslateXBindingHandler,
   strokeTranslateYBindingHandler,
   strokeOpacityBindingHandler,
+  // #1995 — must precede fillBindingHandler only for readability (that arm is
+  // an EXACT `fill` match, so the two can never both fire on one item).
+  fillAntialiasBindingHandler,
   fillBindingHandler,
   strokeBindingHandler,
+  // #2117 — EXACT `stroke-gradient` match, so it can never collide with the
+  // EXACT `stroke` arm above; placed here to mirror heatmapColorBindingHandler.
+  strokeGradientBindingHandler,
   fillExtrusionHeightBindingHandler,
   fillExtrusionBaseBindingHandler,
   heatmapColorBindingHandler,

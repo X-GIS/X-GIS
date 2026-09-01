@@ -35,6 +35,21 @@ export interface GlyphProvider {
    *  ALREADY failed stays silent, so a re-raster prompted by that notification terminates. */
   ensure?(fontstack: string, codepoint: number, onReady: () => void): void
 
+  /** Optional BOUNDED in-flight probe: does this provider have a load outstanding that the
+   *  render loop should stay awake for? The map's `shouldRenderThisFrame` ORs this, so
+   *  `idle` means "converged INCLUDING text" rather than "converged except for text" — the
+   *  gap that let a settle-on-idle harness sample first-visit frames before their glyphs
+   *  landed (#2116).
+   *
+   *  BOUNDED is part of the contract, not an implementation detail: `safeFetch` carries no
+   *  timeout, so a provider that answered `true` for as long as a request was outstanding
+   *  would let one hung host wedge the loop awake forever — the never-idle shape #2091 was.
+   *  An implementation MUST stop counting a load once it has been outstanding past its own
+   *  deadline, whether or not it ever settles. Providers with no remote source omit this
+   *  and are read as "nothing outstanding".
+   */
+  hasPendingLoads?(): boolean
+
   /** Optional terminal-state probe: has this provider finished deciding about the range
    *  containing `codepoint`, either way? Providers that load synchronously, or that can
    *  never load more than they already hold, omit it and are read as "still pending" —

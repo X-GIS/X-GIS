@@ -247,6 +247,15 @@ export class PbfRasterizer implements GlyphRasterizer {
       : this.fallback.rasterize(req)
   }
 
+  /** Does ANY provider in the chain still have a bounded in-flight load? The map's
+   *  `shouldRenderThisFrame` reads this through `TextStage.hasPendingGlyphLoads`, so the
+   *  loop stays awake until the text a frame is trying to draw has actually arrived
+   *  (#2116). Providers that never load remotely omit the probe and never hold the loop. */
+  hasPendingLoads(): boolean {
+    for (const p of this.providers) if (p.hasPendingLoads?.()) return true
+    return false
+  }
+
   /** True when every async-capable provider has reached a terminal state for this
    *  codepoint's range and none of them produced the glyph. A provider that cannot answer
    *  (`isResolved` absent) is treated as still pending — the conservative side, since it

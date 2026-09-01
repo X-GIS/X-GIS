@@ -222,3 +222,64 @@ describe('resolveShow — readonly output (sanity)', () => {
     expect(typeof r.layerName).toBe('string')
   })
 })
+
+// #1995 — fill-antialias reaches the frame as ONE resolved boolean, whichever
+// form the style authored. The OFM Bright witness (`landcover-wood`:
+// `["step", ["zoom"], false, 9, true]`) lowers to the 0/1 zoom shape below;
+// the runtime STEPS it (fill-antialias is `interpolated: false` in the spec),
+// so it must read false at every zoom under 9 and true from 9 up.
+const OFM_LANDCOVER_WOOD_AA = {
+  kind: 'zoom-interpolated',
+  stops: [
+    { zoom: 8.9999, value: 0 },
+    { zoom: 9, value: 1 },
+  ],
+}
+
+describe('resolveShow — fill-antialias (#1995)', () => {
+  const at = (zoom: number, fillAntialias: unknown): boolean =>
+    resolveShow(show({}, { fillAntialias }), { cameraZoom: zoom, elapsedMs: 0 }).fillAntialias
+
+  it('unauthored / true → true (the spec default render path)', () => {
+    expect(at(5, undefined)).toBe(true)
+    expect(at(5, true)).toBe(true)
+  })
+
+  it('constant false → false (the opt-out still works)', () => {
+    expect(at(5, false)).toBe(false)
+  })
+
+  it('the OFM Bright zoom step flips exactly at the authored zoom 9', () => {
+    for (const z of [0, 5, 8.9, 8.99989]) expect(at(z, OFM_LANDCOVER_WOOD_AA)).toBe(false)
+    for (const z of [9, 9.1, 15, 22]) expect(at(z, OFM_LANDCOVER_WOOD_AA)).toBe(true)
+  })
+
+  it('STEPS rather than lerps — no fractional "half antialiased" band', () => {
+    // A lerp between the ε-paired stops would read >0 (→ true) for zooms just
+    // under 9; the spec types fill-antialias interpolated:false.
+    expect(at(8.99995, OFM_LANDCOVER_WOOD_AA)).toBe(false)
+  })
+
+  it('an inverted step (on below, off above) flips the other way', () => {
+    const inverted = {
+      kind: 'zoom-interpolated',
+      stops: [
+        { zoom: 9.9999, value: 1 },
+        { zoom: 10, value: 0 },
+      ],
+    }
+    expect(at(9, inverted)).toBe(true)
+    expect(at(10, inverted)).toBe(false)
+  })
+
+  it('flips on the SAME show object across frames (the resolve memo is zoom-keyed)', () => {
+    // The per-show ResolveCacheEntry returns last frame's snapshot when every
+    // shape ref + zoom match. Zoom is part of that key, so a pan-then-zoom
+    // sequence must not serve a stale antialias flag.
+    const s = show({}, { fillAntialias: OFM_LANDCOVER_WOOD_AA })
+    expect(resolveShow(s, { cameraZoom: 8, elapsedMs: 0 }).fillAntialias).toBe(false)
+    expect(resolveShow(s, { cameraZoom: 8, elapsedMs: 16 }).fillAntialias).toBe(false)
+    expect(resolveShow(s, { cameraZoom: 12, elapsedMs: 32 }).fillAntialias).toBe(true)
+    expect(resolveShow(s, { cameraZoom: 8, elapsedMs: 48 }).fillAntialias).toBe(false)
+  })
+})

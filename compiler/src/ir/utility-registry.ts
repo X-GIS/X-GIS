@@ -88,6 +88,7 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('fill-translate-y-', 'prefix', 'number', 'px', false, 'paint'),
   def('fill-translate-anchor-map', 'exact', 'boolean', null, false, 'paint'),
   def('fill-antialias-false', 'exact', 'boolean', null, false, 'paint'),
+  def('fill-antialias', 'exact', 'expr', null, false, 'paint'), // binding: -[step(zoom,…)]
   def('fill-extrusion-vertical-gradient-false', 'exact', 'boolean', null, false, 'paint'),
   def('fill-extrusion-height-', 'prefix', 'number', 'm', false, 'paint'),
   def('fill-extrusion-base-', 'prefix', 'number', 'm', false, 'paint'),
@@ -99,6 +100,7 @@ export const UTILITY_REGISTRY: readonly UtilityDef[] = [
   def('circle-translate-y-', 'prefix', 'number', 'px', false, 'paint'),
   def('circle-blur-', 'prefix', 'number', null, false, 'paint'),
   def('circle-pitch-scale-map', 'exact', 'boolean', null, false, 'paint'),
+  def('circle-pitch-alignment-map', 'exact', 'boolean', null, false, 'paint'),
 
   // ── arrow layer (declarative oriented-arrow field, #1302). `arrow` is the
   //    marker; `bearing` carries the per-feature rotation — `bearing-[.dir]`

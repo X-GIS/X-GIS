@@ -614,7 +614,7 @@ export class StatementParser extends ExpressionParser {
   // reason — keeping `|` out of expression position — is moot since
   // the expression pipe operator was removed (#1238), but the accepted
   // block-value grammar is deliberately left unchanged by that removal.
-  private parseBlockProperty(): AST.BlockProperty {
+  protected parseBlockProperty(): AST.BlockProperty {
     const line = this.current().line
     const name = this.expectIdentifierOrKeyword()
     this.expect(TokenType.Colon)

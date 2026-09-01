@@ -21,7 +21,7 @@ export const fillExtrusionCapabilities: readonly RuntimeCapability[] = [
     layerType: 'fill-extrusion',
     variant: 'constant',
     supported: true,
-    note: "viewport (default) = screen-space; map = world-space: shares fill's slot 46/47 uniform, so VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.fillTranslateAnchorMap) and the extrude VS inherits it. Pitch foreshortening not reproduced.",
+    note: "map is the spec default (and what an absent anchor means, #2170) = world-space: shares fill's slot 46/47 uniform, so VTR rotates the [dx,dy] offset by camera.bearing before the px→NDC bake (show.fillTranslateAnchorMap) and the extrude VS inherits it. An explicit viewport = screen-space, un-flagged. Pitch foreshortening not reproduced.",
   },
   {
     property: 'fill-extrusion-color',

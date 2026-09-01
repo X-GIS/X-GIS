@@ -1,9 +1,12 @@
-// ═══ #777 IV3 — the pitch-0 unprojector (the ground basis's producer half) ═══
+// ═══ #777 IV3 — the pitch-0 view (the ground basis's producer half) ═══
 //
 // `groundBasisAt` (text/ground-basis.ts) gets identity-at-pitch-0 BY CONSTRUCTION
-// by composing the live projector with the inverse of the SAME projection with
-// pitch forced to 0. The camera has no such inverse: `getRTCMatrixInverse` is the
-// live one, cached, built from the live pitch. This module is that missing half.
+// by taking the ratio of the live and pitch-0 FORWARD Jacobians of the SAME
+// projection. The camera has no pitch-0 matrix: `getRTCMatrix` is the live one,
+// cached, built from the live pitch. This module is that missing half — it owns
+// the pitch-0 matrix, its inverse (kept for `unprojectToLonLat`, still the
+// authority for "what lon/lat is under this unpitched pixel"), and the cull-free
+// forward projector the basis composes with.
 //
 // WHY A SEPARATE MATRIX PAIR RATHER THAN TOGGLING THE CAMERA. `Camera.pitchLocked`
 // already makes `pitch` read 0, so the tempting implementation is "set it, rebuild,
@@ -19,14 +22,20 @@
 // The cache key deliberately EXCLUDES pitch — that is the whole point of the thing,
 // and it means a pure tilt (the common interaction) is a cache hit here.
 //
-// SCOPE. This composes `unprojectToLonLat`, which returns null for projType 3/4/5
-// (azimuthal discs — limb singularity) and 7 (globe). Under those projections there
-// is no pitch-0 lon/lat, so there is no basis and the label billboards as it does
-// today. Do not paper over it with a per-projection analytic fallback; see the
-// two-authorities note at the head of text/ground-basis.ts.
+// SCOPE. `unprojectToLonLat` composes the pure inverse, which returns null for
+// projType 3/4/5 (azimuthal discs — limb singularity) and 7 (globe). The FORWARD
+// projector below has no such restriction: a forward needs no inverse, so the
+// azimuthal discs are in scope for the basis with no per-projection branch (design
+// §3.1). The globe (projType 7) stays out, deliberately — it renders through the
+// ECEF projector, has no map plane, and its deferral is recorded in §3.2 of
+// docs/plans/2026-08-24-label-ground-projection.md. Do not paper over either with
+// a per-projection analytic fallback; see the two-authorities note at the head of
+// text/ground-basis.ts.
 
-import { WORLD_MERC, flatViewHeightCapM } from '@xgis/geo'
-import { invert4x4, CAMERA_FOV_DEG } from '@xgis/shared'
+import { WORLD_MERC, flatViewHeightCapM, mercatorYToLat } from '@xgis/geo'
+import { invert4x4, CAMERA_FOV_DEG, EARTH } from '@xgis/shared'
+import { projMercatorCpu, projectCpu, projectGeomCpu } from '../shaders/dsl/cpu-projections'
+import { WORLD_CIRC } from '../render-loop-helpers'
 import { type CameraView, buildRTCMatrix } from './view-matrix'
 import { unprojectToLonLat as unprojectToLonLatPure, type UnprojectView } from './unproject'
 
@@ -76,6 +85,16 @@ export class Pitch0Unprojector {
   private _cacheOrtho = false
   private _cacheAziProj = -1
 
+  /** The MVP of the live camera with pitch forced to 0 — the FORWARD half, which
+   *  `makeGroundProjector` composes into the basis's `P₀`. Same buffer, same
+   *  cache, same build as `matrixInverse`; exposing it is what lets the basis be
+   *  taken forward-only (design §3.1) instead of through an inverse that does not
+   *  exist for every projection. Returned by reference — consume synchronously. */
+  matrix(view: Pitch0View, canvasWidth: number, canvasHeight: number, dpr = 1): Float32Array {
+    this._ensure(view, canvasWidth, canvasHeight, dpr)
+    return this._matrix
+  }
+
   /** The inverse MVP of the live camera with pitch forced to 0. */
   matrixInverse(
     view: Pitch0View,
@@ -83,6 +102,12 @@ export class Pitch0Unprojector {
     canvasHeight: number,
     dpr = 1,
   ): Float32Array {
+    this._ensure(view, canvasWidth, canvasHeight, dpr)
+    return this._inverse
+  }
+
+  /** Rebuild `_matrix` + `_inverse` unless the cache shadow already matches. */
+  private _ensure(view: Pitch0View, canvasWidth: number, canvasHeight: number, dpr: number): void {
     // The SAME per-projType view-height cap `Camera.getRTCMatrixInverse` uses, so
     // at pitch 0 this inverse is the live one element for element rather than
     // merely close — ortho's cap differs from the WORLD_MERC default by ~π.
@@ -104,7 +129,7 @@ export class Pitch0Unprojector {
       view.globeOrtho === this._cacheOrtho &&
       view.azimuthalProjType === this._cacheAziProj
     ) {
-      return this._inverse
+      return
     }
     const v = this._view
     v.centerX = view.centerX
@@ -129,11 +154,10 @@ export class Pitch0Unprojector {
     this._cacheCap = cap
     this._cacheOrtho = view.globeOrtho
     this._cacheAziProj = view.azimuthalProjType
-    return this._inverse
   }
 
-  /** The `unprojectPitch0` argument `groundBasisAt` asks for. Null for projType
-   *  3/4/5/7 and when the ray misses the ground plane. */
+  /** Screen → lon/lat through the pitch-0 projection. Null for projType 3/4/5/7
+   *  and when the ray misses the ground plane. */
   unprojectToLonLat(
     view: Pitch0View,
     screenX: number,
@@ -144,5 +168,180 @@ export class Pitch0Unprojector {
   ): [number, number] | null {
     const inv = this.matrixInverse(view, canvasWidth, canvasHeight, dpr)
     return unprojectToLonLatPure(view, inv, screenX, screenY, canvasWidth, canvasHeight)
+  }
+}
+
+/** The flat-projection constants a ground projector composes with — exactly the
+ *  fields `makeLabelProjectors`' `flat` argument carries, minus the world copies.
+ *  A basis is a derivative at ONE point, so it has no copy: `projectLonLatCopies`
+ *  fans an anchor out across ±360°, and the Jacobian is the same object at each. */
+export interface FlatGroundView {
+  projType: number
+  ccx: number
+  ccy: number
+  centerLon: number
+  centerLat: number
+}
+
+/** `[screenX, screenY, clipW]`, or null where the projection has no image for the
+ *  point. Returns a REUSED tuple — copy out before the next call.
+ *
+ *  Slot 3 is the perspective divisor the point was projected through — this
+ *  engine's measure of "how far is this from the camera", and the numerator of the
+ *  distance ratio `groundPerspectiveScale` takes (#2012 INC-5). It rides the
+ *  projection the caller already did rather than being re-derived, so there is one
+ *  composition and not two that must agree. Readers of `[0]`/`[1]` are unaffected,
+ *  the same contract `projectLonLatCopies`' slot 3 established. */
+export type ProjectGround = (lon: number, lat: number) => readonly [number, number, number] | null
+
+/** Mercator metres + world-copy INDEX → screen px — the merc-domain twin of
+ *  `ProjectGround`, for callers that already hold merc metres (the line-label
+ *  polyline loop does; converting back to lon/lat was ~80 % of its frame time
+ *  before that round trip was removed). Returns a REUSED tuple. */
+export type ProjectGroundMerc = (
+  mx: number,
+  my: number,
+  worldCopy?: number,
+) => readonly [number, number, number] | null
+
+/** The one place a flat RTC point becomes screen px through `mvp`, shared by both
+ *  ground projectors below so the lon/lat and merc entry points cannot drift into
+ *  two slightly different compositions. `cw <= 0` is a genuine degeneracy — the
+ *  point is behind the camera — and is the ONLY rejection here (see the cull-free
+ *  rationale on `makeGroundProjector`). */
+function projectFlatRtc(
+  mvp: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  rtcX: number,
+  rtcY: number,
+  out: [number, number, number],
+): readonly [number, number, number] | null {
+  const cw = mvp[3]! * rtcX + mvp[7]! * rtcY + mvp[15]!
+  if (cw <= 0) return null
+  const ndcX = (mvp[0]! * rtcX + mvp[4]! * rtcY + mvp[12]!) / cw
+  const ndcY = (mvp[1]! * rtcX + mvp[5]! * rtcY + mvp[13]!) / cw
+  out[0] = (ndcX + 1) * 0.5 * canvasWidth
+  out[1] = (1 - ndcY) * 0.5 * canvasHeight
+  // Slot 3 — the divisor, kept because it is already computed and because the
+  // ONLY other way to the anchor's camera distance is a second composition of
+  // this same expression somewhere else (#2012 INC-5).
+  out[2] = cw
+  return out
+}
+
+/** The forward projector the ground basis is composed from: lon/lat → screen px
+ *  through `mvp`, on the flat display path (projType 0-6), with the label pass's
+ *  VISIBILITY culls deliberately OFF.
+ *
+ *  WHY CULL-FREE, and it is measured rather than assumed (design §3.1 / its
+ *  NEEDS-PROBE 1). `makeLabelProjectors`' `projectLonLat` answers "should this
+ *  anchor DRAW". A basis asks "how does the ground deform HERE", which is a
+ *  derivative and is defined wherever the projection is. Composing it out of the
+ *  culled projector loses exactly the labels the feature exists for: the pitch-0
+ *  image of a pitched far field is far OUTSIDE the unpitched frame, so the NDC
+ *  ±1.5 window rejects it and the far field billboards while the near field
+ *  works — which reads as "the basis is subtle", not as "the basis is missing".
+ *  Measured on the flat Mercator arm at 1200×800 over a 20 px lattice of
+ *  on-screen anchors, identically at z4/z10/z14: 0 % rejected at pitch 30,
+ *  12.2 % at 45, 24.4 % at 60, 36.6 % at 70 — every one of them in the top band
+ *  of the frame, worst |ndc| 34.7. Of the three culls only that window had to go:
+ *  `cw <= 0` never fired on a pitch-0 matrix (an unpitched flat MVP has no
+ *  perspective term over the ground plane, so cw is the constant mvp[15]) and the
+ *  ortho-rim / back-face gate reads no matrix at all, so it answers identically
+ *  for the live and pitch-0 projectors and can only reject a point that has no
+ *  live anchor either. `cw <= 0` is KEPT below: it is a genuine degeneracy — the
+ *  point is behind the camera — not a viewport question.
+ *
+ *  Composition parity with `makeLabelProjectors`' flat arm is not left to
+ *  inspection: `pitch0-unproject.test.ts` asserts the two agree everywhere the
+ *  culled one answers, across the projType × zoom × pitch lattice. */
+export function makeGroundProjector(
+  mvp: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  flat: FlatGroundView,
+): ProjectGround {
+  const { projType, ccx, ccy, centerLon, centerLat } = flat
+  const isMerc = projType < 0.5
+  // `project(cam)` — the projected camera centre the non-Mercator arm subtracts,
+  // exactly as `makeLabelProjectors` derives its `lblCenter`.
+  const lblCenter: [number, number] = isMerc
+    ? [0, 0]
+    : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
+  const scratch: [number, number, number] = [0, 0, 0]
+  return (lon: number, lat: number): readonly [number, number, number] | null => {
+    let rtcX: number
+    let rtcY: number
+    if (isMerc) {
+      const m = projMercatorCpu(lon, lat)
+      rtcX = m[0] - ccx
+      rtcY = m[1] - ccy
+    } else {
+      // refLon = the anchor lon, the label analog of the shader's tile-centre
+      // refLon — the same argument `makeLabelProjectors` passes.
+      const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
+      rtcX = p[0] - lblCenter[0]
+      rtcY = p[1] - lblCenter[1]
+    }
+    return projectFlatRtc(mvp, canvasWidth, canvasHeight, rtcX, rtcY, scratch)
+  }
+}
+
+/** The MERC-domain ground projector — `makeGroundProjector`'s twin for the line
+ *  label pass, which walks a polyline of Mercator metres and must project the
+ *  SAME samples a second time through the pitch-0 matrix (design §3.4(1)).
+ *
+ *  Same composition, same cull-free contract, same `projectFlatRtc` tail: only the
+ *  input domain differs. It exists because the live walk feeds
+ *  `makeLabelProjectors`' `projectMercAny` merc metres directly — the
+ *  merc→lonLat→merc round trip it replaced was ~80 % of the polyline loop's frame
+ *  time (label-pass.ts) — so a lon/lat-only pitch-0 twin would pay that cost back
+ *  on every sample of every ground-aligned road.
+ *
+ *  `worldCopy` is the copy INDEX (0, ±1 from `getVisibleWorldCopies`), not metres,
+ *  mirroring `projectMercAny`: each arm multiplies by its own period so the label
+ *  plane is the pitch-0 image of the SAME world copy the live run was projected
+ *  in. Mercator shifts in merc metres, the x-periodic non-merc set in projected-x
+ *  (`WORLD_CIRC` — the GPU `project_geom` `world_off_m`). */
+export function makeGroundMercProjector(
+  mvp: Float32Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  flat: FlatGroundView,
+): ProjectGroundMerc {
+  const { projType, ccx, ccy, centerLon, centerLat } = flat
+  const isMerc = projType < 0.5
+  const lblCenter: [number, number] = isMerc
+    ? [0, 0]
+    : projectCpu(projType, centerLon, centerLat, centerLon, centerLat)
+  const scratch: [number, number, number] = [0, 0, 0]
+  return (mx: number, my: number, worldCopy = 0): readonly [number, number, number] | null => {
+    if (isMerc) {
+      return projectFlatRtc(
+        mvp,
+        canvasWidth,
+        canvasHeight,
+        mx + worldCopy * WORLD_MERC - ccx,
+        my - ccy,
+        scratch,
+      )
+    }
+    // Same merc → lon/lat → project_geom chain `projectMercAny`'s non-merc arm
+    // takes, with the same `refLon = lon` (the label analog of the shader's
+    // tile-centre refLon).
+    const lon = mx / ((Math.PI / 180) * EARTH.sphereR)
+    const lat = mercatorYToLat(my)
+    const p = projectGeomCpu(projType, lon, lat, centerLon, centerLat, lon)
+    if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null
+    return projectFlatRtc(
+      mvp,
+      canvasWidth,
+      canvasHeight,
+      p[0] + worldCopy * WORLD_CIRC - lblCenter[0],
+      p[1] - lblCenter[1],
+      scratch,
+    )
   }
 }

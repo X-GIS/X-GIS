@@ -42,6 +42,14 @@ export const circleCapabilities: readonly RuntimeCapability[] = [
     layerType: 'circle',
     variant: 'constant',
     supported: true,
-    note: 'viewport (default, byte-identical) + map. circlePitchScaleMap → point uniform circle_params.w; the VS scales the screen radius by w_ref/clip.w (Phase S Batch 3).',
+    note: 'viewport + map. circlePitchScaleMap → the point uniform circle_params.w mode code (1); the VS scales the screen radius by w_ref/clip.w (Phase S Batch 3). NOTE (#2118 audit): "map" is this property\'s SPEC default, not "viewport" — the converter resolves an absent value to viewport, so an unauthored circle does not shrink with distance the way MapLibre\'s does. Recorded at convert/layers-circle.ts, deliberately not changed here.',
   },
+  // circle-pitch-alignment is IMPLEMENTED (#2118 — the point VS lays the disc in
+  // the ground plane through the ground basis) but deliberately has NO ROW HERE.
+  // Adding one with `supported: true` would fail spec-coverage-runtime-drift's
+  // first assertion, because the matching spec-coverage row still reads
+  // `status: 'unsupported'` and compiler/src/convert/spec-coverage/ is FROZEN
+  // behind PR #1993. The three-way sync (spec-coverage row + gap-matrix + this
+  // table) is the follow-up that unfreezing owns; a row added here alone would
+  // turn a documentation gap into a red gate.
 ]

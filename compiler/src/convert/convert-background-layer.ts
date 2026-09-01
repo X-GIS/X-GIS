@@ -10,6 +10,7 @@
 import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
 import { interpolateZoomCall } from './paint'
+import { foldSingleStopZoomFunctions } from './zoom-function-fold'
 import { applyAlphaMultiplier } from './layers-helpers'
 import type { StyleCoverage } from './mapbox-to-xgis'
 
@@ -48,7 +49,25 @@ export function convertBackgroundLayer(
       `Background layer "${bgLayer.id}" — visibility "${bgVisibility.slice(0, 40)}" is not a valid enum; expected 'visible' | 'none'.`,
     )
   }
-  const color = bgLayer.paint?.['background-color']
+  // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
+  // layers.ts safePropsBag guard). A string paint value previously
+  // let bgPaint['background-opacity'] index a char and the warning
+  // list leaked garbage property names.
+  //
+  // Legacy SINGLE-stop zoom functions fold to the constant they denote
+  // here (#1976) — the background layer builds its own bag, so this is
+  // the third fold boundary alongside safePropsBag and paintToUtilities'
+  // bag. Purely data construction: no lines / warnings / coverage are
+  // pushed here, so the push ORDER this file's header pins is unchanged.
+  const rawBgPaint = bgLayer.paint
+  const bgPaint =
+    rawBgPaint !== null &&
+    rawBgPaint !== undefined &&
+    typeof rawBgPaint === 'object' &&
+    !Array.isArray(rawBgPaint)
+      ? foldSingleStopZoomFunctions(rawBgPaint as Record<string, unknown>)
+      : {}
+  const color = bgPaint['background-color']
   // Probe the constant-colour conversion into a scratch warnings
   // buffer so a zoom-interp `background-color` (which colorToXgis
   // declines with a "Color expression not converted" note) doesn't
@@ -71,18 +90,6 @@ export function convertBackgroundLayer(
   // Commit the constant-colour probe diagnostics unless the interpolate
   // path claimed the value (then the "not converted" note is spurious).
   if (colorInterp === null) warnings.push(...colorProbeWarnings)
-  // Defensive: coerce non-object bgLayer.paint to {} (mirror of the
-  // layers.ts safePropsBag guard). A string paint value previously
-  // let bgPaint['background-opacity'] index a char and the warning
-  // list leaked garbage property names.
-  const rawBgPaint = bgLayer.paint
-  const bgPaint =
-    rawBgPaint !== null &&
-    rawBgPaint !== undefined &&
-    typeof rawBgPaint === 'object' &&
-    !Array.isArray(rawBgPaint)
-      ? (rawBgPaint as Record<string, unknown>)
-      : {}
   // Background-opacity constant fold (same pattern as
   // circle-stroke-opacity iter 4 partial landing). When both
   // background-color hex AND a constant numeric background-opacity

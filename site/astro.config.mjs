@@ -683,6 +683,9 @@ export default defineConfig({
         '@xgis/shader-dsl/emit-prod': fileURLToPath(
           new URL('../shader-dsl/src/emit-prod.ts', import.meta.url),
         ),
+        '@xgis/shader-dsl/compute': fileURLToPath(
+          new URL('../shader-dsl/src/compute.ts', import.meta.url),
+        ),
         '@xgis/shader-dsl': fileURLToPath(new URL('../shader-dsl/src/index.ts', import.meta.url)),
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },

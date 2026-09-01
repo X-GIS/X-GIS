@@ -289,6 +289,7 @@ export class VirtualPMTilesBackend implements TileSource {
           tile.lineVertices ?? new Float32Array(0),
           tile.lineIndices ?? new Uint32Array(0),
           10,
+          tile.tileOriginMerc,
           widthMerc,
           heightMerc,
         )
@@ -296,6 +297,7 @@ export class VirtualPMTilesBackend implements TileSource {
           tile.outlineVertices ?? new Float32Array(0),
           tile.outlineLineIndices ?? new Uint32Array(0),
           10,
+          tile.tileOriginMerc,
           widthMerc,
           heightMerc,
         )

@@ -83,7 +83,8 @@ layout(location = 0) out vec4 _ret;
 
 void main() {
   vec2 _licm0 = vec2(2.0, 0.0);
-  vec2 _licm1 = vec2(0.0, 0.0);
+  float _cse5 = uintBitsToFloat(floatBitsToUint(0.0));
+  vec2 _licm1 = vec2(_cse5, _cse5);
   float _v0 = pow(10.0, (-u.zoom_exp));
   float _v1 = (uv.x * 2.0);
   bool _cse0 = (uv.x < 0.5);

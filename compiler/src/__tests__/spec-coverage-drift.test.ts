@@ -49,6 +49,12 @@ function readConverterSource(): string {
     'layers-circle.ts',
     'layers-symbol.ts',
     'layers-heatmap.ts',
+    // #1977: convertIconOffset (icon-offset constant emit + non-constant
+    // warn) split out of layers-symbol.ts into this helpers module to keep
+    // that god-file under its shrink-only LOC ceiling — same relocation
+    // pattern as the Tier-A / C5 split this file's header comment already
+    // accounts for.
+    'layers-helpers.ts',
     'paint.ts',
     'paint-fill.ts',
     'paint-line.ts',
@@ -259,6 +265,12 @@ describe('mapbox spec-coverage drift detector', () => {
     const allowlist = new Set<string>([
       // Top-level structural keys that don't appear as `case` strings:
       'name',
+      // Same shape as `name`: read as the typed property `style.metadata` and
+      // preserved as a comment, so the string-literal extractor can't see it.
+      // What the converter actually does with it is pinned by
+      // style-metadata-preserved.test.ts, which also binds this row to the
+      // layer-level `metadata` row.
+      'metadata',
       'sources',
       'layers',
       // MapLibre v3 alias for raster-resampling — read via the
@@ -290,7 +302,7 @@ describe('mapbox spec-coverage drift detector', () => {
       'pi / e / ln2',
       'upcase / downcase',
       'to-number / number',
-      'to-string / to-boolean / to-color',
+      'to-string / string / to-boolean / boolean / to-color',
       'rgb / rgba',
       'let / var',
       'interpolate (linear)',

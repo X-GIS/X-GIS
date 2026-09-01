@@ -4,6 +4,7 @@
 // / surfaceIgnoredPaint) live in paint-helpers.
 import type { MapboxLayer } from './types'
 import { colorToXgis } from './colors'
+import { resolveColorToRgba } from '../tokens/colors'
 import { exprToXgis } from './expressions'
 import { maybeBracket } from './utils'
 import {
@@ -15,6 +16,7 @@ import {
   vec2AxisZoomInterp,
   surfaceIgnoredPaint,
 } from './paint-helpers'
+import { isZoomInterpCandidate, unwrapStopLiteral } from './zoom-function-fold'
 
 export function emitLinePaint(
   out: string[],
@@ -48,15 +50,10 @@ export function emitLinePaint(
       )
     }
   }
-  // line-gradient — value-aware: when present, surface the specific
-  // gap reason (needs line-progress accessor) instead of the
-  // generic ignored-properties warn. Removed from surfaceIgnoredPaint
-  // candidates so the specific message isn't duplicated.
-  if (p['line-gradient'] !== undefined && p['line-gradient'] !== null) {
-    warnings.push(
-      `Layer "${layer.id}" — line-gradient set but requires the line-progress accessor + per-fragment arc-length varying through the line renderer; not implemented (Plan §4 deferred). Layer falls back to solid line-color.`,
-    )
-  }
+  // line-gradient (#2117) — the interpolate-over-["line-progress"] form lowers to a
+  // ramp binding; every other form warns precisely (see addLineGradient). Stays out of
+  // surfaceIgnoredPaint's candidate list so the specific message isn't duplicated.
+  addLineGradient(out, layer, p['line-gradient'], warnings)
   addLineTranslate(out, p['line-translate'], warnings)
   // line-translate-anchor: viewport (default) = screen-space (today's
   // behaviour). map → world-space offset rotating with map bearing.
@@ -232,9 +229,11 @@ function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
   // WS-1 — per-frame zoom-interp via per-axis scalar PropertyShape
   // (mirrors fill-translate). Emit stroke-translate-{x,y}-[interpolate…]
   // bracket bindings → strokeTranslate{X,Y}Shape → per-frame resolve.
-  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
+  if (isZoomInterpCandidate(v)) {
     const ix = vec2AxisZoomInterp(v, warnings, 0)
-    const iy = vec2AxisZoomInterp(v, warnings, 1)
+    // Skip the y axis once x has failed — mirror of addFillTranslate: one
+    // authored value must not produce two copies of the lift's diagnostic.
+    const iy = ix === null ? null : vec2AxisZoomInterp(v, warnings, 1)
     if (ix !== null && iy !== null) {
       out.push(`stroke-translate-x-[${ix}]`)
       out.push(`stroke-translate-y-[${iy}]`)
@@ -269,6 +268,33 @@ function addLineBlur(out: string[], v: unknown, warnings: string[]): void {
   warnings.push(
     `paint.line-blur: non-constant form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
   )
+}
+
+/** Format one dasharray STOP VALUE (an array of non-negative dash
+ *  lengths) as an xgis array literal. Applies the SAME normalization the
+ *  constant-array path below uses: per-element `["literal", n]` unwrap, a
+ *  non-negative clamp, and the SVG/MapLibre odd-length repeat rule
+ *  (`[a] → [a, a]`) — a 1-element stop value is otherwise inexpressible
+ *  downstream (extractInterpolateZoomArrayStops in lower-helpers.ts
+ *  requires >= 2 entries per stop), and Carto Dark Matter authors exactly
+ *  that (`boundary_county`). Longer odd lengths stay as authored, mirroring
+ *  the constant path. Shared by the interpolate-form stop formatter and the
+ *  zoom-step lift (#1994) so both zoom-driven dasharray sources normalize
+ *  identically. Returns null when the value isn't a fully-numeric array —
+ *  the caller then drops the WHOLE binding, not just this stop. */
+function formatDashArrayValue(val: unknown): string | null {
+  let inner: unknown = val
+  while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
+  if (
+    Array.isArray(inner) &&
+    inner.length >= 1 &&
+    inner.every((n) => typeof n === 'number' && Number.isFinite(n))
+  ) {
+    const nums = (inner as number[]).map((n) => Math.max(0, n))
+    const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
+    return '[' + dash.join(', ') + ']'
+  }
+  return null
 }
 
 function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
@@ -321,8 +347,16 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
           `paint.line-dasharray: dropped ${unwrapped.length - nums.length} non-numeric entr${unwrapped.length - nums.length === 1 ? 'y' : 'ies'}; emitted dash pattern differs from authored value.`,
         )
       }
-      if (nums.length >= 2) {
-        out.push('stroke-dasharray-' + nums.join('-'))
+      // SVG / MapLibre dash rule: an odd-length dash array repeats, i.e.
+      // it is equivalent to itself concatenated with itself, so [a] ≡
+      // [a, a]. The same rule is applied to interp STOP values below;
+      // both paths must agree, or a fold of {"stops": [[6, [1]]]} to its
+      // constant [1] would turn a convertible value into a dropped one.
+      // Longer odd lengths stay as authored (a 3-element dash is
+      // expressible as-is).
+      const dash = nums.length === 1 ? [nums[0]!, nums[0]!] : nums
+      if (dash.length >= 2) {
+        out.push('stroke-dasharray-' + dash.join('-'))
         return
       }
     }
@@ -333,22 +367,43 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   // line-dasharray is interpolated:false). Each stop value is a numeric
   // array; format it back to an xgis array literal so lower.ts'
   // extractInterpolateZoomArrayStops picks it up.
-  if (Array.isArray(v) && v.length >= 4 && v[0] === 'interpolate') {
-    const interp = interpolateZoomCall(v, warnings, (val) => {
-      let inner: unknown = val
-      while (Array.isArray(inner) && inner.length === 2 && inner[0] === 'literal') inner = inner[1]
-      if (
-        Array.isArray(inner) &&
-        inner.length >= 2 &&
-        inner.every((n) => typeof n === 'number' && Number.isFinite(n))
-      ) {
-        return '[' + (inner as number[]).map((n) => Math.max(0, n)).join(', ') + ']'
-      }
-      return null
-    })
+  if (isZoomInterpCandidate(v)) {
+    const interp = interpolateZoomCall(v, warnings, formatDashArrayValue)
     if (interp !== null) {
       out.push(`stroke-dasharray-[${interp}]`)
       return
+    }
+  }
+  // WS-2 (#1994) — zoom-step dasharray: `["step", ["zoom"], base, z1, v1, …]`
+  // is Mapbox's right-continuous step function over zoom (v_i applies for
+  // zoom >= z_i). resolveArrayShape (map/src/render/paint-shape-resolve.ts
+  // :230-236) already STEPS the interpolate-form binding above to the LAST
+  // stop whose zoom <= cameraZoom — Mapbox line-dasharray is
+  // interpolated:false, so the runtime treats BOTH source expressions
+  // identically once lowered. Mapping step's own breakpoints onto that SAME
+  // `interpolate(zoom, …)` binding is therefore an EXACT translation, not an
+  // approximation: the base value sits at a sentinel zoom of 0 (camera zoom
+  // is never negative) so it applies for every zoom below z1, exactly like
+  // Mapbox's step base does.
+  if (Array.isArray(v) && v.length >= 5 && v.length % 2 === 1 && v[0] === 'step') {
+    const input = unwrapStopLiteral(v[1])
+    if (Array.isArray(input) && input[0] === 'zoom') {
+      const base = formatDashArrayValue(v[2])
+      let ok = base !== null
+      const parts: string[] = ok ? [`0, ${base}`] : []
+      for (let i = 3; ok && i + 1 < v.length; i += 2) {
+        const z = unwrapStopLiteral(v[i])
+        const val = formatDashArrayValue(v[i + 1])
+        if (typeof z !== 'number' || !Number.isFinite(z) || val === null) {
+          ok = false
+          break
+        }
+        parts.push(`${z}, ${val}`)
+      }
+      if (ok) {
+        out.push(`stroke-dasharray-[interpolate(zoom, ${parts.join(', ')})]`)
+        return
+      }
     }
   }
   // Remaining non-constant shapes (data-driven, malformed) drop with a
@@ -358,17 +413,151 @@ function addStrokeDash(out: string[], v: unknown, warnings: string[]): void {
   //
   // Specific shape detection so the warning explains WHICH gap fires:
   //   * ["interpolate", ...] → zoom-interp gap (PropertyShape<array>)
-  //   * ["case", ...] / ["match", ...] / ["get", ...] → data-driven
+  //   * ["step", ["zoom"], ...] that reached here → the lift above
+  //     declined it for a MALFORMED reason (a non-numeric stop key or a
+  //     non-array stop value) — never data-driven; step-over-zoom IS the
+  //     per-frame shape the runtime speaks (#1994).
+  //   * ["case", ...] / ["match", ...] / ["get", ...] / step over a
+  //     per-feature input → data-driven
   //   * anything else → generic non-constant
   let shape = 'non-constant'
   if (Array.isArray(v) && v.length > 0) {
     if (v[0] === 'interpolate' || v[0] === 'interpolate-lab' || v[0] === 'interpolate-hcl') {
       shape = 'zoom-interp (needs PropertyShape<array> variant)'
-    } else if (v[0] === 'case' || v[0] === 'match' || v[0] === 'get' || v[0] === 'step') {
+    } else if (v[0] === 'step') {
+      const input = unwrapStopLiteral(v[1])
+      shape =
+        Array.isArray(input) && input[0] === 'zoom'
+          ? 'zoom-step (malformed stop values)'
+          : 'data-driven (needs per-feature dash plumbing)'
+    } else if (v[0] === 'case' || v[0] === 'match' || v[0] === 'get') {
       shape = 'data-driven (needs per-feature dash plumbing)'
     }
   }
   warnings.push(
     `paint.line-dasharray: ${shape} form not yet supported — value dropped: ${JSON.stringify(v).slice(0, 80)}`,
   )
+}
+
+// ── line-gradient (#2117) ────────────────────────────────────────────
+//
+// `["interpolate", ["linear"], ["line-progress"], p0, c0, p1, c1, …]` lowers to the
+// xgis bracket binding `stroke-gradient-[interpolate(line_progress, p0, #rrggbbaa, …)]`
+// — structurally the same lowering `heatmap-color` already uses for its
+// `interpolate(heatmap_density, …)` ramp (layers-heatmap.ts heatmapRampToXgis), so the
+// IR/runtime side rides the ramp-stop carrier that path established rather than a new one.
+//
+// `line-progress` itself needs no source opt-in here: the tiler stamps a per-chain
+// cumulative arc on every line vertex unconditionally (vector-tiler.ts augmentChainWithArc
+// → vertex[5]) and the segment builder derives the polyline total from it
+// (line-segment-build.ts arcTotal → LineSegment.line_length), because the DASH phase
+// already needs both. line-progress = arc_pos / line_length reuses that single authority;
+// Mapbox's `lineMetrics: true` opt-in has no X-GIS counterpart to honour.
+
+/** Ramp stops the LineLayer uniform carries (`gradient_color: array<vec4f, 8>`).
+ *  Beyond this the ramp warns + drops rather than silently resampling. */
+const LINE_GRADIENT_MAX_STOPS = 8
+
+/** Emit `stroke-gradient-[…]` for the supported line-gradient form; warn precisely
+ *  (property + reason + alternative, ADR-0012 §1) for every form deferred to a later
+ *  increment. Never silently drops. */
+function addLineGradient(out: string[], layer: MapboxLayer, v: unknown, warnings: string[]): void {
+  if (isOmitted(v)) return
+  const fail = (why: string, alternative: string): void => {
+    warnings.push(`Layer "${layer.id}" — line-gradient: ${why}. ${alternative}`)
+  }
+  // Vector-tile sources are DEFERRED. `source-layer` is required for a vector source and
+  // absent on a GeoJSON one (validateLayerSourceLayer enforces exactly that), so it is the
+  // layer-local witness of the source kind — no style-wide source table has to be threaded
+  // through convertLayer → paintToUtilities for this one property.
+  const sourceLayer = layer['source-layer']
+  if (typeof sourceLayer === 'string' && sourceLayer.length > 0) {
+    return fail(
+      'the layer reads a vector-tile source (it declares source-layer), where the tiles clip each line and no whole-feature arc length survives, so ["line-progress"] cannot be normalised over the original feature',
+      'Mapbox/MapLibre restrict line-gradient to GeoJSON sources for the same reason — serve the geometry as a GeoJSON source, or author a constant line-color.',
+    )
+  }
+  if (!Array.isArray(v) || typeof v[0] !== 'string') {
+    return fail(
+      `value is not an expression (${JSON.stringify(v).slice(0, 60)})`,
+      'Author it as ["interpolate", ["linear"], ["line-progress"], 0, "#rrggbb", 1, "#rrggbb"].',
+    )
+  }
+  if (v[0] !== 'interpolate') {
+    return fail(
+      `["${v[0].slice(0, 30)}", …] is not supported yet — only ["interpolate", ["linear"], ["line-progress"], …] is`,
+      'Rewrite the ramp as an interpolate over ["line-progress"] (a step ramp can be spelled as interpolate stops 1/1024 apart), or author a constant line-color.',
+    )
+  }
+  // ["interpolate", curve, input, p0, c0, …]
+  let curve: unknown = v[1]
+  while (Array.isArray(curve) && curve.length === 2 && curve[0] === 'literal') curve = curve[1]
+  if (!Array.isArray(curve) || typeof curve[0] !== 'string') {
+    return fail(
+      'the interpolation curve is malformed',
+      'Use ["linear"] — the only curve wired for line-gradient today.',
+    )
+  }
+  if (curve[0] !== 'linear') {
+    return fail(
+      `the ["${String(curve[0]).slice(0, 30)}"] interpolation curve is not wired yet — only ["linear"] is`,
+      'Pre-densify the eased ramp into linear stops, or author a constant line-color.',
+    )
+  }
+  const input = v[2]
+  if (!Array.isArray(input) || input.length !== 1 || input[0] !== 'line-progress') {
+    return fail(
+      `the interpolate input is ${JSON.stringify(input).slice(0, 40)}, not ["line-progress"]`,
+      'line-gradient only accepts ["line-progress"]; a per-feature (data-driven) gradient is not wired — use line-color for a per-feature colour.',
+    )
+  }
+  if (v.length < 7 || v.length % 2 !== 1) {
+    return fail(
+      'the stop list is malformed (expected position/colour pairs, at least two)',
+      'Author it as ["interpolate", ["linear"], ["line-progress"], 0, "#rrggbb", 1, "#rrggbb"].',
+    )
+  }
+  const stops: { offset: number; hex: string }[] = []
+  for (let i = 3; i + 1 < v.length; i += 2) {
+    const o = v[i]
+    if (typeof o !== 'number' || !Number.isFinite(o) || o < 0 || o > 1) {
+      return fail(
+        `stop position ${JSON.stringify(o).slice(0, 30)} is not a number in [0, 1]`,
+        'line-progress stops are fractions of the line length — use 0…1.',
+      )
+    }
+    if (stops.length > 0 && o < stops[stops.length - 1]!.offset) {
+      return fail(
+        `stop positions must ascend (${stops[stops.length - 1]!.offset} then ${o})`,
+        'Sort the stops by position.',
+      )
+    }
+    const hex = colorToXgis(v[i + 1], warnings)
+    if (hex === null) {
+      return fail(
+        `stop at ${o} is not a constant colour (${JSON.stringify(v[i + 1]).slice(0, 40)})`,
+        'Data-driven (per-feature) gradient stops are not wired — use constant colours.',
+      )
+    }
+    stops.push({ offset: o, hex: hex8(hex) })
+  }
+  if (stops.length > LINE_GRADIENT_MAX_STOPS) {
+    return fail(
+      `the ramp has ${stops.length} stops; the line layer uniform carries ${LINE_GRADIENT_MAX_STOPS}`,
+      `Reduce the ramp to ${LINE_GRADIENT_MAX_STOPS} stops or fewer — resampling it here would move colours the author placed exactly.`,
+    )
+  }
+  const parts = stops.map((s) => `${Math.round(s.offset * 1e6) / 1e6}, ${s.hex}`)
+  out.push(`stroke-gradient-[interpolate(line_progress, ${parts.join(', ')})]`)
+}
+
+/** Normalise any `colorToXgis` hex shape (#rgb / #rgba / #rrggbb / #rrggbbaa) to the
+ *  8-digit form the ramp-stop extractor and `hexToRgba` both read losslessly. */
+function hex8(hex: string): string {
+  const [r, g, b, a] = resolveColorToRgba(hex)
+  const ch = (x: number): string =>
+    Math.round(Math.max(0, Math.min(1, x)) * 255)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${ch(r)}${ch(g)}${ch(b)}${ch(a)}`
 }

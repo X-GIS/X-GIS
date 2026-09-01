@@ -108,8 +108,9 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-optional',
     status: 'unsupported',
-    impact: 'low',
-    note: 'Icons not implemented — moot.',
+    impact: 'medium',
+    note: "The note this replaces read 'Icons not implemented — moot.' and both halves were false. Icons ARE implemented, and the text+icon PAIR CONTRACT is wired: a collision-rejected label adds its pairKey to TextStage's droppedPairKeys, IconStage.setDroppedPairKeys reads that ledger, and the paired icon is skipped on its next dispatch — which IS MapLibre's text+icon-as-one-symbol rule, i.e. the spec DEFAULT (`false`) is X-GIS' actual behaviour, not a gap. The real gap is `true`: letting the icon survive alone when only the label cannot fit needs SPLIT text/icon collision arbitration, which the placement queue does not have — text placement is deliberately the single authority (see icon-stage.ts's own note that icons only READ records). Impact raised low -> medium, MEASURED rather than inherited: all three shipped OpenFreeMap styles (bright / positron / liberty) author `text-optional: true` on their `airport` layer, each of which also carries an icon-image — so per the legend this is 'visible in some styles', not a rare knob. The converter warns on an explicit `true`.",
+    source: 'text-stage.ts droppedPairKeys -> icon-stage.ts setDroppedPairKeys',
   },
   {
     name: 'text-rotation-alignment',
@@ -132,9 +133,10 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'text-writing-mode',
-    status: 'unsupported',
-    impact: 'medium',
-    note: 'CJK vertical text would need a per-glyph rotation pipeline.',
+    status: 'partial',
+    impact: 'low',
+    note: "CJK vertical point labels. Threaded end-to-end: layout `text-writing-mode` → `label-writing-mode-vertical` → LabelDef.writingMode → TextStage point loop, which lays the glyphs out as a COLUMN (`glyphOffsets` in +y at the em pitch, never at `metrics.advance`) with per-glyph `glyphRotations` of 0 for a verticalized glyph and +π/2 for one that stays horizontal — `glyphVerticalizes` is that truth table, transcribed from MapLibre's `symbol/shaping.ts` (the original is quoted in docs/plans/2026-08-24-cjk-vertical-text.md §1.2a), so Latin and digits stack UPRIGHT one per cell exactly as MapLibre draws them. Gated on the UAX#50 upright property, not on a CJK-dominance ratio: the property is a hint, and a string whose script does not support the orientation stays horizontal. PARTIAL for two reasons. (1) The array is read as a SET, not as the ordered PRIORITY list the spec documents: `vertical` present ⇒ vertical. Honouring the order needs MapLibre's per-frame horizontal/vertical arbitration (a second collision box per label), which is a separate item. (2) Vertical presentation forms for punctuation (MapLibre's punctuation verticalization, e.g. 、。「」 → the U+FE10 block) are not substituted yet, and the UAX#50 predicate is a block-range heuristic rather than the generated table. (3) Two crossings are deferred rather than half-done: an inline-image text-field keeps the HORIZONTAL pen (a column would drop its sprites), and multi-COLUMN layout is not implemented — MapLibre wraps a long vertical label into extra columns spaced by lineHeight on the cross axis, so here a hard newline consumes no cell and the label stays one column. A variable-anchor label DOES get a column per candidate; it merely stays out of the layout cache, as every variable-anchor label already does.",
+    source: 'vertical-writing.ts:110',
   },
   {
     name: 'text-max-angle',
@@ -225,12 +227,12 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
     name: 'icon-keep-upright',
     status: 'supported',
     impact: 'low',
-    note: "Flip line-placed icons so they face up (icon twin of text-keep-upright). Constant form lowered (#777 I-B): converter emits label-icon-keep-upright / label-icon-keep-upright-false → LabelDef.iconKeepUpright → label-pass dispatchIcon folds a downward segment tangent into the upright half-plane (resolveIconRotateRad) under symbol-placement=line + icon-rotation-alignment=map. DEFAULT: Mapbox's spec default is `true`, but X-GIS activates the fold ONLY on an EXPLICITLY authored value — an ABSENT property keeps today's always-follow-tangent render byte-identical (icon-allow-overlap absent-default precedent); flipping the absent-default requires its own §5 before/after sweep. Non-constant (zoom-interp / data-driven) forms warn and skip.",
+    note: "Flip line-placed icons so they face up (icon twin of text-keep-upright). Constant form lowered (#777 I-B): converter emits label-icon-keep-upright / label-icon-keep-upright-false → LabelDef.iconKeepUpright → label-pass dispatchIcon folds a downward segment tangent into the upright half-plane (resolveIconRotateRad) under symbol-placement=line + icon-rotation-alignment=map. DEFAULT: Mapbox's spec default is `false` and X-GIS's ABSENT behaviour already matches it — always-follow-tangent, no fold. The fold activates ONLY on an EXPLICITLY authored value. Non-constant (zoom-interp / data-driven) forms warn and skip.",
   },
   {
     name: 'icon-pitch-alignment',
     status: 'unsupported',
     impact: 'low',
-    note: 'viewport (default) / map / auto. X-GIS uses viewport-aligned icons unconditionally; map mode would project the icon quad onto the ground plane.',
+    note: 'map / viewport / auto — the spec default is `auto`, NOT viewport. X-GIS uses viewport-aligned icons unconditionally; map mode would project the icon quad onto the ground plane.',
   },
 ]

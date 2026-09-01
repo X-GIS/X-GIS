@@ -29,14 +29,18 @@
 // carve-out in #733), so a module-sourced constructor would have no consumer.
 //
 // NOT expressible here (fail loud at construction, keep the bespoke packer):
-// mat3 (per-column std140 padding), array fields, nested struct fields.
+// mat3 (per-column std140 padding), nested struct fields, and every array whose
+// element is SMALLER than 16 B — std140 pads those to a 16-byte stride, so an
+// `array<f32, N>` occupies 16N bytes, not 4N. `array<vec4<T>, N>` is admitted
+// (#2137): its element is already 16 B, so stride == element size and the lanes
+// are contiguous, which the flat vector path packs correctly as-is.
 //
 // Content-blind (Gate-6): knows bytes and reflected layouts, zero geo/map.
 // Backend-neutral: pure std140 CPU bytes — the same ArrayBuffer feeds the
 // WebGPU uniform path and the WebGL2 UBO path verbatim.
 
 import { wgslLayout } from '@xgis/shader-dsl'
-import type { KeyOf, ShaderType, StructLayout, UniformStruct } from '@xgis/shader-dsl'
+import type { KeyOf, ShaderType, StructLayout, TypeArray, UniformStruct } from '@xgis/shader-dsl'
 import { devAssert } from '@xgis/shared'
 
 type Kind = 'f32' | 'u32' | 'i32'
@@ -69,9 +73,26 @@ export type UniformSetterFor<K extends string> = K extends `mat${number}x${numbe
           ? (x: number) => void
           : (...lanes: number[]) => void // KeyOf widened to string (untyped Record<string, ShaderType> blocks)
 
+/** A field this block can pack: any flat {@link ShaderType}, plus the ONE array
+ *  shape whose std140 stride equals its element size (`array<vec4<T>, N>`) — see
+ *  the #2137 note on the constructor guard. Other arrays, nested structs and mat3
+ *  still fail loud there and keep their bespoke packers. */
+export type UniformBlockField = ShaderType | TypeArray<ShaderType>
+
+/** JS value for one field: a contiguous vec4 array packs as flat lanes (4N of
+ *  them), everything else keeps its exact-arity tuple / scalar shape. */
+type UniformValueOf<T> =
+  T extends TypeArray<ShaderType> ? ArrayLike<number> : UniformValueFor<KeyOf<T & ShaderType>>
+
+/** Setter for one field — a vec4 array takes its lanes variadically. */
+type UniformSetterOf<T> =
+  T extends TypeArray<ShaderType>
+    ? (...lanes: number[]) => void
+    : UniformSetterFor<KeyOf<T & ShaderType>>
+
 /** The full-struct value object for `write()` — one entry per reflected field. */
-export type UniformValues<F extends Record<string, ShaderType>> = {
-  readonly [K in keyof F & string]: UniformValueFor<KeyOf<F[K]>>
+export type UniformValues<F extends Record<string, UniformBlockField>> = {
+  readonly [K in keyof F & string]: UniformValueOf<F[K]>
 }
 
 interface FieldWriter {
@@ -84,13 +105,15 @@ interface FieldWriter {
 const kindOf = (typeKey: string): Kind =>
   typeKey.includes('u32') ? 'u32' : typeKey.includes('i32') ? 'i32' : 'f32'
 
-export class UniformBlock<F extends Record<string, ShaderType> = Record<string, ShaderType>> {
+export class UniformBlock<
+  F extends Record<string, UniformBlockField> = Record<string, UniformBlockField>,
+> {
   /** The packed std140 bytes — hand to UniformRing.stageSlot / rhi.writeBuffer verbatim. */
   readonly buffer: ArrayBuffer
   readonly byteLength: number
   /** Per-field fixed-arity setters (zero-alloc hot-loop surface). `set.viewprot`
    *  is a tsc error; so is calling a vec4 setter with 3 lanes or a mat4 with lanes. */
-  readonly set: { readonly [K in keyof F & string]: UniformSetterFor<KeyOf<F[K]>> }
+  readonly set: { readonly [K in keyof F & string]: UniformSetterOf<F[K]> }
 
   private readonly f32: Float32Array
   private readonly writers: readonly FieldWriter[]
@@ -111,9 +134,20 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
       // Fields the flat fast path cannot pack correctly — per-column mat3 padding,
       // array strides, nested structs — fail LOUD at construction (prod included):
       // a silent mis-pack here is exactly the corruption class this type retires.
+      //
+      // #2137 — `array<vec4<T>, N>` is the ONE array shape with no stride hazard,
+      // so it is admitted. std140 pads every array element up to a 16-byte stride
+      // (`stride = roundUp(roundUp(el.size, el.align), 16)`, reflect.ts:148-153),
+      // which is why an `array<f32, N>` occupies 16N bytes rather than 4N and the
+      // flat path would mis-pack it. A vec4 element is ALREADY 16 B, so stride ==
+      // element size and the elements are contiguous: the `lanes = fl.size / 4`
+      // vector path below writes them correctly with no change. Narrowing the
+      // guard to the hazard it actually names beats deleting it — every other
+      // array, `struct:` and `mat3` still fails loud and keeps its bespoke packer.
+      const contiguousVec4Array = /^array<vec4<[^<>]+>,\d+>$/.test(fl.type)
       if (
         fl.type.startsWith('struct:') ||
-        fl.type.startsWith('array') ||
+        (fl.type.startsWith('array') && !contiguousVec4Array) ||
         fl.type.startsWith('mat3')
       ) {
         throw new Error(
@@ -185,7 +219,7 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
   /** Layout from the uniformStruct HANDLE alone via wgslLayout(U.struct, 'std140')
    *  — module-free, #612-free by construction. Throws (from wgslLayout's
    *  structByName) if the struct nests other structs — those keep bespoke packers. */
-  static of<F extends Record<string, ShaderType>>(u: UniformStruct<F>): UniformBlock<F> {
+  static of<F extends Record<string, UniformBlockField>>(u: UniformStruct<F>): UniformBlock<F> {
     return new UniformBlock<F>(wgslLayout(u.struct, 'std140'))
   }
 
@@ -221,7 +255,7 @@ export class UniformBlock<F extends Record<string, ShaderType> = Record<string, 
 }
 
 /** Factory sugar for the common flat-struct path: `uniformBlock(U)`. */
-export function uniformBlock<F extends Record<string, ShaderType>>(
+export function uniformBlock<F extends Record<string, UniformBlockField>>(
   u: UniformStruct<F>,
 ): UniformBlock<F> {
   return UniformBlock.of(u)
@@ -233,4 +267,6 @@ export function uniformBlock<F extends Record<string, ShaderType>>(
  *  a struct with `arrayOf(…)` handle-array fields resolves to `never`, matching
  *  the constructor's fail-loud array rejection (those keep bespoke packers). */
 export type UniformBlockOf<U> =
-  U extends UniformStruct<infer F extends Record<string, ShaderType>> ? UniformBlock<F> : never
+  U extends UniformStruct<infer F extends Record<string, UniformBlockField>>
+    ? UniformBlock<F>
+    : never

@@ -14,6 +14,7 @@ import {
   addTranslateAnchor,
   surfaceIgnoredPaint,
 } from './paint-helpers'
+import { boolZoomStepCall } from './bool-zoom-step'
 
 export function emitFillPaint(
   out: string[],
@@ -23,7 +24,17 @@ export function emitFillPaint(
 ): void {
   addFill(out, p['fill-color'], warnings)
   addOpacity(out, p['fill-opacity'], warnings)
-  addFillOutline(out, p['fill-outline-color'], warnings)
+  // #2166 — fill-antialias gates the fill-OUTLINE draw. MapLibre creates its
+  // context with `antialias: false` (map.ts:457), so its only fill-edge AA is
+  // the 1 px feathered outline pass, and draw_fill.ts:44 draws that pass only
+  // when the property is true. The spec says the same:
+  // `fill-outline-color.requires = [{"!":"fill-pattern"},{"fill-antialias":true}]`.
+  // So the value has to be read BEFORE the stroke emit, not 46 lines after it.
+  // Only the CONSTANT `false` is decidable here — the zoom-step form needs a
+  // zoom-gated stroke, which is not a convert-time decision.
+  const aaRaw = p['fill-antialias']
+  const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
+  if (aa !== false) addFillOutline(out, p['fill-outline-color'], warnings)
   // Bitmap-fill rendering (sprite atlas) is Batch 2 roadmap work.
   // Surface the gap explicitly when a layer's ONLY visual cue is a
   // pattern: without this, the layer collapses to fill: none and
@@ -57,32 +68,35 @@ export function emitFillPaint(
       )
     }
   }
-  addFillTranslate(out, p['fill-translate'], warnings)
+  addFillTranslate(out, p['fill-translate'], warnings, 'fill-translate')
   // fill-translate-anchor: viewport (default) is screen-space (today's
   // behaviour, byte-identical). map → world-space offset that rotates
   // with the map bearing; emitted as fill-translate-anchor-map.
   addTranslateAnchor(out, 'fill', p['fill-translate-anchor'], p['fill-translate'], warnings)
-  // fill-antialias: default `true` matches X-GIS runtime (the fill
-  // fragment multiplies in the sphere-rim smoothstep AA fade). Only
-  // the explicit `false` opt-out changes anything — emit a single
-  // `fill-antialias-false` flag the runtime threads to the fragment
-  // shader to drop the rim smoothstep (hard edges, pixel-art intent).
-  // Geometric edge AA from pipeline MSAA is not per-layer disable-able
-  // and is left untouched; the unauthored / true path is byte-identical.
-  const aaRaw = p['fill-antialias']
-  const aa = Array.isArray(aaRaw) && aaRaw.length === 2 && aaRaw[0] === 'literal' ? aaRaw[1] : aaRaw
+  // fill-antialias, second half: besides gating the outline emit above,
+  // the explicit `false` opt-out emits a single `fill-antialias-false`
+  // flag the runtime threads to the fragment shader to drop the rim
+  // smoothstep (hard edges, pixel-art intent). The unauthored / true
+  // path is byte-identical. `aa` is read once, above the outline emit.
   if (aa === false) {
     out.push('fill-antialias-false')
   } else if (typeof aa === 'object' && aa !== null) {
-    // aa is a non-literal expression (e.g. `["step", ["zoom"], false,
-    // 9, true]` on OFM-bright landcover-wood). Only constant true/false
-    // is honoured — a zoom-expression form was SILENTLY dropped with no
-    // warning (the `=== false` test is false for an array, the unwrap
-    // only peels `["literal", …]`). Surface the loss instead of
-    // dropping it silently; full zoom-expr antialias is out of scope.
-    warnings.push(
-      `Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false) — dropped.`,
-    )
+    // #1995 — the ZOOM form. A boolean is `interpolated: false` in the spec,
+    // so a zoom-varying one is spelled `["step", ["zoom"], …]` (OFM Bright
+    // landcover-wood). The flag already rides a PER-FRAME uniform lane, so
+    // that curve lifts to a 0/1 `step(zoom, …)` binding the runtime resolves
+    // each frame into the same lane — no new GPU surface, exact fidelity.
+    const aaStep = boolZoomStepCall(aa)
+    if (aaStep !== null) {
+      out.push(`fill-antialias-[${aaStep}]`)
+    } else {
+      // Everything else still drops with the loss surfaced: a per-feature
+      // (data-driven) input has no per-feature lane, and a non-step zoom
+      // form has no boolean curve to lift.
+      warnings.push(
+        `Layer "${layer.id}" — fill-antialias zoom/data expression not supported (only constant true/false and a boolean zoom step) — dropped.`,
+      )
+    }
   }
   surfaceIgnoredPaint(layer.id, p, warnings, ['fill-sort-key'])
 }

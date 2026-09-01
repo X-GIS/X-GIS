@@ -45,6 +45,7 @@ export interface TilePointShow {
   circleTranslateY?: number
   circleBlur?: number
   circlePitchScaleMap?: boolean
+  circlePitchAlignmentMap?: boolean
   circleTranslateXShape?: import('@xgis/compiler').PropertyShape<number> | null
   circleTranslateYShape?: import('@xgis/compiler').PropertyShape<number> | null
   circleStrokeOpacityShape?: import('@xgis/compiler').PropertyShape<number> | null

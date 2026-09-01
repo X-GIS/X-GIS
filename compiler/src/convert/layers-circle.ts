@@ -35,11 +35,17 @@ import {
  *  zoom-interp emits `stroke-opacity-[…]` resolved per frame.
  *
  *  circle-pitch-scale → circle-pitch-scale-map flag (emitted only for
- *  'map'; 'viewport' is the byte-identical default). 'map' scales the
- *  circle radius with the map perspective (point VS divides by clip.w).
+ *  'map'). 'map' scales the circle radius with the map perspective (point
+ *  VS divides by clip.w).
+ *
+ *  circle-pitch-alignment → circle-pitch-alignment-map flag (#2118, emitted
+ *  only for 'map'; 'viewport' IS this knob's spec default and emits nothing).
+ *  'map' lays the disc in the ground plane — the point VS maps the quad's
+ *  local axes through the ground basis, so it foreshortens into an ellipse.
  *
  *  Not yet honoured (warnings emitted): circle-translate-anchor,
- *  circle-pitch-alignment, data-driven circle-stroke-opacity.
+ *  data-driven circle-stroke-opacity, and circle-pitch-alignment 'map'
+ *  paired with an EXPLICIT circle-pitch-scale 'viewport' (see below).
  */
 export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): string {
   const paint = safePropsBag((layer as { paint?: unknown }).paint)
@@ -353,28 +359,79 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   }
 
   // circle-pitch-scale → circle-pitch-scale-map flag (emitted ONLY for the
-  // 'map' mode; 'viewport' is the spec default and emits nothing so the
-  // render stays byte-identical). 'map' makes the circle radius scale with
-  // the map perspective (circles farther / under pitch shrink) — the point
-  // VS multiplies the screen radius by w_ref/clip.w. Mirror of the
-  // fill-translate-anchor=map flag convention.
-  {
-    let psv: unknown = paint['circle-pitch-scale']
-    while (Array.isArray(psv) && psv.length === 2 && psv[0] === 'literal') psv = psv[1]
-    if (psv === 'map') {
-      utils.push('circle-pitch-scale-map')
-    } else if (psv !== undefined && psv !== null && psv !== 'viewport') {
+  // 'map' mode). 'map' makes the circle radius scale with the map perspective
+  // (circles farther / under pitch shrink) — the point VS multiplies the screen
+  // radius by w_ref/clip.w. Mirror of the fill-translate-anchor=map convention.
+  //
+  // ═══ #2118 AUDIT — THIS KNOB'S DEFAULT IS INVERTED, DELIBERATELY LEFT ═══
+  // Mapbox/MapLibre v8 default `circle-pitch-scale` to **"map"**, not
+  // "viewport": `paint_circle['circle-pitch-scale'].default === 'map'` in
+  // @maplibre/maplibre-gl-style-spec's reference/v8.json (checked against the
+  // copy this repo already has in node_modules — not from memory). An ABSENT
+  // circle-pitch-scale therefore means "map", so an unauthored circle in a
+  // pitched MapLibre map shrinks with distance while X-GIS draws it at a
+  // constant screen radius. Resolving the default here is a one-line change
+  // (`psv !== 'viewport'` instead of `psv === 'map'`), and it is NOT made: it
+  // would alter the rendering of every existing circle layer at pitch > 0, which
+  // is a product decision with its own regression rung, not a side effect of
+  // adding circle-pitch-alignment. It is left recorded rather than silently
+  // carried. Note the sibling below defaults the OTHER way, and that asymmetry
+  // is real spec, not an oversight here.
+  let psv: unknown = paint['circle-pitch-scale']
+  while (Array.isArray(psv) && psv.length === 2 && psv[0] === 'literal') psv = psv[1]
+  if (psv === 'map') {
+    utils.push('circle-pitch-scale-map')
+  } else if (psv !== undefined && psv !== null && psv !== 'viewport') {
+    warnings.push(
+      `Circle layer "${layer.id}" — circle-pitch-scale "${String(psv).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`,
+    )
+  }
+
+  // circle-pitch-alignment → circle-pitch-alignment-map flag (#2118). Emitted
+  // ONLY for 'map'; 'viewport' IS this knob's spec default (the opposite of the
+  // sibling above) and emits nothing, so the untilted and default renderings stay
+  // byte-identical. 'map' lays the disc in the ground plane: the point VS maps the
+  // quad's local axes through the ground basis (the WGSL image of
+  // map/src/text/ground-basis.ts) so the circle foreshortens into an ellipse.
+  //
+  // WHY 'map' + an EXPLICIT 'viewport' SCALE IS REFUSED RATHER THAN APPROXIMATED.
+  // Once the disc lies in the ground plane the basis ALREADY carries the distance
+  // foreshortening, so alignment:map + scale:map is the un-compensated pairing and
+  // needs nothing extra — and it is also what an author who writes only
+  // circle-pitch-alignment:map asks for, since scale defaults to 'map'. Asking for
+  // scale:viewport on top means "lie in the ground plane but keep the on-screen
+  // size", which MapLibre buys with its perspective_ratio — clamp(0.5 + 0.5 ·
+  // distanceRatio, 0, 4), one uniform switched by u_pitch_with_map. That factor has
+  // a single authority landing as `groundPerspectiveScale` (#2012 D1 INC-5); it is
+  // not on main yet, and writing a second copy of it here is exactly the
+  // two-authorities drift ADR-0012 and ground-basis.ts both forbid. So the pair
+  // warns and degrades to today's billboard instead of approximating it.
+  let pav: unknown = paint['circle-pitch-alignment']
+  while (Array.isArray(pav) && pav.length === 2 && pav[0] === 'literal') pav = pav[1]
+  if (pav === 'map') {
+    if (psv === 'viewport') {
       warnings.push(
-        `Circle layer "${layer.id}" — circle-pitch-scale "${String(psv).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`,
+        `Circle layer "${layer.id}" — circle-pitch-alignment "map" with an explicit circle-pitch-scale "viewport" is not yet supported: that pair needs MapLibre's perspective_ratio compensation (clamp(0.5 + 0.5 * distanceRatio, 0, 4)), whose single authority (groundPerspectiveScale, #2012 D1 INC-5) is not on main, and a second copy of it here would be a duplicate ground-perspective authority. circle-pitch-alignment dropped — the circle stays viewport-aligned (unchanged rendering). Alternative: omit circle-pitch-scale (it defaults to "map", the supported pairing) or set it to "map" explicitly.`,
       )
+    } else {
+      utils.push('circle-pitch-alignment-map')
     }
+  } else if (pav !== undefined && pav !== null && pav !== 'viewport' && pav !== 'auto') {
+    // Kept from the pre-#2118 `ignored` sweep, which surfaced a typo'd value this
+    // way: dropping the property from that list must not drop its enum
+    // validation with it. 'auto' is tolerated silently exactly as before — it is
+    // not in the v8 enum for THIS property, but the converter has always resolved
+    // it to the default rather than complaining, and tightening that is a
+    // different change from adding the feature.
+    warnings.push(
+      `Circle layer "${layer.id}" — circle-pitch-alignment "${String(pav).slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport'. Treated as 'viewport'.`,
+    )
   }
 
   // Surface dropped properties so the user knows the gap.
   const ignored: string[] = []
   for (const k of [
     'circle-translate-anchor',
-    'circle-pitch-alignment',
     // circle-stroke-opacity: the constant form folds into stroke hex
     // alpha and the zoom-interp form emits a `stroke-opacity-[…]`
     // binding (both handled above). Only a non-interpolate data-driven
@@ -388,37 +445,29 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
       : []),
     'circle-sort-key',
   ]) {
-    // Treat null the same as undefined — see the symbol-ignored
-    // gate above for the rationale.
     const pv = paint[k]
-    if (pv === undefined || pv === null) continue
-    // Special-case circle-translate-anchor: when parent
-    // circle-translate is ABSENT, the anchor is a no-op (anchor only
-    // changes the translate's coordinate space). Skip the warning
-    // in that case — mirror of the surfaceIgnoredPaint ANCHOR_PARENT
-    // check for fill / line equivalents.
-    if (
-      k === 'circle-translate-anchor' &&
-      (paint['circle-translate'] === undefined || paint['circle-translate'] === null)
-    ) {
-      continue
-    }
-    // circle-translate-anchor='viewport' matches X-GIS behaviour
-    // (viewport-space translate); only 'map' is the real gap. Mirror
-    // of the SPEC_DEFAULT_NO_WARN suppression in surfaceIgnoredPaint.
+    // circle-translate-anchor is decided by the SPEC DEFAULT, not by
+    // presence (#2170). reference/v8.json gives it default='map', and
+    // the point renderer has no map arm — it always applies
+    // circle-translate in viewport/NDC space (there is no
+    // circle-translate-anchor-map utility, unlike fill / line /
+    // fill-extrusion). So an ABSENT anchor means the spec's world-space
+    // 'map' and is just as real a gap as an explicit one; only an
+    // explicit 'viewport' is honoured. Still a no-op without the parent
+    // circle-translate — the anchor only selects the offset's
+    // coordinate space.
     if (k === 'circle-translate-anchor') {
+      const parent = paint['circle-translate']
+      if (parent === undefined || parent === null) continue
       let av: unknown = pv
       while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
       if (av === 'viewport') continue
+      ignored.push(k)
+      continue
     }
-    // circle-pitch-alignment='viewport' (Mapbox spec default) matches
-    // X-GIS billboard-rendering default; 'map' (project disc onto
-    // ground plane) is the real gap.
-    if (k === 'circle-pitch-alignment') {
-      let av: unknown = pv
-      while (Array.isArray(av) && av.length === 2 && av[0] === 'literal') av = av[1]
-      if (av === 'viewport' || av === 'auto') continue
-    }
+    // Treat null the same as undefined — see the symbol-ignored
+    // gate above for the rationale.
+    if (pv === undefined || pv === null) continue
     ignored.push(k)
   }
   // Reuse the safePropsBag-guarded `layout` const from the top of

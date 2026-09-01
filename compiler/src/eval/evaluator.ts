@@ -3,7 +3,12 @@
 // Used for data-driven styling: size-[speed / 50 | clamp(4, 24)]
 
 import type * as AST from '../parser/ast'
-import { CAMERA_ZOOM_KEY, CAMERA_PITCH_KEY, INPUT_KEY_PREFIX } from './reserved-keys'
+import {
+  ACCUMULATED_KEY,
+  CAMERA_ZOOM_KEY,
+  CAMERA_PITCH_KEY,
+  INPUT_KEY_PREFIX,
+} from './reserved-keys'
 import { callBuiltin, toNumber, toBool, VEC_COMPONENT_INDEX } from './evaluator-helpers'
 import type { FeatureProps } from './evaluator-types'
 
@@ -36,6 +41,13 @@ export function evaluate(expr: AST.Expr, props: FeatureProps): unknown {
       // reserved-key injection contract as `zoom`; render-path sites
       // inject the live camera pitch, decode-time sites leave it null.
       if (expr.name === 'pitch') return props[CAMERA_PITCH_KEY] ?? null
+      // Special runtime identifier `accumulated` — Mapbox `["accumulated"]`, the
+      // running aggregate of one `clusterProperties` key (#2050). Same reserved-key
+      // contract again: the cluster-index merge step injects it, everywhere else it is
+      // absent and resolves to null. It deliberately SHADOWS a feature property of the
+      // same name, exactly as `zoom` / `pitch` do — that is what makes the reduce read
+      // the aggregate rather than whatever the incoming bag happens to carry.
+      if (expr.name === 'accumulated') return props[ACCUMULATED_KEY] ?? null
       return props[expr.name] ?? null
     case 'InputRef': {
       // A declared `input` (#1539) — mirrors zoom/pitch's reserved-key

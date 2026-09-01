@@ -22,7 +22,6 @@ import {
   tileKeyUnpack,
   decomposeFeatures,
   compileSingleTile,
-  makeEvalProps,
   type GeoJSONFeature,
 } from '@xgis/compiler'
 import { decodeMvtTile } from '../mvt-decoder'
@@ -34,7 +33,7 @@ import {
   type TileSourceMeta,
 } from '../tile-source'
 import { getSharedMvtPool, type MvtWorkerPool } from '../workers/mvt-worker-pool'
-import { evalFilterExpr } from '../eval/filter-eval'
+import { sliceFilterAccepts } from '../eval/filter-eval'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
 import {
@@ -52,6 +51,11 @@ import {
 // above. `PMTilesFetcher` and `PMTilesBackendOptions` stay part of the
 // public surface and are re-exported here.
 export type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
+// The spatial-extent overlap test is the SINGLE authority for "does this tile touch the
+// source's box" — the vector family reaches it through `hasTile` below, and the raster /
+// raster-dem selectors reach it through this barrel (#1984). Surfaced by name rather
+// than `export *`, which would publish the whole helper leaf.
+export { tileIntersectsBounds } from './pmtiles-backend-helpers'
 
 export class PMTilesBackend implements TileSource {
   readonly meta: TileSourceMeta
@@ -481,8 +485,16 @@ export class PMTilesBackend implements TileSource {
       const [z, x, y] = tileKeyUnpack(key)
       const { widthMerc, heightMerc } = tileSizeMerc(z, y)
       if (pool) {
-        pool
-          .compile(
+        // #2091 — `pool.compile()` calls `ensureWorkers()` BEFORE it returns its
+        // promise (mvt-worker-pool.ts:395), so a synchronous throw there (a
+        // `new Worker` blocked by CSP, a blob-URL restriction, a worker-limit
+        // hit) escapes before `.finally(releaseLoading)` is attached and strands
+        // the key in `loadingTiles` forever — `hasPendingLoads()` then pins the
+        // idle predicate and the tile is never re-requested. Same failure the
+        // virtual-catalog adapter carried; release and let the key retry.
+        let compiling: ReturnType<MvtWorkerPool['compile']>
+        try {
+          compiling = pool.compile(
             bytes.buffer.slice(
               bytes.byteOffset,
               bytes.byteOffset + bytes.byteLength,
@@ -500,6 +512,12 @@ export class PMTilesBackend implements TileSource {
             this.strokeWidthExprs,
             this.strokeColorExprs,
           )
+        } catch (err) {
+          sink.releaseLoading(key)
+          xlog.error('[pmtiles worker]', (err as Error)?.stack ?? err)
+          continue
+        }
+        compiling
           .then((slices) => {
             if (slices.length === 0) {
               sink.acceptResult(key, null)
@@ -630,6 +648,7 @@ export class PMTilesBackend implements TileSource {
             tile.outlineVertices,
             tile.outlineLineIndices,
             10,
+            tile.tileOriginMerc,
             widthMerc,
             heightMerc,
             heights.size > 0 ? heights : undefined,
@@ -650,6 +669,7 @@ export class PMTilesBackend implements TileSource {
             tile.lineVertices,
             tile.lineIndices,
             lineStride,
+            tile.tileOriginMerc,
             widthMerc,
             heightMerc,
             heights.size > 0 ? heights : undefined,
@@ -690,15 +710,7 @@ export class PMTilesBackend implements TileSource {
           const layerFeatures = byLayer.get(desc.sourceLayer)
           if (!layerFeatures || layerFeatures.length === 0) continue
           const subset = desc.filterAst
-            ? layerFeatures.filter((f) => {
-                const bag = makeEvalProps({
-                  props: f.properties ?? undefined,
-                  geometryType: f.geometry?.type,
-                  featureId: (f as { id?: string | number }).id,
-                  cameraZoom: z,
-                })
-                return evalFilterExpr(desc.filterAst, bag)
-              })
+            ? layerFeatures.filter((f) => sliceFilterAccepts(desc.filterAst, f, z))
             : layerFeatures
           emitSlice(desc.sliceKey, desc.sourceLayer, subset)
         }

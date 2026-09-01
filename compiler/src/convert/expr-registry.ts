@@ -37,9 +37,11 @@ import {
   typeofHandler,
   zoomHandler,
   pitchHandler,
+  accumulatedHandler,
   propertiesHandler,
   geometryTypeHandler,
   idHandler,
+  distanceFromCenterHandler,
   inHandler,
   isSupportedScriptHandler,
   withinHandler,
@@ -61,6 +63,9 @@ import {
   numberFormatHandler,
   rgbHandler,
   hslHandler,
+  splitHandler,
+  joinHandler,
+  toRgbaHandler,
 } from './expr-string'
 
 // `match` / `interpolate` already live in their own modules with a
@@ -112,6 +117,13 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   ['to-boolean', typeCoercionHandler],
   ['boolean', typeCoercionHandler],
   ['to-color', typeCoercionHandler],
+  // #2008 C-tier: `object` has the IDENTICAL overload shape as `string` /
+  // `number` / `boolean` above — `["object", value_1, …, value_n]`, first
+  // arg that converts wins (@maplibre/maplibre-gl-style-spec 24.8.5) — so
+  // it reuses the same fallback-chain handler, no new code.
+  ['object', typeCoercionHandler],
+  // #2008 C-tier: to-rgba — see expr-string.ts toRgbaHandler.
+  ['to-rgba', toRgbaHandler],
   // interpolate family
   ['interpolate', interpolateHandler],
   ['interpolate-lab', interpolateHandler],
@@ -154,6 +166,9 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   // string / value-shaping
   ['slice', sliceHandler],
   ['index-of', indexOfHandler],
+  // #2008 C-tier: string ops — expr-string.ts splitHandler/joinHandler.
+  ['split', splitHandler],
+  ['join', joinHandler],
   ['number-format', numberFormatHandler],
   ['rgb', rgbHandler],
   ['rgba', rgbHandler],
@@ -162,9 +177,16 @@ export const EXPR_HANDLERS: Map<string, ExprHandler> = new Map([
   // zero-arg feature accessors
   ['zoom', zoomHandler],
   ['pitch', pitchHandler],
+  // clusterProperties running aggregate — the reduce half of a cluster property
+  // (#2050); reserved evaluator identifier, injected by the cluster index.
+  ['accumulated', accumulatedHandler],
   ['properties', propertiesHandler],
   ['geometry-type', geometryTypeHandler],
   ['id', idHandler],
+  // camera+anchor accessor — routes through get("$key") like geometry-type
+  // / id above (hyphenated op name, can't be a bare identifier); reserved
+  // key + units math: eval/reserved-keys.ts + eval/distance-from-center.ts
+  ['distance-from-center', distanceFromCenterHandler],
   // geometry containment — point/multipoint within polygon (CPU predicate)
   ['within', withinHandler],
   // geometry proximity — metres from feature to target (CPU predicate)

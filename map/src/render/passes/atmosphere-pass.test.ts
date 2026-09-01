@@ -8,8 +8,10 @@
 // `scene-upscale-rhi-wiring.test.ts` uses for the sibling fullscreen pass.
 
 import { describe, it, expect, vi } from 'vitest'
+import { uniformBlock } from '@xgis/engine'
 import { atmospherePass } from './atmosphere-pass'
 import { makeProjectionToken } from '../projection-token'
+import { atmosphereU } from '../../shaders/dsl/atmosphere'
 import type { FrameContext } from '../frame-context'
 import type { SceneView } from '../scene-view'
 
@@ -36,12 +38,20 @@ interface CapturedPass {
   draws: number[]
 }
 
+/** #2052 — the sky sub-block as `_atmosphere` carries it. */
+interface HostSky {
+  color: [number, number, number, number]
+  horizonColor: [number, number, number, number]
+  horizonBlend: number
+}
+
 function harness(
   opts: {
     atmosphere?: boolean
     globeMode?: boolean
     matrix?: Float32Array
     rawShell?: boolean
+    sky?: HostSky
   } = {},
 ) {
   const captured: CapturedPass[] = []
@@ -104,7 +114,11 @@ function harness(
     _atmosphere:
       opts.atmosphere === false
         ? null
-        : { innerColor: [0.55, 0.75, 1, 0.9], outerColor: [0.02, 0.05, 0.12, 0] },
+        : {
+            innerColor: [0.55, 0.75, 1, 0.9],
+            outerColor: [0.02, 0.05, 0.12, 0],
+            sky: opts.sky ?? null,
+          },
     camera: {
       globeMode: opts.globeMode ?? true,
       getViewForProjection: () => ({ matrix, far: 1e7, logDepthFc: 1 }),
@@ -168,5 +182,56 @@ describe('atmosphere pass (#1258)', () => {
     const h = harness({ matrix: ORTHOGRAPHIC })
     atmospherePass.execute(h.ctx, h.scene, h.host as never)
     expect(h.beginRenderPass).not.toHaveBeenCalled()
+  })
+})
+
+// ═══ #2052 T5 Phase 1 — the `sky` root reaches the GPU ═══
+//
+// The shader gates its whole zenith ramp on `sky_params.y` (see shaders/dsl/atmosphere.ts:
+// a BRANCH, so the sky-off frame is bit-identical rather than arithmetically-equal). That
+// flag is therefore the wire this phase adds, and it is asserted on the BYTES the pass
+// actually uploads — read back at the reflected field offset, not at a hand-counted one, so
+// a field reordered in the uniform struct fails here instead of silently mis-binding.
+//
+// Both arms are cut separately: the ON arm proves the values travel, the OFF arm proves the
+// flag is 0 AND that the colour slots are still rewritten (the staging block is one shared
+// buffer — an unwritten slot would ship the previous frame's, or another map's, bytes).
+describe('atmosphere pass — the MapLibre sky root (#2052)', () => {
+  const block = uniformBlock(atmosphereU)
+  const readVec4 = (bytes: ArrayBuffer, field: 'sky_color' | 'horizon_color' | 'sky_params') =>
+    Array.from(new Float32Array(bytes, block.fieldOffset(field), 4))
+
+  const SKY: HostSky = {
+    color: [0.1, 0.2, 0.3, 1],
+    horizonColor: [0.9, 0.8, 0.7, 0.6],
+    horizonBlend: 0.25,
+  }
+
+  it('uploads the authored sky colours and turns the enable flag ON', () => {
+    const h = harness({ sky: SKY })
+    atmospherePass.execute(h.ctx, h.scene, h.host as never)
+    const bytes = h.writes[0]!.bytes
+    expect(readVec4(bytes, 'sky_color').map((n) => +n.toFixed(6))).toEqual([0.1, 0.2, 0.3, 1])
+    expect(readVec4(bytes, 'horizon_color').map((n) => +n.toFixed(6))).toEqual([0.9, 0.8, 0.7, 0.6])
+    expect(readVec4(bytes, 'sky_params').map((n) => +n.toFixed(6))).toEqual([0.25, 1, 0, 0])
+  })
+
+  it('with no sky authored the flag is OFF and every colour slot is still rewritten', () => {
+    const h = harness()
+    atmospherePass.execute(h.ctx, h.scene, h.host as never)
+    const bytes = h.writes[0]!.bytes
+    expect(readVec4(bytes, 'sky_params')[1], 'the sky ramp must be gated OUT').toBe(0)
+    expect(readVec4(bytes, 'sky_color')).toEqual([0, 0, 0, 0])
+    expect(readVec4(bytes, 'horizon_color')).toEqual([0, 0, 0, 0])
+  })
+
+  it('the sky rides the SAME uniform buffer and pass as the glow — no second draw', () => {
+    const h = harness({ sky: SKY })
+    atmospherePass.execute(h.ctx, h.scene, h.host as never)
+    // The design doc's load-bearing claim: rows 1–3 are one evaluator in ONE pass. A second
+    // render pass or a second buffer here would mean the sky had grown its own pipeline.
+    expect(h.beginRenderPass).toHaveBeenCalledTimes(1)
+    expect(h.buffers).toHaveLength(1)
+    expect(h.captured[0]!.draws).toEqual([3])
   })
 })

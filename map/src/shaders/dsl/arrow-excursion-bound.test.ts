@@ -68,7 +68,12 @@ describe('the excursion is bounded by the inter-glyph spacing, BY CONSTRUCTION (
       `the first operand must be the within-train index, got: ${letOf(glyph)}`,
     ).not.toBeNull()
     expect(letOf(g![2]!), '…reduced by the seed, which is the instance over G').toMatch(
-      new RegExp(`floor\\(\\(\\w+ / ${ARROW_TRAIN_GLYPHS}\\.0\\)\\)`),
+      // Either EXACT spelling of "over G" — the optimizer turns a division by a power of
+      // two into a multiply by its reciprocal (as gcc -O2 does). Both are derived from the
+      // constant, so a change to G still breaks this.
+      new RegExp(
+        `floor\\(\\(\\w+ (?:/ ${ARROW_TRAIN_GLYPHS}\\.0|\\* ${1 / ARROW_TRAIN_GLYPHS})\\)\\)`,
+      ),
     )
     expect(letOf(phase), 'the second is the wrapped phase').toContain('fract(')
     expect(letOf(spacing), 'the third is the inter-glyph spacing from the view block').toContain(

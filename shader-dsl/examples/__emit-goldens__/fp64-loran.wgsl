@@ -42,7 +42,8 @@ fn fs_loran(vo: VsOut) -> @location(0) vec4<f32> {
   let _lc1 = df64_add(_cse2, vec2<f32>(_v4, 0.0));
   let _v6 = DF64Vec2(vec2<f32>(_lc0.x, _lc1.x), vec2<f32>(_lc0.y, _lc1.y));
   let _cse7 = vec2<f32>(u.st_a.hi.x, u.st_a.lo.x);
-  let _cse8 = vec2<f32>(0.0, 0.0);
+  let _cse12 = bitcast<f32>(bitcast<u32>(0.0));
+  let _cse8 = vec2<f32>(_cse12, _cse12);
   let _cse3 = df64_add(_cse7, _cse8);
   let _cse9 = vec2<f32>(u.st_a.hi.y, u.st_a.lo.y);
   let _cse4 = df64_add(_cse9, _cse8);

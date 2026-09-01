@@ -408,6 +408,7 @@ export const unlistedDemoIds: string[] = [
   'custom_shapes',
   'animation_pulse',
   'hillshade_multidir',
+  'openfreemap_positron',
   // Detail-level variants of a carded composition.
   'physical_map_10m',
   'physical_map_50m',
@@ -435,6 +436,7 @@ export const unlistedDemoIds: string[] = [
   'animate_line',
   'procedural_circles',
   // Renderer-behaviour probes — regression scenes, not teaching examples.
+  'vertical_labels',
   'bucket_order',
   'line_antimeridian',
   'long_chords',

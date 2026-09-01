@@ -68,6 +68,23 @@ function makeVtr(lastZoom: number, cameraZoom: number) {
   const layout = {} as GPUBindGroupLayout
   const group = {} as GPUBindGroup
 
+  // #1190 allocation ledger — renderTileKeys resets these instance scratch
+  // arrays at entry (class-field initializers don't run under Object.create).
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueTiles = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueSlots = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeQueueTileOff = []
+  ;(vtr as unknown as Record<string, unknown>)._strokeOffsetsScratch = []
+  // #2042 INC-2 — TileUniformArena field (same Object.create caveat). The
+  // harness never uploads/evicts tiles, so an inert stub is the honest shape.
+  ;(vtr as unknown as Record<string, unknown>)._tileUniforms = {
+    ensureSlot: () => -1,
+    releaseTile: () => {},
+    resetAll: () => {},
+    flush: () => {},
+    takeRetired: () => [],
+    destroy: () => {},
+  }
+
   const set = (k: string, v: unknown) => {
     ;(vtr as unknown as Record<string, unknown>)[k] = v
   }

@@ -83,25 +83,56 @@ const TYPES_SRC = readFileSync(resolve(__dirname, 'text-stage-types.ts'), 'utf8'
   '\n',
 )
 
-describe('#777 IV3-2c — a ground basis suppresses perspectiveScale', () => {
-  it('prepare() resolves perspScale to 1 when a basis is present', () => {
-    // Both express the same distance attenuation: perspectiveScale isotropically
-    // (right for a billboard), the basis anisotropically via its det (right for a
-    // quad lying on the ground). Composing them shrinks a far label TWICE.
-    const idx = STAGE_SRC.indexOf('const perspScale =')
-    expect(idx, 'perspScale assignment must exist — fail loudly if renamed').toBeGreaterThan(-1)
+describe('#2012 INC-5 — a ground basis no longer suppresses the size correction', () => {
+  // This block used to pin the OPPOSITE: `perspScale = groundBasis !== undefined ?
+  // 1 : …`, on the reading that the basis already carried the distance
+  // attenuation. It does not — the basis is a normalized RATIO and is the identity
+  // at pitch 0 by construction, so it carries the tilt and no absolute distance
+  // term at all. Forcing 1 is NEITHER of MapLibre's two branches (design §2(2) /
+  // §3.3, rejected in §8 R6), and it left every ground-projected label smaller
+  // than the reference by the whole perspective factor. The pins are inverted
+  // rather than deleted so a re-introduction of the suppression fails here.
+
+  it('the POINT loop applies perspectiveScale unconditionally — no basis branch', () => {
+    const idx = STAGE_SRC.indexOf('const sizePx = labelSizePx(')
+    expect(idx, 'the point loop`s sizePx site must exist — fail loudly if renamed').toBeGreaterThan(
+      -1,
+    )
     const line = STAGE_SRC.slice(idx, STAGE_SRC.indexOf('\n', idx))
-    expect(line).toContain('p.groundBasis !== undefined ? 1')
     expect(line).toContain('p.perspectiveScale ?? 1')
+    // The suppression, in either spelling it could come back as.
+    expect(line).not.toContain('groundBasis')
+    expect(STAGE_SRC).not.toContain('p.groundBasis !== undefined ? 1')
   })
 
-  it('the exclusion is documented where the fields are declared, not only at the use', () => {
-    // #9.5: the reason has to survive next to the data, or it gets re-composed.
-    const idx = TYPES_SRC.indexOf('groundBasis?: ArrayLike<number>')
-    expect(idx, 'PendingLabel.groundBasis must exist').toBeGreaterThan(-1)
-    const doc = TYPES_SRC.slice(Math.max(0, idx - 1200), idx)
-    expect(doc).toContain('MUTUALLY EXCLUSIVE')
-    expect(doc).toContain('perspectiveScale')
+  it('the CURVED loop applies the map-branch multiplier it is handed', () => {
+    // The curved branch is where the Mapbox impact lives (design §1.2) and it had
+    // no perspective term at all before INC-5.
+    const idx = STAGE_SRC.indexOf('labelSizePx(p.def.size, dpr, p.groundSizeScale')
+    expect(idx, 'the curved loop must size through the same authority').toBeGreaterThan(-1)
+  })
+
+  it('BOTH loops derive sizePx through the one authority, never open-coded', () => {
+    // Two copies of `size * dpr * quantise(scale)` are two chances to quantise one
+    // and not the other, which the layout cache (keyed on sizePx) would then thrash
+    // on for one arm only.
+    expect((STAGE_SRC.match(/labelSizePx\(/g) ?? []).length).toBe(2)
+    expect(STAGE_SRC).not.toContain('Math.round(perspScale * 64)')
+  })
+
+  it('the two branches are documented where the fields are declared, not only at the use', () => {
+    // #9.5: the reason has to survive next to the data, or it gets re-composed —
+    // and this field's reason is now the opposite of what it was.
+    const idx = TYPES_SRC.indexOf('perspectiveScale?: number')
+    expect(idx, 'PendingLabel.perspectiveScale must exist').toBeGreaterThan(-1)
+    const doc = TYPES_SRC.slice(Math.max(0, idx - 2400), idx)
+    expect(doc).toContain('VIEWPORT branch')
+    expect(doc).toContain('MAP branch')
+    expect(doc, 'the retired suppression must not be re-documented').not.toContain(
+      'MUTUALLY EXCLUSIVE',
+    )
+    // And the curved twin exists with its own contract.
+    expect(TYPES_SRC).toContain('groundSizeScale?: number')
   })
 
   it('both TextDraw construction paths forward the basis (cache-hit AND shaping)', () => {
