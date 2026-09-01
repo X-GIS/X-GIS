@@ -796,9 +796,11 @@ export function addOpacity(out: string[], v: unknown, warnings: string[]): void 
  *  the offset constant in pixels regardless of depth, then negates
  *  y for NDC convention (NDC y is UP).
  *
- *  Anchor: fill-translate-anchor: viewport (default) is the only
- *  currently-honored mode. "map" would shift in world coords; not
- *  yet implemented (no OFM hits use map anchor). */
+ *  Anchor: handled by addTranslateAnchor below, NOT here — "map" is
+ *  implemented (the fill-translate-anchor-map flag; VTR rotates the offset
+ *  by the camera bearing) and is the v8 DEFAULT since #2170. This comment
+ *  used to say it was unimplemented, which would send a reader off to
+ *  build what the next function in this file already does. */
 export function addFillTranslate(
   out: string[],
   v: unknown,

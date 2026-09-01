@@ -1166,8 +1166,8 @@ export class TextStage {
             ...(p.def.halo.blur !== undefined ? { blur: p.def.halo.blur * dpr } : {}),
           }
         : undefined
-      // text-translate-anchor: viewport (default) leaves [dx,dy]
-      // screen-space (byte-identical); map rotates it by the map bearing
+      // text-translate-anchor: an explicit viewport leaves [dx,dy]
+      // screen-space; map — the v8 DEFAULT — rotates it by the map bearing
       // (mirror of the fill/line clip-space bake). Resolve ONCE here so
       // the rotated value flows into BOTH the layout-cache key and the
       // per-anchor dx/dy add below — a bearing change re-keys the cache

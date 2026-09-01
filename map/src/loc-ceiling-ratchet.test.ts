@@ -2258,7 +2258,13 @@ const CEILINGS: Record<string, number> = {
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
   'compiler/src/ir/render-node.ts': 1006,
-  'compiler/src/convert/paint-helpers.ts': 912,
+  // 912→914 (#2166 background-inputs): +2 on `addFillTranslate`'s doc comment, which was
+  // WORSE than stale — it said the "map" anchor was "not yet implemented" in the very file
+  // whose `addTranslateAnchor`, 30 lines below, implements it, and which #2170 made the
+  // spec DEFAULT. A stale comment misstates a default; that one sends a reader off to
+  // build what the next function already does. MEASURED post-prettier (`wc -l`), set
+  // EXACTLY to the count.
+  'compiler/src/convert/paint-helpers.ts': 914,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
