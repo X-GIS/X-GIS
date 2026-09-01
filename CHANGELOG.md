@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 67fc3268c172f1ec22d23176d0d9b74f72fa86f2
+  Generated from: d1a5fa9b72fec6850dfc4de63cd75eaf3575a681
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 67fc3268c172
+    bun scripts/emit-changelog.ts --since d1a5fa9b72fe
 -->
 
 # Changelog
@@ -50,7 +50,12 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
 - **compiler:** check spec-coverage rows against the tree they describe ([#2178](https://github.com/X-GIS/X-GIS/pull/2178)) `bc5644b`
+
+#### ci
+
+- **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
 ### 2026-08
 
