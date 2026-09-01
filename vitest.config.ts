@@ -54,6 +54,12 @@ export const INCLUDE = [
   // CI leg's file set.
   'playground/dev/**/*.test.ts',
   'playground/src/**/*.test.ts',
+  // The e2e HELPERS' own unit tests (#2231). Only `helpers/**/*.test.ts` — the
+  // ~350 Playwright specs beside them are `.spec.ts` and stay out of vitest.
+  // `awaitMapIdle`'s decision lives there because it cannot be witnessed
+  // end-to-end: the helper is a `page.evaluate`, and the CDP round-trip outlasts
+  // the one-tick staleness window the test has to observe.
+  'playground/e2e/helpers/**/*.test.ts',
   // Repo-tooling unit tests (the changelog generator). CI-covered by the
   // `data` leg (test.yml passes `data/src scripts`); the spawned git probes
   // in the suite self-skip on CI's depth-1 checkout. Co-located with the

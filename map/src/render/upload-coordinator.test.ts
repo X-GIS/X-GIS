@@ -392,6 +392,94 @@ describe('UploadCoordinator — #1155 F3 cold-start burst enqueue cap', () => {
   })
 })
 
+// ═══ #2247 — the mid-render SYNC fallback needs a per-frame cap too ═══
+//
+// `uploadSync` is the visual safety net for a visible tile whose ancestor is not
+// GPU-resident (vector-tile-renderer.ts:3429) and it deliberately bypassed the
+// enqueue cap. Measured on OFM Bright at z14 / pitch 75: ONE frame admitted 935
+// sync uploads (675 distinct slices, ~96 MB) while the background path was
+// admitting 4 — a 234x asymmetry between two routes doing the same work — and
+// that frame ran for tens of seconds. Flat z14 admits ZERO over 1000 frames, so
+// the entire cost is the high-pitch far field.
+describe('UploadCoordinator — #2247 sync-fallback per-frame cap', () => {
+  const heldLen = (c: UploadCoordinator) =>
+    (c as unknown as { _heldUploads: unknown[] })._heldUploads.length
+
+  function makeCoord(): UploadCoordinator {
+    // Same stub shape as the burst-cap suite: getOrCreateLayer reports the key
+    // present so _dispatch returns at its top guard (no real GPU work), while
+    // getLayer stays undefined so admission logic runs. `releaseBuffer` is the
+    // one extra member the re-seed case needs: `replace` opts OUT of that top
+    // guard by design (#1402), so its dispatch reaches the real body's cleanup.
+    const store = {
+      getLayer: () => undefined,
+      getOrCreateLayer: () => ({ has: () => true }) as unknown as Map<number, unknown>,
+      releaseBuffer: () => {},
+      polyVertexArenaOrCreate: () => ({ alloc: () => 0, free: () => {} }),
+      polyIndexArenaOrCreate: () => ({ alloc: () => 0, free: () => {} }),
+      acquireBuffer: () => ({}) as unknown as GPUBuffer,
+      incrementCount: () => {},
+      nextUploadEpoch: () => 1,
+    } as unknown as UploadStore
+    return new UploadCoordinator(
+      makeHost(store, {
+        rhi: {
+          backend: 'webgl2',
+          writeBuffer: () => {},
+          unwrapBuffer: (b: unknown) => b,
+        } as unknown as RhiDevice,
+      }),
+    )
+  }
+
+  it('THE STORM: 935 sync uploads in one frame admit 32, not 935', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 935; key++) coord.uploadSync(key, polyOnlyTileData(), '')
+    // 32 admitted (desktop branch — `typeof window` is undefined in node), the
+    // remaining 903 deferred rather than uploaded on the render hot path.
+    expect(heldLen(coord)).toBe(903)
+  })
+
+  it('admits the desktop cap then holds: the 33rd slice in one frame defers', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 32; key++) coord.uploadSync(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(0)
+    coord.uploadSync(33, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(1)
+  })
+
+  it('a deferred slice reports isHeld, so classifyTile keeps its peers on one fallback level', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 33; key++) coord.uploadSync(key, polyOnlyTileData(), '')
+    // The coherence guard (`hasOtherSliceHeld`) reads `_heldUploadKeys`; without
+    // this a deferred slice would let its peers advance and flicker — the exact
+    // regression the uncapped bypass existed to prevent.
+    expect(coord.isHeld(33)).toBe(true)
+    expect(coord.isHeld(1)).toBe(false)
+  })
+
+  it('a RE-SEED (replace) is exempt — deferring one would leave stale geometry drawing', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 32; key++) coord.uploadSync(key, polyOnlyTileData(), '')
+    coord.uploadSync(999, polyOnlyTileData(), '', true)
+    // #1402: the caller reads the cache back to release the superseded slots, so
+    // a re-seed must land in the same call. Re-seeds are bounded by the refresh
+    // queue, not the frustum, so exempting them cannot reopen the storm.
+    expect(heldLen(coord)).toBe(0)
+  })
+
+  it('resetFrameCap releases the sync budget, so the next frame admits again', () => {
+    const coord = makeCoord()
+    for (let key = 1; key <= 33; key++) coord.uploadSync(key, polyOnlyTileData(), '')
+    expect(heldLen(coord)).toBe(1)
+    coord.resetFrameCap() // beginFrame
+    coord.uploadSync(100, polyOnlyTileData(), '')
+    // The replayed backlog goes through enqueue (its own 4-cap); what matters
+    // here is that the fresh sync upload was ADMITTED, not re-deferred.
+    expect((coord as unknown as { _syncUploadsThisFrame: number })._syncUploadsThisFrame).toBe(1)
+  })
+})
+
 // ── host builder ──
 function makeHost(store: UploadStore, over: Partial<UploadHost> = {}): UploadHost {
   return {

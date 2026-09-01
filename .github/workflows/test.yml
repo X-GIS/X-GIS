@@ -373,7 +373,7 @@ jobs:
           # ~110-file RPC threshold, so one leg. NOTE: the gate shells out to
           # `git ls-files`, so this leg needs the repo checkout it already gets.
           - id: playground
-            args: playground/src playground/dev
+            args: playground/src playground/dev playground/e2e/helpers
     # Distinct per-leg check name in the GitHub UI / status API, e.g.
     # "test (engine-render-a)". The single stable context for branch protection
     # is `test-result` below — require THAT, not these per-leg names.
