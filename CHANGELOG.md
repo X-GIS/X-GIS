@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 4406d26409fafc956b5d77c972758ee4e5e97944
+  Generated from: 96eba994c98fc61eef6bec29a85221a0a2003b9b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 4406d26409fa
+    bun scripts/emit-changelog.ts --since 96eba994c98f
 -->
 
 # Changelog
@@ -36,6 +36,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** symbol translate-anchor honours the spec default via one shared decision ([#2252](https://github.com/X-GIS/X-GIS/pull/2252)) `96eba99`
+- **render:** fill-translate reaches the shader on WebGL2 (#2240) ([#2251](https://github.com/X-GIS/X-GIS/pull/2251)) `0203b83`
 - **ownership:** always-on liveness guards + RHI create/destroy symmetry ratchet ([#2250](https://github.com/X-GIS/X-GIS/pull/2250)) `4406d26`
 - **map:** end the cold-start burst on a wall-clock idle window, not a frame count ([#2245](https://github.com/X-GIS/X-GIS/pull/2245)) `f40e987`
 - **render:** the WebGL2 fills arm packs the resolved fill-antialias lane (#1999) ([#2239](https://github.com/X-GIS/X-GIS/pull/2239)) `8dbc564`
