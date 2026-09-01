@@ -242,3 +242,85 @@ describe('#2170 — fill/line/fill-extrusion honour the default silently', () =>
     expect(warnings.filter((w) => w.includes('translate-anchor'))).toEqual([])
   })
 })
+
+// ── #2170's SYMBOL half, which that increment did not cover ──
+//
+// paint_symbol.text-translate-anchor and .icon-translate-anchor carry the
+// SAME default='map' in the pinned oracle as the four types above, but the
+// symbol emitter kept the pre-#2170 shape — `anchor === 'map'` — so an
+// absent anchor fell through to the screen-space path exactly as the fill
+// emitter used to. Same defect, same spec clause, one layer type later.
+//
+// No committed style authors text-/icon-translate at all (11 style files
+// scanned: the 4 openfreemap fixtures, maplibre-demotiles, the 2 e2e
+// convert-fixtures and the playground public styles), so nothing in the
+// corpus could witness this and no fixture bytes move — which is also why
+// these arms had to be written rather than found.
+
+function symbolStyle(paint: Record<string, unknown>, layout?: Record<string, unknown>): unknown {
+  return {
+    version: 8,
+    sources: { t: { type: 'vector', tiles: ['https://example.com/{z}/{x}/{y}.pbf'] } },
+    layers: [
+      {
+        id: 'l',
+        type: 'symbol',
+        source: 't',
+        'source-layer': 'p',
+        layout: { 'text-field': '{name}', ...(layout ?? {}) },
+        paint,
+      },
+    ],
+  }
+}
+
+describe('#2170 symbol half — absent anchor is the spec default "map"', () => {
+  it('text: text-translate with no anchor → label-translate-anchor-map', () => {
+    const src = convert(symbolStyle({ 'text-translate': [2, 3] }))
+    expect(src).toContain('label-translate-anchor-map')
+  })
+
+  it('icon: icon-translate with no anchor → label-icon-translate-anchor-map', () => {
+    const src = convert(symbolStyle({ 'icon-translate': [4, 1] }, { 'icon-image': 'marker' }))
+    expect(src).toContain('label-icon-translate-anchor-map')
+  })
+
+  it('an invalid enum warns and falls back to the default, as fill/line already do', () => {
+    const w = convertWarnings(
+      symbolStyle({ 'text-translate': [2, 3], 'text-translate-anchor': 'sideways' }),
+    )
+    expect(w.join('\n')).toContain('translate-anchor')
+    expect(
+      convert(symbolStyle({ 'text-translate': [2, 3], 'text-translate-anchor': 'sideways' })),
+    ).toContain('label-translate-anchor-map')
+  })
+})
+
+describe('#2170 symbol half — negative controls (green before AND after)', () => {
+  it('explicit viewport + text-translate → NO marker', () => {
+    const src = convert(
+      symbolStyle({ 'text-translate': [2, 3], 'text-translate-anchor': 'viewport' }),
+    )
+    expect(src).not.toContain('label-translate-anchor-map')
+  })
+
+  it('explicit map + text-translate → marker (the pre-existing supported path)', () => {
+    const src = convert(symbolStyle({ 'text-translate': [2, 3], 'text-translate-anchor': 'map' }))
+    expect(src).toContain('label-translate-anchor-map')
+  })
+
+  it('NO text-translate → NO marker (the anchor is a no-op without an offset)', () => {
+    const src = convert(symbolStyle({ 'text-translate-anchor': 'map' }))
+    expect(src).not.toContain('label-translate-anchor-map')
+  })
+
+  it('explicit viewport + icon-translate → NO icon marker', () => {
+    const src = convert(
+      symbolStyle(
+        { 'icon-translate': [4, 1], 'icon-translate-anchor': 'viewport' },
+        { 'icon-image': 'marker' },
+      ),
+    )
+    expect(src).not.toContain('label-icon-translate-anchor-map')
+  })
+})

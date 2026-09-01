@@ -196,6 +196,14 @@ export class StagingBufferPool {
     // Mirrors GpuTileStore.releaseBuffer (gpu-tile-store.ts). Under-cap
     // traffic is byte-identical to the pre-cap push.
     const list = this.free[slot.tier]
+    // Double-release guard (#2248, ownership P0): pooling the same slot twice
+    // hands one mapped buffer to two later borrows — silent aliasing. Lists
+    // are ≤8 entries (TIER_CAPS), so the scan is allocation-free and cheap.
+    // (The #782 mapAsync-reject path releases a slot borrow just POPPED, so
+    // it can never be in the list here.)
+    if (list.includes(slot)) {
+      throw new Error('StagingBufferPool.release: slot already pooled (double-release)')
+    }
     if (list.length < TIER_CAPS[slot.tier]!) list.push(slot)
     else slot.buffer.destroy()
   }

@@ -311,7 +311,10 @@ const CEILINGS: Record<string, number> = {
   // line-gradient.ts. Merged: 5483, MEASURED post-merge on the merged file
   // (`wc -l`) — never side-picked, never summed by hand, exactly as main's own
   // note above warns. Headroom is re-justified per phase, never banked.
-  'map/src/render/vector-tile-renderer.ts': 5483,
+  // 5483→5466 (#2240): the three fill-translate packers now read one producer
+  // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
+  // Measured with `wc -l` on the post-prettier tree, per the note above.
+  'map/src/render/vector-tile-renderer.ts': 5466,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2211,7 +2214,10 @@ const CEILINGS: Record<string, number> = {
   // MERGE (#2166 icon-translate x #2166 symbol-sort-key): both branches raised this
   // key from 1357 — to 1378 and to 1365 — and the merged file takes BOTH deltas, so
   // neither number is correct here. RE-MEASURED post-merge with `wc -l`: 1386.
-  'compiler/src/convert/layers-symbol.ts': 1386,
+  // 1386→1384: the two symbol anchor guards collapsed onto the shared decision,
+  // so this file SHRANK. The ratchet is shrink-only, so the ceiling follows it
+  // down rather than banking the slack.
+  'compiler/src/convert/layers-symbol.ts': 1384,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2258,13 +2264,19 @@ const CEILINGS: Record<string, number> = {
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
   'compiler/src/ir/render-node.ts': 1006,
-  // 912→914 (#2166 background-inputs): +2 on `addFillTranslate`'s doc comment, which was
-  // WORSE than stale — it said the "map" anchor was "not yet implemented" in the very file
-  // whose `addTranslateAnchor`, 30 lines below, implements it, and which #2170 made the
-  // spec DEFAULT. A stale comment misstates a default; that one sends a reader off to
-  // build what the next function already does. MEASURED post-prettier (`wc -l`), set
-  // EXACTLY to the count.
-  'compiler/src/convert/paint-helpers.ts': 914,
+  // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
+  // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
+  // so the symbol emitter reads it too, plus its docstring recording WHY a second
+  // copy existed (that copy is what drifted from the paint path since #2170).
+  // MEASURED post-prettier (`wc -l`), set EXACTLY — no headroom banked.
+  // 912→914 (#2166 background-inputs), from the SAME base: +2 on `addFillTranslate`'s
+  // doc comment, which was WORSE than stale — it said the "map" anchor was "not yet
+  // implemented" in the very file whose `addTranslateAnchor` implements it, and which
+  // #2170 made the spec DEFAULT.
+  // MERGE UNION: both sides raised this key from 912 and neither number is right — the
+  // edits are in different regions of the file, so the merged file takes BOTH deltas
+  // (§12: never pick a side, never max() the two). RE-MEASURED post-merge with `wc -l`.
+  'compiler/src/convert/paint-helpers.ts': 934,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,

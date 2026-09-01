@@ -629,10 +629,25 @@ describe('GPUArena — compaction (defrag relocation)', () => {
   })
 })
 
-describe('GPUArena — DEV size-mismatch free guard (#783)', () => {
-  // vitest runs with import.meta.env.DEV true; prod strips the guard.
+describe('GPUArena — liveness-ledger free guard (#783, always-on since #2248)', () => {
+  // The ledger was DEV-only until #2248 (ownership P0) promoted it: prod now
+  // throws on a double-free / mismatched free instead of silently aliasing
+  // two allocs onto one range (double-free) or leaking fragmentation.
   const makeArena = (capacityBytes: number): GPUArena =>
     new GPUArena(mockDevice(), { capacityBytes, usage: VERTEX_USAGE, copySrc: true })
+
+  it('double-free throws — the second free would double-park the offset', () => {
+    const a = makeArena(1024)
+    const off = a.alloc(100)
+    a.free(off, 100)
+    expect(() => a.free(off, 100)).toThrow(/double-free/)
+  })
+
+  it("free of a never-alloc'd offset throws", () => {
+    const a = makeArena(1024)
+    a.alloc(100)
+    expect(() => a.free(512, 100)).toThrow(/double-free or free of un-alloc'd/)
+  })
 
   it('free() with the wrong bytes throws, naming both sizes', () => {
     const a = makeArena(1024)

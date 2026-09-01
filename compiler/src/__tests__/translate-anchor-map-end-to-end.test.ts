@@ -278,11 +278,14 @@ describe('text-translate-anchor=map → ShowCommand.label.translateAnchorMap', (
     expect(shows[0]!.label!.translate).toEqual([2, -8])
   })
 
-  it('DEFAULT (no anchor) → translateAnchorMap undefined — byte-identical screen-space', () => {
+  it('DEFAULT (no anchor) → translateAnchorMap === true — spec default map (#2170 symbol half)', () => {
     const shows = compileToShows(
       symbolLayer({ 'text-color': '#000', 'text-translate': [2, -8] }, { 'text-field': '{name}' }),
     )
-    expect(shows[0]!.label!.translateAnchorMap).toBeUndefined()
+    // Was `toBeUndefined()` — this file asserted the spec default for fill at
+    // :152 and the OPPOSITE for symbol here, which is the drift itself.
+    expect(shows[0]!.label!.translateAnchorMap).toBe(true)
+    // The offset is untouched; only the space it is anchored in changes.
     expect(shows[0]!.label!.translate).toEqual([2, -8])
   })
 
@@ -320,11 +323,12 @@ describe('icon-translate-anchor=map → ShowCommand.label.iconTranslateAnchorMap
     expect(shows[0]!.label!.iconTranslateY).toBe(2)
   })
 
-  it('DEFAULT (no anchor) → iconTranslateAnchorMap undefined — byte-identical', () => {
+  it('DEFAULT (no anchor) → iconTranslateAnchorMap === true — spec default map (#2170 symbol half)', () => {
     const shows = compileToShows(
       symbolLayer({ 'icon-translate': [4, 2] }, { 'icon-image': 'marker' }),
     )
-    expect(shows[0]!.label!.iconTranslateAnchorMap).toBeUndefined()
+    expect(shows[0]!.label!.iconTranslateAnchorMap).toBe(true)
+    // The offset is untouched; only its anchor space changes.
     expect(shows[0]!.label!.iconTranslateX).toBe(4)
   })
 })

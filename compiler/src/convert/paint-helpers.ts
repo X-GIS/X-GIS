@@ -878,17 +878,37 @@ export function addTranslateAnchor(
   // Checked FIRST so the spec default below cannot flag a layer that has no
   // offset. Mirror of surfaceIgnoredPaint's ANCHOR_PARENT skip.
   if (isOmitted(parentTranslate)) return
+  if (!translateAnchorIsMap(anchorRaw, warnings)) return
+  // Absent (⇒ spec default), explicit 'map', and an invalid enum (⇒ default)
+  // all anchor the offset in world space.
+  out.push(`${prefix}-translate-anchor-map`)
+}
+
+/** The spec-default DECISION every `*-translate-anchor` shares, in one place.
+ *
+ *  Returns true when the offset is world-anchored: an ABSENT anchor (the
+ *  v8 default is 'map' for every layer type that has the property), an
+ *  explicit 'map', or an invalid enum (which warns and falls back to the
+ *  default). Only an explicit 'viewport' returns false — that is the one
+ *  value selecting the screen-space path.
+ *
+ *  Extracted because #2170 fixed this rule for fill / line / circle /
+ *  fill-extrusion by editing `addTranslateAnchor`, while the symbol
+ *  emitter carried its own `anchor === 'map'` copy and kept the pre-#2170
+ *  behaviour — a second authority is exactly how the two drifted. Callers
+ *  must still skip when the parent `*-translate` is omitted; the anchor is
+ *  a no-op with no offset to anchor, and checking it here would let a
+ *  layer with no offset surface the invalid-enum warning. */
+export function translateAnchorIsMap(anchorRaw: unknown, warnings: string[]): boolean {
   let v: unknown = anchorRaw
   while (Array.isArray(v) && v.length === 2 && v[0] === 'literal') v = v[1]
-  if (v === 'viewport') return // the one value that picks screen-space
+  if (v === 'viewport') return false // the one value that picks screen-space
   if (!isOmitted(v) && v !== 'map') {
     warnings.push(
       `paint.*-translate-anchor: unexpected value ${JSON.stringify(v)}; Mapbox spec allows only "map" | "viewport". Treated as the spec default "map".`,
     )
   }
-  // Absent (⇒ spec default), explicit 'map', and an invalid enum (⇒ default)
-  // all anchor the offset in world space.
-  out.push(`${prefix}-translate-anchor-map`)
+  return true
 }
 
 /** Build a scalar zoom-interpolate bracket-binding body for ONE axis
