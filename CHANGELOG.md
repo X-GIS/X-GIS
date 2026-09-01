@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: d1a5fa9b72fec6850dfc4de63cd75eaf3575a681
+  Generated from: 9f641e0f640763c1dca0344faf2eff9eafd829ef
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since d1a5fa9b72fe
+    bun scripts/emit-changelog.ts --since 9f641e0f6407
 -->
 
 # Changelog
@@ -34,6 +34,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **site:** rebase root-absolute src/href inside raw HTML blocks ([#2212](https://github.com/X-GIS/X-GIS/pull/2212)) `9f641e0`
 - **compiler:** split zoom-interpolated icon-translate per axis so it stops snapping ([#2200](https://github.com/X-GIS/X-GIS/pull/2200)) `ebb2fea`
 - **compiler:** fill-antialias gates the fill-outline draw, not MSAA ([#2194](https://github.com/X-GIS/X-GIS/pull/2194)) `260f77e`
 - **data:** inject $geometry into the vector-tile slice filter ([#2192](https://github.com/X-GIS/X-GIS/pull/2192)) `74610ed`
