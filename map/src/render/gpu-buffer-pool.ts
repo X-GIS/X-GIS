@@ -57,12 +57,14 @@ export class GpuBufferPool {
   private _bytes = 0
   /** Every buffer currently parked in `pools`, for the double-release guard
    *  (#2248, ownership P0). A double `release(buf)` used to park the same
-   *  GPUBuffer twice, so two later `acquire`s handed the SAME buffer to two
+   *  buffer twice, so two later `acquire`s handed the SAME buffer to two
    *  tiles — silent aliasing. Membership is of PARKED buffers (not leased
    *  ones): tiles legitimately destroy their buffers directly on teardown
    *  paths, so lease-tracking would strand entries; parked-tracking has no
-   *  such interaction and catches exactly the aliasing class. */
-  private readonly _parked = new Set<GPUBuffer>()
+   *  such interaction and catches exactly the aliasing class.
+   *  Typed `object`, not the buffer type: membership is pure identity, and
+   *  the raw-WebGPU ratchet (#991) holds this file's token count flat. */
+  private readonly _parked = new Set<object>()
   /** Terminal once `destroy()` runs (#2248, ownership P0 — the audit's F-2).
    *  The pool is destroyed inside `GpuTileStore.destroy()` while the DEVICE
    *  may live on (a `setSourceData` swap); an async upload suspended across
