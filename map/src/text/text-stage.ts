@@ -1225,8 +1225,6 @@ export class TextStage {
           anchorStr,
           p.def.offset ? p.def.offset[0] : 0,
           p.def.offset ? p.def.offset[1] : 0,
-          txRaw,
-          tyRaw,
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
@@ -1258,8 +1256,10 @@ export class TextStage {
               h: hit.blockBottom - hit.blockTop,
             })
           }
-          const drawX = p.anchorX + hit.dx
-          const drawY = p.anchorY + hit.dy
+          // #2170 — the cached dx/dy no longer carry text-translate; add it
+          // here. Parenthesised for the same reason as the miss path below.
+          const drawX = p.anchorX + (hit.dx + txRaw * dpr)
+          const drawY = p.anchorY + (hit.dy + tyRaw * dpr)
           // Badge union — a steady scene is ~all cache hits, so the shaping
           // path alone left it a no-op (0 px change until this site landed).
           const cachedBox = deriveLabelBbox(drawX, drawY, hit, p.groundBasis)
@@ -1347,17 +1347,20 @@ export class TextStage {
           dx += p.def.offset[0] * sizePx
           dy += p.def.offset[1] * sizePx
         }
-        if (p.def.translate) {
-          // text-translate is in pixels (Mapbox paint property), not
-          // em-units, so it scales by DPR alone — independent of the
-          // current font size. Stacks on top of text-offset. txRaw/tyRaw
-          // already carry the text-translate-anchor:map bearing rotation
-          // (viewport default = unrotated [dx,dy]).
-          dx += txRaw * dpr
-          dy += tyRaw * dpr
-        }
-        const drawX = p.anchorX + dx
-        const drawY = p.anchorY + dy
+        // #2170 — text-translate is applied HERE, not folded into `dx`, so it
+        // stays out of the cached layout and out of the cache key. It is in
+        // pixels (a Mapbox paint property), not em-units, so it scales by DPR
+        // alone; txRaw/tyRaw already carry the text-translate-anchor:map
+        // bearing rotation (viewport = unrotated [dx,dy]).
+        //
+        // THE PARENTHESES ARE LOAD-BEARING. `p.anchorX + dx + txRaw * dpr` is
+        // left-associative — (a⊕b)⊕c — while the old two-step computed
+        // a⊕(b⊕c). IEEE-754 addition is not associative, and on this domain
+        // (integer anchor, generic advance, bearing-rotated translate) the two
+        // differ by 1 ULP on ~30% of labels, measured. Grouping the moved term
+        // reproduces the identical two roundings on identical operands.
+        const drawX = p.anchorX + (dx + txRaw * dpr)
+        const drawY = p.anchorY + (dy + tyRaw * dpr)
         // Per-glyph offsets for multi-line layout. Each line gets
         // justified within the bbox according to `justify`; lines
         // stack vertically by lineHeightPx.
