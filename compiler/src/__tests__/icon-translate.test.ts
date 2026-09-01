@@ -285,11 +285,38 @@ describe('zoom-interpolated paint.icon-translate resolves componentwise (#2166)'
       16,
       ['literal', [8, -16]],
     ]
-    // base=2 lags the linear ramp in the first half of the interval.
+    // base=2 lags the linear ramp in the first half of the interval. Pin the
+    // EXACT value, not just the bounds: at the midpoint of a 6-zoom interval
+    // the exponential weight is (base^3 - 1) / (base^6 - 1), so
+    // dx = 8 * (2^3 - 1) / (2^6 - 1) = 8 * 7/63 = 0.888…. Bounds alone are
+    // satisfied by any base in roughly (1, 4), so a wrong — or silently
+    // dropped — `base` inside interpolate_exp is not distinguished from the
+    // right one. The sibling linear assertions pin exactly; so does this now.
     const [dxExp] = translateAt(exp, 13)
     const [dxLin] = translateAt(INTERP, 13)
-    expect(dxExp).toBeGreaterThan(0)
+    expect(dxExp).toBeCloseTo((8 * (2 ** 3 - 1)) / (2 ** 6 - 1), 10)
     expect(dxExp).toBeLessThan(dxLin)
+  })
+
+  it('the BARE-ARRAY modern spelling converges on the same split (#2166)', () => {
+    // The third spelling. INTERP uses the strict v8 `['literal', [dx, dy]]`
+    // wrap and the legacy {stops} object is covered separately, but the modern
+    // expression with bare-array stops had no assertion — while the hand-off
+    // claims all three converge on one emit. Measured on the pre-fix base this
+    // form DROPPED entirely ("icon-translate non-constant form could not be
+    // converted; offset dropped"), so it is not a cosmetic gap.
+    const bare = ['interpolate', ['linear'], ['zoom'], 10, [0, 0], 16, [8, -16]]
+    for (const [z, ex, ey] of [
+      [11, 8 / 6, -16 / 6],
+      [13, 4, -8],
+    ] as const) {
+      const [dx, dy] = translateAt(bare, z)
+      expect(dx, `bare-array dx at z=${z}`).toBeCloseTo(ex, 10)
+      expect(dy, `bare-array dy at z=${z}`).toBeCloseTo(ey, 10)
+    }
+    // And it lands on the SAME numbers as the ['literal', …] spelling, which
+    // is the "all three converge" claim stated as an assertion.
+    expect(translateAt(bare, 13)).toEqual(translateAt(INTERP, 13))
   })
 
   it('the per-feature expression form still resolves whole (#777 I-F unchanged)', () => {
