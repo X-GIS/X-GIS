@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: ebb2feaa94dca03ccdbbd17851006434773b5c99
+  Generated from: 3b843ff0657eae714a3d69f95dae86916c51a443
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since ebb2feaa94dc
+    bun scripts/emit-changelog.ts --since 3b843ff0657e
 -->
 
 # Changelog
@@ -42,6 +42,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **data:** bound the one keep-warm signal a hanging fetch could pin ([#2183](https://github.com/X-GIS/X-GIS/pull/2183)) `2d6023a`
 - **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`
 - **compiler:** three spec-coverage rows that misdescribed the engine ([#2172](https://github.com/X-GIS/X-GIS/pull/2172)) `ddbe76d`
+
+#### docs
+
+- **tech:** add dual-edition technical deep-dive series ([#2206](https://github.com/X-GIS/X-GIS/pull/2206)) `3b843ff`
 
 #### test
 
