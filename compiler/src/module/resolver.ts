@@ -27,13 +27,14 @@ export interface ResolveImportsOptions {
    *  The runtime consumes this after sources finish loading and
    *  seeds `rawDatasets` directly — no manual `setSourceData()`. */
   inlineGeoJSON?: Map<string, unknown>
-  /** #1112 — out-collector for the imported style's top-level `sprite` URL.
-   *  Forwarded verbatim to `convertMapboxStyle`, which fills it (the emitted
-   *  DSL never carries `sprite`). The runtime reads it after resolution to
-   *  wire the sprite atlas the `import "url"` path would otherwise drop —
-   *  icon-image layers (road_oneway arrows, POI, shields) render nothing
-   *  without it. Mirrors `inlineGeoJSON`. */
-  topLevel?: { sprite?: string }
+  /** #1112 / #2121 — out-collector for the imported style's top-level `sprite`
+   *  and `glyphs` URLs. Forwarded verbatim to `convertMapboxStyle`, which fills
+   *  it (the emitted DSL carries neither). The runtime reads it after
+   *  resolution to wire what the `import "url"` path would otherwise drop —
+   *  without `sprite` every icon-image layer (road_oneway arrows, POI, shields)
+   *  renders nothing, and without `glyphs` every label falls back to system
+   *  fonts instead of the style's own SDF fontstack. Mirrors `inlineGeoJSON`. */
+  topLevel?: { sprite?: string; glyphs?: string }
 }
 
 /**

@@ -2883,7 +2883,7 @@ export class XGISMap {
     // converter drops it from the DSL; without this the lazy IconStage never
     // builds (label-pass gate `spriteUrl !== null`) and every icon-image layer
     // (road_oneway arrows, POI, shields) renders nothing.
-    const importedTopLevel: { sprite?: string } = {}
+    const importedTopLevel: { sprite?: string; glyphs?: string } = {}
     if (ast.body.some((s) => s.kind === 'ImportStatement')) {
       ast = await resolveImportsAsync(ast, absBase, resolver, {
         inlineGeoJSON,
@@ -2904,6 +2904,17 @@ export class XGISMap {
     // host-chosen atlas.
     if (importedTopLevel.sprite !== undefined && this.spriteUrl === null) {
       this.spriteUrl = importedTopLevel.sprite
+    }
+    // #2121 — the same wire for the imported `glyphs` template, same
+    // still-null guard so a host-chosen URL always wins. Unlike `sprite`,
+    // this does NOT need to be a constructor seed: IconStage's gate had
+    // already run by here, but TextStage is built lazily on the first
+    // LABEL-bearing frame and reads `host.glyphsUrl` at that moment
+    // (render/passes/label-pass.ts:322-329), which is strictly after this
+    // line. Without it, glyph-rasterizer-wiring.ts:49 takes the plain
+    // Canvas2D case and no GlyphPbfCache is ever constructed.
+    if (importedTopLevel.glyphs !== undefined && this.glyphsUrl === null) {
+      this.glyphsUrl = importedTopLevel.glyphs
     }
 
     // Use IR pipeline for new syntax, fallback to legacy interpreter
