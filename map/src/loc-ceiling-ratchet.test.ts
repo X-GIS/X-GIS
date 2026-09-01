@@ -2236,7 +2236,14 @@ const CEILINGS: Record<string, number> = {
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
   'compiler/src/ir/render-node.ts': 1001,
-  'compiler/src/convert/paint-helpers.ts': 826,
+  // 826→876→907 (#2166, and its review round): the cubic-bezier zoom-axis
+  // densifier gained the hex-colour branch its data-driven twin
+  // (expr-interpolate.ts) already had, so a colour ramp on the zoom axis keeps
+  // its authored curve instead of folding to linear; the review round then
+  // excluded interpolate-lab / interpolate-hcl from that sRGB branch and taught
+  // the Lab/LCh densifier the same bezier warp, so those two keep their authored
+  // colour space AND their curve. MEASURED post-prettier (`wc -l`): 912.
+  'compiler/src/convert/paint-helpers.ts': 912,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
