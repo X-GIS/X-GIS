@@ -211,8 +211,8 @@ export const EXPRESSIONS: readonly CoverageEntry[] = [
     name: 'array',
     status: 'partial',
     impact: 'low',
-    note: 'Type-assertion drops to value pass-through (X-GIS arrays carry no per-element type tag, so the spec\'s "abort if not array" semantic is lost; in paint/filter use a non-array would null-cascade anyway).',
-    source: 'expressions.ts:163',
+    note: '#2166 B3 — a real assertion, not a pass-through. `["array", value]` / `["array", type, value]` / `["array", type, N, value]` lower to the `assert_array` CPU builtin (arrayHandler in expr-string.ts, dispatched by eval/evaluator-helpers.ts callBuiltin): the value comes back only when it IS an array whose elements match the declared type (string / number / boolean) and count, else null. Both halves of the previous note were false. "X-GIS arrays carry no per-element type tag" is a GPU-lane fact about an op classifyExpr routes to per-feature-CPU, where the evaluator holds the real JS values. And "in paint/filter use a non-array would null-cascade anyway" was measured wrong on the pre-fix base: only the `["at", …]` consumer nulled — `["length", ["array", ["get", "pts"]]]` measured a STRING property as 5 and `["slice", ["array", …], 0, 2]` returned a substring, because both builtins accept strings. PARTIAL for one remaining reason: the spec ABORTS a failed assertion (the enclosing property falls back to its default), while X-GIS has no evaluation-error channel and yields null, which the enclosing expression keeps computing with — that same `length` now returns 0, not the property default. An item type outside string / number / boolean (which the spec rejects at parse time) keeps the arrayness half rather than dropping the expression.',
+    source: 'expr-string.ts arrayHandler + eval/evaluator-helpers.ts callBuiltin assert_array',
   },
   {
     name: 'slice',
