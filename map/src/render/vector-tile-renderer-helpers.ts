@@ -121,3 +121,27 @@ export function uploadBudgetFor(
   if (burst) return burstUploadBudget(mobile)
   return mobile ? 1 : MAX_UPLOADS_PER_FRAME
 }
+
+/** Per-frame ceiling on MID-RENDER SYNC fallback uploads (#2247) — 32 desktop /
+ *  8 mobile. Lives here, next to `burstUploadBudget`, so the two per-frame upload
+ *  budgets have ONE authority: their living in different places is what let them
+ *  drift 234x apart in the first place.
+ *
+ *  `UploadCoordinator.uploadSync` is the visual safety net for a visible tile
+ *  whose ancestor is not GPU-resident (vector-tile-renderer.ts:3429), and it
+ *  deliberately bypassed the background cap. That premise — a handful of
+ *  stragglers — does not survive a pitched frustum, where essentially every
+ *  visible tile takes a fallback decision. Measured on OFM Bright at z14 /
+ *  pitch 75: ONE frame admitted 935 sync uploads (675 distinct slices, ~96 MB)
+ *  while the background path was admitting 4. That is the same failure mode the
+ *  cap above documents (552 writes / 8.4 MB in one frame → ~250 ms stall), an
+ *  order of magnitude worse. Flat z14 admits ZERO over 1000 frames, so the whole
+ *  cost is the high-pitch far field.
+ *
+ *  32 bounds a frame at ~3.3 MB at the measured ~103 KB mean slice while staying
+ *  8x the background cap, so the near field is admitted whole and only the
+ *  far-field tail defers. Mobile keeps the same 4x device-class ratio. */
+export function syncFallbackCap(): number {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 0
+  return isMobileClassViewport(w) ? 8 : 32
+}

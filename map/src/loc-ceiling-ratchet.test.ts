@@ -2052,7 +2052,13 @@ const CEILINGS: Record<string, number> = {
   // recording WHY the guard was a silent no-op for the one caller that meant to overwrite.
   // 921→923 (#2089): the tileOriginMerc argument at the two buildLineSegments
   // call sites (the ECEF endpoint-lane pack anchor).
-  'map/src/render/upload-coordinator.ts': 923,
+  // #2247 raised 923 -> 951: the mid-render sync-upload cap. The cap CONSTANT and
+  // its rationale were extracted to vector-tile-renderer-helpers (next to
+  // burstUploadBudget, so the two per-frame upload budgets have one authority —
+  // their living apart is what let them drift 234x), and the held-backlog push was
+  // deduplicated into one `_hold`. What remains here is the feature itself, which
+  // cannot leave the class without moving its private state.
+  'map/src/render/upload-coordinator.ts': 951,
   // 811→826 (#1152 INC-3): proj_globe gains the ellipsoid N term (sqrt +
   // (1−E2) z-compression), globe_eye_horizon_cos rescales its surface point into
   // the (a,b) sphere frame, and PROJECTION_CONSTS gains the EARTH_E2 decl (prettier
