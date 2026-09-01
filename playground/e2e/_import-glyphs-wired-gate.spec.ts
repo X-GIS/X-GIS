@@ -32,8 +32,14 @@ import { test, expect } from '@playwright/test'
 import { captureMapFrame } from './helpers/visual'
 
 const DEMO = '/demo.html?id=import_maplibre_mirror&e2e=1&adaptive=0#1.5/20/140'
-/** The one range the mirror ships, for the one fontstack both label layers use. */
-const PBF = /\/vendor\/demotiles-mirror\/font\/.*\/0-255\.pbf$/
+/** Any glyph range request against the mirror — the population. */
+const PBF = /\/vendor\/demotiles-mirror\/font\/(.*)\/0-255\.pbf$/
+/** The fontstack BOTH label layers author (`text-font: ["Open Sans Semibold"]`),
+ *  and the only range the mirror ships. Asserting the population alone is not
+ *  enough: a request for some OTHER fontstack 404s, the dev server answers with
+ *  an HTML error page, and `decodeGlyphsPbf` reports `unknown wire type 4`
+ *  while this gate would still count "a request was made". */
+const WANTED = 'Open Sans Semibold'
 
 test.describe.configure({ timeout: 180_000 })
 
@@ -46,6 +52,12 @@ test("the imported style's glyphs URL reaches the runtime AND its PBF range is f
   })
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
+  const glyphWarnings: string[] = []
+  page.on('console', (m) => {
+    const t = m.text()
+    if (t.includes('glyph range') && t.includes('failed to load'))
+      glyphWarnings.push(t.slice(0, 200))
+  })
 
   await page.goto(DEMO, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
@@ -88,10 +100,25 @@ test("the imported style's glyphs URL reaches the runtime AND its PBF range is f
   // 3. The end of the chain, and the assertion a wiring-only fix cannot fake:
   //    the committed range is actually requested. Before #2121 this array was
   //    empty on every run of this demo.
+  const stacks = pbfRequests.map((u) => decodeURIComponent(u.match(PBF)![1]!))
   expect(
-    pbfRequests.length,
-    `no glyph PBF was requested; the committed range at vendor/demotiles-mirror/font/Open Sans Semibold/0-255.pbf stayed unread. Requests seen: ${JSON.stringify(pbfRequests)}`,
-  ).toBeGreaterThan(0)
+    stacks,
+    `the committed range at vendor/demotiles-mirror/font/${WANTED}/0-255.pbf stayed unread. Fontstacks requested: ${JSON.stringify(stacks)}`,
+  ).toContain(WANTED)
+
+  // 4. And THAT range decoded. Scoped to the authored fontstack on purpose:
+  //    this run also requests `Noto Sans CJK KR Regular`, which no glyph
+  //    server ships and which 404s into `PbfReader: unknown wire type 4` on
+  //    the dev server's HTML error page. That stray request is a SEPARATE
+  //    defect (#2259) that #2121 only made visible — before the wire landed,
+  //    no glyph range was requested at all, so nothing could 404. Asserting
+  //    an empty warning list here would make this gate hostage to that bug;
+  //    asserting it for OUR fontstack still reds if the Open Sans path breaks.
+  const wantedWarnings = glyphWarnings.filter((w) => w.includes(WANTED))
+  expect(
+    wantedWarnings,
+    `${WANTED} was fetched but not decoded, so the style's labels are still system fonts: ${JSON.stringify(wantedWarnings)}`,
+  ).toEqual([])
 
   expect(errors, 'no page errors').toEqual([])
 })
