@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 54a5905aa65fcd1cf78767df8902ba429cfbdf43
+  Generated from: 4685144034587055bf744a4ee5671d175941854b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 54a5905aa65f
+    bun scripts/emit-changelog.ts --since 468514403458
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** awaitMapIdle polls rAF instead of resolving off a stale idle flag (#2101) ([#2230](https://github.com/X-GIS/X-GIS/pull/2230)) `4685144`
 - **map:** raster and DEM opacity resolve against the InputStore ([#2218](https://github.com/X-GIS/X-GIS/pull/2218)) `290eafe`
 - **rhi-webgl2:** bound both axes of the storage data texture by the device limit (#2111) ([#2225](https://github.com/X-GIS/X-GIS/pull/2225)) `50a0a8a`
 - **site:** rebase root-absolute src/href inside raw HTML blocks ([#2212](https://github.com/X-GIS/X-GIS/pull/2212)) `9f641e0`
