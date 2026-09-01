@@ -29,6 +29,7 @@ import {
   PENDING_WORK_KINDS,
   SCOPE_KEEP_WARM,
   SCOPE_RASTER_DEM,
+  SCOPE_TILE_COUNT,
   SCOPE_VT_PIPELINE,
   buildPendingWorkRegistry,
   type PendingWorkKind,
@@ -729,5 +730,84 @@ describe('XGISMap — VT pending work keeps the real shouldRenderThisFrame warm 
     expect(ask()).toBe(true)
     pending = false
     expect(ask()).toBe(false)
+  })
+})
+
+// ═══ #2162 option (B) — SCOPE_TILE_COUNT is what getMissingTileCount() reports ═══
+//
+// (B) corrects the NUMBER. The accessor used to be a hand-maintained three-term re-sum in
+// render-loop.ts whose vector half was only `vt-missed` — cells with NO fallback — so a
+// cell drawn from a magnified ancestor while its own tile downloaded reported 0, where the
+// raster arm (counting fetches) reported 1 for the same picture. These pin the fix, the
+// scope's boundary, and the thing (B) deliberately did NOT change.
+describe('SCOPE_TILE_COUNT — the #2162 (B) tile count', () => {
+  const vtArm = (over: { pendingLoads?: boolean; missed?: number }): Map<string, VtPendingArm> =>
+    new Map([
+      [
+        'src',
+        {
+          source: { hasPendingLoads: () => over.pendingLoads === true },
+          renderer: {
+            ...quietVtRenderer(),
+            getDrawStats: () => ({ missedTiles: over.missed ?? 0 }),
+          },
+        } as unknown as VtPendingArm,
+      ],
+    ])
+
+  it('counts a VT tile downloading BEHIND A FALLBACK — the undercount (B) exists to fix', () => {
+    // missedTiles 0 (a magnified ancestor is drawn) while the tile is still fetching.
+    // The pre-(B) sum was totalMissed + raster + dem = 0 + 0 + 0 = 0 for exactly this.
+    const r = buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      vtSources: vtArm({ pendingLoads: true, missed: 0 }),
+    })
+    expect(r.count(['vt-missed']), 'the arm the old sum used reads 0 here — that WAS the bug').toBe(
+      0,
+    )
+    expect(r.count(SCOPE_TILE_COUNT), 'the downloading tile must now be reported').toBe(1)
+  })
+
+  it('SUMS across kinds rather than early-exiting — it is the numeric projection', () => {
+    const r = buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: null,
+      ...coldArms(),
+      rasterRenderer: {
+        pendingLoadCount: () => 3,
+        failedTiles: { hasPendingRetries: () => false },
+      },
+      vtSources: vtArm({ missed: 2 }),
+    })
+    // 3 raster fetches + 2 missed cells. A boolean-shaped read would say 1.
+    expect(r.count(SCOPE_TILE_COUNT)).toBe(5)
+    expect(r.hasPending(SCOPE_TILE_COUNT), 'the predicate still answers the OR question').toBe(true)
+  })
+
+  it('does NOT see glyph, sprite or coverage — they are not tiles (#2163 stays true)', () => {
+    const glyph = buildPendingWorkRegistry({
+      textStage: { hasPendingGlyphLoads: () => true },
+      iconStage: null,
+      ...coldArms(),
+    })
+    const sprite = buildPendingWorkRegistry({
+      textStage: null,
+      iconStage: { hasPendingAtlasLoad: () => true },
+      ...coldArms(),
+    })
+    expect(glyph.count(SCOPE_TILE_COUNT), 'glyph work is not tile work').toBe(0)
+    expect(sprite.count(SCOPE_TILE_COUNT), 'sprite work is not tile work').toBe(0)
+    // ...and the accessor therefore still is not a convergence signal: both of these are
+    // scenes that have NOT converged while the tile count reads 0. That is why #2163's
+    // "never `=== 0` as a settle condition" survives (B).
+    expect(glyph.hasPending(), 'the full-union read still sees it').toBe(true)
+    expect(sprite.hasPending()).toBe(true)
+  })
+
+  it('is exactly the union minus the three non-tile kinds', () => {
+    const nonTile = PENDING_WORK_KINDS.filter((k) => !SCOPE_TILE_COUNT.includes(k))
+    expect([...nonTile].sort()).toEqual(['coverage', 'glyph', 'sprite'])
   })
 })

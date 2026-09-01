@@ -17,12 +17,15 @@ const pool = getSharedMvtPool()
  *  deterministically (never a real setTimeout that would outlive the test). */
 function harness() {
   const applied: boolean[] = []
-  const state = { pending: true, eligible: true }
+  // `clock` drives the idle-DURATION half of the exit hysteresis (#2204); tests advance
+  // it explicitly so neither half can be satisfied by accident.
+  const state = { pending: true, eligible: true, clock: 1_000 }
   const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = []
   const ctl = new ColdStartBurstController({
     applyToAllSources: (on) => applied.push(on),
     hasPendingSourceWork: () => state.pending,
     viewportEligible: () => state.eligible,
+    now: () => state.clock,
     setTimer: (fn, ms) => {
       const t = { fn, ms, cleared: false }
       timers.push(t)
@@ -98,7 +101,7 @@ describe('ColdStartBurstController — exit hysteresis + gating (#1155 F3)', () 
     expect(pool.coldStartBurstRefcount).toBe(base)
   })
 
-  it('ends only after 3 CONSECUTIVE idle frame-starts; a one-frame dip keeps burst', () => {
+  it('ends only after 3 CONSECUTIVE idle frame-starts AND the idle window (#2204); a one-frame dip keeps burst', () => {
     const base = pool.coldStartBurstRefcount
     const { ctl, state } = harness()
     ctl.enter()
@@ -120,9 +123,75 @@ describe('ColdStartBurstController — exit hysteresis + gating (#1155 F3)', () 
     ctl.tickExit() // idle 1
     ctl.tickExit() // idle 2
     expect(ctl.isOn).toBe(true)
-    ctl.tickExit() // idle 3 → exit
+    ctl.tickExit() // idle 3 — frame count satisfied, but no time has passed yet (#2204)
+    expect(ctl.isOn).toBe(true)
+    state.clock += 500 // ...and now the wall-clock window closes too
+    ctl.tickExit()
     expect(ctl.isOn).toBe(false)
     expect(pool.coldStartBurstRefcount).toBe(base)
+  })
+})
+
+// ═══ #2204 — the idle hysteresis must not be a pure frame count ═══
+//
+// Measured on the #2204 harness: the mid-cascade all-false window lasts 65 ms and occurs
+// ONCE in a 26 s cascade, but three frame-starts fit inside it — so burst ended at ~12.5 s
+// of a cascade still running at 29 s and 59% of the tiles were fetched afterwards at the
+// steady 4/frame drain instead of the burst's 32. Frame counts are worth whatever the
+// machine's frame rate makes them (~50 ms at 60 fps), which is the same argument the hard
+// cap already makes for riding a non-rAF timer.
+describe('ColdStartBurstController — the idle window is wall-clock, not frames (#2204)', () => {
+  it('THE REGRESSION: three idle frame-starts inside the measured 65 ms dip do NOT end burst', () => {
+    const { ctl, state } = harness()
+    ctl.enter()
+    ctl.noteRenderedFrame()
+    state.pending = false
+    // Ten frame-starts — far past COLD_START_BURST_IDLE_FRAMES — spread across the real
+    // dip duration. Pre-#2204 the third of these ended burst.
+    for (let i = 0; i < 10; i++) {
+      state.clock += 6.5 // 10 x 6.5 ms = the 65 ms dip
+      ctl.tickExit()
+    }
+    expect(ctl.isOn, 'a 65 ms dip ended the burst the cascade still needed').toBe(true)
+  })
+
+  it('still ends once the idle window genuinely closes', () => {
+    const { ctl, state } = harness()
+    ctl.enter()
+    ctl.noteRenderedFrame()
+    state.pending = false
+    ctl.tickExit()
+    state.clock += 500
+    ctl.tickExit()
+    ctl.tickExit()
+    expect(ctl.isOn, 'a genuinely settled scene must still release burst').toBe(false)
+  })
+
+  it('the FRAME half still guards: a long wait with too few frame-starts keeps burst', () => {
+    const { ctl, state } = harness()
+    ctl.enter()
+    ctl.noteRenderedFrame()
+    state.pending = false
+    state.clock += 10_000
+    ctl.tickExit() // idle 1 — window is wide open, but only one frame-start
+    expect(ctl.isOn, 'the frame count must still be required').toBe(true)
+  })
+
+  it('work reappearing resets the CLOCK too, so two short dips cannot accumulate', () => {
+    const { ctl, state } = harness()
+    ctl.enter()
+    ctl.noteRenderedFrame()
+    state.pending = false
+    state.clock += 400
+    ctl.tickExit()
+    state.pending = true // a fetch wave lands — the cascade is not over
+    ctl.tickExit()
+    state.pending = false
+    state.clock += 400 // a second 400 ms dip; 400+400 must NOT count as 800
+    ctl.tickExit()
+    ctl.tickExit()
+    ctl.tickExit()
+    expect(ctl.isOn, 'two separate short dips summed into an exit').toBe(true)
   })
 })
 

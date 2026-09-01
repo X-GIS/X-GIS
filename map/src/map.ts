@@ -1663,21 +1663,17 @@ export class XGISMap {
     return this._loaded
   }
 
-  /** Per-frame count of tiles the map is still waiting on: vector-tile cells
-   *  without a drawable tile this frame PLUS raster/hillshade tiles mid-fetch.
-   *  Written by the render-loop's end-of-frame bookkeeping. NOT a convergence
-   *  signal (#2162): it carries three of `keepLoopWarm`'s six terms and none of
-   *  what `shouldRenderThisFrame` adds. Public-by-convention (no `private`) so
+  /** Per-frame in-flight TILE units, summed over `SCOPE_TILE_COUNT` by the render-loop's
+   *  end-of-frame bookkeeping (#2162 option (B)). Public-by-convention (no `private`) so
    *  `RenderLoopHost` can Pick it for the write. */
   _missingTileCount = 0
-  /** Tiles with nothing drawable last frame, plus raster/DEM tiles mid-fetch.
-   *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats
-   *  each call), so a host can poll it every rAF to drive a "loading N tiles"
-   *  affordance without churning GC. Reads 0 while the scene is still resolving
-   *  (#2162) — the vector arm counts cells with NO fallback, so one showing a
-   *  magnified ancestor mid-download is 0 here where the raster arm's
-   *  fetch-count is 1. Drive an affordance with it; never `=== 0` as a settle
-   *  condition — `idle` is the honest one. */
+  /** In-flight tile work last frame — every TILE kind in the registry, summed over
+   *  `SCOPE_TILE_COUNT` (pending-work.ts owns the scope's rationale and its mixed units).
+   *  A zero-allocation read (unlike `stats`, which builds a fresh RenderStats each call),
+   *  so a host can poll it every rAF for a "loading N tiles" affordance.
+   *
+   *  Still NOT a convergence signal (#2163): glyph/sprite/coverage are outside the scope,
+   *  so `=== 0` is not "converged" — drive an affordance with it, settle on `idle`. */
   getMissingTileCount(): number {
     return this._missingTileCount
   }

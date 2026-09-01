@@ -35,6 +35,25 @@ const COLD_START_BURST_MAX_MS = 10_000
  *  that one-frame dip. */
 const COLD_START_BURST_IDLE_FRAMES = 3
 
+/** Minimum CONTINUOUS wall-clock time the idle condition must also hold before burst
+ *  ends (#2204). A frame COUNT alone is the wrong unit, for the same reason the hard cap
+ *  above rides a non-rAF timer: what 3 frame-starts is worth depends entirely on the
+ *  machine — ~50 ms on a 60 fps client, and less again on a page whose skipped frames
+ *  tick faster than its rendered ones.
+ *
+ *  Measured on the #2204 harness (offline vector source, 600 ms per tile): the
+ *  mid-cascade all-false window the comment above describes lasts **65 ms**, and it
+ *  occurs ONCE in a 26 s cascade — but 3 frame-starts fit inside it, so burst ended at
+ *  ~12.5 s of a cascade still running at 29 s, and 59% of the tiles were fetched
+ *  afterwards at the steady 4/frame drain instead of the burst's 32. Suppressing the exit
+ *  in the same harness raised the tiles fetched from 71 to 81.
+ *
+ *  500 ms is ~7.7x the observed dip and still 20x below COLD_START_BURST_MAX_MS, which
+ *  remains the real bound. Erring long is close to free: a scene that has genuinely
+ *  settled has nothing left to drain, so the only cost of holding burst is the shared
+ *  pool refcount for another half second. */
+const COLD_START_BURST_IDLE_MS = 500
+
 /** Collaborators the map supplies. Kept as an injected port so the controller
  *  holds no XGISMap back-reference (the same zero-coupling discipline
  *  device-lost-recovery.ts uses) and unit tests can drive it with stubs. */
@@ -65,6 +84,9 @@ export interface ColdStartBurstDeps {
    *  unit test drives it deterministically. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
   clearTimer?: (handle: ReturnType<typeof setTimeout>) => void
+  /** Monotonic clock for the idle-duration half of the exit hysteresis (#2204).
+   *  Injected for the same reason as the timers: the unit test drives it. */
+  now?: () => number
 }
 
 /** Cold-start burst state machine. Single owner of THIS map's burst state:
@@ -83,15 +105,21 @@ export class ColdStartBurstController {
   /** Consecutive idle frame-starts counted toward COLD_START_BURST_IDLE_FRAMES;
    *  reset to 0 the moment work reappears. */
   private _consecutiveIdle = 0
+  /** Clock reading at the START of the current idle run, or null when work is pending.
+   *  Paired with `_consecutiveIdle`: burst ends only once BOTH the frame count and the
+   *  wall-clock window are satisfied (#2204). */
+  private _idleSince: number | null = null
   /** Handle for the non-rAF wall-clock backstop; null when burst is off. */
   private _capTimer: ReturnType<typeof setTimeout> | null = null
   private readonly _viewportEligible: () => boolean
   private readonly _setTimer: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
   private readonly _clearTimer: (handle: ReturnType<typeof setTimeout>) => void
+  private readonly _now: () => number
   constructor(private readonly deps: ColdStartBurstDeps) {
     this._viewportEligible = deps.viewportEligible ?? (() => true)
     this._setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
     this._clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle))
+    this._now = deps.now ?? (() => performance.now())
   }
 
   get isOn(): boolean {
@@ -115,6 +143,7 @@ export class ColdStartBurstController {
     }
     this._renderedFrames = 0
     this._consecutiveIdle = 0
+    this._idleSince = null
   }
 
   /** Leave burst. Idempotent (double-exit safe — the exit predicate and
@@ -143,8 +172,22 @@ export class ColdStartBurstController {
   tickExit(): void {
     if (!this._on) return
     if (this._renderedFrames < 1) return
-    if (this.deps.hasPendingSourceWork()) this._consecutiveIdle = 0
-    else if (++this._consecutiveIdle >= COLD_START_BURST_IDLE_FRAMES) this.exit()
+    if (this.deps.hasPendingSourceWork()) {
+      this._consecutiveIdle = 0
+      this._idleSince = null
+      return
+    }
+    this._idleSince ??= this._now()
+    // BOTH halves, deliberately (#2204): the frame count rides the one-frame dip the
+    // comment on COLD_START_BURST_IDLE_FRAMES describes, and the wall-clock window makes
+    // that guarantee independent of frame rate. Frames alone let a 65 ms mid-cascade dip
+    // end a burst that the cascade still needed for another 17 s.
+    if (
+      ++this._consecutiveIdle >= COLD_START_BURST_IDLE_FRAMES &&
+      this._now() - this._idleSince >= COLD_START_BURST_IDLE_MS
+    ) {
+      this.exit()
+    }
   }
 
   /** Arm (or re-arm) the non-rAF wall-clock backstop. Clears any prior timer so a
