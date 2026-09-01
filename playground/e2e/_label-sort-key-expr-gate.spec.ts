@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { captureMapFrame } from './helpers/visual'
+import { awaitMapIdle, captureMapFrame } from './helpers/visual'
 import { createHash } from 'node:crypto'
 
 // #2166 ACCEPTANCE GATE — a PER-FEATURE `symbol-sort-key` decides which of two
@@ -101,7 +101,12 @@ async function arm(
     { a: alphaRank, b: bravoRank },
   )
   expect(seeded).toBe(2)
-  await page.waitForTimeout(6000)
+  // Event-driven settle, not a sleep (CLAUDE.md §5): the surviving-label read
+  // below is only meaningful once collision has run on a converged scene.
+  const settled = await awaitMapIdle(page)
+  expect(settled, 'the scene never reached map idle — the survivor read would be mid-load').toBe(
+    'idle',
+  )
   const png = await captureMapFrame(page)
   const read = await page.evaluate(() => {
     const w = window as unknown as {

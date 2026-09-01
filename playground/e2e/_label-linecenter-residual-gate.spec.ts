@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { awaitMapIdle } from './helpers/visual'
 
 // #2166 RESIDUAL GATE — the corrected text-pitch-alignment record, made checkable.
 //
@@ -88,7 +89,16 @@ async function frameAt(
     },
     { pitch },
   )
-  await page.waitForTimeout(8000)
+  // Event-driven settle, not a sleep (CLAUDE.md §5). It matters MORE here than
+  // in a pixel gate: HALF TWO asserts `groundAligned === 0`, and an
+  // under-settled line-center frame produces that same 0 for the wrong reason,
+  // so a fixed sleep on a contended machine would let the gate pass vacuously.
+  // A scene that never converges must red loudly instead.
+  const settled = await awaitMapIdle(page)
+  expect(
+    settled,
+    `${id} never reached map idle — the counts below would be measured mid-load`,
+  ).toBe('idle')
   return await page.evaluate(() => {
     const w = window as unknown as {
       __xgisMap: {

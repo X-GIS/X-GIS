@@ -109,12 +109,19 @@ describe('#2166 — groundAlignsAtRuntime', () => {
     }
   })
 
-  it('POINT placement ground-aligns whenever the chain resolves to map', () => {
-    // dispatch-point-labels.ts makeGroundBasisFor gates on nothing else.
-    expect(groundAlignsAtRuntime('point', undefined, 'map')).toBe(true)
-    expect(groundAlignsAtRuntime('point', 'map', undefined)).toBe(true)
-    expect(groundAlignsAtRuntime(undefined, 'map', undefined)).toBe(true)
-    // …and stays a billboard on the default point path, which resolves viewport.
+  it('POINT placement NEVER ground-aligns on the tiled column, even resolving to map', () => {
+    // The predicate models the tiled dispatch column (see its DOMAIN note), and
+    // there the point arms call addLabel with ten arguments — they stop before
+    // the basis parameter. makeGroundBasisFor is wired on the RAW-dataset point
+    // arm only, which is a source-kind fact no per-layer predicate can read.
+    // These three read `true` before #2166's correction and were the shipped
+    // false silence: a vector-tile POI layer authoring `map` got no warning and
+    // no ground plane.
+    expect(groundAlignsAtRuntime('point', undefined, 'map')).toBe(false)
+    expect(groundAlignsAtRuntime('point', 'map', undefined)).toBe(false)
+    expect(groundAlignsAtRuntime(undefined, 'map', undefined)).toBe(false)
+    // …and it is a billboard on the default point path too, which resolves
+    // viewport — same answer, but reached by the resolve gate rather than here.
     expect(groundAlignsAtRuntime('point', undefined, undefined)).toBe(false)
   })
 

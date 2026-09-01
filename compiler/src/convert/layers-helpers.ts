@@ -563,6 +563,14 @@ export function parseSymbolPlacementStep(layer: MapboxLayer): Array<{
  *  ground plane. A warning that fires on working behaviour is worse than none:
  *  it teaches authors to avoid a feature that works.
  *
+ *  The point half of that pair is narrower than it reads: `makeGroundBasisFor`
+ *  is wired on the RAW-dataset point arm only, so a point label on a tile-backed
+ *  source still billboards and still deserves the warning. Re-measured over the
+ *  three shipped fixture styles, adding that arm back changes NOTHING about what
+ *  the warning fires on — every point-placed symbol layer in bright / liberty /
+ *  demotiles resolves to `viewport` (the spec default for point), so the fired
+ *  set on the corpus stays empty either way.
+ *
  *  So the condition is now the difference between two questions the SHARED
  *  authority (ir/label-alignment.ts) answers — does the spec ask for the ground
  *  plane, and does map/src put it there — rather than a restatement of either.
@@ -572,7 +580,8 @@ export function parseSymbolPlacementStep(layer: MapboxLayer): Array<{
  *
  *  Returns null for: resolved `viewport`, an icon-only layer (a TEXT warning on
  *  a layer with no text-field is noise; that gap is icon-pitch-alignment's row),
- *  and every label the runtime really does ground-project.
+ *  and the one cell the runtime ground-projects on the tiled dispatch column —
+ *  `line` placement that reaches the tangent-rotated curved branch.
  */
 export function pitchAlignmentGapWarning(
   layer: { id: string },
@@ -584,11 +593,14 @@ export function pitchAlignmentGapWarning(
   if (isOmittedValue(layout['text-field'])) return null
   if (resolvePitchAlignment(placement, rotAlign, pitchAlign) !== 'map') return null
   if (groundAlignsAtRuntime(placement, rotAlign, pitchAlign)) return null
-  // Exactly two residual shapes reach here, and the predicate above is what makes
-  // that exhaustive: it withholds a resolved-`map` label only for `line-center`
-  // placement, or for a `line` layer whose rotation alignment is `viewport` (the
-  // ground-projected line path IS the tangent-rotated curved branch). Point
-  // placement never arrives — there the two predicates agree.
+  // Three residual shapes reach here — line-center, `line` + rotation `viewport`,
+  // and point placement — and they are what the predicate withholds on the TILED
+  // dispatch column it models (see its DOMAIN note). That column is NOT the whole
+  // truth and this warning does not claim it is: the ground basis is wired
+  // diagonally, so the untiled column ground-projects POINT labels and billboards
+  // LINE ones — the mirror image. Which column a layer lands in is a per-SOURCE
+  // fact the converter cannot read off the layer, so silence here means
+  // "ground-projected on the tiled path", never "ground-projected on every path".
   if (placement === 'line-center') {
     return (
       `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" ` +
@@ -598,11 +610,20 @@ export function pitchAlignmentGapWarning(
       `"line" placement IS ground-projected.`
     )
   }
+  if (placement === 'line') {
+    return (
+      `Symbol layer "${layer.id}" — text-pitch-alignment "map" with ` +
+      `text-rotation-alignment "viewport" on "line" placement: X-GIS ground-projects line ` +
+      `labels on the tangent-rotated (curved) branch only, so this combination stays an ` +
+      `upright billboard under pitch.`
+    )
+  }
   return (
-    `Symbol layer "${layer.id}" — text-pitch-alignment "map" with ` +
-    `text-rotation-alignment "viewport" on "line" placement: X-GIS ground-projects line ` +
-    `labels on the tangent-rotated (curved) branch only, so this combination stays an ` +
-    `upright billboard under pitch.`
+    `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" on point ` +
+    `placement, but X-GIS builds the per-label ground basis for point labels only on the ` +
+    `dispatch path for sources whose features are held untiled. A vector-tile source is ` +
+    `always tiled, and its point dispatch supplies no basis, so the label stays an upright ` +
+    `billboard under pitch. "line" placement IS ground-projected on a tiled source.`
   )
 }
 

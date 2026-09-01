@@ -31,8 +31,8 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     property: 'text-pitch-alignment',
     layerType: 'symbol',
     variant: 'constant',
-    supported: true,
-    note: 'Ground projection wired on both dispatch paths — makeGroundBasisFor for point placement (dispatch-point-labels.ts) and the pitch-0 label-plane walk for the tangent-rotated curved line branch (label-pass.ts → dispatch-curved-line-labels.ts); the basis reaches the renderer through TextStage as groundBasis. Residual: `line-center` and `line` + text-rotation-alignment `viewport` take the non-curved fallback and stay billboards, and the globe projection has no map plane so it billboards by design.',
+    supported: false,
+    note: "Ground projection ships, but DIAGONALLY across the label pass's two dispatch paths, so it is a real gap on either path taken alone. The path is picked by the SOURCE, before the placement is consulted: features held untiled take the raw path, tiled ones take the other. POINT labels get the basis on the RAW path only (makeGroundBasisFor, dispatch-point-labels.ts), so a point label on a vector-tile source billboards: the tiled point arms call addLabel with ten arguments and stop before the basis parameter. LINE labels get it on the TILED path only (the pitch-0 label-plane walk of the tangent-rotated curved branch, label-pass.ts → dispatch-curved-line-labels.ts), so an inline-GeoJSON line label billboards: placeInlineLineLabels takes no basis argument at all. Also billboards, on both paths: `line-center` (one label per feature through emitLabelAlongSegment, no basis) and `line` + text-rotation-alignment `viewport` (never reaches the curved branch). The globe has no map plane to lie in and is deferred by design. Where the basis IS built it reaches the renderer through TextStage as groundBasis. The converter warns on the residuals a per-layer predicate can see; groundAlignsAtRuntime models the tiled path and its own note carries the four-cell table.",
   },
 
   // Icon paint

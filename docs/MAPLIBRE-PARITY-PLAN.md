@@ -123,9 +123,10 @@ opacity is a _multiplicative_ axis, not a replacement.
    per feature — extend it to evaluate `iconSizeExpr` / `iconOpacityExpr` and pass to
    `dispatchIcon` (`label-pass.ts:187`). No worker change (labels evaluate on main
    thread per-feature, cached by WeakMap).
-3. **symbol-sort-key data-driven:** evaluate the key expr in `applyFeatureExprs`,
-   thread to the `CollisionItem.sortKey` already consumed by the collision sort
-   (today it flattens to 0).
+3. ~~**symbol-sort-key data-driven:** evaluate the key expr in `applyFeatureExprs`,
+   thread to the `CollisionItem.sortKey` already consumed by the collision sort.~~
+   DONE (#2166) — exactly as described. Residual: the key drives collision
+   priority only, not painter order in the `auto` z-order mode.
 4. **Pattern data-driven sprite-name:** thread the sprite-name expression through IR
    (`lower.ts`) to a per-feature evaluated atlas-UV lookup. Heavier — needs a
    per-feature UV-bbox attribute instead of the single layer-uniform UV bbox used by
