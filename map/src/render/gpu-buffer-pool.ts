@@ -13,6 +13,8 @@
 // through the driver. Buckets are powers of two from 2 KB → 4 MB, so size-fit
 // reuse works across tiles with similar feature density.
 
+import { trackOwner, untrackOwner } from '@xgis/shared'
+
 /** Per-bucket ENTRY cap. Bounds how many buffers of one size are parked;
  *  `POOL_MAX_BYTES` is what bounds the bytes, which is the guarantee that
  *  actually matters. */
@@ -74,7 +76,9 @@ export class GpuBufferPool {
    *  semantics as StagingBufferPool.dispose (#1153 P2 R1). */
   private _destroyed = false
 
-  constructor(private readonly device: BufferPoolDevice) {}
+  constructor(private readonly device: BufferPoolDevice) {
+    trackOwner(this, 'GpuBufferPool')
+  }
 
   /** Parked bytes — the accumulator the byte cap is enforced against. */
   get bytes(): number {
@@ -153,6 +157,7 @@ export class GpuBufferPool {
    *  leak until device loss across SPA map create/destroy cycles. Terminal
    *  (#2248): any later release destroys its buffer instead of parking it. */
   destroy(): void {
+    untrackOwner(this)
     for (const pool of this.pools.values()) for (const b of pool) b.destroy()
     this.pools.clear()
     this._parked.clear()
