@@ -468,8 +468,10 @@ export const resolvedLocaleHandler: ExprHandler = (v, warnings) => {
   // case- / diacritic-sensitivity opts cannot change the resolved tag, so a
   // non-constant SIBLING opt must not drop the whole expression. That is why
   // this does NOT call the shared `extractCollatorOpts` — that extractor is
-  // all-or-nothing by design, because the comparison path bakes EVERY opt
-  // into `collator_cmp`.
+  // all-or-nothing because its own contract is extracting COMPILE-TIME
+  // CONSTANTS, not because the comparison path cannot express a per-feature
+  // option. It can: since #2166 `lowerCollatorOptSlots` lowers an expression
+  // into whichever `collator_cmp` slot carries it.
   if (v.length !== 2) {
     warnings.push(
       `Malformed ["resolved-locale"] expression: expected 1 collator argument, got ${v.length - 1}.`,

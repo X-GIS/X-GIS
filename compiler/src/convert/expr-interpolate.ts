@@ -232,7 +232,12 @@ export function convertInterpolate(
     }
     // Not all-numeric: try HEX COLOUR stops, sampling each segment's
     // colour at the bezier-EASED fraction (sRGB channel lerp — the space
-    // Mapbox's non-lab `interpolate` uses). Mirror of the numeric densify
+    // Mapbox's non-lab `interpolate` uses). `interpolate-lab` /
+    // `interpolate-hcl` are EXCLUDED below and fall through to the Lab /
+    // LCh densifier, which applies this same easing in the authored
+    // perceptual space — sampling their ramp in sRGB discards it (#2166;
+    // mirror of the zoom-axis twin paint-helpers.ts:interpolateZoomStops).
+    // Mirror of the numeric densify
     // above; the runtime then linearly interpolates the dense hex stops.
     const colourStops: Array<{ z: number; rgb: [number, number, number]; quoted: boolean }> = []
     let allHex = true
@@ -251,7 +256,7 @@ export function convertInterpolate(
       }
       colourStops.push({ z, rgb, quoted })
     }
-    if (allHex && colourStops.length >= 2) {
+    if (allHex && colourStops.length >= 2 && !isLab) {
       const SAMPLES_PER_SEGMENT = 6
       const reQuote = colourStops.some((s) => s.quoted)
       const ch = (c: number) =>
@@ -286,11 +291,15 @@ export function convertInterpolate(
       )
       return `interpolate(${input}, ${dense.join(', ')})`
     }
-    warnings.push(
-      `["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
-    )
+    // interpolate-lab / interpolate-hcl are NOT folded here — the Lab / LCh
+    // densifier below owns them and emits its own diagnostic.
+    if (!isLab) {
+      warnings.push(
+        `["${op}", ["cubic-bezier", …], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
+      )
+    }
   }
-  if (isLab && !isExp && !isBezier) {
+  if (isLab && !isExp) {
     // Try Lab/LCh densification over hex colour stops. stopArgs y
     // entries are the converted xgis strings — for hex literals
     // these may be either bare `#rrggbb` form OR JSON-quoted
@@ -338,8 +347,12 @@ export function convertInterpolate(
         const b = labStops[i + 1]!
         dense.push(String(a.z), emit(a.hex))
         for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
-          const t = k / SAMPLES_PER_SEGMENT
-          const z = a.z + (b.z - a.z) * t
+          const p = k / SAMPLES_PER_SEGMENT
+          // The dense stop's INPUT position stays linear; only the colour
+          // parameter is eased, so the runtime's linear interpolate between
+          // dense stops reproduces the authored bezier in Lab / LCh.
+          const z = a.z + (b.z - a.z) * p
+          const t = isBezier ? cssBezierEase(p, bezierX1, bezierY1, bezierX2, bezierY2) : p
           let L: number, A: number, B: number
           if (useHcl) {
             const [La, Ca, ha] = labToLch(a.L, a.a, a.b)
@@ -362,7 +375,7 @@ export function convertInterpolate(
       const last = labStops[labStops.length - 1]!
       dense.push(String(last.z), emit(last.hex))
       warnings.push(
-        `${op}(…) approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`,
+        `${op}(…) [${isBezier ? `cubic-bezier ${bezierX1}, ${bezierY1}, ${bezierX2}, ${bezierY2}` : 'linear'}] approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`,
       )
       return `interpolate(${input}, ${dense.join(', ')})`
     }
@@ -378,7 +391,7 @@ export function convertInterpolate(
     // runtime cost; not yet routed.
     const lookup = op === 'interpolate-hcl' ? 'interpolate_hcl' : 'interpolate_lab'
     warnings.push(
-      `${op}(…) routed to runtime ${lookup}(…) — per-feature Lab/LCh interpolation between resolved stop colours. iter 164.`,
+      `${op}(…) routed to runtime ${lookup}(…) — per-feature Lab/LCh interpolation between resolved stop colours. iter 164.${isBezier ? ' The authored cubic-bezier curve is DROPPED: that runtime case interpolates linearly, and an eased sample cannot be computed until feature eval.' : ''}`,
     )
     return `${lookup}(${input}, ${stopArgs.join(', ')})`
   } else if (isLab) {

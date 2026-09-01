@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9f641e0f640763c1dca0344faf2eff9eafd829ef
+  Generated from: 50a0a8a5a5d88fe291461ac66dae827aa1f20a69
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9f641e0f6407
+    bun scripts/emit-changelog.ts --since 50a0a8a5a5d8
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler/convert:** zoom-axis bezier colour densify + per-feature collator options ([#2217](https://github.com/X-GIS/X-GIS/pull/2217)) `702cd72`
 - **compiler:** make Mapbox ["array", …] a real type assertion ([#2202](https://github.com/X-GIS/X-GIS/pull/2202)) `9da727d`
 - **compiler:** fog and transition leave the ignored-roots lump for precise warnings ([#2199](https://github.com/X-GIS/X-GIS/pull/2199)) `fdeb8cf`
 - **map:** keepLoopWarm and the burst exit read the registry; legacy hasPendingSourceWork deleted (#2149 increment 6) ([#2195](https://github.com/X-GIS/X-GIS/pull/2195)) `e4db558`
@@ -34,6 +35,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **rhi-webgl2:** bound both axes of the storage data texture by the device limit (#2111) ([#2225](https://github.com/X-GIS/X-GIS/pull/2225)) `50a0a8a`
 - **site:** rebase root-absolute src/href inside raw HTML blocks ([#2212](https://github.com/X-GIS/X-GIS/pull/2212)) `9f641e0`
 - **compiler:** split zoom-interpolated icon-translate per axis so it stops snapping ([#2200](https://github.com/X-GIS/X-GIS/pull/2200)) `ebb2fea`
 - **compiler:** fill-antialias gates the fill-outline draw, not MSAA ([#2194](https://github.com/X-GIS/X-GIS/pull/2194)) `260f77e`
@@ -56,6 +58,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
 ### 2026-08

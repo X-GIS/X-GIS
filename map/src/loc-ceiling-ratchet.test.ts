@@ -2253,11 +2253,8 @@ const CEILINGS: Record<string, number> = {
   // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
-  // 1001→1006 (#2166): `LabelDef.sortKeyExpr` + its doc, and the sibling `sortKey`
-  // doc loses the two lines that claimed the expression form flattens to 0 — it no
-  // longer does. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
   'compiler/src/ir/render-node.ts': 1006,
-  'compiler/src/convert/paint-helpers.ts': 826,
+  'compiler/src/convert/paint-helpers.ts': 912,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,

@@ -36,6 +36,20 @@ on:
     branches: [main]
   # `workflow_dispatch` keeps a manual on-demand run available for any ref.
   workflow_dispatch:
+  # BASE-RED PATROL (#2135). The render shards do not run on `push` (see that
+  # job for why), so before this trigger existed a combination that was green on
+  # every PR and red once MERGED was invisible to main's own CI — it could only
+  # surface inside somebody else's pull request, which is exactly how #2135 was
+  # found, five runtime merges after it landed.
+  #
+  # Not `push: main`: that leg runs ~60 min, and `changelog.yml` lands a
+  # regeneration push ~90 s after every code merge, so a per-merge render run
+  # would be superseded out of the pending slot on essentially every merge it
+  # exists to check (#1963) — the same hollowing-out the `concurrency` note
+  # below describes, one leg down. A schedule bounds base-red exposure to the
+  # interval at 4 runs/day instead of ~15, and never contends with a merge.
+  schedule:
+    - cron: '0 */6 * * *'
 
 # Cancel an older in-flight run when a new commit is pushed to the same ref —
 # iterative pushes used to leave 3-5min runs burning in parallel.
@@ -59,12 +73,28 @@ on:
 # `paths-ignore: CHANGELOG.md`) landing ~90 s later. So under `true` the guard
 # would have been cancelled on essentially every code merge it exists to check.
 # Conditioned on the event, PR behaviour is untouched — iterative pushes still
-# cancel — and main runs queue instead. They are bounded: `render-gate` opts out
-# of push, so a main run is minutes, well inside the ~22 min mean inter-merge
-# interval (#1842).
+# cancel. Main runs no longer queue at all; see the per-SHA note below. They stay
+# bounded either way: `render-gate` opts out of push, so a main run is minutes.
+#
+# THE GROUP IS PER-SHA OFF THE PR PATH (#1963). `cancel-in-progress: false` was
+# not enough: GitHub keeps at most ONE pending run per concurrency group, and a
+# newer run cancels the pending one regardless of that flag — the flag governs
+# the IN-PROGRESS run only. Measured on `bd677c2e`, a code-bearing merge:
+#
+#   03:48:31  2fe41502 (a merge)      -> starts, holds the group, 19 jobs
+#   03:49:35  e3db2c2c (changelog)    -> queued PENDING behind it
+#   03:49:59  bd677c2e (a merge)      -> cancels e3db2c2c at 03:50:01
+#   03:51:06  f3762255 (changelog)    -> cancels bd677c2e at 03:51:07
+#
+# `list_workflow_jobs(bd677c2e)` returned `total_count: 0` — that merge was
+# never checked at all. Since the changelog regeneration follows every code
+# merge by ~90 s, any two merges inside one main-run window guarantee the
+# second gets zero coverage. Giving each push/schedule run its own group
+# removes the shared pending slot entirely; PR runs keep the per-ref group so
+# iterative pushes still cancel their own predecessor.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Cheap filter job (sub-5s, no bun/build) that decides which downstream jobs
@@ -86,7 +116,12 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      render: ${{ steps.filter.outputs.render }}
+      # A scheduled or manually dispatched run has no diff base to filter
+      # against — the point of those runs is the TIP, not a change — so `render`
+      # is forced on. Without this the shards would check out, install, and then
+      # `if`-skip every step, reporting green having run nothing: the #2135
+      # vacuity this patrol exists to end, reintroduced by its own plumbing.
+      render: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'true' || steps.filter.outputs.render }}
       code: ${{ steps.filter.outputs.code }}
       site: ${{ steps.filter.outputs.site }}
     steps:
@@ -795,11 +830,12 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     name: render-shard (${{ matrix.shard }}/6)
-    # PR-only, unlike every other job here. This is the one leg that can outlast
-    # the merge cadence — #1862's took 63 min against the ~22 min mean inter-merge
-    # interval measured in #1842 — so on `push: main` the `concurrency` group above
-    # would cancel it before it reported, and a gate that never reports is not a
-    # gate. The post-merge guard is therefore the FAST legs: they are what
+    # Not on `push`, unlike every other job here. This is the one leg that can
+    # outlast the merge cadence — #1862's took 63 min against the ~22 min mean
+    # inter-merge interval measured in #1842 — so a per-merge render run would be
+    # superseded by the changelog push that follows every merge, and a gate that
+    # never reports is not a gate. It runs on the PR, and on the 6-hourly
+    # `schedule` that patrols main's tip for base-red (#2135). The post-merge guard is therefore the FAST legs: they are what
     # `test-result` aggregates, and they are what would have caught #1864 (a
     # `TS2305` that `typecheck` reached 1m23s in). A shader regression stays gated
     # where it CAN be gated — on the pull request, where this job still runs.
@@ -1261,7 +1297,7 @@ jobs:
           set -o pipefail
           rc=0
           ./node_modules/.bin/playwright test --shard=${{ matrix.shard }}/6 \
-            _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _force-inline-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _oblique-seam-streak-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _fill-antialias-outline-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _vertical-writing-column-gate.spec.ts _label-pitch-alignment-gate.spec.ts _label-curved-ground-gate.spec.ts _circle-pitch-alignment-gate.spec.ts _translate-anchor-spec-default-bearing.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _webgl2-compute-recipe.spec.ts _compute-runner-parity.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-drape-overzoom-gate.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts _fixture-picking.spec.ts _inline-geojson-import.spec.ts _korea-fill-regression.spec.ts _import-mapbox-inline-button.spec.ts _step-and-concat.spec.ts _phase5e-yellow-sea-verify.spec.ts _bundle-replay-parity-gate.spec.ts _rtc-recombine-parity-gate.spec.ts _split-bind-parity-gate.spec.ts _split-perstyle-parity-gate.spec.ts _line-ecef-lane-parity.spec.ts _raster-grid-lat-parity.spec.ts _globe-direct-overzoom-sharpness-gate.spec.ts _line-gradient-gl2-gate.spec.ts _label-linecenter-residual-gate.spec.ts _label-sort-key-expr-gate.spec.ts 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
+            _shader-math-parity.spec.ts _wgsl-compile-gate.spec.ts _force-inline-compile-gate.spec.ts _vs-clip-parity.spec.ts _dequant-parity.spec.ts _polygon-fill-flat-parity.spec.ts _polygon-fill-flat-pixel-gate.spec.ts _optimizer-gpu-parity.spec.ts _dsl-builtin-gate.spec.ts _glsl-compile-gate.spec.ts _glsl-texture-gate.spec.ts _glsl-texture-array-gate.spec.ts _glsl-integer-texture-gate.spec.ts _polygon-glsl-compile-gate.spec.ts _line-glsl-compile-gate.spec.ts _glsl-real-shader-link-gate.spec.ts _variant-link-gate.spec.ts _1246-projection-width-gate.spec.ts _oblique-seam-streak-gate.spec.ts _backend-toggle-gl2-gate.spec.ts _bg-pattern-globe-gate.spec.ts _camera-animation-gate.spec.ts _demo-actions-gate.spec.ts _fill-pattern-gl2-gate.spec.ts _fill-antialias-outline-gate.spec.ts _bezier-zoom-color-gate.spec.ts _globe-inertia-gate.spec.ts _graphics-retained-circle-gate.spec.ts _graticule-gl2-gate.spec.ts _heatmap-gl2-gate.spec.ts _host-atlas-icon-gate.spec.ts _icons-gl2-gate.spec.ts _label-fade-gate.spec.ts _label-fade-motion-gate.spec.ts _label-zoom-skip-gate.spec.ts _labels-gl2-gate.spec.ts _lines-gl2-gate.spec.ts _marker-popup-gate.spec.ts _mip-crawl-gate.spec.ts _paint-transition-gate.spec.ts _points-gl2-gate.spec.ts _raster-fade-gate.spec.ts _raster-gl2-gate.spec.ts _reduced-motion-gate.spec.ts _s111-screen-lattice-gate.spec.ts _stage-block-line-webgl2-gate.spec.ts _stage-block-point-webgl2-gate.spec.ts _webgl2-line-link-gate.spec.ts _webgl2-point-link-gate.spec.ts _webgl2-render-gate.spec.ts _shader-dsl-mrt-render.spec.ts _shader-dsl-examples-render.spec.ts _emit-obfuscate-gate.spec.ts _graphics-retained-gl2-gate.spec.ts _graphics-retained-arrow-gl2-gate.spec.ts _graphics-retained-arrow-orientation-gate.spec.ts _graphics-compiled-arrow-parity.spec.ts _graphics-retained-drawcall-gl2-gate.spec.ts _compute-gen-compile-gate.spec.ts _fills-gl2-gate.spec.ts _fill-data-driven-gl2-gate.spec.ts _point-gradient-gl2-gate.spec.ts _stage-block-parity.spec.ts _prefetch-effect-gl2-probe.spec.ts _globe-hash-camera-gate.spec.ts _globe-dateline-wired-gate.spec.ts _hillshade-gl2-gate.spec.ts _1221-seam-control-matrix.spec.ts _hillshade-methods-gl2-gate.spec.ts _1678-hillshade-bake-hash-gate.spec.ts _reseed-data-push-gate.spec.ts _1235-measure-gate.spec.ts _world-copies-projection-gate.spec.ts _gl2-live-swap-gate.spec.ts _s111-multiregion-gate.spec.ts _s111-overlap-ownership-gate.spec.ts _s111-currents-render.spec.ts _s111-deferred-coverage-gate.spec.ts _s111-advected-arrows-gate.spec.ts _s111-mosaic-arrow-field-gate.spec.ts _s111-arrow-density-gate.spec.ts _s111-dead-boundary-halo-gate.spec.ts _s111-catalogue-declarative-gate.spec.ts _s102-catalogue-gate.spec.ts _coverage-render.spec.ts _demotiles-labels-gl2-gate.spec.ts _vertical-writing-column-gate.spec.ts _label-pitch-alignment-gate.spec.ts _label-curved-ground-gate.spec.ts _circle-pitch-alignment-gate.spec.ts _translate-anchor-spec-default-bearing.spec.ts _translucent-chain-gate.spec.ts _heatmap-chain-gate.spec.ts _labels-chain-gate.spec.ts _hillshade-chain-gate.spec.ts _graphics-chain-gate.spec.ts _scene-scale-seam-gate.spec.ts _1581-static-camera-render-gate.spec.ts _1616-content-generation-churn.spec.ts _1616-pan-points-gl2-gate.spec.ts _pick-gl2-chain-gate.spec.ts _webgl2-live-render-gate.spec.ts _scene-scale-webgl2-chain-gate.spec.ts _compute-parity.spec.ts _webgl2-compute-recipe.spec.ts _compute-runner-parity.spec.ts _compute-path-continent-match.spec.ts _symbol-anchor-inline-gate.spec.ts _atmosphere-globe-gate.spec.ts _webgl2-frame-close-gate.spec.ts _coverage-sounding-globe-gate.spec.ts _s111-mosaic-trail-gate.spec.ts _demotiles-mirror-gate.spec.ts _synth-bg-ortho-pitch80-gate.spec.ts _1222-drape-stroke-zoom-width.spec.ts _1229-ux-batch2.spec.ts _1235-push-line.spec.ts _1245-wrap-continuity-sweep.spec.ts _1248-composite-size-zoom.spec.ts _absorbed-fn-parity.spec.ts _auto-labels.spec.ts _ecef-render-position.spec.ts _filter-gdp-z-fighting.spec.ts _flat-globe-shots.spec.ts _flat-mercator-flatness.spec.ts _font-vendoring.spec.ts _fp64-known-answer.spec.ts _full-outset.spec.ts _globe-vector-drape-i2.spec.ts _globe-drape-overzoom-gate.spec.ts _globe-vector-drape-i3-cache.spec.ts _globe-vector-line-drape.spec.ts _host-sprite-atlas-parity.spec.ts _inline-match-virt.spec.ts _input-live-set.spec.ts _label-draw-order-near-first.spec.ts _label-occlusion-pitch.spec.ts _line-regressions.spec.ts _mobile-monaco-collapse.spec.ts _new-fixtures-smoke.spec.ts _ortho-tilt-backface.spec.ts _outset-corner-max.spec.ts _outset-zoom-more.spec.ts _picking-bgl-mismatch.spec.ts _picking-ortho-bindgroup.spec.ts _project-accessor.spec.ts _scene-builder-jstab.spec.ts _scene-builder-twin.spec.ts _single-point-bounds-fit.spec.ts _stroke-align-compare.spec.ts _stroke-outset-detail.spec.ts _water-hierarchy-pitch.spec.ts _zoom-interp-point-size.spec.ts _inline-data-verify.spec.ts _fixture-picking.spec.ts _inline-geojson-import.spec.ts _korea-fill-regression.spec.ts _import-mapbox-inline-button.spec.ts _step-and-concat.spec.ts _phase5e-yellow-sea-verify.spec.ts _bundle-replay-parity-gate.spec.ts _rtc-recombine-parity-gate.spec.ts _split-bind-parity-gate.spec.ts _split-perstyle-parity-gate.spec.ts _line-ecef-lane-parity.spec.ts _raster-grid-lat-parity.spec.ts _globe-direct-overzoom-sharpness-gate.spec.ts _line-gradient-gl2-gate.spec.ts _label-linecenter-residual-gate.spec.ts _label-sort-key-expr-gate.spec.ts 2>&1 | tee "$RUNNER_TEMP/shard.log" || rc=$?
           if ! grep -qE 'Running [1-9][0-9]* test' "$RUNNER_TEMP/shard.log"; then
             echo "::error::render-shard ${{ matrix.shard }}/6 executed NO tests. A shard that matches nothing exits 0 SILENTLY (measured), so this is a broken shard split or a broken spec list — not a pass."
             exit 1
@@ -1327,9 +1363,11 @@ jobs:
   # every leg succeeded, `failure` if any failed, `skipped` if the whole job was
   # skipped.
   #
-  # `if: always()` because the shards are PR-only. On `push: main` they skip, this
+  # `if: always()` because the shards do not run on `push`. There they skip, this
   # job runs, reads `skipped`, and reports green in seconds — preserving the push
-  # opt-out that bounds the post-merge guard's cost, while still posting the context.
+  # opt-out that bounds the post-merge guard's cost, while still posting the
+  # context. On a `schedule` run they DO expand, so a green render-gate there is
+  # the one that carries information about main's tip (#2135).
   #
   # `cancelled` fails, for the reason spelled out at length in `test-result`: passing
   # on it would let a cancelled run turn a required context green with nothing having
