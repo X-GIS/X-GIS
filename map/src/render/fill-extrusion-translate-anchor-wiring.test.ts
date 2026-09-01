@@ -5,7 +5,7 @@
 // shares fill's translate path: viewport (default) leaves the [dx,dy] CSS-px
 // offset in screen space; `map` rotates it by the map bearing so the offset
 // tracks the MAP world axes (MapLibre map-anchor). render() computes this via
-// the shared pure helper rotateTranslateForAnchor (vector-tile-renderer.ts:109)
+// the shared pure helper rotateTranslateForAnchor (fill-translate-ndc.ts, #2240)
 // before baking into the slot 46/47 uniform, so that helper IS the anchor wire
 // (the extrude path inherits the rotation for free).
 //

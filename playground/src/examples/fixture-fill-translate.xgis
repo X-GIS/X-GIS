@@ -1,0 +1,37 @@
+xgis 1
+
+/* #2240 — `fill-translate` on a SOLID fill, as a BACKEND-PARITY subject.
+ *
+ * Purpose-built. The defect is that the WebGL2 fills arm (renderFillsRhi)
+ * hardcodes the fill_translate_x/y uniform slots to 0 for any non-pattern fill,
+ * so an authored fill-translate reaches the shader on WebGPU and is silently
+ * dropped on WebGL2. No shipped basemap in this repo authors the property on a
+ * plain fill (OFM uses it only on building-top roofs, which need the network),
+ * so a gate pointed at a real style would measure nothing.
+ *
+ * The witness is the SAME scene captured on WebGPU and on ?forcegl2=1. Before
+ * the fix the arms differed by construction — one applied the offset, the other
+ * did not — and that difference WAS the bug. Agreement alone is not the gate,
+ * though: it is satisfiable by breaking the good arm, so the spec measures each
+ * backend's quad centroid against the authored offset first and asserts
+ * agreement on top (_fill-translate-parity-gate.spec.ts).
+ *
+ * One layer, one opaque colour, no stroke: the measurement is a pixel diff over
+ * a solid quad, and a stroke would draw through the LINE pipeline, whose vertex
+ * shader reads the same two slots (line.ts:1457-1462, the polygon-outline path)
+ * — mixing both consumers into one arm would make a red ambiguous about which
+ * one moved.
+ *
+ * The offset is large (60 CSS px on x) so the diff is unmistakable at any DPR
+ * and cannot be mistaken for an antialiasing edge.
+ *
+ * Geometry is pushed via setSourceData after run() — this container has no
+ * network egress.
+ */
+
+source poly { type: geojson }
+
+layer fill_translated {
+  source: poly
+  | fill-#ff3b30 stroke-0 fill-translate-x-60 fill-translate-y-0
+}

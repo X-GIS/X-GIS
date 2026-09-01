@@ -18,6 +18,8 @@ import type {
 import type { GPUContext, WebGpuDevice, ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
 import { renderImmediateArm } from './vtr-immediate-arm'
+import { fillTranslateNdc, rotateTranslateForAnchor } from './fill-translate-ndc'
+export { rotateTranslateForAnchor } from './fill-translate-ndc'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
 import { writeInputPool } from './input-pool'
@@ -145,24 +147,6 @@ const TWO_PI_R_EARTH = 2 * Math.PI * EARTH.sphereR
  *  ancestors (z=3..z=N-5) get evicted during fast zoom-in while they
  *  are still the only fallback below the pinned z=0..2/3 skeleton. */
 const ANCESTOR_PROTECT_DEPTH = 22
-
-/** Mapbox `*-translate-anchor`: viewport (default) returns the [dx,dy]
- *  CSS-px offset unchanged (screen-space, historical behaviour); map
- *  rotates it by the map bearing so it tracks the MAP world axes
- *  (MapLibre map-anchor). Pure 2D rotation; no allocation when the
- *  offset is zero or anchor is viewport. */
-export function rotateTranslateForAnchor(
-  dx: number,
-  dy: number,
-  anchorMap: boolean | undefined,
-  bearingDeg: number,
-): [number, number] {
-  if (!anchorMap || (dx === 0 && dy === 0)) return [dx, dy]
-  const r = (bearingDeg * Math.PI) / 180
-  const c = Math.cos(r),
-    s = Math.sin(r)
-  return [dx * c - dy * s, dx * s + dy * c]
-}
 
 // Polygon extruded wall + roof mesh generation lives in core/
 // polygon-mesh.ts (unit-testable independent of GPU state). See
@@ -1251,6 +1235,8 @@ export class VectorTileRenderer {
     // #1999 — render()'s twin assignment is below the immediate-arm return, so on
     // this backend the lane is only ever what THIS line puts in it.
     this.currentFillAntialias = resolvedShow.fillAntialias ? 1 : 0
+    // #2240 — the producer render() uses, so the two backends cannot drift.
+    const fillTr = fillTranslateNdc(resolvedShow, show, camera, canvasWidth, canvasHeight)
     // A data-driven fill's alpha lives inside the expression, so there is no CPU
     // alpha to threshold on — 1 is the "draw it, the shader decides" stand-in.
     const fillA = (fill?.[3] ?? 1) * opacity
@@ -1350,8 +1336,8 @@ export class VectorTileRenderer {
         B.set.fill_translate_y(pack.repeatMY)
         B.set.pattern_active(1)
       } else {
-        B.set.fill_translate_x(0)
-        B.set.fill_translate_y(0)
+        B.set.fill_translate_x(fillTr[0]) // #2240 — was an unconditional 0
+        B.set.fill_translate_y(fillTr[1])
         B.set.pattern_active(0) // #1154 — no pattern on this path
       }
       B.set.tile_dequant_scale(cached.dequantScale)
@@ -1443,6 +1429,8 @@ export class VectorTileRenderer {
     const opacity = resolvedShow.opacity
     const strokeWidthPx = resolvedShow.strokeWidth
     if (stroke[3] * opacity <= 0.005 || strokeWidthPx <= 0) return 0
+    // #2240 — a fill's OUTLINE draws here and reads the FILL's translate slots.
+    const lineFillTr = fillTranslateNdc(resolvedShow, show, camera, canvasWidth, canvasHeight)
 
     const effectiveSourceLayer = show.sourceLayer || show.targetName || ''
     const sliceLayer = computeSliceKey(effectiveSourceLayer, show.filterExpr?.ast ?? null)
@@ -1665,8 +1653,8 @@ export class VectorTileRenderer {
       B.set.extrude_base_m(0)
       B.set.clip_bounds(-1e30, 0, 0, 0)
       B.set.zoom(this.currentCameraZoom)
-      B.set.fill_translate_x(0)
-      B.set.fill_translate_y(0)
+      B.set.fill_translate_x(lineFillTr[0]) // #2240 — keeps an outline glued to its fill
+      B.set.fill_translate_y(lineFillTr[1])
       B.set.pattern_active(0) // #1154 — no pattern on this path
       B.set.tile_dequant_scale(cached.dequantScale)
       B.set.tile_dequant_half(cached.dequantHalf)
@@ -2894,14 +2882,9 @@ export class VectorTileRenderer {
     // not reproduced by this clip-space bake; bearing rotation is the flat
     // behaviour.)
     const bearingDeg = camera.bearing ?? 0
-    const [ftx, fty] = rotateTranslateForAnchor(
-      resolvedShow.fillTranslateX,
-      resolvedShow.fillTranslateY,
-      show.fillTranslateAnchorMap,
-      bearingDeg,
-    )
-    this.currentFillTranslateNdcX = ftx !== 0 ? (ftx * 2) / canvasWidth : 0
-    this.currentFillTranslateNdcY = fty !== 0 ? (fty * 2) / canvasHeight : 0
+    const fillTr = fillTranslateNdc(resolvedShow, show, camera, canvasWidth, canvasHeight)
+    this.currentFillTranslateNdcX = fillTr[0]
+    this.currentFillTranslateNdcY = fillTr[1]
     const [ltx, lty] = rotateTranslateForAnchor(
       resolvedShow.strokeTranslateX,
       resolvedShow.strokeTranslateY,

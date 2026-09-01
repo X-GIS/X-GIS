@@ -311,7 +311,10 @@ const CEILINGS: Record<string, number> = {
   // line-gradient.ts. Merged: 5483, MEASURED post-merge on the merged file
   // (`wc -l`) — never side-picked, never summed by hand, exactly as main's own
   // note above warns. Headroom is re-justified per phase, never banked.
-  'map/src/render/vector-tile-renderer.ts': 5483,
+  // 5483→5466 (#2240): the three fill-translate packers now read one producer
+  // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
+  // Measured with `wc -l` on the post-prettier tree, per the note above.
+  'map/src/render/vector-tile-renderer.ts': 5466,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
