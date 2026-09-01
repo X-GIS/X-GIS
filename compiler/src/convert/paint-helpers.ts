@@ -294,8 +294,64 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
         )
         return { curve, base, stops: dense }
       }
+      // Not all-numeric: try HEX COLOUR stops, sampling each segment's
+      // colour at the bezier-EASED fraction in sRGB — the space Mapbox's
+      // non-lab `interpolate` uses. Mirror of the data-driven twin
+      // (expr-interpolate.ts), and returning HERE — before the
+      // interpolate-lab/hcl block below — reproduces the twin's own
+      // precedence, which is what makes the two axes agree on the same
+      // authored expression. Segment endpoints keep their authored spelling,
+      // as in the Lab/LCh densifier below.
+      //
+      // 4- and 8-digit hex carry an alpha `parseSrgbHex` drops. Densifying
+      // those would silently delete the alpha the plain-linear fold below
+      // preserves, so they stay on the fold path.
+      const colourStops: Array<[number, number, number]> = []
+      let allHex = true
+      for (const s of stops) {
+        const rgb =
+          typeof s.value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s.value)
+            ? parseSrgbHex(s.value)
+            : null
+        if (!rgb) {
+          allHex = false
+          break
+        }
+        colourStops.push(rgb)
+      }
+      if (allHex) {
+        const SAMPLES_PER_SEGMENT = 6
+        const ch = (c: number) =>
+          Math.max(0, Math.min(255, Math.round(c * 255)))
+            .toString(16)
+            .padStart(2, '0')
+        const dense: typeof stops = []
+        for (let i = 0; i < stops.length - 1; i++) {
+          const a = stops[i]!
+          const b = stops[i + 1]!
+          const ca = colourStops[i]!
+          const cb = colourStops[i + 1]!
+          dense.push(a)
+          for (let k = 1; k < SAMPLES_PER_SEGMENT; k++) {
+            const t = k / SAMPLES_PER_SEGMENT
+            const eased = cssBezierEase(t, x1, y1, x2, y2)
+            dense.push({
+              zoom: a.zoom + (b.zoom - a.zoom) * t,
+              value:
+                `#${ch(ca[0] + (cb[0] - ca[0]) * eased)}` +
+                `${ch(ca[1] + (cb[1] - ca[1]) * eased)}` +
+                `${ch(ca[2] + (cb[2] - ca[2]) * eased)}`,
+            })
+          }
+        }
+        dense.push(stops[stops.length - 1]!)
+        warnings?.push(
+          `["interpolate", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`,
+        )
+        return { curve, base, stops: dense }
+      }
       warnings?.push(
-        `["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric stop values can't be densified at compile time.`,
+        `["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
       )
     }
   }

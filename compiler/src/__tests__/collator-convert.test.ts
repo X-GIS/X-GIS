@@ -35,20 +35,106 @@ describe('collator comparison converter', () => {
     expect(result).toBe('collator_cmp("<", .a, .b, "", true, true)')
   })
 
-  it('non-constant collator option → fall back to byte-exact + warning', () => {
+  // A MALFORMED option is still undecidable: `"yes"` is a constant of the
+  // wrong type, which the Mapbox reference implementation rejects at parse
+  // time (`context.parse(options['case-sensitive'], 1, BooleanType)`). Blindly
+  // recursing it would emit `collator_cmp(…, "yes", …)` and the evaluator's
+  // Boolean() coercion would invent a case-sensitive:true the style never
+  // authored. Warn-and-drop is the honest answer.
+  it('a WRONG-TYPED constant option → fall back to byte-exact + warning', () => {
     const { result, warnings } = convert([
       '==',
       ['get', 'a'],
       'x',
-      ['collator', { 'case-sensitive': ['get', 'flag'] }],
+      ['collator', { 'case-sensitive': 'yes' }],
     ])
     expect(result).toBe('.a == "x"')
-    expect(warnings.some((w) => /non-constant options/.test(w))).toBe(true)
+    expect(warnings.some((w) => /malformed options/.test(w))).toBe(true)
+  })
+
+  // Mirrors the reference implementation's own
+  // `Collator options argument must be an object.` parse error.
+  it('a non-object options argument → fall back to byte-exact + warning', () => {
+    const { result, warnings } = convert(['==', ['get', 'a'], 'x', ['collator', 42]])
+    expect(result).toBe('.a == "x"')
+    expect(warnings.some((w) => /malformed options/.test(w))).toBe(true)
   })
 
   it('end-to-end: case-insensitive match evaluates true', () => {
     const { result } = convert(['==', ['get', 'name'], 'cafe', ['collator', CI]])
     expect(evalSrc(result as string, { name: 'CAFE' })).toBe(true)
+  })
+})
+
+// PER-FEATURE (expression-valued) collator options. `collator_cmp` is a CPU
+// builtin and `callBuiltin` dispatches on ALREADY-EVALUATED arguments, so an
+// expression in an option slot is decided at eval time — it never needed to be
+// a compile-time literal. Each witness asserts BOTH states of the feature
+// property, so the emitted slot demonstrably carries information: if the option
+// were dropped (the pre-#2166 byte-exact fallback) both states would agree.
+describe('collator comparison with per-feature (expression) options', () => {
+  it('a per-feature LOCALE lowers into the collator_cmp locale slot', () => {
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'name'],
+      'I',
+      ['collator', { locale: ['get', 'lang'] }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('collator_cmp("==", .name, "I", .lang, false, false)')
+    // Turkish dotless i: `ı` is the lowercase of `I` in tr, of nothing in en.
+    expect(evalSrc(result as string, { name: 'ı', lang: 'tr' })).toBe(true)
+    expect(evalSrc(result as string, { name: 'ı', lang: 'en' })).toBe(false)
+  })
+
+  it('a per-feature case-sensitive lowers into the cs slot', () => {
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'name'],
+      'cafe',
+      ['collator', { 'case-sensitive': ['get', 'cs'] }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('collator_cmp("==", .name, "cafe", "", .cs, false)')
+    expect(evalSrc(result as string, { name: 'CAFE', cs: false })).toBe(true)
+    expect(evalSrc(result as string, { name: 'CAFE', cs: true })).toBe(false)
+  })
+
+  it('a per-feature diacritic-sensitive lowers into the ds slot', () => {
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'name'],
+      'cafe',
+      ['collator', { 'diacritic-sensitive': ['get', 'ds'] }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('collator_cmp("==", .name, "cafe", "", false, .ds)')
+    expect(evalSrc(result as string, { name: 'café', ds: false })).toBe(true)
+    expect(evalSrc(result as string, { name: 'café', ds: true })).toBe(false)
+  })
+
+  it('constant and expression options mix in one collator', () => {
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'name'],
+      'cafe',
+      ['collator', { 'case-sensitive': false, 'diacritic-sensitive': ['get', 'ds'], locale: 'en' }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('collator_cmp("==", .name, "cafe", "en", false, .ds)')
+    expect(evalSrc(result as string, { name: 'CAFÉ', ds: false })).toBe(true)
+    expect(evalSrc(result as string, { name: 'CAFÉ', ds: true })).toBe(false)
+  })
+
+  it('a `["literal", …]`-wrapped option stays a CONSTANT, not an expression', () => {
+    const { result, warnings } = convert([
+      '==',
+      ['get', 'a'],
+      'b',
+      ['collator', { 'case-sensitive': ['literal', true], locale: ['get', 'lang'] }],
+    ])
+    expect(warnings).toEqual([])
+    expect(result).toBe('collator_cmp("==", .a, "b", .lang, true, false)')
   })
 })
 

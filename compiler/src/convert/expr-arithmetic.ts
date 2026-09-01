@@ -8,7 +8,7 @@
 // parameter to avoid importing expressions.ts (cycle).
 
 import type { ExprHandler } from './expr-handler-types'
-import { extractCollatorOpts } from './collator-opts'
+import { extractCollatorOpts, lowerCollatorOptSlots } from './collator-opts'
 
 // Comparison operators. Mapbox spec allows a trailing
 // `["collator", {…}]` arg that controls case-sensitivity /
@@ -25,17 +25,29 @@ export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFil
       const a = recurse(v[1], warnings)
       const b = recurse(v[2], warnings)
       if (a === null || b === null) return null
-      // Constant collator options → lower to the CPU locale-aware compare
-      // builtin (eval/collator.ts). Non-constant options can't be baked
-      // into the call, so fall back to byte-exact compare with a warning.
-      const opts = extractCollatorOpts(collator)
-      if (opts === null) {
+      // Lower to the CPU locale-aware compare builtin (eval/collator.ts).
+      // Constant options bake into the call; a PER-FEATURE option lowers
+      // into its slot instead — `callBuiltin` dispatches on already-
+      // evaluated arguments, so an expression there is decided at eval
+      // time, and the Mapbox spec evaluates all three options per feature
+      // too. Only the forms the reference implementation rejects at parse
+      // time (non-object options, a constant of the wrong type) fall back
+      // to byte-exact compare with a warning.
+      const constant = extractCollatorOpts(collator)
+      const slots = constant
+        ? {
+            locale: JSON.stringify(constant.locale),
+            caseSensitive: String(constant.caseSensitive),
+            diacriticSensitive: String(constant.diacriticSensitive),
+          }
+        : lowerCollatorOptSlots(collator, warnings, recurse)
+      if (slots === null) {
         warnings.push(
-          `["${op}"] ["collator", …] has non-constant options — locale-aware compare needs literal case-sensitive / diacritic-sensitive / locale; falling back to byte-exact compare.`,
+          `["${op}"] ["collator", …] has malformed options — case-sensitive / diacritic-sensitive must be a boolean or an expression yielding one, locale a string or an expression, and the options argument itself an object; falling back to byte-exact compare.`,
         )
         return `${a} ${op} ${b}`
       }
-      return `collator_cmp(${JSON.stringify(op)}, ${a}, ${b}, ${JSON.stringify(opts.locale)}, ${opts.caseSensitive}, ${opts.diacriticSensitive})`
+      return `collator_cmp(${JSON.stringify(op)}, ${a}, ${b}, ${slots.locale}, ${slots.caseSensitive}, ${slots.diacriticSensitive})`
     }
   }
   if (v.length !== 3) return null
