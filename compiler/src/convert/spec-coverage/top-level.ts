@@ -51,7 +51,7 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
     name: 'transition',
     status: 'unsupported',
     impact: 'low',
-    note: 'Per-property fade-in dropped.',
+    note: 'Top-level `transition` `{ duration, delay }` — the cross-fade timing used when a paint value CHANGES at runtime. #2166 took it out of the ignored-roots lump in mapbox-to-xgis.ts because "ignored" OVER-states the loss: it costs a converted style nothing at rest — every value renders exactly as authored — and X-GIS simply steps to a new paint value instead of fading it, there being no per-property transition clock in the runtime. The warning now names the authored duration/delay and says the frame is identical at rest, and a block asking for no animation at all (duration 0, no delay) warns nothing at all, since that IS what X-GIS does; the lump used to fire on it, which was a false positive. Still `unsupported`, and the work is a RUNTIME animation clock, not a converter change. Recorded while adjacent: the per-property `<property>-transition` form inside `paint` is dropped by the same absence and gets no warning of its own — surfaceIgnoredPaint is candidate-list driven, so a paint key that no emitter lists is never examined.',
   },
   {
     name: 'light',
@@ -63,7 +63,7 @@ export const TOP_LEVEL: readonly CoverageEntry[] = [
     name: 'fog',
     status: 'unsupported',
     impact: 'low',
-    note: 'Mapbox v3 distance-fog gradient. Would need a post-process pass with depth-based mixing.',
+    note: "Mapbox v3 `fog` root. #2166 took it out of the ignored-roots lump in mapbox-to-xgis.ts and gave it a precise warning, because the lump could not say WHICH of three different kinds of key the author wrote. The split is the one docs/plans/2026-08-24-sky-fog.md §5 established, and the warning uses that taxonomy rather than a second one: `range` is DISTANCE-dependent and needs the per-fragment depth pass X-GIS does not have — that one key is what keeps this row `unsupported`. `color` / `high-color` / `space-color` / `horizon-blend` / `star-intensity` are DIRECTION-dependent, i.e. the sky evaluator's job rather than depth's; most of that half already renders under the MapLibre `sky` spelling that setAtmosphere carries (extractMapboxSky, the row below), so the warning points an author who wanted that look at the spelling that renders TODAY. `star-intensity` is the exception inside that half and is pointed at nothing: the atmosphere pass draws no stars, so naming `sky` would be a false promise. `vertical-range` is ALTITUDE-banded and presumes terrain — sky-fog §9.2 assigns it to ADR-0012 D5, so it is neither a depth problem nor expressible as `sky`. Nothing is auto-translated between the two spellings; a real implementation still owes the depth pass for `range` plus a Mapbox-to-MapLibre key mapping for the direction half.",
   },
   {
     name: 'sky',
