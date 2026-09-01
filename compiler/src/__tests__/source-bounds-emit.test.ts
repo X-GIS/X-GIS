@@ -259,7 +259,10 @@ describe('#1984 W6 — regression guards', () => {
     const style = readFileSync(join(HERE, 'fixtures', 'openfreemap-liberty.json'), 'utf8')
     const { warnings } = convert(JSON.parse(style))
     expect(boundsWarnings(warnings)).toEqual([])
-    // #1983 left liberty at 6; this issue must not move it.
-    expect(warnings).toHaveLength(6)
+    // #1983 left liberty at 6; this issue must not move it. #2166 narrowed the
+    // text-pitch-alignment runtime-gap warning to its real residual and removed
+    // the 5 that fired on line-placed labels the runtime DOES ground-project,
+    // leaving only the `text-optional` one.
+    expect(warnings).toHaveLength(1)
   })
 })

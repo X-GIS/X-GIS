@@ -591,10 +591,15 @@ export interface LabelDef {
    *  collisions against higher-keyed labels. Default 0. Used by the
    *  runtime collision system to prioritise state/city labels over
    *  road shields at the same viewport when both compete for the
-   *  same pixel area. Constant-only for now — feature-property
-   *  expression form (`["get", "rank"]`) is recognised by the
-   *  converter but flattens to 0 with a warning. */
+   *  same pixel area. */
   sortKey?: number
+  /** Mapbox `symbol-sort-key` non-constant (expression) form — a
+   *  per-feature expr resolving to a number, evaluated at dispatch by
+   *  applyFeatureExprs into `sortKey` (#2166). Mirror of
+   *  `iconTranslateExpr`'s plumbing. The collision pass reads the
+   *  per-feature def in the SAME frame (TextStage.prepare runs after
+   *  every addLabel), so no extra ordering is owed. */
+  sortKeyExpr?: { ast: unknown }
 
   // ── Deferred (placeholder typings; semantics defined later) ──
   /** Map / viewport / auto. Default 'auto' — point labels follow

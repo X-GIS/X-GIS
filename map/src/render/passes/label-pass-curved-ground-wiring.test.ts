@@ -10,8 +10,9 @@
 //
 //   1. the pitch-0 MERC projector is built from the same p0 matrix and flat args
 //      the basis producer uses, and ONLY when a frame can use it;
-//   2. the layer gate goes through the SHARED spec authority (resolvePitchAlignment),
-//      not a local re-reading of the style;
+//   2. the layer gate goes through the SHARED authority (groundAlignsAtRuntime,
+//      #2166 — it carries the spec chain AND this branch's tangent-rotation
+//      requirement), not a local re-reading of the style;
 //   3. the retained samples' merc coordinates are recorded in the projection loop
 //      (nothing downstream can recover them — `_pmScratch` is an arc LENGTH);
 //   4. the plane run is filled from those samples with the run's own world copy;
@@ -66,15 +67,24 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
   })
 
   it('2. gates the layer through the shared spec authority, not a local re-read', () => {
+    // #2166 — the gate used to spell HALF the condition here (the spec chain via
+    // resolvePitchAlignment) and the other half (`useTangentRotation`) beside it,
+    // which is exactly the local re-read this test exists to forbid: the converter
+    // could not see the tangent-rotation half and so warned about labels the
+    // runtime ground-projects. `groundAlignsAtRuntime` carries BOTH halves, and
+    // both callers read it, so there is nothing left here to drift.
     expect(SRC).toMatch(
-      /const groundAlignedLine =\s*useTangentRotation &&\s*groundMercPitch0 !== undefined &&\s*resolvePitchAlignment\(/,
+      /const groundAlignedLine =\s*groundMercPitch0 !== undefined &&\s*groundAlignsAtRuntime\(/,
     )
     expect(SRC).toMatch(
-      /resolvePitchAlignment\(\s*effectiveDef\.placement,\s*effectiveDef\.rotationAlignment,\s*effectiveDef\.pitchAlignment,\s*\) === 'map'/,
+      /groundAlignsAtRuntime\(\s*effectiveDef\.placement,\s*effectiveDef\.rotationAlignment,\s*effectiveDef\.pitchAlignment,\s*\)/,
     )
+    // The local re-read must be GONE, not merely joined: a second copy of the
+    // chain here is what let the warning and the behaviour disagree.
+    expect(SRC).not.toContain('resolvePitchAlignment(')
     // From @xgis/compiler — the same function the converter's runtime-gap warning
     // calls, so the set the converter reports is the set handled here.
-    expect(SRC).toMatch(/import \{[^}]*\bresolvePitchAlignment\b[^}]*\} from '@xgis\/compiler'/s)
+    expect(SRC).toMatch(/import \{[^}]*\bgroundAlignsAtRuntime\b[^}]*\} from '@xgis\/compiler'/s)
   })
 
   it('3. records each RETAINED sample’s merc coordinate inside the projection loop', () => {

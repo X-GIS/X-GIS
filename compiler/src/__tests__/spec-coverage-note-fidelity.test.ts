@@ -163,7 +163,7 @@ const render = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringi
 // one — one MORE than `wc -l`. Deliberate: a gate must not fire on a
 // counting convention, only on a citation that is genuinely off the end.
 // ─────────────────────────────────────────────────────────────────────
-const CITATION_ROT_RATCHET = 53
+const CITATION_ROT_RATCHET = 52
 
 describe('spec-coverage row fidelity', () => {
   it('every `file.ts:NNN` citation names a file that exists in the tree', () => {

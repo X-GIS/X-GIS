@@ -32,7 +32,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: false,
-    note: 'Runtime never projects labels onto ground plane',
+    note: "Ground projection ships, but DIAGONALLY across the label pass's two dispatch paths, so it is a real gap on either path taken alone. The path is picked by the SOURCE, before the placement is consulted: features held untiled take the raw path, tiled ones take the other. POINT labels get the basis on the RAW path only (makeGroundBasisFor, dispatch-point-labels.ts), so a point label on a vector-tile source billboards: the tiled point arms call addLabel with ten arguments and stop before the basis parameter. LINE labels get it on the TILED path only (the pitch-0 label-plane walk of the tangent-rotated curved branch, label-pass.ts → dispatch-curved-line-labels.ts), so an inline-GeoJSON line label billboards: placeInlineLineLabels takes no basis argument at all. Also billboards, on both paths: `line-center` (one label per feature through emitLabelAlongSegment, no basis) and `line` + text-rotation-alignment `viewport` (never reaches the curved branch). The globe has no map plane to lie in and is deferred by design. Where the basis IS built it reaches the renderer through TextStage as groundBasis. The converter warns on the residuals a per-layer predicate can see; groundAlignsAtRuntime models the tiled path and its own note carries the four-cell table.",
   },
 
   // Icon paint
@@ -86,8 +86,8 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     property: 'symbol-sort-key',
     layerType: 'symbol',
     variant: 'data-driven',
-    supported: false,
-    note: 'Expression flattens to 0; per-feature key plumbing pending',
+    supported: true,
+    note: 'get/match/case → label-sort-key-[<expr>] (converter exprToXgis) → LabelDef.sortKeyExpr; runtime applyFeatureExprs (label-pass.ts) evaluates the AST per feature into the dispatched def, which TextStage.prepare reads into the collision input the same frame. #2166. Approximation: the key drives collision priority, not painter order in the `auto` z-order mode.',
   },
 
   // Symbol layout — common

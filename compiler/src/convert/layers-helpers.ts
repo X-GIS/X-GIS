@@ -6,7 +6,11 @@
 import type { MapboxLayer } from './types'
 import { exprToXgis, filterToXgis } from './expressions'
 import { foldSingleStopZoomFunctions } from './zoom-function-fold'
-import { isLinePlacement, resolvePitchAlignment } from '../ir/label-alignment'
+import {
+  groundAlignsAtRuntime,
+  isLinePlacement,
+  resolvePitchAlignment,
+} from '../ir/label-alignment'
 
 // ═══ Fail-CLOSED filter emission ═══
 // Every layer converter that honours `layer.filter` shared this body:
@@ -547,22 +551,37 @@ export function parseSymbolPlacementStep(layer: MapboxLayer): Array<{
   return collapsed
 }
 
-/** text-pitch-alignment → the ground-projection runtime-gap warning (#777 IV3).
+/** text-pitch-alignment → the ground-projection runtime-gap warning (#777 IV3,
+ *  narrowed to the true residual in #2166).
  *
- *  The gap: X-GIS renders every label as a viewport-aligned billboard, because
- *  `LabelDef.pitchAlignment` has no consumer in map/src and the text vertex
- *  path emits screen-px quads at z=0. It used to be reported only when a style
- *  authored `text-pitch-alignment: "map"` outright. Nothing does — the spec
- *  routes styles into it by DEFAULT instead: `auto` (the default) matches
- *  text-rotation-alignment, whose own `auto` is `map` for line / line-center
- *  placement. So every road name, waterway name and along-line shield resolves
- *  to map without authoring anything — 5 text-bearing layers per OFM style —
- *  and used to convert with a clean notes block while rendering upright under
- *  pitch. Resolving the chain here makes the conversion report name them.
+ *  It used to fire on every label the spec resolves to `map`, which was right
+ *  while `LabelDef.pitchAlignment` had no consumer in map/src. It has two now —
+ *  the point path's `makeGroundBasisFor` (#2060) and the curved line branch's
+ *  label-plane walk (#2092 / #2106) — and MEASURED on the shipped conversion
+ *  report, 100 % of the occurrences the old warning produced were
+ *  `symbol-placement: line` layers, i.e. exactly the ones that DO lie in the
+ *  ground plane. A warning that fires on working behaviour is worse than none:
+ *  it teaches authors to avoid a feature that works.
  *
- *  Returns the authored-"map" message, else the resolved-to-"map" message
- *  (never both), else null: resolved `viewport`, or an icon-only layer — a TEXT
- *  warning on a layer with no text-field is noise; that gap is I6's row.
+ *  The point half of that pair is narrower than it reads: `makeGroundBasisFor`
+ *  is wired on the RAW-dataset point arm only, so a point label on a tile-backed
+ *  source still billboards and still deserves the warning. Re-measured over the
+ *  three shipped fixture styles, adding that arm back changes NOTHING about what
+ *  the warning fires on — every point-placed symbol layer in bright / liberty /
+ *  demotiles resolves to `viewport` (the spec default for point), so the fired
+ *  set on the corpus stays empty either way.
+ *
+ *  So the condition is now the difference between two questions the SHARED
+ *  authority (ir/label-alignment.ts) answers — does the spec ask for the ground
+ *  plane, and does map/src put it there — rather than a restatement of either.
+ *  Both callers read that one model, so the warning cannot drift from the
+ *  behaviour it describes; `text-pitch-alignment-map-warn.test.ts` pins the
+ *  equivalence over the whole (placement × rotation × pitch) cube.
+ *
+ *  Returns null for: resolved `viewport`, an icon-only layer (a TEXT warning on
+ *  a layer with no text-field is noise; that gap is icon-pitch-alignment's row),
+ *  and the one cell the runtime ground-projects on the tiled dispatch column —
+ *  `line` placement that reaches the tangent-rotated curved branch.
  */
 export function pitchAlignmentGapWarning(
   layer: { id: string },
@@ -571,20 +590,40 @@ export function pitchAlignmentGapWarning(
   rotAlign: unknown,
   pitchAlign: unknown,
 ): string | null {
-  if (pitchAlign === 'map') {
-    return `Symbol layer "${layer.id}" — text-pitch-alignment "map" set but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented.`
-  }
-  if (pitchAlign === 'viewport' || isOmittedValue(layout['text-field'])) return null
-  const linePlaced = isLinePlacement(placement)
-  // The chain is resolved by the SHARED authority (ir/label-alignment.ts), not
-  // restated here — the runtime builds its ground basis off the same function,
-  // and a second copy would let the warning and the behaviour drift apart.
+  if (isOmittedValue(layout['text-field'])) return null
   if (resolvePitchAlignment(placement, rotAlign, pitchAlign) !== 'map') return null
+  if (groundAlignsAtRuntime(placement, rotAlign, pitchAlign)) return null
+  // Three residual shapes reach here — line-center, `line` + rotation `viewport`,
+  // and point placement — and they are what the predicate withholds on the TILED
+  // dispatch column it models (see its DOMAIN note). That column is NOT the whole
+  // truth and this warning does not claim it is: the ground basis is wired
+  // diagonally, so the untiled column ground-projects POINT labels and billboards
+  // LINE ones — the mirror image. Which column a layer lands in is a per-SOURCE
+  // fact the converter cannot read off the layer, so silence here means
+  // "ground-projected on the tiled path", never "ground-projected on every path".
+  if (placement === 'line-center') {
+    return (
+      `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" ` +
+      `(spec default: auto → text-rotation-alignment → map for "line-center" placement), ` +
+      `but "line-center" emits one label per feature through the non-curved fallback, which ` +
+      `supplies no ground basis: the label stays an upright billboard under pitch. ` +
+      `"line" placement IS ground-projected.`
+    )
+  }
+  if (placement === 'line') {
+    return (
+      `Symbol layer "${layer.id}" — text-pitch-alignment "map" with ` +
+      `text-rotation-alignment "viewport" on "line" placement: X-GIS ground-projects line ` +
+      `labels on the tangent-rotated (curved) branch only, so this combination stays an ` +
+      `upright billboard under pitch.`
+    )
+  }
   return (
-    `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" ` +
-    `(spec default: auto → text-rotation-alignment → map${linePlaced ? ` for "${String(placement)}" placement` : ''}) ` +
-    `but runtime renders labels viewport-aligned regardless; ground-projection not yet implemented. ` +
-    `Labels stay upright billboards under pitch instead of lying in the ground plane.`
+    `Symbol layer "${layer.id}" — text-pitch-alignment resolves to "map" on point ` +
+    `placement, but X-GIS builds the per-label ground basis for point labels only on the ` +
+    `dispatch path for sources whose features are held untiled. A vector-tile source is ` +
+    `always tiled, and its point dispatch supplies no basis, so the label stays an upright ` +
+    `billboard under pitch. "line" placement IS ground-projected on a tiled source.`
   )
 }
 

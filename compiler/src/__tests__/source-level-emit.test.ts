@@ -204,6 +204,9 @@ describe('#1983 W6 — regression guards', () => {
     expect(block).toContain('tileSize: 256')
     expect(block).toContain('maxzoom: 6')
     // Warning COUNT for the other entries is unchanged: 8 before, 8 - 2 = 6 after.
-    expect(warnings).toHaveLength(6)
+    // #2166 then narrowed the text-pitch-alignment runtime-gap warning to its real
+    // residual, which removed the 5 that fired on line-placed labels the runtime
+    // DOES ground-project: 6 - 5 = 1, the `text-optional` one.
+    expect(warnings).toHaveLength(1)
   })
 })

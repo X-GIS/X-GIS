@@ -61,6 +61,20 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Two CURVED (tangent-rotated) line-label layers over the SAME lines (#2012 INC-4): `label-pitch-alignment-map` walks the LABEL PLANE and lies in it, `label-pitch-alignment-viewport` walks the screen and stands up. Purpose-built so the D1 payload has an OFFLINE §5 witness — the resolving layers on a real basemap are road names, which need the network. Geometry is pushed with setSourceData after run(). §5 probe: pitch>0 must make the two arms diverge in glyph SPACING as well as quad shape; at pitch 0 they must be hash-identical (the pitch-0 twin of the polyline is the polyline, the basis is the identity and is withheld).',
     source: load('fixture-curved-label-ground.xgis'),
   },
+  fixture_label_linecenter_ground: {
+    name: 'Fixture: line-center labels stay billboards (#2166 residual)',
+    tag: 'fixture',
+    description:
+      'The SAME six roads as fixture_curved_label_ground, labelled with `label-line-center` and an EXPLICIT `label-pitch-alignment-map`. line-center emits one label per feature through the non-curved fallback, which supplies no ground basis, so the runtime cannot honour the alignment there — the residual the corrected text-pitch-alignment coverage note names. Paired with the curved fixture by _label-linecenter-residual-gate: same camera, only the placement differs, so `labels.groundAligned` reading 0 here while the sibling reads > 0 is attributable to the placement alone.',
+    source: load('fixture-label-linecenter-ground.xgis'),
+  },
+  fixture_label_sort_key_expr: {
+    name: 'Fixture: per-feature symbol-sort-key (#2166)',
+    tag: 'fixture',
+    description:
+      'Two labels at the SAME anchor carrying a `rank` property, one symbol layer with `label-sort-key-[.rank]`. They collide and exactly one survives; the collision pass orders by sortKey ascending, so the lower-ranked text wins and swapping the ranks swaps the survivor. Anchors pushed via setSourceData after run(). §5 probe: /demo.html?id=fixture_label_sort_key_expr&forcegl2=1.',
+    source: load('fixture-label-sort-key-expr.xgis'),
+  },
   fixture_format_image: {
     name: 'Fixture: inline image in label text (local sprite)',
     tag: 'fixture',
