@@ -318,21 +318,41 @@ export function emitHillshadePaint(
     }
   }
 
-  // resampling. The DEM height is RGB-packed and decoded in the fragment, so the
-  // sampler MUST be nearest — bilinear over packed bytes corrupts the decode — and
-  // the hillshade draper binds exactly one nearest sampler for every layer. So the
-  // emitted `hillshade-resampling-nearest` utility describes what already happens
-  // and reaches no runtime reader (see the `resampling` rows in spec-coverage and
-  // map/src/capabilities/hillshade.ts), and `linear` — the Mapbox default — is NOT
-  // what renders. An OMITTED value stays silent, like every other default this
-  // converter carries; an EXPLICIT `linear` is an author asking for something the
-  // engine does not do, so it says so.
+  // resampling. TWO facts, conflated until the #2218 review read the reference
+  // implementation:
+  //
+  //  (1) The DEM sampler is nearest BY CONSTRUCTION — the height is RGB-packed and
+  //      decoded in the fragment, so bilinear over the packed bytes corrupts the
+  //      decode, and the hillshade draper binds exactly one nearest sampler.
+  //  (2) `resampling` does NOT select that sampler, in EITHER engine. MapLibre
+  //      binds its DEM nearest unconditionally for both values, and applies the
+  //      flag instead to the texture filter on the Sobel-DERIVATIVE output of its
+  //      prepare pass (maplibre-gl 5.24.0, dist/maplibre-gl-dev.js lines 64424 / 64443 / 64453):
+  //      the filter is chosen from the paint value, bound to the framebuffer
+  //      colour attachment, and that attachment is what the screen draw samples.
+  //      So `linear` means "smooth the relief where a DEM tile is magnified", not
+  //      "filter the heights".
+  //
+  // X-GIS shades SINGLE-PASS: the 3x3 Sobel is evaluated per fragment from the
+  // nearest-sampled DEM, so every fragment inside one DEM texel gets the same
+  // stencil and the relief is flat across it — exactly the MapLibre `nearest`
+  // look. Reaching `linear` means bilinearly blending the DECODED neighbour
+  // heights before the Sobel (#2215) — equivalent to filtering the derivative,
+  // because the Sobel is a linear convolution at integer texel offsets, and still
+  // single-pass.
+  //
+  // So the emitted `hillshade-resampling-nearest` utility describes what already
+  // happens and reaches no runtime reader (see the `resampling` rows in
+  // spec-coverage and map/src/capabilities/hillshade.ts), and `linear` — the
+  // Mapbox default — is NOT what renders. An OMITTED value stays silent, like
+  // every other default this converter carries; an EXPLICIT `linear` is an author
+  // asking for something the engine does not do, so it says so.
   const rs = unwrapLiteral(p['resampling'])
   if (rs === 'nearest') {
     out.push('hillshade-resampling-nearest')
   } else if (rs === 'linear') {
     warnings.push(
-      `Layer "${layer.id}" — resampling: "linear" is authored but not rendered; the DEM is always sampled nearest (bilinear over the RGB-packed height corrupts the decode), so the layer renders the nearest 3x3 height field. Linear decoded-height smoothing is a separate two-pass algorithm and is not implemented.`,
+      `Layer "${layer.id}" — resampling: "linear" is authored but not rendered; X-GIS evaluates the 3x3 Sobel per fragment from a nearest-sampled DEM, so the relief is flat across each DEM texel (the MapLibre "nearest" look). "linear" would smooth the relief where a DEM tile is magnified, by bilinearly blending the DECODED neighbour heights before the Sobel. That is a shader change, not a sampler flag: the RGB-packed decode pins the DEM sampler to nearest either way.`,
     )
   } else if (rs !== undefined && rs !== null) {
     warnings.push(

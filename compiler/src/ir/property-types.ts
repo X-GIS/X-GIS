@@ -220,9 +220,14 @@ export interface HillshadeShapes {
   accent: PropertyShape<RGBA>
   /** `hillshade-method` — DEM gradient-shading algorithm. Default standard. */
   method: HillshadeMethod
-  /** `resampling: nearest` flag (spec default `linear` = false). Mirror of
-   *  RasterShapes.resamplingNearest — false = linear sampler over the
-   *  decoded DEM height field. */
+  /** `resampling: nearest` flag (spec default `linear` = false). COMPILER-ONLY:
+   *  the hillshade draper binds ONE nearest sampler unconditionally (the
+   *  RGB-packed decode requires it), so NO hillshade runtime code reads this
+   *  field — see the `resampling` rows in convert/spec-coverage/paint-hillshade.ts
+   *  and map/src/capabilities/hillshade.ts. `false` does NOT select a linear
+   *  sampler; there is no linear sampler, and `resampling` never selected the
+   *  sampler in the first place (#2218). Unlike RasterShapes.resamplingNearest,
+   *  which IS wired, via map/src/render/passes/opaque-pass.ts. */
   resamplingNearest: boolean
   /** Illumination sources 2..4 (method=multidirectional). Empty for
    *  single-source layers — byte-identical to the pre-multidirectional IR. */

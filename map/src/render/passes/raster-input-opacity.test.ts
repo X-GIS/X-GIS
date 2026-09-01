@@ -24,7 +24,7 @@
 import { describe, it, expect } from 'vitest'
 import { Lexer, Parser, lower, optimize, emitCommands } from '@xgis/compiler'
 import { opaquePass } from './opaque-pass'
-import { applyHillshadePaint } from './hillshade-pass'
+import { applyHillshadePaint, hillshadePass } from './hillshade-pass'
 import { InputStore } from '../input-store'
 import { makeProjectionToken } from '../projection-token'
 import type { FrameContext } from '../frame-context'
@@ -109,6 +109,46 @@ function rasterHarness(rasterShow: unknown, inputs: InputStore) {
   return { ctx, host, scene, opacities }
 }
 
+/** The DEM-relief twin of `rasterHarness`, and it exists because the first cut of
+ *  this file did NOT have one: both hillshade arms called `applyHillshadePaint`
+ *  directly and handed it the store themselves, so nothing outside the browser
+ *  render leg drove `HillshadePass.execute` — and deleting `, host.inputs` from
+ *  hillshade-pass.ts:113 left every arm in this file GREEN (`inputs` is an
+ *  OPTIONAL parameter, so tsc is silent about it too). Found by the #2218 review
+ *  and reproduced before this harness was written. */
+function hillshadeHarness(demShow: unknown, inputs: InputStore) {
+  const opacities: number[] = []
+  const ctx = {
+    rhiEncoder: { beginRenderPass: () => ({ end() {} }) },
+    rhiScreenView: {},
+    rhiColorView: {},
+    rhiStencilView: {},
+    rhiSceneResolveView: {},
+    rhiColorViewScreen: {},
+    passScope: (_l: string, fn: () => void) => fn(),
+    useResolve: false,
+    projection: makeProjectionToken(0, 0, 0),
+    scene: { w: 800, h: 600, dpr: 1 },
+    screen: { w: 800, h: 600, dpr: 1 },
+    _elapsedMs: 0,
+  } as unknown as FrameContext
+  const host = {
+    _hillshadeShow: demShow,
+    _elapsedMs: 0,
+    inputs,
+    camera: { zoom: 3 },
+    hillshadeRenderer: {
+      // must be true, or execute() returns before the paint resolve
+      hasSource: () => true,
+      setOpacity: (v: number) => opacities.push(v),
+      setParams: () => undefined,
+      render: () => undefined,
+    },
+  }
+  const scene = { resolveOwner: 'none' } as unknown as SceneView
+  return { ctx, host, scene, opacities }
+}
+
 describe('input-dependent opacity on the raster + DEM passes (#2166 L3)', () => {
   it('the compiled shape really is the input-dependent case (instrument check)', () => {
     const { raster, dem } = compiled()
@@ -154,14 +194,13 @@ describe('input-dependent opacity on the raster + DEM passes (#2166 L3)', () => 
     ).toBeCloseTo(0.9, 6)
   })
 
-  it('HILLSHADE: applyHillshadePaint resolves the authored input default (0.4), not the flat 1', () => {
+  it('HILLSHADE: the hillshade pass resolves the authored input default (0.4), not the flat 1', () => {
     const { store, dem } = compiled()
-    const seen: number[] = []
-    const hr = { setOpacity: (v: number) => seen.push(v), setParams: () => undefined }
-    applyHillshadePaint(hr as never, dem as never, 3, 0, store)
+    const h = hillshadeHarness(dem, store)
+    hillshadePass.execute(h.ctx, h.scene, h.host as never)
     expect(
-      seen.at(-1),
-      'HILLSHADE half: hillshade-pass.ts did not hand the InputStore to resolveNumberShape, so ' +
+      h.opacities.at(-1),
+      'HILLSHADE half: hillshade-pass.ts did not hand the InputStore to applyHillshadePaint, so ' +
         'the DEM-relief layer opacity fell back to 1 and the authored default 0.4 was lost',
     ).toBeCloseTo(0.4, 6)
   })
@@ -169,13 +208,29 @@ describe('input-dependent opacity on the raster + DEM passes (#2166 L3)', () => 
   it('HILLSHADE: setInput moves the resolved opacity live', () => {
     const { store, dem } = compiled()
     store.set('dim', 0.9)
+    const h = hillshadeHarness(dem, store)
+    hillshadePass.execute(h.ctx, h.scene, h.host as never)
+    expect(
+      h.opacities.at(-1),
+      'HILLSHADE half: setInput("dim", 0.9) did not reach the DEM-relief opacity — the pass is ' +
+        'resolving without the InputStore',
+    ).toBeCloseTo(0.9, 6)
+  })
+
+  // The two arms above drive the PASS, so they cover both hillshade lines: the
+  // `host.inputs` argument at hillshade-pass.ts:113 AND the 4th argument of the
+  // resolve inside the helper. This third arm pins the HELPER on its own, so a
+  // red run distinguishes which of the two broke (§12: cut each half separately).
+  it('HILLSHADE: applyHillshadePaint honours its own `inputs` parameter', () => {
+    const { store, dem } = compiled()
     const seen: number[] = []
     const hr = { setOpacity: (v: number) => seen.push(v), setParams: () => undefined }
     applyHillshadePaint(hr as never, dem as never, 3, 0, store)
     expect(
       seen.at(-1),
-      'HILLSHADE half: setInput("dim", 0.9) did not reach the DEM-relief opacity — the pass is ' +
-        'resolving without the InputStore',
-    ).toBeCloseTo(0.9, 6)
+      'HILLSHADE leaf: applyHillshadePaint was HANDED the store and still resolved without it — ' +
+        'the 4th argument of its resolveNumberShape call is gone (the pass-level arms above ' +
+        'would red too; this one says the break is in the helper, not the plumbing)',
+    ).toBeCloseTo(0.4, 6)
   })
 })

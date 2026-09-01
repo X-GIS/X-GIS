@@ -111,9 +111,13 @@ export const hillshadeConstUtilHandlers: BindingHandler[] = [
     },
   },
   {
-    // resampling: nearest → nearest-filter the decoded DEM height field.
-    // Emitted ONLY for nearest (linear is the byte-identical default).
-    // Mirror of raster-resampling-nearest.
+    // resampling: nearest → sets the flag on the emitted show. NOT a mirror of
+    // raster-resampling-nearest in EFFECT: that utility reaches the renderer via
+    // the opaque pass, this one reaches no hillshade runtime code at all — the
+    // DEM sampler is unconditionally nearest by construction (see the
+    // `resampling` rows in convert/spec-coverage/paint-hillshade.ts and
+    // map/src/capabilities/hillshade.ts).
+    // Emitted ONLY for nearest; an explicitly authored linear warns (#2166).
     match: (c) => c.name === 'hillshade-resampling-nearest',
     apply: (c) => {
       c.acc.hillshadeResamplingNearest = true

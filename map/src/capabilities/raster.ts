@@ -25,7 +25,11 @@ export const rasterCapabilities: readonly RuntimeCapability[] = [
   { property: 'raster-resampling', layerType: 'raster', variant: 'constant', supported: true },
   { property: 'resampling', layerType: 'raster', variant: 'constant', supported: true },
   // raster-fade-duration (#1257): constant-only per-tile cross-fade override.
-  // zoom/data-driven forms warn + drop at convert time (paint-raster.ts).
+  // zoom/data-driven forms warn + drop at convert time (paint-raster.ts). No arm
+  // of spec-coverage-runtime-drift.test.ts reads the zoom-interp row below (arms
+  // 1/2 look at `constant`, arm 3 skips `!supported`), so its warn+drop claim is
+  // owned by compiler/src/__tests__/raster-fade-duration-wiring.test.ts case (e),
+  // which asserts both halves directly on the converter (#2218).
   {
     property: 'raster-fade-duration',
     layerType: 'raster',

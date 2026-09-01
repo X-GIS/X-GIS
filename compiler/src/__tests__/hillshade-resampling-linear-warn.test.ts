@@ -19,6 +19,11 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitHillshadePaint } from '../convert/paint-hillshade'
+import { Lexer } from '../lexer/lexer'
+import { Parser } from '../parser/parser'
+import { lower } from '../ir/lower'
+import { optimize } from '../ir/optimize'
+import { emitCommands } from '../ir/emit-commands'
 import type { MapboxLayer } from '../convert/types'
 
 function emit(paint: Record<string, unknown>): { out: string[]; warnings: string[] } {
@@ -28,6 +33,21 @@ function emit(paint: Record<string, unknown>): { out: string[]; warnings: string
   return { out, warnings }
 }
 const RESAMPLING_WARN = /resampling/i
+
+/** utility list → IR → ShowCommand, so the PRESENCE half of the coverage claim
+ *  is measured on the EMITTED SHOW rather than on the converter string. The
+ *  converter half of the chain (Mapbox `resampling: nearest` → the
+ *  `hillshade-resampling-nearest` utility) is pinned by the arm above; this picks
+ *  the chain up AT that utility and carries it through binding → render node →
+ *  emitted show. */
+function compileHillshadeShow(utilities: string) {
+  const src = `xgis 1
+source demsrc { type: "raster-dem" url: "/dem-fixture.png" encoding: mapbox }
+layer relief { source: demsrc | ${utilities} }
+`
+  const shows = emitCommands(optimize(lower(new Parser(new Lexer(src).tokenize()).parse()))).shows
+  return shows[0]!
+}
 
 describe('hillshade resampling diagnostics (#2166 L3)', () => {
   it('an EXPLICIT `linear` warns that the DEM is sampled nearest regardless', () => {
@@ -62,6 +82,30 @@ describe('hillshade resampling diagnostics (#2166 L3)', () => {
   it('an unrecognised value still warns, and says what the spec allows', () => {
     const { warnings } = emit({ resampling: 'cubic' })
     expect(warnings.some((w) => /unrecognised/.test(w) && /linear/.test(w))).toBe(true)
+  })
+
+  // The coverage + capability rows assert a TWO-SIDED fact: `nearest` converts
+  // "end to end — utility, binding, render node, resamplingNearest on the emitted
+  // show — and reaches no runtime reader at all". Only the ABSENCE half was bound
+  // (by hillshade-nearest-sampler-authority.test.ts, a source-tree scan). This
+  // binds the PRESENCE half, whose sole producer is emit-commands-hillshade.ts:56.
+  // Without it that line reads as dead code — it genuinely has no runtime reader,
+  // which is exactly what the sibling gate asserts — and deleting it would leave
+  // every gate in this PR green while two coverage rows and the generated
+  // gap-matrix started stating a falsehood about the compiler (#2218 review).
+  it('`nearest` reaches the EMITTED SHOW as resamplingNearest, and omitting it does not', () => {
+    expect(
+      compileHillshadeShow('hillshade-exaggeration-0.7 hillshade-resampling-nearest').paintShapes
+        .hillshade!.resamplingNearest,
+      'an authored `resampling: "nearest"` did not reach HillshadeShapes.resamplingNearest on ' +
+        'the emitted show — the `resampling` coverage + capability rows claim it converts end ' +
+        'to end (utility → binding → render node → emitted show)',
+    ).toBe(true)
+    expect(
+      compileHillshadeShow('hillshade-exaggeration-0.7').paintShapes.hillshade!.resamplingNearest,
+      'an UN-authored resampling emitted resamplingNearest anyway — the spec default is ' +
+        '`linear`, which is `false` on this field',
+    ).toBe(false)
   })
 
   it('the diagnostic moves NO utility — explicit `linear` emits exactly what omitting it does', () => {

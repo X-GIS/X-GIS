@@ -9,8 +9,12 @@
 //  1. HillshadeDraper creates exactly ONE sampler and it is nearest/nearest.
 //     The packed-RGB height decode is corrupted by bilinear filtering
 //     (shaders/dsl/hillshade.ts), so this is a correctness requirement, not a
-//     shortcut — a linear DEM sampler is not an "upgrade", it is a different
-//     (two-pass, decode-then-smooth) algorithm.
+//     shortcut. NOTE this is NOT what `resampling` selects, in either engine:
+//     MapLibre binds its DEM nearest for both values too and filters the
+//     Sobel-derivative output of its prepare pass instead (maplibre-gl 5.24.0,
+//     dist/maplibre-gl-dev.js lines 64424 / 64443 / 64453). So a linear DEM
+//     sampler is not the `linear` feature — that is a 4-tap blend of the DECODED
+//     heights before the Sobel (#2215), and it stays single-pass.
 //  2. The compiler DOES build `hillshade-resampling-nearest` end to end — the
 //     utility, the binding, the render-node field, and `HillshadeShapes.
 //     resamplingNearest` on the emitted ShowCommand — and no hillshade runtime
@@ -55,13 +59,20 @@ describe('the hillshade DEM sampler (#2166 L3)', () => {
   })
 })
 
-/** Directories excluded from the reader scan. `capabilities` is skipped BY NAME
- *  for the same reason spec-coverage-note-fidelity.test.ts skips its descriptor
- *  dir: those files are the PROSE this gate adjudicates, and the `resampling`
- *  note has to be able to say the field's name to be useful. Leaving them in
- *  would let a note count as its own reader — measured: it did, the first full
- *  sweep after the note was rewritten. */
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'capabilities'])
+/** Build artefacts, excluded at ANY depth by basename. */
+const SKIP_DIRS = new Set(['node_modules', 'dist'])
+
+/** Excluded by PATH RELATIVE TO map/src, not by basename. `capabilities` is
+ *  skipped for the same reason spec-coverage-note-fidelity.test.ts skips its
+ *  descriptor dir: those files are the PROSE this gate adjudicates, and the
+ *  `resampling` note has to be able to say the field's name to be useful.
+ *  Leaving them in would let a note count as its own reader — measured: it did,
+ *  the first full sweep after the note was rewritten.
+ *
+ *  Keyed on the resolved path so a later `map/src/<subsystem>/capabilities/`
+ *  holding REAL code cannot silently skip itself out of the scan (#996: a
+ *  name-keyed allowlist is how two gates went vacuously green). */
+const SKIP_RELATIVE_DIRS = new Set(['capabilities'])
 
 /** Every `.ts` under map/src, excluding tests — the corpus for the reader scan. */
 function sourceFiles(): string[] {
@@ -69,7 +80,9 @@ function sourceFiles(): string[] {
   const walk = (dir: string): void => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name)) walk(join(dir, e.name))
+        const child = join(dir, e.name)
+        const rel = relative(MAP_SRC, child).replace(/\\/g, '/')
+        if (!SKIP_DIRS.has(e.name) && !SKIP_RELATIVE_DIRS.has(rel)) walk(child)
         continue
       }
       if (!e.name.endsWith('.ts') || e.name.endsWith('.test.ts')) continue
@@ -86,14 +99,27 @@ describe('`resamplingNearest` has no hillshade runtime reader (#2166 L3)', () =>
       .filter((f) => readFileSync(f, 'utf8').includes('resamplingNearest'))
       .map((f) => relative(MAP_SRC, f).replace(/\\/g, '/'))
       .sort()
+    // CAUSE first (§12): if the known-positive RASTER reader is gone, the scan
+    // itself moved and this gate cannot adjudicate the hillshade half at all.
+    // Asserting the array shape first would report THAT as "a hillshade reader
+    // appeared" — a red run naming a cause that did not happen.
     expect(
       readers,
+      'the scan no longer finds the known RASTER reader (render/passes/opaque-pass.ts) — the ' +
+        'corpus walk or that file path changed (an opaque-pass split moves it). This gate ' +
+        'cannot say anything about the hillshade half until that is fixed. Readers found: ' +
+        readers.join(', '),
+    ).toContain('render/passes/opaque-pass.ts')
+    // EFFECT second: with the known positive present, any EXTRA reader is a
+    // hillshade one.
+    expect(
+      readers.length,
       'a hillshade reader for `resamplingNearest` appeared. The compiler has always emitted ' +
         'HillshadeShapes.resamplingNearest and the runtime has always dropped it; if that is ' +
         'now wired, update the `resampling` rows (compiler/src/convert/spec-coverage/' +
         'paint-hillshade.ts and map/src/capabilities/hillshade.ts), which both state the ' +
         'opposite. Readers found: ' +
         readers.join(', '),
-    ).toEqual(['render/passes/opaque-pass.ts'])
+    ).toBe(1)
   })
 })

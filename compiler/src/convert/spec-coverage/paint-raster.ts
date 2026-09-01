@@ -5,7 +5,7 @@ export const PAINT_RASTER: readonly CoverageEntry[] = [
     name: 'raster-opacity',
     status: 'supported',
     note: 'Constant and interpolate-by-zoom resolve per frame into the global RasterRenderer opacity uniform, and so does the input-dependent form — a binding that reads a declared `input` but no feature field, which is a per-frame constant. That last form used to render at 1: the opaque pass called resolveNumberShape WITHOUT the live input store, so the authored value was dropped on frame one and setInput moved nothing (fixed #2166; the DEM-relief path had the same drop). A genuinely per-feature form is not authorable here — the pinned oracle marks raster-opacity data-constant, a raster tile carrying no features — and such a shape still resolves to 1. Single raster show per scene is supported; multi-raster styles fall back to the first declared show.',
-    source: 'paint.ts:38',
+    source: 'paint-raster.ts:78',
   },
   {
     name: 'raster-hue-rotate',
