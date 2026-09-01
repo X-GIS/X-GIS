@@ -1256,8 +1256,8 @@ export class TextStage {
               h: hit.blockBottom - hit.blockTop,
             })
           }
-          // #2170 — the cached dx/dy no longer carry text-translate; add it
-          // here. Parenthesised for the same reason as the miss path below.
+          // #2170 — the cached dx/dy no longer carry text-translate; grouped
+          // for the same reason as the miss path below.
           const drawX = p.anchorX + (hit.dx + txRaw * dpr)
           const drawY = p.anchorY + (hit.dy + tyRaw * dpr)
           // Badge union — a steady scene is ~all cache hits, so the shaping
@@ -1348,17 +1348,10 @@ export class TextStage {
           dy += p.def.offset[1] * sizePx
         }
         // #2170 — text-translate is applied HERE, not folded into `dx`, so it
-        // stays out of the cached layout and out of the cache key. It is in
-        // pixels (a Mapbox paint property), not em-units, so it scales by DPR
-        // alone; txRaw/tyRaw already carry the text-translate-anchor:map
-        // bearing rotation (viewport = unrotated [dx,dy]).
-        //
-        // THE PARENTHESES ARE LOAD-BEARING. `p.anchorX + dx + txRaw * dpr` is
-        // left-associative — (a⊕b)⊕c — while the old two-step computed
-        // a⊕(b⊕c). IEEE-754 addition is not associative, and on this domain
-        // (integer anchor, generic advance, bearing-rotated translate) the two
-        // differ by 1 ULP on ~30% of labels, measured. Grouping the moved term
-        // reproduces the identical two roundings on identical operands.
+        // stays out of the cached layout and out of the cache key. THE
+        // PARENTHESES ARE LOAD-BEARING: ungrouped, `+` is left-associative and
+        // reassociates the sum, shifting ~30% of labels by 1 ULP against every
+        // frame drawn before this change (layout-cache-translate-hoist.test.ts).
         const drawX = p.anchorX + (dx + txRaw * dpr)
         const drawY = p.anchorY + (dy + tyRaw * dpr)
         // Per-glyph offsets for multi-line layout. Each line gets
