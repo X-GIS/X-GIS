@@ -180,7 +180,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: true,
-    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and re-keys the layout cache. viewport = screen-space. GAP (#2170 follow-up): the converter still gates the flag on an EXPLICIT "map", so an absent anchor takes the viewport path. Pitch foreshortening not reproduced.',
+    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and re-keys the layout cache. viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
   },
   {
     property: 'text-halo-blur',
@@ -233,7 +233,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: true,
-    note: 'map is the SPEC DEFAULT (not viewport) = world-space: dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by camera.bearing (icon-offset stays screen-space). viewport = screen-space. GAP (#2170 follow-up): the converter still gates the flag on an EXPLICIT "map", so an absent anchor takes the viewport path. Pitch foreshortening not reproduced.',
+    note: 'map is the SPEC DEFAULT (not viewport) = world-space: dispatchIcon rotates ONLY the icon-translate portion of the icon anchor offset by camera.bearing (icon-offset stays screen-space). viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
   },
   {
     property: 'icon-allow-overlap',

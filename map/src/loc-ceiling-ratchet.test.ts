@@ -2214,7 +2214,10 @@ const CEILINGS: Record<string, number> = {
   // MERGE (#2166 icon-translate x #2166 symbol-sort-key): both branches raised this
   // key from 1357 — to 1378 and to 1365 — and the merged file takes BOTH deltas, so
   // neither number is correct here. RE-MEASURED post-merge with `wc -l`: 1386.
-  'compiler/src/convert/layers-symbol.ts': 1386,
+  // 1386→1384: the two symbol anchor guards collapsed onto the shared decision,
+  // so this file SHRANK. The ratchet is shrink-only, so the ceiling follows it
+  // down rather than banking the slack.
+  'compiler/src/convert/layers-symbol.ts': 1384,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2261,7 +2264,12 @@ const CEILINGS: Record<string, number> = {
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
   'compiler/src/ir/render-node.ts': 1006,
-  'compiler/src/convert/paint-helpers.ts': 912,
+  // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
+  // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
+  // so the symbol emitter reads it too, plus its docstring recording WHY a second
+  // copy existed (that copy is what drifted from the paint path since #2170).
+  // MEASURED post-prettier (`wc -l`), set EXACTLY — no headroom banked.
+  'compiler/src/convert/paint-helpers.ts': 932,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,

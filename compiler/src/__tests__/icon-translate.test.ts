@@ -149,7 +149,7 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
     expect(def.iconTranslateAnchorMap).toBeUndefined()
   })
 
-  it('DEFAULT (no anchor) → iconTranslateAnchorMap undefined (viewport, byte-identical)', () => {
+  it('DEFAULT (no anchor) → iconTranslateAnchorMap === true (spec default map, #2170 symbol half)', () => {
     const def = compileLabel({
       id: 'poi',
       type: 'symbol',
@@ -158,7 +158,7 @@ describe('Mapbox paint.icon-translate → LabelDef.iconTranslateX/Y', () => {
       layout: { 'icon-image': 'x' },
       paint: { 'icon-translate': [2, 2] },
     }) as { iconTranslateAnchorMap?: boolean }
-    expect(def.iconTranslateAnchorMap).toBeUndefined()
+    expect(def.iconTranslateAnchorMap).toBe(true)
   })
 
   it('no gap warning for the supported constant form', () => {
