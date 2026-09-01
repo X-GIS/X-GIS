@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9f641e0f640763c1dca0344faf2eff9eafd829ef
+  Generated from: c68f0e2f1f20354a3f348f2387fcd095e34b14c9
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9f641e0f6407
+    bun scripts/emit-changelog.ts --since c68f0e2f1f20
 -->
 
 # Changelog
@@ -56,6 +56,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
 ### 2026-08
