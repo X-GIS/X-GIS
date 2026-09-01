@@ -10,7 +10,7 @@ import type { MapboxLayer } from './types'
 import type { SymbolLayerOverrides } from './layers-types'
 import { exprToXgis } from './expressions'
 import { interpolateZoomCall } from './paint'
-import { vec2AxisZoomInterp } from './paint-helpers'
+import { isOmitted, translateAnchorIsMap, vec2AxisZoomInterp } from './paint-helpers'
 import { isZoomInterpCandidate } from './zoom-function-fold'
 import { colorToXgis } from './colors'
 import {
@@ -724,16 +724,17 @@ export function convertTextLayoutProperties(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   }
-  // text-translate-anchor: viewport (default) keeps text-translate in
-  // screen space (byte-identical historical path) — emit nothing. "map"
-  // anchors the offset in world space; the runtime rotates [dx,dy] by
-  // the map bearing (mirror of fill/line Phase S Batch 2). No-op without
-  // a parent text-translate, so only emit the flag when both are present.
-  const textTranslateAnchor = unwrapLiteralScalar(paint['text-translate-anchor'])
+  // text-translate-anchor: the v8 default is "map", NOT viewport, so an
+  // ABSENT anchor anchors the offset in world space and the runtime
+  // rotates [dx,dy] by the map bearing; only an explicit "viewport" keeps
+  // it screen-space. #2170 established that rule via addTranslateAnchor
+  // for fill / line / circle / fill-extrusion; this emitter kept its own
+  // `=== 'map'` copy and so still rendered the default as viewport.
+  // Both now read the SAME decision. No-op without a parent
+  // text-translate, so the parent is checked first.
   if (
-    textTranslateAnchor === 'map' &&
-    paint['text-translate'] !== undefined &&
-    paint['text-translate'] !== null
+    !isOmitted(paint['text-translate']) &&
+    translateAnchorIsMap(paint['text-translate-anchor'], warnings)
   ) {
     utils.push('label-translate-anchor-map')
   }
@@ -797,16 +798,13 @@ export function convertTextLayoutProperties(
         `Symbol layer "${layer.id}" — icon-translate non-constant form could not be converted; offset dropped.`,
       )
   }
-  // icon-translate-anchor: viewport (default) keeps icon-translate in
-  // screen space (byte-identical) — emit nothing. "map" anchors the
-  // offset in world space; dispatchIcon rotates [dx,dy] by the map
-  // bearing before the anchor add (mirror of text-translate-anchor /
-  // fill/line Phase S Batch 2). No-op without a parent icon-translate.
-  const iconTranslateAnchor = unwrapLiteralScalar(paint['icon-translate-anchor'])
+  // icon-translate-anchor: same v8 default="map" rule as text- above, and
+  // the same second-authority drift #2170 left behind. dispatchIcon
+  // rotates [dx,dy] by the map bearing before the anchor add. No-op
+  // without a parent icon-translate, so the parent is checked first.
   if (
-    iconTranslateAnchor === 'map' &&
-    paint['icon-translate'] !== undefined &&
-    paint['icon-translate'] !== null
+    !isOmitted(paint['icon-translate']) &&
+    translateAnchorIsMap(paint['icon-translate-anchor'], warnings)
   ) {
     utils.push('label-icon-translate-anchor-map')
   }
