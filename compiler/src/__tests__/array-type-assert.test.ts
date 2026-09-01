@@ -180,18 +180,22 @@ describe('the ["at", …] consumer — the only emitted SHAPE that changes', () 
     // bracket binding that previously carried neither. That is the PR's own
     // "only behavioural delta", and it was the one form the suite skipped.
     const out = exprToXgis(['at', 0, ['array', 'number', 2, ['get', 'pts']]] as never, [])
-    expect(out, `expected the assertion to survive the index: ${out}`).toContain('assert_array(')
-    expect(out, `expected the postfix index on the call: ${out}`).toMatch(/assert_array\([^)]*\)\[/)
+    expect(out, 'the ["at"] consumer must still convert').not.toBeNull()
+    const src = out as string
+    expect(src, `expected the assertion to survive the index: ${src}`).toContain('assert_array(')
+    expect(src, `expected the postfix index on the call: ${src}`).toMatch(/assert_array\([^)]*\)\[/)
   })
 
   it('and it round-trips through the real parser inside a bracket binding', () => {
     // The comma + quoted string are the characters a bracket binding has to
     // survive; parse the emitted form back rather than trusting the string.
     const out = exprToXgis(['at', 0, ['array', 'number', 2, ['get', 'pts']]] as never, [])
-    expect(() => parseExpressionString(out)).not.toThrow()
-    expect(evaluate(parseExpressionString(out), { pts: [7, 9] })).toBe(7)
+    expect(out, 'the ["at"] consumer must still convert').not.toBeNull()
+    const src = out as string
+    expect(() => parseExpressionString(src)).not.toThrow()
+    expect(evaluate(parseExpressionString(src), { pts: [7, 9] })).toBe(7)
     // The assertion still bites: a non-array, and a length mismatch, both null.
-    expect(evaluate(parseExpressionString(out), { pts: 'abcde' })).toBeNull()
-    expect(evaluate(parseExpressionString(out), { pts: [7, 9, 11] })).toBeNull()
+    expect(evaluate(parseExpressionString(src), { pts: 'abcde' })).toBeNull()
+    expect(evaluate(parseExpressionString(src), { pts: [7, 9, 11] })).toBeNull()
   })
 })
