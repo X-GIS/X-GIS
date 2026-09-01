@@ -39,7 +39,7 @@ import { generateWallMeshExtrudedECEF } from '../core/polygon-mesh'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
 import { isMobileClassViewport, xlog } from '@xgis/shared'
 import type { TileData } from '@xgis/data'
-import { burstUploadBudget } from './vector-tile-renderer-helpers'
+import { burstUploadBudget, syncFallbackCap } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 import type { RhiBindGroup, RhiBuffer, RhiDevice } from '@xgis/engine'
 import type { WebGpuDevice } from '@xgis/rhi-webgpu'
@@ -234,6 +234,9 @@ export class UploadCoordinator {
   // bounds the uploads that START work this frame; overflow is held in
   // `_heldUploads` and replayed at `resetFrameCap`.
   private _uploadsThisFrame = 0
+  // Mid-render sync-fallback counter (#2247); ceiling + rationale in
+  // `syncFallbackCap`, alongside the background budget it must not drift from.
+  private _syncUploadsThisFrame = 0
   private _heldUploads: { key: number; data: TileData; sourceLayer: string }[] = []
   private _heldUploadIds = new Set<string>()
   /** Mirror of `_heldUploads`'s tile keys (sliceLayer-collapsed), read by
@@ -284,9 +287,7 @@ export class UploadCoordinator {
     if (this._coldStartBurst) cap = burstUploadBudget(mobile)
     else cap = mobile ? 1 : 4
     if (this._uploadsThisFrame >= cap) {
-      this._heldUploads.push({ key, data, sourceLayer })
-      this._heldUploadIds.add(id)
-      this._heldUploadKeys.add(key)
+      this._hold(id, key, data, sourceLayer)
       return
     }
     this._uploadsThisFrame++
@@ -321,10 +322,20 @@ export class UploadCoordinator {
       })
   }
 
+  /** Defer one slice to the next frame. The ONE place the held backlog and its
+   *  two mirror sets are written, so the enqueue cap and the sync cap (#2247)
+   *  cannot drift on the invariant `cancelStale` and `isHeld` depend on. */
+  private _hold(id: string, key: number, data: TileData, sourceLayer: string): void {
+    this._heldUploads.push({ key, data, sourceLayer })
+    this._heldUploadIds.add(id)
+    this._heldUploadKeys.add(key)
+  }
+
   /** Release the per-frame upload slot counter and replay any tiles held
    *  over from the previous frame. Called from beginFrame. */
   resetFrameCap(): void {
     this._uploadsThisFrame = 0
+    this._syncUploadsThisFrame = 0
     if (this._heldUploads.length === 0) return
     const held = this._heldUploads
     this._heldUploads = []
@@ -465,6 +476,22 @@ export class UploadCoordinator {
    *  superseded slots (`VectorTileRenderer.applyReplacedTiles`); this only
    *  overwrites the cache entry. */
   uploadSync(key: number, data: TileData, sourceLayer = '', replace = false): void {
+    // #2247 — overflow is NOT dropped: it joins the SAME `_heldUploads` backlog
+    // the enqueue cap uses, so it replays NEAREST-first and joins
+    // `_heldUploadKeys`, which `classifyTile`'s `hasOtherSliceHeld` reads to keep
+    // every slice of one tile on one fallback level — the coherence that stops a
+    // deferral becoming the flicker this safety net exists to prevent. A RE-SEED
+    // (`replace`) is exempt: its caller reads the cache back to release the
+    // superseded slots (#1402), so deferring one leaves stale geometry drawing,
+    // and re-seeds are bounded by the refresh queue rather than the frustum.
+    if (!replace && this._syncUploadsThisFrame >= syncFallbackCap()) {
+      const id = `${key}:${sourceLayer}`
+      if (!this._heldUploadIds.has(id) && !this.uploadQueue.has(id)) {
+        this._hold(id, key, data, sourceLayer)
+      }
+      return
+    }
+    this._syncUploadsThisFrame++
     const sink = new SyncWriteSink(this.host.device, this.host.rhi, this.host.lineRenderer())
     // No await is hit under the sync sink → the returned promise is already
     // resolved and every side effect (cache.set) has run synchronously.
