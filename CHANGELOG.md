@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b34ed8e5bf9943736c8495e7b137844ac5500606
+  Generated from: 8dbc56487760267e93f4f674d851cf607fc9d702
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b34ed8e5bf99
+    bun scripts/emit-changelog.ts --since 8dbc56487760
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** the WebGL2 fills arm packs the resolved fill-antialias lane (#1999) ([#2239](https://github.com/X-GIS/X-GIS/pull/2239)) `8dbc564`
 - **test:** background-pattern onLanded gate measures the re-arm and the domains, not the method name (#2128) ([#2235](https://github.com/X-GIS/X-GIS/pull/2235)) `b34ed8e`
 - **e2e:** _icons-gl2-gate counts the icon draw's own pixels, not the label's (#2223) ([#2232](https://github.com/X-GIS/X-GIS/pull/2232)) `c8226ea`
 - **test:** resolve a coverage row's capability by (layerType, property), not by name (#2216) ([#2234](https://github.com/X-GIS/X-GIS/pull/2234)) `819fba2`
