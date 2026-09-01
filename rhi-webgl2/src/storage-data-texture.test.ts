@@ -41,12 +41,14 @@ const E = {
   INT: 0x1404,
 } as const
 
-function harness(): {
+function harness(maxTex?: number): {
   device: WebGl2Device
   texImage: TexImageCall[]
+  texDims: { width: number; height: number }[]
   texSubImage: TexSubImageCall[]
 } {
   const texImage: TexImageCall[] = []
+  const texDims: { width: number; height: number }[] = []
   const texSubImage: TexSubImageCall[] = []
   const gl = {
     createTexture: () => ({}),
@@ -65,6 +67,7 @@ function harness(): {
       type: number,
     ) => {
       texImage.push({ internalFormat, format, type })
+      texDims.push({ width: _w, height: _h })
     },
     texSubImage2D: (
       _t: number,
@@ -87,8 +90,11 @@ function harness(): {
     TEXTURE_WRAP_S: 0x2802,
     TEXTURE_WRAP_T: 0x2803,
     ...E,
+    ...(maxTex === undefined
+      ? {}
+      : { MAX_TEXTURE_SIZE: 0x0d33, getParameter: (p: number) => (p === 0x0d33 ? maxTex : 0) }),
   } as unknown as WebGL2RenderingContext
-  return { device: new WebGl2Device(gl), texImage, texSubImage }
+  return { device: new WebGl2Device(gl), texImage, texDims, texSubImage }
 }
 
 describe('storage data texture — the element picks the GL format (#1703)', () => {
@@ -186,5 +192,56 @@ describe('storage data texture — the element picks the GL format (#1703)', () 
     expect(out.length).toBe(16) // padded to the full W×H
     expect([...out.subarray(0, 4)]).toEqual([0x00000001, 0xffffffff, 0x007fffff, 0xdeadbeef])
     expect([...out.subarray(4)]).toEqual(Array(12).fill(0)) // the tail reads 0 past the array
+  })
+})
+
+describe('storage data texture — BOTH axes are bounded by the device limit (#2111)', () => {
+  // `width` was capped at the hardcoded 2048 spec floor and `height` was a bare
+  // ceil() with no ceiling at all, so a buffer past 2048 x MAX_TEXTURE_SIZE x 4
+  // bytes asked for a texture taller than the device allows. texImage2D then
+  // raised GL_INVALID_VALUE and the draw rendered NOTHING, silently.
+
+  it('the width follows the DEVICE limit, not the 2048 spec floor', () => {
+    const { device, texDims } = harness(16384)
+    device.createBuffer({ size: 4 * 20000, usage: 'storage' })
+    // Equality, not `<=`: `width <= maxTex` is satisfied by the old hardcoded
+    // 2048 too, so it would pass under the cut and carry no information.
+    expect(texDims).toEqual([{ width: 16384, height: 2 }])
+  })
+
+  it('a buffer too tall for the device THROWS, naming the limit — instead of drawing nothing', () => {
+    const { device } = harness(4)
+    // 4x4 texels = 64 bytes is the whole device ceiling here; ask for 400.
+    expect(() => device.createBuffer({ size: 400, usage: 'storage' })).toThrow(
+      /storage buffer of 400 bytes needs a 4x25 data texture, but MAX_TEXTURE_SIZE is 4/,
+    )
+  })
+
+  it('a buffer that exactly fills the device ceiling still allocates', () => {
+    const { device, texDims } = harness(4)
+    device.createBuffer({ size: 4 * 16, usage: 'storage' })
+    expect(texDims).toEqual([{ width: 4, height: 4 }])
+  })
+
+  it('a context with no getParameter keeps the 2048 spec floor', () => {
+    // The pre-existing fixture shape. Back-compat, and the reason the helper
+    // probes `typeof gl.getParameter` before touching gl.MAX_TEXTURE_SIZE.
+    const { device, texDims } = harness()
+    device.createBuffer({ size: 4 * 5000, usage: 'storage' })
+    expect(texDims).toEqual([{ width: 2048, height: 3 }])
+  })
+
+  it('a degenerate getParameter falls back to the floor rather than allocating Infinity', () => {
+    // `Math.min(texels, 0)` is 0 and `Math.ceil(texels / 0)` is Infinity, so an
+    // unguarded read of a hostile/stubbed limit is WORSE than the constant it
+    // replaced. Each arm gets its own harness: the resolved limit is cached per
+    // context, so reusing one would measure the cache, not the guard.
+    for (const bad of [0, -1, Number.NaN, undefined]) {
+      const { device, texDims } = harness(bad as unknown as number)
+      device.createBuffer({ size: 4 * 5000, usage: 'storage' })
+      expect(texDims, `limit ${String(bad)} must fall back to 2048`).toEqual([
+        { width: 2048, height: 3 },
+      ])
+    }
   })
 })

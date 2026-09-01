@@ -66,6 +66,28 @@ const texView = (
 // this used to allocate a fresh array per write).
 let _padScratch = new ArrayBuffer(0)
 
+/** The context's real `MAX_TEXTURE_SIZE`, resolved ONCE per context.
+ *
+ *  Cached because `createStorageDataTexture` runs per line-tile upload, and
+ *  `getParameter` is a synchronous driver round-trip this package already treats
+ *  as a one-time cost.
+ *
+ *  A missing, non-finite or non-positive answer falls back to 2048 — the WebGL2
+ *  spec floor. That guard is load-bearing, not padding: `Math.min(texels, 0)`
+ *  makes the width 0 and `Math.ceil(texels / 0)` is `Infinity`, so a stubbed or
+ *  hostile `getParameter` would turn this clamp into an unbounded allocation —
+ *  strictly worse than the hardcoded constant it replaces. */
+const _maxTexCache = new WeakMap<WebGL2RenderingContext, number>()
+function maxTextureSize(gl: WebGL2RenderingContext): number {
+  let v = _maxTexCache.get(gl)
+  if (v === undefined) {
+    const raw = typeof gl.getParameter === 'function' ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : null
+    v = typeof raw === 'number' && Number.isFinite(raw) && raw >= 1 ? raw : 2048
+    _maxTexCache.set(gl, v)
+  }
+  return v
+}
+
 /** Allocate the data texture backing one 'storage' buffer of `size` bytes. */
 export function createStorageDataTexture(
   gl: WebGL2RenderingContext,
@@ -76,8 +98,22 @@ export function createStorageDataTexture(
   const tex = gl.createTexture()
   if (!tex) throw new Error('webgl2: createTexture (storage) failed')
   const texels = Math.max(1, Math.ceil(size / 4))
-  const width = Math.min(texels, 2048)
+  // BOTH axes are bounded by the device limit. `width` was capped at the 2048
+  // spec floor and `height` was a bare ceil() — so a buffer past
+  // 2048 x MAX_TEXTURE_SIZE x 4 bytes asked for a texture taller than the
+  // device allows, texImage2D raised GL_INVALID_VALUE, and the draw silently
+  // rendered nothing (#2111). Reading the real limit also WIDENS the fast axis:
+  // 2048 was never the device's ceiling, only the guaranteed floor.
+  const maxTex = maxTextureSize(gl)
+  const width = Math.min(texels, maxTex)
   const height = Math.ceil(texels / width)
+  if (height > maxTex) {
+    throw new Error(
+      `webgl2: storage buffer of ${size} bytes needs a ${width}x${height} data texture, ` +
+        `but MAX_TEXTURE_SIZE is ${maxTex} (ceiling ${maxTex * maxTex * 4} bytes). ` +
+        `Split the buffer or reduce the element count.`,
+    )
+  }
   gl.bindTexture(gl.TEXTURE_2D, tex)
   gl.texImage2D(
     gl.TEXTURE_2D,
