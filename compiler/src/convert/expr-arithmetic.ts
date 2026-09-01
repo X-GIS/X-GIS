@@ -13,11 +13,13 @@ import { extractCollatorOpts, lowerCollatorOptSlots } from './collator-opts'
 // Comparison operators. Mapbox spec allows a trailing
 // `["collator", {…}]` arg that controls case-sensitivity /
 // locale-aware ordering of string compares (`["==", a, b,
-// ["collator", { "case-sensitive": false }]]`). X-GIS string
-// comparison is byte-exact — we drop the collator with a warning
-// and proceed with the bare a/b. Without this branch the 4-arg
-// form fell to the length-check below and returned null, hiding
-// the entire predicate.
+// ["collator", { "case-sensitive": false }]]`). Three-way
+// disposition: constant options bake into the `collator_cmp` call,
+// a per-feature option expression lowers into its own slot, and
+// only the forms the reference implementation rejects at parse time
+// drop to X-GIS's byte-exact `a op b` with a warning naming why.
+// Without this branch the 4-arg form fell to the length-check below
+// and returned null, hiding the entire predicate.
 export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFilter, op) => {
   if (v.length === 4) {
     const collator = v[3]
@@ -32,7 +34,10 @@ export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFil
       // time, and the Mapbox spec evaluates all three options per feature
       // too. Only the forms the reference implementation rejects at parse
       // time (non-object options, a constant of the wrong type) fall back
-      // to byte-exact compare with a warning.
+      // to byte-exact compare — plus an option expression this converter
+      // cannot lower. `lowerCollatorOptSlots` owns that diagnostic because
+      // only it knows WHICH of the three happened; a single message here
+      // mis-attributed an unsupported-operator failure to bad authoring.
       const constant = extractCollatorOpts(collator)
       const slots = constant
         ? {
@@ -40,13 +45,8 @@ export const comparisonHandler: ExprHandler = (v, warnings, recurse, _recurseFil
             caseSensitive: String(constant.caseSensitive),
             diacriticSensitive: String(constant.diacriticSensitive),
           }
-        : lowerCollatorOptSlots(collator, warnings, recurse)
-      if (slots === null) {
-        warnings.push(
-          `["${op}"] ["collator", …] has malformed options — case-sensitive / diacritic-sensitive must be a boolean or an expression yielding one, locale a string or an expression, and the options argument itself an object; falling back to byte-exact compare.`,
-        )
-        return `${a} ${op} ${b}`
-      }
+        : lowerCollatorOptSlots(collator, warnings, recurse, op)
+      if (slots === null) return `${a} ${op} ${b}`
       return `collator_cmp(${JSON.stringify(op)}, ${a}, ${b}, ${slots.locale}, ${slots.caseSensitive}, ${slots.diacriticSensitive})`
     }
   }

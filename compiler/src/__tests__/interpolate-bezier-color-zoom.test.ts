@@ -96,7 +96,13 @@ describe('zoom-axis cubic-bezier over COLOUR stops (#2166)', () => {
     expect(ir!.stops.find((s) => s.zoom === 5)!.value).toBe('#dd0022')
   })
 
-  it('the zoom axis and the data axis agree stop-for-stop', () => {
+  // Scope of the invariant: 6-digit hex. Both densifiers keep each segment's
+  // START stop at its AUTHORED spelling (paint-helpers.ts `dense.push(a)`;
+  // expr-interpolate.ts `emit(a.hex)` after parse), so a 3-digit `#f00`
+  // survives verbatim on the zoom axis and is normalised to `#ff0000` on the
+  // data axis. Colour-identical, both parse downstream — but not literally
+  // stop-for-stop, so the name says which spelling it covers.
+  it('the zoom axis and the data axis agree stop-for-stop (6-digit hex)', () => {
     const zoomStops = parseStops(
       fillBinding(convertFillColor(['interpolate', EASE_IN, ['zoom'], ...RAMP_STOPS]).out),
     )
@@ -184,5 +190,98 @@ describe('zoom-axis cubic-bezier over COLOUR stops (#2166)', () => {
       '#0000ff',
     ])
     expect(warnings.some((w) => /folded to linear/.test(w))).toBe(true)
+  })
+})
+
+// PRECEDENCE between the sRGB bezier densifier and the Lab / LCh one.
+//
+// The first cut of #2166 let the sRGB branch claim `interpolate-lab` /
+// `interpolate-hcl` too, which silently dropped the authored perceptual colour
+// space — and NO assertion in the tree distinguished the two emits, so a later
+// refactor could have reverted it green. These witnesses pin all three states
+// apart, at the same z=5 midpoint:
+//
+//   Lab / LCh + bezier (correct)  lab #f10033   hcl #ff002d
+//   Lab / LCh, curve DROPPED      lab #c10088   hcl #f50086   (main a0a8337a)
+//   sRGB + bezier                 both #dd0022                (first cut of #2166)
+//
+// Expected values are the pinned reference implementation's own output —
+// @maplibre/maplibre-gl-style-spec 24.8.5, `createPropertyExpression` against
+// `paint_fill.fill-color`, evaluated at each of the 7 emitted stop zooms. The
+// emit is BYTE-EXACT with it (summed L1 channel distance 0 at every stop, on
+// both axes, for cubic-bezier(0.42,0,0.58,1), (0.25,0.1,0.25,1) and
+// (0.9,0,1,1)); the two rejected states above score 611 and 191 on this ramp.
+describe('interpolate-lab / interpolate-hcl keep their colour space under cubic-bezier', () => {
+  const LAB_EASED = ['#ff0000', '#fe0008', '#f9001b', '#f10033', '#e10053', '#c20086', '#0000ff']
+  const HCL_EASED = ['#ff0000', '#ff0006', '#ff0018', '#ff002d', '#ff004c', '#f60084', '#0000ff']
+
+  for (const [op, eased, space, linearMid] of [
+    ['interpolate-lab', LAB_EASED, 'Lab', '#c10088'],
+    ['interpolate-hcl', HCL_EASED, 'LCh', '#f50086'],
+  ] as const) {
+    it(`${op} + cubic-bezier densifies in ${space}, not sRGB`, () => {
+      const { out, warnings } = convertFillColor([op, EASE_IN, ['zoom'], ...RAMP_STOPS])
+      const binding = fillBinding(out)
+      // CAUSE first (§12: the first assertion to run is the one that reports).
+      // The diagnostic must name BOTH halves — which densifier claimed the
+      // expression, and that it honoured the curve.
+      expect(
+        warnings.some((w) => w.startsWith(`${op}(…)`) && /cubic-bezier/.test(w)),
+        `no ${op} densify note naming the curve; warnings were:\n${warnings.join('\n')}`,
+      ).toBe(true)
+      expect(
+        warnings.some((w) => new RegExp(`perceptually correct in ${space} space`).test(w)),
+        `the authored ${space} space was dropped — emitted ${binding}`,
+      ).toBe(true)
+      // The sRGB branch must NOT have claimed it: its note is the one that
+      // starts `["interpolate-lab", ["cubic-bezier"…`.
+      expect(
+        warnings.some((w) => /dense piecewise-linear sRGB samples \(6 per segment\) at/.test(w)),
+      ).toBe(false)
+      // EFFECT.
+      const stops = parseStops(binding)
+      expect(stops.map(([, hex]) => hex)).toEqual([...eased])
+      // Three-way separation at the midpoint, so every wrong state reddens:
+      const mid = stops.find(([z]) => z === 5)![1]
+      expect(mid, 'the curve was dropped — this is the LINEAR value').not.toBe(linearMid)
+      expect(mid, 'the colour space was dropped — this is the sRGB value').not.toBe('#dd0022')
+    })
+
+    it(`${op} + cubic-bezier agrees on the zoom and data axes`, () => {
+      const zoomStops = parseStops(
+        fillBinding(convertFillColor([op, EASE_IN, ['zoom'], ...RAMP_STOPS]).out),
+      )
+      const dataOut = exprToXgis([op, EASE_IN, ['get', 'x'], ...RAMP_STOPS] as never, [])
+      expect(parseStops(dataOut!)).toEqual(zoomStops)
+      expect(zoomStops.map(([, hex]) => hex)).toEqual([...eased])
+    })
+  }
+
+  it('NEGATIVE CONTROL — a plain `interpolate` still samples in sRGB', () => {
+    // The exclusion is on the OPERATOR, not on colour stops in general: the
+    // sRGB branch is still the right answer for `interpolate`, and its z=5
+    // value is exactly the one the two rows above must not produce.
+    const { out, warnings } = convertFillColor(['interpolate', EASE_IN, ['zoom'], ...RAMP_STOPS])
+    expect(warnings.some((w) => /perceptually correct in/.test(w))).toBe(false)
+    expect(parseStops(fillBinding(out)).find(([z]) => z === 5)![1]).toBe('#dd0022')
+  })
+
+  it('NEGATIVE CONTROL — a NON-HEX interpolate-lab stop still drops the curve, and says so', () => {
+    // The residual the coverage row names: the runtime Lab case interpolates
+    // linearly, so a bezier authored over per-feature stops is lost. That is
+    // acceptable only because the warning admits it.
+    const { warnings } = convertFillColor([
+      'interpolate-lab',
+      EASE_IN,
+      ['zoom'],
+      0,
+      ['get', 'c0'],
+      10,
+      '#0000ff',
+    ])
+    expect(
+      warnings.some((w) => /cubic-bezier curve is dropped/i.test(w)),
+      `the dropped curve was not disclosed; warnings were:\n${warnings.join('\n')}`,
+    ).toBe(true)
   })
 })

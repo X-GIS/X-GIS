@@ -40,8 +40,13 @@ export function unwrapLiteralScalarLocal(v: unknown): unknown {
  *  can short-circuit and route through the generic expression
  *  converter instead.
  *
- *  Cubic-bezier curves fall back to linear with a warning — xgis has
- *  no per-stop control-point evaluator yet. */
+ *  xgis has no per-stop control-point evaluator, so a cubic-bezier curve
+ *  is DENSIFIED at compile time into a longer linear stop list whose
+ *  samples carry the easing (numeric stops, and — since #2166 — hex-colour
+ *  stops in sRGB or, for interpolate-lab / interpolate-hcl, in the authored
+ *  Lab / LCh space). Only what cannot be sampled ahead of time — an
+ *  expression-valued or non-hex-spelled stop — still falls back to linear
+ *  with a warning. */
 function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomShape | null {
   // Legacy stops shape (Mapbox style spec v0 / v1, still emitted by
   // many older styles — incl. the MapLibre demo basemap):
@@ -181,6 +186,11 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
 
   let curve: 'linear' | 'exponential' = 'linear'
   let base = 1
+  // Cubic-bezier control points, published by the cubic-bezier arm below so
+  // the interpolate-lab / interpolate-hcl densifier can apply the SAME
+  // easing in the authored perceptual space. Null for every other curve;
+  // mutually exclusive with `curve === 'exponential'` by the else-if.
+  let bezier: readonly [number, number, number, number] | null = null
   if (Array.isArray(curveSpec)) {
     // Mapbox spec: curve type must be one of `linear` / `exponential` /
     // `cubic-bezier`. An unknown curve name silently falls through to
@@ -240,8 +250,12 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
       // insert SAMPLES_PER_SEGMENT intermediate stops with eased Y
       // values — the runtime then does its normal linear interpolate
       // between the dense stops and visually approximates the bezier.
-      // This only works when stop values are numeric; colour / array
-      // values still warn-and-fold-to-linear (see else branch).
+      // Numeric stops densify here; hex-colour stops densify in the
+      // branch below (in sRGB for `interpolate`, or — for
+      // interpolate-lab / interpolate-hcl — in the authored Lab / LCh
+      // space via the densifier further down, which reads the control
+      // points this arm publishes on `bezier`). Anything else warns
+      // and folds to linear.
       // v8 strict tooling can wrap individual control points as
       // `["literal", N]`; unwrap so the typeof gate accepts both bare
       // and wrapped forms instead of silently degrading to (0,0,1,1)
@@ -254,6 +268,7 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
       const y1 = unwrapCP(curveSpec[2], 0)
       const x2 = unwrapCP(curveSpec[3], 1)
       const y2 = unwrapCP(curveSpec[4], 1)
+      bezier = [x1, y1, x2, y2]
       // CSS cubic-bezier spec: x1 + x2 MUST be in [0, 1] (so x(t) is
       // monotonic on [0, 1] and the curve is invertible). y1 + y2 can
       // be any value (overshoot curves are common in CSS animations).
@@ -297,11 +312,16 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
       // Not all-numeric: try HEX COLOUR stops, sampling each segment's
       // colour at the bezier-EASED fraction in sRGB — the space Mapbox's
       // non-lab `interpolate` uses. Mirror of the data-driven twin
-      // (expr-interpolate.ts), and returning HERE — before the
-      // interpolate-lab/hcl block below — reproduces the twin's own
-      // precedence, which is what makes the two axes agree on the same
-      // authored expression. Segment endpoints keep their authored spelling,
-      // as in the Lab/LCh densifier below.
+      // (expr-interpolate.ts). Segment endpoints keep their authored
+      // spelling, as in the Lab/LCh densifier below.
+      //
+      // `interpolate-lab` / `interpolate-hcl` are EXCLUDED: sampling their
+      // ramp in sRGB would silently discard the perceptual colour space the
+      // style authored. They fall through to the Lab/LCh densifier below,
+      // which applies this same bezier easing in Lab / LCh — measured
+      // byte-exact against the pinned reference implementation, where an
+      // sRGB sample is not (interpolate-hcl / cubic-bezier(0.42, 0, 0.58,
+      // 1) midpoint: #f50086 authored, #800080 in sRGB).
       //
       // 4- and 8-digit hex carry an alpha `parseSrgbHex` drops. Densifying
       // those would silently delete the alpha the plain-linear fold below
@@ -319,7 +339,7 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
         }
         colourStops.push(rgb)
       }
-      if (allHex) {
+      if (allHex && !isLabHcl) {
         const SAMPLES_PER_SEGMENT = 6
         const ch = (c: number) =>
           Math.max(0, Math.min(255, Math.round(c * 255)))
@@ -346,13 +366,18 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
         }
         dense.push(stops[stops.length - 1]!)
         warnings?.push(
-          `["interpolate", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`,
+          `["${v[0]}", ["cubic-bezier", ${x1}, ${y1}, ${x2}, ${y2}], ["zoom"], …] colour stops approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) at bezier-eased fractions — xgis has no per-stop bezier interpolator at runtime.`,
         )
         return { curve, base, stops: dense }
       }
-      warnings?.push(
-        `["interpolate", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
-      )
+      // interpolate-lab / interpolate-hcl are NOT folded here — the
+      // densifier below owns them and emits its own diagnostic (both for
+      // the densified case and for the non-hex one).
+      if (!isLabHcl) {
+        warnings?.push(
+          `["${v[0]}", ["cubic-bezier", …], ["zoom"], …] folded to linear — xgis has no per-stop bezier interpolator and non-numeric, non-hex stop values can't be densified at compile time.`,
+        )
+      }
     }
   }
   // Interpolate-lab / interpolate-hcl densification (Plan §11 follow-
@@ -365,15 +390,17 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
   // that depend on z<=z_first / z>=z_last hex colours render
   // identically to the authored intent.
   //
-  // Both the linear AND exponential curves densify here. For the
-  // exponential curve the sample's COLOUR uses the Mapbox progress
-  // warp `t' = (base^(z-az) - 1) / (base^(bz-az) - 1)` (canonical form
-  // at evaluator.ts:553-554) while the dense stop's ZOOM stays at the
-  // linear position — the runtime's linear interpolate between dense
-  // stops then reproduces the exponential easing the same way the
-  // cubic-bezier branch above reproduces its easing. The emitted
-  // curve is downgraded to 'linear' so the runtime does NOT re-apply
-  // the exponential warp on top of the already-warped dense samples.
+  // ALL THREE curves densify here — linear, exponential and (since
+  // #2166) cubic-bezier. The dense stop's ZOOM always sits at the linear
+  // position; only the sample's COLOUR parameter is warped, so the
+  // runtime's linear interpolate between dense stops reproduces the
+  // authored easing. Exponential uses the Mapbox progress warp
+  // `t' = (base^(z-az) - 1) / (base^(bz-az) - 1)` (canonical form at
+  // evaluator.ts:553-554); cubic-bezier uses cssBezierEase — the same
+  // function the sRGB branch above uses, applied in Lab / LCh so the
+  // authored colour space survives the curve. The emitted curve is
+  // downgraded to 'linear' so the runtime does NOT re-apply a warp on
+  // top of the already-warped dense samples.
   if (isLabHcl && (curve === 'linear' || curve === 'exponential')) {
     const labStops: Array<{ zoom: number; L: number; a: number; b: number }> = []
     let allColour = true
@@ -407,8 +434,13 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
           const z = a.zoom + span * p
           // Colour interpolation parameter: linear curve uses the
           // raw fraction; exponential warps it (degenerate denom==0
-          // — e.g. span 0 — already excluded by ascending-stop guard).
-          const t = isExp ? (Math.pow(base, span * p) - 1) / denom : p
+          // — e.g. span 0 — already excluded by ascending-stop guard);
+          // cubic-bezier eases it. The three are mutually exclusive.
+          const t = bezier
+            ? cssBezierEase(p, bezier[0], bezier[1], bezier[2], bezier[3])
+            : isExp
+              ? (Math.pow(base, span * p) - 1) / denom
+              : p
           let L: number, A: number, B: number
           if (useHcl) {
             // Interpolate in LCh (polar) space — hue takes shortest
@@ -434,12 +466,16 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
         zoom: labStops[labStops.length - 1]!.zoom,
         value: stops[stops.length - 1]!.value,
       })
-      const curveDesc = isExp ? `exponential base ${base}` : 'linear'
+      const curveDesc = bezier
+        ? `cubic-bezier ${bezier[0]}, ${bezier[1]}, ${bezier[2]}, ${bezier[3]}`
+        : isExp
+          ? `exponential base ${base}`
+          : 'linear'
       warnings?.push(
         `${v[0]}(…) [${curveDesc}] approximated via dense piecewise-linear sRGB samples (${SAMPLES_PER_SEGMENT} per segment) — perceptually correct in ${useHcl ? 'LCh' : 'Lab'} space at compile time; runtime interpolation between dense hex stops.`,
       )
-      // Dense samples already carry the exponential warp — emit linear
-      // so the runtime doesn't double-apply it.
+      // Dense samples already carry the exponential / bezier warp — emit
+      // linear so the runtime doesn't double-apply it.
       return { curve: 'linear', base: 1, stops: dense }
     }
     // Non-hex stops (data-driven values etc.) fall through with a
@@ -448,7 +484,7 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
     // per-stop evaluator (non-hex values can't be densified ahead of
     // time because the colour isn't known until feature eval).
     warnings?.push(
-      `${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.`,
+      `${v[0]}(…) approximated as linear-sRGB — xgis has no LAB/HCL per-stop evaluator at runtime and non-hex stop values can't be densified at compile time.${bezier ? ' The authored cubic-bezier curve is dropped with it.' : ''}`,
     )
   }
   return { curve, base, stops }

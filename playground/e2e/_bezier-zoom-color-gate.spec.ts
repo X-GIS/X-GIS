@@ -27,6 +27,14 @@
 //                 authored by hand as a    arm's. An independent check that
 //                 plain ["linear"] ramp    the curve was applied CORRECTLY,
 //                                          not merely that something changed.
+//
+// A fourth arm covers the review round's fix: `interpolate-lab` under the SAME
+// curve must keep its authored perceptual space AND its easing. Its three
+// hypotheses are mutually exclusive at z3 — Lab-eased #f10033 (correct),
+// Lab-linear #c10088 (curve dropped, the pre-#2166 emit), sRGB-eased #dd0022
+// (colour space dropped, the first cut of #2166) — and every expected value
+// here is the pinned reference implementation's own output at that zoom
+// (@maplibre/maplibre-gl-style-spec 24.8.5).
 
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
@@ -36,6 +44,45 @@ const EASED_RGB: [number, number, number] = [221, 0, 34] // #dd0022
 const LINEAR_RGB: [number, number, number] = [128, 0, 128] // #800080
 const BG_HEX = '#000010'
 const SOURCE_ID = 'aoi'
+
+type Probe = { name: string; rgb: [number, number, number]; tolerance: number }
+
+/** sRGB arms: the two hypotheses are 93 apart in red, so ±24 cannot confuse
+ *  them. */
+const SRGB_PROBES: Probe[] = [
+  { name: 'eased', rgb: EASED_RGB, tolerance: 24 },
+  { name: 'linear', rgb: LINEAR_RGB, tolerance: 24 },
+]
+
+/** Lab arm. Tolerance 8, NOT the 24 above: #f10033 and #dd0022 are only 20
+ *  apart in red and 17 in blue, so a +/-24 window matches BOTH and the arm
+ *  could not distinguish "kept the colour space" from "dropped it" — a gate
+ *  that passes either way (CLAUDE.md 12). */
+const LAB_PROBES: Probe[] = [
+  { name: 'labEased', rgb: [241, 0, 51], tolerance: 8 }, // #f10033 — correct
+  { name: 'labLinear', rgb: [193, 0, 136], tolerance: 8 }, // #c10088 — curve dropped
+  { name: 'srgbEased', rgb: [221, 0, 34], tolerance: 8 }, // #dd0022 — space dropped
+]
+
+/** The seven stops the Lab/LCh densifier emits for interpolate-lab under
+ *  cubic-bezier(0.9, 0, 1, 1) over #ff0000 -> #0000ff on [0, 6]. Byte-exact
+ *  with the pinned reference implementation at every stop. */
+const LAB_EASED_STOPS = [
+  0,
+  '#ff0000',
+  1,
+  '#fe0008',
+  2,
+  '#f9001b',
+  3,
+  '#f10033',
+  4,
+  '#e10053',
+  5,
+  '#c20086',
+  6,
+  '#0000ff',
+]
 
 /** The seven stops paint-helpers.ts emits for cubic-bezier(0.9, 0, 1, 1) over
  *  #ff0000 → #0000ff on [0, 6] (6 samples per segment + the endpoint). */
@@ -96,8 +143,7 @@ function style(fillColor: unknown): Record<string, unknown> {
 type ArmResult = {
   backend: string | undefined
   zoom: number | undefined
-  eased: number
-  linear: number
+  counts: Record<string, number>
   hash: string
 }
 
@@ -105,6 +151,7 @@ async function renderArm(
   page: import('@playwright/test').Page,
   fillColor: unknown,
   label: string,
+  probes: Probe[] = SRGB_PROBES,
 ): Promise<ArmResult> {
   // `adaptive=0` pins the quality controller so the tile set cannot move
   // between arms (§12). The camera hash parks the view at exactly z3.
@@ -139,11 +186,10 @@ async function renderArm(
   const png = await captureMapFrame(page, { readyTimeoutMs: 45_000 })
   writeFileSync(test.info().outputPath(`${label}.png`), png)
 
-  const ratios = await colorHistogram(page, png, [
-    { name: 'eased', rgb: EASED_RGB, tolerance: 24 },
-    { name: 'linear', rgb: LINEAR_RGB, tolerance: 24 },
-  ])
+  const ratios = await colorHistogram(page, png, probes)
   const total = png.readUInt32BE(16) * png.readUInt32BE(20)
+  const counts: Record<string, number> = {}
+  for (const b of probes) counts[b.name] = Math.round((ratios[b.name] ?? 0) * total)
   const r: ArmResult = {
     backend: await page.evaluate(
       () => (window as unknown as { __xgisActiveBackend?: string }).__xgisActiveBackend,
@@ -152,13 +198,13 @@ async function renderArm(
       () =>
         (window as unknown as { __xgisMap?: { camera: { zoom: number } } }).__xgisMap?.camera.zoom,
     ),
-    eased: Math.round(ratios.eased * total),
-    linear: Math.round(ratios.linear * total),
+    counts,
     hash: await hashScreenshot(page, png),
   }
   console.log(
-    `[bezier-zoom-color] ${label}: eased(#dd0022)≈${r.eased}px linear(#800080)≈${r.linear}px ` +
-      `zoom=${r.zoom} hash=${r.hash} backend=${r.backend}`,
+    `[bezier-zoom-color] ${label}: ` +
+      probes.map((b) => `${b.name}≈${counts[b.name]}px`).join(' ') +
+      ` zoom=${r.zoom} hash=${r.hash} backend=${r.backend}`,
   )
   return r
 }
@@ -177,12 +223,12 @@ test.describe('zoom-axis cubic-bezier colour ramp reaches the pixel (#2166)', ()
     expect(r.backend, 'window.__xgisActiveBackend').toBe('webgpu')
     expect(r.zoom, 'the camera must sit on the exact ramp midpoint').toBeCloseTo(3, 5)
     expect(
-      r.linear,
-      `a plain linear ramp must still land on #800080 at the midpoint (got ≈${r.linear}px). ` +
+      r.counts.linear,
+      `a plain linear ramp must still land on #800080 at the midpoint (got ≈${r.counts.linear}px). ` +
         `If this is 0 the gate below is vacuous — the change moved EVERY zoom colour ramp, ` +
         `not just the cubic-bezier one.`,
     ).toBeGreaterThan(20_000)
-    expect(r.eased, `a linear ramp must not paint the eased colour`).toBe(0)
+    expect(r.counts.eased, `a linear ramp must not paint the eased colour`).toBe(0)
   })
 
   test('a cubic-bezier ramp paints the EASED colour, and equals its hand-computed oracle', async ({
@@ -196,14 +242,14 @@ test.describe('zoom-axis cubic-bezier colour ramp reaches the pixel (#2166)', ()
     expect(bez.backend, 'window.__xgisActiveBackend').toBe('webgpu')
     expect(bez.zoom, 'the camera must sit on the exact ramp midpoint').toBeCloseTo(3, 5)
     expect(
-      bez.eased,
-      `cubic-bezier(0.9, 0, 1, 1) eases the midpoint to #dd0022; ≈${bez.eased}px of it means ` +
+      bez.counts.eased,
+      `cubic-bezier(0.9, 0, 1, 1) eases the midpoint to #dd0022; ≈${bez.counts.eased}px of it means ` +
         `the zoom-axis densifier still discarded the curve and the runtime interpolated the ` +
         `authored endpoints linearly.`,
     ).toBeGreaterThan(20_000)
     expect(
-      bez.linear,
-      `≈${bez.linear}px of #800080 is the LINEAR fold of the same endpoints — the pre-#2166 ` +
+      bez.counts.linear,
+      `≈${bez.counts.linear}px of #800080 is the LINEAR fold of the same endpoints — the pre-#2166 ` +
         `two-stop emit reaching the pixel.`,
     ).toBe(0)
 
@@ -219,5 +265,48 @@ test.describe('zoom-axis cubic-bezier colour ramp reaches the pixel (#2166)', ()
       `the bezier ramp must render exactly as its hand-computed eased stop list; ` +
         `bezier=${bez.hash} oracle=${oracle.hash}`,
     ).toBe(bez.hash)
+  })
+
+  test('interpolate-lab under the same curve paints the LAB-eased ramp, not the sRGB one', async ({
+    page,
+  }) => {
+    const lab = await renderArm(
+      page,
+      ['interpolate-lab', ['cubic-bezier', 0.9, 0, 1, 1], ['zoom'], 0, '#ff0000', 6, '#0000ff'],
+      'lab-bezier',
+      LAB_PROBES,
+    )
+    expect(lab.backend, 'window.__xgisActiveBackend').toBe('webgpu')
+    expect(lab.zoom, 'the camera must sit on the exact ramp midpoint').toBeCloseTo(3, 5)
+    expect(
+      lab.counts.labEased,
+      `interpolate-lab + cubic-bezier(0.9, 0, 1, 1) resolves the midpoint to #f10033 in the ` +
+        `pinned reference implementation; ≈${lab.counts.labEased}px of it means the emitted ramp ` +
+        `is not the authored one.`,
+    ).toBeGreaterThan(20_000)
+    expect(
+      lab.counts.srgbEased,
+      `≈${lab.counts.srgbEased}px of #dd0022 is the sRGB-eased ramp — the authored Lab space was ` +
+        `discarded by the plain-interpolate colour branch claiming this expression.`,
+    ).toBe(0)
+    expect(
+      lab.counts.labLinear,
+      `≈${lab.counts.labLinear}px of #c10088 is Lab interpolation with the curve DROPPED — the ` +
+        `pre-#2166 emit, where cubic-bezier folded to linear before the Lab densifier ran.`,
+    ).toBe(0)
+
+    // Direction, not just difference: the seven Lab-eased stops authored by
+    // hand as a plain linear ramp must produce the identical frame.
+    const oracle = await renderArm(
+      page,
+      ['interpolate', ['linear'], ['zoom'], ...LAB_EASED_STOPS],
+      'lab-oracle-hand-eased',
+      LAB_PROBES,
+    )
+    expect(
+      oracle.hash,
+      `the interpolate-lab bezier ramp must render exactly as its hand-computed Lab-eased stop ` +
+        `list; lab=${lab.hash} oracle=${oracle.hash}`,
+    ).toBe(lab.hash)
   })
 })
