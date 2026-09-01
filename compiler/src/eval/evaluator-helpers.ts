@@ -63,6 +63,8 @@ export const BUILTIN_FN_NAMES: ReadonlySet<string> = new Set([
   'split',
   'join',
   'to_rgba',
+  // #2166 B3 — the runtime half of Mapbox's `["array", …]` type assertion.
+  'assert_array',
   'number-format',
   'number_format',
   'pi',
@@ -614,6 +616,27 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       if (Array.isArray(v0)) return v0.length
       if (typeof v0 === 'string') return [...v0].length // codepoint count, not UTF-16 units
       return 0
+    }
+    case 'assert_array': {
+      // Mapbox `["array", value]` / `["array", type, value]` /
+      // `["array", type, N, value]` lowered by the converter
+      // (convert/expr-string.ts arrayHandler). args:
+      // [value, itemType?, length?]. The spec ABORTS when the value is
+      // not an array of that element type and length; X-GIS has no
+      // evaluation-error channel, so a failed assertion returns null —
+      // the same fail-soft convention `to_rgba` documents below. That is
+      // what makes the assertion load-bearing: `length` and `slice`
+      // above both accept a STRING, so before the assertion existed a
+      // string property was measured / substringed as if it were the
+      // array the style asserted.
+      const value = args[0]
+      if (!Array.isArray(value)) return null
+      const itemType = args[1]
+      if (itemType !== 'string' && itemType !== 'number' && itemType !== 'boolean') return value
+      const n = args[2]
+      if (typeof n === 'number' && value.length !== n) return null
+      for (const el of value) if (typeof el !== itemType) return null
+      return value
     }
     // Geometry generators — return coordinate arrays
     case 'circle': {
