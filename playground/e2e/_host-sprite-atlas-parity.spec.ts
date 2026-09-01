@@ -13,11 +13,14 @@ import { test, expect } from '@playwright/test'
 // straight (un-premultiplied) RGBA and the page is rgba8unorm, so the upload is
 // a byte copy: DC=0 is exact, not tolerance-bounded (hardware AND SwiftShader).
 //
-// This is the "a registered sprite renders DC=0" gate's load-bearing half: the
-// icon PIPELINE is unchanged (zero renderer changes — proven) and already
-// covered (_icon-rhi-parity + the URL icon suites), so correct atlas texels +
-// an unchanged pipeline ⇒ host icons render. Objective (exact bytes), so it
-// needs no §5 visual read and is SwiftShader-safe for CI.
+// This is the "a registered sprite renders DC=0" gate's load-bearing half: it
+// proves the atlas TEXELS, not the draw. The draw's own witness is
+// `_icons-gl2-gate` (CI-registered), which counts the marker's magenta pixels in
+// the finished frame; severing `IconDraper.draw` takes that count to 0. The
+// earlier version of this note cited `_icon-rhi-parity` as the pipeline's
+// coverage — it is not: that spec appears nowhere in .github/workflows/test.yml
+// and its only assertion is `errors.length === 0` (#2130, #2223). Objective
+// (exact bytes), so this one needs no §5 visual read and is SwiftShader-safe.
 
 interface Probe {
   name: string
