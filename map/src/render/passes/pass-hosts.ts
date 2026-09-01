@@ -22,7 +22,14 @@ import type { XGISMap } from '../../map'
 /** Background pass: the whole-viewport clear colour. */
 export type BackgroundPassHost = Pick<
   XGISMap,
-  '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape'
+  // `inputs` for the same reason the opaque and hillshade hosts carry it
+  // (#2218): resolveColorShape / resolveNumberShape only evaluate an
+  // `input-dependent` shape when handed the store, and silently fall through
+  // to the constant default without it. No style path builds such a shape for
+  // the background today (style-top-level.ts only ever writes null or
+  // 'zoom-interpolated'), so this moves no pixel — it removes the one call
+  // site that would silently drop the value the day one does.
+  '_backgroundColor' | '_backgroundColorShape' | '_backgroundOpacityShape' | 'inputs'
 >
 
 /** Atmosphere pass (#1258) — the globe limb-glow gradient. Reaches the style flag + the

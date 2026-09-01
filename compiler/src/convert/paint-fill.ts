@@ -69,9 +69,10 @@ export function emitFillPaint(
     }
   }
   addFillTranslate(out, p['fill-translate'], warnings, 'fill-translate')
-  // fill-translate-anchor: viewport (default) is screen-space (today's
-  // behaviour, byte-identical). map → world-space offset that rotates
-  // with the map bearing; emitted as fill-translate-anchor-map.
+  // fill-translate-anchor: the v8 default is "map", not viewport (#2170) —
+  // an ABSENT anchor emits fill-translate-anchor-map and the offset rotates
+  // with the map bearing; only an explicit "viewport" keeps it screen-space.
+  // This comment said the opposite, describing the pre-#2170 behaviour.
   addTranslateAnchor(out, 'fill', p['fill-translate-anchor'], p['fill-translate'], warnings)
   // fill-antialias, second half: besides gating the outline emit above,
   // the explicit `false` opt-out emits a single `fill-antialias-false`

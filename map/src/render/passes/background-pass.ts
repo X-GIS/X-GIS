@@ -75,13 +75,13 @@ class BackgroundPass implements RenderPass {
     const colorShape = host._backgroundColorShape
     let bg = host._backgroundColor
     if (colorShape) {
-      const resolved = resolveColorShape(colorShape, ctx.camera.zoom, ctx.elapsedMs)
+      const resolved = resolveColorShape(colorShape, ctx.camera.zoom, ctx.elapsedMs, host.inputs)
       if (resolved)
         bg = [resolved.value[0], resolved.value[1], resolved.value[2], resolved.value[3]]
     }
     const opacityShape = host._backgroundOpacityShape
     if (opacityShape && bg) {
-      const a = resolveNumberShape(opacityShape, ctx.camera.zoom, ctx.elapsedMs).value
+      const a = resolveNumberShape(opacityShape, ctx.camera.zoom, ctx.elapsedMs, host.inputs).value
       bg = [bg[0], bg[1], bg[2], bg[3] * a]
     }
     const clearValue = backgroundClearValue(
