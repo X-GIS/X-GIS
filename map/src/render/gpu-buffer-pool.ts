@@ -55,6 +55,24 @@ export class GpuBufferPool {
   /** Bytes currently parked. Maintained incrementally by acquire/release rather
    *  than recomputed, so the trim stays O(1) on the hot release path. */
   private _bytes = 0
+  /** Every buffer currently parked in `pools`, for the double-release guard
+   *  (#2248, ownership P0). A double `release(buf)` used to park the same
+   *  buffer twice, so two later `acquire`s handed the SAME buffer to two
+   *  tiles — silent aliasing. Membership is of PARKED buffers (not leased
+   *  ones): tiles legitimately destroy their buffers directly on teardown
+   *  paths, so lease-tracking would strand entries; parked-tracking has no
+   *  such interaction and catches exactly the aliasing class.
+   *  Typed `object`, not the buffer type: membership is pure identity, and
+   *  the raw-WebGPU ratchet (#991) holds this file's token count flat. */
+  private readonly _parked = new Set<object>()
+  /** Terminal once `destroy()` runs (#2248, ownership P0 — the audit's F-2).
+   *  The pool is destroyed inside `GpuTileStore.destroy()` while the DEVICE
+   *  may live on (a `setSourceData` swap); an async upload suspended across
+   *  that teardown resumes, bails, and hands its line buffers back here.
+   *  Un-latched, they were re-parked into a dead free-list that no acquire
+   *  or destroy ever visits again — leaked until device loss. Same terminal
+   *  semantics as StagingBufferPool.dispose (#1153 P2 R1). */
+  private _destroyed = false
 
   constructor(private readonly device: BufferPoolDevice) {}
 
@@ -68,6 +86,7 @@ export class GpuBufferPool {
     const pool = this.pools.get(`${bucket}:${usage}`)
     if (pool && pool.length > 0) {
       const hit = pool.pop()!
+      this._parked.delete(hit)
       this._bytes -= hit.size
       return hit
     }
@@ -76,6 +95,18 @@ export class GpuBufferPool {
 
   release(buf: GPUBuffer | null | undefined): void {
     if (!buf) return
+    // Double-release guard (#2248): parking the same buffer twice hands it to
+    // two later acquires — two tiles aliasing one GPUBuffer.
+    if (this._parked.has(buf)) {
+      throw new Error('GpuBufferPool.release: buffer already parked (double-release)')
+    }
+    // Terminal latch (#2248, audit F-2): a release landing after destroy()
+    // (an async upload resuming across a source-swap teardown) must destroy
+    // the buffer, never park it into a dead free-list.
+    if (this._destroyed) {
+      buf.destroy()
+      return
+    }
     const key = `${buf.size}:${buf.usage}`
     let pool = this.pools.get(key)
     if (!pool) {
@@ -87,6 +118,7 @@ export class GpuBufferPool {
       return
     }
     pool.push(buf)
+    this._parked.add(buf)
     this._bytes += buf.size
     this.trimToBudget()
   }
@@ -108,6 +140,7 @@ export class GpuBufferPool {
     for (const [, pool] of byBucketDesc) {
       while (pool.length > 0 && this._bytes > POOL_MAX_BYTES) {
         const victim = pool.pop()!
+        this._parked.delete(victim)
         this._bytes -= victim.size
         victim.destroy()
       }
@@ -117,10 +150,13 @@ export class GpuBufferPool {
 
   /** Drain on teardown (#298): pooled buffers are standalone GPUBuffers, NOT
    *  arena slices, so the arena destroys do not reclaim them. Without this they
-   *  leak until device loss across SPA map create/destroy cycles. */
+   *  leak until device loss across SPA map create/destroy cycles. Terminal
+   *  (#2248): any later release destroys its buffer instead of parking it. */
   destroy(): void {
     for (const pool of this.pools.values()) for (const b of pool) b.destroy()
     this.pools.clear()
+    this._parked.clear()
     this._bytes = 0
+    this._destroyed = true
   }
 }
