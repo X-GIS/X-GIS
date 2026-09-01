@@ -631,6 +631,21 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Declared `input`s driving opacity and @color. Drive them live from the console: `__xgisMap.setInput("threshold", 0.3)` / `setInput("highlight", "#22c55e")` — a uniform write, no pipeline rebuild.',
     source: load('fixture-input-live.xgis'),
   },
+  fixture_raster_input_opacity: {
+    name: 'Fixture: raster opacity from an `input` (#2166)',
+    tag: 'fixture',
+    description:
+      'A raster layer bound to `input dim: f32 = 0.4`. The default is BELOW 1 on purpose: the opaque pass used to resolve raster opacity without the live input store, so both the authored default and `__xgisMap.setInput("dim", 1)` were invisible. Drives _raster-input-opacity-gate.spec.ts.',
+    source: load('fixture-raster-input-opacity.xgis'),
+  },
+  fixture_dem_input_opacity: {
+    name: 'Fixture: DEM-relief opacity from an `input` (#2166)',
+    tag: 'fixture',
+    description:
+      'The raster-dem twin of fixture_raster_input_opacity — same declared `input dim: f32 = 0.4`, applied to the shaded relief. The checker basemap under it is a fixed-opacity backdrop that reads no input, so a frame change can only have come through the DEM-relief pass. Drives _raster-input-opacity-gate.spec.ts.',
+    source: load('fixture-dem-input-opacity.xgis'),
+    zoom: 11,
+  },
   fixture_stdlib_star: {
     name: 'Fixture: stdlib star, authored in .xgis (#1540)',
     tag: 'fixture',

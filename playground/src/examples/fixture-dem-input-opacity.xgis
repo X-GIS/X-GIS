@@ -1,0 +1,42 @@
+xgis 1
+
+/* §5 render-gate fixture for #2166 (L3): the DEM-relief twin of
+ * fixture-raster-input-opacity.xgis.
+ *
+ * `applyHillshadePaint` had the same missing argument as the opaque pass, so a
+ * hillshade layer's `| opacity-[dim]` was dropped the same way — resolved to 1
+ * and unreachable from `setInput`.
+ *
+ * ONLY the relief reads `dim`. The checker basemap underneath is a fixed-opacity
+ * BACKDROP and reads nothing, so a frame difference across a `setInput("dim", …)`
+ * can only have come through the DEM-relief pass — the two halves stay
+ * separately attributable even though they share a scene. It is there because
+ * the relief is an alpha overlay: measured over the page's own dark background
+ * the whole frame spans 8 grey levels, too little contrast for any honest
+ * pixel verdict. Exaggeration is pushed to 1 for the same reason.
+ *
+ * Both urls omit {z}/{x}/{y}, so every visible tile loads the same local PNG —
+ * an offline, deterministic render. Opens at z11: a whole-world DEM is
+ * physically near-flat at low zoom. */
+
+input dim: f32 = 0.4
+
+source basemap {
+  type: raster
+  url: "/checker-tile.png"
+}
+
+source dem {
+  type: "raster-dem"
+  url: "/dem-fixture.png"
+  encoding: mapbox
+}
+
+layer tiles {
+  source: basemap
+}
+
+layer relief {
+  source: dem
+  | opacity-[dim] hillshade-exaggeration-1
+}

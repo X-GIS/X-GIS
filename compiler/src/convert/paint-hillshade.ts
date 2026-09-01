@@ -318,12 +318,23 @@ export function emitHillshadePaint(
     }
   }
 
-  // resampling: linear (default) is byte-identical and emits nothing; nearest
-  // selects a nearest-filtered DEM height field (mirror raster-resampling-nearest).
+  // resampling. The DEM height is RGB-packed and decoded in the fragment, so the
+  // sampler MUST be nearest — bilinear over packed bytes corrupts the decode — and
+  // the hillshade draper binds exactly one nearest sampler for every layer. So the
+  // emitted `hillshade-resampling-nearest` utility describes what already happens
+  // and reaches no runtime reader (see the `resampling` rows in spec-coverage and
+  // map/src/capabilities/hillshade.ts), and `linear` — the Mapbox default — is NOT
+  // what renders. An OMITTED value stays silent, like every other default this
+  // converter carries; an EXPLICIT `linear` is an author asking for something the
+  // engine does not do, so it says so.
   const rs = unwrapLiteral(p['resampling'])
   if (rs === 'nearest') {
     out.push('hillshade-resampling-nearest')
-  } else if (rs !== undefined && rs !== null && rs !== 'linear') {
+  } else if (rs === 'linear') {
+    warnings.push(
+      `Layer "${layer.id}" — resampling: "linear" is authored but not rendered; the DEM is always sampled nearest (bilinear over the RGB-packed height corrupts the decode), so the layer renders the nearest 3x3 height field. Linear decoded-height smoothing is a separate two-pass algorithm and is not implemented.`,
+    )
+  } else if (rs !== undefined && rs !== null) {
     warnings.push(
       `Layer "${layer.id}" — resampling: ${JSON.stringify(rs)} unrecognised; Mapbox spec allows only "linear" | "nearest". Treated as linear.`,
     )

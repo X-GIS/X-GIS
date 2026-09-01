@@ -60,6 +60,7 @@ export const PAINT_HILLSHADE: readonly CoverageEntry[] = [
     name: 'resampling',
     status: 'partial',
     impact: 'low',
-    note: 'linear (spec default) / nearest DEM sampling. The MVP single-pass fragment renders the nearest 3×3 field (byte-parity with MapLibre nearest); linear decoded-height smoothing is the documented two-pass upgrade.',
+    note: 'linear (spec default) is authored but never rendered. The DEM arrives RGB-packed and is decoded in the fragment, so the height field MUST be sampled nearest — bilinear over the packed bytes corrupts the decode — and the hillshade draper binds exactly one nearest sampler for every layer. Every hillshade layer therefore draws the nearest 3×3 stencil, and since #2166 an EXPLICITLY authored linear warns at convert time (an omitted one stays silent, like every other default this converter carries). `nearest` converts end to end — utility, binding, render node, HillshadeShapes.resamplingNearest on the emitted show — and reaches no runtime reader at all: it is the landed compiler half of a two-half feature, not wiring. Linear decoded-height smoothing is a separate two-pass algorithm (decode, then smooth), not a sampler flag.',
+    source: 'paint-hillshade.ts',
   },
 ]

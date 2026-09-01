@@ -66,6 +66,6 @@ export const hillshadeCapabilities: readonly RuntimeCapability[] = [
     layerType: 'hillshade',
     variant: 'constant',
     supported: false,
-    note: 'The single-pass fragment renders the nearest 3×3 decoded-height field; linear decoded-height smoothing is the documented two-pass upgrade.',
+    note: 'Not selectable, by construction: the DEM is RGB-packed and decoded in the fragment, so bilinear filtering would corrupt the decode and the draper binds one nearest sampler for every hillshade layer. The spec-default linear is therefore never rendered — an explicitly authored linear warns at convert time (#2166). The compiler emits resamplingNearest end to end and no hillshade runtime code reads it; linear decoded-height smoothing is a separate two-pass algorithm.',
   },
 ]

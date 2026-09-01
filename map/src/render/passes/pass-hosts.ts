@@ -41,6 +41,10 @@ export type OpaquePassHost = Pick<
   // #1333 — the coverage drape samples the advected field this frame's flow pass produced.
   | 'flowRenderer'
   | 'gpuTimer'
+  // #2166 — the live `input` values the per-frame raster-opacity resolve needs:
+  // an `input-dependent` shape (`| opacity-[dim]`) is a per-frame CONSTANT, and
+  // resolveNumberShape only evaluates it when it is handed this store.
+  | 'inputs'
   | 'pointRenderer'
   | 'rasterRenderer'
   | 'renderer'
@@ -58,10 +62,12 @@ export type PointsPassHost = Pick<XGISMap, 'camera' | 'pointRenderer'>
 
 /** Hillshade pass (#777 Phase II) — the raster-dem DEM-relief overlay. Reaches
  *  the HillshadeRenderer + the active hillshade show (its resolved paint) + the
- *  camera it projects through + the frame clock for zoom/time shape resolution. */
+ *  camera it projects through + the frame clock for zoom/time shape resolution +
+ *  the `input` store its layer-opacity resolve reads (#2166 — same reason as
+ *  OpaquePassHost above). */
 export type HillshadePassHost = Pick<
   XGISMap,
-  'camera' | 'hillshadeRenderer' | '_hillshadeShow' | '_elapsedMs'
+  'camera' | 'hillshadeRenderer' | '_hillshadeShow' | '_elapsedMs' | 'inputs'
 >
 
 /** Label + icon dispatch pass (text/icon stages, glyph/sprite sources,

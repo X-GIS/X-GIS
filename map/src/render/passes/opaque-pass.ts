@@ -152,7 +152,17 @@ class OpaquePass implements RenderPass {
             const z = host.camera.zoom
             const rs = host._rasterShow.paintShapes.raster
             host.rasterRenderer.setOpacity(
-              resolveNumberShape(host._rasterShow.paintShapes.common.opacity, z, ms).value,
+              resolveNumberShape(
+                host._rasterShow.paintShapes.common.opacity,
+                z,
+                ms,
+                // #2166 — WITHOUT this the `data-driven` arm cannot tell an
+                // `input-dependent` shape (a per-frame constant) from a
+                // per-feature bake and returns a flat 1, dropping the authored
+                // `| opacity-[x]` default on frame one. Vector layers have
+                // passed it since #1539 (resolved-show.ts).
+                host.inputs,
+              ).value,
             )
             // raster-* colour adjustments — resolved through the same
             // PropertyShape path as opacity (constant today; zoom/time

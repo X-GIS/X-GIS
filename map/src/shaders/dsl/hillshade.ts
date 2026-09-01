@@ -23,9 +23,13 @@
 // the per-tile zoom-dependent derivative scale in `HillshadeTileUniforms`
 // (group 1, binding 1).
 //
-// Residuals (design §3): `resampling: linear` decoded-height smoothing and the
-// cross-tile 1px edge backfill are the documented two-pass upgrade path; the MVP
-// fragment renders the nearest 3×3 field (byte-parity with MapLibre `nearest`).
+// Sampling is therefore NOT selectable: `resampling: linear` — the Mapbox
+// default — is not what renders, and the compiler's `hillshade-resampling-nearest`
+// utility reaches no runtime reader (it describes what already happens). An
+// explicitly authored `linear` warns at convert time (#2166). Making it real means
+// decoding first and smoothing the DECODED heights — a second pass, not a sampler
+// flag. Residual (design §3): that two-pass path, and the cross-tile 1px edge
+// backfill.
 
 import {
   fn,
