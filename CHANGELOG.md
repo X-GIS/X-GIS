@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2c33ae31b225e8d45fd59b03cc6f60d9587c542c
+  Generated from: b996e265650a8a8390846bb45ac1736f4f7b7744
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2c33ae31b225
+    bun scripts/emit-changelog.ts --since b996e265650a
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler+map:** forward an imported style's top-level glyphs (#2121) ([#2261](https://github.com/X-GIS/X-GIS/pull/2261)) `b996e26`
 - **map:** cap the mid-render sync fallback uploads per frame ([#2258](https://github.com/X-GIS/X-GIS/pull/2258)) `2c33ae3`
 - **compiler:** symbol translate-anchor honours the spec default via one shared decision ([#2252](https://github.com/X-GIS/X-GIS/pull/2252)) `96eba99`
 - **render:** fill-translate reaches the shader on WebGL2 (#2240) ([#2251](https://github.com/X-GIS/X-GIS/pull/2251)) `0203b83`
