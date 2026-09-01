@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1eb20cadb515a0535c5128de1465a33161681782
+  Generated from: f40e987146eeb2dc37136321781f551c6b2a7d28
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1eb20cadb515
+    bun scripts/emit-changelog.ts --since f40e987146ee
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** end the cold-start burst on a wall-clock idle window, not a frame count ([#2245](https://github.com/X-GIS/X-GIS/pull/2245)) `f40e987`
 - **render:** the WebGL2 fills arm packs the resolved fill-antialias lane (#1999) ([#2239](https://github.com/X-GIS/X-GIS/pull/2239)) `8dbc564`
 - **test:** background-pattern onLanded gate measures the re-arm and the domains, not the method name (#2128) ([#2235](https://github.com/X-GIS/X-GIS/pull/2235)) `b34ed8e`
 - **e2e:** _icons-gl2-gate counts the icon draw's own pixels, not the label's (#2223) ([#2232](https://github.com/X-GIS/X-GIS/pull/2232)) `c8226ea`
