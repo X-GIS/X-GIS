@@ -21,13 +21,20 @@
 //      fail-before = the injection gate is `if (_backgroundColor)` only, so a
 //      pattern-only style never got a synthetic show.
 //   3. ensureBackgroundPatternAtlas (label-pass) builds the REAL IconStage for
-//      a label-less pattern style, and its onLanded GUARANTEES a frame:
-//      markLabelDirty() alone never re-arms a label-less idle loop (the
-//      probe's root cause B — the canvas froze on the pre-atlas frame), so it
-//      must also call invalidate(). Fail-before = onLanded without
-//      invalidate().
+//      a label-less pattern style, and its onLanded both RE-ARMS the loop and
+//      tags MORE THAN LABEL. #2128: the earlier version of this gate asserted
+//      `invalidated === 1` on the stated grounds that markLabelDirty() alone
+//      cannot re-arm an idle loop. That is false of XGISMap — `_markDirty`
+//      (map.ts:979-982) sets `_needsRender` too — and was only true of this
+//      file's own mock, whose markLabelDirty() incremented a counter and
+//      nothing else. The mock below now mirrors `_markDirty` / `invalidate`,
+//      so the gate measures the re-arm and the tagged domains rather than
+//      which method name was called. Each half has its own fail-before:
+//      dropping markLabelDirty() reddens the LABEL-tag assertion, dropping
+//      invalidate() reddens the beyond-LABEL one.
 
 import { describe, it, expect } from 'vitest'
+import { DirtyDomain, DIRTY_ALL } from '../../state/dirty'
 import {
   buildSyntheticEarthSurfaceShow,
   syntheticEarthSurfaceCarrier,
@@ -77,6 +84,8 @@ type GateHost = Parameters<typeof ensureBackgroundPatternAtlas>[0]
 function gateHost(over: Partial<GateHost>): GateHost & {
   dirtied: number
   invalidated: number
+  needsRender: boolean
+  domains: number
 } {
   const h = {
     iconStage: null,
@@ -85,30 +94,54 @@ function gateHost(over: Partial<GateHost>): GateHost & {
     ctx: { device: {}, rhi: { createBuffer: () => ({}) }, format: 'bgra8unorm' },
     dirtied: 0,
     invalidated: 0,
+    // #2128 — `needsRender` + `domains` mirror the real map's state, so the
+    // assertions below can be about the LOOP and the DOMAINS instead of about
+    // which method was called. A counter-only mock cannot tell those apart.
+    needsRender: false,
+    domains: 0,
     markLabelDirty() {
+      // XGISMap.markLabelDirty → _markDirty(LABEL) (map.ts:1000, 979-982):
+      // re-arms the frame AND tags LABEL.
       this.dirtied++
+      this.needsRender = true
+      this.domains |= DirtyDomain.LABEL
     },
     invalidate() {
+      // XGISMap.invalidate (map.ts:964-978): re-arms the frame AND tags every
+      // domain (the explicit 8-way OR there === DIRTY_ALL).
       this.invalidated++
+      this.needsRender = true
+      this.domains |= DIRTY_ALL
     },
     ...over,
   }
-  return h as unknown as GateHost & { dirtied: number; invalidated: number }
+  return h as unknown as GateHost & {
+    dirtied: number
+    invalidated: number
+    needsRender: boolean
+    domains: number
+  }
 }
 
 describe('ensureBackgroundPatternAtlas — the label-less atlas gate (#777 I-E)', () => {
-  it('builds the IconStage for a pattern style; onLanded guarantees a frame (invalidate + markLabelDirty)', async () => {
+  it('builds the IconStage for a pattern style; onLanded re-arms the loop and tags beyond LABEL', async () => {
     const host = gateHost({})
     ensureBackgroundPatternAtlas(host, 2, 4)
     expect(host.iconStage).not.toBeNull()
     // Wait for the atlas's terminal state (failed here — node fetch rejects the
-    // relative URL): the gate's onLanded fires with it. Root cause B demands it
-    // RE-ARM the loop — a label-less style has no other path back to
-    // _needsRender — so invalidate() must have been called, not just
-    // markLabelDirty().
+    // relative URL): the gate's onLanded fires with it.
     await (host.iconStage as unknown as { whenReady(): Promise<void> }).whenReady()
-    expect(host.invalidated).toBe(1)
-    expect(host.dirtied).toBe(1)
+    // Root cause B: a label-less style has no other path back to _needsRender.
+    // Either call satisfies this one — it reddens only if onLanded does neither.
+    expect(host.needsRender, 'onLanded must re-arm the render loop').toBe(true)
+    // LABEL half — the glyph-parity re-prep convention.
+    expect(host.dirtied, 'onLanded must tag LABEL (markLabelDirty)').toBe(1)
+    // Beyond-LABEL half — what landed is the SPRITE atlas, whose consumer is
+    // _resolveFillPatterns on the synthetic earth-surface show, not a label.
+    expect(
+      host.domains & ~DirtyDomain.LABEL,
+      'onLanded must tag more than LABEL — the landed sprite feeds the synthetic show fill-pattern, which is not a LABEL consumer (invalidate)',
+    ).not.toBe(0)
   })
 
   it.each([
@@ -122,5 +155,7 @@ describe('ensureBackgroundPatternAtlas — the label-less atlas gate (#777 I-E)'
     expect(host.iconStage).toBe(before)
     expect(host.invalidated).toBe(0)
     expect(host.dirtied).toBe(0)
+    expect(host.needsRender).toBe(false)
+    expect(host.domains).toBe(0)
   })
 })
