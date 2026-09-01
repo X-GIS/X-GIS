@@ -28,6 +28,7 @@ import { Parser, parseExpressionString } from '../parser/parser'
 import { convertMapboxStyle } from '../convert/mapbox-to-xgis'
 import { lower } from '../ir/lower'
 import { UNKNOWN_FUNCTION } from '../diagnostics/diagnostic'
+import { GPU_SAFE_BUILTINS } from '../ir/classify'
 import { withPragma } from './_pragma'
 
 function convert(mapbox: unknown): { src: string | null; warnings: string[] } {
@@ -146,5 +147,51 @@ describe('the emitted callee is a registered builtin', () => {
     const program = new Parser(new Lexer(withPragma(xgis)).tokenize()).parse()
     const diags = (lower(program).diagnostics ?? []).filter((d) => d.code === UNKNOWN_FUNCTION)
     expect(diags).toEqual([])
+  })
+})
+
+// ── The two things the #2202 review proved nothing watched ────────────
+describe('the CPU-only routing is asserted, not merely absent', () => {
+  it('`assert_array` is NOT GPU-safe — the whole fix rests on this', () => {
+    // The premise is that `assert_array` runs on the CPU, where real JS
+    // values make `Array.isArray` / `typeof` meaningful. That routing was
+    // established ONLY by the name's ABSENCE from GPU_SAFE_BUILTINS, and an
+    // absence is not an assertion: adding it there left 21 files / 238 tests
+    // green, because the sole existing check is `GPU_SAFE_BUILTINS ⊆
+    // BUILTIN_FN_NAMES` — a direction `assert_array` satisfies, since it IS a
+    // CPU builtin. classify.ts:40-44 is explicit that the GPU path is where a
+    // callee is either rejected at lower time or "emitted wrong"; an array
+    // assertion has no meaning in a scalar shader lane either way.
+    expect(
+      GPU_SAFE_BUILTINS.has('assert_array'),
+      'assert_array must stay CPU-only: it inspects JS runtime types (Array.isArray / ' +
+        'typeof), which a shader lane does not have. If this is now GPU-safe, the type ' +
+        'assertion is not being evaluated where its inputs exist.',
+    ).toBe(false)
+  })
+})
+
+describe('the ["at", …] consumer — the only emitted SHAPE that changes', () => {
+  it('a postfix index applies to the assertion call inside a bracket binding', () => {
+    // Every other consumer wraps the assertion in a call (`length(...)`,
+    // `slice(...)`), so the emitted text stays a plain call. `at` is the one
+    // that indexes it: `.pts[0]` becomes `assert_array(.pts, "number", 2)[0]`,
+    // which puts a comma AND a quoted string inside a `label-[…]` / `size-[…]`
+    // bracket binding that previously carried neither. That is the PR's own
+    // "only behavioural delta", and it was the one form the suite skipped.
+    const out = exprToXgis(['at', 0, ['array', 'number', 2, ['get', 'pts']]] as never, [])
+    expect(out, `expected the assertion to survive the index: ${out}`).toContain('assert_array(')
+    expect(out, `expected the postfix index on the call: ${out}`).toMatch(/assert_array\([^)]*\)\[/)
+  })
+
+  it('and it round-trips through the real parser inside a bracket binding', () => {
+    // The comma + quoted string are the characters a bracket binding has to
+    // survive; parse the emitted form back rather than trusting the string.
+    const out = exprToXgis(['at', 0, ['array', 'number', 2, ['get', 'pts']]] as never, [])
+    expect(() => parseExpressionString(out)).not.toThrow()
+    expect(evaluate(parseExpressionString(out), { pts: [7, 9] })).toBe(7)
+    // The assertion still bites: a non-array, and a length mismatch, both null.
+    expect(evaluate(parseExpressionString(out), { pts: 'abcde' })).toBeNull()
+    expect(evaluate(parseExpressionString(out), { pts: [7, 9, 11] })).toBeNull()
   })
 })
