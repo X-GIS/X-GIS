@@ -534,9 +534,9 @@ export class TileCatalog {
   // reset it (per frame, also ticking backends) and gates compile /
   // sub-tile calls through it.
 
-  /** Reset per-frame budget. The frameId arg is reserved for future
-   *  frame-shared budget work (currently unused — each layer gets
-   *  its own sliced budget per the constants above). */
+  /** Reset per-frame budget. `frameId` is the frame the caller is in (#2273
+   *  records it for the prefetch shield); the reset itself still runs per
+   *  call — each layer gets its own sliced budget per the constants above. */
   resetCompileBudget(frameId: number = -1): void {
     // #2273 — recorded so `cancelStale` ages the prefetch shield per FRAME. The
     // budget reset + tick below stay per call on purpose (#2277 owns that).
