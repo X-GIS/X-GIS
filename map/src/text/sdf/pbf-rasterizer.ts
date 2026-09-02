@@ -177,6 +177,26 @@ export class PbfRasterizer implements GlyphRasterizer {
       return this.cjkFull.rasterize(req)
     }
 
+    // #2259 — a label with NO `text-font` has no user families at all: its
+    // fontKey family list IS the CJK fallback chain, because composeFontKey
+    // returns STAGE_DEFAULTS.defaultFont verbatim when `def.font` is empty and
+    // that default is CJK_FALLBACK_CHAIN itself. `splitUserFamilies` then
+    // slices at index 0 and returns [], and `deriveFontstack`'s `??` arm
+    // re-derives a fontstack from the very chain the marker exists to strip —
+    // asking the style's glyph server for "Noto Sans CJK KR Regular", a CSS-only
+    // family name no PBF server ships. The round trip is doomed by construction:
+    // it 404s, the dev server answers with HTML, and the reader dies on
+    // `PbfReader: unknown wire type 4`.
+    //
+    // Skip it. `fullFallback` is where the failing path already lands once every
+    // provider resolves without the glyph (see the `noGlyphIsComing` branch at
+    // the end of this method), so this changes only WHEN that steady state is
+    // reached, not what it is. Same shape as the local-ideograph early return
+    // above: when the fontstack cannot be meaningful, do not derive one.
+    if (splitUserFamilies(parseFontKey(req.fontKey).family).length === 0) {
+      return this.fullFallback.rasterize(req)
+    }
+
     const fontstack = deriveFontstack(req.fontKey)
 
     // 1. Sync probe — first hit wins.
