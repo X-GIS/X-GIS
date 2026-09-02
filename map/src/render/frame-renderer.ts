@@ -371,6 +371,27 @@ export class FrameRenderer {
     this._pipelines.rebuild()
   }
 
+  /** Terminal teardown (#2286) — the engine half of MapRendererContent.destroy().
+   *
+   *  Releases what this renderer OWNS: the factory's fill Materials and the
+   *  per-draw uniform ring (plus any buffers a grow retired but no frame drained).
+   *  `variantComputeLayoutCache` holds GPUBindGroupLayouts, which are GC-owned and
+   *  have no destroy. Not latched: the map's own `_destroyed` gate already makes a
+   *  torn-down map inert, and a second call is absorbed by the latches downstream
+   *  (Material and UniformSlotArena both no-op on a repeat). */
+  destroy(): void {
+    this._pipelines.destroy()
+    // #2286 — the compute registry's only destroyAll() lived in
+    // MapRendererContent.clearLayers(), a scene-swap path; teardown never ran it.
+    this.computeRegistry?.destroyAll()
+    // `uniformRing` is definite-assignment (`!`) — initUniformRing may never have
+    // run if the boot failed before MapRendererContent seeded it.
+    if (this.uniformRing) {
+      for (const b of this.uniformRing.takeRetired()) this.ctx.rhi.destroyBuffer(b)
+      this.uniformRing.destroy()
+    }
+  }
+
   /** Lazy-build the `?debug=overdraw` final compose pipeline. Thin
    *  forwarder to the factory (the external read site is
    *  overdraw-compose-pass.ts:25 `host.renderer.ensureOverdrawCompose()`). */

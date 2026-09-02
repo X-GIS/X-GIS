@@ -76,13 +76,19 @@ describe('iter-293 tileKey bijection — randomized fuzz', () => {
       const k = tileKey(z, x, y)
       const children = tileKeyChildren(k)
       expect(children.length).toBe(4)
-      const wanted = new Set([
+      // ORDER, not just membership (#2309). `classifyTile`'s child-fallback
+      // pushes these into `childKeys` in iteration order, so a permutation is
+      // a behaviour change the old Set-membership assertion could not see —
+      // and the arithmetic identity `4k + 0..3` this now relies on is only
+      // equivalent to the explicit construction if the order matches too.
+      expect(children).toEqual([
         tileKey(z + 1, 2 * x, 2 * y),
         tileKey(z + 1, 2 * x + 1, 2 * y),
         tileKey(z + 1, 2 * x, 2 * y + 1),
         tileKey(z + 1, 2 * x + 1, 2 * y + 1),
       ])
-      for (const c of children) expect(wanted.has(c)).toBe(true)
+      // The identity itself, stated where a future edit to either side breaks.
+      expect(children).toEqual([4 * k, 4 * k + 1, 4 * k + 2, 4 * k + 3])
     }
   })
 

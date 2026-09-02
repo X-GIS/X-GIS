@@ -158,6 +158,7 @@ export const ISOLATED = [
   // (2) assigns `globalThis.window` and writes QUALITY via updateQuality (interaction-dpr anchor fix).
   'map/src/controller-interaction-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
+  'map/src/coverage-abort-spine.test.ts',
   'map/src/coverage-catalogue.test.ts',
   'map/src/coverage-residency-driver.test.ts',
   'map/src/coverage-source-refresh.test.ts',

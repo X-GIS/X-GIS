@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: bdfe55198f3936e084966cb409a48408c1c2f51d
+  Generated from: affe5d7e71a77854b0752c66afdcae7e6db4f114
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since bdfe55198f39
+    bun scripts/emit-changelog.ts --path shader-dsl --since affe5d7e71a7
 -->
 
 # Changelog — shader-dsl
@@ -20,6 +20,13 @@
 This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
 
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
+
+### 2026-09
+
+#### fix
+
+- **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
+- **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
 
 ### 2026-08
 

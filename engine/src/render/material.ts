@@ -169,7 +169,7 @@ export class Material {
     this.poolSlotSize = desc.pool?.slotSize ?? 0
     if (desc.globalUniformSize)
       this.globalUniform = rhi.createBuffer({ size: desc.globalUniformSize, usage: 'uniform' })
-    trackOwner(this, 'Material')
+    trackOwner(this, `Material ${desc.variants[0]?.label ?? '(unlabeled)'}`)
   }
 
   get hasPool(): boolean {

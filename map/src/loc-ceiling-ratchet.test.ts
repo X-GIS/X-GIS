@@ -314,6 +314,22 @@ const CEILINGS: Record<string, number> = {
   // 5483→5466 (#2240): the three fill-translate packers now read one producer
   // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
   // Measured with `wc -l` on the post-prettier tree, per the note above.
+  // 5466→5467 (#2249): +1, and it is ONE argument — the anchor-rotated NDC pair
+  // forwarded to `renderGlobeFills` so the globe drape stops dropping
+  // `fill-translate`. A new call argument cannot be under one line here (the
+  // call is already multi-line, so prettier gives each argument its own), and
+  // the explanation that would have cost three more lives at the parameter's
+  // declaration in vector-drape-renderer.ts, which is where a reader of the
+  // signature looks. Nothing was extracted for it: extracting from this file to
+  // pay for a one-line bug-fix wire would be a refactor smuggled inside a fix.
+  // 5466->5471 (#2286): destroy() releases the three LAZY fill Materials
+  // (_fillMatRhi/_fillPickMatRhi/_fillPatternMatRhi) it never named -- reached mid-session
+  // by teardownSource with the device still alive.
+  // MEASURED 5472 with `wc -l` on the post-prettier merged tree. #2249 (+1) and
+  // #2286 (+5) both raised this key from 5466 on separate branches, so the merged
+  // file carries BOTH deltas and NEITHER side's number is right. Carrying either
+  // across would leave the ceiling one change too low — red on main having been
+  // green on both branches (§12).
   // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
   // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
   // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
@@ -322,7 +338,12 @@ const CEILINGS: Record<string, number> = {
   // so the SUPERSEDE path keeps the ComputeLayerHandle the replacement upload re-used —
   // one guard plus the 5-line rationale (why the other two caches still drop).
   // Measured with `wc -l` on the post-prettier tree.
-  'map/src/render/vector-tile-renderer.ts': 5483,
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 5489 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5489,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -335,6 +356,8 @@ const CEILINGS: Record<string, number> = {
   // main raised vector-tile-renderer.ts (line composer dispatch), this branch adds the
   // coverage-renderer.ts baseline — so both entries stand; neither number is a pick
   // between sides. Both re-measured against the merged tree.
+  // 812->815 (#2286): dispose() drops the drapers; releaseRegion never touched them, so the
+  // one path map teardown reaches left them all alive.
   // 812→815 (#2319, hunt 2026-09-02): the drape draw now selects its pipeline from
   // `pickTargetsEnabled(this.rhi.caps)` — the one authority the opaque pass attaches its
   // rg32uint pick MRT from — so a coverage layer under `?picking=1` stops handing a
@@ -342,7 +365,12 @@ const CEILINGS: Record<string, number> = {
   // (why a mismatched target count invalidates the WHOLE sub-pass, basemap included);
   // the pick twin itself lives in coverage-material.ts, not here. Measured with `wc -l`
   // on the post-prettier tree.
-  'map/src/render/coverage-renderer.ts': 815,
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 819 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/render/coverage-renderer.ts': 819,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -922,6 +950,10 @@ const CEILINGS: Record<string, number> = {
   // `map/src/imported-top-level.ts` — the pair is one concern, and keeping them
   // apart is how the second one came to be dropped. Measured with `wc -l` on
   // the post-prettier tree.
+  // 5419->5432 (#2286): _releaseGpuResources now RELEASES the two owners it only ever
+  // dropped -- `renderer` (the MapRendererContent -> FrameRenderer -> PipelineFactory chain
+  // that owns every fill Material) and the under-occluder, whose only destroy lived in
+  // setBackgroundFill. Teardown code paying an ownership debt, not feature growth.
   // 5419→5427 (hunt 2026-09-02): `_releaseGpuResources` now drops the synthetic
   // earth-surface background's two owner refs (`_syntheticBackend`,
   // `underOccluder`) it was leaking across a re-run — 3 statements plus the
@@ -937,14 +969,27 @@ const CEILINGS: Record<string, number> = {
   // now reads `this._elapsedMs` (the frame clock) instead of `performance.now()`, so
   // a time-interpolated size is born at its t=0 stop instead of navigation-elapsed —
   // one line plus the 2-line reason. Measured with `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5439,
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 5452 with `wc -l` on the post-prettier
+  // merged tree, then 5452->5450 when the merge's duplicated under-occluder teardown
+  // (#2290 here, #2286 on main — git auto-merged both into one function) folded back
+  // to one site.
+  'map/src/map.ts': 5450,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
   // The keep-warm reason lives on the registration (pending-work.ts); this file carries
   // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
   // #2138 merge (main did not touch this file): 801.
-  'map/src/coverage-source.ts': 801, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // 801->814 (#2375 F-5): the forecast-step and playback-transition reads called
+  // readCoverageRange with no `fetch`, so they fell through to the global one and
+  // `_coverageAbort.cancelAll()` — the #1570 fix run by destroy() AND
+  // _teardownForReinit() — could not stop a read in flight. Threading the guarded
+  // fetch costs a sourceId parameter, a required arg on readRegionsAtGroup, and the
+  // multi-line call shapes. Abort-spine plumbing, not feature growth.
+  'map/src/coverage-source.ts': 814, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
@@ -1197,6 +1242,9 @@ const CEILINGS: Record<string, number> = {
   //     and three copies of one type are three chances to add a field to two.
   // The ceiling drops to the measured post-prettier size rather than being left
   // slack: headroom is re-justified per phase, never banked. MEASURED.
+  // 2149→2145 (#2170): text-translate came out of the cached layout and its
+  // key, replacing the fold-then-add with one grouped expression at each of the
+  // two draw sites. Measured with `wc -l` on the post-prettier tree.
   // 2149→2178 (#2313 — an unshapeable curved line label must still be counted).
   // The three early-outs of the line-shaping loop (no glyphs, degenerate
   // polyline, glyph walk rejected by run length / text-max-angle) `continue`d
@@ -1412,7 +1460,11 @@ const CEILINGS: Record<string, number> = {
   // early-returns for webgl2 before the split layout is created, so the flip is inert on
   // that backend and the "both backends" precondition is discharged by showing WebGL2
   // UNCHANGED. MEASURED after prettier.
-  'map/src/render/pipeline-factory.ts': 1659,
+  // 1659->1709 (#2286): the factory had NO destroy at any level and no `.destroy()` call
+  // anywhere in the file, so `rebuild()` (map.setQuality) dropped the whole fill-Material
+  // set undestroyed with the device alive. Adds ownedMaterials/dropMaterials/destroy -- one
+  // authority shared by rebuild and teardown.
+  'map/src/render/pipeline-factory.ts': 1709,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -1607,7 +1659,10 @@ const CEILINGS: Record<string, number> = {
   // the catalog level, so every backend). +22 is the constant with its bound rationale,
   // the field doc, the deadline loop and the accessor doc. A first draft cost +39 and was
   // trimmed. MEASURED post-prettier.
-  'data/src/tile-catalog.ts': 1478,
+  // #2273 raised 1478 -> 1492: the prefetch shield now ages per frame (a frame-id
+  // record in resetCompileBudget + a guard in cancelStale). Six lines of logic;
+  // the rest is the measured rationale. Nothing here is a separable unit.
+  'data/src/tile-catalog.ts': 1492,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -1838,6 +1893,15 @@ const CEILINGS: Record<string, number> = {
   // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
+  // 850->853 (#2286): raster twin of the same draper gap.
+  // 853→747 (#2268 / D5 INC-0, main merge): DEM residency — the tile cache +
+  // byte accounting, both ledgers, the URL template/scheme and the whole fetch path —
+  // moved to dem-tile-store.ts. The file sat at EXACTLY its ceiling, so nothing could
+  // be added to it at all; that is why the extraction is a precondition for the terrain
+  // track rather than tidying. #2286's three destroy() lines are KEPT (the draper is
+  // this renderer's, not the store's), so this is not a same-file double delta: the
+  // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
+  // carried across or computed from either side's.
   // 850→855 (#2314): the draw took the bare `isPickEnabled()` and selected a
   // 2-target (rg32uint) pipeline for a pass that opens ONE colour attachment —
   // a per-frame WebGPU validation error whenever picking and a DEM layer are both
@@ -1956,7 +2020,9 @@ const CEILINGS: Record<string, number> = {
   // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
   // full-struct write() completeness net requires. MEASURED post-prettier.
   // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
-  'map/src/render/renderer.ts': 1011,
+  // 1011->1023 (#2286): MapRendererContent.destroy() -- the missing middle of the ownership
+  // chain; forwards to the engine half.
+  'map/src/render/renderer.ts': 1023,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -2015,7 +2081,14 @@ const CEILINGS: Record<string, number> = {
   // fall back to 16 and no-op).
   // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
   // the new render-bundle capability the VT bundle gate keys on.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
+  // 1522->1546 (#2369 F-7): createPipeline's compile+link block abandoned every
+  // object it had created on three failing exits — a fragment-compile throw left
+  // the vertex shader, a null createProgram left both, a link failure left both
+  // plus the program — and WebGLShader/WebGLProgram are not GC-reclaimed on a
+  // live context. The three inline cleanups collapse into ONE `linkProgram`
+  // authority (createPipeline's own body shrinks to three lines); the growth is
+  // the helper. Failure-path cleanup paying an ownership debt, not feature growth.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1546,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -2172,6 +2245,8 @@ const CEILINGS: Record<string, number> = {
   // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
   // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
   // import, one call, and the two new struct fields the packer must write.
+  // 1034->1037 (#2286): destroy() releases the draper whose only destroy lived in
+  // rebuildForQuality(), so a quality toggle reached it and map teardown did not.
   // 1034→1086 (#2302): the flat non-Mercator selector took a `{name:'non-mercator',
   // forward: mercator.forward}` shim that `visibleTilesFrustum` silently ignored (it
   // only ever reads `.name`, never calls `.forward`) — so equirect/natural_earth raster
@@ -2181,7 +2256,12 @@ const CEILINGS: Record<string, number> = {
   // vector path) — SHARED with HillshadeRenderer, so the +52 here buys BOTH renderers a
   // fix instead of growing each inline by half as much and drifting again. MEASURED
   // post-prettier.
-  'map/src/render/raster-renderer.ts': 1086,
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 1090 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/render/raster-renderer.ts': 1090,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

@@ -96,13 +96,104 @@ async function logClipCaptureFailure(
   console.log(`CAPTURE_CLIP_FAIL box=${JSON.stringify(box)} ancestors=${JSON.stringify(ancestors)}`)
 }
 
-/**
- * Wait for a demo to be fully composed, then return the canvas
- * screenshot as a Buffer. Centralizes the rAF + quiescence sequence
- * so every visual test gets the same wait semantics — no flakes from
- * "screenshot fired one frame too early".
- */
-export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+/** The pending-work kinds a settle may be scoped to — mirrors
+ *  `PENDING_WORK_KINDS` (map/src/pending-work.ts:36). Spelled here rather than
+ *  imported because the e2e helpers do not depend on `map`'s internals; the
+ *  registry validates the names at the call, so a stale entry reds loudly. */
+export type PendingWorkKindName =
+  | 'glyph'
+  | 'sprite'
+  | 'coverage'
+  | 'raster-fetch'
+  | 'raster-retry'
+  | 'dem-fetch'
+  | 'dem-retry'
+  | 'vt-fetch'
+  | 'vt-replaced'
+  | 'vt-upload'
+  | 'vt-missed'
+  | 'vt-lod'
+
+/** Settle on the engine's pending-work registry — the SAME predicate
+ *  `captureCanvas` settles on, without capturing anything.
+ *
+ *  Poll `_pendingWork.hasPending()` (#2149 — the engine's own "async resource
+ *  work still draining" union, every kind deadline-bounded by construction)
+ *  until it has been clear for five consecutive frames. A data-bearing demo
+ *  keeps it true while its fetch is in flight, so this waits for the real first
+ *  paint; an animated scene (which never goes idle) still settles once its
+ *  registered work drains; a static demo settles in ~80ms; the bounded fallback
+ *  prevents a hang. The legacy `hasPendingSourceWork()` probe is kept for
+ *  pre-#2149 builds, and `_wasIdle` for builds without either — when the method
+ *  was deleted (#2149 increment 6) this chain missing the registry arm made
+ *  EVERY capture burn the full timeout before resolving.
+ *
+ *  Exported because a spec that needs only the settle should not have to take a
+ *  SCREENSHOT to get it. `page.screenshot` adds a fonts-load wait, a
+ *  scroll-into-view stability wait and a PNG encode on top of this, and on a
+ *  loaded shard that surplus is what runs a spec out of its budget (#2366).
+ *
+ *  `scope` narrows the wait to specific kinds. Waiting on ALL of them is a
+ *  fixed timeout on any data-heavy demo: measured on `import_maplibre_mirror`,
+ *  the union never goes clear (still pending at 125 s) because `vt-upload` keeps
+ *  draining slice uploads at the per-frame cap, while `glyph` alone clears in
+ *  under 20 s. A spec that depends on glyph work should say so and get a real
+ *  convergence instead of waiting out a budget.
+ *
+ *  Not interchangeable with `awaitMapIdle`: that one resolves on the map-event-bus
+ *  `idle` transition (camera at rest and nothing left to draw), while this one
+ *  resolves on registered WORK draining — a glyph range or a tile fetch. Wait on
+ *  whichever one the assertion actually depends on. */
+export async function awaitPendingWorkClear(
+  page: Page,
+  timeoutMs = 20_000,
+  scope?: readonly PendingWorkKindName[],
+): Promise<void> {
+  await page.evaluate(
+    ([budget, kinds]: [number, readonly string[] | undefined]) => {
+      return new Promise<void>((resolve) => {
+        const m = (
+          window as unknown as {
+            __xgisMap?: {
+              _pendingWork?: { hasPending?: (scope?: readonly string[]) => boolean }
+              hasPendingSourceWork?: () => boolean
+              _wasIdle?: boolean
+            }
+          }
+        ).__xgisMap
+        if (!m) {
+          resolve()
+          return
+        }
+        const t0 = performance.now()
+        let stable = 0
+        const tick = () => {
+          let settled = false
+          try {
+            settled =
+              typeof m._pendingWork?.hasPending === 'function'
+                ? m._pendingWork.hasPending(kinds) === false
+                : typeof m.hasPendingSourceWork === 'function'
+                  ? m.hasPendingSourceWork() === false
+                  : m._wasIdle === true
+          } catch {
+            settled = false
+          }
+          stable = settled ? stable + 1 : 0
+          if (stable >= 5 || performance.now() - t0 > budget) resolve()
+          else requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+    },
+    [timeoutMs, scope] as [number, readonly string[] | undefined],
+  )
+}
+
+/** The wait every capture shares: ready, then painted, then composed. Split out
+ *  so `captureCanvas` and `captureCanvasInPage` cannot drift apart in their
+ *  settle semantics — only in how they read the finished frame. */
+async function settleForCapture(page: Page, opts: CaptureOptions): Promise<void> {
   const readyTimeout = opts.readyTimeoutMs ?? 20_000
 
   await page.waitForFunction(
@@ -111,57 +202,11 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
     { timeout: readyTimeout },
   )
 
-  // Wait for the engine to actually PAINT the scene, not just for the
-  // render loop to start. __xgisReady flips true when the loop starts, but
-  // URL/inline source data loads ASYNC and paints a frame or two later via
-  // invalidate(); the engine renders on-demand, so a fixed rAF count can
-  // screenshot the empty pre-data frame. Poll the pending-work registry
-  // (`_pendingWork.hasPending()`, #2149 — the engine's own "async resource
-  // work still draining" union, every kind deadline-bounded by construction)
-  // until it has been clear for a few consecutive frames. A data-bearing demo
-  // keeps it true while its fetch is in flight, so this waits for the real
-  // first paint; an animated scene (which never goes idle) still settles once
-  // its registered work drains; a static demo settles in ~80ms; the bounded
-  // fallback prevents a hang. The legacy `hasPendingSourceWork()` probe is
-  // kept for pre-#2149 builds, and `_wasIdle` for builds without either —
-  // when the method was deleted (#2149 increment 6) this chain missing the
-  // registry arm made EVERY capture burn the full timeout before resolving.
-  await page.evaluate((timeoutMs) => {
-    return new Promise<void>((resolve) => {
-      const m = (
-        window as unknown as {
-          __xgisMap?: {
-            _pendingWork?: { hasPending?: () => boolean }
-            hasPendingSourceWork?: () => boolean
-            _wasIdle?: boolean
-          }
-        }
-      ).__xgisMap
-      if (!m) {
-        resolve()
-        return
-      }
-      const t0 = performance.now()
-      let stable = 0
-      const tick = () => {
-        let settled = false
-        try {
-          settled =
-            typeof m._pendingWork?.hasPending === 'function'
-              ? m._pendingWork.hasPending() === false
-              : typeof m.hasPendingSourceWork === 'function'
-                ? m.hasPendingSourceWork() === false
-                : m._wasIdle === true
-        } catch {
-          settled = false
-        }
-        stable = settled ? stable + 1 : 0
-        if (stable >= 5 || performance.now() - t0 > timeoutMs) resolve()
-        else requestAnimationFrame(tick)
-      }
-      requestAnimationFrame(tick)
-    })
-  }, readyTimeout)
+  // Wait for the engine to actually PAINT the scene, not just for the render
+  // loop to start: __xgisReady flips true when the loop starts, but URL/inline
+  // source data loads ASYNC and paints a frame or two later via invalidate(),
+  // so a fixed rAF count can screenshot the empty pre-data frame.
+  await awaitPendingWorkClear(page, readyTimeout)
 
   // Two extra rAF ticks so any shader-variant pipeline created on the
   // first frame can compose into the visible swap chain on frame 2.
@@ -183,6 +228,21 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
     // is actually composed.
     await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())))
   }
+}
+
+/** Read the finished frame through the COMPOSITOR (`page.screenshot`).
+ *
+ *  Prefer `captureCanvasInPage` for a frame nothing outside the canvas needs to
+ *  appear in: this path pays a fonts-load wait, a scroll-into-view stability
+ *  wait and a compositor round trip, and #2242 is that round trip hanging rather
+ *  than running slowly. Measured on `_demotiles-mirror-gate`'s orthographic arm
+ *  in this container: 198 662 ms once, 13 026 ms on the next run, against 75 ms
+ *  for the in-page readback of the same 900x500 frame.
+ *
+ *  It stays because it is the only path that captures what the PAGE shows —
+ *  DOM overlays included — which a chrome-visibility gate genuinely needs. */
+export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+  await settleForCapture(page, opts)
 
   if (opts.capture === 'clip') {
     const locator = page.locator('#map')
@@ -198,6 +258,46 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
   }
 
   return await page.locator('#map').screenshot()
+}
+
+/** Read the finished frame from the CANVAS ITSELF, never asking the compositor
+ *  for one. Same settle as `captureCanvas`; the only difference is where the
+ *  bytes come from.
+ *
+ *  Two properties fall out of that, and both are things the screenshot path has
+ *  cost this repo:
+ *
+ *    * It cannot hang on the compositor. `page.screenshot` needs the page to
+ *      keep producing frames, and when it stops the call log ends after
+ *      "fonts loaded" and the budget is what ends the test (#2242, #1802).
+ *    * It is chrome-free BY CONSTRUCTION. The canvas backing store contains no
+ *      DOM, so an overlay that re-shows itself mid-capture cannot land in the
+ *      measured pixels — the whole #2282 / #2284 failure mode is unreachable
+ *      here rather than defended against.
+ *
+ *  MEASURED EQUIVALENT to the clip screenshot on `_demotiles-mirror-gate`'s
+ *  orthographic arm: identical dimensions (900x500 at dpr 1), and the canvas is
+ *  fully opaque there (minimum alpha 255, zero sub-255 pixels), so no
+ *  compositing against the page background is needed to match. The residual
+ *  pixel difference between the two paths is TEMPORAL, not a capture-path
+ *  difference: two in-page readbacks two seconds apart differ by 15.7% on that
+ *  still-converging scene, above the 18.3% measured between the two paths.
+ *
+ *  REQUIRES a readable drawing buffer. `preserveDrawingBuffer` is
+ *  WebGL2-backend-only (map/src/gpu-boot.ts:47) and the demo sets it from
+ *  `?e2e=1` / `?preserve=1` (playground/src/demo-runner.ts:1707). On a WebGPU
+ *  page without it the read can come back blank, and a blank frame is a
+ *  measurement that reads like a finding (CLAUDE.md §12) — so a caller must
+ *  assert something POSITIVE about the pixels, never just that they parsed. */
+export async function captureCanvasInPage(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+  await settleForCapture(page, opts)
+
+  const dataUrl = await page.evaluate(() => {
+    const canvas = document.querySelector('#map') as HTMLCanvasElement | null
+    if (!canvas) throw new Error('captureCanvasInPage: no #map canvas on the page')
+    return canvas.toDataURL('image/png')
+  })
+  return Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
 }
 
 /**
@@ -593,16 +693,31 @@ export const DEMO_CHROME_IDS = [
 ] as const
 
 /** Hide every demo-chrome element that is currently visible. Returns the ids
- *  actually hidden (log it — a gate's output should say what left the frame). */
+ *  actually hidden (log it — a gate's output should say what left the frame).
+ *
+ *  Hides through a stylesheet rule with `!important`, NOT an inline
+ *  `display:none`: chrome that toggles its own inline display later undoes
+ *  the inline form. The log overlay does exactly that — its `repaint()`
+ *  (demo-runner.ts) writes `display:flex` on every console.warn — so the DEV
+ *  owner-leak warnings (#2266) re-showed it mid-run and the recombine parity
+ *  gate hashed the overlay instead of the canvas (#2284). An important author
+ *  rule outranks any non-important inline declaration, whenever it is set. */
 export async function hideDemoChrome(page: Page): Promise<string[]> {
   return await page.evaluate(
     (ids) => {
+      const ATTR = 'data-xgis-chrome-hidden'
+      if (!document.getElementById('xgis-chrome-hide')) {
+        const style = document.createElement('style')
+        style.id = 'xgis-chrome-hide'
+        style.textContent = `[${ATTR}]{display:none!important}`
+        document.head.appendChild(style)
+      }
       const hidden: string[] = []
       for (const id of ids) {
         const el = document.getElementById(id)
         if (!el) continue
         if (getComputedStyle(el).display !== 'none') hidden.push(id)
-        el.style.display = 'none'
+        el.setAttribute(ATTR, '')
       }
       return hidden
     },

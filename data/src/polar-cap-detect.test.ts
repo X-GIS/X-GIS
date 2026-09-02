@@ -172,6 +172,79 @@ describe('synthesizeCapRing', () => {
     expect(ring32.length).toBeGreaterThan(ring4.length)
   })
 
+  // ── #2357: the span's DIRECTION, not just its endpoints ──────────────────
+  //
+  // `startLon`/`endLon` cannot say which way a span ran. For an RFC-7946
+  // exterior ring (CCW), a run along the NORTH clamp has its interior to the
+  // south, so it is walked WESTWARD and `endLon < startLon` — the same shape as
+  // an eastward antimeridian wrap. Reading it as a wrap synthesised a ~340
+  // degree polar disc where the source polygon occupied ~20 degrees.
+
+  it('#2357 CCW north-cap ring synthesises the WEDGE, not the 340 degree complement', () => {
+    // Shoelace is positive (CCW), so this is RFC-7946-correct exterior winding.
+    const L = 85.0511287798066
+    const ring: Array<[number, number]> = [
+      [40, L],
+      [20, L],
+      [20, 80],
+      [40, 80],
+      [40, L],
+    ]
+    const spans = findClampBoundarySpans(ring)
+    expect(spans).toHaveLength(1)
+    const cap = synthesizeCapRing(spans[0]!, 8)
+    for (const [lon, lat] of cap) {
+      if (lat === 90) continue // the pole vertex collapses every longitude
+      expect(lon).toBeGreaterThanOrEqual(20 - 1e-9)
+      expect(lon).toBeLessThanOrEqual(40 + 1e-9)
+    }
+  })
+
+  it('#2357 measures the arc as SIGNED — westward is negative', () => {
+    // Asserted on the span itself, not only through the ring: the sign is the
+    // information the endpoints lack, so pinning it here names the cause rather
+    // than the symptom if this regresses.
+    const L = 85.0511287798066
+    const spans = findClampBoundarySpans([
+      [40, L],
+      [20, L],
+      [20, 80],
+      [40, 80],
+      [40, L],
+    ])
+    expect(spans[0]!.arcDeg).toBeCloseTo(-20, 9)
+  })
+
+  it('#2357 an eastward span keeps a POSITIVE arc (the direction that already worked)', () => {
+    const L = -85.0511287798066
+    const spans = findClampBoundarySpans([
+      [0, -80],
+      [20, L],
+      [40, L],
+      [50, -80],
+      [0, -80],
+    ])
+    expect(spans[0]!.arcDeg).toBeCloseTo(20, 9)
+  })
+
+  it('#2357 a real antimeridian-crossing ring still measures the SHORT way across', () => {
+    // The case the old heuristic existed for: it must keep working, and now for
+    // a reason rather than by coincidence. 170 -> -170 is +20, not -340.
+    const L = -85.0511287798066
+    const spans = findClampBoundarySpans([
+      [150, -80],
+      [170, L],
+      [-170, L],
+      [-150, -80],
+      [150, -80],
+    ])
+    expect(spans[0]!.arcDeg).toBeCloseTo(20, 9)
+    for (const [lon] of synthesizeCapRing(spans[0]!, 4)) {
+      expect(lon).toBeGreaterThanOrEqual(-180)
+      expect(lon).toBeLessThanOrEqual(180)
+    }
+  })
+
   it('antimeridian-crossing span wraps correctly', () => {
     // startLon=170, endLon=-170 — span crosses antimeridian.
     const span: CapSpan = {

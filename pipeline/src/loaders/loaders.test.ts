@@ -83,6 +83,96 @@ describe('@xgis/pipeline · loaders · krAdminLoader', () => {
     expect(result.data.features.length).toBe(1) // only the hour-8 flow survives
   })
 
+  // ── #2361: filtering on a dimension the payload does not carry ───────────
+  //
+  // `ODBData.purpose` / `.segment` are `Uint8Array | null`, null whenever the
+  // encoder saw a flow without the field. The filter read `&& data.purpose &&`,
+  // so a null column short-circuited the whole test away and an explicit filter
+  // returned every row — UNFILTERED data presented as filtered.
+
+  it('#2361 a purpose filter over a payload with NO purpose column matches nothing', async () => {
+    const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+    // No `purpose` on either flow → ODB_FLAG_PURPOSE unset → data.purpose null.
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11680', hour: 8, pop: 5000 },
+      { origin: '11350', dest: '11680', hour: 8, pop: 3000 },
+    ]
+    const loader = odbLoader(gaz, { mode: 'inflow', purpose: 3 })
+    const result = await loader({
+      id: 'f',
+      url: 'x.odb',
+      options: {},
+      fetch: async (_u: string) => new Response(encodeODB(flows)),
+    })
+    if (result.kind !== 'fc') throw new Error('expected fc')
+    // Pre-fix this was 1 — both flows summed into the 강남 bubble, identical to
+    // asking for no filter at all.
+    expect(result.data.features.length).toBe(0)
+  })
+
+  it('#2361 the same holds in ARC mode, and for segment', async () => {
+    // Both branches carry the same four checks; a fix applied to one only would
+    // pass the inflow test above and leave arc mode wrong.
+    const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11680', hour: 8, pop: 5000 },
+      { origin: '11350', dest: '11680', hour: 8, pop: 3000 },
+    ]
+    const buf = encodeODB(flows)
+    const req = {
+      id: 'f',
+      url: 'x.odb',
+      options: {},
+      fetch: async (_u: string) => new Response(buf),
+    }
+
+    const arc = await odbLoader(gaz, { mode: 'arc', purpose: 3 })(req)
+    if (arc.kind !== 'fc') throw new Error('expected fc')
+    expect(arc.data.features.length).toBe(0)
+
+    const seg = await odbLoader(gaz, { mode: 'inflow', segment: 1 })(req)
+    if (seg.kind !== 'fc') throw new Error('expected fc')
+    expect(seg.data.features.length).toBe(0)
+  })
+
+  it('#2361 an UNFILTERED load of the same payload still returns its rows', async () => {
+    // The control that separates "the filter now works" from "the loader now
+    // returns nothing": same flows, no purpose/segment asked for, still 1
+    // bubble. A fix that dropped rows unconditionally would pass both tests
+    // above and break every existing caller.
+    const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11680', hour: 8, pop: 5000 },
+      { origin: '11350', dest: '11680', hour: 8, pop: 3000 },
+    ]
+    const result = await odbLoader(gaz, { mode: 'inflow' })({
+      id: 'f',
+      url: 'x.odb',
+      options: {},
+      fetch: async (_u: string) => new Response(encodeODB(flows)),
+    })
+    if (result.kind !== 'fc') throw new Error('expected fc')
+    expect(result.data.features.length).toBe(1)
+  })
+
+  it('#2361 when the column IS present the filter still selects by value', async () => {
+    // The other half of the control: purpose present on every flow, so the
+    // column decodes non-null and the value comparison must still govern.
+    const gaz = seoulSigunguGazetteer({ vintage: '2026' })
+    const flows: ODFlow[] = [
+      { origin: '11110', dest: '11680', hour: 8, pop: 5000, purpose: 3 },
+      { origin: '11350', dest: '11350', hour: 8, pop: 3000, purpose: 7 },
+    ]
+    const result = await odbLoader(gaz, { mode: 'inflow', purpose: 3 })({
+      id: 'f',
+      url: 'x.odb',
+      options: {},
+      fetch: async (_u: string) => new Response(encodeODB(flows)),
+    })
+    if (result.kind !== 'fc') throw new Error('expected fc')
+    expect(result.data.features.length).toBe(1)
+  })
+
   it('odbLoader arc mode emits a LineString FC, feature count = rows passing hour filter, endpoints in Seoul', async () => {
     const gaz = seoulSigunguGazetteer({ vintage: '2026' })
     const flows: ODFlow[] = [

@@ -5159,6 +5159,9 @@ export class XGISMap {
     // short-circuits and a re-run never re-registers the source (background lost)
     // while the opaque pass keeps drawing the old occluder on a dead device.
     // Destroyed before ctx.rhi.destroy(), the order setBackgroundFill(null) uses.
+    // The under-occluder is the same debt from the other side (#2286): its only
+    // destroy lived in `setBackgroundFill`, where a background change replaces it,
+    // so no teardown path released it. One site owns it now.
     this._syntheticBackend = null
     this.underOccluder?.destroy()
     this.underOccluder = null
@@ -5183,6 +5186,14 @@ export class XGISMap {
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
 
+    // #2286 — the two owners this list never named. `renderer` heads the chain
+    // MapRendererContent -> FrameRenderer -> PipelineFactory that owns every fill
+    // Material; `lineRenderer` owns the drapers plus its rings and translucent
+    // offscreen. Both were reclaimed only by the `ctx.rhi.destroy()` below, which
+    // is the ownership substitute the audit exists to remove — and until they are
+    // destroyed here the DEV owner-leak detector reports them on every run,
+    // burying the next real leak in ~40 lines of expected noise.
+    this.renderer?.destroy()
     this.rasterRenderer?.destroy()
     this.hillshadeRenderer?.destroy()
 

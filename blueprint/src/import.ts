@@ -251,11 +251,12 @@ export function xgisToGraph(src: string): BPGraph {
         minzoom: prop(lines, 'minzoom') || '',
         maxzoom: prop(lines, 'maxzoom') || '',
         filter: prop(lines, 'filter') || '',
-        pipe: pipeText(lines),
-        // #2348: mirror codegen's `coverage` layer paint emit, or opening a
-        // coverage `.xgis` blanks Ramp/Range and the next save destroys them.
+        // Coverage paint (#1158 INC-D) — the read side of the same omission
+        // (#2348). Without these, opening a hand-written coverage .xgis blanked
+        // the editor's Ramp/Range boxes and the next save DESTROYED them.
         ramp: prop(lines, 'ramp') || '',
         range: prop(lines, 'range') || '',
+        pipe: pipeText(lines),
       })
       nodes.push(n)
       layers.push({ node: n, src: prop(lines, 'source'), style: prop(lines, 'style') })

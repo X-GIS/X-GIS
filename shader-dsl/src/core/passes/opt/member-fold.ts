@@ -66,9 +66,10 @@
 //   • A `raw` body, whose text can read a name this pass cannot see (as in every
 //     other pass here).
 //
-// Wired into DEFAULT_PASSES (O2) only, alongside `structCtor` — the tier whose
-// emitted bytes are already snapshotted. It is a bit-exact value MOVER and would be
-// legal at O1; leaving O1's list alone keeps this change to one tier.
+// NOT in DEFAULT_PASSES (see the header above): `passes/force-inline.ts` applies it after
+// flattening, where the member-of-construct shape actually occurs. It is a bit-exact value
+// MOVER and would be legal at any tier; wiring it into O2 is a maintainer decision that
+// regenerates the byte snapshots (`passes/opt/optimize.ts` lists it as available-but-unwired).
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js'
 import { typeKey } from '../../ir/types.js'

@@ -157,7 +157,11 @@ const PROJ_TYPE = 0
 /** Record every URL a render() actually requests. */
 function recorderOn(renderer: { render: unknown }): string[] {
   const seen: string[] = []
-  const priv = renderer as unknown as {
+  // Raster still owns the load path; hillshade's moved to its DemTileStore
+  // (#2268 / D5 INC-0). Resolve whichever object actually owns it — recording the
+  // decoy on the wrong object would leave the oracle empty and the assertion
+  // vacuous rather than red, which is the failure this comment exists to prevent.
+  const priv = ((renderer as unknown as { dem?: unknown }).dem ?? renderer) as {
     loadTileTexture: (url: string, signal: AbortSignal) => Promise<unknown>
     loadingTiles: Map<string, unknown>
   }

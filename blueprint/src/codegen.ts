@@ -156,9 +156,12 @@ function emitLayer(g: BPGraph, n: BPNode, nodes: Map<string, BPNode>): string {
   if (d.minzoom?.trim()) lines.push(`  minzoom: ${d.minzoom.trim()}`)
   if (d.maxzoom?.trim()) lines.push(`  maxzoom: ${d.maxzoom.trim()}`)
   if (d.filter?.trim()) lines.push(`  filter: ${d.filter.trim()}`)
-  // #2348: `coverage` layer paint (#1158 INC-D) — `ramp` is valueKind
-  // 'string', `range` valueKind 'expr', so they emit like sourceLayer /
-  // filter respectively. Both are optional: unset leaves the block as-is.
+  // Coverage paint (#1158 INC-D). These are language-level `layer` properties
+  // (schema/language.ts) that buildConstructSpec auto-surfaced in the editor,
+  // and emitLayer was never taught about them — so the editor collected them
+  // and this function silently dropped them (#2348). `ramp` is valueKind
+  // 'string' (quoted, like sourceLayer above); `range` is 'expr' (verbatim,
+  // like filter).
   if (d.ramp?.trim()) lines.push(`  ramp: ${JSON.stringify(d.ramp.trim())}`)
   if (d.range?.trim()) lines.push(`  range: ${d.range.trim()}`)
 

@@ -1595,20 +1595,6 @@ class LabelPass implements RenderPass {
                   // "phase and walk in the same space" unrepresentable here.
                   const walkX = planeOk ? _p0xScratch : _pxScratch
                   const walkY = planeOk ? _p0yScratch : _pyScratch
-                  // INC-1/INC-2 — the VIEWPORT branch's cadence: the world anchor
-                  // (where this run crosses into its own tile, which is where
-                  // MapLibre starts its chain) as an along-screen offset from this
-                  // run's first sample, plus the run length. Normally NEGATIVE: MVT
-                  // geometry carries a buffer, so the crossing sits behind the run
-                  // start. That branch never leaves the live screen, so it measures
-                  // on the live arrays by definition.
-                  const { total, worldPhasePx } = measureRunCadence(
-                    _pxScratch,
-                    _pyScratch,
-                    _pmScratch,
-                    pn,
-                    tileEntryM,
-                  )
                   const featDef = applyFeatureExprs(props)
                   _edgeInset = lineLabelEdgeInsetPx(featDef, spriteOf, dpr)
                   if (useTangentRotation) {
@@ -1684,14 +1670,28 @@ class LabelPass implements RenderPass {
                     perfMarkEnd('encoder.label-dispatch.line.emit')
                     continue
                   }
-                  // Viewport-aligned path: single-rotation emission per spacing
-                  // point, delegated to the shared placement walk
-                  // (placeLabelsAlongLine) — the SAME authority the inline
-                  // (raw-GeoJSON) line path uses (#727 P1). Pure extraction here:
-                  // the walk cadence + `emitLabelAlongSegment` emit byte-identical
-                  // labels to the prior inline loop. `total` (line ~1288) is
-                  // recomputed inside the helper; the curved branch above still
-                  // uses it, so it stays.
+                  // Viewport-aligned path: single-rotation emission per spacing point,
+                  // delegated to the shared placement walk (placeLabelsAlongLine) — the
+                  // SAME authority the inline (raw-GeoJSON) line path uses (#727 P1).
+                  // Pure extraction: the walk cadence + `emitLabelAlongSegment` emit
+                  // byte-identical labels to the prior inline loop.
+                  //
+                  // INC-1/INC-2 — THIS branch's cadence, measured on the live arrays:
+                  // the world anchor (where the run crosses into its own tile, which is
+                  // where MapLibre starts its chain) as an along-screen offset from the
+                  // run's first sample, plus the run length. Normally NEGATIVE — MVT
+                  // geometry carries a buffer, so the crossing sits behind the start.
+                  // #2309 moved it BELOW the curved `continue`: #2012 INC-4 gave that
+                  // path its own re-measure from the WALK arrays (design Q7), so this
+                  // was two O(pn) walks and an object discarded per polyline per world
+                  // copy on every `text-rotation-alignment: map` layer — i.e. roads.
+                  const { total, worldPhasePx } = measureRunCadence(
+                    _pxScratch,
+                    _pyScratch,
+                    _pmScratch,
+                    pn,
+                    tileEntryM,
+                  )
                   if (
                     latticeMissesRun(
                       lineLabelFirstStopPx(worldPhasePx, spacingPx),

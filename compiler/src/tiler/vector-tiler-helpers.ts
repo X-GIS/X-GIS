@@ -100,14 +100,22 @@ export function tileKeyParent(key: number): number {
 }
 
 export function tileKeyChildren(key: number): [number, number, number, number] {
-  const [z, x, y] = tileKeyUnpack(key)
-  const cz = z + 1
-  const cx = x * 2
-  const cy = y * 2
-  return [
-    tileKey(cz, cx, cy),
-    tileKey(cz, cx + 1, cy),
-    tileKey(cz, cx, cy + 1),
-    tileKey(cz, cx + 1, cy + 1),
-  ]
+  // Direct identity, the exact inverse of `tileKeyParent`'s `key / 4`:
+  //   key     = 4^z + morton(x, y)
+  //   child_i = 4^(z+1) + morton(2x + bx, 2y + by)
+  //           = 4 * 4^z + (morton(x, y) << 2) + (bx + 2 * by)
+  //           = 4 * key + i,   i = bx + 2 * by
+  // The four i land in the SAME order the explicit construction emitted —
+  // (x,y), (x+1,y), (x,y+1), (x+1,y+1) — because morton puts x in the even
+  // bits and y in the odd ones, so i's low bit is bx and its high bit by.
+  // Verified element-for-element over 356 622 keys (exhaustive z0-9, sampled
+  // z10-14) and by the order assertion in tile-key-fuzz.test.ts.
+  //
+  // Avoids `tileKeyUnpack`'s O(z) `while (acc * 4 <= key)` loop plus four
+  // morton encodes, for the same reason tileKeyParent avoids them (see its
+  // comment). #2309 measured `classifyTile`'s child descent — which calls this
+  // once per visited node, up to 84 nodes per call — at 158.9 ms of frame
+  // self-time on a dense style.
+  const base = key * 4
+  return [base, base + 1, base + 2, base + 3]
 }

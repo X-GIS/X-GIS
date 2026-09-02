@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bdfe55198f3936e084966cb409a48408c1c2f51d
+  Generated from: affe5d7e71a77854b0752c66afdcae7e6db4f114
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bdfe55198f39
+    bun scripts/emit-changelog.ts --since affe5d7e71a7
 -->
 
 # Changelog
@@ -36,6 +36,20 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **blueprint:** coverage ramp/range survive a codegen → import round trip (#2348) ([#2387](https://github.com/X-GIS/X-GIS/pull/2387)) `affe5d7`
+- **pipeline:** an odbLoader purpose/segment filter over a payload without that column matches nothing (#2361) ([#2390](https://github.com/X-GIS/X-GIS/pull/2390)) `262613d`
+- **data:** polar caps synthesise the wedge a CCW ring occupies, not its 340-degree complement (#2357) ([#2383](https://github.com/X-GIS/X-GIS/pull/2383)) `bbb9627`
+- **rhi-webgl2:** setVertexBuffer honours its slot, so a two-slot pipeline stops aliasing slot 0 onto slot 1 (#2360) ([#2381](https://github.com/X-GIS/X-GIS/pull/2381)) `ea1d6a4`
+- **map:** ride the coverage abort spine on the forecast-step and playback reads (#2375) ([#2376](https://github.com/X-GIS/X-GIS/pull/2376)) `00b9016`
+- **pipeline:** groupBy min/max no longer return +/-Infinity for a group with no numeric cell (#2358) ([#2379](https://github.com/X-GIS/X-GIS/pull/2379)) `1ce1eb0`
+- **render:** fill-translate reaches the globe drape path (#2249) ([#2365](https://github.com/X-GIS/X-GIS/pull/2365)) `eb96246`
+- **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
+- **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
+- **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
+- **text:** a label with no text-font stops asking for a CJK-chain fontstack (#2259) ([#2287](https://github.com/X-GIS/X-GIS/pull/2287)) `2dcfab5`
+- **text:** generation-stamped fade holdovers (#2278) + a witness for the durable hideDemoChrome (#2284) ([#2279](https://github.com/X-GIS/X-GIS/pull/2279)) `491d2bf`
+- **data:** age the prefetch shield per frame, and make _high-pitch-flicker wait for its state (#2273) ([#2272](https://github.com/X-GIS/X-GIS/pull/2272)) `2ccead8`
+- **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
 - **map:** hand the InputStore to the background clear resolve ([#2257](https://github.com/X-GIS/X-GIS/pull/2257)) `c669971`
 - **compiler+map:** forward an imported style's top-level glyphs (#2121) ([#2261](https://github.com/X-GIS/X-GIS/pull/2261)) `b996e26`
 - **map:** cap the mid-render sync fallback uploads per frame ([#2258](https://github.com/X-GIS/X-GIS/pull/2258)) `2c33ae3`
@@ -60,6 +74,15 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`
 - **compiler:** three spec-coverage rows that misdescribed the engine ([#2172](https://github.com/X-GIS/X-GIS/pull/2172)) `ddbe76d`
 
+#### perf
+
+- **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
+- **text:** take text-translate out of the layout cache and its key (#2170) ([#2267](https://github.com/X-GIS/X-GIS/pull/2267)) `77dedde`
+
+#### refactor
+
+- **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
+
 #### docs
 
 - **research:** data-ownership audit + 5-year ownership model ([#2243](https://github.com/X-GIS/X-GIS/pull/2243)) `1eb20ca`
@@ -68,6 +91,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
+- **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`
 - **ownership:** teardown-reachability ratchet + DEV owner-leak detector ([#2269](https://github.com/X-GIS/X-GIS/pull/2269)) `bdfe551`
 - **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`
 - **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
@@ -75,6 +100,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- **render:** keep the failing frames and traces the render gates already write (#2282) ([#2285](https://github.com/X-GIS/X-GIS/pull/2285)) `17c1bf8`
 - patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
