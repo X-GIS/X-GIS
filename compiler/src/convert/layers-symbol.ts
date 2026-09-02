@@ -74,7 +74,15 @@ export function convertTextPaintProperties(
       ? textOpacity
       : null
   if (!isOmittedValue(textColor)) {
-    const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
+    // #2318: fold the constant text-opacity into every zoom-interp
+    // colour stop too, not just the single-hex constant-colour branch
+    // below — otherwise a constant text-opacity paired with a zoom-
+    // interpolated text-color was silently dropped (alpha 1.0 at every
+    // zoom).
+    const interp = interpolateZoomCall(textColor, warnings, (val, w) => {
+      const c = colorToXgis(val, w)
+      return c === null ? null : applyAlphaMultiplier(c, textOpacityConst)
+    })
     if (interp !== null) {
       utils.push(`label-color-[${interp}]`)
     } else {
@@ -89,6 +97,14 @@ export function convertTextPaintProperties(
         const expr = exprToXgis(textColor, warnings)
         if (expr !== null) {
           utils.push(`label-color-[${expr}]`)
+          // #2318: the expression path has no per-leaf alpha fold, so
+          // carry a constant text-opacity as its own binding — lower.ts
+          // routes a non-zoom label-opacity binding into
+          // LabelShapes.opacity (data-driven), which the runtime
+          // multiplies into resolvedColor.a per feature.
+          if (textOpacityConst !== null && textOpacityConst < 1) {
+            utils.push(`label-opacity-[${textOpacityConst}]`)
+          }
         } else {
           // Couldn't convert — fall back to Mapbox spec default.
           utils.push(`label-color-${applyAlphaMultiplier('#000000', textOpacityConst)}`)

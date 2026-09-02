@@ -76,6 +76,17 @@ export function convertBackgroundLayer(
   // we keep the constant result.
   const colorProbeWarnings: string[] = []
   let colorStr = bgVisibilityNone ? null : colorToXgis(color, colorProbeWarnings)
+  // Background-opacity constant unwrap — computed here, BEFORE the
+  // zoom-interp colour probe below, so a constant background-opacity
+  // can fold into a zoom-interpolated background-color too (#2318),
+  // not just the constant-colour hex branch further down.
+  let bgOpRaw: unknown = bgPaint['background-opacity']
+  while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal')
+    bgOpRaw = bgOpRaw[1]
+  const bgOpConst =
+    typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw)
+      ? Math.max(0, Math.min(1, bgOpRaw))
+      : null
   // WS-1 — zoom-interpolated background-color. When `background-color`
   // is `["interpolate", ["linear"], ["zoom"], …]`, emit the colour as
   // an `interpolate(zoom, …)` fill value so map.ts resolves the RGBA
@@ -85,7 +96,10 @@ export function convertBackgroundLayer(
   // shape, so this only fires when the constant path already declined.
   const colorInterp =
     colorStr === null && !bgVisibilityNone
-      ? interpolateZoomCall(color, warnings, (val, w) => colorToXgis(val, w))
+      ? interpolateZoomCall(color, warnings, (val, w) => {
+          const h = colorToXgis(val, w)
+          return h === null ? null : applyAlphaMultiplier(h, bgOpConst)
+        })
       : null
   // Commit the constant-colour probe diagnostics unless the interpolate
   // path claimed the value (then the "not converted" note is spurious).
@@ -96,19 +110,13 @@ export function convertBackgroundLayer(
   // < 1 are authored, fold the opacity into the hex alpha channel.
   // Zoom-interp / data-driven forms fall through to the opacity:
   // interpolate emit below (WS-1).
-  {
-    let bgOpRaw: unknown = bgPaint['background-opacity']
-    while (Array.isArray(bgOpRaw) && bgOpRaw.length === 2 && bgOpRaw[0] === 'literal')
-      bgOpRaw = bgOpRaw[1]
-    if (colorStr && typeof bgOpRaw === 'number' && Number.isFinite(bgOpRaw) && bgOpRaw < 0.999) {
-      const a = Math.max(0, Math.min(1, bgOpRaw))
-      // applyAlphaMultiplier handles #rgb / #rgba / #rrggbb / #rrggbbaa,
-      // expanding short-form hex before folding the opacity into the alpha
-      // channel. Pre-fix this site assumed colorStr was always #rrggbb (7
-      // chars) or #rrggbbaa (9 chars): for "#abc" it emitted "#abc80" (5
-      // digits) which the runtime hex regex rejected → background dropped.
-      colorStr = applyAlphaMultiplier(colorStr, a)
-    }
+  if (colorStr && bgOpConst !== null && bgOpConst < 0.999) {
+    // applyAlphaMultiplier handles #rgb / #rgba / #rrggbb / #rrggbbaa,
+    // expanding short-form hex before folding the opacity into the alpha
+    // channel. Pre-fix this site assumed colorStr was always #rrggbb (7
+    // chars) or #rrggbbaa (9 chars): for "#abc" it emitted "#abc80" (5
+    // digits) which the runtime hex regex rejected → background dropped.
+    colorStr = applyAlphaMultiplier(colorStr, bgOpConst)
   }
   const bgOpacity = bgPaint['background-opacity']
   // WS-1 — zoom-interpolated background-opacity. Emit an `opacity:`

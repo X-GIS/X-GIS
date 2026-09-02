@@ -2336,7 +2336,12 @@ const CEILINGS: Record<string, number> = {
   // 1386→1384: the two symbol anchor guards collapsed onto the shared decision,
   // so this file SHRANK. The ratchet is shrink-only, so the ceiling follows it
   // down rather than banking the slack.
-  'compiler/src/convert/layers-symbol.ts': 1384,
+  // 1384→1400 (#2318): a constant text-opacity paired with a zoom-interpolated
+  // text-color folded no alpha (label rendered opaque at every zoom), and the
+  // data-driven text-color branch had no way to carry a constant text-opacity
+  // at all. Both branches now fold/carry the alpha; +16 is the two fix sites
+  // plus their why-comments (post-prettier, `wc -l`).
+  'compiler/src/convert/layers-symbol.ts': 1400,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
