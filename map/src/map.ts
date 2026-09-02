@@ -2131,6 +2131,24 @@ export class XGISMap {
       this.coverageRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
+      // #2411 — the seventh sample-count-baked owner, and the one with no rebuildForQuality
+      // to fan out to: UnderOccluderRenderer takes the count as a CONSTRUCTOR
+      // argument (under-occluder-renderer.ts:113) and bakes it into its Material at
+      // :156, while its only build site is setBackgroundFill. Left alone across a
+      // flip it binds a pipeline whose attachment state the pass re-allocated above
+      // rejects — `Attachment state of [RenderPipeline "under-occluder-rhi"] is not
+      // compatible with [RenderPassEncoder]`, which invalidates the frame. Rebuilt
+      // here rather than given a rebuildForQuality() of its own because the count is
+      // immutable in the constructor and the colour it needs lives on the map.
+      if (this.underOccluder && this._backgroundColor) {
+        this.underOccluder.destroy()
+        this.underOccluder = new UnderOccluderRenderer(
+          this.ctx.rhi,
+          this.ctx.format,
+          getSampleCount(),
+        )
+        this.underOccluder.setColor(this._backgroundColor)
+      }
       // Per-show variant pipelines + layouts both went stale: the pipelines embed the OLD pick-
       // attachment/MSAA target state, and the layouts reference the OLD base/feature bind-group-
       // layouts that initPipelines just replaced. We can't simply null `entry.pipelines` and rely

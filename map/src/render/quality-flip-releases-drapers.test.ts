@@ -32,6 +32,7 @@ import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, getSampleCount } from '@xgis/engine'
 import { RasterRenderer, XGISMap, VectorTileRenderer } from '@xgis/map'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
+import { UnderOccluderRenderer } from './under-occluder-renderer'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -231,5 +232,109 @@ describe('#2292 — setQuality releases the VTR globe drape built at the old sam
     // (pipelines + global uniform + pool buffers) and its two samplers must be reclaimed,
     // which is the whole point of #1578's `RasterDraper.destroy()`.
     expect(draperDestroy, 'the drape must release its RasterDraper').toHaveBeenCalledTimes(1)
+  })
+})
+
+// ═══ #2411 — the seventh baked owner: the under-occluder ═══
+//
+// Found by the #2292 §5 arm, not by a reader: with the VTR drape fixed, the real
+// device still rejected a pipeline after a flip — `Attachment state of
+// [RenderPipeline "under-occluder-rhi"] is not compatible with [RenderPassEncoder]`.
+// `UnderOccluderRenderer` takes the sample count as a CONSTRUCTOR argument
+// (under-occluder-renderer.ts:113) and bakes it into its Material at :156, and its
+// ONLY build site is `setBackgroundFill` — so unlike the six renderers above it has
+// no `rebuildForQuality()` for the fan-out to reach, and nothing rebuilt it. Present
+// on main before this branch: `setQuality` there names `underOccluder` zero times.
+describe('#2411 — setQuality rebuilds the under-occluder built at the old sample count', () => {
+  let msaaBefore: (typeof QUALITY)['msaa']
+  let pickingBefore: boolean
+  beforeEach(() => {
+    msaaBefore = QUALITY.msaa
+    pickingBefore = QUALITY.picking
+  })
+  afterEach(() => {
+    updateQuality({ msaa: msaaBefore, picking: pickingBefore })
+  })
+
+  interface OccluderSeam {
+    sampleCount: number
+    color: [number, number, number, number]
+  }
+  interface MapOccluderSeam {
+    ctx: unknown
+    renderer: unknown
+    rasterRenderer: unknown
+    hillshadeRenderer: unknown
+    coverageRenderer: unknown
+    vectorTileShows: unknown[]
+    underOccluder: UnderOccluderRenderer | null
+    _backgroundColor: [number, number, number, number] | null
+  }
+
+  it('after an msaa 4->1 flip it carries the LIVE sample count, not the old one', async () => {
+    updateQuality({ picking: false, msaa: 4 })
+    expect(getSampleCount()).toBe(4)
+
+    const ctx = await makeCtx()
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const seam = map as unknown as MapOccluderSeam
+    const rebuilds = vi.fn()
+    seam.ctx = ctx
+    seam.renderer = { rebuildForQuality: rebuilds, bindGroupLayout: {} }
+    seam.rasterRenderer = { rebuildForQuality: rebuilds }
+    seam.hillshadeRenderer = { rebuildForQuality: rebuilds }
+    seam.coverageRenderer = { rebuildForQuality: rebuilds }
+    seam.vectorTileShows = []
+
+    // Exactly what setBackgroundFill builds (map.ts:1189).
+    const before = new UnderOccluderRenderer(ctx.rhi, ctx.format, getSampleCount())
+    before.setColor([0.1, 0.2, 0.3, 1])
+    seam.underOccluder = before
+    seam._backgroundColor = [0.1, 0.2, 0.3, 1]
+    const destroy = vi.spyOn(before, 'destroy')
+    expect((before as unknown as OccluderSeam).sampleCount).toBe(4)
+
+    map.setQuality({ msaa: 1 })
+
+    // CONTROL — the flip path really ran, so a green below cannot come from the
+    // whole block being skipped.
+    expect(rebuilds, 'the msaa flip must reach the rebuild fan-out').toHaveBeenCalledTimes(4)
+    expect(getSampleCount()).toBe(1)
+
+    // THE CLAIM.
+    expect(destroy, 'the stale under-occluder must be released, not leaked').toHaveBeenCalledTimes(
+      1,
+    )
+    const after = seam.underOccluder
+    expect(after, 'and a fresh one must exist for the next frame').not.toBeNull()
+    expect(after).not.toBe(before)
+    expect(
+      (after as unknown as OccluderSeam).sampleCount,
+      'an under-occluder kept across the flip binds a pipeline the re-allocated pass rejects',
+    ).toBe(getSampleCount())
+
+    // CONTROL — and it is still the background colour, not a default. A rebuild that
+    // dropped the colour would satisfy every assertion above and paint the wrong globe.
+    expect((after as unknown as OccluderSeam).color).toEqual([0.1, 0.2, 0.3, 1])
+  })
+
+  it('does nothing when no background fill is installed', () => {
+    // setBackgroundFill(null) leaves both null; the rebuild must not resurrect an
+    // occluder the style asked to be gone.
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const seam = map as unknown as MapOccluderSeam
+    const rebuilds = vi.fn()
+    seam.renderer = { rebuildForQuality: rebuilds, bindGroupLayout: {} }
+    seam.rasterRenderer = { rebuildForQuality: rebuilds }
+    seam.hillshadeRenderer = { rebuildForQuality: rebuilds }
+    seam.coverageRenderer = { rebuildForQuality: rebuilds }
+    seam.vectorTileShows = []
+    seam.underOccluder = null
+    seam._backgroundColor = null
+
+    updateQuality({ picking: false, msaa: 4 })
+    map.setQuality({ msaa: 1 })
+
+    expect(seam.underOccluder, 'no background fill, no occluder').toBeNull()
   })
 })

@@ -976,7 +976,15 @@ const CEILINGS: Record<string, number> = {
   // merged tree, then 5452->5450 when the merge's duplicated under-occluder teardown
   // (#2290 here, #2286 on main — git auto-merged both into one function) folded back
   // to one site.
-  'map/src/map.ts': 5450,
+  // 5450->5468 (#2411): setQuality now rebuilds the under-occluder, the seventh
+  // sample-count-baked owner and the only one with no rebuildForQuality() for the
+  // fan-out to reach — 8 statements plus the 10-line reason (why a constructor-baked
+  // count cannot be re-wired in place, and what the real device says when it is not
+  // rebuilt). Only map.ts can write it: it owns `underOccluder`, `ctx` and
+  // `_backgroundColor` alike, and extracting 8 lines used once would add a file to
+  // pay for a bug fix — a refactor smuggled inside a fix, which the #2249 note above
+  // declines for the same reason. Measured with `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5468,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
