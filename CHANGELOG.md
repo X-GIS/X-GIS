@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1392e6d02159a4e19601a641bf2d47748988f4c2
+  Generated from: 1ce1eb07598a25e84cc159b96abd0da4d99565fb
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1392e6d02159
+    bun scripts/emit-changelog.ts --since 1ce1eb07598a
 -->
 
 # Changelog
@@ -36,6 +36,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **pipeline:** groupBy min/max no longer return +/-Infinity for a group with no numeric cell (#2358) ([#2379](https://github.com/X-GIS/X-GIS/pull/2379)) `1ce1eb0`
+- **render:** fill-translate reaches the globe drape path (#2249) ([#2365](https://github.com/X-GIS/X-GIS/pull/2365)) `eb96246`
+- **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
 - **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
 - **text:** a label with no text-font stops asking for a CJK-chain fontstack (#2259) ([#2287](https://github.com/X-GIS/X-GIS/pull/2287)) `2dcfab5`
@@ -79,6 +82,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
 - **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`
 - **ownership:** teardown-reachability ratchet + DEV owner-leak detector ([#2269](https://github.com/X-GIS/X-GIS/pull/2269)) `bdfe551`
 - **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`

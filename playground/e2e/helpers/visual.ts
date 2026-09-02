@@ -190,13 +190,10 @@ export async function awaitPendingWorkClear(
   )
 }
 
-/**
- * Wait for a demo to be fully composed, then return the canvas
- * screenshot as a Buffer. Centralizes the rAF + quiescence sequence
- * so every visual test gets the same wait semantics — no flakes from
- * "screenshot fired one frame too early".
- */
-export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+/** The wait every capture shares: ready, then painted, then composed. Split out
+ *  so `captureCanvas` and `captureCanvasInPage` cannot drift apart in their
+ *  settle semantics — only in how they read the finished frame. */
+async function settleForCapture(page: Page, opts: CaptureOptions): Promise<void> {
   const readyTimeout = opts.readyTimeoutMs ?? 20_000
 
   await page.waitForFunction(
@@ -231,6 +228,21 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
     // is actually composed.
     await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())))
   }
+}
+
+/** Read the finished frame through the COMPOSITOR (`page.screenshot`).
+ *
+ *  Prefer `captureCanvasInPage` for a frame nothing outside the canvas needs to
+ *  appear in: this path pays a fonts-load wait, a scroll-into-view stability
+ *  wait and a compositor round trip, and #2242 is that round trip hanging rather
+ *  than running slowly. Measured on `_demotiles-mirror-gate`'s orthographic arm
+ *  in this container: 198 662 ms once, 13 026 ms on the next run, against 75 ms
+ *  for the in-page readback of the same 900x500 frame.
+ *
+ *  It stays because it is the only path that captures what the PAGE shows —
+ *  DOM overlays included — which a chrome-visibility gate genuinely needs. */
+export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+  await settleForCapture(page, opts)
 
   if (opts.capture === 'clip') {
     const locator = page.locator('#map')
@@ -246,6 +258,46 @@ export async function captureCanvas(page: Page, opts: CaptureOptions = {}): Prom
   }
 
   return await page.locator('#map').screenshot()
+}
+
+/** Read the finished frame from the CANVAS ITSELF, never asking the compositor
+ *  for one. Same settle as `captureCanvas`; the only difference is where the
+ *  bytes come from.
+ *
+ *  Two properties fall out of that, and both are things the screenshot path has
+ *  cost this repo:
+ *
+ *    * It cannot hang on the compositor. `page.screenshot` needs the page to
+ *      keep producing frames, and when it stops the call log ends after
+ *      "fonts loaded" and the budget is what ends the test (#2242, #1802).
+ *    * It is chrome-free BY CONSTRUCTION. The canvas backing store contains no
+ *      DOM, so an overlay that re-shows itself mid-capture cannot land in the
+ *      measured pixels — the whole #2282 / #2284 failure mode is unreachable
+ *      here rather than defended against.
+ *
+ *  MEASURED EQUIVALENT to the clip screenshot on `_demotiles-mirror-gate`'s
+ *  orthographic arm: identical dimensions (900x500 at dpr 1), and the canvas is
+ *  fully opaque there (minimum alpha 255, zero sub-255 pixels), so no
+ *  compositing against the page background is needed to match. The residual
+ *  pixel difference between the two paths is TEMPORAL, not a capture-path
+ *  difference: two in-page readbacks two seconds apart differ by 15.7% on that
+ *  still-converging scene, above the 18.3% measured between the two paths.
+ *
+ *  REQUIRES a readable drawing buffer. `preserveDrawingBuffer` is
+ *  WebGL2-backend-only (map/src/gpu-boot.ts:47) and the demo sets it from
+ *  `?e2e=1` / `?preserve=1` (playground/src/demo-runner.ts:1707). On a WebGPU
+ *  page without it the read can come back blank, and a blank frame is a
+ *  measurement that reads like a finding (CLAUDE.md §12) — so a caller must
+ *  assert something POSITIVE about the pixels, never just that they parsed. */
+export async function captureCanvasInPage(page: Page, opts: CaptureOptions = {}): Promise<Buffer> {
+  await settleForCapture(page, opts)
+
+  const dataUrl = await page.evaluate(() => {
+    const canvas = document.querySelector('#map') as HTMLCanvasElement | null
+    if (!canvas) throw new Error('captureCanvasInPage: no #map canvas on the page')
+    return canvas.toDataURL('image/png')
+  })
+  return Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
 }
 
 /**
