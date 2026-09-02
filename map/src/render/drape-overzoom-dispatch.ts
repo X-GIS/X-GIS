@@ -92,13 +92,14 @@ export function computeDrapeOverzoom(a: {
   // of a CSS-pixel one (#2346).
   const dpr = Math.max(1, a.dpr)
   const deviceZoom = camera.zoom + Math.log2(dpr)
+  // FLOOR here, then round to nearest with a local split below. The selector's
+  // overzoom FOOTPRINT branch — the only one that enumerates a viewport-covering
+  // set at a UNIFORM level, with the horizon's foreshortening already priced in —
+  // is gated on `zoom > maxZ + 1e-3`, so it can only serve a level strictly BELOW
+  // the device zoom. Asking it for `ceil` drops into the legacy descent, which
+  // returns a MIXED set (mostly the drawn level, the focal column one deeper) and
+  // takes the whole switch down: measured, every in-range case bailed.
   let virtualZ = Math.min(Math.floor(deviceZoom), srcMaxLevel + DRAPE_OVERZOOM_MAX_BOOST)
-  // globeVisibleTiles serves deep zoom through its overzoom FOOTPRINT branch,
-  // gated on zoom > maxZ + 1e-3; at zoom == maxZ exactly the legacy descent
-  // runs instead and collapses past z≈15 (its own in-file comment). At an
-  // exact-integer device zoom drop one virtual level so the footprint branch
-  // always serves the set — a transient 2× magnification at that precise
-  // camera, against the parent path's 2^(zoom − ancestorZ)× everywhere else.
   if (!(deviceZoom > virtualZ + 1e-3)) virtualZ -= 1
   // #2346: the trigger is "is there a deeper virtual level to bake at", NOT
   // "are we past the source maximum". `virtualZ > currentZ` is exactly the
@@ -189,5 +190,26 @@ export function computeDrapeOverzoom(a: {
   // catalog makes the per-frame repeat cheap); the switch stays atomic — the
   // parent-magnified path renders until every ancestor is resident.
   if (missingParents.length > 0) source.requestTiles(missingParents)
-  return allResident ? out : undefined
+  if (!allResident) return undefined
+  // ROUND TO NEAREST, not down. `virtualZ` is the floor of the device zoom, so a
+  // fractional camera leaves each virtual tile covering 2^(deviceZoom − virtualZ)
+  // ∈ [1, 2) device pixels per bake texel — at dpr 2 / z7.5 (deviceZoom 8.5) a
+  // 1.41× upscale, measured as a still-soft, still-thick stroke against the
+  // Mercator control after the AA band was corrected. Past the half-octave, split
+  // each tile once IN PLACE: the set is already viewport-covering at a uniform
+  // level, so the 4-way split neither re-runs selection nor over-subdivides the
+  // foreshortened horizon (which is why this is not applied to the drawn set
+  // directly). Bounded at ×4 entries, and it turns the worst case from a 2×
+  // undershoot into a 1.41× overshoot — the side of the trade a baked tile that
+  // must look like the direct render wants to be on.
+  if (deviceZoom - virtualZ < 0.5) return out
+  const split: DrapeOverzoomTile[] = []
+  for (const t of out) {
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        split.push({ z: t.z + 1, x: t.x * 2 + dx, y: t.y * 2 + dy, parentKey: t.parentKey })
+      }
+    }
+  }
+  return split
 }

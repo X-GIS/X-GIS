@@ -81,10 +81,15 @@ function run(o: {
 }
 
 describe('#2346 — the drape windows by device-pixel density', () => {
-  it('dpr 1 at native zoom: nothing to window (the bake is already at device density)', () => {
-    // One bake texel per CSS px per device px — windowing would only cost draw
-    // calls. This is the case that must stay byte-identical to before #2346.
+  it('stays off exactly where the bake is ALREADY at device density', () => {
+    // dpr 1 at an integer camera zoom is the one case where one bake texel is
+    // one device pixel — windowing would only cost draw calls, and this frame
+    // must stay byte-identical to before #2346.
     expect(run({ zoom: 4, currentZ: 4, dpr: 1, maxLevel: 14 }).out).toBeUndefined()
+    // dpr 1 at a fractional zoom is a 1.32× upscale, but the deepest level the
+    // selector's footprint branch can serve is floor(4.4) = 4 — the drawn level
+    // itself. Nothing to window; the residual is the pre-existing ≤2× and is not
+    // the reported case (which is dpr 2, where the octave lifts the floor).
     expect(run({ zoom: 4.4, currentZ: 4, dpr: 1, maxLevel: 14 }).out).toBeUndefined()
   })
 
@@ -96,7 +101,11 @@ describe('#2346 — the drape windows by device-pixel density', () => {
     expect(out, 'dpr 2 must reach a deeper virtual level than the drawn one').toBeDefined()
     expect(out!.length).toBeGreaterThan(0)
     for (const t of out!) {
-      expect(t.z, 'virtual tiles sit one level below the device zoom').toBe(5)
+      expect(
+        t.z,
+        'deviceZoom 5.4 rounds to 5 — the level at which one bake texel covers about one ' +
+          'device pixel (1.32× oversampled here)',
+      ).toBe(5)
       expect(
         needed.includes(t.parentKey),
         'every virtual tile must window a tile the PRIMARY selection is drawing — windowing ' +
@@ -104,6 +113,7 @@ describe('#2346 — the drape windows by device-pixel density', () => {
       ).toBe(true)
       const [pz, px, py] = tileKeyUnpack(t.parentKey)
       expect(pz, 'the drawn ancestor is at the selection LOD').toBe(4)
+      expect(t.z - pz, 'one level of subdivision: the dpr octave').toBe(1)
       // Containment: the virtual tile is inside the parent it windows.
       expect(t.x >> (t.z - pz)).toBe(px)
       expect(t.y >> (t.z - pz)).toBe(py)
@@ -116,9 +126,35 @@ describe('#2346 — the drape windows by device-pixel density', () => {
       const r = run({ zoom: 4.4, currentZ: 4, dpr, maxLevel: 14 })
       return r.out?.[0]?.z
     }
+    // deviceZoom 4.4 / 5.4 / 6.4 → rounded to nearest 4 / 5 / 6; at dpr 1 that is
+    // the drawn level itself, so there is nothing to window.
     expect(z(1)).toBeUndefined()
     expect(z(2)).toBe(5)
     expect(z(4)).toBe(6)
+  })
+
+  it('rounds to NEAREST: past the half-octave the set splits in place, 4× the entries', () => {
+    // deviceZoom 5.4 (below the half) stays at 5; 5.6 (past it) splits to 6. The
+    // split is local — same parents, four children each — so it costs entries,
+    // never a second selection pass, and never over-subdivides the horizon.
+    const below = run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14 })
+    const above = run({ zoom: 4.6, currentZ: 4, dpr: 2, maxLevel: 14 })
+    expect(below.out![0]!.z).toBe(5)
+    expect(above.out![0]!.z).toBe(6)
+    // Structural: the split set is EXACTLY a 4-way subdivision — every tile has
+    // its three siblings, so nothing was re-selected, dropped or duplicated.
+    // (The two cameras differ, so the raw counts are not comparable; the shape
+    // is.)
+    const groups = new Map<string, number>()
+    for (const t of above.out!) {
+      const k = `${t.z - 1}/${t.x >> 1}/${t.y >> 1}`
+      groups.set(k, (groups.get(k) ?? 0) + 1)
+    }
+    expect(above.out!.length % 4, 'a 4-way split cannot leave a remainder').toBe(0)
+    expect(groups.size, 'four children per split parent').toBe(above.out!.length / 4)
+    for (const [k, n] of groups) expect(n, `group ${k} is missing siblings`).toBe(4)
+    // Every child still windows the SAME drawn ancestor as its parent did.
+    for (const t of above.out!) expect(above.needed.includes(t.parentKey)).toBe(true)
   })
 
   it('over-zoom is unchanged: the ancestor is the maxLevel tile the selection drew (#2024)', () => {
