@@ -81,6 +81,70 @@ describe('@xgis/blueprint codegen contract', () => {
     expect(() => parses(src)).not.toThrow()
   })
 
+  it('coverage ramp/range round-trip codegen → compiler → import (#2348)', () => {
+    // #1158 INC-D made ramp/range real `layer` properties and
+    // buildConstructSpec auto-surfaced them in the editor, but codegen and
+    // import were never taught about them. The editor collected the values and
+    // BOTH directions dropped them: export omitted the properties, and import
+    // blanked them — so opening a hand-written coverage style and saving it
+    // DESTROYED two properties of the user's file, silently.
+    const l = {
+      id: uid('n'),
+      type: 'layer' as const,
+      x: 0,
+      y: 0,
+      data: {
+        name: 'speed',
+        source: 'currents',
+        sourceLayer: '',
+        minzoom: '',
+        maxzoom: '',
+        filter: '',
+        ramp: 'viridis',
+        range: '[0, 2]',
+        pipe: '',
+      },
+    }
+    const src = graphToXgis({ nodes: [l], edges: [] })
+    expect(src).toContain('ramp: "viridis"')
+    expect(src).toContain('range: [0, 2]')
+    // The emitted shape must be real X-GIS, not just the right substring.
+    expect(() => parses(src)).not.toThrow()
+
+    const back = xgisToGraph(src)
+    const node = back.nodes.find((n) => n.type === 'layer')!
+    expect(node.data.ramp).toBe('viridis')
+    expect(node.data.range).toBe('[0, 2]')
+  })
+
+  it('a layer with no ramp/range emits neither property (#2348 guard)', () => {
+    // The control: the emit is conditional on the same `?.trim()` truthiness
+    // every other optional property uses, so every non-coverage layer's output
+    // stays byte-identical. A fix that emitted `ramp: ""` would pass the
+    // round-trip test above and corrupt every other style.
+    const l = {
+      id: uid('n'),
+      type: 'layer' as const,
+      x: 0,
+      y: 0,
+      data: {
+        name: 'countries',
+        source: 'world',
+        sourceLayer: '',
+        minzoom: '',
+        maxzoom: '',
+        filter: '',
+        ramp: '',
+        range: '   ',
+        pipe: 'fill-blue-400',
+      },
+    }
+    const src = graphToXgis({ nodes: [l], edges: [] })
+    expect(src).not.toContain('ramp:')
+    expect(src).not.toContain('range:')
+    expect(() => parses(src)).not.toThrow()
+  })
+
   it('parameterized presets round-trip codegen → compiler → import (#1536)', () => {
     const p = {
       id: uid('n'),
