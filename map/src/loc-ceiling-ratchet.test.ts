@@ -314,7 +314,10 @@ const CEILINGS: Record<string, number> = {
   // 5483→5466 (#2240): the three fill-translate packers now read one producer
   // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
   // Measured with `wc -l` on the post-prettier tree, per the note above.
-  'map/src/render/vector-tile-renderer.ts': 5466,
+  // 5466->5471 (#2286): destroy() releases the three LAZY fill Materials
+  // (_fillMatRhi/_fillPickMatRhi/_fillPatternMatRhi) it never named -- reached mid-session
+  // by teardownSource with the device still alive.
+  'map/src/render/vector-tile-renderer.ts': 5471,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -327,7 +330,9 @@ const CEILINGS: Record<string, number> = {
   // main raised vector-tile-renderer.ts (line composer dispatch), this branch adds the
   // coverage-renderer.ts baseline — so both entries stand; neither number is a pick
   // between sides. Both re-measured against the merged tree.
-  'map/src/render/coverage-renderer.ts': 812,
+  // 812->815 (#2286): dispose() drops the drapers; releaseRegion never touched them, so the
+  // one path map teardown reaches left them all alive.
+  'map/src/render/coverage-renderer.ts': 815,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -888,7 +893,11 @@ const CEILINGS: Record<string, number> = {
   // `map/src/imported-top-level.ts` — the pair is one concern, and keeping them
   // apart is how the second one came to be dropped. Measured with `wc -l` on
   // the post-prettier tree.
-  'map/src/map.ts': 5419,
+  // 5419->5432 (#2286): _releaseGpuResources now RELEASES the two owners it only ever
+  // dropped -- `renderer` (the MapRendererContent -> FrameRenderer -> PipelineFactory chain
+  // that owns every fill Material) and the under-occluder, whose only destroy lived in
+  // setBackgroundFill. Teardown code paying an ownership debt, not feature growth.
+  'map/src/map.ts': 5432,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1320,7 +1329,11 @@ const CEILINGS: Record<string, number> = {
   // early-returns for webgl2 before the split layout is created, so the flip is inert on
   // that backend and the "both backends" precondition is discharged by showing WebGL2
   // UNCHANGED. MEASURED after prettier.
-  'map/src/render/pipeline-factory.ts': 1659,
+  // 1659->1709 (#2286): the factory had NO destroy at any level and no `.destroy()` call
+  // anywhere in the file, so `rebuild()` (map.setQuality) dropped the whole fill-Material
+  // set undestroyed with the device alive. Adds ownedMaterials/dropMaterials/destroy -- one
+  // authority shared by rebuild and teardown.
+  'map/src/render/pipeline-factory.ts': 1709,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -1735,7 +1748,8 @@ const CEILINGS: Record<string, number> = {
   // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
-  'map/src/render/hillshade-renderer.ts': 850,
+  // 850->853 (#2286): raster twin of the same draper gap.
+  'map/src/render/hillshade-renderer.ts': 853,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -1840,7 +1854,9 @@ const CEILINGS: Record<string, number> = {
   // 1003→1009 (#2042 INC-1): the four all-zero anchor rows (+ flag-0 note) the
   // full-struct write() completeness net requires. MEASURED post-prettier.
   // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
-  'map/src/render/renderer.ts': 1011,
+  // 1011->1023 (#2286): MapRendererContent.destroy() -- the missing middle of the ownership
+  // chain; forwards to the engine half.
+  'map/src/render/renderer.ts': 1023,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -2052,7 +2068,9 @@ const CEILINGS: Record<string, number> = {
   // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
   // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
   // import, one call, and the two new struct fields the packer must write.
-  'map/src/render/raster-renderer.ts': 1034,
+  // 1034->1037 (#2286): destroy() releases the draper whose only destroy lived in
+  // rebuildForQuality(), so a quality toggle reached it and map teardown did not.
+  'map/src/render/raster-renderer.ts': 1037,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

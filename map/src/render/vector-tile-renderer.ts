@@ -2366,6 +2366,11 @@ export class VectorTileRenderer {
     this._featureBinder.destroy()
     // #1592 — the RHI variant path owns its own Materials + per-tile feat_data
     // buffers; nothing else references them, so nothing else would reclaim them.
+    // #2286 — the three LAZY fill Materials, which no teardown named: a
+    // mid-session `teardownSource` (a setSourceData replace, a feature-update
+    // rebuild, a polar-cap swap) dropped them with the DEVICE STILL ALIVE.
+    for (const m of [this._fillMatRhi, this._fillPickMatRhi, this._fillPatternMatRhi]) m?.destroy()
+    this._fillMatRhi = this._fillPickMatRhi = this._fillPatternMatRhi = null
     this._fillVariantsRhi?.destroy()
     this._fillVariantsRhi = null
 
