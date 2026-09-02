@@ -2439,7 +2439,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION: both sides raised this key from 912 and neither number is right — the
   // edits are in different regions of the file, so the merged file takes BOTH deltas
   // (§12: never pick a side, never max() the two). RE-MEASURED post-merge with `wc -l`.
-  'compiler/src/convert/paint-helpers.ts': 934,
+  // 934→954 (#2329): the legacy `{type: "interval", stops: […]}` zoom
+  // function was silently lowered as a linear interpolate — MapLibre's
+  // evaluateIntervalFunction is a STEP (holds the greatest stop <= the
+  // input). Added the `step` curve variant to interpolateZoomStops'
+  // legacy branch + a step-emitting arm in interpolateZoomCall.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY — no headroom banked.
+  'compiler/src/convert/paint-helpers.ts': 954,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,
