@@ -1207,7 +1207,16 @@ const CEILINGS: Record<string, number> = {
   // ShapedLabel shape, so the one duplication the fix would have introduced is
   // instead collapsed into `lineShapedFields`, which the fitted push now shares.
   // MEASURED post-prettier.
-  'map/src/text/text-stage.ts': 2178,
+  // 2178→2195 (#2323 — same-route spacing window follows the run's own
+  // authored symbol-spacing instead of one frame-wide 250*dpr constant):
+  // `addCurvedLineLabel` grew one trailing param + doc comment, `PendingLineLabel`
+  // / `ShapedLabel` each grew one field + doc comment, and the two
+  // `collisionInput` builders (legacy + z-order-ordered) each grew one line
+  // forwarding it through to `CollisionItem`. No single site could absorb this —
+  // it is the same field threaded through every existing carrier on the
+  // point-to-collision path, mirroring how `lineId`/`anchorDistancePx` are
+  // already threaded. MEASURED post-prettier.
+  'map/src/text/text-stage.ts': 2195,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.

@@ -385,6 +385,77 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
   })
 })
 
+// #2323 — the #605 same-line spacing gate above used ONE frame-wide window
+// (250*dpr) for every layer, regardless of its authored `symbol-spacing`. A
+// layer spaced BELOW 250 (OFM highway-shield-* = 200) had every second
+// consecutive stop of its own run rejected by that oversized window — a 200 px
+// cadence rendered at 400 px, half the authored rate. addCurvedLineLabel now
+// takes the run's own spacing as a trailing `minLineSpacingPx` (dispatch
+// forwards `run.spacingPx`), which overrides the frame-wide default per item.
+describe("#2323 same-route window follows the run's own symbol-spacing", () => {
+  it('two stops 200 px apart (run spacing 200) both place when the run spacing is forwarded', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // One 600 px polyline; two stops 200 px apart, well inside the frame-wide
+    // 250 px default but exactly at the run's OWN 200 px cadence — a 2-glyph
+    // shield at size 20 is far narrower than 200 px, so the bboxes don't
+    // overlap and only the same-line spacing gate can drop either one.
+    const [px, py] = hLine(0, 600, 5000)
+    const LINE_ID = 'roads_shield 82'
+    ;[100, 300].forEach((aDist) => {
+      stage.addCurvedLineLabel(
+        litValue('82'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        LINE_ID,
+        aDist,
+        'roads_shield' + LINE_ID,
+        undefined, // ground
+        200, // #2323 — the run's own authored symbol-spacing
+      )
+    })
+    stage.prepare()
+    expect(
+      captured[0]!.length,
+      'both stops of a symbol-spacing 200 run are legitimately spaced and must place',
+    ).toBe(2)
+  })
+
+  it('a caller that omits the run spacing keeps the frame-wide 250 px default (legacy fallback)', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    const [px, py] = hLine(0, 600, 6000)
+    const LINE_ID = 'roads_shield 83'
+    ;[100, 300].forEach((aDist) => {
+      stage.addCurvedLineLabel(
+        litValue('83'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        LINE_ID,
+        aDist,
+        'roads_shield' + LINE_ID,
+      )
+    })
+    stage.prepare()
+    expect(
+      captured[0]!.length,
+      'no per-run spacing supplied → the 250 px default still gates a 200 px cadence',
+    ).toBe(1)
+  })
+})
+
 // #2313 — a curved line label the shaping loop cannot lay out (glyph walk
 // rejects the run length or text-max-angle, degenerate polyline, no glyphs)
 // left the loop WITHOUT entering `shaped`, and the drop loop stamps

@@ -605,6 +605,13 @@ export class TextStage {
      *  keeps the plane cadence and billboards. The caller may reuse one holder —
      *  the fields are copied out here. */
     ground?: CurvedGroundArgs,
+    /** #2323 — the authored `symbol-spacing` (physical px, already scaled by
+     *  dpr + 2^frac(zoom) — same units as `anchorDistancePx`) for the RUN this
+     *  stop belongs to. Forwarded as the collision pass's per-item
+     *  `minLineSpacingPx` so the same-route window matches the layer's own
+     *  cadence instead of the frame-wide 250 px default. Undefined → falls
+     *  back to that default (imperative overlays / tests). */
+    minLineSpacingPx?: number,
   ): void {
     // #777 I-G — strip inline-image markers before curved shaping. Inline
     // images along a curved road are not laid out (the along-path sampler
@@ -658,6 +665,7 @@ export class TextStage {
       anchorDistancePx,
       collisionId,
       layerName,
+      minLineSpacingPx,
     })
   }
 
@@ -911,6 +919,10 @@ export class TextStage {
        *  leave both undefined. */
       lineId?: string
       anchorDistancePx?: number
+      /** #2323 — the run's authored symbol-spacing (physical px), forwarded
+       *  to the collision pass's per-item `minLineSpacingPx`. Undefined →
+       *  the frame-wide 250 px default applies. */
+      minLineSpacingPx?: number
       /** #728 — stable per-feature collision identity forwarded to the
        *  greedy pass's `tieBreak` so overlapping labels resolve to a
        *  deterministic winner independent of tile-dispatch order. */
@@ -1556,6 +1568,7 @@ export class TextStage {
       pairKey: p.pairKey,
       lineId: p.lineId,
       anchorDistancePx: p.anchorDistancePx,
+      minLineSpacingPx: p.minLineSpacingPx,
       collisionId: p.collisionId,
       layerName: p.layerName,
     })
@@ -1837,6 +1850,9 @@ export class TextStage {
       // capping cross-tile route repeats. Point labels leave both undefined.
       lineId: s.lineId,
       anchorDistancePx: s.anchorDistancePx,
+      // #2323 — per-run window (the layer's own symbol-spacing) overrides the
+      // frame-wide MIN_LINE_SPACING_PX default below when present.
+      minLineSpacingPx: s.minLineSpacingPx,
       // #728 — stable feature identity → deterministic collision tie-break.
       // Removes the reverse-input-order dependence below: when any label
       // carries one, greedyPlaceBboxes orders by it (sortKey → layer group →
@@ -1918,6 +1934,7 @@ export class TextStage {
         groupKey: collisionInput[i]!.groupKey,
         lineId: collisionInput[i]!.lineId,
         anchorDistancePx: collisionInput[i]!.anchorDistancePx,
+        minLineSpacingPx: collisionInput[i]!.minLineSpacingPx,
       }))
       const orderedPlacements = greedyPlaceBboxes(orderedInput, {
         obstacles: iconObstacles,
