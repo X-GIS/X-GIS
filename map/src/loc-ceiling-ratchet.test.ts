@@ -2362,7 +2362,11 @@ const CEILINGS: Record<string, number> = {
   // BUILTIN_FN_NAMES entry and the comment recording why the assertion is
   // load-bearing — `length`/`slice` accept strings) lands here rather than
   // in a second file.
-  'compiler/src/eval/evaluator-helpers.ts': 868,
+  // 868→872 (#2385): the `?? ''` removal in the index-of arm is net zero lines; the
+  // +4 is the comment recording WHY the coercion must stay bare (`''` is at index 0
+  // of every string) — the exact defect a future "harden the null case" edit would
+  // reintroduce. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'compiler/src/eval/evaluator-helpers.ts': 872,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
