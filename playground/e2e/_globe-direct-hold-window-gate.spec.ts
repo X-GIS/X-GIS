@@ -26,7 +26,21 @@
 //   EFFECT — the held frame differs from the SAME held frame under
 //            `__XGIS_FORCE_VECTOR_DRAPE` (the sever arm, a fresh page so the step
 //            tiles are un-cached again) by more than the measured capture noise
-//            floor, and its edges are sharper (mean of the top-percentile gradient).
+//            floor, AND is the arm that agrees with the converged, LOD-advanced
+//            direct frame: both held arms draw the same tiles, so whichever is
+//            closer to the advanced frame is the one rendering them the same way.
+//
+// WHY NOT A SHARPNESS METRIC. This gate first asserted that the direct held frame
+// scored higher on the mean of the top 1 % of |∇luminance|. It does not, and the
+// frames say why: at a coarse held LOD the drape's magnified bake draws each road
+// as a DARK 3-px band on a light ground, and the luminance jump across that band's
+// edge is bigger than the jump across the thin, faint, correctly-thin road the
+// direct arm draws. The metric ranks CONTRAST, not sharpness, so it scored the
+// blurry arm higher (251.60 direct vs 256.88 drape at 5.3 → 6.6, while a
+// full-resolution read of the same two frames shows the drape's roads smeared into
+// bands and the direct arm's at Positron's own width). It is kept as a LOGGED
+// diagnostic, never an assertion — a metric that inverts on the case the gate
+// exists for is a broken ruler (CLAUDE.md §12).
 //
 // Capture note (capture-canvas skill). The held frame is captured WITHOUT
 // captureMapFrame's quiesce: the hold IS a pending-load state — that is the thing
@@ -506,11 +520,18 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
     held.stall.release()
 
     const directHeld = readFileSync(join(OUT, 'held-direct.png'))
+    const advanced = readFileSync(join(OUT, 'advanced-direct.png'))
     const directReport = JSON.parse(readFileSync(join(OUT, 'report-direct.json'), 'utf8')) as {
       noiseFloor: number
       sharpHeld: number
+      heldVsAdvanced: number
     }
     const armDelta = await pixelDiffRatio(page, directHeld, held.png)
+    // The DIRECTIONAL half (§5 ladder): both held arms draw the SAME held-LOD tiles, so the
+    // only thing separating them from the converged, direct, LOD-advanced frame is
+    // the render path. The arm that renders those tiles the way the advanced frame
+    // does must be the closer one.
+    const forcedVsAdvanced = await pixelDiffRatio(page, advanced, held.png)
     const sharpForced = await edgeSharpness(page, held.png)
     const floor = Math.max(directReport.noiseFloor * ARM_DELTA_FLOOR_MULT, ARM_DELTA_MIN)
     const report = {
@@ -518,6 +539,8 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
       stalledStepRequests: held.stall.stalledCount(),
       armDelta,
       floor,
+      forcedVsAdvanced,
+      directVsAdvanced: directReport.heldVsAdvanced,
       sharpForced,
       sharpDirect: directReport.sharpHeld,
       heldState: held.state,
@@ -526,7 +549,10 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
     writeFileSync(join(OUT, 'report-forced.json'), JSON.stringify(report, null, 2))
     console.log(
       `[hold-window sever] armDelta=${armDelta.toFixed(4)} floor=${floor.toFixed(4)} ` +
-        `sharpForced=${sharpForced.toFixed(2)} sharpDirect=${directReport.sharpHeld.toFixed(2)}`,
+        `forcedVsAdvanced=${forcedVsAdvanced.toFixed(4)} ` +
+        `directVsAdvanced=${directReport.heldVsAdvanced.toFixed(4)} ` +
+        `sharpForced=${sharpForced.toFixed(2)} sharpDirect=${directReport.sharpHeld.toFixed(2)} ` +
+        `(sharpness is DIAGNOSTIC ONLY — see the header)`,
     )
 
     expect(errors, `pageerrors: ${errors.join(' | ')}`).toEqual([])
@@ -538,7 +564,7 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
         true,
       )
     }
-    // EFFECT — the direct held frame is a different, sharper frame than the drape's.
+    // EFFECT (1) — the two arms drew different frames at all.
     expect(
       armDelta,
       `the direct and forced-drape held frames differ by ${(armDelta * 100).toFixed(2)}% of pixels, ` +
@@ -549,10 +575,16 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
         )}% capture noise, min ${ARM_DELTA_MIN * 100}%) — the two arms drew the same frame, ` +
         `so the routing did not move between them`,
     ).toBeGreaterThan(floor)
+    // EFFECT (2) — and the DIRECT one is the one that agrees with the converged
+    // frame. Same tiles, same camera, one render path apart: D(direct, advanced)
+    // must be the smaller distance, by more than the same measured floor.
     expect(
-      directReport.sharpHeld,
-      `held direct edges (${directReport.sharpHeld.toFixed(2)}) are not sharper than the held drape's ` +
-        `(${sharpForced.toFixed(2)}) — the direct arm is not the crisper frame`,
-    ).toBeGreaterThan(sharpForced)
+      forcedVsAdvanced,
+      `the forced-DRAPE held frame is ${(forcedVsAdvanced * 100).toFixed(2)}% from the converged ` +
+        `direct frame while the held DIRECT frame is ${(directReport.heldVsAdvanced * 100).toFixed(
+          2,
+        )}% from it — the drape is not the arm that differs, so this camera is not measuring the ` +
+        `routing at all`,
+    ).toBeGreaterThan(directReport.heldVsAdvanced + floor)
   })
 })
