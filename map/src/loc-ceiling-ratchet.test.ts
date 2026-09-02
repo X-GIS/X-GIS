@@ -1045,7 +1045,14 @@ const CEILINGS: Record<string, number> = {
   // SAME flag — one authority, not a hand-copied predicate that could drift into meaning
   // two different things on one page. Net +8: the exported function + its doc, minus the
   // inline `useLegacy` expression and the comment lines it replaced.
-  'map/src/source-manager.ts': 1068,
+  // 1068→1094 (#2300, and re-measured over the #2299 per-source `_showSourceMaps`
+  // bump this file had already taken): `resetForReinit()` — the manager half of the
+  // teardown spine, which now releases `hostSeededFC` / `vtBackends` /
+  // `_showSourceMaps` instead of only stopping the refresh loops, so a swapped-out
+  // scene's seeded collections cannot outlive it. +26 = the 4-line body and the
+  // recorded reasoning (why nothing keyed there is still live after either teardown
+  // path, and what the stale FC did to `updateFeature`). MEASURED post-prettier.
+  'map/src/source-manager.ts': 1094,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { XGISMap } from './map'
 import { QUALITY } from '@xgis/engine'
+import { xlog } from '@xgis/shared'
 
 // destroy() teardown is GPU-free in its guard/null-safety paths, so the
 // idempotency + post-destroy-inert contract is unit-testable on a
@@ -189,5 +190,77 @@ describe('#1570 teardown cancels the coverage read chain', () => {
     const second = signalFrom(map)
     expect(second!.aborted, 'the next run must not be born pre-aborted').toBe(false)
     expect(second).not.toBe(first)
+  })
+})
+
+// ═══ #2300 — the SourceManager's retained scene state dies with the scene ═══
+//
+// hunt 2026-09-02: `_teardownForReinit()` ran only `sourceManager.stopAllRefresh()`,
+// so the manager's `hostSeededFC` / `vtBackends` / `_showSourceMaps` — none of which
+// any path in map/src ever deleted from — survived every scene swap for the map's
+// life. Unbounded across swaps (the #1569 class `rawDatasets` was cleared for), and
+// worse: a same-named TILE-BACKED source in the new scene inherited the old scene's
+// seeded collection, so `updateFeature` saw a live FC through `getSeededFC` and
+// enqueued the patch instead of taking its documented tile-backed rejection.
+describe('#2300 a scene swap drops the outgoing scene seeded collections', () => {
+  const fcA = {
+    type: 'FeatureCollection' as const,
+    features: [
+      {
+        type: 'Feature' as const,
+        id: 1,
+        geometry: { type: 'Point' as const, coordinates: [0, 0] },
+        properties: {},
+      },
+    ],
+  }
+
+  it('_teardownForReinit clears hostSeededFC alongside rawDatasets', () => {
+    const map = new XGISMap(stubCanvas())
+    const inner = map as unknown as {
+      rawDatasets: Map<string, unknown>
+      sourceManager: { hostSeededFC: Map<string, unknown> }
+      _teardownForReinit(): void
+    }
+    // Scene A: virtual-tiled geojson source 'x' — rawDatasets holds only the
+    // marker, the FeatureCollection itself lives on the manager.
+    inner.rawDatasets.set('x', { _vectorTile: true })
+    inner.sourceManager.hostSeededFC.set('x', fcA)
+
+    inner._teardownForReinit()
+
+    expect(inner.rawDatasets.has('x'), 'rawDatasets is pruned (#1569)').toBe(false)
+    expect(
+      inner.sourceManager.hostSeededFC.size,
+      "a scene swap must drop the previous scene's seeded collections",
+    ).toBe(0)
+  })
+
+  it('after a swap, updateFeature on a same-named tile-backed source is rejected', () => {
+    const map = new XGISMap(stubCanvas())
+    const inner = map as unknown as {
+      rawDatasets: Map<string, unknown>
+      sourceManager: { hostSeededFC: Map<string, unknown> }
+      _pendingPatches: Map<string, Map<number, unknown>>
+      _teardownForReinit(): void
+    }
+    inner.rawDatasets.set('x', { _vectorTile: true })
+    inner.sourceManager.hostSeededFC.set('x', fcA)
+    inner._teardownForReinit()
+    // Scene B: 'x' is a PMTiles source — marker only, no seeded FC of its own.
+    inner.rawDatasets.set('x', { _vectorTile: true })
+
+    const warn = vi.spyOn(xlog, 'warn').mockImplementation(() => {})
+    map.updateFeature('x', 1, { geometry: { type: 'Point', coordinates: [1, 2] } })
+    const warned = warn.mock.calls.some((c) => String(c[0]).includes('tile-backed'))
+    warn.mockRestore() // reads must precede the restore — it also clears mock.calls
+
+    expect(warned, 'a tile-backed source in the new scene must be rejected as tile-backed').toBe(
+      true,
+    )
+    expect(
+      inner._pendingPatches.has('x'),
+      'no patch may be enqueued against a stale seeded FC',
+    ).toBe(false)
   })
 })

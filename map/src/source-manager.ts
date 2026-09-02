@@ -226,7 +226,7 @@ export class SourceManager {
   /** #1304 — the `refresh:`-declared polling loop, one per live-refreshing
    *  source. Self-contained (needs no injected deps), so it lives here rather
    *  than threading through SourceManagerDeps like the coverage scheduler
-   *  does on XGISMap; `stopAllRefresh()` below is this manager's half of the
+   *  does on XGISMap; `resetForReinit()` below is this manager's half of the
    *  teardown spine XGISMap's `_teardownForReinit()` / `destroy()` call. */
   private readonly _sourceRefresh = new SourceRefreshScheduler()
 
@@ -679,13 +679,35 @@ export class SourceManager {
     })
   }
 
-  /** Stop every `refresh:`-declared polling loop this manager started (#1304) — the
-   *  SourceManager half of XGISMap's coverage-style teardown spine. Called from
-   *  BOTH `_teardownForReinit()` and `destroy()` so a scene swap cannot leave a
-   *  ghost loop polling the outgoing scene's URL into the incoming one (the exact
-   *  #1569 class of bug `stopCoverageMachinery` exists to prevent). */
+  /** Stop every `refresh:`-declared polling loop this manager started (#1304) so a
+   *  scene swap cannot leave a ghost loop polling the outgoing scene's URL into the
+   *  incoming one (the exact #1569 class of bug `stopCoverageMachinery` exists to
+   *  prevent). A teardown calls `resetForReinit()` below, which runs this plus the
+   *  retained-state release; this stays separate only as its narrow primitive. */
   stopAllRefresh(): void {
     this._sourceRefresh.stopAll()
+  }
+
+  /** Release everything this manager retains ON BEHALF OF THE OUTGOING SCENE — the
+   *  SourceManager half of XGISMap's coverage-style teardown spine, called from BOTH
+   *  `_teardownForReinit()` and `destroy()`.
+   *
+   *  #2300 — teardown used to call `stopAllRefresh()` alone, and no path in map/src
+   *  ever deleted from `hostSeededFC` / `vtBackends` / `_showSourceMaps`, so every
+   *  swapped-out scene's seeded collections and backends stayed resident for the
+   *  map's life: unbounded growth across swaps (the #1569 class `rawDatasets` was
+   *  cleared for), and a same-named TILE-BACKED source in the new scene inherited the
+   *  old scene's FC — `updateFeature` then saw a live seeded FC through `getSeededFC`,
+   *  skipped its tile-backed rejection, and re-seeded scene A's geometry under it.
+   *
+   *  Clearing wholesale is exact because both teardown paths also clear `rawDatasets`
+   *  and destroy every `vtSources` catalog, so no key here still names a live source;
+   *  the incoming run re-populates all three on attach, before any read. */
+  resetForReinit(): void {
+    this.stopAllRefresh()
+    this.hostSeededFC.clear()
+    this.vtBackends.clear()
+    this._showSourceMaps.clear()
   }
 
   /** Phase 5f-2 opt-in: attach an INLINE GeoJSON source (filtered, per-show) through
