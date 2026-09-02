@@ -593,16 +593,31 @@ export const DEMO_CHROME_IDS = [
 ] as const
 
 /** Hide every demo-chrome element that is currently visible. Returns the ids
- *  actually hidden (log it — a gate's output should say what left the frame). */
+ *  actually hidden (log it — a gate's output should say what left the frame).
+ *
+ *  DURABLE, not one-shot (#2281). The hide is a stylesheet `!important` rule,
+ *  because the page re-shows some of this chrome on its own: the console
+ *  overlay repaints itself `display:flex` on every new console.warn / error
+ *  (demo-runner.ts), which overwrote the inline `display:none` this used to
+ *  set. A DEV leak-detector warning (#2269) landing mid-run put that overlay
+ *  over 81% of the RTC gate's clip in one arm and not the other — 11858 px of
+ *  "recombination" diff that was DOM. An inline style cannot survive a later
+ *  inline write; a stylesheet rule with `!important` outranks it, and it also
+ *  covers chrome the page has not created yet at call time. */
 export async function hideDemoChrome(page: Page): Promise<string[]> {
   return await page.evaluate(
     (ids) => {
       const hidden: string[] = []
       for (const id of ids) {
         const el = document.getElementById(id)
-        if (!el) continue
-        if (getComputedStyle(el).display !== 'none') hidden.push(id)
-        el.style.display = 'none'
+        if (el && getComputedStyle(el).display !== 'none') hidden.push(id)
+      }
+      const STYLE_ID = '__xgis-e2e-hide-chrome'
+      if (!document.getElementById(STYLE_ID)) {
+        const style = document.createElement('style')
+        style.id = STYLE_ID
+        style.textContent = ids.map((id) => `#${id}{display:none!important}`).join('')
+        document.head.appendChild(style)
       }
       return hidden
     },
