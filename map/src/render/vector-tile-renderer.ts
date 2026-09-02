@@ -3733,6 +3733,7 @@ export class VectorTileRenderer {
         this.getOrCreateLayerCache(sliceLayer),
         this,
         drapeOverzoom,
+        [this.currentFillTranslateNdcX, this.currentFillTranslateNdcY], // #2249
       )
     }
 

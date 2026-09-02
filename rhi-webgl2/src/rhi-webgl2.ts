@@ -271,11 +271,46 @@ function compile(gl: WebGL2RenderingContext, type: GLenum, src: string): WebGLSh
   gl.compileShader(sh)
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
     const log = gl.getShaderInfoLog(sh) ?? ''
+    // #2369 F-7 — read the log FIRST, then release: a WebGLShader is not
+    // GC-reclaimed, so throwing over it strands it on a live context for the
+    // life of the page, and variant pipelines compile lazily at runtime.
+    gl.deleteShader(sh)
     throw new Error(
       `webgl2: ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} compile failed:\n${log}\n--- source ---\n${src}`,
     )
   }
   return sh
+}
+
+/** Compile both stages and link them, releasing everything it created on ANY
+ *  failing exit (#2369 F-7). WebGLShader / WebGLProgram are not GC-reclaimed —
+ *  which is why the success path already deletes its shaders — so a throw that
+ *  steps over them strands them on a live context, and variant pipelines
+ *  compile lazily at runtime. One cleanup site, not three: the shapes that
+ *  leaked were a fragment-compile throw (abandoning the vertex shader), a null
+ *  createProgram (abandoning both) and a link failure (both plus the program). */
+function linkProgram(gl: WebGL2RenderingContext, vsCode: string, fsCode: string): WebGLProgram {
+  const vs = compile(gl, gl.VERTEX_SHADER, vsCode)
+  let fs: WebGLShader | null = null
+  let program: WebGLProgram | null = null
+  try {
+    fs = compile(gl, gl.FRAGMENT_SHADER, fsCode)
+    program = gl.createProgram()
+    if (!program) throw new Error('webgl2: createProgram failed')
+    gl.attachShader(program, vs)
+    gl.attachShader(program, fs)
+    gl.linkProgram(program)
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+      throw new Error(`webgl2: link failed:\n${gl.getProgramInfoLog(program) ?? ''}`)
+  } catch (e) {
+    if (program) gl.deleteProgram(program)
+    if (fs) gl.deleteShader(fs)
+    gl.deleteShader(vs)
+    throw e
+  }
+  gl.deleteShader(vs)
+  gl.deleteShader(fs)
+  return program
 }
 
 const SAMPLER_TYPES = new Set<number>()
@@ -1328,18 +1363,7 @@ export class WebGl2Device implements RhiDevice {
       }
     }
     const gl = this.gl
-    const vs = compile(gl, gl.VERTEX_SHADER, desc.vsCode)
-    const fs = compile(gl, gl.FRAGMENT_SHADER, desc.fsCode)
-    const program = gl.createProgram()
-    if (!program) throw new Error('webgl2: createProgram failed')
-    gl.attachShader(program, vs)
-    gl.attachShader(program, fs)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(`webgl2: link failed:\n${gl.getProgramInfoLog(program) ?? ''}`)
-    }
-    gl.deleteShader(vs)
-    gl.deleteShader(fs)
+    const program = linkProgram(gl, desc.vsCode, desc.fsCode)
     gl.useProgram(program)
 
     // ── REFLECTION ──

@@ -434,19 +434,25 @@ export class FeatureDataBinder {
     // upstream (worker fid vs featureProps key); if some polygons stay
     // unpainted, the issue is in the bind / shader.
 
+    // mr-featureBindGroupLayout requires palette bindings 2 + 4
+    // (added in P3 Step 3c). When the renderer hasn't pushed palette
+    // resources yet, return null buffer so the caller falls back to
+    // a non-feature pipeline rather than producing an invalid group.
+    //
+    // #2369 F-3 — this guard used to sit BELOW the create + write, so every
+    // tile built in that window (scene setup, before the renderer pushes its
+    // palette) orphaned a storage buffer nothing could reach again. Nothing
+    // between here and the create reads `buffer`, so the allocation was simply
+    // on the wrong side of the test; the early return now allocates nothing.
+    if (!palette.paletteColorAtlasView || !palette.paletteSampler || !palette.spriteAtlasView)
+      return null
+
     const buffer = this.device.createBuffer({
       size: Math.max(data.byteLength, 16),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       label: 'per-tile-feature-data',
     })
     this.device.queue.writeBuffer(buffer, 0, data)
-
-    // mr-featureBindGroupLayout requires palette bindings 2 + 4
-    // (added in P3 Step 3c). When the renderer hasn't pushed palette
-    // resources yet, return null buffer so the caller falls back to
-    // a non-feature pipeline rather than producing an invalid group.
-    if (!palette.paletteColorAtlasView || !palette.paletteSampler || !palette.spriteAtlasView)
-      return null
 
     // P4 compute path: when the captured variant carries
     // computeBindings, build (or refresh) a per-tile
