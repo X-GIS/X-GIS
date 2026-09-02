@@ -323,8 +323,8 @@ const GROUP_BINDING_STRIDE = 8
 
 class WebGl2RenderPass implements RhiRenderPass {
   private cur?: Gl2Pipeline
-  private vbuf?: Gl2Buffer
-  private vbufOffset = 0
+  /** Per vertex-buffer SLOT; a scalar let the last bind win (#2360). */
+  private vbufs: Array<{ buf: Gl2Buffer; offset: number } | undefined> = []
   private ibuf?: { buf: Gl2Buffer; type: GLenum; offset: number }
   /** Per-draw stencil reference (WebGPU setStencilReference analog; folded into stencilFunc). */
   private stencilRef = 0
@@ -459,9 +459,8 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
   }
 
-  setVertexBuffer(_slot: number, buffer: RhiBuffer, offset = 0): void {
-    this.vbuf = un<Gl2Buffer>(buffer)
-    this.vbufOffset = offset
+  setVertexBuffer(slot: number, buffer: RhiBuffer, offset = 0): void {
+    this.vbufs[slot] = { buf: un<Gl2Buffer>(buffer), offset }
   }
   setIndexBuffer(buffer: RhiBuffer, format: 'uint16' | 'uint32', offset = 0): void {
     // `offset` (bytes) shifts the per-tile arena index sub-range start into the drawElements byte
@@ -483,10 +482,15 @@ class WebGl2RenderPass implements RhiRenderPass {
   private bindAttributes(): void {
     const gl = this.gl
     const pl = this.cur
-    const hasBuf = !!(pl && this.vbuf)
+    const hasBuf = !!(pl && this.vbufs[0])
     let needed = 0
     if (hasBuf) {
-      for (const vb of pl!.vertexBuffers) {
+      for (let i = 0; i < pl!.vertexBuffers.length; i++) {
+        const vb = pl!.vertexBuffers[i]!
+        // Every declared slot must be bound (WebGPU validates the same); an enabled
+        // location with no buffer makes the draw raise INVALID_OPERATION and be DROPPED.
+        if (!this.vbufs[i])
+          throw new Error(`webgl2: vertex-buffer slot ${i} declared but never bound`)
         for (const a of vb.attributes) {
           // Bitmask width guard (#1796) — WebGL2 guarantees MAX_VERTEX_ATTRIBS ≥ 16 and
           // every declared vertex format today tops out at location 9 (polygon-vertex-
@@ -510,8 +514,10 @@ class WebGl2RenderPass implements RhiRenderPass {
     }
     state.mask = needed
     if (!hasBuf) return
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbuf!.buf)
-    for (const vb of pl!.vertexBuffers) {
+    for (let i = 0; i < pl!.vertexBuffers.length; i++) {
+      const vb = pl!.vertexBuffers[i]!
+      const bound = this.vbufs[i]! // presence established in the mask loop above
+      gl.bindBuffer(gl.ARRAY_BUFFER, bound.buf.buf)
       for (const a of vb.attributes) {
         const fmt = VFMT[a.format]
         if (!fmt) throw new Error(`webgl2: unsupported vertex format '${a.format}'`)
@@ -523,18 +529,12 @@ class WebGl2RenderPass implements RhiRenderPass {
               : fmt.type === 'u32'
                 ? gl.UNSIGNED_INT
                 : gl.UNSIGNED_BYTE
-        // `vbufOffset` (default 0) shifts the per-tile arena sub-range start into the
-        // attribute byte offset — default 0 is byte-identical to the no-offset bind.
+        // The SLOT's own offset (default 0) shifts the per-tile arena sub-range start into
+        // the attribute byte offset — 0 is byte-identical to a no-offset bind.
         if (fmt.integer) {
           // uvec/ivec shader inputs — the I-pointer keeps the integer bits;
           // vertexAttribPointer would float-convert them silently (#832 M2).
-          gl.vertexAttribIPointer(
-            a.location,
-            fmt.size,
-            glType,
-            vb.stride,
-            a.offset + this.vbufOffset,
-          )
+          gl.vertexAttribIPointer(a.location, fmt.size, glType, vb.stride, a.offset + bound.offset)
         } else {
           gl.vertexAttribPointer(
             a.location,
@@ -542,7 +542,7 @@ class WebGl2RenderPass implements RhiRenderPass {
             glType,
             fmt.normalized,
             vb.stride,
-            a.offset + this.vbufOffset,
+            a.offset + bound.offset,
           )
         }
       }
