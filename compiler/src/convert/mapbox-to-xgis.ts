@@ -35,7 +35,7 @@
 import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
-import { expandPerFeatureColorMatch } from './expand-color-match'
+import { expandPerFeatureColorMatch, expandPerFeaturePatternMatch } from './expand-color-match'
 import { sanitizeId } from './utils'
 import { validateSourceZoom, validateSourceIdCollisions } from './validate-sources'
 import {
@@ -705,6 +705,14 @@ export function convertMapboxStyle(
       expanded = options?.bypassExpandColorMatch
         ? null
         : expandPerFeatureColorMatch(layer as MapboxLayer, warnings)
+      // #2380 — the PATTERN split is deliberately NOT gated by
+      // `bypassExpandColorMatch`. That flag exists to turn off the COLOUR
+      // fanout once the runtime compute path can evaluate a colour match
+      // GPU-side (see its docblock); no such runtime path exists or is planned
+      // for patterns, because `show.fillPattern` is one string resolved to one
+      // UV bbox per draw. Gating the two together would silently disable
+      // pattern support the day the colour flag flips.
+      expanded ??= expandPerFeaturePatternMatch(layer as MapboxLayer, warnings)
     } catch (e) {
       warnings.push(
         `Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`,

@@ -52,7 +52,7 @@ export const lineCapabilities: readonly RuntimeCapability[] = [
     layerType: 'line',
     variant: 'data-driven',
     supported: false,
-    note: 'Expression form not threaded through IR',
+    note: `#2380 — still false, and deliberately: the runtime bakes one pattern per draw. A \`match()\` over sprite names is split into constant-pattern sublayers by the converter (expand-color-match.ts) and never arrives here; the open-ended ["get"] form still does, and is still declined.`,
   },
   // Line layout
   {
