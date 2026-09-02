@@ -1918,7 +1918,14 @@ const CEILINGS: Record<string, number> = {
   // fall back to 16 and no-op).
   // 1521→1522 (#1190): the `renderBundles: false` caps line — the WebGL2 half of
   // the new render-bundle capability the VT bundle gate keys on.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1522,
+  // 1522->1546 (#2369 F-7): createPipeline's compile+link block abandoned every
+  // object it had created on three failing exits — a fragment-compile throw left
+  // the vertex shader, a null createProgram left both, a link failure left both
+  // plus the program — and WebGLShader/WebGLProgram are not GC-reclaimed on a
+  // live context. The three inline cleanups collapse into ONE `linkProgram`
+  // authority (createPipeline's own body shrinks to three lines); the growth is
+  // the helper. Failure-path cleanup paying an ownership debt, not feature growth.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1546,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
