@@ -2283,7 +2283,14 @@ const CEILINGS: Record<string, number> = {
   // so the symbol emitter reads it too, plus its docstring recording WHY a second
   // copy existed (that copy is what drifted from the paint path since #2170).
   // MEASURED post-prettier (`wc -l`), set EXACTLY — no headroom banked.
-  'compiler/src/convert/paint-helpers.ts': 932,
+  // 912→914 (#2166 background-inputs), from the SAME base: +2 on `addFillTranslate`'s
+  // doc comment, which was WORSE than stale — it said the "map" anchor was "not yet
+  // implemented" in the very file whose `addTranslateAnchor` implements it, and which
+  // #2170 made the spec DEFAULT.
+  // MERGE UNION: both sides raised this key from 912 and neither number is right — the
+  // edits are in different regions of the file, so the merged file takes BOTH deltas
+  // (§12: never pick a side, never max() the two). RE-MEASURED post-merge with `wc -l`.
+  'compiler/src/convert/paint-helpers.ts': 934,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,

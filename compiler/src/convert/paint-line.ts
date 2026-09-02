@@ -55,8 +55,9 @@ export function emitLinePaint(
   // surfaceIgnoredPaint's candidate list so the specific message isn't duplicated.
   addLineGradient(out, layer, p['line-gradient'], warnings)
   addLineTranslate(out, p['line-translate'], warnings)
-  // line-translate-anchor: viewport (default) = screen-space (today's
-  // behaviour). map → world-space offset rotating with map bearing.
+  // line-translate-anchor: the v8 default is "map", not viewport (#2170) —
+  // an ABSENT anchor emits stroke-translate-anchor-map and the offset rotates
+  // with the map bearing; only an explicit "viewport" keeps it screen-space.
   // The line layer's translate rides the `stroke-translate-*` utility
   // namespace, so the anchor flag uses the 'stroke' prefix too.
   addTranslateAnchor(out, 'stroke', p['line-translate-anchor'], p['line-translate'], warnings)
@@ -204,9 +205,10 @@ function addLineGapWidth(out: string[], v: unknown, warnings: string[]): void {
  *  (screen space). The runtime WGSL negates y for NDC convention
  *  (NDC y is UP) — same as fill-translate.
  *
- *  Anchor: line-translate-anchor: viewport (default) is the only
- *  currently-honoured mode. "map" would shift in world coords; not
- *  yet implemented. */
+ *  Anchor: handled by addTranslateAnchor, NOT here — "map" is implemented
+ *  (the stroke-translate-anchor-map flag; VTR rotates the offset by the
+ *  camera bearing) and is the v8 DEFAULT since #2170. This comment used to
+ *  say it was unimplemented, which would send a reader off to build it. */
 function addLineTranslate(out: string[], v: unknown, warnings: string[]): void {
   if (isOmitted(v)) return
   // Unwrap Mapbox v8 `["literal", [dx, dy]]` wrapper.

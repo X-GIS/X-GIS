@@ -25,6 +25,7 @@
 // would let the leak gate (live slots === live tiles) drift green.
 
 import type { RhiBuffer, RhiDevice } from '@xgis/rhi'
+import { trackOwner, untrackOwner } from '@xgis/shared'
 
 export class UniformSlotArena {
   private _buffer: RhiBuffer | null = null
@@ -48,6 +49,7 @@ export class UniformSlotArena {
   ) {
     this.capacity = initialCapacity
     this.staging = new Uint8Array(initialCapacity * slotSize)
+    trackOwner(this, `UniformSlotArena ${label}`)
   }
 
   /** The live arena buffer as an RHI handle, or null before `ensure()`. */
@@ -179,6 +181,7 @@ export class UniformSlotArena {
 
   /** Full teardown: destroy the live buffer + any retired buffers. */
   destroy(): void {
+    untrackOwner(this)
     if (this._buffer) this.rhi.destroyBuffer(this._buffer)
     this._buffer = null
     for (const r of this.retired) this.rhi.destroyBuffer(r)
