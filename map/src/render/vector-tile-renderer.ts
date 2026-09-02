@@ -328,6 +328,11 @@ export class VectorTileRenderer {
    *  grid) instead of drawing as ECEF chords; false off the globe (flat path
    *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
   private _drapeGlobeFills = false
+  /** #2346 — the frame's device pixel ratio, stashed for the mid-render bake.
+   *  `bakeTileToTexture` is driven from VectorDrapeRenderer (which has no
+   *  viewport state), and the baked stroke's AA band is the one screen-space
+   *  quantity that must survive the bake — see bakeStrokeAaDpr. */
+  private _bakeDpr = 1
   /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
   private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
@@ -1083,6 +1088,7 @@ export class VectorTileRenderer {
         this._bakeStroke,
         this._linePatternActiveForShow,
         strokeWidthScale,
+        this._bakeDpr,
       )
     }
 
@@ -3668,6 +3674,7 @@ export class VectorTileRenderer {
     // #2093 LOD CEILING: the trade reverses once the tiles are fine enough, so past
     // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
     // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
+    this._bakeDpr = dpr
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
       // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the direct arm's chord

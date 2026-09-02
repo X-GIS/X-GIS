@@ -321,7 +321,11 @@ const CEILINGS: Record<string, number> = {
   // texel-DENSITY decision, so its call site hands it `dpr` and the drawn
   // `neededKeys` — two argument lines; the policy itself lives in
   // render/drape-overzoom-dispatch.ts.
-  'map/src/render/vector-tile-renderer.ts': 5471,
+  // 5471→5478 (#2346 AA band, measured post-prettier): the mid-render bake is
+  // driven from VectorDrapeRenderer, which has no viewport state, so the frame
+  // dpr is stashed here (`_bakeDpr`, +6 with its rationale) and handed to
+  // bakeTileStrokes (+1). The derivation lives in render/vector-drape-cache.ts.
+  'map/src/render/vector-tile-renderer.ts': 5478,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
