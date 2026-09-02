@@ -50,6 +50,20 @@ export interface CapSpan {
   startLon: number
   /** Longitude of the last vertex in the span. */
   endLon: number
+  /** SIGNED longitude arc the span actually traverses, in degrees, summed
+   *  per edge so it survives an antimeridian crossing (#2357).
+   *
+   *  `startLon`/`endLon` alone cannot say which way the span ran: for an
+   *  RFC-7946 exterior ring (CCW), a boundary run at the NORTH clamp has its
+   *  interior to the south and is therefore walked WESTWARD, so `endLon <
+   *  startLon` — indistinguishable from a span that wrapped the antimeridian
+   *  eastward. Reading that as a wrap turned a 20 degree wedge into a 340
+   *  degree disc.
+   *
+   *  Optional because `CapSpan` is public and a hand-built span has no ring to
+   *  measure; `synthesizeCapRing` then falls back to the old eastward
+   *  assumption. Every span from `findClampBoundarySpans` carries it. */
+  arcDeg?: number
 }
 
 /** Minimal GeoJSON shapes the injector reads. The runtime's full
@@ -153,12 +167,13 @@ function polygonRingsOf(g: NonNullable<Feature['geometry']>): LonLat[][] {
 export function synthesizeCapRing(span: CapSpan, subdivisions = 16): Array<[number, number]> {
   const boundaryLat = span.pole * MERCATOR_LAT_LIMIT
   const poleLat = span.pole * 90
-  // Normalise span longitude range. Wrap-around when endLon < startLon
-  // means the span crosses the antimeridian.
   const startLon = span.startLon
-  let endLon = span.endLon
-  if (endLon < startLon) endLon += 360
-  const arc = endLon - startLon
+  // The measured signed arc when the span came from a ring (#2357). The
+  // fallback is the pre-#2357 rule — `endLon < startLon` read as an eastward
+  // antimeridian wrap — which is all a hand-built span supports, and which is
+  // wrong for exactly the case it cannot see: a westward run.
+  const arc = span.arcDeg ?? (span.endLon < startLon ? span.endLon + 360 : span.endLon) - startLon
+  const endLon = startLon + arc
   const out: Array<[number, number]> = []
   // Edge along the clamp boundary.
   for (let i = 0; i <= subdivisions; i++) {
@@ -173,6 +188,23 @@ export function synthesizeCapRing(span: CapSpan, subdivisions = 16): Array<[numb
   // Close.
   out.push(out[0]!)
   return out
+}
+
+/** Signed longitude arc across `len` consecutive ring vertices from `idx`,
+ *  summed edge by edge. Each edge is normalised into (-180, 180], which is the
+ *  one place a legitimate wrap can appear — every ring edge is assumed to span
+ *  under 180 degrees, already an implicit assumption of the whole detector — so
+ *  the sum is the true signed arc whether the run goes east, west, or across
+ *  the antimeridian. */
+function spanArcDeg(ring: Array<[number, number]>, idx: number, len: number): number {
+  const n = ring.length
+  let arc = 0
+  for (let k = 0; k + 1 < len; k++) {
+    const a = ring[(idx + k) % n]![0]!
+    const b = ring[(idx + k + 1) % n]![0]!
+    arc += ((b - a + 540) % 360) - 180
+  }
+  return arc
 }
 
 export function findClampBoundarySpans(ring: Array<[number, number]>): CapSpan[] {
@@ -203,6 +235,7 @@ export function findClampBoundarySpans(ring: Array<[number, number]>): CapSpan[]
         endIdx: n - 1,
         startLon: ring[0]![0],
         endLon: ring[n - 1]![0],
+        arcDeg: spanArcDeg(ring, 0, n),
       },
     ]
   }
@@ -223,6 +256,7 @@ export function findClampBoundarySpans(ring: Array<[number, number]>): CapSpan[]
         endIdx: (idx + len - 1) % n,
         startLon: ring[idx]![0],
         endLon: ring[(idx + len - 1) % n]![0],
+        arcDeg: spanArcDeg(ring, idx, len),
       })
       visited += len
     } else {
