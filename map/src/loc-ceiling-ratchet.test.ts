@@ -814,7 +814,16 @@ const CEILINGS: Record<string, number> = {
   // sample older than it, so a drag that ends with a stationary HOLD no longer
   // flings from the frozen last-pointermove velocity. Growth is the comment
   // explaining why the sample is zeroed; nothing to extract.
-  'map/src/controller.ts': 1195,
+  // 1195→1216 (#2295 + #2296, re-measured post-prettier per §12 — the two fixes
+  // grew the file without carrying the number, which is exactly the "re-measure,
+  // never carry the ceiling across" trap): #2295 gates the pointerup 2→1 handoff
+  // on the same cooperativeGestures/touch predicate pointerdown already applies,
+  // so the single-finger contract is a property of the pointer-count STATE
+  // rather than the press origin; #2296 clears `pressEligible` when a second
+  // pointer joins, so a multi-touch gesture cannot pass the click gate. Both are
+  // in-place guards inside handlers this file owns — 31 lines of branch
+  // conditions and their rationale, with nothing cohesive to extract.
+  'map/src/controller.ts': 1216,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
