@@ -227,8 +227,13 @@ export class VectorTileRenderer {
    *  (Cluster D). A single pre-bound arrow so the store never imports
    *  FeatureDataBinder nor holds a VTR reference, and eviction never
    *  allocates a fresh closure per call. */
-  private readonly _releaseTileHook = (handleKey: string): void => {
-    this._featureBinder.releaseTile(handleKey)
+  private readonly _releaseTileHook = (handleKey: string, keyRebound: boolean): void => {
+    // #2301 — on the SUPERSEDE path (`keyRebound`) the key is NOT vacated: the replacement's
+    // upload already re-used and refreshed this key's ComputeLayerHandle in place, and the live
+    // tile's feature bind group binds its output buffer — destroying it here would free a bound
+    // buffer and drop the tile out of `dispatchComputePass`. The two caches below hold data the
+    // re-seed made stale and are rebuilt on the next draw, so they drop either way.
+    if (!keyRebound) this._featureBinder.releaseTile(handleKey)
     // #1592 — same eviction key frees the RHI path's per-tile feat_data.
     this._fillVariantsRhi?.releaseTile(handleKey)
     // #2042 INC-2 — same key frees the tile's persistent TileBlock slots.

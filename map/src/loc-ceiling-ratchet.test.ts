@@ -318,7 +318,11 @@ const CEILINGS: Record<string, number> = {
   // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
   // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
   // error, not just a leak). Measured with `wc -l` on the post-prettier tree.
-  'map/src/render/vector-tile-renderer.ts': 5478,
+  // 5478→5483 (#2301, hunt 2026-09-02): the store's release hook now takes `keyRebound`
+  // so the SUPERSEDE path keeps the ComputeLayerHandle the replacement upload re-used —
+  // one guard plus the 5-line rationale (why the other two caches still drop).
+  // Measured with `wc -l` on the post-prettier tree.
+  'map/src/render/vector-tile-renderer.ts': 5483,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1949,7 +1953,11 @@ const CEILINGS: Record<string, number> = {
   // relocation loop this removes is provable from `compact()` leaving
   // bumpPtr === liveBytes, and that argument has to sit next to the code it
   // justifies. Lower this when the compaction/grow pair is extracted whole.
-  'map/src/render/gpu-tile-store.ts': 1000,
+  // 1000→1004 (#2301, hunt 2026-09-02): `_releaseTileResources` carries the release
+  // REASON (`keyRebound`) through to the hook — a parameter on the two release entry
+  // points plus the note on `ReleaseTileHook` saying what a rebound key means.
+  // Measured with `wc -l` on the post-prettier tree.
+  'map/src/render/gpu-tile-store.ts': 1004,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
