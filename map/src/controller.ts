@@ -532,6 +532,7 @@ export class PanZoomController implements Controller {
     let inertiaAnimating = false
 
     const MAX_INERTIA_VEL = 15 // cap velocity (CSS px/frame)
+    const INERTIA_MAX_IDLE_MS = 160 // MapLibre HandlerInertia's sample window
 
     const applyInertia = safe('inertia', () => {
       // Bail if the controller was detached after this frame was queued but
@@ -856,6 +857,16 @@ export class PanZoomController implements Controller {
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
         // Start inertia only for fast flicks, cap velocity
+        // #2294 — panVelX/Y are sampled only on pointermove, so a drag that ends
+        // with the pointer HELD stationary leaves the last-move velocity frozen
+        // and this release would fling from it. Discard a sample older than the
+        // recency window: the pointer was at rest, so there is no flick to
+        // continue. Zeroed (not just skipped) so applyInertia's own <0.5 bail
+        // stays consistent with what the gate decided.
+        if (performance.now() - lastMoveTime > INERTIA_MAX_IDLE_MS) {
+          panVelX = 0
+          panVelY = 0
+        }
         panVelX = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelX))
         panVelY = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelY))
         if (isDragging && (Math.abs(panVelX) > 2 || Math.abs(panVelY) > 2)) {

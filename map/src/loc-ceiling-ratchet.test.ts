@@ -805,7 +805,12 @@ const CEILINGS: Record<string, number> = {
   // (canvasEffectiveDpr) instead of re-deriving min(devicePixelRatio, maxDpr),
   // and forwards it to camera.zoomAt / panToScreenAnchor / pan. The growth is
   // prettier wrapping five now-6-argument camera calls; nothing to extract.
-  'map/src/controller.ts': 1184,
+  // 1184→1195 (#2294): the pan-inertia launch gains a recency gate —
+  // INERTIA_MAX_IDLE_MS plus the pointerup check that discards a velocity
+  // sample older than it, so a drag that ends with a stationary HOLD no longer
+  // flings from the frozen last-pointermove velocity. Growth is the comment
+  // explaining why the sample is zeroed; nothing to extract.
+  'map/src/controller.ts': 1195,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
