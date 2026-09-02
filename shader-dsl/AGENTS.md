@@ -12,7 +12,7 @@ render pipelines — vertex+fragment entry-IO + std140 UBO, WebGL2 compile+rende
 SSBO lowers to a data texture by default, compute emulation is opt-in, writes/unsupported shapes/MSAA
 fail closed), and a **CPU f64 oracle** that walks
 the same IR on the host for projection math (the generated replacement for the deleted
-`projection-wgsl-mirror.ts`). The package is consumed by `runtime/` (and `compiler/`) for projection /
+`projection-wgsl-mirror.ts`). The package is consumed by `map/` (and `compiler/`) for projection /
 line / polygon / point / raster / text / icon / compute shaders. The authoring surface is deliberately
 ceremony-free (TSL-grade): plain `const x = expr`, method ops + `.assign()`, `fn()` with inferred return
 type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
@@ -28,9 +28,9 @@ type, familiar `If`/`Switch` — see **`AUTHORING.md`** for the full guide.
 
 ## Subdirectories
 
-| Directory | Purpose                                                                                                                                                                     |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/`    | All source: `core/` (IR, the neutral emitter + backend contract, the pass pipeline, the SoT layer — private) and `shaders/` (concrete shader graphs). (see `src/AGENTS.md`) |
+| Directory | Purpose                                                                                                                                                                                                                                                                                                                                |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`    | All source. `core/` holds the IR, the neutral emitter + backend contract, the pass pipeline and the SoT layer; the entry points beside it (`index.ts`, `dev.ts`, `compute.ts`, `emit-prod.ts`) are the public surface. Concrete shader graphs are NOT here — they live in the consumer (`map/src/shaders/dsl/`). (see `src/AGENTS.md`) |
 
 ## For AI Agents
 

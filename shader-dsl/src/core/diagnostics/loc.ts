@@ -44,6 +44,44 @@ const locTable = new WeakMap<object, SourceLoc>()
 // tail of both; we only need the last three groups.
 const FRAME = /(?:\(|@|\s)([^()@\s]+):(\d+):(\d+)\)?\s*$/
 
+/** This package's own implementation root, as a path fragment every internal frame contains —
+ *  DERIVED from this module's URL at load time rather than hardcoded, so the filter tracks
+ *  wherever the package is actually served from: a checkout's `src/core/`, a published
+ *  `dist/core/`, any `node_modules` install path, a Vite `/@fs/` dev URL. The literal
+ *  `/shader-dsl/src/core/` it used to hardcode only ever matched a source checkout, so a
+ *  consumer running built JS got this package's OWN frames reported as author locations.
+ *
+ *  This file is `<root>/core/diagnostics/loc.ts`, so its grandparent IS that root — the one
+ *  fact this module may assume about itself. `loc.test.ts` pins it: move this file and the
+ *  test names the line to change.
+ *
+ *  @internal
+ */
+export const CORE_PREFIX: string = ((): string => {
+  const url = (import.meta as { url?: string }).url
+  // No import.meta (a CJS transpile) — fall back to the pre-derivation literal, which is
+  // still correct for a source checkout.
+  if (!url) return '/shader-dsl/src/core/'
+  // `file:///a/b/c.ts` → `/a/b/c.ts`; an http(s) dev-server URL keeps its origin, and both
+  // shapes are compared by CONTAINMENT below, so the two never have to agree on a scheme.
+  const path = (url.startsWith('file://') ? url.slice('file://'.length) : url).split(/[?#]/)[0]!
+  const dir = path.slice(0, path.lastIndexOf('/')) // …/core/diagnostics
+  return dir.slice(0, dir.lastIndexOf('/') + 1) // …/core/
+})()
+
+/** Whether a stack frame's file belongs to this package's own implementation — the frames
+ *  `captureLoc` must skip to reach the author's call site. A co-located `*.test.ts` is NOT
+ *  internal: it authors shaders like a consumer would (real consumers live outside `core/`,
+ *  so this only matters for the package's own tests).
+ *
+ *  `corePrefix` is a parameter so the classifier can be tested against layouts this process
+ *  is not running from (a `dist/` build, an install path).
+ *
+ *  @internal
+ */
+export const isInternalFrame = (file: string, corePrefix: string = CORE_PREFIX): boolean =>
+  file.includes(corePrefix) && !file.endsWith('.test.ts')
+
 /** Capture the first stack frame OUTSIDE this package — the author's call site. Returns
  *  undefined when tracing is off (no `new Error()` allocated) or no external frame is found. */
 export function captureLoc(): SourceLoc | undefined {
@@ -54,11 +92,9 @@ export function captureLoc(): SourceLoc | undefined {
     const m = FRAME.exec(raw)
     if (!m) continue
     const file = m[1]
-    // Skip node internals, anonymous frames, and this package's OWN implementation
-    // source — but NOT a co-located *.test.ts, which authors shaders like a consumer
-    // (real consumers live outside core/, so this only matters for the package's tests).
+    // Skip node internals and anonymous frames, then this package's own source.
     if (file.startsWith('node:') || !file.includes('/')) continue
-    if (file.includes('/shader-dsl/src/core/') && !file.endsWith('.test.ts')) continue
+    if (isInternalFrame(file)) continue
     return { file, line: Number(m[2]), col: Number(m[3]) }
   }
   return undefined

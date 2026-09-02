@@ -1,5 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { setSourceTracing, isSourceTracing, captureLoc, recordLoc, getLoc } from './loc.js'
+import {
+  setSourceTracing,
+  isSourceTracing,
+  captureLoc,
+  recordLoc,
+  getLoc,
+  isInternalFrame,
+  CORE_PREFIX,
+} from './loc.js'
 import { module, fn, f32T, f32 } from '../ir/index.js'
 
 afterEach(() => setSourceTracing(false))
@@ -46,5 +54,46 @@ describe('source-location capture', () => {
     expect(getLoc(on)).toBeDefined()
 
     void module({ funcs: [on] })
+  })
+})
+
+// The filter that decides which stack frames are this package's OWN. It used to be the
+// literal `/shader-dsl/src/core/`, which only ever matched a source checkout: a consumer
+// running the package from any other layout got DSL-internal frames reported as its author
+// locations. CORE_PREFIX is now derived from this module's URL at load time.
+describe('internal-frame filter', () => {
+  // The one fact loc.ts assumes about itself: it lives at `<root>/core/diagnostics/`, so
+  // its grandparent is the implementation root. Move the file and this reddens, naming
+  // the derivation to update.
+  it('derives the package core root from this module, not a hardcoded path', () => {
+    expect(CORE_PREFIX.endsWith('/core/')).toBe(true)
+    expect(CORE_PREFIX).not.toBe('/shader-dsl/src/core/') // derived, not the fallback
+    expect(isInternalFrame(`${CORE_PREFIX}ir/builder.ts`)).toBe(true)
+  })
+
+  // The defect, pinned in both directions: the same built-layout frame is invisible to the
+  // old literal and internal under the derived prefix. Neither half can pass by accident.
+  const LEGACY = (file: string): boolean =>
+    file.includes('/shader-dsl/src/core/') && !file.endsWith('.test.ts')
+
+  it.each([
+    ['a dist build', '/app/node_modules/@xgis/shader-dsl/dist/core/', 'ir/builder.js'],
+    ['a renamed install dir', '/app/vendor/xgis-dsl/core/', 'passes/opt/optimize.js'],
+    ['a Vite /@fs dev URL', 'https://localhost:3000/@fs/w/pkg/dist/core/', 'ir/node.js'],
+  ])('classifies %s as internal where the hardcoded filter did not', (_what, prefix, rest) => {
+    const frame = prefix + rest
+    expect(LEGACY(frame)).toBe(false) // what shipped: an internal frame read as the author's
+    expect(isInternalFrame(frame, prefix)).toBe(true)
+  })
+
+  it('still exempts a co-located *.test.ts and still passes consumer frames through', () => {
+    const prefix = '/app/node_modules/@xgis/shader-dsl/dist/core/'
+    expect(isInternalFrame(`${prefix}ir/builder.test.ts`, prefix)).toBe(false)
+    expect(isInternalFrame('/app/src/shaders/my-shader.ts', prefix)).toBe(false)
+  })
+
+  it('tolerates a query string on the frame (Vite appends ?t=/?v=)', () => {
+    const prefix = '/w/pkg/src/core/'
+    expect(isInternalFrame(`${prefix}ir/builder.ts?t=1717`, prefix)).toBe(true)
   })
 })

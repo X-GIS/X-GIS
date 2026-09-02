@@ -26,6 +26,8 @@ import { cseLocal } from './cse-local.js'
 import { gvn } from './gvn.js'
 import { licm } from './licm.js'
 import { dce } from './dce.js'
+import { duplicateLocalNames } from '../lint/rules/no-shadowed-local.js'
+import { dslError } from '../../diagnostics/error.js'
 import { structCtor } from './struct-ctor.js'
 
 export type OptPass = (m: ModuleDecl) => ModuleDecl
@@ -169,6 +171,29 @@ function fnFixpoint(
   return cur
 }
 
+/** The premise every pass below rests on: within one function a binding is identified by its
+ *  NAME ALONE — there is no scope id — so `const-prop`, `copy-prop`, `dead-branch`,
+ *  `member-fold` and `inline-linear` each key a FUNCTION-WIDE flat map on it. A duplicated
+ *  name merges two bindings, and the passes then move a value across a scope boundary it may
+ *  not cross: two sibling `if` arms binding `t` folded to the SAME literal at O1, which is
+ *  the tier documented as value-identical to O0 (#2341).
+ *
+ *  The `no-shadowed-local` lint rule is the same check at the front door (CORE, so `validate()`
+ *  runs it at every emit). This one covers what the rule cannot: a direct `fixpoint()` /
+ *  `optimizeAt()` caller, which never passes through `validate()`, and the POST-LOWERING module
+ *  — the rule sees the authored IR, the optimizer sees what `autoVars` / `lowerModule` /
+ *  `fp64Lower` produced from it. Checking costs one walk against the up-to-8 iterations of the
+ *  whole pass list it guards, so it is unconditional: a premise that only holds in dev is not
+ *  a premise. */
+function assertUniqueLocalNames(fn: FuncDecl): void {
+  const dups = duplicateLocalNames(fn)
+  if (dups.length === 0) return
+  throw dslError(
+    'SD0112',
+    `fn '${fn.name}' declares ${dups.map((d) => `'${d.name}'`).join(', ')} more than once`,
+  )
+}
+
 /** Run `passes` to a fixed point — until each function stops changing — capped at
  *  `maxIters`. Functions are optimized INDEPENDENTLY (see `fnFixpoint`): because
  *  every pass is per-function, a function reaches the same fixed point whether it
@@ -187,6 +212,7 @@ export function fixpoint(
   passes: readonly OptPass[] = DEFAULT_PASSES,
   maxIters = 8,
 ): ModuleDecl {
+  for (const fn of m.funcs) assertUniqueLocalNames(fn)
   return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters)) }
 }
 
