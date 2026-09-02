@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e3e3e61b609136f91386f16f5c3520523f694c4a
+  Generated from: d965a386e853b11623bce3109b270a2dc8aa614d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e3e3e61b6091
+    bun scripts/emit-changelog.ts --since d965a386e853
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **rhi-webgl2:** fail loud on a per-target writeMask ES 3.00 cannot honour (#2349) ([#2402](https://github.com/X-GIS/X-GIS/pull/2402)) `14c2374`
 - **compiler:** per-feature symbol-sort-key + narrow the text-pitch-alignment gap warning to its real residual ([#2221](https://github.com/X-GIS/X-GIS/pull/2221)) `54a5905`
 - **compiler/convert:** zoom-axis bezier colour densify + per-feature collator options ([#2217](https://github.com/X-GIS/X-GIS/pull/2217)) `702cd72`
 - **compiler:** make Mapbox ["array", …] a real type assertion ([#2202](https://github.com/X-GIS/X-GIS/pull/2202)) `9da727d`
@@ -36,6 +37,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
 - **map/render:** release a pass's per-host entry before replacing it (#2337) ([#2401](https://github.com/X-GIS/X-GIS/pull/2401)) `e3e3e61`
 - **playground:** overdraw capture reports painted / sampled, not painted / painted (#2356) ([#2396](https://github.com/X-GIS/X-GIS/pull/2396)) `9692834`
 - **data/sources:** re-check the sink at write time in the virtual-PMTiles worker arm (#2359) ([#2394](https://github.com/X-GIS/X-GIS/pull/2394)) `2830f82`
