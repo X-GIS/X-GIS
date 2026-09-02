@@ -23,7 +23,7 @@ import {
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
-import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
+import { mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
@@ -48,6 +48,7 @@ import {
   rasterCoverZoom,
   needsNorthPoleCap,
   needsSouthPoleCap,
+  selectFlatProjTiles,
 } from './raster-renderer'
 
 const DEG2RAD = Math.PI / 180
@@ -562,11 +563,17 @@ export class HillshadeRenderer {
         tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
-      const selectorProj =
-        projType === 0
-          ? mercatorProj
-          : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-      tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+      // Flat projections (#2302): single-authority selector shared with RasterRenderer.
+      tiles = selectFlatProjTiles(
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        currentZ,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
     }
     // Spatial clip (#1984) — applied to the SELECTION, so the leaf loop, the parent-fallback
     // prefetch, the eviction set and the draw list all see it. Mirror of the raster twin.

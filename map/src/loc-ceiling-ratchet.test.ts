@@ -1819,7 +1819,15 @@ const CEILINGS: Record<string, number> = {
   // a per-frame WebGPU validation error whenever picking and a DEM layer are both
   // on. The call site is now a literal `false`; the +5 is the comment recording
   // why, at the argument it constrains, so the flag cannot drift back.
-  'map/src/render/hillshade-renderer.ts': 855,
+  // 855→862 (#2302): the flat non-Mercator branch's `visibleTilesFrustum` call (with the
+  // same inert `{name:'non-mercator', forward: mercator.forward}` shim raster-renderer.ts
+  // carried) is replaced by a call to raster-renderer.ts's new single-authority
+  // `selectFlatProjTiles` — the shim never reached `visibleTilesFrustum`'s culling math
+  // (it only reads `.name`), so this renderer's equirect/natural_earth tile selection
+  // culled in Mercator space too, disagreeing with vs_tile's real draw position at
+  // latitude. Net +7: one new import, the call-site swap, and the removal of the now-
+  // orphaned `mercatorProj` import. MEASURED post-prettier.
+  'map/src/render/hillshade-renderer.ts': 862,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2140,7 +2148,16 @@ const CEILINGS: Record<string, number> = {
   // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
   // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
   // import, one call, and the two new struct fields the packer must write.
-  'map/src/render/raster-renderer.ts': 1034,
+  // 1034→1086 (#2302): the flat non-Mercator selector took a `{name:'non-mercator',
+  // forward: mercator.forward}` shim that `visibleTilesFrustum` silently ignored (it
+  // only ever reads `.name`, never calls `.forward`) — so equirect/natural_earth raster
+  // selection culled in plain-Mercator space while `vs_tile` drew the same tiles through
+  // the real display projection, blanking a poleward band. `selectFlatProjTiles` is the
+  // new single-authority replacement (projection-aware `visibleTilesSSE`, mirroring the
+  // vector path) — SHARED with HillshadeRenderer, so the +52 here buys BOTH renderers a
+  // fix instead of growing each inline by half as much and drifting again. MEASURED
+  // post-prettier.
+  'map/src/render/raster-renderer.ts': 1086,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

@@ -2,8 +2,19 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
-import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
+import {
+  visibleTilesFrustum,
+  visibleTilesSSE,
+  tileUrl,
+  loadImageBitmap,
+  type TileRowScheme,
+} from '@xgis/data'
+import {
+  mercator as mercatorProj,
+  mercatorYToLat,
+  getProjection,
+  SELECTOR_PROJ_NAMES,
+} from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
@@ -94,6 +105,44 @@ export function rasterCoverZoom(zoom: number, tileSize: number, sourceMaxzoom?: 
   const bias = Math.log2(512 / tileSize)
   const cap = sourceMaxzoom === undefined ? 18 : Math.min(18, sourceMaxzoom)
   return Math.max(0, Math.min(cap, Math.round(zoom + bias)))
+}
+
+/** Flat (non-sphere-routed) tile selection — the single authority RasterRenderer and
+ *  HillshadeRenderer both call (#2302 — was duplicated inline in each, and drifted into a bug).
+ *
+ *  Mercator (projType 0) keeps the byte-identical `visibleTilesFrustum` hot path
+ *  (raster-world-copy.test.ts pins it). Non-Mercator flat projections (equirect / natural_earth)
+ *  used to select with the SAME function passed an inert `{name:'non-mercator', forward:
+ *  mercator.forward}` shim — `visibleTilesFrustum` never calls `.forward` at all (it culls tile
+ *  corners in MERCATOR-metre space unconditionally, only reading `.name` for the world-copy
+ *  count), so the shim's `name` resolved to projType 0 and every non-Mercator raster/hillshade
+ *  selection was silently plain-Mercator cull. `vs_tile` (shaders/dsl/raster.ts) draws those same
+ *  tiles through the DISPLAY projection on the same MVP, and at latitude the two disagree sharply
+ *  (Mercator's vertical scale is 1/cos(lat) of equirect's) — tiles the shader placed inside the
+ *  viewport were culled and never requested nor drawn: a blank band at the poleward edge.
+ *
+ *  Fix: select non-Mercator with `visibleTilesSSE` — the same projection-aware selector the
+ *  vector path uses (tile-selection-cache.ts), which converts every tile corner through the
+ *  REAL `projection.forward`. Its `fallbackOnly` parent injects (eviction-protection ancestors)
+ *  are filtered out — raster/hillshade draw every returned tile as a primary and have no
+ *  stencil-tested fallback path for them, unlike the vector renderer. */
+export function selectFlatProjTiles(
+  camera: Parameters<typeof visibleTilesFrustum>[0],
+  projType: number,
+  projCenterLon: number,
+  projCenterLat: number,
+  currentZ: number,
+  canvasWidth: number,
+  canvasHeight: number,
+  dpr: number,
+): ReturnType<typeof visibleTilesFrustum> {
+  if (projType === 0) {
+    return visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+  }
+  const selectorProj = getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
+  return visibleTilesSSE(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr).filter(
+    (t) => !t.fallbackOnly,
+  )
 }
 
 // ── Typed pack targets (#733 P2b) — layout from wgslLayout(U.struct), write()
@@ -681,13 +730,17 @@ export class RasterRenderer {
         tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
-      // Flat projections: pass projection name so the selector's world-copy
-      // gate (worldCopiesFor()) picks single-world for non-Mercator.
-      const selectorProj =
-        projType === 0
-          ? mercatorProj
-          : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-      tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+      // Flat projections (#2302): single-authority selector shared with HillshadeRenderer.
+      tiles = selectFlatProjTiles(
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        currentZ,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
     }
     // Spatial clip (#1984). Applied to the SELECTION, so the drop reaches every consumer
     // below at once — the leaf request loop, the parent-fallback prefetch, the eviction
