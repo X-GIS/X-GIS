@@ -515,6 +515,10 @@ export class PanZoomController implements Controller {
           }
         } // closes the #1265 shift-drag else branch
       } else if (activePointers.size === 2) {
+        // #2296: multi-touch is click-ineligible (MapLibre parity — a
+        // two-finger tap emits no `click`), so the latch armed by the FIRST
+        // finger must be cleared, or its zero-travel pointerup fires onClick.
+        pressEligible = false
         // #4: entering two-pointer mode must clear any pending rotate state
         // so lifting back to one finger does not wrongly activate rotation.
         isDragging = false
