@@ -93,16 +93,30 @@ export function wgslType(t: ShaderType): string {
 }
 
 /** A WGSL/GLSL-shared f32 literal: append `.0` to an integer-looking value so a
- *  float context never sees an int literal. Reused by the GLSL writer. */
+ *  float context never sees an int literal. Reused by the GLSL writer. Fail-closed on a
+ *  non-finite value (#2276, SD0017): neither target has a NaN/Infinity literal, so
+ *  `String(v)` would bake an unparseable token into the module. */
 export function f32Lit(v: number): string {
+  if (!Number.isFinite(v)) throw dslError('SD0017', `f32 literal ${v}`)
   const s = String(v)
   return /[.eE]/.test(s) ? s : `${s}.0`
 }
 
+/** A WGSL/GLSL-shared integer literal body (no suffix). The value must be an integer inside
+ *  the kind's 32-bit range — Tint rejects `2147483648` as an i32 literal, and a fractional
+ *  or out-of-range value printed verbatim is a driver compile error on both targets
+ *  (#2276, SD0017). Reused by the GLSL writer. */
+export function intLit(v: number, scalar: 'i32' | 'u32'): string {
+  const lo = scalar === 'i32' ? -2147483648 : 0
+  const hi = scalar === 'i32' ? 2147483647 : 4294967295
+  if (!Number.isInteger(v) || v < lo || v > hi) throw dslError('SD0017', `${scalar} literal ${v}`)
+  return `${v}`
+}
+
 function lit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (t.kind === 'scalar' && t.scalar === 'u32') return `${value}u`
-  if (t.kind === 'scalar' && t.scalar === 'i32') return `${value}`
+  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
+  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
   return f32Lit(value)
 }
 

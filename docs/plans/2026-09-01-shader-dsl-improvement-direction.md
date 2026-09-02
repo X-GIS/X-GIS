@@ -436,13 +436,13 @@ client").
 
 ## 3. Sequencing
 
-| Wave                 | Items                                                                                                                                                                                                                  | Gate before the next wave                                                                                 |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| **0 — now (S each)** | #2274, #2275, #2276 fixes; D5.1 `no-shadowed-local`; D6.3 `captureLoc`; D7.1 docs honesty                                                                                                                              | shader-dsl suite green; goldens byte-identical (no production text moves)                                 |
-| **1 — foundations**  | D2.2 f32 oracle mode; D6.1 fuzzer (interp ≡ codegen, oracle(opt) ≡ oracle); D6.2 offline validation; D1.1–1.2 profiling + cache; D4.1 phantom keys                                                                     | fuzzer catches reverted #2274/#2275; validator rejects #2276; TTFM instrument exists                      |
-| **2 — compounding**  | D1.3–1.4 bake-by-default + HMR; D4.2 typed slots + variant enumeration; D4.3–4.5 `feat_data` struct, view/partition, BGL; D5.2–5.3 IR annotations, LICM v2, DSE; D5.7 backend contract v2 + conventions + depth parity | §0 cost table re-measured; parity tests replaced by construction; depth-parity e2e green on both backends |
-| **3 — capability**   | D3.1–3.2 bool vectors + matrices; D3.3 compute tier; D2.3 error-budget analyzer; D5.4 uniformity; D5.5–5.6 float tiers + cost model                                                                                    | every new op on all three engines; compute lanes on real GPU                                              |
-| **4 — reach**        | D3.4 textures; D4.6 generics-lite; D7.2 publish; D7.4–7.5 WESL / importer decisions                                                                                                                                    | API surface frozen by tag                                                                                 |
+| Wave                 | Items                                                                                                                                                                                                                  | Gate before the next wave                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0 — now (S each)** | #2274, #2275, #2276 fixes and the verified doc drift — **landed in PR #2270** (owner approval 2026-09-01); still open: D5.1 `no-shadowed-local`, D6.3 `captureLoc`, the README rows of D7.1                            | shader-dsl suite green; goldens byte-identical (no production text moves) — met: 139 files / 1582 tests green, goldens and `baked-sync` unchanged |
+| **1 — foundations**  | D2.2 f32 oracle mode; D6.1 fuzzer (interp ≡ codegen, oracle(opt) ≡ oracle); D6.2 offline validation; D1.1–1.2 profiling + cache; D4.1 phantom keys                                                                     | fuzzer catches reverted #2274/#2275; validator rejects #2276; TTFM instrument exists                                                              |
+| **2 — compounding**  | D1.3–1.4 bake-by-default + HMR; D4.2 typed slots + variant enumeration; D4.3–4.5 `feat_data` struct, view/partition, BGL; D5.2–5.3 IR annotations, LICM v2, DSE; D5.7 backend contract v2 + conventions + depth parity | §0 cost table re-measured; parity tests replaced by construction; depth-parity e2e green on both backends                                         |
+| **3 — capability**   | D3.1–3.2 bool vectors + matrices; D3.3 compute tier; D2.3 error-budget analyzer; D5.4 uniformity; D5.5–5.6 float tiers + cost model                                                                                    | every new op on all three engines; compute lanes on real GPU                                                                                      |
+| **4 — reach**        | D3.4 textures; D4.6 generics-lite; D7.2 publish; D7.4–7.5 WESL / importer decisions                                                                                                                                    | API surface frozen by tag                                                                                                                         |
 
 Rules: an item becomes a GitHub issue before it starts (§9.5); a wave's byte-moving items
 wait for the previous wave's gates; D2.5 (fp64 in `map/`) and D3.6 (`f16`) start only on
@@ -453,7 +453,10 @@ the owner decisions in §7.
 ## 4. Defects found during the audit
 
 Each was reported by a facet audit and then reproduced by the session lead on this tree
-before filing.
+before filing. All three are fixed in PR #2270 (owner approval 2026-09-01) with fail-before
+tests: `core/cpu-int-semantics.test.ts` (both CPU engines, every row of #2274's table plus
+the #2275 shapes), the `swcont` / `swbrk` fixtures in `core/cpu-codegen.test.ts`'s A1
+differential, and `core/backends/literal-spelling.test.ts` (both writers, SD0017).
 
 | Issue | Defect                                                                                                                                                                                         | Root cause                                                                                                                                                   |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -461,7 +464,7 @@ before filing.
 | #2275 | The reference interpreter drops a `continue` raised inside a `switch` case within a loop (interpreter 4, codegen 3, WGSL 3)                                                                    | `core/oracle.ts:352-362` propagates only `return` / `discard` out of a switch body                                                                           |
 | #2276 | Literal spelling is fail-open: `neg(lit(-1))` emits `(--1.0)` at O0 and on the const `valueExpr` path; out-of-range i32 literals print verbatim                                                | `core/emit.ts:76-77, 83-84` unop spelling; `backends/wgsl.ts:97-100` `literal()` has no range/finiteness check; `optimize.ts:185-190` optimises `funcs` only |
 
-Documentation drift found and to be fixed in Wave 0 (verified on this tree):
+Documentation drift found and fixed in the same PR (each verified on this tree first):
 `flow-advect.ts:112` ("the DSL has no `dot`" — `line.ts:39` imports it);
 `passes/opt/member-fold.ts:198-200` says "wired into DEFAULT_PASSES" while `optimize.ts`
 lists it as unwired; `ir/nodes.ts:15-16` and `AUTHORING.md:330-331` say GLSL rejects float
