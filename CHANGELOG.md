@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: ea1d6a4b764ed876952b8d6f71f3b4142be8ff48
+  Generated from: bbb96276cebf140b99fbd836ab6b9b9aee381bd4
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since ea1d6a4b764e
+    bun scripts/emit-changelog.ts --since bbb96276cebf
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data:** polar caps synthesise the wedge a CCW ring occupies, not its 340-degree complement (#2357) ([#2383](https://github.com/X-GIS/X-GIS/pull/2383)) `bbb9627`
 - **rhi-webgl2:** setVertexBuffer honours its slot, so a two-slot pipeline stops aliasing slot 0 onto slot 1 (#2360) ([#2381](https://github.com/X-GIS/X-GIS/pull/2381)) `ea1d6a4`
 - **map:** ride the coverage abort spine on the forecast-step and playback reads (#2375) ([#2376](https://github.com/X-GIS/X-GIS/pull/2376)) `00b9016`
 - **pipeline:** groupBy min/max no longer return +/-Infinity for a group with no numeric cell (#2358) ([#2379](https://github.com/X-GIS/X-GIS/pull/2379)) `1ce1eb0`
