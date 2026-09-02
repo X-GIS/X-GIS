@@ -327,6 +327,18 @@ const TABLE: Row[] = [
   },
   // ── map: drapers (the #1578 quality-flip release edges) ──
   {
+    file: 'map/src/render/material/atmosphere-material.ts',
+    method: 'destroy',
+    via: { file: 'map/src/render/passes/atmosphere-pass.ts', pattern: 'entry.draper.destroy()' },
+    whyOutsideTeardown:
+      'KNOWN GAP (#2286 follow-up), identical in shape to the extrude-shell row below and ' +
+      'for the same structural reason: AtmospherePass is a MODULE-LEVEL singleton caching ' +
+      'one draper per host in a WeakMap, and the only destroy is the format/sampleCount ' +
+      'swap inside execute() (#2337 added it — before that there was none at all). When ' +
+      'the host map dies the entry is collected undestroyed; closing that needs a per-map ' +
+      'owner for the draper, not a re-anchor.',
+  },
+  {
     file: 'map/src/render/material/coverage-material.ts',
     method: 'destroy',
     via: { file: 'map/src/render/coverage-renderer.ts', pattern: 'd.destroy()' },
@@ -378,6 +390,19 @@ const TABLE: Row[] = [
       'the quality rebuild, exactly the shape this rule exists to catch. Left flagged-but- ' +
       'documented rather than fixed here: giving PointRenderer a destroy() means auditing ' +
       'everything else it owns, which is its own change.',
+  },
+  {
+    file: 'map/src/render/material/scene-upscale-material.ts',
+    method: 'destroy',
+    via: {
+      file: 'map/src/render/passes/scene-upscale-pass.ts',
+      pattern: 'entry?.draper.destroy()',
+    },
+    whyOutsideTeardown:
+      'KNOWN GAP (#2286 follow-up): same module-level-singleton shape as the atmosphere and ' +
+      'extrude-shell rows — the WeakMap entry is dropped with the host map, and the only ' +
+      'destroy is the format/sampleCount swap inside execute() (#2337). This draper also ' +
+      'owns a sampler, so the per-map owner that closes the gap has to release both.',
   },
   {
     file: 'map/src/render/material/raster-material.ts',
