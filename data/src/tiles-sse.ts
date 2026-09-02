@@ -210,7 +210,9 @@ const FALLBACK_PARENT_DEPTH = 2
 // (see visibleTilesSSE body). Cleared at function entry; reused
 // across calls. Safe because visibleTilesSSE is invoked sequentially
 // within the synchronous render loop.
-const _injectedParentsScratch = new Set<number>()
+// #2351 — keyed in two exact halves, `(worldCopy, z)` bucket → `(x, y)`
+// coord, because the full tuple is 54 bits and a double holds 53.
+const _injectedParentsScratch = new Map<number, Set<number>>()
 
 export function visibleTilesSSE(
   camera: TileSelectionCamera,
@@ -491,11 +493,9 @@ export function visibleTilesSSE(
   // is called ~once per render per source (sequential within a
   // frame, no async). Pre-iter-253 allocated a fresh Set per call.
   const injectedParents = _injectedParentsScratch
-  injectedParents.clear()
-  const parentKey = (z: number, x: number, y: number, worldCopy: number): number =>
-    // Pack (worldCopy, z, x, y) into a 53-bit number for Set lookup.
-    // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
-    ((worldCopy + 16) * 32 + z) * (1 << 22) * (1 << 22) + x * (1 << 22) + y
+  // Clear the per-bucket coord sets rather than the map itself, so the
+  // sets stay reused across calls (iter-253's no-allocation intent).
+  for (const coords of injectedParents.values()) coords.clear()
 
   // ── Emit budget (#1374) ───────────────────────────────────────────────────
   // The cap governs PRIMARY tiles only. It used to test `result.length`, which
@@ -612,9 +612,20 @@ export function visibleTilesSSE(
         pz -= 1
         px >>>= 1
         py >>>= 1
-        const k = parentKey(pz, px, py, worldCopy)
-        if (injectedParents.has(k)) break
-        injectedParents.add(k)
+        // #2351 — key on two EXACT halves, never one packed number. The
+        // old key `((worldCopy + 16) * 32 + z) * 2^44 + x * 2^22 + y` is
+        // 54 bits and a double holds 53: for every worldCopy ≥ 0 it landed
+        // in [2^53, 2^54) where the ULP is 2, so the low bit of `y` rounded
+        // away, `y` aliased `y ± 1`, and the `break` dropped a genuinely
+        // new ancestor as already injected. Here `bucket` is injective in
+        // (worldCopy, z) for any worldCopy while z < 32, and `coord` is an
+        // integer < 2^44 for x/y < 2^22 — both exact, so no input aliases.
+        const bucket = (worldCopy + 16) * 32 + pz
+        let coords = injectedParents.get(bucket)
+        if (coords === undefined) injectedParents.set(bucket, (coords = new Set<number>()))
+        const coord = px * (1 << 22) + py
+        if (coords.has(coord)) break
+        coords.add(coord)
         result.push({
           z: pz,
           x: px,
