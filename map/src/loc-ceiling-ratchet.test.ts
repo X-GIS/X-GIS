@@ -796,7 +796,12 @@ const CEILINGS: Record<string, number> = {
   // branch that blocks a single-finger TOUCH drag from panning (mouse
   // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
   // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
-  'map/src/controller.ts': 1166,
+  // 1166→1184 (interaction-dpr anchor fix, measured post-prettier per §12): every
+  // gesture site now reads the scale the swapchain is ACTUALLY sized at
+  // (canvasEffectiveDpr) instead of re-deriving min(devicePixelRatio, maxDpr),
+  // and forwards it to camera.zoomAt / panToScreenAnchor / pan. The growth is
+  // prettier wrapping five now-6-argument camera calls; nothing to extract.
+  'map/src/controller.ts': 1184,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
@@ -1329,7 +1334,11 @@ const CEILINGS: Record<string, number> = {
   // Nothing to extract — the rule reads `this.pitch` and writes this class's own
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
-  'map/src/camera/camera.ts': 1442,
+  // 1442→1452 (interaction-dpr anchor fix, measured post-prettier per §12): pan /
+  // zoomAt / panToScreenAnchor / maxCameraY take the caller's device scale
+  // instead of each re-deriving min(devicePixelRatio, maxDpr) — three inline
+  // derivations out, one parameter + its rationale in.
+  'map/src/camera/camera.ts': 1452,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref

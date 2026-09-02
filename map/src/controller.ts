@@ -3,7 +3,7 @@
 import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
 import { promotesToGlobeWhenTilted } from '@xgis/geo'
-import { getMaxDpr } from '@xgis/engine'
+import { canvasEffectiveDpr } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 import {
   getPinchAngle,
@@ -359,7 +359,14 @@ export class PanZoomController implements Controller {
         if (dt < 300 && dist < 30) {
           // Double tap → zoom in
           const rDt = canvas.getBoundingClientRect()
-          camera.zoomAt(1, e.clientX - rDt.left, e.clientY - rDt.top, canvas.width, canvas.height)
+          camera.zoomAt(
+            1,
+            e.clientX - rDt.left,
+            e.clientY - rDt.top,
+            canvas.width,
+            canvas.height,
+            canvasEffectiveDpr(canvas),
+          )
           lastTapTime = 0
           return
         }
@@ -439,10 +446,7 @@ export class PanZoomController implements Controller {
             // bounding rect — the canvas may not sit at viewport (0,0)
             // (header / editor pane / etc), and unprojectToZ0 expects
             // coords in [0, canvas.width / canvas.height].
-            const dprNow =
-              typeof window !== 'undefined'
-                ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
-                : 1
+            const dprNow = canvasEffectiveDpr(canvas)
             const r0 = canvas.getBoundingClientRect()
             const sxA = (e.clientX - r0.left) * dprNow,
               syA = (e.clientY - r0.top) * dprNow
@@ -542,7 +546,7 @@ export class PanZoomController implements Controller {
         inertiaRaf = null
         return
       }
-      camera.pan(panVelX, panVelY, canvas.width, canvas.height)
+      camera.pan(panVelX, panVelY, canvas.width, canvas.height, canvasEffectiveDpr(canvas))
       panVelX *= 0.9
       panVelY *= 0.9
       inertiaRaf = requestAnimationFrame(applyInertia)
@@ -688,6 +692,7 @@ export class PanZoomController implements Controller {
             center.y - rPin.top,
             canvas.width,
             canvas.height,
+            canvasEffectiveDpr(canvas),
           )
         }
         lastPinchDist = dist
@@ -724,8 +729,7 @@ export class PanZoomController implements Controller {
         lastMoveTime = now
 
         const r1 = canvas.getBoundingClientRect()
-        const dprMove =
-          typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const dprMove = canvasEffectiveDpr(canvas)
         const sxM = (e.clientX - r1.left) * dprMove,
           syM = (e.clientY - r1.top) * dprMove
 
@@ -753,6 +757,7 @@ export class PanZoomController implements Controller {
               e.clientY - r1.top,
               canvas.width,
               canvas.height,
+              dprMove,
             )
           }
 
@@ -776,7 +781,7 @@ export class PanZoomController implements Controller {
           // Anchor missed ground (cursor above horizon at drag start)
           // — fall back to delta-based pan so the user can still drag
           // out of the no-ray-hit region.
-          camera.pan(dx, dy, canvas.width, canvas.height)
+          camera.pan(dx, dy, canvas.width, canvas.height, dprMove)
           panVelX = dx * (16 / dt)
           panVelY = dy * (16 / dt)
         }
@@ -795,8 +800,7 @@ export class PanZoomController implements Controller {
         if (boxZoomEl) boxZoomEl.style.display = 'none'
         if (boxZoomArmed) {
           boxZoomArmed = false
-          const dprBox =
-            typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const dprBox = canvasEffectiveDpr(canvas)
           const rBox = canvas.getBoundingClientRect()
           const sx0 = (boxStartX - rBox.left) * dprBox,
             sy0 = (boxStartY - rBox.top) * dprBox
@@ -914,8 +918,7 @@ export class PanZoomController implements Controller {
         // pointermove asks panToScreenAnchor to place that stale
         // world point under the lifted-to position — a visible jump
         // to the remaining finger's location.
-        const dprUp =
-          typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const dprUp = canvasEffectiveDpr(canvas)
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp,
           syU = (remaining.y - rUp.top) * dprUp
@@ -997,12 +1000,27 @@ export class PanZoomController implements Controller {
       }
       const diff = targetZoom - camera.zoom
       if (Math.abs(diff) < 0.005) {
-        if (diff !== 0) camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+        if (diff !== 0)
+          camera.zoomAt(
+            diff,
+            zoomScreenX,
+            zoomScreenY,
+            canvas.width,
+            canvas.height,
+            canvasEffectiveDpr(canvas),
+          )
         animating = false
         zoomRaf = null
         return
       }
-      camera.zoomAt(diff * 0.2, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+      camera.zoomAt(
+        diff * 0.2,
+        zoomScreenX,
+        zoomScreenY,
+        canvas.width,
+        canvas.height,
+        canvasEffectiveDpr(canvas),
+      )
       zoomRaf = requestAnimationFrame(animateZoom)
     })
 

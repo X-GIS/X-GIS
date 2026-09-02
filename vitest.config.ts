@@ -155,6 +155,8 @@ export const ISOLATED = [
   'map/src/controller-cooperative-gestures.test.ts',
   'map/src/controller-dblclick-boxzoom.test.ts',
   'map/src/controller-dpr-anchor.test.ts',
+  // (2) assigns `globalThis.window` and writes QUALITY via updateQuality (interaction-dpr anchor fix).
+  'map/src/controller-interaction-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
   'map/src/coverage-catalogue.test.ts',
   'map/src/coverage-residency-driver.test.ts',
