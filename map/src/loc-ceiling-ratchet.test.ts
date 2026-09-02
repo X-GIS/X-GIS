@@ -314,7 +314,15 @@ const CEILINGS: Record<string, number> = {
   // 5483→5466 (#2240): the three fill-translate packers now read one producer
   // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
   // Measured with `wc -l` on the post-prettier tree, per the note above.
-  'map/src/render/vector-tile-renderer.ts': 5466,
+  // 5466→5467 (#2249): +1, and it is ONE argument — the anchor-rotated NDC pair
+  // forwarded to `renderGlobeFills` so the globe drape stops dropping
+  // `fill-translate`. A new call argument cannot be under one line here (the
+  // call is already multi-line, so prettier gives each argument its own), and
+  // the explanation that would have cost three more lives at the parameter's
+  // declaration in vector-drape-renderer.ts, which is where a reader of the
+  // signature looks. Nothing was extracted for it: extracting from this file to
+  // pay for a one-line bug-fix wire would be a refactor smuggled inside a fix.
+  'map/src/render/vector-tile-renderer.ts': 5467,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
