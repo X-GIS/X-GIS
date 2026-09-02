@@ -476,6 +476,14 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   `page.screenshot` over the canvas BOX is not chrome-free: `DEMO_CHROME_IDS`
   (`e2e/helpers/visual.ts`) exists because those elements overlap it. Use `captureMapFrame`.
   → #2120
+- Chrome can UN-HIDE itself after the hide. The log overlay rewrites its own inline `display`
+  on every console.warn, so a DEV warning landing between two captures (the #2266 owner-leak
+  detector under `__XGIS_INVARIANTS`) put the overlay back into the frame — 12962 px of
+  "⚠ Errors" text hashed as a recombine regression and bisected to the commit that added the
+  WARNING, not to any render change. `hideDemoChrome` now hides by a stylesheet `!important`
+  rule, which outranks any inline write; never hide chrome with an inline style, and when a
+  gate reddens on the commit that added a diagnostic, read the saved frame before the shader.
+  → #2284
 - A RENDER INPUT can be a function of WALL-CLOCK. The adaptive quality controller samples
   measured rendered-frame intervals and runs live wherever `?adaptive=0` / `?scenescale` is
   absent; measured on one scene at notch 0 → 3 → 4 with `adaptiveFarLodBoost` 1 → 4, and that
