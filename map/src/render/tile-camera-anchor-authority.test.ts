@@ -92,7 +92,7 @@ function refEcef(
   const tSin = Math.sin(tLatR)
   const tCos = Math.cos(tLatR)
   const tN = R / Math.sqrt(1 - tileE2 * tSin * tSin)
-  const camLatR = clampMercLat(c.camLat) * DEG2RAD
+  const camLatR = c.camLat * DEG2RAD // #2315 — camera term is unclamped (mirrors the authority)
   const camLonR = c.camLon * DEG2RAD
   const camSin = Math.sin(camLatR)
   const camCos = Math.cos(camLatR)

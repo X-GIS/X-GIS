@@ -23,13 +23,13 @@ import {
   flushPerFrameMarks,
 } from './__profile__/perf-marks'
 import { mercatorYToLat } from '@xgis/geo'
-import { PROJECTION_NAME_TO_TYPE, poleLimit } from '@xgis/geo'
+import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import { resizeCanvas, pushValidationError } from '@xgis/rhi-webgpu'
 import { isOverdrawActive, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
-import { reportErrorScope } from './render-loop-helpers'
+import { frameCenterLatDeg, reportErrorScope } from './render-loop-helpers'
 import { GpuFaultDrain } from './render-loop-gpu-fault'
 import { keepLoopWarm } from './render-loop-keep-warm'
 import { SCOPE_TILE_COUNT } from './pending-work'
@@ -221,18 +221,10 @@ export class RenderLoop {
     // RTC: Camera center IS projection center. Always.
     const R = EARTH.sphereR
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
-    // Clamp the RTC-centre latitude to the projection's pole limit
-    // (projections-table poleLimit SoT: ±85.051129° cylindrical, ±90° sphere —
-    // replacing the scattered Mercator literal). The input is mercatorYToLat of
-    // the Mercator-bounded centerY, so it never exceeds ±85.051129° today →
-    // relaxing the sphere bound to 90 is a byte-identical no-op (roadmap S5
-    // inert); the sphere allowance becomes live once centre storage holds true
-    // latitude (S10).
-    const rtcPoleLimit = poleLimit(this.host.camera.projType)
-    const centerLat = Math.max(
-      -rtcPoleLimit,
-      Math.min(rtcPoleLimit, mercatorYToLat(this.host.camera.centerY)),
-    )
+    // The RTC-centre latitude, read through the centre representation the
+    // projections table declares and clamped to its pole limit (#2315 — see
+    // frameCenterLatDeg). Feeds the ProjectionToken every renderer anchors on.
+    const centerLat = frameCenterLatDeg(this.host.camera)
 
     perfMarkEnd('frame.prep')
 

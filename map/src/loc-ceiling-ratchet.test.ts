@@ -1342,7 +1342,16 @@ const CEILINGS: Record<string, number> = {
   // would need a concrete backend-adapter import, which the #991 backend-adapter
   // ratchet rejects for this file — it has no baseline row — and would falsify this
   // module's "no GPU coupling" header. No import was added; the prose paid for the +23.
-  'map/src/render-loop-helpers.ts': 841,
+  // 841→869 (#2315): `frameCenterLatDeg` — the frame's RTC centre latitude, moved here
+  // out of the render loop (which shrinks by the same block, ceiling lowered below) and
+  // fixed to read the centre through `representsCenterAs` instead of the Mercator-
+  // saturated `mercatorYToLat(centerY)`. +28 = the 4-line signature prettier wraps, the
+  // 7-line body, and the doc prose that records WHY the sphere family's centre latitude
+  // is authoritative here: the tile/raster/drape anchors and the orbit matrix's RTC
+  // origin must be the same point, and the saturated value put them 441 km apart at
+  // lat 89. That prose is the reason a future edit cannot 'simplify' the branch away.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'map/src/render-loop-helpers.ts': 869,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -1745,7 +1754,10 @@ const CEILINGS: Record<string, number> = {
   // the registry scope, so the call site passes one input fewer. MEASURED post-prettier.
   // 933->932 (#2162 option B): the hand-maintained three-term `_missingTileCount` re-sum
   // becomes one registry read (`count(SCOPE_TILE_COUNT)`). A LOWERING.
-  'map/src/render-loop.ts': 932,
+  // 932→924 (#2315): the inline RTC-centre-latitude clamp (and its S5/S10 roadmap
+  // comment, now landed) became one call to render-loop-helpers' frameCenterLatDeg;
+  // the orphaned `poleLimit` import went with it. A LOWERING. MEASURED post-prettier.
+  'map/src/render-loop.ts': 924,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
