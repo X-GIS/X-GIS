@@ -33,6 +33,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'A solid fill carrying `fill-translate-x-60` (#2240). Purpose-built as a CROSS-BACKEND subject: no shipped style authors the property on a plain fill, and the defect it was built for was the WebGL2 fills arm hardcoding the two uniform slots to 0 while WebGPU applied the offset. _fill-translate-parity-gate.spec.ts measures the quad centroid against the authored offset on BOTH backends. No stroke — the line pipeline reads the same two slots, and mixing both consumers would make a red ambiguous. Geometry is pushed with setSourceData after run(), so it needs no network.',
     source: load('fixture-fill-translate.xgis'),
   },
+  fixture_drape_opacity: {
+    name: 'Fixture: two fill-opacities under the globe drape',
+    tag: 'fixture',
+    description:
+      'Two fills of the SAME colour at fill-opacity 0.9 and 0.2 over an opaque black background (#2291). Purpose-built: the drape carried per-show opacity in a shared global uniform, so on WebGPU the last writeBuffer of a frame won and every drape-eligible slice painted with the last slice\u2019s opacity. One translucent layer cannot show that, and no shipped style puts two drape-eligible fills at different opacities over one globe view. Same colour on purpose \u2014 the composited red channel is 255 * fill-opacity, so the two regions differ by OPACITY ALONE and a colour difference cannot green the gate for the wrong reason. _drape-fill-opacity-gate.spec.ts measures each half against the direct path. Geometry is pushed with setSourceData after run(), so it needs no network.',
+    source: load('fixture-drape-opacity.xgis'),
+  },
   fixture_symbol_icon: {
     name: 'Fixture: symbol icon (host image)',
     tag: 'fixture',
