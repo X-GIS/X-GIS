@@ -210,7 +210,13 @@ const FALLBACK_PARENT_DEPTH = 2
 // (see visibleTilesSSE body). Cleared at function entry; reused
 // across calls. Safe because visibleTilesSSE is invoked sequentially
 // within the synchronous render loop.
-const _injectedParentsScratch = new Set<number>()
+//
+// #2361-era shape: a bucket-per-(worldCopy, z) Map of coord Sets rather than one
+// flat Set. (worldCopy, z, x, y) is 55 bits, which does NOT fit a double's exact
+// integer range — see the key derivation in the body. The INNER sets are cleared
+// and reused rather than the outer map, so this stays allocation-free per frame
+// once the handful of live buckets exist (≤ worldCopies × zoom levels).
+const _injectedParentsScratch = new Map<number, Set<number>>()
 
 export function visibleTilesSSE(
   camera: TileSelectionCamera,
@@ -491,11 +497,23 @@ export function visibleTilesSSE(
   // is called ~once per render per source (sequential within a
   // frame, no async). Pre-iter-253 allocated a fresh Set per call.
   const injectedParents = _injectedParentsScratch
-  injectedParents.clear()
-  const parentKey = (z: number, x: number, y: number, worldCopy: number): number =>
-    // Pack (worldCopy, z, x, y) into a 53-bit number for Set lookup.
-    // worldCopy fits ±10 (overhead bits), z ≤ 22 (5 bits), x/y ≤ 2^22.
-    ((worldCopy + 16) * 32 + z) * (1 << 22) * (1 << 22) + x * (1 << 22) + y
+  for (const coords of injectedParents.values()) coords.clear()
+  // TWO-PART EXACT KEY (#2351). The old single packed number was
+  // `((worldCopy + 16) * 32 + z) * 2^44 + x * 2^22 + y`, i.e. 55 bits claiming to
+  // be 53. For the camera's own world copy the leading term alone is
+  // `(512 + z) * 2^44 ≥ 2^53`, so the whole key lands where a double's ULP is 2
+  // and the low bit of `y` is ROUNDED AWAY: parentKey(13, 6985, 3172, 0) ===
+  // parentKey(13, 6985, 3173, 0). The dedup below reads that collision as
+  // "already injected" and drops a genuinely distinct ancestor — measured at 106
+  // of 240 primaries on a Seoul z=14 view, i.e. no eviction protection and no
+  // prefetch for the parent slice the renderer falls back to.
+  //
+  // Splitting the key keeps every step exact for ALL inputs instead of by luck:
+  // the bucket is < 2^15 and the coord is < 2^44, both well inside 2^53. Doing it
+  // by narrowing the worldCopy field would fit only because `worldCopiesFor`
+  // returns ±2 today — the same latent overflow, one table change from returning.
+  const parentBucket = (z: number, worldCopy: number): number => (worldCopy + 16) * 32 + z
+  const parentCoord = (x: number, y: number): number => x * 2 ** 22 + y
 
   // ── Emit budget (#1374) ───────────────────────────────────────────────────
   // The cap governs PRIMARY tiles only. It used to test `result.length`, which
@@ -612,9 +630,12 @@ export function visibleTilesSSE(
         pz -= 1
         px >>>= 1
         py >>>= 1
-        const k = parentKey(pz, px, py, worldCopy)
-        if (injectedParents.has(k)) break
-        injectedParents.add(k)
+        const bucket = parentBucket(pz, worldCopy)
+        let coords = injectedParents.get(bucket)
+        if (!coords) injectedParents.set(bucket, (coords = new Set<number>()))
+        const coord = parentCoord(px, py)
+        if (coords.has(coord)) break
+        coords.add(coord)
         result.push({
           z: pz,
           x: px,

@@ -89,14 +89,30 @@ export function odbLoader(
       const rows: { o_code: string; d_code: string; pop: number }[] = []
       for (let i = 0; i < data.rowCount; i++) {
         if (opts.hour !== undefined && data.hour[i] !== opts.hour) continue
-        if (opts.purpose !== undefined && data.purpose && data.purpose[i] !== opts.purpose) continue
-        if (opts.segment !== undefined && data.segment && data.segment[i] !== opts.segment) continue
+        // A column the payload does not carry means NOTHING can match, not that
+        // nothing mismatches (#2361). `data.purpose` is `Uint8Array | null` —
+        // null whenever the encoder saw a flow without the field — and the old
+        // `&& data.purpose &&` short-circuited the whole test away, so an
+        // explicit filter silently returned the UNFILTERED rows. Dropping is the
+        // SQL reading of `WHERE purpose = n` over an absent/NULL column.
+        if (opts.purpose !== undefined && (!data.purpose || data.purpose[i] !== opts.purpose))
+          continue
+        if (opts.segment !== undefined && (!data.segment || data.segment[i] !== opts.segment))
+          continue
         rows.push({
           o_code: data.dict[data.origin[i]!]!,
           d_code: data.dict[data.dest[i]!]!,
           pop: data.pop[i]!,
         })
       }
+      // A filter that matches nothing is an empty RESULT, not an error (#2361).
+      // `fromRows([])` builds a table with no columns at all, so `join` would
+      // throw `no column "o_code"; available: (none)` — an internal message
+      // about a caller-legitimate outcome. Keyed on the row set being empty, so
+      // the loud throw for rows whose codes do not resolve is untouched: that
+      // case HAS rows.
+      if (rows.length === 0)
+        return { kind: 'fc', data: { type: 'FeatureCollection', features: [] } }
       const t = fromRows(rows, { vintage: gaz.vintage })
       const j = join(join(t, { code: 'o_code', gaz, as: 'origin' }), {
         code: 'd_code',
@@ -110,12 +126,16 @@ export function odbLoader(
     const byCode = new Map<string, number>()
     for (let i = 0; i < data.rowCount; i++) {
       if (opts.hour !== undefined && data.hour[i] !== opts.hour) continue
-      if (opts.purpose !== undefined && data.purpose && data.purpose[i] !== opts.purpose) continue
-      if (opts.segment !== undefined && data.segment && data.segment[i] !== opts.segment) continue
+      if (opts.purpose !== undefined && (!data.purpose || data.purpose[i] !== opts.purpose))
+        continue
+      if (opts.segment !== undefined && (!data.segment || data.segment[i] !== opts.segment))
+        continue
       const code = data.dict[codeCol[i]!]!
       byCode.set(code, (byCode.get(code) ?? 0) + data.pop[i]!)
     }
     const rows = [...byCode].map(([code, pop]) => ({ code, pop }))
+    // Same empty-result rule as the arc branch above (#2361).
+    if (rows.length === 0) return { kind: 'fc', data: { type: 'FeatureCollection', features: [] } }
     const t = fromRows(rows, { vintage: gaz.vintage })
     const j = join(t, { code: 'code', gaz, as: 'o' })
     const enc = bubble(j, { lon: 'o.lon', lat: 'o.lat', value: 'pop' })
