@@ -223,16 +223,31 @@ export class LabelFadeLedger {
  *  draw and deep-copies the typed-array fields into per-key reused buffers
  *  (no steady-state allocation while a symbol's glyph count is stable).
  *  Everything else on a draw is heap-owned (GlyphInfo[] comes from the
- *  across-frame string cache) and safe to carry by reference; the stage
- *  clears the store wholesale on atlas eviction, the one event that
- *  invalidates those references. */
+ *  across-frame string cache) and safe to carry by reference — EXCEPT that
+ *  those GlyphInfo carry atlas SLOT coordinates, which an eviction re-lets.
+ *
+ *  The stage clears this store when it drains evictions at the top of
+ *  prepare, but that only covers PRIOR prepares: a preload later in the
+ *  same prepare can evict the fading label's own slots (its codepoints are
+ *  the LRU-oldest — nothing re-ensures a label that is no longer pending),
+ *  and those evictions drain only next prepare. For that one prepare the
+ *  clone pointed at a re-let slot and the fading label drew another
+ *  label's glyph (#2278, ownership audit F-1 — the iter-167/175 family).
+ *  So every clone is stamped with the atlas generation it was captured at,
+ *  and `get()` refuses a clone whose stamp is behind the caller's current
+ *  generation — the same validate-on-read the layout cache already does
+ *  (`layoutCacheEntryValid`). The hazard is owned where the references
+ *  live, not left to the stage's call order. */
 export class FadeHoldoverStore<
   D extends { glyphOffsets?: Float32Array; glyphRotations?: Float32Array },
 > {
-  private readonly records = new Map<string, D>()
+  private readonly records = new Map<string, { draw: D; generation: number }>()
 
-  store(key: string, draw: D): void {
-    const prev = this.records.get(key)
+  /** `generation` is the glyph atlas generation (`GlyphAtlasHost.getGeneration()`)
+   *  at capture time — the clone's slot references are valid only while it
+   *  holds. */
+  store(key: string, draw: D, generation: number): void {
+    const prev = this.records.get(key)?.draw
     const clone: D = { ...draw }
     if (draw.glyphOffsets !== undefined) {
       clone.glyphOffsets = copyF32(draw.glyphOffsets, prev?.glyphOffsets)
@@ -240,11 +255,14 @@ export class FadeHoldoverStore<
     if (draw.glyphRotations !== undefined) {
       clone.glyphRotations = copyF32(draw.glyphRotations, prev?.glyphRotations)
     }
-    this.records.set(key, clone)
+    this.records.set(key, { draw: clone, generation })
   }
 
-  get(key: string): D | undefined {
-    return this.records.get(key)
+  /** The clone for `key`, or undefined when absent OR captured at an older
+   *  atlas generation than `generation` (its slot references may be stale). */
+  get(key: string, generation: number): D | undefined {
+    const rec = this.records.get(key)
+    return rec !== undefined && rec.generation === generation ? rec.draw : undefined
   }
 
   /** Drop clones whose ledger record was pruned. */
