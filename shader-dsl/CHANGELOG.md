@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: e3e3e61b609136f91386f16f5c3520523f694c4a
+  Generated from: d965a386e853b11623bce3109b270a2dc8aa614d
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since e3e3e61b6091
+    bun scripts/emit-changelog.ts --path shader-dsl --since d965a386e853
 -->
 
 # Changelog — shader-dsl
@@ -25,6 +25,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
 - **shader-dsl:** memberFold must not forward a construct argument that is reassigned (#2354) ([#2398](https://github.com/X-GIS/X-GIS/pull/2398)) `0d74a94`
 - **shader-dsl:** an empty dispatch is a steady state on the WebGL2 compute tier too (#2362) ([#2395](https://github.com/X-GIS/X-GIS/pull/2395)) `8aaa2fa`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
