@@ -335,7 +335,14 @@ const CEILINGS: Record<string, number> = {
   // main raised vector-tile-renderer.ts (line composer dispatch), this branch adds the
   // coverage-renderer.ts baseline — so both entries stand; neither number is a pick
   // between sides. Both re-measured against the merged tree.
-  'map/src/render/coverage-renderer.ts': 812,
+  // 812→815 (#2319, hunt 2026-09-02): the drape draw now selects its pipeline from
+  // `pickTargetsEnabled(this.rhi.caps)` — the one authority the opaque pass attaches its
+  // rg32uint pick MRT from — so a coverage layer under `?picking=1` stops handing a
+  // 1-target pipeline to a 2-attachment sub-pass. One argument plus the 3-line rationale
+  // (why a mismatched target count invalidates the WHOLE sub-pass, basemap included);
+  // the pick twin itself lives in coverage-material.ts, not here. Measured with `wc -l`
+  // on the post-prettier tree.
+  'map/src/render/coverage-renderer.ts': 815,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

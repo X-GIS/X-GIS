@@ -11,7 +11,14 @@
 // where s ∈ [0,1] is PRE-NORMALIZED CPU-side — storing raw values in f16 is forbidden
 // (offset-dependent error); normalized storage bounds the f16 error at 2⁻¹² of range.
 
-import type { RhiDevice, RhiBindGroup, RhiTextureView, RhiSampler, RhiBuffer } from '@xgis/engine'
+import type {
+  RhiDevice,
+  RhiBindGroup,
+  RhiTextureView,
+  RhiSampler,
+  RhiBuffer,
+  MaterialDesc,
+} from '@xgis/engine'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitCoverageWgsl,
@@ -212,13 +219,25 @@ export class CoverageDraper {
    *  so nothing else would ever reclaim these. */
   destroy(): void {
     this.material.destroy()
+    this._pickMaterial?.destroy()
+    this._pickMaterial = undefined
   }
 
   private readonly material: Material
+  /** The descriptor `material` was built from — kept so the pick twin below is the SAME
+   *  material with different colour targets, rather than a hand-copied second descriptor
+   *  that can drift from this one. */
+  private readonly desc: MaterialDesc
+  // The drape drawn INSIDE the opaque sub-pass while picking is on (#2319): that sub-pass
+  // carries a SECOND (rg32uint) colour attachment, and WebGPU rejects `setPipeline` when the
+  // pipeline's fragment-target count differs from the pass's attachment count — the whole
+  // sub-pass, basemap included, is then dropped every frame. LAZY, so the non-pick path (and
+  // WebGL2, which fail-closes on an rg32uint MRT) never builds it.
+  private _pickMaterial?: Material
 
   constructor(
     private readonly rhi: RhiDevice,
-    format: string,
+    private readonly format: string,
     sampleCount: number,
     /** The layer's compiled `filter:` predicate, spliced into the fragment stage (#1437).
      *  A draper is built PER PREDICATE — the caller keys its cache on
@@ -233,7 +252,7 @@ export class CoverageDraper {
     // WebGL2 device receives are unchanged: `emitGlslStages` is byte-identical to two
     // `emitGlslModule` calls, pinned for this family (filter-free row) by
     // `glsl-stage-entry-parity.test.ts`.
-    this.material = new Material(rhi, {
+    this.desc = {
       shader: wgslFor(rhi, () => emitCoverageWgsl(filter)),
       vsEntry: 'vs_cov',
       fsEntry: 'fs_cov',
@@ -269,7 +288,29 @@ export class CoverageDraper {
         { depthWrite: false, depthCompare: 'always', label: 'coverage-ramp-pipeline-rhi' },
       ],
       globalUniformSize: COVERAGE_UNIFORM_FLOATS * 4,
-    })
+    }
+    this.material = new Material(rhi, this.desc)
+  }
+
+  /** The pick-pass twin: same shader, same group-0 layout, one extra rg32uint target so the
+   *  pipeline is layout-compatible with the opaque sub-pass's pick MRT (#2319). `writeMask: 0`
+   *  because the drape carries no feature id and must not clobber the id the fill under it
+   *  already wrote (#1215). It REUSES `material`'s layout and leaves `globalUniform` to
+   *  `material` (no `globalUniformSize` here), so the bind groups the renderer cached against
+   *  the base material stay valid and `draw` still writes exactly one uniform buffer. */
+  private pickMat(): Material {
+    return (this._pickMaterial ??= new Material(this.rhi, {
+      ...this.desc,
+      groups: [this.material.layout(0)],
+      colorTargets: [
+        { format: this.format as 'bgra8unorm', blend: 'alpha' },
+        { format: 'rg32uint', writeMask: 0 },
+      ],
+      variants: [
+        { depthWrite: false, depthCompare: 'always', label: 'coverage-ramp-pick-pipeline-rhi' },
+      ],
+      globalUniformSize: undefined,
+    }))
   }
 
   /** Build the group-0 bind group for a coverage's resident textures + LUT.
@@ -306,6 +347,9 @@ export class CoverageDraper {
     bindGroup: RhiBindGroup,
     nodes: RhiBuffer,
     indices: RhiBuffer,
+    /** Draw through the pick twin — the caller reads `pickTargetsEnabled(rhi.caps)`, the
+     *  single authority the opaque pass attaches its pick MRT from (#2319). */
+    pick = false,
   ): void {
     this.material.writeGlobal(globalBytes)
     const items: DrawItem[] = [
@@ -318,6 +362,6 @@ export class CoverageDraper {
         indexed: true,
       },
     ]
-    executeItems(this.material, pass, items, 0)
+    executeItems(pick ? this.pickMat() : this.material, pass, items, 0)
   }
 }
