@@ -107,7 +107,7 @@
 
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
-import { captureCanvas } from './helpers/visual'
+import { captureCanvasInPage } from './helpers/visual'
 
 // File-scope, not `test.setTimeout` in the body: a body-scope budget governs the
 // body only, and a loaded SwiftShader runner times out in FIXTURE SETUP
@@ -383,7 +383,23 @@ for (const { proj, role } of ARMS) {
       return hidden
     })
 
-    const png = await captureCanvas(page, { readyTimeoutMs: 60_000, capture: 'clip' })
+    // Read the frame from the CANVAS, not through the compositor (#2242). Every
+    // measurement below decodes this PNG back INTO the page anyway, so the
+    // compositor round trip bought nothing — and it is the step that hangs:
+    // `page.screenshot` needs the page to keep producing frames, and when it
+    // stops, the call log ends after "fonts loaded" and the 300 s budget is what
+    // ends the arm. Measured on THIS arm in a SwiftShader container: the clip
+    // screenshot took 198 662 ms on one run and 13 026 ms on the next, against
+    // 75 ms for the readback of the same 900x500 frame — the spread is the
+    // stall, not a cost curve a bigger budget could absorb.
+    //
+    // Equivalent, measured, not assumed: identical dimensions at dpr 1, and this
+    // canvas is fully opaque (minimum alpha 255 over 450 000 px), so there is no
+    // page background to composite against. What differs between the two paths
+    // is TIME — two readbacks two seconds apart differ by 15.7% on this
+    // still-converging scene, more than enough to account for the 18.3% between
+    // the paths.
+    const png = await captureCanvasInPage(page, { readyTimeoutMs: 60_000 })
     // On disk for every arm, passing ones included: the frame is the artifact a
     // human reads at full resolution (CLAUDE.md §5), and an attachment alone
     // lives inside the trace zip where a passing arm never writes one.
