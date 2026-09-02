@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1ce1eb07598a25e84cc159b96abd0da4d99565fb
+  Generated from: bbb96276cebf140b99fbd836ab6b9b9aee381bd4
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1ce1eb07598a
+    bun scripts/emit-changelog.ts --since bbb96276cebf
 -->
 
 # Changelog
@@ -36,6 +36,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data:** polar caps synthesise the wedge a CCW ring occupies, not its 340-degree complement (#2357) ([#2383](https://github.com/X-GIS/X-GIS/pull/2383)) `bbb9627`
+- **rhi-webgl2:** setVertexBuffer honours its slot, so a two-slot pipeline stops aliasing slot 0 onto slot 1 (#2360) ([#2381](https://github.com/X-GIS/X-GIS/pull/2381)) `ea1d6a4`
+- **map:** ride the coverage abort spine on the forecast-step and playback reads (#2375) ([#2376](https://github.com/X-GIS/X-GIS/pull/2376)) `00b9016`
 - **pipeline:** groupBy min/max no longer return +/-Infinity for a group with no numeric cell (#2358) ([#2379](https://github.com/X-GIS/X-GIS/pull/2379)) `1ce1eb0`
 - **render:** fill-translate reaches the globe drape path (#2249) ([#2365](https://github.com/X-GIS/X-GIS/pull/2365)) `eb96246`
 - **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
@@ -73,6 +76,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 - **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
 - **text:** take text-translate out of the layout cache and its key (#2170) ([#2267](https://github.com/X-GIS/X-GIS/pull/2267)) `77dedde`
+
+#### refactor
+
+- **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
 
 #### docs
 

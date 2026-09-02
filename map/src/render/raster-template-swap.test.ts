@@ -23,6 +23,7 @@
 import { describe, it, expect } from 'vitest'
 import { RasterRenderer } from './raster-renderer'
 import { HillshadeRenderer } from './hillshade-renderer'
+import { DemTileStore } from './dem-tile-store'
 import type { RhiDevice, RhiTexture } from '@xgis/rhi'
 
 /** Records texture destruction so the test can tell RELEASED from merely dropped. */
@@ -80,43 +81,67 @@ function seeded(renderer: object) {
 
 type Swappable = { setUrlTemplate(url: string, scheme?: undefined): void }
 
-/** Both renderers carry the same defect and take the same fix, so both are
- *  driven through one table — a fix applied to only one would red here. */
-const RENDERERS: Array<[string, () => object]> = [
-  ['RasterRenderer', () => Object.create(RasterRenderer.prototype) as object],
-  ['HillshadeRenderer', () => Object.create(HillshadeRenderer.prototype) as object],
+/** `swap` receives setUrlTemplate; `store` owns the residency this asserts about.
+ *  They are the same object for raster and DIFFERENT for hillshade, whose DEM
+ *  residency lives in `DemTileStore` (#2268) — so the hillshade row exercises the
+ *  delegation too, and a renderer that stopped forwarding would red here. */
+type Subject = { swap: Swappable; store: object }
+
+/** Both sources carry the same defect and take the same fix, so both are driven
+ *  through one table — a fix applied to only one would red here. */
+const RENDERERS: Array<[string, () => Subject]> = [
+  [
+    'RasterRenderer',
+    () => {
+      const r = Object.create(RasterRenderer.prototype) as object
+      return { swap: r as Swappable, store: r }
+    },
+  ],
+  [
+    'HillshadeRenderer -> DemTileStore',
+    () => {
+      const dem = Object.create(DemTileStore.prototype) as object
+      const r = Object.create(HillshadeRenderer.prototype) as object
+      Object.assign(r, { dem })
+      // The store reaches its draper through a THUNK, not a stored reference
+      // (#1578 replaces the draper on every quality flip) — so the seam the test
+      // fills is a function, matching how the renderer actually constructs it.
+      Object.assign(dem, { draperOf: () => undefined })
+      return { swap: r as Swappable, store: dem }
+    },
+  ],
 ]
 
 describe.each(RENDERERS)('#2384 F-4 — %s.setUrlTemplate drops the old source', (_name, make) => {
   it('DESTROYS every cached tile texture, not just the map entries', () => {
     const { rhi, destroyed } = recordingRhi()
-    const r = make()
-    const { cache } = seeded(r)
-    Object.assign(r, {
+    const { swap, store } = make()
+    const { cache } = seeded(store)
+    Object.assign(store, {
       rhi,
       urlTemplate: 'https://old/{z}/{x}/{y}.png',
       _cachedTemplate: 'https://old/{z}/{x}/{y}.png',
     })
-    ;(r as Swappable).setUrlTemplate('https://new/{z}/{x}/{y}.png')
+    swap.setUrlTemplate('https://new/{z}/{x}/{y}.png')
 
     expect(cache.size, 'the old source’s tiles are gone from the cache').toBe(0)
     expect(
       destroyed.map((t) => (t as unknown as { __tag: string }).__tag).sort(),
       'and their GPU textures were RELEASED, not stranded',
     ).toEqual(['a', 'b'])
-    expect((r as { _cachedBytes: number })._cachedBytes, 'the byte accumulator resets').toBe(0)
+    expect((store as { _cachedBytes: number })._cachedBytes, 'the byte accumulator resets').toBe(0)
   })
 
   it('ABORTS loads issued against the old url', () => {
     const { rhi } = recordingRhi()
-    const r = make()
-    const { loading, aborted } = seeded(r)
-    Object.assign(r, {
+    const { swap, store } = make()
+    const { loading, aborted } = seeded(store)
+    Object.assign(store, {
       rhi,
       urlTemplate: 'https://old/{z}/{x}/{y}.png',
       _cachedTemplate: 'https://old/{z}/{x}/{y}.png',
     })
-    ;(r as Swappable).setUrlTemplate('https://new/{z}/{x}/{y}.png')
+    swap.setUrlTemplate('https://new/{z}/{x}/{y}.png')
 
     expect(aborted, 'an in-flight old-url read must not land under the new template').toEqual([
       '2/1/1',
@@ -131,12 +156,12 @@ describe.each(RENDERERS)('#2384 F-4 — %s.setUrlTemplate drops the old source',
     // destroy every visible tile on each projection change or layer rebuild —
     // a correctness fix paid for with a full re-download of the whole viewport.
     const { rhi, destroyed } = recordingRhi()
-    const r = make()
-    const { cache } = seeded(r)
+    const { swap, store } = make()
+    const { cache } = seeded(store)
     const URL = 'https://same/{z}/{x}/{y}.png'
-    Object.assign(r, { rhi, urlTemplate: URL, _cachedTemplate: URL })
-    ;(r as Swappable).setUrlTemplate('') // the reset half of the rebuild
-    ;(r as Swappable).setUrlTemplate(URL) // re-armed with the SAME source
+    Object.assign(store, { rhi, urlTemplate: URL, _cachedTemplate: URL })
+    swap.setUrlTemplate('') // the reset half of the rebuild
+    swap.setUrlTemplate(URL) // re-armed with the SAME source
     expect(cache.size, 'a rebuild must not cost the viewport its tiles').toBe(2)
     expect(destroyed, 'and must destroy nothing').toEqual([])
   })
@@ -145,15 +170,15 @@ describe.each(RENDERERS)('#2384 F-4 — %s.setUrlTemplate drops the old source',
     // The mirror of the arm above: the reset must not launder a real swap into
     // a no-op, which is how a naive "ignore empty" guard would fail.
     const { rhi, destroyed } = recordingRhi()
-    const r = make()
-    const { cache } = seeded(r)
-    Object.assign(r, {
+    const { swap, store } = make()
+    const { cache } = seeded(store)
+    Object.assign(store, {
       rhi,
       urlTemplate: 'https://old/{z}/{x}/{y}.png',
       _cachedTemplate: 'https://old/{z}/{x}/{y}.png',
     })
-    ;(r as Swappable).setUrlTemplate('')
-    ;(r as Swappable).setUrlTemplate('https://new/{z}/{x}/{y}.png')
+    swap.setUrlTemplate('')
+    swap.setUrlTemplate('https://new/{z}/{x}/{y}.png')
     expect(cache.size, 'the old source’s tiles are gone').toBe(0)
     expect(destroyed, 'and were released').toHaveLength(2)
   })
@@ -163,14 +188,14 @@ describe.each(RENDERERS)('#2384 F-4 — %s.setUrlTemplate drops the old source',
     // cache on every layer rebuild — a correctness win paid for with a
     // per-frame texture churn nobody asked for.
     const { rhi, destroyed } = recordingRhi()
-    const r = make()
-    const { cache, aborted } = seeded(r)
-    Object.assign(r, {
+    const { swap, store } = make()
+    const { cache, aborted } = seeded(store)
+    Object.assign(store, {
       rhi,
       urlTemplate: 'https://same/{z}/{x}/{y}.png',
       _cachedTemplate: 'https://same/{z}/{x}/{y}.png',
     })
-    ;(r as Swappable).setUrlTemplate('https://same/{z}/{x}/{y}.png')
+    swap.setUrlTemplate('https://same/{z}/{x}/{y}.png')
 
     expect(cache.size, 'an unchanged template keeps its tiles').toBe(2)
     expect(destroyed, 'and destroys nothing').toEqual([])

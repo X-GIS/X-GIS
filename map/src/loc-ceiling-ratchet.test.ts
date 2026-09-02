@@ -1771,9 +1771,15 @@ const CEILINGS: Record<string, number> = {
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
   // 850->853 (#2286): raster twin of the same draper gap.
-  // 853->871 (#2384 F-4): raster twin of the same defect, same fix through the shared
-  // dropAllTiles.
-  'map/src/render/hillshade-renderer.ts': 871,
+  // 853→747 (#2268 / D5 INC-0, main merge): DEM residency — the tile cache +
+  // byte accounting, both ledgers, the URL template/scheme and the whole fetch path —
+  // moved to dem-tile-store.ts. The file sat at EXACTLY its ceiling, so nothing could
+  // be added to it at all; that is why the extraction is a precondition for the terrain
+  // track rather than tidying. #2286's three destroy() lines are KEPT (the draper is
+  // this renderer's, not the store's), so this is not a same-file double delta: the
+  // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
+  // carried across or computed from either side's.
+  'map/src/render/hillshade-renderer.ts': 747,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps

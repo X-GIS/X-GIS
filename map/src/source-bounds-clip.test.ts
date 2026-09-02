@@ -238,7 +238,11 @@ function requestedKeys(ctx: GPUContext, bounds?: [number, number, number, number
   renderer.setSourceBounds(bounds)
 
   const seen = new Set<string>()
-  const priv = renderer as unknown as {
+  // Raster still owns the load path; hillshade's moved to its DemTileStore
+  // (#2268 / D5 INC-0). Resolve whichever object actually owns it — recording the
+  // decoy on the wrong object would leave the oracle empty and the assertion
+  // vacuous rather than red, which is the failure this comment exists to prevent.
+  const priv = ((renderer as unknown as { dem?: unknown }).dem ?? renderer) as {
     loadTileTexture: (url: string, signal: AbortSignal) => Promise<unknown>
     loadingTiles: Map<string, unknown>
   }
@@ -317,7 +321,11 @@ function demRequestedKeys(ctx: GPUContext, bounds?: [number, number, number, num
   renderer.setParams({ tileSize: 256 })
 
   const seen = new Set<string>()
-  const priv = renderer as unknown as {
+  // Raster still owns the load path; hillshade's moved to its DemTileStore
+  // (#2268 / D5 INC-0). Resolve whichever object actually owns it — recording the
+  // decoy on the wrong object would leave the oracle empty and the assertion
+  // vacuous rather than red, which is the failure this comment exists to prevent.
+  const priv = ((renderer as unknown as { dem?: unknown }).dem ?? renderer) as {
     loadTileTexture: (url: string, signal: AbortSignal) => Promise<unknown>
     loadingTiles: Map<string, unknown>
   }
