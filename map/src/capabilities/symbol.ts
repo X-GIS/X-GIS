@@ -180,7 +180,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: true,
-    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and re-keys the layout cache. viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
+    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and applies it at the two draw sites — #2170 keeps it OUT of the layout cache and its key, so a rotation re-shapes nothing. viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
   },
   {
     property: 'text-halo-blur',

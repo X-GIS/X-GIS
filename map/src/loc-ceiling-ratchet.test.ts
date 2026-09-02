@@ -1141,7 +1141,10 @@ const CEILINGS: Record<string, number> = {
   //     and three copies of one type are three chances to add a field to two.
   // The ceiling drops to the measured post-prettier size rather than being left
   // slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2149,
+  // 2149→2145 (#2170): text-translate came out of the cached layout and its
+  // key, replacing the fold-then-add with one grouped expression at each of the
+  // two draw sites. Measured with `wc -l` on the post-prettier tree.
+  'map/src/text/text-stage.ts': 2145,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
