@@ -67,7 +67,7 @@ import { mapExpr, mapStmt } from '../passes/opt/ir-transform.js'
 import { analyzePortableKernel, isPortableComputeEntry } from '../passes/portable-kernel.js'
 import { reachFrom } from '../passes/stage-bindings.js'
 import { dslError } from '../diagnostics/error.js'
-import { f32Lit } from './wgsl.js'
+import { f32Lit, intLit } from './wgsl.js'
 import {
   emitBody,
   emitExpr as emitExprNeutral,
@@ -155,8 +155,8 @@ function isIntType(t: ShaderType): boolean {
 
 function glslLit(value: number | boolean, t: ShaderType): string {
   if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (t.kind === 'scalar' && t.scalar === 'u32') return `${value}u`
-  if (t.kind === 'scalar' && t.scalar === 'i32') return `${value}`
+  if (t.kind === 'scalar' && t.scalar === 'u32') return `${intLit(value, 'u32')}u`
+  if (t.kind === 'scalar' && t.scalar === 'i32') return intLit(value, 'i32')
   return f32Lit(value)
 }
 

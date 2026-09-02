@@ -69,12 +69,17 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`
         return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p)
       }
-      case 'unop':
+      case 'unop': {
         // `-` binds tighter than any binary operator, so the operand must be an
         // ATOM to lose its parens: `-(a*b)` is not `-a*b`, and `-(-a)` would
-        // spell `--a`, which is a decrement in GLSL.
-        if (full) return `(-${r(x.a)})`
-        return wrap(`-${go(x.a, PREC_ATOM)}`, PREC_UNARY)
+        // spell `--a`, which is a decrement in GLSL. The same `--` hazard hides in
+        // a NEGATIVE LITERAL operand — a leaf never wraps, so `-(lit -1.0)` printed
+        // `--1.0` (#2276) — hence any operand whose spelling already starts with
+        // `-` is parenthesized, in both modes and on both targets.
+        const inner = full ? r(x.a) : go(x.a, PREC_ATOM)
+        const operand = inner.startsWith('-') ? `(${inner})` : inner
+        return full ? `(-${operand})` : wrap(`-${operand}`, PREC_UNARY)
+      }
       case 'compare':
         return `(${r(x.a)} ${x.cop} ${r(x.b)})`
       case 'logical':

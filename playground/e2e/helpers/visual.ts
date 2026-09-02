@@ -595,29 +595,29 @@ export const DEMO_CHROME_IDS = [
 /** Hide every demo-chrome element that is currently visible. Returns the ids
  *  actually hidden (log it — a gate's output should say what left the frame).
  *
- *  DURABLE, not one-shot (#2281). The hide is a stylesheet `!important` rule,
- *  because the page re-shows some of this chrome on its own: the console
- *  overlay repaints itself `display:flex` on every new console.warn / error
- *  (demo-runner.ts), which overwrote the inline `display:none` this used to
- *  set. A DEV leak-detector warning (#2269) landing mid-run put that overlay
- *  over 81% of the RTC gate's clip in one arm and not the other — 11858 px of
- *  "recombination" diff that was DOM. An inline style cannot survive a later
- *  inline write; a stylesheet rule with `!important` outranks it, and it also
- *  covers chrome the page has not created yet at call time. */
+ *  Hides through a stylesheet rule with `!important`, NOT an inline
+ *  `display:none`: chrome that toggles its own inline display later undoes
+ *  the inline form. The log overlay does exactly that — its `repaint()`
+ *  (demo-runner.ts) writes `display:flex` on every console.warn — so the DEV
+ *  owner-leak warnings (#2266) re-showed it mid-run and the recombine parity
+ *  gate hashed the overlay instead of the canvas (#2284). An important author
+ *  rule outranks any non-important inline declaration, whenever it is set. */
 export async function hideDemoChrome(page: Page): Promise<string[]> {
   return await page.evaluate(
     (ids) => {
+      const ATTR = 'data-xgis-chrome-hidden'
+      if (!document.getElementById('xgis-chrome-hide')) {
+        const style = document.createElement('style')
+        style.id = 'xgis-chrome-hide'
+        style.textContent = `[${ATTR}]{display:none!important}`
+        document.head.appendChild(style)
+      }
       const hidden: string[] = []
       for (const id of ids) {
         const el = document.getElementById(id)
-        if (el && getComputedStyle(el).display !== 'none') hidden.push(id)
-      }
-      const STYLE_ID = '__xgis-e2e-hide-chrome'
-      if (!document.getElementById(STYLE_ID)) {
-        const style = document.createElement('style')
-        style.id = STYLE_ID
-        style.textContent = ids.map((id) => `#${id}{display:none!important}`).join('')
-        document.head.appendChild(style)
+        if (!el) continue
+        if (getComputedStyle(el).display !== 'none') hidden.push(id)
+        el.setAttribute(ATTR, '')
       }
       return hidden
     },
