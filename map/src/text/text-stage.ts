@@ -894,9 +894,9 @@ export class TextStage {
       sortKey?: number
       /** Iter 112 paired-symbol collision: pairKey of the paired icon
        *  for curved line shields. Carried on the shaped entry (not
-       *  indexed back into pendingLine) because the line-loop below
-       *  `continue`-skips unshapeable labels, so shaped[] is NOT 1:1
-       *  with pendingLine[] indices. The drop loop reads it directly. */
+       *  indexed back into pendingLine) because shaped[] holds every point
+       *  label first, so a line label's shaped index is offset from its
+       *  pendingLine index. The drop loop reads it directly. */
       pairKey?: string
       /** Mapbox `symbol-z-order`. `viewport-y` orders this label by
        *  screen Y (lower-on-screen placed first → drawn on top);
@@ -1546,6 +1546,31 @@ export class TextStage {
       bumpAlloc(tag)
       return this._frameArena.allocF32(len)
     }
+    // Every shaped entry's collision identity comes from HERE, so the fitted
+    // and unshapeable pushes below cannot drift apart on a future field.
+    const lineShapedFields = (p: PendingLineLabel): Omit<ShapedLabel, 'layouts'> => ({
+      allowOverlap: p.def.allowOverlap === true,
+      ignorePlacement: p.def.ignorePlacement === true,
+      sortKey: p.def.sortKey,
+      symbolZOrder: p.def.symbolZOrder,
+      pairKey: p.pairKey,
+      lineId: p.lineId,
+      anchorDistancePx: p.anchorDistancePx,
+      collisionId: p.collisionId,
+      layerName: p.layerName,
+    })
+    // #2313 — a line label this loop cannot lay out (no glyphs, degenerate
+    // polyline, or a walk the run length / text-max-angle rejects) still enters
+    // `shaped`, with NO layout candidate: greedyPlaceBboxes reports
+    // `placed: false` for an empty candidate list, so the drop loop below stamps
+    // its pairKey through the SAME path a collision-rejected label takes and
+    // IconStage drops the paired shield badge — skipping the entry left that
+    // badge on screen as an empty box with no road number. It also keeps
+    // `shaped` 1:1 with `pendingLine`, so the fade occurrence counter agrees
+    // with IconStage's, which counts every dispatched icon including drops.
+    const pushUnshapeable = (p: PendingLineLabel): void => {
+      shaped.push({ layouts: [], ...lineShapedFields(p) })
+    }
     // iter-265 — sub-phase drill. Curved-label loop covers ensure
     // String + per-glyph advance fill + cumulative length + keep
     // upright check + per-glyph sample (atan2 / Math.sin / Math.cos)
@@ -1558,7 +1583,10 @@ export class TextStage {
         p.text,
         cjkBucketFor(p.text, p.def.size, dpr),
       )
-      if (glyphs.length === 0) continue
+      if (glyphs.length === 0) {
+        pushUnshapeable(p)
+        continue
+      }
       // Everything downstream (verticalOffset, halfH, letterSpacing, advances)
       // derives from sizePx → single site, the same one the point loop uses.
       // #421: no CJK floor — CJK is crisp via local-ideograph (ML parity).
@@ -1603,7 +1631,10 @@ export class TextStage {
       const qx = p.livePolylineX ?? px
       const qy = p.livePolylineY ?? py
       const n = px.length
-      if (n < 2) continue
+      if (n < 2) {
+        pushUnshapeable(p)
+        continue
+      }
       if (_cumLenScratch.length < n) {
         _cumLenScratch = new Float32Array(n * 2)
       }
@@ -1652,7 +1683,10 @@ export class TextStage {
       })
       // Did not fit the run, or text-max-angle rejected it — Mapbox drops
       // the whole label either way.
-      if (walked === null) continue
+      if (walked === null) {
+        pushUnshapeable(p)
+        continue
+      }
       // Line labels reference the polyline directly — anchor is at
       // origin (0,0); per-glyph offsets are absolute screen coords
       // already (the renderer computes baseX = anchorX + offset[0]
@@ -1728,15 +1762,7 @@ export class TextStage {
             bbox: curvedBox,
           },
         ],
-        allowOverlap: p.def.allowOverlap === true,
-        ignorePlacement: p.def.ignorePlacement === true,
-        sortKey: p.def.sortKey,
-        symbolZOrder: p.def.symbolZOrder,
-        pairKey: p.pairKey,
-        lineId: p.lineId,
-        anchorDistancePx: p.anchorDistancePx,
-        collisionId: p.collisionId,
-        layerName: p.layerName,
+        ...lineShapedFields(p),
       })
     }
     perfMarkEnd('stage-prepare.line-loop')
@@ -1872,8 +1898,10 @@ export class TextStage {
         // order (south emitted LAST = drawn on top). Use layouts[0].
         // draw.anchorY as the label's anchor screen Y.
         order.sort((a, b) => {
-          const ya = shaped[a]!.layouts[0]!.draw.anchorY
-          const yb = shaped[b]!.layouts[0]!.draw.anchorY
+          // `?? 0` — an unshapeable entry (#2313) has no layout and emits
+          // nothing, so where it lands in this order cannot matter.
+          const ya = shaped[a]!.layouts[0]?.draw.anchorY ?? 0
+          const yb = shaped[b]!.layouts[0]?.draw.anchorY ?? 0
           if (ya !== yb) return yb - ya // descending: larger Y (south) first
           return a - b // stable tie-break: source order
         })
@@ -1966,8 +1994,9 @@ export class TextStage {
             const ra = rank.get(shaped[a]!.layerName)!
             const rb = rank.get(shaped[b]!.layerName)!
             if (ra !== rb) return ra - rb // layer precedence: earlier layer first (drawn under)
-            const ya = shaped[a]!.layouts[0]!.draw.anchorY
-            const yb = shaped[b]!.layouts[0]!.draw.anchorY
+            // `?? 0` — see the viewport-y sort above (#2313).
+            const ya = shaped[a]!.layouts[0]?.draw.anchorY ?? 0
+            const yb = shaped[b]!.layouts[0]?.draw.anchorY ?? 0
             if (ya !== yb) return ya - yb // Y ASC: near (larger Y) drawn last = on top
             return a - b // stable: source order
           })
@@ -2025,8 +2054,8 @@ export class TextStage {
       const placement = placements[i]!
       // Point labels carry pairKey on their PendingLabel (shaped[] is
       // 1:1 with this.pending for the point range). Curved line shields
-      // carry it on the shaped entry instead — the line-loop skips
-      // unshapeable labels so pendingLine[] indices don't line up.
+      // carry it on the shaped entry instead — they follow the point range,
+      // so pendingLine[] indices don't line up.
       const pairKey = this.pending[i]?.pairKey ?? shaped[i]!.pairKey
       if (placement.placed) {
         const chosen = shaped[i]!.layouts[placement.chosen]!

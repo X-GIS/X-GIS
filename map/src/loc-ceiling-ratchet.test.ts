@@ -1186,7 +1186,21 @@ const CEILINGS: Record<string, number> = {
   //     and three copies of one type are three chances to add a field to two.
   // The ceiling drops to the measured post-prettier size rather than being left
   // slack: headroom is re-justified per phase, never banked. MEASURED.
-  'map/src/text/text-stage.ts': 2149,
+  // 2149→2178 (#2313 — an unshapeable curved line label must still be counted).
+  // The three early-outs of the line-shaping loop (no glyphs, degenerate
+  // polyline, glyph walk rejected by run length / text-max-angle) `continue`d
+  // out of the loop, so the label never entered `shaped[]` and the drop loop —
+  // which stamps droppedPairKeys only from `shaped[]` — left its paired highway
+  // shield on screen as an empty badge with no road number. Each early-out now
+  // pushes a layout-less entry, which the EXISTING collision + drop wiring
+  // already reports as unplaced (+15 for the shared field builder and its
+  // rationale, +9 at the three sites, +5 for the two z-order comparators'
+  // optional anchor read). The file had ZERO headroom and there is nothing to
+  // extract that would carry this: the entry's fields ARE prepare()'s local
+  // ShapedLabel shape, so the one duplication the fix would have introduced is
+  // instead collapsed into `lineShapedFields`, which the fitted push now shares.
+  // MEASURED post-prettier.
+  'map/src/text/text-stage.ts': 2178,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
