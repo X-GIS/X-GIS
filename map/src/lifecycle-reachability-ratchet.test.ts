@@ -250,6 +250,15 @@ const TABLE: Row[] = [
     via: { file: 'map/src/map.ts', pattern: 'hillshadeRenderer?.destroy()' },
   },
   {
+    // #2268 (D5 INC-0) — DEM residency moved out of HillshadeRenderer, and its
+    // teardown moved with it: the renderer's own destroy() now delegates. A
+    // CALLER anchor rather than a tier, because the lifetime is genuinely
+    // owned — the store dies with the renderer, which dies with the map.
+    file: 'map/src/render/dem-tile-store.ts',
+    method: 'destroy',
+    via: { file: 'map/src/render/hillshade-renderer.ts', pattern: 'this.dem.destroy()' },
+  },
+  {
     file: 'map/src/render/raster-renderer.ts',
     method: 'destroy',
     via: { file: 'map/src/map.ts', pattern: 'rasterRenderer?.destroy()' },
