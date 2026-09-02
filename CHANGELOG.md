@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 553bbc5005cbd9219095478106231de0074f4661
+  Generated from: 1392e6d02159a4e19601a641bf2d47748988f4c2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 553bbc5005cb
+    bun scripts/emit-changelog.ts --since 1392e6d02159
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
 - **text:** a label with no text-font stops asking for a CJK-chain fontstack (#2259) ([#2287](https://github.com/X-GIS/X-GIS/pull/2287)) `2dcfab5`
 - **text:** generation-stamped fade holdovers (#2278) + a witness for the durable hideDemoChrome (#2284) ([#2279](https://github.com/X-GIS/X-GIS/pull/2279)) `491d2bf`
@@ -78,6 +79,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`
 - **ownership:** teardown-reachability ratchet + DEV owner-leak detector ([#2269](https://github.com/X-GIS/X-GIS/pull/2269)) `bdfe551`
 - **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`
 - **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
