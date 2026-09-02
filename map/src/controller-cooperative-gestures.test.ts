@@ -471,6 +471,60 @@ describe('#1264 — cooperativeGestures: touch drag (MapLibre parity)', () => {
     }
   })
 
+  // hunt 2026-09-02: #2295 — the pointerup 2→1 handoff re-armed isDragging
+  // unconditionally, so the normal END of every pinch (lift one finger) handed
+  // the remaining touch finger a drag-pan the #1264 gate had denied it at
+  // pointerdown. (c4) pins the blocked case, (c5) pins that the handoff still
+  // works when the gate does not apply.
+  it('(c4) enabled + pinch then lift one finger: the remaining single TOUCH finger still does not pan (#2295)', () => {
+    const cam = makeMercCamera(6)
+    const { canvas, fire } = makeStubCanvas()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, state({ cooperativeGestures: true }))
+    try {
+      fire('pointerdown', ptr(1, 300, 300, { pointerType: 'touch' }))
+      fire('pointerdown', ptr(2, 500, 300, { pointerType: 'touch' }))
+      fire('pointerup', ptr(2, 500, 300, { pointerType: 'touch' }))
+      const cx1 = cam.centerX,
+        cy1 = cam.centerY
+      fire('pointermove', ptr(1, 350, 300, { pointerType: 'touch' }))
+      fire('pointermove', ptr(1, 400, 300, { pointerType: 'touch' }))
+      expect(
+        cam.centerX,
+        'after pinch→one finger, a single touch finger panned the camera (centerX)',
+      ).toBe(cx1)
+      expect(
+        cam.centerY,
+        'after pinch→one finger, a single touch finger panned the camera (centerY)',
+      ).toBe(cy1)
+    } finally {
+      ctrl.detach()
+    }
+  })
+
+  it('(c5) disabled (default): pinch then lift one finger still hands the remaining finger a pan — #4 handoff regression pin', () => {
+    const cam = makeMercCamera(6)
+    const { canvas, fire } = makeStubCanvas()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, state()) // no cooperativeGestures key at all
+    try {
+      fire('pointerdown', ptr(1, 300, 300, { pointerType: 'touch' }))
+      fire('pointerdown', ptr(2, 500, 300, { pointerType: 'touch' }))
+      fire('pointerup', ptr(2, 500, 300, { pointerType: 'touch' }))
+      const cx1 = cam.centerX,
+        cy1 = cam.centerY
+      fire('pointermove', ptr(1, 350, 300, { pointerType: 'touch' }))
+      fire('pointermove', ptr(1, 400, 300, { pointerType: 'touch' }))
+      const moved = Math.hypot(cam.centerX - cx1, cam.centerY - cy1)
+      expect(
+        moved,
+        'default-off pinch→one-finger handoff did not pan (regression)',
+      ).toBeGreaterThan(1000)
+    } finally {
+      ctrl.detach()
+    }
+  })
+
   it('(d) disabled (default, option absent): single-finger touch drag still pans — byte-identical regression pin', () => {
     const cam = makeMercCamera(6)
     const { canvas, fire } = makeStubCanvas()

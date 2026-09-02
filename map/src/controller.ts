@@ -339,6 +339,21 @@ export class PanZoomController implements Controller {
       }, COOP_HINT_HOLD_MS)
     }
 
+    /** #1264/#2295 — single authority for "does `cooperativeGestures` deny
+     *  this pointer a single-finger drag-pan?". Returns the live option when
+     *  it blocks (so the caller can feed `showCoopHint`) and `undefined` when
+     *  the drag is allowed. Every site that arms a one-pointer drag — the
+     *  pointerdown press AND the pointerup 2→1 handoff — asks here, so the
+     *  contract is a property of the single-pointer STATE, not of which event
+     *  happened to create it. Mouse/pen and the default-off case return
+     *  `undefined`, keeping pre-#1264 behaviour byte-identical. */
+    const coopDeniesTouchDrag = (
+      e: PointerEvent,
+    ): boolean | CooperativeGesturesOptions | undefined => {
+      const coop = getState().cooperativeGestures
+      return e.pointerType === 'touch' && coop !== undefined && coop !== false ? coop : undefined
+    }
+
     const onPointerDown = (e: PointerEvent) => {
       // #12: register pointer BEFORE any early-return so every pointerdown
       // has a paired setPointerCapture + activePointers entry, keeping
@@ -410,8 +425,7 @@ export class PanZoomController implements Controller {
           // the page for this drag (`touch-action:'pan-y'` when
           // cooperativeGestures is on) — this only stops the MAP itself from
           // also panning underneath that native scroll.
-          const coop = getState().cooperativeGestures
-          const coopBlocksTouch = e.pointerType === 'touch' && coop !== undefined && coop !== false
+          const coopBlocksTouch = coopDeniesTouchDrag(e)
 
           // Right-click or Ctrl+click → prepare rotate mode (activated on move)
           if (e.button === 2 || e.ctrlKey) {
@@ -421,10 +435,10 @@ export class PanZoomController implements Controller {
             rotateStartX = e.clientX
             rotateStartY = e.clientY
             rotateActivated = false
-          } else if (coopBlocksTouch) {
+          } else if (coopBlocksTouch !== undefined) {
             isDragging = false
             isRotating = false
-            showCoopHint(coop, 'touch')
+            showCoopHint(coopBlocksTouch, 'touch')
           } else {
             isDragging = true
             isRotating = false
@@ -907,7 +921,10 @@ export class PanZoomController implements Controller {
         // #4: lifting back to one finger after a two-pointer gesture must
         // clear pending/active rotate state so the remaining finger pans
         // instead of activating rotation on the next move.
-        isDragging = true
+        // #2295: but only where a pointerdown would have armed that drag —
+        // under `cooperativeGestures` a single TOUCH finger never pans, and
+        // lifting out of a pinch is the normal END of every pinch.
+        isDragging = coopDeniesTouchDrag(e) === undefined
         isRotating = false
         isRotatePending = false
         rotateActivated = false
