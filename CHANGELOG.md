@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 80355d9467a3c6988443ba5a9747c5e08d34c7a3
+  Generated from: 1ce1eb07598a25e84cc159b96abd0da4d99565fb
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 80355d9467a3
+    bun scripts/emit-changelog.ts --since 1ce1eb07598a
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **pipeline:** groupBy min/max no longer return +/-Infinity for a group with no numeric cell (#2358) ([#2379](https://github.com/X-GIS/X-GIS/pull/2379)) `1ce1eb0`
 - **render:** fill-translate reaches the globe drape path (#2249) ([#2365](https://github.com/X-GIS/X-GIS/pull/2365)) `eb96246`
 - **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
 - **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
