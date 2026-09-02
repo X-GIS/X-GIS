@@ -70,7 +70,22 @@ function aggregate(col: readonly Cell[], rows: readonly number[], kind: Agg): nu
     else if (kind === 'min') acc = Math.min(acc, v)
     else if (kind === 'max') acc = Math.max(acc, v)
   }
-  return kind === 'avg' ? (n > 0 ? acc / n : 0) : acc
+  if (kind === 'avg') return n > 0 ? acc / n : 0
+  // min/max seed with +/-Infinity, so a group whose cells are ALL non-numeric
+  // ('N/A', '-', '' — ordinary in ingested CSV) skips every row above and
+  // returns the untouched seed. Infinity reaching a Table column is worse than
+  // it looks: it is a plausible-shaped extreme, so a downstream domain/scale
+  // computation consumes it silently rather than rejecting it.
+  //
+  // NaN is the sentinel because `aggregate` returns `number` (Cell is
+  // `number | string`), so there is no out-of-band value available, and of the
+  // in-band candidates NaN is the only one that cannot be mistaken for real
+  // data — 0 is a legitimate min. It also matches the `Number.isNaN` skip this
+  // function already uses to mean "not numeric". Callers test with
+  // `Number.isFinite`, which rejects both the old and the new value; what
+  // changes is that NaN cannot be silently arithmetic'd into a plausible result.
+  if ((kind === 'min' || kind === 'max') && n === 0) return NaN
+  return acc
 }
 
 /** Materialise a row subset into a fresh columnar table (shared by where/filter). */
