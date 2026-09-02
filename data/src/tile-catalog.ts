@@ -534,10 +534,13 @@ export class TileCatalog {
   // reset it (per frame, also ticking backends) and gates compile /
   // sub-tile calls through it.
 
-  /** Reset per-frame budget. The frameId arg is reserved for future
-   *  frame-shared budget work (currently unused — each layer gets
-   *  its own sliced budget per the constants above). */
-  resetCompileBudget(_frameId: number = -1): void {
+  /** Reset per-frame budget. `frameId` is the frame the caller is in (#2273
+   *  records it for the prefetch shield); the reset itself still runs per
+   *  call — each layer gets its own sliced budget per the constants above. */
+  resetCompileBudget(frameId: number = -1): void {
+    // #2273 — recorded so `cancelStale` ages the prefetch shield per FRAME. The
+    // budget reset + tick below stay per call on purpose (#2277 owns that).
+    this._frameId = frameId
     this.budget.reset()
     // Drain backend deferred-compile queues (PMTiles raw bytes →
     // compileSingleTile). Backends that compile inline don't
@@ -932,6 +935,10 @@ export class TileCatalog {
    *  cancelled — e.g., camera direction reverses and the previously-
    *  intended next-LOD is no longer interesting. */
   private _prefetchAge: number = 0
+  /** Last `resetCompileBudget` frame id / frame the shield was last aged in
+   *  (#2273). -1 = no frame id supplied: every `cancelStale` call ages. */
+  private _frameId = -1
+  private _prefetchAgedFrame = -1
   // The eviction shield for just-prefetched keys (key → expiresAt ms,
   // 2 s TTL) lives in TileEvictionPolicy (this.eviction); prefetchTiles
   // populates it, evictTiles honours + drains it.
@@ -1110,9 +1117,16 @@ export class TileCatalog {
     // the set so genuinely abandoned fetches become cancellable.
     // 12 frames ≈ 200 ms at 60 fps — comfortably longer than a
     // single prefetch round (Tier 2 every 6, adjacent every 10).
-    this._prefetchAge++
-    if (this._prefetchAge > 12 && this._prefetchKeys.size > 0) {
-      this._prefetchKeys.clear()
+    // #2273 — "frames" must mean frames: this runs once per render(), and
+    // render() runs once per ShowCommand (measured 97/frame on OFM Bright z14),
+    // so per-call aging emptied the shield in an eighth of a frame and every
+    // sibling prefetch was aborted before its bytes landed. Age per frame id.
+    if (this._frameId === -1 || this._frameId !== this._prefetchAgedFrame) {
+      this._prefetchAgedFrame = this._frameId
+      this._prefetchAge++
+      if (this._prefetchAge > 12 && this._prefetchKeys.size > 0) {
+        this._prefetchKeys.clear()
+      }
     }
   }
 
