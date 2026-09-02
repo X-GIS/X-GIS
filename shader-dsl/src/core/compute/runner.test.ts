@@ -287,3 +287,118 @@ describe('createComputeRunner — cpu tier value parity', () => {
     }).not.toThrow()
   })
 })
+
+// ── #2362 — n === 0 is a steady state on ALL THREE tiers ──────────────────────────────
+//
+// This is the one place the WebGL2 tier is driven through `run()`, and it is NOT value
+// coverage — see the file header: a dispatch recorded by a stub succeeds whether or not it
+// would have computed anything. What is decidable here is CONTROL FLOW: whether an empty
+// frame reaches GL at all. The stub is inert everywhere except `checkFramebufferStatus`,
+// which implements the one spec rule the defect turned on (GLES 3.0 §4.4.4.2 — an
+// attachment of width or height 0 is not framebuffer-attachment-complete). Pre-fix the
+// first test below threw `R32UI framebuffer incomplete` while the CPU tier, given the same
+// input, resolved to an empty array.
+
+const FB_COMPLETE = 0x8cd5
+const FB_INCOMPLETE_ATTACHMENT = 0x8cd6
+
+/** A WebGL2 context stub: every entry point is a no-op, every unknown constant is a
+ *  distinct number, and the ONLY modelled driver behaviour is attachment completeness. */
+function glStub(): { gl: WebGL2RenderingContext; calls: string[] } {
+  const calls: string[] = []
+  const dims = new WeakMap<object, { w: number; h: number }>()
+  let bound: object | null = null
+  let attached: object | null = null
+  let nextConst = 0x1000
+  const consts = new Map<string, number>([
+    ['FRAMEBUFFER_COMPLETE', FB_COMPLETE],
+    ['COMPILE_STATUS', 0x8b81],
+    ['LINK_STATUS', 0x8b82],
+  ])
+  const api: Record<string, (...args: never[]) => unknown> = {
+    createShader: () => ({}),
+    createProgram: () => ({}),
+    createTexture: () => ({}),
+    createFramebuffer: () => ({}),
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: () => ({}),
+    getParameter: () => new Int32Array([0, 0, 1, 1]),
+    bindTexture: (...a: never[]) => {
+      bound = (a[1] as object | null) ?? null
+    },
+    texImage2D: (...a: never[]) => {
+      if (bound) dims.set(bound, { w: a[3] as unknown as number, h: a[4] as unknown as number })
+    },
+    framebufferTexture2D: (...a: never[]) => {
+      attached = (a[3] as object | null) ?? null
+    },
+    checkFramebufferStatus: () => {
+      const d = attached ? dims.get(attached) : undefined
+      return d && (d.w === 0 || d.h === 0) ? FB_INCOMPLETE_ATTACHMENT : FB_COMPLETE
+    },
+  }
+  const gl = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        if (prop in api) {
+          const f = api[prop]!
+          return (...args: never[]) => {
+            calls.push(prop)
+            return f(...args)
+          }
+        }
+        // An UPPERCASE name is a GL enum; anything else is an entry point we do not model.
+        if (/^[A-Z0-9_]+$/.test(prop)) {
+          if (!consts.has(prop)) consts.set(prop, nextConst++)
+          return consts.get(prop)
+        }
+        return (...args: never[]) => {
+          calls.push(prop)
+          void args
+          return undefined
+        }
+      },
+    },
+  ) as unknown as WebGL2RenderingContext
+  return { gl, calls }
+}
+
+describe('createComputeRunner — an empty dispatch is a steady state on every tier (#2362)', () => {
+  it('webgl2 resolves to an empty Uint32Array, the same as cpu', async () => {
+    const { gl } = glStub()
+    const webgl2 = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+    expect(webgl2.backend).toBe('webgl2')
+    const cpu = await createComputeRunner(makeKernel(), { prefer: ['cpu'] })
+
+    const empty = new Float32Array(0)
+    expect(await webgl2.run(empty)).toEqual(new Uint32Array(0))
+    expect(await cpu.run(empty)).toEqual(new Uint32Array(0))
+  })
+
+  it('the short-circuit targets n === 0 ONLY — a real dispatch still reaches GL', async () => {
+    // The control that separates "empty frames are handled" from "the tier stopped
+    // drawing": with one invocation the GL path must still run end to end.
+    const { gl, calls } = glStub()
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+
+    calls.length = 0
+    await r.run(new Float32Array(0))
+    expect(calls).toEqual([]) // not one GL call for an empty frame
+
+    calls.length = 0
+    await r.run(new Float32Array([0.25]))
+    expect(calls).toContain('drawArrays')
+    expect(calls).toContain('readPixels')
+  })
+
+  it('an explicit `invocations` of 0 over a non-empty input is the same steady state', async () => {
+    // `n` is `invocations ?? input.length`, so the guard must key on n, not on the input.
+    const { gl, calls } = glStub()
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+    calls.length = 0
+    expect(await r.run(RAMP, 0)).toEqual(new Uint32Array(0))
+    expect(calls).toEqual([])
+  })
+})
