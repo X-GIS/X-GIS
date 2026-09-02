@@ -40,6 +40,17 @@ export class AtmosphereDraper {
     }))
   }
 
+  /** Release the lazily-built Material (its pipelines and pooled buffers). Called by the
+   *  pass when it replaces this entry on a format / sampleCount change — the Material bakes
+   *  both, so a `setQuality({msaa})` flip while the atmosphere is enabled builds a fresh one
+   *  and the old pipelines are otherwise dropped unreferenced. On WebGL2 those are linked GL
+   *  programs, which JS GC does not reclaim (#2337). Idempotent: `Material.destroy()` is,
+   *  and the handle is cleared so a later `mat()` rebuilds rather than reusing a dead one. */
+  destroy(): void {
+    this._material?.destroy()
+    this._material = undefined
+  }
+
   /** Draw the limb glow into the bound colour pass. `uniformBuf` already carries this
    *  frame's camera-ray field + colours (atmosphere-uniform.ts). The bind group is
    *  rebuilt per call — cheap (one uniform binding) and the camera changes every frame
