@@ -909,7 +909,11 @@ const CEILINGS: Record<string, number> = {
   // 5427→5432 (#2292, hunt 2026-09-02): the per-VTR loop in `setQuality` now also calls
   // `vtRenderer.rebuildForQuality()` — one line only map.ts can write (it owns
   // `vtSources`) plus the 4-line reason. Measured with `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5432,
+  // 5432→5437 (#2298, hunt 2026-09-02): `_releaseGpuResources` now re-arms the
+  // `_spriteAtlasViewPushed` one-shot latch — one statement only map.ts can write (it
+  // owns both the latch and the shared teardown body) plus the 4-line reason. Measured
+  // with `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5437,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

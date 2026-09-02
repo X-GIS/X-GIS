@@ -449,8 +449,8 @@ export class XGISMap {
   }
   /** iter-183 — one-shot guard so the sprite atlas view is pushed
    *  into MapRenderer + every VTR exactly once after the iconStage
-   *  uploads it. Stays true for the session life since the atlas
-   *  texture identity doesn't change post-load. */
+   *  uploads it. Scoped to ONE iconStage/renderer generation, not the
+   *  session — `_releaseGpuResources` re-arms it (#2298). */
   _spriteAtlasViewPushed = false
 
   // Vector tile sources + renderers (per .xgvt source)
@@ -5166,6 +5166,11 @@ export class XGISMap {
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+    // #2298 — the atlas OWNER dies here while run()/device-loss recovery rebuilds its
+    // consumers (a fresh MapRenderer, a fresh VTR per source) seeded on the engine's
+    // 1×1 stub view, so the one-shot push latch must re-arm here too; left true, the
+    // re-loaded atlas is never pushed and every pattern layer samples the stub forever.
+    this._spriteAtlasViewPushed = false
     // #797 P0 — drop the per-run host-atlas GPU mirror; KEEP the registry so
     // host images survive the scene swap and re-pack on the next run.
     this.graphics.destroyGpu()
