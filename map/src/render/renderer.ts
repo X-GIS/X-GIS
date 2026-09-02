@@ -301,11 +301,13 @@ export class MapRendererContent {
    *  this content half holds bind groups, layer records and atlas VIEWS, all
    *  GC-owned with no destroy of their own.
    *
-   *  KNOWN GAP, deliberately not widened here: `_graticule` (GraticuleRenderer)
-   *  owns its own GPU buffers and exposes no teardown API at all, so there is
-   *  nothing to call yet — adding one is its own change, tracked on #2286. */
+   *  #2325 — plus `_graticule`, the gap the #2286 version of this comment left
+   *  open: GraticuleRenderer owns a Material, a UniformRing and its per-bucket
+   *  geometry buffers, and had no teardown API at all. It has one now, and this
+   *  is the only edge that reaches it. */
   destroy(): void {
     this.engine.destroy()
+    this._graticule.destroy()
   }
   /** Lazy-build the `?debug=overdraw` final compose pipeline. */
   ensureOverdrawCompose(): GPURenderPipeline {
