@@ -1354,6 +1354,40 @@ jobs:
           WORKERS: '1'
         run: ./node_modules/.bin/playwright test _translucent-lines-buffer-destroy.spec.ts
 
+      # ── Keep the evidence a failing render gate already produced (#2282) ──────
+      #
+      # The specs in this leg go to real trouble to make a failure reviewable:
+      # `_rtc-recombine-parity-gate` writes both frames of a step that breaches its
+      # pixel envelope ("§5 artifacts — a failure must be reviewable at full
+      # resolution"), `_demotiles-mirror-gate` and the other parity gates do the
+      # same, and Playwright itself writes a trace.zip per failed attempt. All of it
+      # was then discarded with the runner: before this step, `upload-artifact`
+      # appeared exactly ONCE in the whole repo, in macos-df64-probe.yml, and not at
+      # all in this workflow. So no render failure on CI could be diagnosed by
+      # LOOKING at it — only by re-deriving it locally and hoping it reproduces.
+      #
+      # #2282 is what made that concrete. Its gate failed 3/3 on CI at 11858 px /
+      # maxΔ 238 against a 288×55 clip — 75% of the compared area — and the same
+      # spec on the same commit is hash-EQUAL on every step locally, with both
+      # witnesses firing. A scalar that large says "a different frame", not "a
+      # shifted one", but which of those it is can only be settled by reading the
+      # image (§5: numbers never decide alone; 16-split at full resolution
+      # distinguishes a positional shift from a fill change from a resample).
+      #
+      # `if: failure()` only — a green shard has nothing worth keeping, and
+      # test-results/ is empty on success anyway. `if-no-files-found: ignore`
+      # because a shard can fail before any spec writes output (a broken shard
+      # split exits 1 from the guard above), and a missing-artifact error there
+      # would replace the real failure message with a bookkeeping one.
+      - name: Upload failing render frames + traces (#2282)
+        if: failure() && needs.changes.outputs.render == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-shard-${{ matrix.shard }}-failures
+          path: playground/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # ── The required status context (#1899) ──────────────────────────────────────
   #
   # `render-gate` is one of the two contexts branch protection requires, and a
