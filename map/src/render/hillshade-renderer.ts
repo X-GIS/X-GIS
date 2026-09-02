@@ -20,6 +20,7 @@ import {
   evictToBudget,
   overBudget,
   abortLoadingTiles,
+  dropAllTiles,
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
@@ -404,11 +405,28 @@ export class HillshadeRenderer {
    *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. Undefined = `'xyz'`. Mirror of the
    *  raster twin: it rides the template so a re-arm cannot leave a stale flip behind. */
   private _scheme: TileRowScheme | undefined
+  /** The template the cached tiles were fetched from (#2384 F-4). Distinct
+   *  from `urlTemplate`, which round-trips through '' on every rebuild. */
+  private _cachedTemplate = ''
   setUrlTemplate(url: string, scheme?: TileRowScheme): void {
     // A different template is a different coverage, so past failures say nothing
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
+    // #2384 F-4 — and drop the DATA for the same reason, which this arm did not:
+    // the key is `z/x/y` with no url, so the old DEM's tiles answered for the new
+    // source. Raster twin; `dropAllTiles` keeps the two from drifting again.
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
+    // The flush is keyed on the template the CACHE belongs to, not on
+    // `urlTemplate`: `rebuildLayers()` resets every raster renderer with
+    // `setUrlTemplate('')` before re-arming the live one (map.ts:3485), so a
+    // plain `url !== this.urlTemplate` would destroy every visible tile on each
+    // projection change or layer rebuild — a correctness fix paid for with a
+    // full re-download. Empty is that reset, never a source, so it drops nothing.
+    if (url !== '' && url !== this._cachedTemplate) {
+      abortLoadingTiles(this.loadingTiles)
+      this._cachedBytes = dropAllTiles(this.tileCache, this.rhi, this._hillshadeDraper)
+      this._cachedTemplate = url
+    }
     this.urlTemplate = url
     this._scheme = scheme
   }
