@@ -11,13 +11,15 @@ import type { ShaderType } from './types.js'
 
 /** The operator tag on `Expr.binop` — arithmetic (`+ - * /`), remainder (`%`), and
  *  bitwise (`& | ^ << >>`), spelled identically on WGSL/GLSL and interpreted
- *  identically by the CPU oracle (`scalarBin` in cpu-runtime.ts). `%` is float
- *  TRUNC-mod on WGSL and rejects floats outright on GLSL ES 3.00 — it is NOT the
- *  portable modulo. Reach for {@link mod} instead whenever a negative operand is
- *  possible; it lowers to floor-mod on both targets and is what the `.mod()` Node
- *  method should not be confused for (that method emits this same trunc-mod `%`).
- *  `<<`/`>>` are u32 logical shift unless the operand is known `i32`, in which case
- *  `>>` is sign-preserving arithmetic shift — see `scalarBin`'s `isI32` branch.
+ *  identically by the CPU oracle (`scalarBin` in cpu-runtime.ts). `%` is TRUNC-mod on
+ *  floats — native on WGSL, and spelled `a - b * trunc(a / b)` by the GLSL writer because
+ *  GLSL ES 3.00's own `%` is integer-only — so it is NOT the portable floor modulo. Reach
+ *  for {@link mod} whenever a negative operand is possible; it lowers to floor-mod on
+ *  both targets and is what the `.mod()` Node method should not be confused for (that
+ *  method emits this same trunc-mod `%`). Integer operands follow WGSL on the CPU tier —
+ *  two's-complement wrap, truncating `/` with `x / 0 = x`, `x % 0 = 0` — and `<<`/`>>`
+ *  are u32 logical shift unless the operand is `i32`, in which case `>>` is
+ *  sign-preserving arithmetic shift — see `scalarBin`'s `NumKind` dispatch.
  *
  *  Exported from `@xgis/shader-dsl`, `@xgis/shader-dsl/core/ir`.
  */
