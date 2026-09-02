@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bbb96276cebf140b99fbd836ab6b9b9aee381bd4
+  Generated from: 262613df18e28071544b78759d8d5c692a7579bd
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bbb96276cebf
+    bun scripts/emit-changelog.ts --since 262613df18e2
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **pipeline:** an odbLoader purpose/segment filter over a payload without that column matches nothing (#2361) ([#2390](https://github.com/X-GIS/X-GIS/pull/2390)) `262613d`
 - **data:** polar caps synthesise the wedge a CCW ring occupies, not its 340-degree complement (#2357) ([#2383](https://github.com/X-GIS/X-GIS/pull/2383)) `bbb9627`
 - **rhi-webgl2:** setVertexBuffer honours its slot, so a two-slot pipeline stops aliasing slot 0 onto slot 1 (#2360) ([#2381](https://github.com/X-GIS/X-GIS/pull/2381)) `ea1d6a4`
 - **map:** ride the coverage abort spine on the forecast-step and playback reads (#2375) ([#2376](https://github.com/X-GIS/X-GIS/pull/2376)) `00b9016`
