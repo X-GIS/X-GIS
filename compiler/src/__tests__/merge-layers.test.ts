@@ -380,6 +380,62 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes.length).toBe(2)
   })
 
+  // #2321: the default-arm absorption block re-implemented a subset of
+  // the mergeability predicates and skipped isMergeableNode / canExtendGroup,
+  // so a complementary `!=`-chain candidate that was hidden, at a different
+  // minzoom, or carried a label got folded into the compound's `_` arm
+  // anyway — silently discarding its own visible / minzoom / label.
+  it('does NOT absorb a `hidden` != default arm — compound keeps its OR filter', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse"
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 hidden }
+    `
+    const scene = compileToScene(source)
+    const names = scene.renderNodes.map((n) => n.name)
+    expect(names.some((n) => n.includes('+1default'))).toBe(false)
+    const compound = scene.renderNodes[0]
+    expect(compound.visible).not.toBe(false)
+    expect(compound.filter).not.toBeNull()
+  })
+
+  it('does NOT absorb a != default arm whose minzoom differs from the group', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse" minzoom: 12
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(2)
+    expect(scene.renderNodes[0].filter).not.toBeNull()
+    expect(scene.renderNodes[1].name).toBe('landuse_other')
+    expect(scene.renderNodes[1].minzoom).toBe(12)
+  })
+
+  it('does NOT absorb a labelled != default arm (label would be dropped)', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse"
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 label-[.name] }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(2)
+    expect(scene.renderNodes[1].name).toBe('landuse_other')
+    expect(scene.renderNodes[1].label).toBeDefined()
+  })
+
   it('non-contiguous same-sourceLayer groups produce SEPARATE compounds', () => {
     // Two roads_* groups separated by a non-mergeable layer
     // (different sourceLayer in between). Each group should fold

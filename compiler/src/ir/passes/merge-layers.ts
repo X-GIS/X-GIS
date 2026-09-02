@@ -43,7 +43,6 @@ import {
   analyzeNotFilter,
   setEqual,
   analyzeFilter,
-  strokesShapeEqual,
   isMergeableNode,
   strokeColorsEqual,
   canExtendGroup,
@@ -137,22 +136,15 @@ function mergeLayers(scene: Scene): Scene {
     let defaultArmNode: RenderNode | null = null
     if (j < nodes.length) {
       const cand = nodes[j]
-      if (
-        cand.sourceRef === first.sourceRef &&
-        cand.sourceLayer === first.sourceLayer &&
-        cand.extrude.kind === 'none' &&
-        cand.opacity.kind === 'constant' &&
-        cand.opacity.value >= 0.999 &&
-        cand.geometry === null &&
-        cand.shape.kind === 'none' &&
-        // Stroke SHAPE (cap, join, dash, patterns, offset, align)
-        // must match — those properties live on the layer uniform,
-        // not in segment-baked overrides, so a mismatch would
-        // render the absorbed features with the group's cap/dash
-        // rather than their own. Width and colour are free to
-        // differ — both have segment-bake paths.
-        strokesShapeEqual(first.stroke, cand.stroke)
-      ) {
+      // Reuse the SAME mergeability predicates the contiguous-extension
+      // loop applies (:85-86) — isMergeableNode guards label /
+      // animationMeta / colorExpr / non-constant fill-width, and
+      // canExtendGroup guards visible / minzoom / maxzoom /
+      // projection / pointerEvents / stroke shape. Without them, a
+      // candidate that failed those checks could still be folded into
+      // `first`'s compound (built with `...first` below), silently
+      // discarding the candidate's own visibility, zoom range, or label.
+      if (isMergeableNode(cand) && canExtendGroup(first, cand)) {
         const notFilter = analyzeNotFilter(cand.filter)
         if (notFilter && notFilter.field === firstFilter.field) {
           const allCompoundValues = dedupByRaw(group.flatMap((g) => g.filter.values))
