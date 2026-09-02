@@ -316,7 +316,13 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
  *  left the drape running — measured, on the fix itself, before this correction.
  *
  *  currentZ is a HYSTERESED zoom bucket (tile-selection-cache.ts:368-390), so
- *  the switch cannot flap on a camera hovering at the boundary, and it is then
+ *  the switch cannot flap on a camera hovering at the boundary. The same
+ *  hysteresis makes it TRAIL the camera inside a zoom-in readiness hold — the
+ *  old LOD stays on screen until the step tiles land — so the renderer feeds
+ *  this predicate `max(currentZ, targetZ)`, `targetZ` being the camera's own
+ *  `min(floor(zoom), maxLevel)` (the Selection field): a camera past the
+ *  ceiling draws its held coarse tiles direct rather than as magnified bakes,
+ *  the "baked tiles while zooming in" report that followed #2086. currentZ is
  *  SOURCE-CLAMPED to `source.maxLevel` (:598-599) — so a low-maxzoom source
  *  (demotiles, maxzoom 2) never reaches the ceiling and keeps the drape, and
  *  its #2024 overzoom windowing, at EVERY camera zoom. Below the gate the

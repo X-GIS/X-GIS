@@ -2808,6 +2808,7 @@ export class VectorTileRenderer {
       parentAtMaxLevel,
       archiveAncestor,
       currentZ,
+      targetZ,
       cameraIdle,
     } = sel
 
@@ -3670,9 +3671,11 @@ export class VectorTileRenderer {
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
       // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the 512px bake's blur
-      // exceeds the direct path's chord sagitta at every camera zoom;
-      // __XGIS_FORCE_VECTOR_DRAPE holds the drape for A/B and sever-arm gates.
-      (drapesAtSelectionZ(currentZ) ||
+      // exceeds the direct path's chord sagitta at every camera zoom. Read off the drawn
+      // LOD OR the camera's (`targetZ`): inside a zoom-in readiness hold currentZ trails
+      // the camera, and held tiles past the ceiling must draw direct, not as magnified
+      // bakes (_globe-direct-hold-window-gate). __XGIS_FORCE_VECTOR_DRAPE holds the drape.
+      (drapesAtSelectionZ(Math.max(currentZ, targetZ)) ||
         (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
           true) &&
       this.rhi.backend !== 'webgl2' &&

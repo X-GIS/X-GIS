@@ -314,7 +314,10 @@ const CEILINGS: Record<string, number> = {
   // 5483→5466 (#2240): the three fill-translate packers now read one producer
   // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
   // Measured with `wc -l` on the post-prettier tree, per the note above.
-  'map/src/render/vector-tile-renderer.ts': 5466,
+  // 5466→5469 (#2093 follow-up, measured post-prettier per §12): the drape LOD ceiling
+  // reads `max(currentZ, targetZ)` so a zoom-in readiness HOLD past the ceiling draws
+  // its held coarse tiles direct — one destructured field + a tightened comment.
+  'map/src/render/vector-tile-renderer.ts': 5469,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1971,7 +1974,10 @@ const CEILINGS: Record<string, number> = {
   // second edit as dead code — the `wantAdvance` false case was ALREADY
   // cleared by the pre-existing `} else {` on the same block — and it was
   // removed; the fix is the clamp alone, re-proven fail-before.)
-  'map/src/render/tile-selection-cache.ts': 1066,
+  // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
+  // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
+  // (currentZ trailing the camera) from the LOD the camera asks for.
+  'map/src/render/tile-selection-cache.ts': 1074,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

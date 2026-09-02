@@ -186,10 +186,12 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
       dStart,
     )
     expect(
-      SOURCE.slice(dStart, dEnd).includes('drapesAtSelectionZ(currentZ'),
-      'the `_drapeGlobeFills` derivation must gate on `drapesAtSelectionZ(currentZ)` (#2093) — ' +
-        'dropping the LOD ceiling restores the 512px bake at NATIVE zoom, where its texel ' +
-        '(and its whole AA feather) is wider than the chord sagitta the drape exists to remove.',
+      SOURCE.slice(dStart, dEnd).includes('drapesAtSelectionZ(Math.max(currentZ, targetZ))'),
+      'the `_drapeGlobeFills` derivation must gate on `drapesAtSelectionZ(Math.max(currentZ, ' +
+        'targetZ))` (#2093) — dropping the LOD ceiling restores the 512px bake at NATIVE zoom, ' +
+        'where its texel (and its whole AA feather) is wider than the chord sagitta the drape ' +
+        'exists to remove; reading `currentZ` alone re-drapes every zoom-in readiness HOLD past ' +
+        'the ceiling (the held coarse tiles came back as magnified bakes after #2086).',
     ).toBe(true)
   })
 })

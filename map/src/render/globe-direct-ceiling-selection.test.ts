@@ -186,3 +186,91 @@ describe('#2093 — the drape LOD ceiling reads the production currentZ', () => 
     ).toBe(Math.ceil(Math.log2(bakePx * (Math.PI / 4))))
   })
 })
+
+// ═══ #2093 follow-up — the ceiling must hold through the zoom-in READINESS HOLD ═══
+//
+// `currentZ` is hysteresed: on a zoom-in the readiness gate holds the OLD LOD until
+// every visible tile at the next LOD is cached (up to READINESS_TIMEOUT_MS). Read off
+// `currentZ` alone, a camera that has crossed the ceiling with the hold still at 8
+// kept DRAPING — 512px bakes of the held z8 tiles magnified 2^(zoom−8)× — which is
+// the "baked tiles while zooming in" report that followed #2086. The Selection now
+// also carries `targetZ`, the camera's own `min(floor(zoom), maxLevel)`, and the
+// renderer feeds the predicate `max(currentZ, targetZ)`.
+
+/** Drive ONE cache through `zooms` frame by frame on a catalog with NOTHING cached —
+ *  so every zoom-in step is a readiness HOLD — and return the last Selection. */
+function driveZooms(zooms: number[], sourceMaxLevel: number) {
+  const source = catalogWithMaxLevel(sourceMaxLevel)
+  const cache = new TileSelectionCache()
+  let last: ReturnType<TileSelectionCache['selectForFrame']> = null
+  zooms.forEach((zoom, i) => {
+    last = cache.selectForFrame(
+      globeCam(zoom),
+      PROJ_GLOBE,
+      REPORT_CENTER.lon,
+      REPORT_CENTER.lat,
+      W,
+      H,
+      DPR,
+      i + 1,
+      source,
+      '',
+      MARGIN,
+      sourceMaxLevel,
+      NO_STATS,
+    )
+    if (last === null) throw new Error(`selectForFrame returned null at zoom ${zoom}`)
+  })
+  return last!
+}
+
+describe('#2093 follow-up — the ceiling holds through the zoom-in readiness hold', () => {
+  it('a hold past the ceiling: currentZ stays at 8, targetZ carries the camera LOD 9', () => {
+    const sel = driveZooms([8.3, 9.6], 14)
+    expect(sel.currentZ, 'the gate holds the drawn LOD at 8 while no z9 tile is cached').toBe(8)
+    expect(sel.targetZ, 'the camera asks for floor(9.6) = 9').toBe(9)
+    expect(
+      drapesAtSelectionZ(sel.currentZ),
+      'read off the HELD LOD alone the ceiling still drapes — the pre-fix reading, kept as ' +
+        'the statement of what a currentZ-only gate saw during the hold',
+    ).toBe(true)
+    expect(
+      drapesAtSelectionZ(Math.max(sel.currentZ, sel.targetZ)),
+      'the renderer reads max(currentZ, targetZ): a camera past the ceiling draws its held z8 ' +
+        'tiles DIRECT — crisp and over-zoomed — instead of as 3×-magnified bakes',
+    ).toBe(false)
+  })
+
+  it('targetZ equals currentZ outside a hold — cold camera, and under the source clamp', () => {
+    for (const [zoom, maxLevel, expected] of [
+      [9.6, 14, 9],
+      [21.1, 14, 14],
+      [9.7, 2, 2],
+      [2, 14, 2],
+    ] as const) {
+      const sel = driveZooms([zoom], maxLevel)
+      expect(sel.currentZ, `cold camera z${zoom} / maxLevel ${maxLevel}`).toBe(expected)
+      expect(sel.targetZ, `targetZ at z${zoom} / maxLevel ${maxLevel}`).toBe(expected)
+    }
+    // A source that cannot reach the ceiling never produces a targetZ that does —
+    // the hold at 9.6 on a maxLevel-8 source is not a hold at all (target 8 = cz).
+    const clamped = driveZooms([8.3, 9.6], 8)
+    expect(clamped.currentZ).toBe(8)
+    expect(clamped.targetZ, 'targetZ is source-clamped like currentZ').toBe(8)
+    expect(drapesAtSelectionZ(Math.max(clamped.currentZ, clamped.targetZ))).toBe(true)
+  })
+
+  it('the zoom-out hysteresis window keeps the direct arm — max() never demotes', () => {
+    // 9.6 → 8.7: zoom-out only releases below cz − 0.4 = 8.6, so the drawn LOD stays 9
+    // while the camera's own LOD is already 8. max() keeps the direct arm on the z9
+    // tiles the frame draws (today's behaviour); the flip happens with the LOD.
+    const held = driveZooms([9.6, 8.7], 14)
+    expect(held.currentZ).toBe(9)
+    expect(held.targetZ).toBe(8)
+    expect(drapesAtSelectionZ(Math.max(held.currentZ, held.targetZ))).toBe(false)
+    const released = driveZooms([9.6, 8.7, 8.5], 14)
+    expect(released.currentZ).toBe(8)
+    expect(released.targetZ).toBe(8)
+    expect(drapesAtSelectionZ(Math.max(released.currentZ, released.targetZ))).toBe(true)
+  })
+})
