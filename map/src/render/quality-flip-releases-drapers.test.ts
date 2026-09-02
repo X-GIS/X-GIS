@@ -29,7 +29,9 @@ import {
   type StubInstallation,
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
-import { RasterRenderer } from '@xgis/map'
+import { QUALITY, updateQuality, getSampleCount } from '@xgis/engine'
+import { RasterRenderer, XGISMap, VectorTileRenderer } from '@xgis/map'
+import { VectorDrapeRenderer } from './vector-drape-renderer'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -97,6 +99,9 @@ describe('#1578 — every renderer that rebuilds for quality also releases', () 
     'point-renderer.ts',
     'line-renderer.ts',
     'coverage-renderer.ts',
+    // hunt 2026-09-02 (#2292): the VTR's globe VectorDrapeRenderer is the sixth
+    // sample-count-baked draper and was the one the fan-out never reached.
+    'vector-tile-renderer.ts',
   ]
 
   it('each rebuildForQuality body destroys before it drops', () => {
@@ -120,7 +125,7 @@ describe('#1578 — every renderer that rebuilds for quality also releases', () 
   })
 
   it('and Material still exposes the destroy() they all call', () => {
-    // The single authority those five bodies depend on. If it is renamed or removed, the
+    // The single authority those six bodies depend on. If it is renamed or removed, the
     // gate above keeps passing against a `.destroy()` that means something else.
     const src = readFileSync(
       join(HERE, '..', '..', '..', 'engine', 'src', 'render', 'material.ts'),
@@ -130,5 +135,101 @@ describe('#1578 — every renderer that rebuilds for quality also releases', () 
     expect(src, 'and it releases pipelines through the RHI primitive').toContain(
       'this.rhi.destroyPipeline(p)',
     )
+  })
+})
+
+// ═══ #2292 — the quality flip must also reach the VTR's globe drape ═══
+//
+// hunt 2026-09-02: `VectorTileRenderer` lazily builds a `VectorDrapeRenderer` with the
+// sample count read AT THAT MOMENT (`new VectorDrapeRenderer(rhi, format, getSampleCount())`),
+// and that count is BAKED into the RasterDraper's Material pipelines (material.ts →
+// `multisample.count`). `setQuality({msaa})` / `{picking}` re-allocates the opaque pass at the
+// NEW count (frame-context.ts) but the per-VTR loop in `setQuality` only re-wired bind-group
+// layouts and pipelines — the drape survived with 4x pipelines against a 1x pass, which WebGPU
+// rejects on `setPipeline`, invalidating the whole opaque pass (a black globe every frame).
+describe('#2292 — setQuality releases the VTR globe drape built at the old sample count', () => {
+  let msaaBefore: (typeof QUALITY)['msaa']
+  let pickingBefore: boolean
+  beforeEach(() => {
+    msaaBefore = QUALITY.msaa
+    pickingBefore = QUALITY.picking
+  })
+  afterEach(() => {
+    updateQuality({ msaa: msaaBefore, picking: pickingBefore })
+  })
+
+  /** The VTR's lazily-built drape and the sample count its draper baked. */
+  interface VtrSeam {
+    _drape: VectorDrapeRenderer | null
+  }
+  interface DrapeSeam {
+    draper: { sampleCount: number; destroy(): void }
+  }
+  /** The sibling renderers `setQuality` fans out to, stubbed so the real body can run
+   *  without a live GPU — the same private-seam pattern the map's own quality tests use. */
+  interface MapSeam {
+    renderer: unknown
+    rasterRenderer: unknown
+    hillshadeRenderer: unknown
+    coverageRenderer: unknown
+    vectorTileShows: unknown[]
+    vtSources: Map<string, { source: unknown; renderer: unknown }>
+  }
+
+  it('after an msaa 4->1 flip the drape is released, not left at 4x', async () => {
+    updateQuality({ picking: false, msaa: 4 })
+    expect(getSampleCount()).toBe(4)
+
+    const ctx = await makeCtx()
+    const vtr = new VectorTileRenderer(ctx)
+    // Exactly what the first globe-drape frame does (vector-tile-renderer.ts `_drape ??=`).
+    const drape = new VectorDrapeRenderer(ctx.rhi, ctx.format, getSampleCount())
+    ;(vtr as unknown as VtrSeam)._drape = drape
+    expect((drape as unknown as DrapeSeam).draper.sampleCount).toBe(4)
+    const drapeDestroy = vi.spyOn(drape, 'destroy')
+
+    const map = new XGISMap({ width: 1200, height: 800 } as unknown as HTMLCanvasElement)
+    const seam = map as unknown as MapSeam
+    const rebuilds = vi.fn()
+    seam.renderer = { rebuildForQuality: rebuilds, bindGroupLayout: {} }
+    seam.rasterRenderer = { rebuildForQuality: rebuilds }
+    seam.hillshadeRenderer = { rebuildForQuality: rebuilds }
+    seam.coverageRenderer = { rebuildForQuality: rebuilds }
+    seam.vectorTileShows = []
+    seam.vtSources.set('globe', { source: {}, renderer: vtr })
+
+    map.setQuality({ msaa: 1 })
+
+    // CONTROL — the flip path really ran (the sibling renderers were rebuilt).
+    expect(rebuilds, 'the msaa flip must reach the rebuild fan-out').toHaveBeenCalledTimes(4)
+    expect(getSampleCount()).toBe(1)
+
+    // THE CLAIM — the drape must not survive the flip carrying 4x pipelines.
+    const after = (vtr as unknown as VtrSeam)._drape
+    if (after === drape) {
+      expect(
+        drapeDestroy,
+        'the VTR drape was neither released nor rebuilt by setQuality',
+      ).toHaveBeenCalled()
+    }
+    if (after) {
+      expect(
+        (after as unknown as DrapeSeam).draper.sampleCount,
+        'a drape kept across the flip still carries the OLD sampleCount (its pipelines mismatch the re-allocated pass)',
+      ).toBe(getSampleCount())
+    }
+  })
+
+  it('and the released drape frees its RasterDraper, not just the bake textures', async () => {
+    const ctx = await makeCtx()
+    const drape = new VectorDrapeRenderer(ctx.rhi, ctx.format, 1)
+    const draperDestroy = vi.spyOn((drape as unknown as DrapeSeam).draper, 'destroy')
+
+    drape.destroy()
+
+    // A quality flip is live-session churn, not teardown: the dropped draper's Materials
+    // (pipelines + global uniform + pool buffers) and its two samplers must be reclaimed,
+    // which is the whole point of #1578's `RasterDraper.destroy()`.
+    expect(draperDestroy, 'the drape must release its RasterDraper').toHaveBeenCalledTimes(1)
   })
 })

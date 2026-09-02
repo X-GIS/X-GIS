@@ -527,5 +527,10 @@ export class VectorDrapeRenderer {
     }
     this.baked.clear()
     this.visibleKeys.clear()
+    // #2292 — the RasterDraper owns the Materials (pipelines + global uniform + pool
+    // buffers) and its two samplers; nothing else references them, so on a quality
+    // flip (live-session churn, not teardown) they would leak. #1578 built
+    // RasterDraper.destroy() for exactly this and this path never called it.
+    this.draper.destroy()
   }
 }

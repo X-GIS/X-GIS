@@ -314,7 +314,11 @@ const CEILINGS: Record<string, number> = {
   // 5483→5466 (#2240): the three fill-translate packers now read one producer
   // (render/fill-translate-ndc.ts), which took 17 net lines out of this file.
   // Measured with `wc -l` on the post-prettier tree, per the note above.
-  'map/src/render/vector-tile-renderer.ts': 5466,
+  // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
+  // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
+  // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
+  // error, not just a leak). Measured with `wc -l` on the post-prettier tree.
+  'map/src/render/vector-tile-renderer.ts': 5478,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -897,7 +901,10 @@ const CEILINGS: Record<string, number> = {
   // earth-surface background's two owner refs (`_syntheticBackend`,
   // `underOccluder`) it was leaking across a re-run — 3 statements plus the
   // 5-line rationale. Measured with `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5427,
+  // 5427→5432 (#2292, hunt 2026-09-02): the per-VTR loop in `setQuality` now also calls
+  // `vtRenderer.rebuildForQuality()` — one line only map.ts can write (it owns
+  // `vtSources`) plus the 4-line reason. Measured with `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5432,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

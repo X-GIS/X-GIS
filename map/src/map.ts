@@ -2179,6 +2179,11 @@ export class XGISMap {
         )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
         vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
+        // #2292 — a VTR also owns a lazily-built globe VectorDrapeRenderer whose
+        // RasterDraper pipelines BAKE the sample count they were created at. Re-wiring
+        // layouts and pipelines does not touch it, so without this the drape kept 4x
+        // pipelines against the 1x pass renderTargets.invalidate() re-allocates above.
+        vtRenderer.rebuildForQuality()
       }
     }
     if (dprChanged) {

@@ -2327,6 +2327,18 @@ export class VectorTileRenderer {
     }
   }
 
+  /** A quality flip RELEASES the globe drape and drops it (#2292). The drape's
+   *  RasterDraper pipelines bake the sample count they were built with, so one kept
+   *  across an msaa / picking change would draw into an opaque pass re-allocated at
+   *  the NEW count — a WebGPU `setPipeline` validation error that invalidates the
+   *  whole pass. The lazy `this._drape ??=` below rebuilds it at the live
+   *  `getSampleCount()` on the next drape frame, so every count is covered by
+   *  construction (same shape as RasterRenderer.rebuildForQuality). */
+  rebuildForQuality(): void {
+    this._drape?.destroy()
+    this._drape = null
+  }
+
   /** Tear down all GPU resources owned by this renderer.
    *  Used when a source is being replaced (setSourceData) or the
    *  whole map is disposed. After destroy() the renderer is dead —
