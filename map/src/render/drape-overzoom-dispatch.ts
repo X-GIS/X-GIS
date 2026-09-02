@@ -50,6 +50,23 @@ export interface DrapeOverzoomDiag {
   missingParents?: number
   uploadedParents?: number
   split?: boolean
+  /** Virtual tiles skipped because the windowed ancestor carries no geometry for
+   *  THIS slice (open sea under a land layer). Legitimate — satisfied by
+   *  omission — but indistinguishable from a mapping bug without the count. */
+  omittedEmpty?: number
+  /** The first tile that produced nothing, and what each test said about it.
+   *  The whole set going quiet is either "this layer is empty here" or a broken
+   *  ancestor mapping, and only the per-test answers separate them. */
+  sample?: {
+    z: number
+    x: number
+    y: number
+    parentZ: number
+    neededHit: boolean
+    cacheHit: boolean
+    hasSlice: boolean
+    hasAny: boolean
+  }
 }
 
 export interface DrapeOverzoomSource {
@@ -166,6 +183,7 @@ export function computeDrapeOverzoom(a: {
   // sharp path never engages.
   const missingParents: number[] = []
   let uploadedParents = 0
+  let omittedEmpty = 0
   // The tile to window is the one the PRIMARY selection is drawing over this
   // virtual tile — not `srcMaxLevel`. Inside the source range the selection
   // draws at `currentZ` (coarser on the horizon), so maxLevel tiles are not
@@ -202,6 +220,19 @@ export function computeDrapeOverzoom(a: {
         out.push({ z: t.z, x: t.x, y: t.y, parentKey })
         continue
       }
+      if (diag && !diag.sample) {
+        const [pz] = [Math.min(deepestAncestorZ, t.z - 1)]
+        diag.sample = {
+          z: t.z,
+          x: t.x,
+          y: t.y,
+          parentZ: pz,
+          neededHit: needed.has(parentKey),
+          cacheHit: a.layerCache.has(parentKey),
+          hasSlice: source.hasTileData(parentKey, a.sliceLayer),
+          hasAny: source.hasTileData(parentKey),
+        }
+      }
       if (source.hasTileData(parentKey, a.sliceLayer)) {
         // Compiled in the catalog but never GPU-uploaded (outside the primary
         // selection) — upload directly, same call the visible path uses for
@@ -210,6 +241,7 @@ export function computeDrapeOverzoom(a: {
         uploadedParents++
         a.uploadResident(parentKey)
       } else if (source.hasTileData(parentKey)) {
+        omittedEmpty++
         // Fetched/compiled, but EMPTY for this layer (open sea under a land
         // layer): a virtual tile over it has nothing to drape — satisfied by
         // omission, never a reason to hold the sharp path.
@@ -230,6 +262,7 @@ export function computeDrapeOverzoom(a: {
     diag.emitted = out.length
     diag.missingParents = missingParents.length
     diag.uploadedParents = uploadedParents
+    diag.omittedEmpty = omittedEmpty
   }
   if (!allResident) {
     if (diag) diag.reason = vTiles.length === 0 ? 'selector-empty' : 'ancestor-not-resident'

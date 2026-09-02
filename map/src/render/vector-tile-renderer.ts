@@ -337,6 +337,11 @@ export class VectorTileRenderer {
    *  The switch is atomic, so its usual failure is to do nothing at all; this is
    *  the only place a gate or probe can read the cause. */
   readonly _drapeOverzoomDiag: DrapeOverzoomDiag = {}
+  /** Per-slice copy of the above. One VectorTileRenderer serves every slice of a
+   *  source and each gets its own render() call, so the single-instance scratch
+   *  only ever holds the LAST one — which, measured, was a sparse layer whose
+   *  legitimate "no geometry here" reading was mistaken for the dense layers'. */
+  readonly _drapeOverzoomDiagBySlice = new Map<string, DrapeOverzoomDiag>()
   /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
   private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
@@ -914,6 +919,19 @@ export class VectorTileRenderer {
    *  WebGL2 (the offscreen encoder is WebGPU-only; the WebGL2 drape is a later
    *  slice). `fill` is straight-alpha RGBA 0..1. The caller owns the returned
    *  texture's lifetime (`rhi.destroyTexture`). */
+  /** #2346 — the per-slice windowed-bake diagnostic scratch. Cleared in place so
+   *  a reader always sees the LAST frame's answer for that slice, never a stale
+   *  field from an earlier one. */
+  private _sliceOverzoomDiag(sliceLayer: string): DrapeOverzoomDiag {
+    let d = this._drapeOverzoomDiagBySlice.get(sliceLayer)
+    if (!d) {
+      d = {}
+      this._drapeOverzoomDiagBySlice.set(sliceLayer, d)
+    }
+    for (const k of Object.keys(d)) delete (d as Record<string, unknown>)[k]
+    return d
+  }
+
   bakeTileToTexture(
     sliceLayer: string,
     key: number,
@@ -3720,7 +3738,7 @@ export class VectorTileRenderer {
         cssWidth: canvasWidth / dpr,
         cssHeight: canvasHeight / dpr,
         dpr,
-        diag: this._drapeOverzoomDiag,
+        diag: this._sliceOverzoomDiag(sliceLayer),
         source: this.source,
         sliceLayer,
         neededKeys,
