@@ -252,6 +252,10 @@ export function xgisToGraph(src: string): BPGraph {
         maxzoom: prop(lines, 'maxzoom') || '',
         filter: prop(lines, 'filter') || '',
         pipe: pipeText(lines),
+        // #2348: mirror codegen's `coverage` layer paint emit, or opening a
+        // coverage `.xgis` blanks Ramp/Range and the next save destroys them.
+        ramp: prop(lines, 'ramp') || '',
+        range: prop(lines, 'range') || '',
       })
       nodes.push(n)
       layers.push({ node: n, src: prop(lines, 'source'), style: prop(lines, 'style') })

@@ -156,6 +156,11 @@ function emitLayer(g: BPGraph, n: BPNode, nodes: Map<string, BPNode>): string {
   if (d.minzoom?.trim()) lines.push(`  minzoom: ${d.minzoom.trim()}`)
   if (d.maxzoom?.trim()) lines.push(`  maxzoom: ${d.maxzoom.trim()}`)
   if (d.filter?.trim()) lines.push(`  filter: ${d.filter.trim()}`)
+  // #2348: `coverage` layer paint (#1158 INC-D) — `ramp` is valueKind
+  // 'string', `range` valueKind 'expr', so they emit like sourceLayer /
+  // filter respectively. Both are optional: unset leaves the block as-is.
+  if (d.ramp?.trim()) lines.push(`  ramp: ${JSON.stringify(d.ramp.trim())}`)
+  if (d.range?.trim()) lines.push(`  range: ${d.range.trim()}`)
 
   const styleIds = incoming(g, n.id, 'style')
   if (styleIds.length > 0) lines.push(`  style: ${nameOf(nodes.get(styleIds[0]), 'preset')}`)
