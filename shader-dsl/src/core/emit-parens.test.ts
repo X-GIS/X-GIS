@@ -15,7 +15,8 @@
 import { describe, it, expect } from 'vitest'
 import { emitExpr } from './emit.js'
 import { wgslBackend } from './backends/wgsl.js'
-import { f32T, boolT } from './ir/index.js'
+import { glslEs300Backend } from './backends/glsl.js'
+import { f32T, boolT, vec4fT } from './ir/index.js'
 import type { Expr } from './ir/index.js'
 
 const v = (name: string): Expr => ({ op: 'varref', type: f32T, name })
@@ -75,5 +76,41 @@ describe("emitExpr — 'minimal' drops parens precedence already implies", () =>
     expect(min(cmp(bin(a, '*', b), '<', bin(a, '+', c)))).toBe('(a * b < a + c)')
     expect(min(bin(bin(a, '&', b), '|', c))).toBe('((a & b) | c)')
     expect(min(bin(bin(a, '<<', b), '+', c))).toBe('(a << b) + c')
+  })
+})
+
+// #2350: an intrinsic whose SPELLING re-embeds an argument in a tighter position
+// (`mod`'s `/` operand on WGSL, `pack4x8unorm`'s `.x` base on GLSL) cannot take the
+// argument slot's `need` 1 — a bare `a + b` re-associates there, silently changing
+// the parse under 'minimal' only. Those templates force their arguments to ATOM.
+// The `max(a * b, c)` case above is the negative control: a pass-through spelling
+// must NOT gain parens.
+describe("emitExpr — 'minimal' keeps the parse inside a re-embedding intrinsic", () => {
+  it('wgsl mod() repeats BOTH operands inside a `/`, so both stay primaries', () => {
+    const sum: Expr = { op: 'call', type: f32T, fn: 'mod', args: [bin(a, '+', b), c] } as Expr
+    // `floor(a + b / c)` would be `floor(a + (b / c))` — a different number, no
+    // compile error: mod(3+4, 5) emits 2 here and -8 without the parens.
+    expect(min(sum)).toBe('((a + b) - c * floor((a + b) / c))')
+    expect(emitExpr(sum, wgslBackend, 'full')).toBe(min(sum))
+
+    // …and the DIVISOR too: it lands as the right operand of `*` and inside the `/`.
+    const div: Expr = { op: 'call', type: f32T, fn: 'mod', args: [a, bin(b, '+', c)] } as Expr
+    expect(min(div)).toBe('(a - (b + c) * floor(a / (b + c)))')
+  })
+
+  it('glsl pack4x8unorm() splices its argument as a postfix BASE', () => {
+    const prod: Expr = {
+      op: 'binop',
+      type: vec4fT,
+      bop: '*',
+      a: { op: 'varref', type: vec4fT, name: 'vv' },
+      b: v('s'),
+    } as Expr
+    const call: Expr = { op: 'call', type: f32T, fn: 'pack4x8unorm', args: [prod] } as Expr
+    const glsl = emitExpr(call, glslEs300Backend, 'minimal')
+    expect(glsl).toContain('clamp((vv * s).x, 0.0, 1.0)')
+    expect(glsl).toContain('clamp((vv * s).w, 0.0, 1.0)')
+    // `vv * s.x` is a different expression, and with a scalar `s` not even legal GLSL.
+    expect(glsl).not.toContain('vv * s.x')
   })
 })

@@ -10,6 +10,7 @@ import type { Backend } from './backend.js'
 import type { Expr, Stmt, ModuleDecl } from './ir/index.js'
 import { stageOf } from './ir/index.js'
 import { fragmentRequires, type EmitFragment } from './fragment.js'
+import { intrinsicNeedsAtomArgs } from './intrinsics.js'
 import { validate } from './passes/validate.js'
 import { assertCaps, assertBuiltins } from './passes/required-caps.js'
 import { lowerModule } from './passes/match-lower.js'
@@ -85,7 +86,8 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         // an argument sits inside `(…)` or after a `,`, so it accepts anything
         // (`need` 1), while a `.field` / `[i]` BASE must be a primary — the
         // corpus really does contain `((h*h)*(i-(h*2.))).y`, and `a*b.y` is a
-        // different expression.
+        // different expression. The one argument position that is NOT loose is an
+        // intrinsic whose SPELLING re-embeds the argument (#2350) — see `call` below.
         return emitLeaf(
           x,
           be,
@@ -119,7 +121,13 @@ function emitLeaf(
       // `.name` by `spellExterns` during lowering, so the walk stays target-neutral.
       return e.name
     case 'call':
-      return be.intrinsic(e.fn, e.args.map(r))
+      // A registry spelling that splices an argument into a tighter position — `mod`'s
+      // `/` operand, `pack4x8unorm`'s `.x` base — needs it as a PRIMARY: at the loose
+      // argument precedence a minimally-parenthesized `a + b` re-associates inside the
+      // template, changing the parse (#2350). The registry declares which entries do
+      // that; `base` is the same ATOM rendering `.field` / `[i]` already demand, and
+      // under 'full' both renderers are identical, so no emitted bytes move there.
+      return be.intrinsic(e.fn, e.args.map(intrinsicNeedsAtomArgs(e.fn) ? base : r))
     case 'member':
       return `${base(e.base)}.${e.field}`
     case 'construct':
