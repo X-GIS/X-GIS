@@ -168,9 +168,15 @@ function mergeLayers(scene: Scene): Scene {
     // from every group member so a feature gets the styling of the
     // FIRST member whose filter matched it (declaration order
     // preserved by the arm-emission order).
-    const fillArms: Array<{ pattern: string; rgba: import('../property-types').RGBA }> = []
-    const strokeArms: Array<{ pattern: string; rgba: import('../property-types').RGBA }> = []
-    const widthArms: Array<{ pattern: string; width: number }> = []
+    const fillArms: Array<{
+      pattern: string | number
+      rgba: import('../property-types').RGBA
+    }> = []
+    const strokeArms: Array<{
+      pattern: string | number
+      rgba: import('../property-types').RGBA
+    }> = []
+    const widthArms: Array<{ pattern: string | number; width: number }> = []
     let strokeNeeded = false
     let fillNeeded = false
     const seenFillValues = new Set<string>()
@@ -191,24 +197,29 @@ function mergeLayers(scene: Scene): Scene {
       const fillRgba = node.fill.kind === 'constant' ? node.fill.rgba : null
       const strokeRgba = node.stroke.color.kind === 'constant' ? node.stroke.color.rgba : null
       for (const fv of filter.values) {
-        // The match-arm pattern is the stringified raw value — the
-        // evaluator stringifies the match key (evaluator.ts) so arms
-        // compare by string regardless of the source literal type.
+        // `raw` is the stringified value — the right dedup key (it
+        // compares by string regardless of the source literal type).
+        // The match-arm PATTERN must instead carry the literal's JS
+        // type: the evaluator's arm match is type-strict (`key ===
+        // arm.pattern`, evaluator.ts), so a string "2" arm never
+        // matches a numeric feature value 2 and the compound would
+        // fall through to the `_` "no override" arm.
         const v = fv.raw
+        const pattern: string | number = fv.wasString ? fv.raw : Number(fv.raw)
         if (fillRgba && !seenFillValues.has(v)) {
-          fillArms.push({ pattern: v, rgba: fillRgba })
+          fillArms.push({ pattern, rgba: fillRgba })
           seenFillValues.add(v)
           fillNeeded = true
         }
         if (strokeRgba && !seenStrokeValues.has(v)) {
-          strokeArms.push({ pattern: v, rgba: strokeRgba })
+          strokeArms.push({ pattern, rgba: strokeRgba })
           seenStrokeValues.add(v)
           strokeNeeded = true
         }
         if (!seenWidthValues.has(v)) {
           // node.stroke.width is guaranteed constant by isMergeableNode.
           const nw = node.stroke.width
-          widthArms.push({ pattern: v, width: nw.kind === 'constant' ? nw.value : 0 })
+          widthArms.push({ pattern, width: nw.kind === 'constant' ? nw.value : 0 })
           seenWidthValues.add(v)
         }
       }
