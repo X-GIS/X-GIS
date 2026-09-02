@@ -45,7 +45,8 @@ describe('@xgis/pipeline · transform', () => {
 
   it('min/max return NaN — not +/-Infinity — when a group has no numeric cell', () => {
     // NOT '' — `Number('')` is 0, so a blank cell is NUMERIC to this function
-    // and the group would not be empty. That is #2378, pinned below.
+    // and the group would not be empty on its own. Blank-as-missing is #2378,
+    // covered separately below.
     const t = fromRows([
       { g: 'none', v: 'N/A' },
       { g: 'none', v: '-' },
@@ -85,19 +86,76 @@ describe('@xgis/pipeline · transform', () => {
     expect(groupBy(t, { by: ['g'], agg: { v: 'max' } }).col('v')[0]).toBe(9)
   })
 
-  it('a BLANK cell still counts as numeric 0 — pinned, not endorsed (#2378)', () => {
-    // Recording observed behaviour so the next reader is not surprised by it
-    // while reading the #2358 fix, and so a change to it reds here on purpose.
-    // `Number('')` is 0 per ECMAScript StringToNumber, so a blank cell passes
-    // the `Number.isNaN` guard and lands in the accumulator as a real 0 — which
-    // is why min over a column of blanks reports 0 rather than the #2358
-    // sentinel. NOT asserted as correct: #2378 owns whether blank should mean
-    // missing, and if it lands as "missing" this expectation flips to NaN.
+  // ── blank cells are MISSING, not zero (#2378) ────────────────────────────
+  //
+  // `Number('')` and `Number(' ')` are both 0 per ECMAScript StringToNumber
+  // (the empty/whitespace string converts to +0), so the plain `Number.isNaN`
+  // guard in `aggregate` never fires for a blank cell and it was silently
+  // counted as a real 0 — wrong for `min`/`max` (reports [0, 0] for an
+  // all-blank group instead of the #2358 no-data sentinel) and numerically
+  // wrong for `avg` (blanks inflated `n`). A blank cell must now be skipped
+  // like 'N/A' or '-'.
+
+  it('avg skips blank cells instead of counting them as 0', () => {
+    // The arm that changes NUMERICALLY: if blanks still counted toward `n`,
+    // avg([10, '', '']) would be 10/3, not 10.
     const t = fromRows([
+      { g: 'a', v: 10 },
+      { g: 'a', v: '' },
+      { g: 'a', v: '' },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0]).toBe(10)
+  })
+
+  it('min/max over all-blank cells match all-N/A cells, both the #2358 sentinel', () => {
+    const blanks = fromRows([
       { g: 'blank', v: '' },
-      { g: 'blank', v: ' ' },
+      { g: 'blank', v: '' },
+    ])
+    const nas = fromRows([
+      { g: 'na', v: 'N/A' },
+      { g: 'na', v: 'N/A' },
+    ])
+    const blankMin = groupBy(blanks, { by: ['g'], agg: { v: 'min' } }).col('v')[0] as number
+    const blankMax = groupBy(blanks, { by: ['g'], agg: { v: 'max' } }).col('v')[0] as number
+    const naMin = groupBy(nas, { by: ['g'], agg: { v: 'min' } }).col('v')[0] as number
+    const naMax = groupBy(nas, { by: ['g'], agg: { v: 'max' } }).col('v')[0] as number
+    // NaN !== NaN, so "equal" is asserted via Number.isNaN on each side —
+    // this is also the sentinel `aggregate` actually returns (see #2358 above).
+    expect(Number.isNaN(blankMin)).toBe(true)
+    expect(Number.isNaN(blankMax)).toBe(true)
+    expect(Number.isNaN(naMin)).toBe(true)
+    expect(Number.isNaN(naMax)).toBe(true)
+  })
+
+  it('a genuine 0 is still counted (control: the fix must not eat real zeros)', () => {
+    const t = fromRows([
+      { g: 'z', v: 0 },
+      { g: 'z', v: 5 },
+      { g: 'z', v: '' },
     ])
     expect(groupBy(t, { by: ['g'], agg: { v: 'min' } }).col('v')[0]).toBe(0)
+    expect(groupBy(t, { by: ['g'], agg: { v: 'max' } }).col('v')[0]).toBe(5)
+    expect(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0]).toBe(2.5)
+  })
+
+  it('whitespace-only cells (space, tab) are treated as blank too', () => {
+    const t = fromRows([
+      { g: 'a', v: 10 },
+      { g: 'a', v: ' ' },
+      { g: 'a', v: '\t' },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0]).toBe(10)
+    expect(groupBy(t, { by: ['g'], agg: { v: 'sum' } }).col('v')[0]).toBe(10)
+  })
+
+  it('count is unaffected by blanks — it counts rows, not numeric cells', () => {
+    const t = fromRows([
+      { g: 'a', v: 10 },
+      { g: 'a', v: '' },
+      { g: 'a', v: ' ' },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'count' } }).col('v')[0]).toBe(3)
   })
 
   it('the empty-group result is per group, not per column', () => {

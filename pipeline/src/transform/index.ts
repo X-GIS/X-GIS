@@ -63,7 +63,16 @@ function aggregate(col: readonly Cell[], rows: readonly number[], kind: Agg): nu
   let acc = kind === 'min' ? Infinity : kind === 'max' ? -Infinity : 0
   let n = 0
   for (const i of rows) {
-    const v = Number(col[i])
+    const raw = col[i]
+    // A blank cell ('' or whitespace-only, e.g. an empty CSV field) must be
+    // treated as MISSING, not as zero. `Number('')` and `Number(' ')` are both
+    // +0 per the ECMAScript StringToNumber grammar (the empty/whitespace
+    // string converts to +0), so the `Number.isNaN` guard below never fires
+    // for a blank cell and it would otherwise be silently counted as a real
+    // 0. This check runs on the raw cell (before the numeric coercion) so a
+    // genuine numeric 0 — `number` 0, or the string '0' — is unaffected.
+    if (typeof raw === 'string' && raw.trim() === '') continue
+    const v = Number(raw)
     if (Number.isNaN(v)) continue
     n++
     if (kind === 'sum' || kind === 'avg') acc += v
