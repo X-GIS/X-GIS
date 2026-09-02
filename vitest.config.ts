@@ -156,6 +156,7 @@ export const ISOLATED = [
   'map/src/controller-dblclick-boxzoom.test.ts',
   'map/src/controller-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
+  'map/src/coverage-abort-spine.test.ts',
   'map/src/coverage-catalogue.test.ts',
   'map/src/coverage-residency-driver.test.ts',
   'map/src/coverage-source-refresh.test.ts',

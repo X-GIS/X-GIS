@@ -917,7 +917,13 @@ const CEILINGS: Record<string, number> = {
   // The keep-warm reason lives on the registration (pending-work.ts); this file carries
   // only the wire. Shrink-only from here. MEASURED post-prettier, re-measured at the
   // #2138 merge (main did not touch this file): 801.
-  'map/src/coverage-source.ts': 801, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
+  // 801->814 (#2375 F-5): the forecast-step and playback-transition reads called
+  // readCoverageRange with no `fetch`, so they fell through to the global one and
+  // `_coverageAbort.cancelAll()` — the #1570 fix run by destroy() AND
+  // _teardownForReinit() — could not stop a read in flight. Threading the guarded
+  // fetch costs a sourceId parameter, a required arg on readRegionsAtGroup, and the
+  // multi-line call shapes. Abort-spine plumbing, not feature growth.
+  'map/src/coverage-source.ts': 814, // Baselined at #1255 (measured 830): the DOM-inspired layer API crossed
   // NEW_FILE_CAP with the paint-transition style-setter integration — the
   // StyleHost.transitions context, the shared applyNumber/applyColor
   // helpers, and the four setter rewires (fill/stroke/opacity/strokeWidth
