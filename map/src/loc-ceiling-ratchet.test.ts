@@ -893,7 +893,11 @@ const CEILINGS: Record<string, number> = {
   // `map/src/imported-top-level.ts` — the pair is one concern, and keeping them
   // apart is how the second one came to be dropped. Measured with `wc -l` on
   // the post-prettier tree.
-  'map/src/map.ts': 5419,
+  // 5419→5427 (hunt 2026-09-02): `_releaseGpuResources` now drops the synthetic
+  // earth-surface background's two owner refs (`_syntheticBackend`,
+  // `underOccluder`) it was leaking across a re-run — 3 statements plus the
+  // 5-line rationale. Measured with `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5427,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

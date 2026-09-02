@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { XGISMap } from '@xgis/map'
 import { serializeXGB } from '@xgis/compiler'
 import { CoverageRenderer } from './render/coverage-renderer'
+import { SYNTHETIC_EARTH_SURFACE_SOURCE } from './synthetic-earth-surface-show'
 import {
   installWebGPUStub,
   type StubInstallation,
@@ -63,6 +64,7 @@ interface Seam {
   lineRenderer: unknown
   shapeRegistry: unknown
   rawDatasets: Map<string, unknown>
+  underOccluder: unknown
 }
 const seam = (map: XGISMap) => map as unknown as Seam
 
@@ -523,5 +525,50 @@ describe('#1569 destroy() releases the coverage renderer', () => {
     map.destroy()
     expect(spy).toHaveBeenCalledTimes(2)
     expect(live(stub)).toBe(0)
+  })
+})
+
+// ═══ hunt 2026-09-02 — a re-run() must rebuild the style background on the new device ═══
+//
+// `_releaseGpuResources()` tore down the synthetic earth-surface catalog + VTR
+// (via the vtSources loop) and destroyed the device, but left `_syntheticBackend`
+// and `underOccluder` pointing at the dead run. `_installSyntheticEarthSurfaceSource`
+// then short-circuited on the stale non-null backend, so run #2 never re-registered
+// the source (globe background lost) and kept dispatching the run-#1 occluder
+// against the destroyed device.
+describe('hunt 2026-09-02 — re-run() keeps a `background { fill }` alive', () => {
+  it('second run() re-registers the synthetic earth-surface source + rebuilds the under-occluder', async () => {
+    const stub = install({ freshDevices: true })
+    const map = new XGISMap(stubCanvas(), { projection: 'globe' })
+    seam(map).renderFrame = () => undefined
+    const src = 'xgis 1\nbackground { fill: sky-900 }'
+
+    await map.run(src)
+    const s = seam(map)
+    expect(s.vtSources.has(SYNTHETIC_EARTH_SURFACE_SOURCE)).toBe(true)
+    expect(s.rawDatasets.has(SYNTHETIC_EARTH_SURFACE_SOURCE)).toBe(true)
+    const occ1 = s.underOccluder
+    const rhi1 = (s.ctx as { rhi: unknown }).rhi
+    expect(occ1).not.toBeNull()
+
+    await map.run(src)
+    expect(stub.createdDevices).toHaveLength(2)
+    expect(stub.createdDevices[0]!.destroyed).toBe(true)
+    expect((s.ctx as { rhi: unknown }).rhi).not.toBe(rhi1) // run #2 owns a fresh device
+
+    expect(
+      s.vtSources.has(SYNTHETIC_EARTH_SURFACE_SOURCE),
+      'a re-run must re-register the earth-surface source (vtSources)',
+    ).toBe(true)
+    expect(
+      s.rawDatasets.has(SYNTHETIC_EARTH_SURFACE_SOURCE),
+      'a re-run must re-seed the earth-surface source (rawDatasets)',
+    ).toBe(true)
+    expect(
+      s.underOccluder,
+      'the under-occluder must be rebuilt on the new device, not the run-#1 instance',
+    ).not.toBe(occ1)
+
+    map.destroy()
   })
 })

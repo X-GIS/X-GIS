@@ -5147,6 +5147,14 @@ export class XGISMap {
     this._burst.exit()
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
+    // The synthetic background's catalog+VTR die in that loop, so its two OWNER
+    // refs must go too: left dangling, _installSyntheticEarthSurfaceSource
+    // short-circuits and a re-run never re-registers the source (background lost)
+    // while the opaque pass keeps drawing the old occluder on a dead device.
+    // Destroyed before ctx.rhi.destroy(), the order setBackgroundFill(null) uses.
+    this._syntheticBackend = null
+    this.underOccluder?.destroy()
+    this.underOccluder = null
 
     // Overlay stages own GPU buffers + glyph/icon atlases.
     this.textStage?.destroy()
