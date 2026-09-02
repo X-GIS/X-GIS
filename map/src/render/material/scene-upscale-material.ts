@@ -51,6 +51,18 @@ export class SceneUpscaleDraper {
     }))
   }
 
+  /** Release the Material AND the filtering sampler this draper owns. Called by the pass
+   *  when it replaces this entry on a format / sampleCount change — the Material bakes both,
+   *  so an adaptive-ladder notch or a `setQuality({msaa})` flip while the scene is scaled
+   *  builds a fresh draper and the old pipelines + sampler are otherwise dropped
+   *  unreferenced (#2337). Mirrors `ExtrudeShellComposeDraper.destroy`, the sibling
+   *  sampler-owning draper. */
+  destroy(): void {
+    this._material?.destroy()
+    this._material = undefined
+    this.rhi.destroySampler(this.sampler.sampler)
+  }
+
   /** Draw the resolved scene colour into the bound SCREEN pass. The bind group
    *  is rebuilt per call — the scene view changes with every ladder notch and
    *  resize, and the seam draws at most once per frame. */
