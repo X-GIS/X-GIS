@@ -17,6 +17,10 @@ export * from './priority-queue'
 // gated, stripped from any `vite build`. Lives at the shared LCA so @xgis/engine
 // (UniformBlock) and @xgis/map can both assert without importing the runtime.
 export * from './dev-assert'
+// DEV owner-leak detector (#2266): GPU-holding owners register at construction
+// and unregister in destroy(); a collection while registered warns. Behind
+// __XGIS_INVARIANTS + DEV — a detector, never a reclamation path (audit §7).
+export * from './leak-detector'
 // Generic 4×4 matrix ops (column-major) — content-blind linear algebra relocated
 // from @xgis/engine (#781) so @xgis/geo / @xgis/map / @xgis/data share one impl.
 export * from './mat4'
