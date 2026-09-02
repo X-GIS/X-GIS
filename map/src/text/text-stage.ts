@@ -1168,10 +1168,10 @@ export class TextStage {
         : undefined
       // text-translate-anchor: an explicit viewport leaves [dx,dy]
       // screen-space; map — the v8 DEFAULT — rotates it by the map bearing
-      // (mirror of the fill/line clip-space bake). Resolve ONCE here so
-      // the rotated value flows into BOTH the layout-cache key and the
-      // per-anchor dx/dy add below — a bearing change re-keys the cache
-      // (the rotated tx/ty differ) so a cached entry never goes stale.
+      // (mirror of the fill/line clip-space bake). Resolved ONCE here and
+      // applied at the two drawX/drawY sites below — #2170 took it OUT of
+      // the layout-cache key, so a bearing change no longer re-keys the
+      // cache (layoutCacheKey in text-stage-helpers.ts says why).
       const [txRaw, tyRaw] = p.def.translate
         ? rotateLabelTranslate(
             p.def.translate[0],

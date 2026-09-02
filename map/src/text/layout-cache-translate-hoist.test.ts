@@ -103,8 +103,46 @@ function makeStage() {
 }
 
 const ANCHOR_X = 200
+
+// Operands for the grouping tests below. NOT arbitrary: `Seoul` at the default
+// size 20 reassociates EXACTLY, so a test written on it would be as blind as
+// the two pre-existing wiring tests. Found by scanning bearing × size × text ×
+// translate for a triple where the two associations come apart — the
+// instrument check inside each test is what re-verifies that at run time.
+const WIDE_TEXT = 'Daejeon Metropolitan'
+const WIDE_SIZE = 23.77
+const SKEW_BEARING = 180 / 7
 const ANCHOR_Y = 300
 const TRANSLATE: [number, number] = [10, 0]
+
+/** One label on a FRESH stage; returns its drawn x. Fresh so the layout cache
+ *  cannot serve a probe from a previous probe's entry. */
+function drawOnce(opts: {
+  anchorX: number
+  translate: [number, number]
+  bearing: number
+  anchor?: LabelDef['anchor']
+}): number {
+  const { stage, captured } = makeStage()
+  stage.setBearing(opts.bearing)
+  stage.beginFrame()
+  stage.addLabel(
+    litValue(WIDE_TEXT),
+    {},
+    opts.anchorX,
+    ANCHOR_Y,
+    pointDef({
+      text: litValue(WIDE_TEXT),
+      size: WIDE_SIZE,
+      translate: opts.translate,
+      translateAnchorMap: true,
+      ...(opts.anchor !== undefined ? { anchor: opts.anchor } : {}),
+    }),
+  )
+  stage.prepare()
+  stage.reset()
+  return captured[captured.length - 1]![0]!.anchorX
+}
 
 /** One map-anchored label at `bearing`; returns its draw anchor. */
 function frameAt(
@@ -122,6 +160,11 @@ function frameAt(
     pointDef({ text: litValue('Seoul'), translate: TRANSLATE, translateAnchorMap: true }),
   )
   stage.prepare()
+  // `prepare()` leaves `pending` populated — only `reset()` clears it
+  // (text-stage.ts:2132). Without this the next frame re-submits this label
+  // as well, so the caller's cache-stat deltas and the "exactly one label per
+  // frame" message below would both be describing a two-label frame.
+  stage.reset()
   const draws = captured[captured.length - 1]!
   expect(draws.length, 'exactly one label per frame').toBe(1)
   return { x: draws[0]!.anchorX, y: draws[0]!.anchorY }
@@ -175,6 +218,7 @@ describe('#2170 — a bearing change no longer re-keys a map-anchored label', ()
         pointDef({ text: litValue('Seoul'), translate: t, translateAnchorMap: true }),
       )
       stage.prepare()
+      stage.reset() // as in frameAt: prepare() does not clear `pending`
     }
     push([10, 0])
     const one = stage.getLayoutCacheStats().entries
@@ -216,6 +260,88 @@ describe('#2170 — the moved term is grouped, so the hoist is bit-identical', (
     let dx = b
     dx += c
     expect(Object.is(a + dx, a + (b + c))).toBe(true)
+  })
+
+  // A BEHAVIOURAL fail-before for the parentheses. The two tests above cannot
+  // supply one and it is worth saying why: `pointDef` anchors `left`, which
+  // sets `dx = 0` (text-stage.ts:1320), and `a + (0 + c)` and `(a + 0) + c`
+  // are bit-identical for every finite a, c. Their operands are the blind
+  // spot, exactly as the two pre-existing wiring tests' dyadic ones are.
+  // A CENTER anchor puts `-totalAdvance / 2` (:1322) into the middle slot and
+  // the two associations come apart.
+  it('a center-anchored label draws the GROUPED sum, bit for bit', () => {
+    const BEARING = SKEW_BEARING
+    const A = ANCHOR_X
+
+    // Recover the two addends EXACTLY, each from a frame whose leading add is
+    // the identity: `0 + x === x` for every finite x, so an anchor of 0 makes
+    // the drawn coordinate the inner sum itself.
+    const c = drawOnce({ anchorX: 0, translate: TRANSLATE, bearing: BEARING }) // dx = 0 (left) ⇒ c
+    const dx = drawOnce({ anchorX: 0, translate: [0, 0], bearing: BEARING, anchor: 'center' }) // c = 0 ⇒ dx
+    expect(
+      dx,
+      'a center anchor must contribute a non-zero dx, or this test is the blind one',
+    ).not.toBe(0)
+
+    const grouped = A + (dx + c)
+    const ungrouped = A + dx + c
+    // Validate the instrument BEFORE trusting the assertion: if these operands
+    // happen to be dyadic the two forms agree and this test proves nothing.
+    expect(
+      Object.is(grouped, ungrouped),
+      'these operands reassociate exactly — pick an anchor/bearing where they do not, or this test cannot see a dropped paren',
+    ).toBe(false)
+
+    const got = drawOnce({ anchorX: A, translate: TRANSLATE, bearing: BEARING, anchor: 'center' })
+    expect(
+      Object.is(got, grouped),
+      `the miss-path draw site computed the UNGROUPED sum: got ${got}, grouped ${grouped}, ungrouped ${ungrouped} — the parentheses at text-stage.ts's miss site are gone`,
+    ).toBe(true)
+  })
+
+  it('and so does the cache HIT that serves it on the next frame', () => {
+    const BEARING = SKEW_BEARING
+    const A = ANCHOR_X
+    const c = drawOnce({ anchorX: 0, translate: TRANSLATE, bearing: BEARING })
+    const dx = drawOnce({ anchorX: 0, translate: [0, 0], bearing: BEARING, anchor: 'center' })
+    const grouped = A + (dx + c)
+    expect(Object.is(grouped, A + dx + c)).toBe(false)
+
+    // Two frames on ONE stage: the second is served from the layout cache, so
+    // it exercises the hit site's own copy of the expression.
+    const { stage, captured } = makeStage()
+    const draw = (): number => {
+      stage.setBearing(BEARING)
+      stage.beginFrame()
+      stage.addLabel(
+        litValue(WIDE_TEXT),
+        {},
+        A,
+        ANCHOR_Y,
+        pointDef({
+          text: litValue(WIDE_TEXT),
+          size: WIDE_SIZE,
+          translate: TRANSLATE,
+          translateAnchorMap: true,
+          anchor: 'center',
+        }),
+      )
+      stage.prepare()
+      stage.reset()
+      return captured[captured.length - 1]![0]!.anchorX
+    }
+    const missDraw = draw()
+    const before = stage.getLayoutCacheStats()
+    const hitDraw = draw()
+    expect(
+      stage.getLayoutCacheStats().hits,
+      'the second frame must be the HIT this asserts on',
+    ).toBe(before.hits + 1)
+    expect(
+      Object.is(hitDraw, grouped),
+      `the hit-path draw site computed the UNGROUPED sum: got ${hitDraw}, grouped ${grouped}`,
+    ).toBe(true)
+    expect(hitDraw, 'and the hit agrees with the miss it replaced').toBe(missDraw)
   })
 
   it('both draw sites group the translate with dx, not with the anchor', () => {
