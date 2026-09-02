@@ -737,6 +737,11 @@ export class HillshadeRenderer {
   }
 
   destroy(): void {
+    // The store owns the cache and the in-flight aborts (#1570); the DRAPER is this
+    // renderer's, so its teardown stays here — the store only borrows it via a thunk.
     this.dem.destroy()
+    // #2286 — raster twin: the draper was released by the quality rebuild only.
+    this._hillshadeDraper?.destroy()
+    this._hillshadeDraper = undefined
   }
 }

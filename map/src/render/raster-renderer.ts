@@ -1023,6 +1023,10 @@ export class RasterRenderer {
 
   destroy(): void {
     abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
+    // #2286 — the draper's ONLY destroy used to be in rebuildForQuality(), so a
+    // quality toggle released it and map teardown never did.
+    this._rasterDraper?.destroy()
+    this._rasterDraper = undefined
   }
 
   private evictTiles(vis: Set<string>): void {
