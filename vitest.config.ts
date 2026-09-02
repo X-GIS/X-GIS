@@ -225,6 +225,11 @@ export const ISOLATED = [
   'map/src/source-manager-refresh.test.ts',
   'map/src/stats-byte-telemetry.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
+  // (2) assigns `globalThis.HTMLElement` before dynamically importing component.ts,
+  //     which binds its DOM base class at module load — a shared registry that has
+  //     already imported that module hands the class the REAL base and the fake
+  //     `attachShadow` never applies (#2327).
+  'map/src/web/component.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',
