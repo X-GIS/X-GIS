@@ -93,6 +93,10 @@ describe('#763 V1 — CORE rule firing fixtures', () => {
       // #1812 — the portable kernel tier. CORE because `portable: true` claims the kernel
       // emits on BOTH backends, so the claim is checked at every emit on both writers.
       'portable-kernel',
+      // #2341 — the premise five optimizer passes rest on. CORE because a duplicated local
+      // name is a SILENT miscompile on every backend (two sibling scopes binding `t` folded
+      // to the same literal at O1), not a style opinion.
+      'no-shadowed-local',
     ])
   })
 })

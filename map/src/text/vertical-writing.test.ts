@@ -193,7 +193,12 @@ describe('#2144 — the hint gate (design §1.4): a Unicode property, not a rati
 
 describe('#2144 §10 — layoutCacheKey separates a column from a row', () => {
   it('the ONLY differing term is the writing mode, and the keys differ', () => {
-    const args = [0x1234, SIZE, 0, Infinity, 28.8, 'center', 'center', 0, 0, 0, 0, 2, 1, 0] as const
+    // glyphsKey, sizePx, letterSpacing, maxWidth, lineHeight, justify, anchor,
+    // offsetX, offsetY, padding, haloWidth, haloBlur. The two translate terms
+    // that used to sit between offsetY and padding were removed by #2170 — they
+    // made the cache miss on every bearing change for a map-anchored label, and
+    // nothing the entry stores depends on them.
+    const args = [0x1234, SIZE, 0, Infinity, 28.8, 'center', 'center', 0, 0, 2, 1, 0] as const
     const horizontal = layoutCacheKey(...args, false, false)
     const vertical = layoutCacheKey(...args, false, true)
     expect(
