@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1392e6d02159a4e19601a641bf2d47748988f4c2
+  Generated from: 6c2ce231c5b69ab0eea0a57498de409ed530e876
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1392e6d02159
+    bun scripts/emit-changelog.ts --since 6c2ce231c5b6
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
 - **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
 - **text:** a label with no text-font stops asking for a CJK-chain fontstack (#2259) ([#2287](https://github.com/X-GIS/X-GIS/pull/2287)) `2dcfab5`
