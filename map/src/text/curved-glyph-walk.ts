@@ -131,15 +131,6 @@ export function walkCurvedGlyphs(inp: CurvedGlyphWalkInput): CurvedGlyphWalkResu
   // Skip when label can't fit — Mapbox drops it rather than truncate.
   if (totalAdvancePx > totalLineLen) return null
   let startS = inp.centerOffsetPx - totalAdvancePx * 0.5
-  // #1793 — CLAMP (don't drop) when the label fits the line but the requested
-  // centre would push it past one end. The along-line lattice picks
-  // `centerOffsetPx` by fixed world-anchored spacing, blind to the label's shaped
-  // width, so on a run truncated by the viewport/tile edge its one in-window stop
-  // can land within a few px of an end even though the run has spare px elsewhere.
-  // Sliding the anchor inward keeps the full, untruncated label on the line the
-  // lattice already chose — a POSITION fix, not the truncation forbidden above.
-  if (startS < 0) startS = 0
-  else if (startS + totalAdvancePx > totalLineLen) startS = totalLineLen - totalAdvancePx
 
   // Mapbox `text-keep-upright` (default true): when the label's overall direction
   // would render text upside-down, flip the entire run by walking the polyline in
@@ -162,6 +153,20 @@ export function walkCurvedGlyphs(inp: CurvedGlyphWalkInput): CurvedGlyphWalkResu
       startS = totalLineLen - inp.centerOffsetPx - totalAdvancePx * 0.5
     }
   }
+
+  // #1793 — CLAMP (don't drop) when the label fits the line but the requested
+  // centre would push it past one end. The along-line lattice picks
+  // `centerOffsetPx` by fixed world-anchored spacing, blind to the label's shaped
+  // width, so on a run truncated by the viewport/tile edge its one in-window stop
+  // can land within a few px of an end even though the run has spare px elsewhere.
+  // Sliding the anchor inward keeps the full, untruncated label on the line the
+  // lattice already chose — a POSITION fix, not the truncation forbidden above.
+  // Applied AFTER the keep-upright block (#2317) so it bounds whichever `startS`
+  // survives — the reversed branch above recomputes it from scratch and, being a
+  // cursor in the same arc-length parameterisation, is bounded by the identical
+  // interval.
+  if (startS < 0) startS = 0
+  else if (startS + totalAdvancePx > totalLineLen) startS = totalLineLen - totalAdvancePx
 
   const basisInv = inp.basisInv
   // The pivot: the LIVE screen point at `centerOffsetPx`, which is the ground
