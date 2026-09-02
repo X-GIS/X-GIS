@@ -20,17 +20,21 @@ package like any other consumer.)
 
 ## Capability taxonomy (honest)
 
-| Capability                                                                                                                                                         | Standing                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                                                                                                                                                            |
-| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                                                                                                                                                            |
-| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                                                                                                                                                                |
-| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                                                                                                                                                            |
-| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                                                                                                                                                                       |
-| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **NEW**                                                                                                                                                                                                                                                                                               |
-| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                                                                                                                                                                     |
-| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO + MRT draw buffers, WebGL2 compile+render-verified (see `examples/`, #847); a read-only SSBO lowers to a data texture by default (writes + unsupported shapes fail closed), compute emulation is opt-in, MSAA-load fails closed |
-| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **aspirational** — mono-target (WGSL) but credible for v1                                                                                                                                                                                                                                             |
+| Capability                                                                                                                                                         | Standing                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Author** (typed IR, SoT layout declarators, control-flow + value combinators)                                                                                    | **STRONG**                                                                                                                                                                                                                                                                                                                  |
+| **Type-check** (compile-time `Node<K>` keys; wrong-typed return / field is a TS error)                                                                             | **STRONG**                                                                                                                                                                                                                                                                                                                  |
+| **Optimize** (CSE, DCE, LICM, const-fold, algebraic, auto-var/auto-let)                                                                                            | STRONG                                                                                                                                                                                                                                                                                                                      |
+| **Validate / lint** (lint engine + capability gate; coded errors `SD####`, aggregated `validate`, unified `diagnose()`/`formatReport()` + opt-in source locations) | **STRONG**                                                                                                                                                                                                                                                                                                                  |
+| **CPU-oracle parity** (compile the same module to an f64 CPU fn for cross-checking)                                                                                | **DISTINCTIVE**                                                                                                                                                                                                                                                                                                             |
+| **Reflect** (`reflect(module)` → bind-groups + std140/std430 layouts + entry signatures)                                                                           | **mature** — 13 direct callers across four packages: the six `*-uniform-slots` modules and `point-renderer` in `map/`, `variantFamily` / `semanticDiff` / `emitModuleWithReflection` here, plus the playground thumbnail capture and the site example lib                                                                   |
+| **WGSL backend**                                                                                                                                                   | real, byte-stable                                                                                                                                                                                                                                                                                                           |
+| **GLSL backend**                                                                                                                                                   | **real for render pipelines** — vertex+fragment entry-IO + std140 UBO + MRT draw buffers, WebGL2 compile+render-verified (see `examples/`, #847); a read-only SSBO lowers to a data texture by default (writes + unsupported shapes fail closed), compute emulation is opt-in, MSAA-load fails closed                       |
+| **fp64** (emulated double precision)                                                                                                                               | real, tiered — df64 hi/lo lowering for `+ - * /`, compare, `abs`, `min`, `max`, `sqrt`, `mix`, `floor`, `fract` and the vector reductions, with a per-device float/integer flavor probe. Transcendentals are NOT emulated: an unsupported op fails closed on `SD0041` rather than silently narrowing                        |
+| **`semanticDiff`** (compare two modules' meaning)                                                                                                                  | real, and deliberately narrow — interface, resources, constants and the control-flow skeleton. A review aid for an emit change, **not** an equivalence proof: it does not compare expression trees                                                                                                                          |
+| **`variantFamily`** (one module, N specialised emits)                                                                                                              | real, in external production use — shared prelude emitted once, per-variant bodies linked against it, with the family validated as a unit                                                                                                                                                                                   |
+| **Portable compute tier**                                                                                                                                          | real, fail-closed — the gather-only shape (`out[gid.x] = f(reads)`: 1-D `gid`, one `u32` storage output written once at the invocation index) is the subset that lowers to BOTH WebGPU and the WebGL2 emulation; anything outside it is rejected at every emit (`SD0110` / `SD0111`) rather than emitted WGSL-only          |
+| **Multi-target** (SPIR-V / MSL / HLSL)                                                                                                                             | **via naga / Tint**, not a third emitter — WGSL is the canonical output and every native host already reaches it through Dawn / wgpu. A hand-written third backend was ruled out deliberately: it triples every parity gate for zero rendering surface (see `docs/plans/2026-09-01-shader-dsl-improvement-direction.md` §5) |
 
 ## Install / build
 
@@ -139,11 +143,7 @@ const fs = fn(
   { in: VsOut.type },
   (p) => {
     const pin = VsOut.of(p.in)
-    const rgb = mix(
-      U.field.bottom.swizzle<'vec3<f32>'>('rgb'),
-      U.field.top.swizzle<'vec3<f32>'>('rgb'),
-      pin.uv.y.add(U.field.mix_bias),
-    )
+    const rgb = mix(U.field.bottom.rgb, U.field.top.rgb, pin.uv.y.add(U.field.mix_bias))
     return vec4(rgb, f32(1))
   },
   { stage: 'fragment', retAttr: '@location(0)' },
@@ -225,11 +225,13 @@ cannot change an emitted byte. The std140/std430 offset engine is also exposed s
 
 ## Examples
 
-Runnable, runtime-free shaders live in [`examples/`](./examples) — three cartographic
-(graticule, hillshade, choropleth ramp), sixteen generic covering the classic
+Runnable, runtime-free shaders live in [`examples/`](./examples) — 36 of them: three
+cartographic (graticule, hillshade, choropleth ramp), nineteen generic covering the classic
 ShaderToy-era effects (plasma, voronoi, julia, mandelbrot, fBm clouds, domain warping,
 raymarched sphere, raymarched box field, tunnel, metaballs, ocean, starfield, truchet,
-kaleidoscope, beating heart, gradient), and one compute kernel. Each emits
+kaleidoscope, beating heart, gradient, discard cutout, override quality, texture-array LOD),
+thirteen exercising the df64 emulated-double tier (deep zoom, RTC, Loran, Mercator tiles,
+the fractal set at f64, cancellation and a sine sweep), and one compute kernel. Each emits
 WGSL + GLSL ES 3.00 + reflection from one source:
 
 ```bash
@@ -237,7 +239,8 @@ npx tsx examples/print.ts            # print WGSL / GLSL / reflection for every 
 npx tsx examples/print.ts hillshade  # just one, by id
 ```
 
-The renderable ones run live on a WebGL2 canvas on the **/shader-dsl** site page (they are
+The renderable ones run live on the **/shader-dsl** site page, which mounts either backend
+behind a toggle — WebGL2 by default, WebGPU wherever an adapter is reachable (they are
 exported from `examples/index.ts`, which the page imports). See [`examples/README.md`](./examples/README.md).
 
 ## Authoring guide

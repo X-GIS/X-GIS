@@ -28,6 +28,7 @@ import { callSignature } from './call-signature.js'
 import { smoothstepEdgeOrder } from './smoothstep-edge-order.js'
 import { fragmentOnlyBuiltin } from './fragment-only-builtin.js'
 import { portableKernel } from './portable-kernel.js'
+import { noShadowedLocal } from './no-shadowed-local.js'
 
 /** The registered ruleset. Order is the diagnostic order (module checks, then per-fn in
  *  declaration order). Append new rules here. */
@@ -55,6 +56,7 @@ export const RULES: readonly LintRule[] = [
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
   portableKernel,
+  noShadowedLocal,
 ]
 
 export {
@@ -81,6 +83,7 @@ export {
   smoothstepEdgeOrder,
   fragmentOnlyBuiltin,
   portableKernel,
+  noShadowedLocal,
 }
 
 /** The subset run by validate() at EVERY emit (incl. runtime-composed + compute modules
@@ -106,4 +109,10 @@ export const CORE_RULES: readonly LintRule[] = [
   // writers — a lint-only gate would let a kernel that cannot lower for WebGL2 sail through
   // every WGSL path. Silent for any module that declares no portable entry.
   portableKernel,
+  // The premise five optimizer passes rest on: within a function a binding is identified by
+  // its NAME alone, so a duplicated name merges two bindings and const-prop / copy-prop /
+  // dead-branch / member-fold / inline-linear move a value across a scope boundary it may not
+  // cross. CORE because the failure is a SILENT miscompile on every backend — two sibling `if`
+  // arms binding `t` folded to the same literal at O1 — not a style opinion (#2341).
+  noShadowedLocal,
 ]
