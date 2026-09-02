@@ -13,7 +13,7 @@
 // pinned by vector-drape-overzoom.test.ts.
 
 import { describe, it, expect } from 'vitest'
-import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
+import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { globeVisibleTiles } from '@xgis/data'
 import { tileKey, tileKeyUnpack } from '@xgis/compiler'
 import { activeBody } from '@xgis/shared'
@@ -45,15 +45,18 @@ function drawnKeys(zoom: number, currentZ: number): number[] {
   )
 }
 
-function run(o: {
-  zoom: number
-  currentZ: number
-  dpr: number
-  maxLevel: number
-  neededKeys?: number[]
-  resident?: Set<number>
-  projType?: number
-}) {
+function run(
+  o: {
+    zoom: number
+    currentZ: number
+    dpr: number
+    maxLevel: number
+    neededKeys?: number[]
+    resident?: Set<number>
+    projType?: number
+  },
+  diag?: DrapeOverzoomDiag,
+) {
   const needed = o.neededKeys ?? drawnKeys(o.zoom, o.currentZ)
   const resident = o.resident ?? new Set(needed)
   const requested: number[] = []
@@ -65,6 +68,7 @@ function run(o: {
     cssWidth: W,
     cssHeight: H,
     dpr: o.dpr,
+    diag,
     source: {
       maxLevel: o.maxLevel,
       // Everything the walk asks for exists in the catalog but is not on the GPU
@@ -183,5 +187,37 @@ describe('#2346 — the drape windows by device-pixel density', () => {
   it('never engages off the globe route, or on a source with no levels', () => {
     expect(run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14, projType: 0 }).out).toBeUndefined()
     expect(run({ zoom: 4.4, currentZ: 0, dpr: 2, maxLevel: 0 }).out).toBeUndefined()
+  })
+})
+
+describe('#2346 — an exact-integer device zoom is the case that needs windowing MOST', () => {
+  // camera 5.0 on a 2× display → deviceZoom exactly 6.0. The selector's footprint
+  // branch only serves a level strictly below that, so the level asked for drops
+  // to 5 — and comparing THAT against the drawn LOD 5 read as "nothing deeper to
+  // do" and turned the whole rule off, at precisely the camera where a 512px bake
+  // is stretched over 2·TILE_PX device pixels. Measured before this: 0 virtual
+  // bakes at z5/dpr2 and a draped frame 12.5 % away from the direct one, against
+  // 0.65-1.9 % at z3.5 and z2 where the rule did engage.
+  it('engages at camera 5.0 / dpr 2, at the level the split lifts it back to', () => {
+    const { out } = run({ zoom: 5, currentZ: 5, dpr: 2, maxLevel: 14 })
+    expect(out, 'deviceZoom 6.0 must still window — the bake is a 2× upscale there').toBeDefined()
+    for (const t of out!) expect(t.z, 'selected at 5, split back up to 6').toBe(6)
+  })
+
+  it('the diagnostic reports the EFFECTIVE level, not the pre-split one', () => {
+    // A reader that sees `virtualZ: 5` next to `currentZ: 5` cannot tell an
+    // engaged frame from a no-op one — which is how this stayed invisible.
+    const diag: DrapeOverzoomDiag = {}
+    run({ zoom: 5, currentZ: 5, dpr: 2, maxLevel: 14 }, diag)
+    expect(diag.virtualZ).toBe(6)
+    expect(diag.reason).toBe('engaged')
+    expect(diag.split).toBe(true)
+  })
+
+  it('still declines when even the split cannot get deeper than the drawn LOD', () => {
+    // dpr 1 at an integer camera zoom: deviceZoom 5.0 → select 4, split to 5 =
+    // the drawn LOD. One bake texel is already one device pixel; windowing would
+    // only cost draw calls.
+    expect(run({ zoom: 5, currentZ: 5, dpr: 1, maxLevel: 14 }).out).toBeUndefined()
   })
 })

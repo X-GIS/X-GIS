@@ -137,8 +137,21 @@ export function computeDrapeOverzoom(a: {
   // the device zoom. Asking it for `ceil` drops into the legacy descent, which
   // returns a MIXED set (mostly the drawn level, the focal column one deeper) and
   // takes the whole switch down: measured, every in-range case bailed.
-  let virtualZ = Math.min(Math.floor(deviceZoom), srcMaxLevel + DRAPE_OVERZOOM_MAX_BOOST)
-  if (!(deviceZoom > virtualZ + 1e-3)) virtualZ -= 1
+  const rawZ = Math.min(Math.floor(deviceZoom), srcMaxLevel + DRAPE_OVERZOOM_MAX_BOOST)
+  // The footprint branch serves a level STRICTLY below the device zoom, so at an
+  // exact-integer deviceZoom (camera 5.0 on a 2× display) it can only be asked
+  // for one level less. That level is then lifted back by the split below — which
+  // is why the drop is no longer a bail: measured at z5 / dpr 2, dropping it left
+  // the windowing OFF at precisely the camera that needs it (0 virtual bakes, the
+  // draped frame 12.5 % away from the direct one and further from the Mercator
+  // control than it), while z2 and z3.5 — where it engaged — had converged to
+  // within 0.65-1.9 % of direct.
+  const virtualZ = deviceZoom > rawZ + 1e-3 ? rawZ : rawZ - 1
+  // ROUND TO NEAREST: the selected level covers 2^(deviceZoom − virtualZ) device
+  // pixels per bake texel, so past the half-octave the set is split once in place
+  // (below) and the effective level is one deeper.
+  const willSplit = deviceZoom - virtualZ >= 0.5
+  const effectiveZ = willSplit ? virtualZ + 1 : virtualZ
   // #2346: the trigger is "is there a deeper virtual level to bake at", NOT
   // "are we past the source maximum". `virtualZ > currentZ` is exactly the
   // condition under which the windowed set carries more texels than the
@@ -147,10 +160,13 @@ export function computeDrapeOverzoom(a: {
   const diag = a.diag
   if (diag) {
     diag.deviceZoom = deviceZoom
-    diag.virtualZ = virtualZ
+    diag.virtualZ = effectiveZ
     diag.currentZ = a.currentZ
   }
-  if (!isGlobeProj(a.projType) || srcMaxLevel <= 0 || virtualZ <= a.currentZ) {
+  // The trigger reads the EFFECTIVE level — the one the frame actually bakes at,
+  // after the split. Comparing the pre-split level here is what turned the
+  // exact-integer deviceZoom into a silent no-op.
+  if (!isGlobeProj(a.projType) || srcMaxLevel <= 0 || effectiveZ <= a.currentZ) {
     if (diag)
       diag.reason = !isGlobeProj(a.projType)
         ? 'not-globe'
@@ -293,7 +309,7 @@ export function computeDrapeOverzoom(a: {
   // directly). Bounded at ×4 entries, and it turns the worst case from a 2×
   // undershoot into a 1.41× overshoot — the side of the trade a baked tile that
   // must look like the direct render wants to be on.
-  if (deviceZoom - virtualZ < 0.5) {
+  if (!willSplit) {
     if (diag) {
       diag.reason = 'engaged'
       diag.split = false

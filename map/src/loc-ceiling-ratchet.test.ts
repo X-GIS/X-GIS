@@ -325,7 +325,13 @@ const CEILINGS: Record<string, number> = {
   // driven from VectorDrapeRenderer, which has no viewport state, so the frame
   // dpr is stashed here (`_bakeDpr`, +6 with its rationale) and handed to
   // bakeTileStrokes (+1). The derivation lives in render/vector-drape-cache.ts.
-  'map/src/render/vector-tile-renderer.ts': 5478,
+  // 5478→5501 (#2346 diagnostics, measured post-prettier): the windowed-bake
+  // switch is atomic, so its usual failure is to do NOTHING — twice this PR that
+  // was inferred from pixels instead of read. The per-slice diagnostic scratch
+  // (`_drapeOverzoomDiagBySlice` + `_sliceOverzoomDiag`) is what turned the
+  // third round into one measurement; the policy stays in
+  // render/drape-overzoom-dispatch.ts.
+  'map/src/render/vector-tile-renderer.ts': 5501,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
