@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: affe5d7e71a77854b0752c66afdcae7e6db4f114
+  Generated from: e3e3e61b609136f91386f16f5c3520523f694c4a
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since affe5d7e71a7
+    bun scripts/emit-changelog.ts --since e3e3e61b6091
 -->
 
 # Changelog
@@ -36,6 +36,12 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/render:** release a pass's per-host entry before replacing it (#2337) ([#2401](https://github.com/X-GIS/X-GIS/pull/2401)) `e3e3e61`
+- **playground:** overdraw capture reports painted / sampled, not painted / painted (#2356) ([#2396](https://github.com/X-GIS/X-GIS/pull/2396)) `9692834`
+- **data/sources:** re-check the sink at write time in the virtual-PMTiles worker arm (#2359) ([#2394](https://github.com/X-GIS/X-GIS/pull/2394)) `2830f82`
+- **shader-dsl:** memberFold must not forward a construct argument that is reassigned (#2354) ([#2398](https://github.com/X-GIS/X-GIS/pull/2398)) `0d74a94`
+- **shader-dsl:** an empty dispatch is a steady state on the WebGL2 compute tier too (#2362) ([#2395](https://github.com/X-GIS/X-GIS/pull/2395)) `8aaa2fa`
+- **data/tiles:** make the SSE parent-inject dedup key exact — 55 bits did not fit a double (#2351) ([#2393](https://github.com/X-GIS/X-GIS/pull/2393)) `caacc3f`
 - **blueprint:** coverage ramp/range survive a codegen → import round trip (#2348) ([#2387](https://github.com/X-GIS/X-GIS/pull/2387)) `affe5d7`
 - **pipeline:** an odbLoader purpose/segment filter over a payload without that column matches nothing (#2361) ([#2390](https://github.com/X-GIS/X-GIS/pull/2390)) `262613d`
 - **data:** polar caps synthesise the wedge a CCW ring occupies, not its 340-degree complement (#2357) ([#2383](https://github.com/X-GIS/X-GIS/pull/2383)) `bbb9627`
