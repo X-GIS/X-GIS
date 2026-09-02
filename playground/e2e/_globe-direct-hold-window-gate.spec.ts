@@ -6,17 +6,19 @@
 // (tile-selection-cache.ts, READINESS_TIMEOUT_MS = 5 s) holds the OLD LOD until every
 // visible tile at the next LOD is cached, so the drawn tiles trail the camera by one —
 // up to four — LODs for as long as the network takes. #2086 keyed the drape/direct
-// decision on that HELD `currentZ`, so a camera that has crossed the ceiling (z ≥ 9)
-// with `currentZ` still 8 kept DRAPING: 512px bakes of the held z8 tiles, magnified
-// 2^(9.6−8) ≈ 3× (× dpr) — the "baked tiles" the report names, for the whole hold
-// window, on every zoom-in that starts below the ceiling. The camera's own LOD
+// decision on that HELD `currentZ`, so a camera that has crossed the ceiling with
+// `currentZ` still one level under it kept DRAPING: 512px bakes of the held tiles,
+// magnified 2^(HOLD_ZOOM−HELD_LOD) ≈ 3× (× dpr) — the "baked tiles" the report names,
+// for the whole hold window, on every zoom-in that starts below the ceiling. (First
+// measured at 8.3 → 9.6 against the original ceiling of 9; the cameras follow the
+// ceiling, now 6, and stay one level under it.) The camera's own LOD
 // (`min(floor(zoom), maxLevel)`) is the quantity the ceiling was derived on; the hold
 // is a tile-residency fact, not a rendering-quality one.
 //
 // This gate reproduces the hold DETERMINISTICALLY: the step-LOD (z9) tile requests are
 // stalled at the Playwright route layer (the offline proxy still serves everything
-// else), the camera moves 8.3 → 9.6, and the frame is captured while `_hysteresisZ`
-// is provably still 8 with `_czPendingAdvance` set (the gate is actively holding) —
+// else), the camera moves START_ZOOM → HOLD_ZOOM, and the frame is captured while
+// `_hysteresisZ` is provably still HELD_LOD with `_czPendingAdvance` set (holding) —
 // re-verified after the shot, which is what makes the PNG a held frame.
 //
 //   CAUSE  — during the hold the ceiling-reaching source reports
@@ -56,14 +58,14 @@ const DEMO_ID = 'openfreemap_positron'
 const CENTER = '37.54704/126.81412'
 /** Below the ceiling AND below the Tier-2 zoom-in prefetch trigger
  *  (`camera.zoom > currentZ + 0.5` would pre-cache the step LOD and defeat the
- *  hold). currentZ 8 — the drape zone. */
-const START_ZOOM = 8.3
-/** floor → 9 = the ceiling. The gate steps 8 → 9 and waits on the z9 set. */
-const HOLD_ZOOM = 9.6
-const HELD_LOD = 8
-const STEP_LOD = 9
+ *  hold). currentZ 5 — the drape zone (the ceiling is 6, GLOBE_DIRECT_MIN_SELECTION_Z). */
+const START_ZOOM = 5.3
+/** floor → 6 = the ceiling. The gate steps 5 → 6 and waits on the z6 set. */
+const HOLD_ZOOM = 6.6
+const HELD_LOD = 5
+const STEP_LOD = 6
 /** OFM planet tiles: https://tiles.openfreemap.org/planet/<snapshot>/{z}/{x}/{y}.pbf */
-const STEP_TILE_RE = /\/planet\/[^/]+\/9\/\d+\/\d+\.pbf(\?.*)?$/
+const STEP_TILE_RE = /\/planet\/[^/]+\/6\/\d+\/\d+\.pbf(\?.*)?$/
 
 /** Sever discriminator: the held direct frame vs the held drape frame must differ
  *  by more than this multiple of the measured same-frame capture noise, and by at

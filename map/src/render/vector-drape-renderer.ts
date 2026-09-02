@@ -16,8 +16,8 @@
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
 // COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
-// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the bake's blur would exceed the
-// chord sagitta it removes and the direct arm renders instead.
+// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the direct arm's chord error is
+// inside the reference-engine budget, the bake's blur is not, and direct renders.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'

@@ -3670,8 +3670,8 @@ export class VectorTileRenderer {
     // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
-      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the 512px bake's blur
-      // exceeds the direct path's chord sagitta at every camera zoom. Read off the drawn
+      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the direct arm's chord
+      // error is inside the reference-engine budget and the bake's blur is not. Read off the drawn
       // LOD OR the camera's (`targetZ`): inside a zoom-in readiness hold currentZ trails
       // the camera, and held tiles past the ceiling must draw direct, not as magnified
       // bakes (_globe-direct-hold-window-gate). __XGIS_FORCE_VECTOR_DRAPE holds the drape.
