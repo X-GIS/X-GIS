@@ -75,6 +75,15 @@ class AtmospherePass implements RenderPass {
     const { enc, colorView } = requireRhiFrame(ctx, 'atmosphere')
     let entry = this._entries.get(host)
     if (!entry || entry.format !== host.ctx.format || entry.sampleCount !== ctx.sampleCount) {
+      // Release before replacing (#2337) — `oit-pass.ts:68` is the same contract in this
+      // directory. Without it a `setQuality({msaa})` flip while the atmosphere is enabled
+      // drops a Material (its pipelines) and this uniform buffer unreferenced; on WebGL2
+      // those are linked GL programs and GL buffers, which JS GC does not reclaim, so a
+      // live settings UI or the adaptive ladder cycling notches accumulates them.
+      if (entry) {
+        entry.draper.destroy()
+        host.ctx.rhi.destroyBuffer(entry.buf)
+      }
       entry = {
         draper: new AtmosphereDraper(host.ctx.rhi, host.ctx.format, ctx.sampleCount),
         buf: host.ctx.rhi.createBuffer({

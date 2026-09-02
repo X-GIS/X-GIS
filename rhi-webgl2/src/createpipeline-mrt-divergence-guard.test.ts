@@ -74,4 +74,62 @@ describe('WebGl2Device.createPipeline MRT divergence guard (#1049)', () => {
     expect(() => device().createPipeline(pick)).not.toThrow(/divergence/)
     expect(() => device().createPipeline(pick)).toThrow(/createShader/)
   })
+
+  // ── #2349: the integer exemption is a BLEND exemption, not a writeMask one ──────────
+  //
+  // The guard above filters integer targets out entirely, so a descriptor asking for a
+  // per-target writeMask ACROSS that boundary was never examined — `gl.colorMask` is one
+  // 4-bool global with no indexed form, and the pipeline derives it from target 0 alone,
+  // so the request was dropped with no diagnostic. Not reachable today (WebGL2 sets
+  // `presentablePassMrt: false`, and the one two-target descriptor leaves both masks at
+  // 0xf), which is exactly why it needs a gate: that safety is a coincidence of two
+  // unrelated facts, and neither was asserted anywhere.
+
+  it('#2349 throws when an integer target asks for a writeMask target 0 cannot honour', () => {
+    // The executed descriptor from the finding: pre-fix this produced
+    // colorMask(true,true,true,true) and did NOT throw — the requested 0 was dropped.
+    expect(() =>
+      device().createPipeline(
+        base([
+          { format: 'bgra8unorm', blend: 'alpha' },
+          { format: 'rg32uint', writeMask: 0 },
+        ]),
+      ),
+    ).toThrow(/per-target writeMask divergence/)
+  })
+
+  it('#2349 names both masks so the message is actionable, not just a refusal', () => {
+    expect(() =>
+      device().createPipeline(
+        base([{ format: 'bgra8unorm' }, { format: 'rg32uint', writeMask: 0x7 }]),
+      ),
+    ).toThrow(/target 0 resolves to 0xf.*asks for 0x7/)
+  })
+
+  it('#2349 CONTROL — the reachable pick descriptor still passes: EXPLICIT masks that AGREE', () => {
+    // `ensureFillPickMaterialRhi` passes no `pickWriteMask`, so ct1 is 0xf and ct0 defaults
+    // to 0xf. Keying the guard on an explicit mask EQUAL to target 0's is what keeps the one
+    // live WebGL2 two-target pipeline green; a guard on presence alone would break it.
+    const agreeing = base([
+      { format: 'bgra8unorm', blend: 'alpha' },
+      { format: 'rg32uint', writeMask: 0xf },
+    ])
+    expect(() => device().createPipeline(agreeing)).not.toThrow(/divergence/)
+    expect(() => device().createPipeline(agreeing)).toThrow(/createShader/)
+  })
+
+  it('#2349 CONTROL — an integer target with NO explicit writeMask is still exempt', () => {
+    // The per-format DEFAULT for rg32uint is 0, which differs from ct0's 0xf. Keying on the
+    // default instead of an explicit request would red the pick path on every frame.
+    const implicit = base([{ format: 'bgra8unorm', blend: 'alpha' }, { format: 'rg32uint' }])
+    expect(() => device().createPipeline(implicit)).not.toThrow(/divergence/)
+    expect(() => device().createPipeline(implicit)).toThrow(/createShader/)
+  })
+
+  it('#2349 CONTROL — a single colour target with an explicit mask is untouched', () => {
+    // The loop starts at index 1, so the ordinary one-target pipeline never enters it.
+    const single = base([{ format: 'bgra8unorm', writeMask: 0 }])
+    expect(() => device().createPipeline(single)).not.toThrow(/divergence/)
+    expect(() => device().createPipeline(single)).toThrow(/createShader/)
+  })
 })

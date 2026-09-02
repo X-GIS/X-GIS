@@ -68,7 +68,13 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 interface CaptureResult {
   dataUrl: string
+  /** Overdraw count per PAINTED sample — background samples are not pushed, so this
+   *  is not the grid size. `sampled` is (#2356). */
   counts: number[]
+  /** Total grid points scanned, painted and background alike. Screen coverage is
+   *  `counts.length / sampled`; with `counts.length` on both sides it was 100% for
+   *  every frame that painted anything at all. */
+  sampled: number
 }
 
 /** Read the WebGPU canvas back via a 2D canvas (no smoothing, native size)
@@ -93,16 +99,20 @@ function readCanvas(
     return null
   }
   const counts: number[] = []
+  let sampled = 0
   // Stride so a DPR3 phone (≈2.4M px) samples ≈40k pixels — fast, representative.
   const stride = Math.max(1, Math.round(Math.sqrt((c2.width * c2.height) / 40000)))
   for (let y = 0; y < c2.height; y += stride) {
     for (let x = 0; x < c2.width; x += stride) {
       const i = (y * c2.width + x) * 4
+      // Counted BEFORE the painted/background classification — that independence is
+      // what makes `counts.length / sampled` the true coverage for every frame.
+      sampled++
       const cnt = nearestCount(data[i]!, data[i + 1]!, data[i + 2]!)
       if (cnt !== null) counts.push(cnt)
     }
   }
-  return { dataUrl, counts }
+  return { dataUrl, counts, sampled }
 }
 
 function pct(sorted: number[], p: number): number {
@@ -209,7 +219,8 @@ export function installOverdrawCapture(map: OdMap): void {
       map.invalidate()
 
       const canvas = document.querySelector('canvas')
-      const totalSampled = (r: CaptureResult | null): number => (r ? r.counts.length : 0)
+      const painted = (r: CaptureResult | null): number => (r ? r.counts.length : 0)
+      const totalSampled = (r: CaptureResult | null): number => (r ? r.sampled : 0)
       if (!flat && !tilt) {
         // Readback unsupported on this browser → guided fallback.
         report = ''
@@ -238,11 +249,15 @@ export function installOverdrawCapture(map: OdMap): void {
       lines.push(
         `DPR=${window.devicePixelRatio || 1}  캔버스=${canvas?.width ?? 0}x${canvas?.height ?? 0}`,
       )
+      // painted vs SAMPLED. Both arguments used to be `totalSampled(flat)`, which is the
+      // painted count on both sides — so `cover = painted / total` was identically 100%
+      // whenever anything painted, and the one number this panel exists to report could
+      // never tell a full frame from a mostly-empty one (#2356).
       lines.push(
-        statsLine('pitch 0° (평면)', flat?.counts ?? [], totalSampled(flat), totalSampled(flat)),
+        statsLine('pitch 0° (평면)', flat?.counts ?? [], painted(flat), totalSampled(flat)),
       )
       lines.push(
-        statsLine('pitch 70°(기울임)', tilt?.counts ?? [], totalSampled(tilt), totalSampled(tilt)),
+        statsLine('pitch 70°(기울임)', tilt?.counts ?? [], painted(tilt), totalSampled(tilt)),
       )
       report = lines.join('\n')
       pre.textContent = report

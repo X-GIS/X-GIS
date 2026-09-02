@@ -127,6 +127,9 @@ export const ISOLATED = [
   'data/src/source-resolve-error-report.test.ts',
   'data/src/sources/pmtiles-backend.test.ts',
   'data/src/sources/virtual-pmtiles-teardown.test.ts',
+  // (1) module mock — geojson-tiling-pool + mvt-worker-pool, so the worker compile arm
+  //     can be held open mid-flight (#2359).
+  'data/src/sources/virtual-pmtiles-worker-detach.test.ts',
   'data/src/tile-catalog-layout-version-eviction.test.ts',
   'data/src/tile-select-budget.test.ts',
   'data/src/vector-tile-loader-negcache-abort.test.ts',

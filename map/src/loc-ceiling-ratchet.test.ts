@@ -1952,7 +1952,9 @@ const CEILINGS: Record<string, number> = {
   // live context. The three inline cleanups collapse into ONE `linkProgram`
   // authority (createPipeline's own body shrinks to three lines); the growth is
   // the helper. Failure-path cleanup paying an ownership debt, not feature growth.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1546,
+  // 1546->1564 (#2349): a fail-loud guard for a per-target `writeMask` ES 3.00 cannot
+  // honour — `gl.colorMask` is one global, and the request was being dropped silently.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1564,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
