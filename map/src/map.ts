@@ -5163,6 +5163,19 @@ export class XGISMap {
     this.heatmapRenderer = null
     this.heatmapTargets.destroy()
 
+    // #2286 — the two owners this list never named. `renderer` heads the chain
+    // MapRendererContent -> FrameRenderer -> PipelineFactory that owns every fill
+    // Material; `lineRenderer` owns the drapers plus its rings and translucent
+    // offscreen. Both were reclaimed only by the `ctx.rhi.destroy()` below, which
+    // is the ownership substitute the audit exists to remove — and until they are
+    // destroyed here the DEV owner-leak detector reports them on every run,
+    // burying the next real leak in ~40 lines of expected noise.
+    this.renderer?.destroy()
+    // #2286 — the under-occluder's only destroy lived in `setBackgroundFill`,
+    // where a background change replaces it; nothing released it on teardown.
+    this.underOccluder?.destroy()
+    this.underOccluder = null
+
     this.rasterRenderer?.destroy()
     this.hillshadeRenderer?.destroy()
 

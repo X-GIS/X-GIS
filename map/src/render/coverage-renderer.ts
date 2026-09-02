@@ -807,5 +807,9 @@ export class CoverageRenderer {
     this.lutSampler = null
     this.arms.clear()
     this.lastOpts = null
+    // #2286 — rebuildForQuality() dropped the drapers; this dispose, the one map
+    // teardown reaches, left every one of them alive (releaseRegion never touches them).
+    for (const d of this.drapers.values()) d.destroy()
+    this.drapers.clear()
   }
 }

@@ -39,6 +39,9 @@ function makeRenderer(budgetBytes?: number) {
     // gate would fail for a reason that has nothing to do with leaks.
     destroyBuffer: () => {},
     destroySampler: () => {},
+    // #2286 — dispose() now also destroys the drapers it drops, and a Material's
+    // destroy releases its pipelines through this primitive.
+    destroyPipeline: () => {},
   }
   const r = new CoverageRenderer(
     { rhi, format: 'bgra8unorm' } as unknown as ConstructorParameters<typeof CoverageRenderer>[0],
