@@ -296,13 +296,15 @@ JS cannot overload `=`, so mutation is a method on the lvalue Node (mirrors thre
 
 ```ts
 x.assign(value) // x = value;
-winding.assign(winding.add(1)) // compound = the pure op + assign; there is no addAssign
+winding.assign(winding.add(1)) // compound = the pure op + assign; a Node has no addAssign
 o.pos.assign(vec4(pos, 0, 1)) // member targets work too
 ```
 
 There is **no** free `assign(x, v)` function in the authoring surface — `.assign` is a
-method on the target Node. There is **no** compound `addAssign` either: `add` is the pure
-expression, so `x += v` is `x.assign(x.add(v))`.
+method on the target Node. There is **no** compound `.addAssign` method on a Node either:
+`add` is the pure expression, so `x += v` is `x.assign(x.add(v))`. (The optional `Builder`
+handed to an `fn` body does carry `b.assignOp(target, '+', v)` / `b.addAssign(target, v)`,
+which emit a compound `+=` statement — the same value, one statement form.)
 
 **Mutating an immutable binding is a compile error.** `.assign` lives only on the **mutable**
 node type (`Node`) returned by `Var()` and by every produced value (literals, ctors, arithmetic,
@@ -327,8 +329,9 @@ Arithmetic, comparison, bitwise, swizzle, and index are **methods** on a Node:
 | index      | `.at(i, elemType)`                                                       |
 | ternary    | `cond.select(a, b)` (WGSL `select`)                                      |
 
-> **The `.mod` METHOD is `%` — trunc-mod on WGSL floats and INVALID on GLSL
-> ES 3.00 floats (integer-only there).** For float modulo use the free function
+> **The `.mod` METHOD is `%` — trunc-mod on floats (native on WGSL; the GLSL writer
+> spells it `a - b * trunc(a / b)` because GLSL ES 3.00's `%` is integer-only).** For
+> float FLOOR modulo use the free function
 > **`mod(x, y)`** (#839): FLOOR-mod with identical semantics on both targets
 > (WGSL spells it inline as `x − y·⌊x/y⌋`, GLSL as native `mod()`), so negative
 > operands wrap into `[0, y)` — what domain repetition and angle folds need.
@@ -542,8 +545,9 @@ const VsOut = ioStruct('VsOut', {
 
 - **`builtin(name, type)`** → a `@builtin(<name>)` field. `name` is the WGSL builtin id
   (`'position'`, `'vertex_index'`, `'instance_index'`, `'front_facing'`, `'frag_depth'`,
-  `'global_invocation_id'`, …), passed through verbatim — typed as `string` today
-  (#763 H7), so a typo surfaces at pipeline creation, not at tsc.
+  `'global_invocation_id'`, …), passed through verbatim — typed as the closed
+  `WgslBuiltinName` union, so a typo or a GLSL-only spelling is a `tsc` error at the
+  authoring line, not a naga error at pipeline creation.
 - [**`location`**](https://x-gis.github.io/X-GIS/api/index/functions/location) → a
   `@location(n)` field, optionally `@interpolate(<mode>)` with
   `mode ∈ 'flat' | 'linear' | 'perspective'` — `'flat'` is

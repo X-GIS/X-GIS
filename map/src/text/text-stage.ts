@@ -2035,7 +2035,7 @@ export class TextStage {
           const ref = this.fadeLedger.place(fk)
           if (ref !== undefined) {
             chosen.draw.fadeRef = ref
-            this._fadeHoldover.store(fk, chosen.draw)
+            this._fadeHoldover.store(fk, chosen.draw, this.host.getGeneration())
             // Stamp this prepare's bake frame so a later fade-out can reproject
             // the frozen clone; clear it under a non-similarity-safe camera so
             // a stale frame never drives a wrong reprojection (→ graceful pop).
@@ -2073,7 +2073,7 @@ export class TextStage {
     // pruned fully-faded records; the clone + bake stores drop the same keys.
     if (fadeKeys !== null) {
       for (const fk of this.fadeLedger.finishPrepare()) {
-        const held = this._fadeHoldover.get(fk)
+        const held = this._fadeHoldover.get(fk, this.host.getGeneration())
         if (held === undefined) continue
         const emit = holdoverDrawToEmit(
           held,

@@ -593,16 +593,31 @@ export const DEMO_CHROME_IDS = [
 ] as const
 
 /** Hide every demo-chrome element that is currently visible. Returns the ids
- *  actually hidden (log it — a gate's output should say what left the frame). */
+ *  actually hidden (log it — a gate's output should say what left the frame).
+ *
+ *  Hides through a stylesheet rule with `!important`, NOT an inline
+ *  `display:none`: chrome that toggles its own inline display later undoes
+ *  the inline form. The log overlay does exactly that — its `repaint()`
+ *  (demo-runner.ts) writes `display:flex` on every console.warn — so the DEV
+ *  owner-leak warnings (#2266) re-showed it mid-run and the recombine parity
+ *  gate hashed the overlay instead of the canvas (#2284). An important author
+ *  rule outranks any non-important inline declaration, whenever it is set. */
 export async function hideDemoChrome(page: Page): Promise<string[]> {
   return await page.evaluate(
     (ids) => {
+      const ATTR = 'data-xgis-chrome-hidden'
+      if (!document.getElementById('xgis-chrome-hide')) {
+        const style = document.createElement('style')
+        style.id = 'xgis-chrome-hide'
+        style.textContent = `[${ATTR}]{display:none!important}`
+        document.head.appendChild(style)
+      }
       const hidden: string[] = []
       for (const id of ids) {
         const el = document.getElementById(id)
         if (!el) continue
         if (getComputedStyle(el).display !== 'none') hidden.push(id)
-        el.style.display = 'none'
+        el.setAttribute(ATTR, '')
       }
       return hidden
     },
