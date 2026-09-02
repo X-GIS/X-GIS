@@ -3728,7 +3728,9 @@ export class XGISMap {
           sizeShape !== null
             ? sizeShape.kind === 'constant'
               ? sizeShape.value
-              : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value
+              : // #2324 — the frame clock (this._elapsedMs), not performance.now():
+                // before the first frame this is 0, the correct t=0 start value.
+                resolveNumberShape(sizeShape, this.camera.zoom, this._elapsedMs).value
             : 8
 
         // Evaluate per-feature size if data-driven. Inject reserved keys (`$zoom` /

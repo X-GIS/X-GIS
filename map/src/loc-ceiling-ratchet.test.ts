@@ -933,7 +933,11 @@ const CEILINGS: Record<string, number> = {
   // `_spriteAtlasViewPushed` one-shot latch — one statement only map.ts can write (it
   // owns both the latch and the shared teardown body) plus the 4-line reason. Measured
   // with `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5437,
+  // 5437→5439 (#2324, hunt 2026-09-02): the addLayer-time circle base-size resolve
+  // now reads `this._elapsedMs` (the frame clock) instead of `performance.now()`, so
+  // a time-interpolated size is born at its t=0 stop instead of navigation-elapsed —
+  // one line plus the 2-line reason. Measured with `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5439,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1331,7 +1335,11 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
-  'map/src/render/passes/label-pass.ts': 1998,
+  // 1998→2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
+  // `host._elapsedMs` (the frame clock the fade ledger above it already reads)
+  // instead of `performance.now()` — one line plus the 2-line reason. MEASURED
+  // post-prettier (`wc -l`).
+  'map/src/render/passes/label-pass.ts': 2001,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
