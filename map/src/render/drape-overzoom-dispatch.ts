@@ -173,7 +173,9 @@ export function computeDrapeOverzoom(a: {
     camera.pitch ?? 0,
     camera.bearing ?? 0,
   )
-  let allResident = vTiles.length > 0
+  // The one remaining veto: a selector that returned nothing has no set to
+  // window, and emitting an empty set would blank the layer.
+  let anyEmitted = false
   const out: DrapeOverzoomTile[] = []
   // Ancestors the virtual set needs but the GPU cache lacks. The virtual
   // footprint is PADDED (±1 tile at the virtual z), so its edge tiles can map
@@ -209,15 +211,13 @@ export function computeDrapeOverzoom(a: {
         break
       }
     }
-    if (parentKey < 0) {
-      allResident = false
-      break
-    }
+    if (parentKey < 0) continue
     if (drawnKey < 0) {
       if (a.layerCache.has(parentKey)) {
         // Resident but outside the primary draw set (a pad tile from an earlier
         // frame): window it — same content, more texels, no fetch.
         out.push({ z: t.z, x: t.x, y: t.y, parentKey })
+        anyEmitted = true
         continue
       }
       if (diag && !diag.sample) {
@@ -233,11 +233,25 @@ export function computeDrapeOverzoom(a: {
           hasAny: source.hasTileData(parentKey),
         }
       }
+      // SKIP, do not hold (#2346). #2024 held the whole frame on the parent path
+      // until every virtual tile had a resident ancestor, because mixing parent
+      // and child COVER double-blends translucent fills. That invariant is about
+      // an area drawn twice — and an area whose ancestor is not resident is drawn
+      // by NEITHER path: the parent walk has nothing to draw there either. So a
+      // missing ancestor costs the same hole either way, while holding costs the
+      // whole feature.
+      //
+      // Measured, and it is why the density rule never reached a frame: the
+      // virtual footprint is PADDED ±1 tile, so 4-6 of every 30 virtual tiles at
+      // z5.4/dpr2 mapped to ancestors OUTSIDE the primary draw set. Those are
+      // exactly the tiles the primary selection does not keep resident, so the
+      // upload issued below is evicted again and the hold never lifts — every
+      // slice reported `ancestor-not-resident` with 22-26 of 30 tiles already
+      // mapped and ready. The fetch/upload still happens; only the veto is gone.
       if (source.hasTileData(parentKey, a.sliceLayer)) {
         // Compiled in the catalog but never GPU-uploaded (outside the primary
         // selection) — upload directly, same call the visible path uses for
-        // its post-compile stragglers.
-        allResident = false
+        // its post-compile stragglers, so a later frame can window it too.
         uploadedParents++
         a.uploadResident(parentKey)
       } else if (source.hasTileData(parentKey)) {
@@ -246,12 +260,12 @@ export function computeDrapeOverzoom(a: {
         // layer): a virtual tile over it has nothing to drape — satisfied by
         // omission, never a reason to hold the sharp path.
       } else {
-        allResident = false
         missingParents.push(parentKey)
       }
       continue
     }
     out.push({ z: t.z, x: t.x, y: t.y, parentKey: drawnKey })
+    anyEmitted = true
   }
   // Fetch/compile the not-yet-cataloged ancestors (per-key dedupe in the
   // catalog makes the per-frame repeat cheap); the switch stays atomic — the
@@ -264,8 +278,8 @@ export function computeDrapeOverzoom(a: {
     diag.uploadedParents = uploadedParents
     diag.omittedEmpty = omittedEmpty
   }
-  if (!allResident) {
-    if (diag) diag.reason = vTiles.length === 0 ? 'selector-empty' : 'ancestor-not-resident'
+  if (!anyEmitted) {
+    if (diag) diag.reason = vTiles.length === 0 ? 'selector-empty' : 'nothing-to-window'
     return undefined
   }
   // ROUND TO NEAREST, not down. `virtualZ` is the floor of the device zoom, so a
