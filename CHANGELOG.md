@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6c2ce231c5b69ab0eea0a57498de409ed530e876
+  Generated from: 80355d9467a3c6988443ba5a9747c5e08d34c7a3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6c2ce231c5b6
+    bun scripts/emit-changelog.ts --since 80355d9467a3
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** fill-translate reaches the globe drape path (#2249) ([#2365](https://github.com/X-GIS/X-GIS/pull/2365)) `eb96246`
 - **render+rhi-webgl2:** release what a bailing path created (#2369) ([#2372](https://github.com/X-GIS/X-GIS/pull/2372)) `6c2ce23`
 - **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
@@ -80,6 +81,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
 - **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`
 - **ownership:** teardown-reachability ratchet + DEV owner-leak detector ([#2269](https://github.com/X-GIS/X-GIS/pull/2269)) `bdfe551`
 - **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`
