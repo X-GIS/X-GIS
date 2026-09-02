@@ -207,11 +207,14 @@ export class SourceManager {
    *  clobber each other's index. Also drives the `dropSource` eviction below. */
   private readonly _tilingInstanceId = tilingPool.newTilingInstanceId()
 
-  /** The run()-scoped ShowSourceMaps captured at virtual-PMTiles attach time,
-   *  so `setSourceData` can RE-seed a pushed FC through the same attach
-   *  (#1235 gap 1). A data push changes no shows, so reusing the attach-time
-   *  maps is exact; null until the first virtual attach of a run. */
-  private _lastShowSourceMaps: ShowSourceMaps | null = null
+  /** The ShowSourceMaps each virtual-PMTiles-attached source was attached under,
+   *  keyed by that source, so `setSourceData` can RE-seed a pushed FC through the
+   *  same attach (#1235 gap 1). A data push changes no shows, so reusing the
+   *  attach-time maps is exact. Per SOURCE, not one shared slot (#2299): the inline
+   *  attach is handed only the shows of its own target, so a single slot let an
+   *  inline attach strip a URL source's extrude / stroke exprs and slices off its
+   *  next re-seed. */
+  private readonly _showSourceMaps = new Map<string, ShowSourceMaps>()
 
   /** The FeatureCollection each virtual-tiled geojson source was last seeded
    *  with (#1235 gap 2). `rawDatasets` holds only the `_vectorTile` marker for
@@ -700,7 +703,7 @@ export class SourceManager {
     maps: ShowSourceMaps,
     source: TileCatalog,
   ): void {
-    this._lastShowSourceMaps = maps
+    this._showSourceMaps.set(vtKey, maps)
     this.hostSeededFC.set(vtKey, filtered)
     const inferred = maps.usedSourceLayers.get(vtKey)
     const backend = new VirtualPMTilesBackend({
@@ -783,7 +786,7 @@ export class SourceManager {
     // spawning the tiling worker. (Earlier the probe sat after the capPoles write,
     // so a stale run corrupted the winner's polar-cap record — issue #360 F1.)
     if (isStale?.()) return
-    this._lastShowSourceMaps = maps
+    this._showSourceMaps.set(sourceName, maps)
     // (Seeded-FC record for #1235 gap 2 is written AFTER the reproject below,
     // so updateFeature patches operate in the same WGS84 frame the tiler sees.)
     // Reproject declared-CRS input → WGS84 LL FIRST so both the tiling
@@ -914,7 +917,7 @@ export class SourceManager {
     live: { source: TileCatalog; renderer: VectorTileRenderer },
     prevBackend: VirtualPMTilesBackend,
   ): void {
-    const maps = this._lastShowSourceMaps!
+    const maps = this._showSourceMaps.get(sourceId)!
     const reprojected = this._reprojectIngest(sourceId, data)
     this.hostSeededFC.set(sourceId, reprojected)
     const capPoles = detectCapPoles(reprojected)
@@ -1010,13 +1013,14 @@ export class SourceManager {
     // legacy worker-compile path, which uploads fills/points but never line segments — a pushed
     // LineString silently rendered nothing. The attach reprojects internally, re-registers the vt
     // entry synchronously (no await before registerVtSource), and re-writes the marker; the show-
-    // source maps are the run()-scoped ones cached at attach time (a data push changes no shows).
+    // source maps are THIS source's own, cached at its attach (a data push changes no shows).
     const prev = this.rawDatasets.get(sourceId)
+    const attachMaps = this._showSourceMaps.get(sourceId)
     if (
       prev !== undefined &&
       typeof prev === 'object' &&
       '_vectorTile' in prev &&
-      this._lastShowSourceMaps !== null
+      attachMaps !== undefined
     ) {
       this.deleteFeatureIndex(sourceId)
       // #1371 — ATOMIC re-seed. Tearing the pair down here destroyed every decoded tile and
@@ -1039,7 +1043,7 @@ export class SourceManager {
       }
       this.teardownSource(sourceId)
       tilingPool.dropSource(this._tilingInstanceId, sourceId)
-      void this._attachGeoJSONViaVirtualPMTiles(sourceId, normalized, this._lastShowSourceMaps, {
+      void this._attachGeoJSONViaVirtualPMTiles(sourceId, normalized, attachMaps, {
         fit: false,
       })
       this.rebuildLayers()

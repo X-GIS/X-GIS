@@ -25,6 +25,7 @@ class StubVectorTileRenderer {
   setOITPipeline(): void {}
   setLineRenderer(): void {}
   setSource(): void {}
+  reseedTiles(): void {}
   getBounds(): null {
     return null
   }
@@ -50,20 +51,28 @@ import * as xgisData from '@xgis/data'
 import { SourceManager, type SourceManagerDeps } from './source-manager'
 import { Camera } from './camera'
 import type { ShowSourceMaps } from './show-source-maps'
-import type { GeoJSONFeatureCollection } from '@xgis/data'
+import { TileCatalog, type GeoJSONFeatureCollection } from '@xgis/data'
 import type { MapRendererContent } from '@xgis/map'
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { SceneCommands } from './interpreter'
 import type { XGISMapErrorInfo } from './layer'
 
+/** Every VirtualPMTilesBackend option bag constructed during a test, in order —
+ *  the re-seed assertions below read the LAST one. */
+const backendOpts: Array<Record<string, unknown>> = []
+
 beforeEach(() => {
   vi.useFakeTimers()
+  backendOpts.length = 0
   vi.spyOn(vtrModule, 'VectorTileRenderer').mockImplementation(
     (() => new StubVectorTileRenderer()) as never,
   )
-  vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation(
-    (() => new StubVirtualPMTilesBackend()) as never,
-  )
+  vi.spyOn(xgisData, 'VirtualPMTilesBackend').mockImplementation(((
+    opts: Record<string, unknown>,
+  ) => {
+    backendOpts.push(opts)
+    return new StubVirtualPMTilesBackend()
+  }) as never)
 })
 
 afterEach(() => {
@@ -328,5 +337,62 @@ describe('SourceManager `refresh:` polling — custom source-loader (source-load
     await vi.advanceTimersByTimeAsync(60_000)
     expect(loader).toHaveBeenCalledTimes(2)
     expect(sm.hostSeededFC.get('s')).toEqual(fc('v2'))
+  })
+})
+
+// ═══ #2299 — a re-seed re-uses the source's OWN attach-time ShowSourceMaps ═══
+//
+// hunt 2026-09-02: the inline virtual attach used to overwrite one shared
+// `_lastShowSourceMaps` slot with the per-source SUBSET map.ts builds for it, so a
+// later `setSourceData` / `updateFeature` / `refresh:` tick on a DIFFERENT (URL)
+// source re-tiled it with every extrude / stroke / slice descriptor undefined.
+describe('SourceManager re-seed — per-source show maps (#2299)', () => {
+  const extrudeA = { a: { kind: 'NumberLiteral', value: 50 } }
+  const strokeWidthA = { a: { kind: 'NumberLiteral', value: 3 } }
+
+  function mapsForA(): ShowSourceMaps {
+    const maps = emptyMaps()
+    maps.extrudeExprsBySource.set('a', extrudeA as never)
+    maps.strokeWidthExprsBySource.set('a', strokeWidthA as never)
+    return maps
+  }
+
+  /** An inline (host-fed / `data:`) attach of an unrelated source `b`, carrying only
+   *  `b`'s shows — the overwrite that used to poison `a`'s next re-seed. */
+  function attachUnrelatedInlineSource(sm: SourceManager): void {
+    sm._attachInlineGeoJSONViaVirtualPMTiles('b', fc('b1'), emptyMaps(), new TileCatalog())
+  }
+
+  it('teardown+re-attach fallback keeps `a`’s extrude/stroke exprs after an inline attach of `b`', async () => {
+    const sm = makeSourceManager()
+    await sm._attachGeoJSONViaVirtualPMTiles('a', fc('v1'), mapsForA(), { fit: false })
+    expect(backendOpts.at(-1)!.extrudeExprs).toEqual(extrudeA)
+
+    attachUnrelatedInlineSource(sm)
+    sm.setSourceData('a', fc('v2'))
+
+    const last = backendOpts.at(-1)!
+    expect(last.sourceName).toBe('a')
+    expect(last.extrudeExprs).toEqual(extrudeA)
+    expect(last.strokeWidthExprs).toEqual(strokeWidthA)
+  })
+
+  it('atomic `_reseedInPlace` keeps `a`’s extrude/stroke exprs after an inline attach of `b`', async () => {
+    const registered = new Map<string, unknown>()
+    const sm = makeSourceManager({
+      registerVtSource: (name, source, renderer) => {
+        registered.set(name, { source, renderer })
+      },
+      getVtSource: (id) => (registered.get(id) as never) ?? null,
+    })
+    await sm._attachGeoJSONViaVirtualPMTiles('a', fc('v1'), mapsForA(), { fit: false })
+
+    attachUnrelatedInlineSource(sm)
+    sm.setSourceData('a', fc('v2'))
+
+    const last = backendOpts.at(-1)!
+    expect(last.sourceName).toBe('a')
+    expect(last.extrudeExprs).toEqual(extrudeA)
+    expect(last.strokeWidthExprs).toEqual(strokeWidthA)
   })
 })
