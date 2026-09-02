@@ -85,6 +85,7 @@ export default tseslint.config(
             'shader-dsl/src/core/passes/lint/*.test.ts',
             'shader-dsl/src/core/passes/lint/rules/*.test.ts',
             'shader-dsl/src/core/passes/opt/*.test.ts',
+            'shader-dsl/src/core/testing/*.test.ts',
             // Repo scripts (precheck, matrix tooling, snapshot capture) live
             // outside every package tsconfig's `include`, so project-service
             // discovery can't parse a newly STAGED one in pre-commit. Lint them
