@@ -89,7 +89,7 @@ import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
 import { bakesVectorDrape, drapesAtSelectionZ } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
+import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -333,6 +333,10 @@ export class VectorTileRenderer {
    *  viewport state), and the baked stroke's AA band is the one screen-space
    *  quantity that must survive the bake — see bakeStrokeAaDpr. */
   private _bakeDpr = 1
+  /** #2346 — why the windowed-bake dispatch did what it did on the last frame.
+   *  The switch is atomic, so its usual failure is to do nothing at all; this is
+   *  the only place a gate or probe can read the cause. */
+  readonly _drapeOverzoomDiag: DrapeOverzoomDiag = {}
   /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
   private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
@@ -3716,6 +3720,7 @@ export class VectorTileRenderer {
         cssWidth: canvasWidth / dpr,
         cssHeight: canvasHeight / dpr,
         dpr,
+        diag: this._drapeOverzoomDiag,
         source: this.source,
         sliceLayer,
         neededKeys,

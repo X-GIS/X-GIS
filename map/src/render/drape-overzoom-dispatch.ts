@@ -37,6 +37,21 @@ import type { DrapeOverzoomTile } from './vector-drape-renderer'
  *  virtual selector call. */
 const DRAPE_OVERZOOM_MAX_BOOST = 8
 
+/** Why `computeDrapeOverzoom` returned what it returned, for the frame's
+ *  diagnostics. Every early return sets `reason`; the engaged path reports the
+ *  level and the tile counts it produced. */
+export interface DrapeOverzoomDiag {
+  reason?: string
+  virtualZ?: number
+  currentZ?: number
+  deviceZoom?: number
+  selected?: number
+  emitted?: number
+  missingParents?: number
+  uploadedParents?: number
+  split?: boolean
+}
+
 export interface DrapeOverzoomSource {
   readonly maxLevel: number
   hasTileData(key: number, sourceLayer?: string): boolean
@@ -81,6 +96,12 @@ export function computeDrapeOverzoom(a: {
    *  verbatim. */
   neededKeys: readonly number[]
   layerCache: { has(key: number): boolean }
+  /** Optional caller-owned scratch the dispatch fills with WHY it did what it
+   *  did. The switch is atomic — one unresolved ancestor keeps the whole frame
+   *  on the parent path — so "it silently did nothing" is its most common
+   *  outcome and was, measured, unreadable from the page: a diagnostic nothing
+   *  can reach is not a diagnostic (CLAUDE.md §12). */
+  diag?: DrapeOverzoomDiag
   /** Upload a catalog-resident ancestor the primary selection never touched. */
   uploadResident(parentKey: number): void
 }): DrapeOverzoomTile[] | undefined {
@@ -106,7 +127,19 @@ export function computeDrapeOverzoom(a: {
   // condition under which the windowed set carries more texels than the
   // primary bake would; below it the primary bake is already at or above
   // device density and windowing would only cost draw calls.
+  const diag = a.diag
+  if (diag) {
+    diag.deviceZoom = deviceZoom
+    diag.virtualZ = virtualZ
+    diag.currentZ = a.currentZ
+  }
   if (!isGlobeProj(a.projType) || srcMaxLevel <= 0 || virtualZ <= a.currentZ) {
+    if (diag)
+      diag.reason = !isGlobeProj(a.projType)
+        ? 'not-globe'
+        : srcMaxLevel <= 0
+          ? 'no-levels'
+          : 'no-deeper-level'
     return undefined
   }
   const sphereR = activeBody().sphereR
@@ -132,6 +165,7 @@ export function computeDrapeOverzoom(a: {
   // them here, one forever-missing pad ancestor pins allResident false and the
   // sharp path never engages.
   const missingParents: number[] = []
+  let uploadedParents = 0
   // The tile to window is the one the PRIMARY selection is drawing over this
   // virtual tile — not `srcMaxLevel`. Inside the source range the selection
   // draws at `currentZ` (coarser on the horizon), so maxLevel tiles are not
@@ -173,6 +207,7 @@ export function computeDrapeOverzoom(a: {
         // selection) — upload directly, same call the visible path uses for
         // its post-compile stragglers.
         allResident = false
+        uploadedParents++
         a.uploadResident(parentKey)
       } else if (source.hasTileData(parentKey)) {
         // Fetched/compiled, but EMPTY for this layer (open sea under a land
@@ -190,7 +225,16 @@ export function computeDrapeOverzoom(a: {
   // catalog makes the per-frame repeat cheap); the switch stays atomic — the
   // parent-magnified path renders until every ancestor is resident.
   if (missingParents.length > 0) source.requestTiles(missingParents)
-  if (!allResident) return undefined
+  if (diag) {
+    diag.selected = vTiles.length
+    diag.emitted = out.length
+    diag.missingParents = missingParents.length
+    diag.uploadedParents = uploadedParents
+  }
+  if (!allResident) {
+    if (diag) diag.reason = vTiles.length === 0 ? 'selector-empty' : 'ancestor-not-resident'
+    return undefined
+  }
   // ROUND TO NEAREST, not down. `virtualZ` is the floor of the device zoom, so a
   // fractional camera leaves each virtual tile covering 2^(deviceZoom − virtualZ)
   // ∈ [1, 2) device pixels per bake texel — at dpr 2 / z7.5 (deviceZoom 8.5) a
@@ -202,7 +246,13 @@ export function computeDrapeOverzoom(a: {
   // directly). Bounded at ×4 entries, and it turns the worst case from a 2×
   // undershoot into a 1.41× overshoot — the side of the trade a baked tile that
   // must look like the direct render wants to be on.
-  if (deviceZoom - virtualZ < 0.5) return out
+  if (deviceZoom - virtualZ < 0.5) {
+    if (diag) {
+      diag.reason = 'engaged'
+      diag.split = false
+    }
+    return out
+  }
   const split: DrapeOverzoomTile[] = []
   for (const t of out) {
     for (let dy = 0; dy < 2; dy++) {
@@ -210,6 +260,11 @@ export function computeDrapeOverzoom(a: {
         split.push({ z: t.z + 1, x: t.x * 2 + dx, y: t.y * 2 + dy, parentKey: t.parentKey })
       }
     }
+  }
+  if (diag) {
+    diag.reason = 'engaged'
+    diag.split = true
+    diag.emitted = split.length
   }
   return split
 }
