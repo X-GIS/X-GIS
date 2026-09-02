@@ -49,6 +49,10 @@ import {
   GPU_STUBS,
   f32ToU32Sat,
   f32ToI32Sat,
+  numKindOf,
+  intDiv,
+  intRem,
+  type NumKind,
 } from './cpu-runtime.js'
 import { compileModule, type CpuModule } from './oracle.js'
 
@@ -77,7 +81,6 @@ function jsNum(v: number | boolean): string {
 function isArrayValued(t: ShaderType): boolean {
   return t.kind === 'vec' || t.kind === 'vec64' || t.kind === 'mat' || t.kind === 'array'
 }
-const isI32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'i32'
 const isF32 = (t: ShaderType): boolean => t.kind === 'scalar' && t.scalar === 'f32'
 
 /** The zero value literal for a `var` with no initializer — mirrors
@@ -250,37 +253,43 @@ function emitBinop(e: Extract<Expr, { op: 'binop' }>, S: FnCtx): string {
   if (e.bop === '*' && e.a.type.kind === 'mat' && e.b.type.kind === 'mat')
     return `$.matMul(${a}, ${b})`
   if (e.bop === '*' && e.a.type.kind === 'vec' && e.b.type.kind === 'mat') return `$.vecMatThrow()`
-  const i32 = isI32(e.a.type)
+  const kind = numKindOf(e.type)
   // Either operand a vector ⇒ component-wise (with scalar broadcast) via the
   // shared applyBin — the SAME function the interpreter uses.
   if (isArrayValued(e.a.type) || isArrayValued(e.b.type))
-    return `$.applyBin(${q(e.bop)}, ${a}, ${b}, ${i32})`
+    return `$.applyBin(${q(e.bop)}, ${a}, ${b}, ${q(kind)})`
   // Both scalar — inline to scalarBin's exact JS ops.
-  return emitScalarBin(e.bop, a, b, i32)
+  return emitScalarBin(e.bop, a, b, kind)
 }
 
-function emitScalarBin(bop: BinOp, a: string, b: string, i32: boolean): string {
+/** scalarBin's spellings, token for token: the float kind is plain JS arithmetic; an
+ *  integer kind wraps with `| 0` / `>>> 0` exactly as `wrapInt` does, multiplies through
+ *  `Math.imul`, and divides / takes the remainder through the SAME `intDiv` / `intRem`
+ *  helpers the interpreter calls (#2274) — bit-identical by construction. */
+function emitScalarBin(bop: BinOp, a: string, b: string, kind: NumKind): string {
+  const int = kind !== 'f32'
+  const wrap = (s: string): string => (kind === 'i32' ? `(${s} | 0)` : `(${s} >>> 0)`)
   switch (bop) {
     case '+':
-      return `(${a} + ${b})`
+      return int ? wrap(`(${a} + ${b})`) : `(${a} + ${b})`
     case '-':
-      return `(${a} - ${b})`
+      return int ? wrap(`(${a} - ${b})`) : `(${a} - ${b})`
     case '*':
-      return `(${a} * ${b})`
+      return int ? wrap(`Math.imul(${a}, ${b})`) : `(${a} * ${b})`
     case '/':
-      return `(${a} / ${b})`
+      return int ? `$.intDiv(${a}, ${b}, ${q(kind)})` : `(${a} / ${b})`
     case '%':
-      return `(${a} % ${b})`
+      return int ? `$.intRem(${a}, ${b}, ${q(kind)})` : `(${a} % ${b})`
     case '&':
-      return `((${a} & ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} & ${b})` : `((${a} & ${b}) >>> 0)`
     case '|':
-      return `((${a} | ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} | ${b})` : `((${a} | ${b}) >>> 0)`
     case '^':
-      return `((${a} ^ ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} ^ ${b})` : `((${a} ^ ${b}) >>> 0)`
     case '<<':
-      return `((${a} << ${b}) >>> 0)`
+      return kind === 'i32' ? `(${a} << ${b})` : `((${a} << ${b}) >>> 0)`
     case '>>':
-      return i32 ? `(${a} >> ${b})` : `(${a} >>> ${b})`
+      return kind === 'i32' ? `(${a} >> ${b})` : `(${a} >>> ${b})`
   }
 }
 
@@ -338,8 +347,8 @@ function emitStmt(s: Stmt, S: FnCtx): string {
     case 'assign':
       return `${emitAssignExpr(s.target, emitExpr(s.expr, S), S)};`
     case 'assignOp': {
-      const i32 = isI32(s.target.type)
-      const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${i32})`
+      const kind = numKindOf(s.target.type)
+      const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
       return `${emitAssignExpr(s.target, val, S)};`
     }
     case 'return':
@@ -399,8 +408,8 @@ function emitForInit(s: Stmt, S: FnCtx): string {
 function emitForUpdate(s: Stmt, S: FnCtx): string {
   if (s.s === 'assign') return emitAssignExpr(s.target, emitExpr(s.expr, S), S)
   if (s.s === 'assignOp') {
-    const i32 = isI32(s.target.type)
-    const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${i32})`
+    const kind = numKindOf(s.target.type)
+    const val = `$.applyBin(${q(s.bop)}, ${emitExpr(s.target, S)}, ${emitExpr(s.expr, S)}, ${q(kind)})`
     return emitAssignExpr(s.target, val, S)
   }
   throw new CodegenUnsupported(`for-update ${s.s}`)
@@ -428,6 +437,9 @@ interface CodegenRuntime {
   /** WGSL saturating f32→u32/i32 (float sources only — see cpu-runtime). */
   u32Sat: typeof f32ToU32Sat
   i32Sat: typeof f32ToI32Sat
+  /** WGSL integer `/` and `%` (#2274) — the SAME helpers `scalarBin` calls. */
+  intDiv: typeof intDiv
+  intRem: typeof intRem
 }
 
 /** The perf-critical twin of `compileModule` — same IR, same `CpuModule` shape, and
@@ -528,6 +540,8 @@ export function compileModuleJs(m: ModuleDecl, opts?: { gpuStubs?: boolean }): C
     negVec: (a) => a.map((v) => -v),
     u32Sat: f32ToU32Sat,
     i32Sat: f32ToI32Sat,
+    intDiv,
+    intRem,
     gpuStub: (name, ...args) => {
       if (!gpuStubs)
         throw new Error(

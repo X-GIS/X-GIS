@@ -15,7 +15,7 @@
 // so the projection math matches the f64 mirror, while the WGSL backend emits
 // the truncated shader constants — the two-tolerance reality, structural.
 
-import type { BinOp } from './ir/index.js'
+import type { BinOp, ShaderType } from './ir/index.js'
 
 /** The runtime value shape shared by both CPU backends (the tree-walk interpreter in
  *  `oracle.ts` and the compiled `new Function` twin in `cpu-codegen.ts`) — plain JS
@@ -46,45 +46,83 @@ export const FIELD_IDX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3, r: 0,
 
 export const isArr = Array.isArray
 
-export function scalarBin(bop: BinOp, a: number, b: number, isI32 = false): number {
+/** The numeric kind a binary op evaluates in. WGSL integer arithmetic is two's-complement
+ *  modulo 2^32 with truncating `/` and `%` (`x / 0 = x`, `x % 0 = 0`, i32 `MIN / -1 = MIN`);
+ *  JS number arithmetic is none of that, so every integer op in `scalarBin` is spelled
+ *  kind-directed (#2274). `'f32'` covers every float kind (f32 and the lowered f64 lanes):
+ *  plain f64 JS arithmetic, the f64-algebra caveat in this file's header. Derived from the
+ *  STATIC operand type by `numKindOf`; both CPU backends pass it (the codegen bakes it into
+ *  the generated JS). */
+export type NumKind = 'f32' | 'i32' | 'u32'
+
+/** The `NumKind` of an IR type — its integer scalar/element kind, else `'f32'`. */
+export const numKindOf = (t: ShaderType): NumKind => {
+  if (t.kind === 'scalar') return t.scalar === 'i32' || t.scalar === 'u32' ? t.scalar : 'f32'
+  if (t.kind === 'vec') return t.elem === 'i32' || t.elem === 'u32' ? t.elem : 'f32'
+  return 'f32'
+}
+
+/** Two's-complement wrap of an integer-valued double into the kind's 32-bit range —
+ *  `| 0` for i32, `>>> 0` for u32 (ToInt32/ToUint32 are exact modulo-2^32 reductions for
+ *  any finite double). Also normalises `-0` to `0`. Identity for the float kind. */
+export const wrapInt = (v: number, kind: NumKind): number =>
+  kind === 'i32' ? v | 0 : kind === 'u32' ? v >>> 0 : v
+
+/** WGSL integer division: truncating; `x / 0 = x`; i32 `MIN / -1` wraps back to MIN. */
+export const intDiv = (a: number, b: number, kind: NumKind): number =>
+  b === 0 ? a : wrapInt(Math.trunc(a / b), kind)
+
+/** WGSL integer remainder: `x % 0 = 0`; i32 `MIN % -1 = 0`; otherwise JS `%` (trunc-rem,
+ *  the same sign rule as C and WGSL: `-7 % 2 = -1`). */
+export const intRem = (a: number, b: number, kind: NumKind): number =>
+  b === 0 ? 0 : wrapInt(a % b, kind)
+
+export function scalarBin(bop: BinOp, a: number, b: number, kind: NumKind = 'f32'): number {
+  const int = kind !== 'f32'
   switch (bop) {
     case '+':
-      return a + b
+      return int ? wrapInt(a + b, kind) : a + b
     case '-':
-      return a - b
+      return int ? wrapInt(a - b, kind) : a - b
     case '*':
-      return a * b
+      // Math.imul is the wrapping 32-bit product; `a * b` in f64 loses bits above 2^53
+      // and would wrap the WRONG value (the same rule const-fold's foldIntLit follows).
+      return int ? wrapInt(Math.imul(a, b), kind) : a * b
     case '/':
-      return a / b
+      return int ? intDiv(a, b, kind) : a / b
     case '%':
-      return a % b
-    // Bitwise — JS `& | ^ <<` produce int32; `>>> 0` normalises to nonnegative
-    // u32 so cpu values stay in the unsigned range the shader expects. `>>`
-    // uses JS `>>>` (logical shift) — point's per-feature flag dispatch is all
-    // u32, and the codebase has no i32-arithmetic-shift use case.
+      return int ? intRem(a, b, kind) : a % b
+    // Bitwise — JS `& | ^ <<` produce int32; the kind decides the sign of the result:
+    // i32 keeps it (`-1 & -1` is -1), u32 normalises with `>>> 0`. The float kind is
+    // unreachable here (validate's `mixed-scalar` rejects a float operand) and falls
+    // into the u32 spelling, the historical default.
     case '&':
-      return (a & b) >>> 0
+      return kind === 'i32' ? a & b : (a & b) >>> 0
     case '|':
-      return (a | b) >>> 0
+      return kind === 'i32' ? a | b : (a | b) >>> 0
     case '^':
-      return (a ^ b) >>> 0
+      return kind === 'i32' ? a ^ b : (a ^ b) >>> 0
     case '<<':
-      return (a << b) >>> 0
-    // i32 uses arithmetic shift (sign-preserving JS `>>`); u32/untyped uses
-    // logical `>>>`. No current shader does an i32 shift, so the i32 branch is
-    // presently unreachable — this only removes the latent footgun.
+      return kind === 'i32' ? a << b : (a << b) >>> 0
+    // i32 uses arithmetic shift (sign-preserving JS `>>`); u32 uses logical `>>>`.
     case '>>':
-      return isI32 ? a >> b : a >>> b
+      return kind === 'i32' ? a >> b : a >>> b
   }
 }
 
-export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, isI32 = false): CpuValue {
+export function applyBin(bop: BinOp, a: CpuValue, b: CpuValue, kind: NumKind = 'f32'): CpuValue {
   if (isArr(a) && isArr(b))
-    return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, isI32))
-  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, isI32))
-  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, isI32))
-  return scalarBin(bop, a as number, b as number, isI32)
+    return a.map((x, i) => scalarBin(bop, x as number, b[i] as number, kind))
+  if (isArr(a)) return a.map((x) => scalarBin(bop, x as number, b as number, kind))
+  if (isArr(b)) return b.map((y) => scalarBin(bop, a as number, y as number, kind))
+  return scalarBin(bop, a as number, b as number, kind)
 }
+
+// WGSL min/max: "if one operand is a NaN, the other is returned" — where Math.min/Math.max
+// propagate the NaN (#2274). GLSL ES 3.00 leaves NaN behaviour undefined; WGSL is the
+// canonical target.
+const minNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.min(a, b))
+const maxNum = (a: number, b: number): number => (a !== a ? b : b !== b ? a : Math.max(a, b))
 
 // ── Builtins (vec-aware where WGSL is component-wise) ──
 type Builtin = (...args: CpuValue[]) => CpuValue
@@ -215,14 +253,17 @@ export const BUILTINS: Record<string, Builtin> = {
       : fm(x as number, y as number)
   },
   min: (a, b) =>
-    isArr(a) || isArr(b) ? applyMinMax(Math.min, a, b) : Math.min(a as number, b as number),
+    isArr(a) || isArr(b) ? applyMinMax(minNum, a, b) : minNum(a as number, b as number),
   max: (a, b) =>
-    isArr(a) || isArr(b) ? applyMinMax(Math.max, a, b) : Math.max(a as number, b as number),
-  // clamp ordering mirrors projection-wgsl-mirror.ts: max(lo, min(hi, x)).
+    isArr(a) || isArr(b) ? applyMinMax(maxNum, a, b) : maxNum(a as number, b as number),
+  // clamp(e, lo, hi) = min(max(e, lo), hi) — the formula WGSL lists first and the one GLSL
+  // ES 3.00 defines (lo > hi is implementation-defined on WGSL, undefined on GLSL), so the
+  // oracle is one of the permitted results rather than a third formula (#2274). With the
+  // NaN-returns-the-other min/max above, clamp(NaN, lo, hi) is lo.
   clamp: (x, lo, hi) => clampVal(x, lo, hi),
   // saturate(x) = clamp(x, 0, 1) — WGSL's dedicated builtin (GLSL inlines the
-  // clamp; see the intrinsic registry). Same max(0, min(1, ·)) ordering as clamp.
-  saturate: map1((x) => Math.max(0, Math.min(1, x))),
+  // clamp; see the intrinsic registry). Same min(max(·, 0), 1) composition as clamp.
+  saturate: map1((x) => minNum(maxNum(x, 0), 1)),
   mix: (a, b, t) => mixVal(a, b, t),
   // smoothstep — component-wise; the vector overload (#763 X15) makes the vec
   // path reachable, and the old scalar-cast body silently returned NaN for it
@@ -294,7 +335,10 @@ export const BUILTINS: Record<string, Builtin> = {
     const hi = Math.fround(x as number)
     return [hi, Math.fround((x as number) - hi)]
   },
-  i32: (x) => Math.trunc(x as number),
+  // Integer-source conversions (float sources are routed to f32ToI32Sat / f32ToU32Sat by
+  // both backends — see below): u32 ↔ i32 is a bit reinterpretation on both targets, so
+  // i32(0xFFFFFFFFu) is -1 and u32(-1) is 0xFFFFFFFF (#2274).
+  i32: (x) => Math.trunc(x as number) | 0,
   u32: (x) => Math.trunc(x as number) >>> 0,
   // #763 O1 — pure-math builtins the catalogue claims portable but the oracle
   // lacked (a shader using them compiled + emitted on both GPU targets, then
@@ -449,13 +493,13 @@ function clampVal(x: CpuValue, lo: CpuValue, hi: CpuValue): CpuValue {
     const loA = isArr(lo) ? (lo as number[]) : null
     const hiA = isArr(hi) ? (hi as number[]) : null
     return (x as number[]).map((v, i) =>
-      Math.max(
-        loA ? (loA[i] as number) : (lo as number),
-        Math.min(hiA ? (hiA[i] as number) : (hi as number), v as number),
+      minNum(
+        maxNum(v as number, loA ? (loA[i] as number) : (lo as number)),
+        hiA ? (hiA[i] as number) : (hi as number),
       ),
     )
   }
-  return Math.max(lo as number, Math.min(hi as number, x as number))
+  return minNum(maxNum(x as number, lo as number), hi as number)
 }
 // Component-wise — any of a/b/t may be a scalar (broadcast) or a per-component vector,
 // matching WGSL mix() semantics (including a vector interpolant t).

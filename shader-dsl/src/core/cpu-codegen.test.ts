@@ -381,6 +381,34 @@ function buildModule(): ModuleDecl {
         ),
         ret(vref('r')),
       ]),
+      // switch INSIDE a for-loop (#2275): a `continue` raised in a case body must reach
+      // the loop (skips one increment → 3), and a `break` must exit the switch only (→ 4).
+      func('swcont', [{ name: 'n', type: i32T }], f32T, [
+        varS('acc', f32T, lit(0)),
+        forS(
+          varS('i', i32T, lit(0, i32T)),
+          cmp('<', vref('i', i32T), param('n', i32T)),
+          assignOp(vref('i', i32T), '+', lit(1, i32T)),
+          [
+            switchS(vref('i', i32T), [{ value: 1, body: [{ s: 'continue' }] }], []),
+            assignOp(vref('acc'), '+', lit(1)),
+          ],
+        ),
+        ret(vref('acc')),
+      ]),
+      func('swbrk', [{ name: 'n', type: i32T }], f32T, [
+        varS('acc', f32T, lit(0)),
+        forS(
+          varS('i', i32T, lit(0, i32T)),
+          cmp('<', vref('i', i32T), param('n', i32T)),
+          assignOp(vref('i', i32T), '+', lit(1, i32T)),
+          [
+            switchS(vref('i', i32T), [{ value: 1, body: [{ s: 'break' }] }], []),
+            assignOp(vref('acc'), '+', lit(1)),
+          ],
+        ),
+        ret(vref('acc')),
+      ]),
       // matchExpr
       func('matchfn', [{ name: 's', type: i32T }], f32T, [
         ret(

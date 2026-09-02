@@ -52,6 +52,7 @@ import {
   matMul,
   f32ToU32Sat,
   f32ToI32Sat,
+  numKindOf,
 } from './cpu-runtime.js'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
@@ -142,8 +143,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
           'shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec',
         )
       }
-      const i32Op = e.a.type.kind === 'scalar' && e.a.type.scalar === 'i32'
-      return applyBin(e.bop, av, bv, i32Op)
+      // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
+      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (#2274).
+      return applyBin(e.bop, av, bv, numKindOf(e.type))
     }
     case 'unop': {
       const a = evalExpr(e.a, env, ctx)
@@ -306,11 +308,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
-        // #763 O6 — thread the i32 flag exactly as the binop path does
+        // #763 O6 — thread the numeric kind exactly as the binop path does
         // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
-        // shift; the flag was applied to one of the two eval sites only.
-        const i32Op = s.target.type.kind === 'scalar' && s.target.type.scalar === 'i32'
-        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), i32Op), env, ctx)
+        // shift; the flag was once applied to one of the two eval sites only.
+        const kind = numKindOf(s.target.type)
+        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), kind), env, ctx)
         break
       }
       case 'return':
@@ -355,8 +357,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         const chosen = hit ? hit.body : s.defaultBody
         if (chosen) {
           const r = execBody(chosen, env, ctx)
-          if (r.kind === 'return' || r.kind === 'discard') return r
-          // 'break' inside a switch case terminates the case (already exits body)
+          // A `break` in a case body exits the SWITCH only (WGSL and GLSL alike), so it
+          // is consumed here. Everything else propagates to the statement that owns it —
+          // `return`, `discard`, and a `continue` aimed at an enclosing loop (#2275: it
+          // used to be dropped, so the loop body ran to completion on that iteration).
+          if (r.kind !== 'normal' && r.kind !== 'break') return r
         }
         break
       }
