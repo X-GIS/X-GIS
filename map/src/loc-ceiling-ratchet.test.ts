@@ -1504,7 +1504,10 @@ const CEILINGS: Record<string, number> = {
   // the catalog level, so every backend). +22 is the constant with its bound rationale,
   // the field doc, the deadline loop and the accessor doc. A first draft cost +39 and was
   // trimmed. MEASURED post-prettier.
-  'data/src/tile-catalog.ts': 1478,
+  // #2273 raised 1478 -> 1492: the prefetch shield now ages per frame (a frame-id
+  // record in resetCompileBudget + a guard in cancelStale). Six lines of logic;
+  // the rest is the measured rationale. Nothing here is a separable unit.
+  'data/src/tile-catalog.ts': 1492,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;

@@ -257,8 +257,12 @@ async function bootArm(
   // proved it: the hash badge `#1.50/20.00000/140.00000` and the style title were inside
   // the 288x55 clip, i.e. a large fraction of what this gate was hashing was DOM text whose
   // rasterisation has nothing to do with the recombination under test. CLAUDE.md §5 forbids
-  // exactly this capture shape (owner-mandated 2026-08-25). Re-applied per arm because each
-  // arm re-navigates and the style mutation does not survive that.
+  // exactly this capture shape (owner-mandated 2026-08-25). Re-applied per arm; note the
+  // `goto` above is a SAME-DOCUMENT navigation (the URL is identical, hash included —
+  // measured: a window marker survives it), so the arms share one page and this hide's
+  // stylesheet rule persists; the hide is durable against the console overlay re-showing
+  // itself on a later console.warn (#2281 — the ids it reports are the ones it found
+  // visible, so an empty list on a later arm means nothing new appeared).
   console.log(`[rtc-parity] chromeHidden=${JSON.stringify(await hideDemoChrome(page))}`)
   await page.waitForTimeout(8_000) // cold-start tile + glyph cascade
   // Full-script warmup in EVERY arm (identical histories → comparable
@@ -448,6 +452,14 @@ async function runParity(
     (splitBind ? '' : '-legacy-bind')
   const pageErrors: string[] = []
   page.on('pageerror', (e) => pageErrors.push(String(e?.message ?? e)))
+  // Console warnings / errors are LOGGED, not asserted. The demo's error overlay
+  // repaints over the canvas on each one (#2281: a DEV leak-detector warning did
+  // exactly that on the runner), and this log is the only place the message is
+  // readable — the frames only show that something was printed.
+  page.on('console', (m) => {
+    if (m.type() === 'warning' || m.type() === 'error')
+      console.log(`[rtc-parity:${tag}] console.${m.type()}: ${m.text().slice(0, 300)}`)
+  })
   await page.setViewportSize({ width: 288, height: 160 })
   // Added ONCE, before the first navigation: pipeline-factory reads
   // __XGIS_SPLIT_BIND at build(), so a post-ready evaluate is too late. One
