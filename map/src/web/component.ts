@@ -42,7 +42,9 @@ export class XGISMapElement extends HTMLElementBase {
   }
 
   async connectedCallback() {
-    this.map = new XGISMap(this.canvas)
+    if (!this.map) {
+      this.map = new XGISMap(this.canvas)
+    }
 
     try {
       // 방법 1: src 속성으로 .xgis/.xgb 파일 로드
@@ -81,7 +83,8 @@ export class XGISMapElement extends HTMLElementBase {
   }
 
   disconnectedCallback() {
-    this.map?.stop()
+    this.map?.destroy()
+    this.map = null
   }
 
   /** Programmatic API: run X-GIS source code */
