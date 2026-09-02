@@ -317,7 +317,11 @@ const CEILINGS: Record<string, number> = {
   // 5466→5469 (#2093 follow-up, measured post-prettier per §12): the drape LOD ceiling
   // reads `max(currentZ, targetZ)` so a zoom-in readiness HOLD past the ceiling draws
   // its held coarse tiles direct — one destructured field + a tightened comment.
-  'map/src/render/vector-tile-renderer.ts': 5469,
+  // 5469→5471 (#2346, measured post-prettier): the windowed-bake dispatch is a
+  // texel-DENSITY decision, so its call site hands it `dpr` and the drawn
+  // `neededKeys` — two argument lines; the policy itself lives in
+  // render/drape-overzoom-dispatch.ts.
+  'map/src/render/vector-tile-renderer.ts': 5471,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

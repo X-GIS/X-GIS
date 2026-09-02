@@ -3708,8 +3708,10 @@ export class VectorTileRenderer {
         currentZ,
         cssWidth: canvasWidth / dpr,
         cssHeight: canvasHeight / dpr,
+        dpr,
         source: this.source,
         sliceLayer,
+        neededKeys,
         layerCache: this.getOrCreateLayerCache(sliceLayer),
         uploadResident: (parentKey) =>
           this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
