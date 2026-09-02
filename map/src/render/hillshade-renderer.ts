@@ -30,7 +30,7 @@ import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
 import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import {
@@ -816,7 +816,12 @@ export class HillshadeRenderer {
       B.buffer,
       HB.buffer,
       tilesArr,
-      isPickEnabled(),
+      // NEVER the pick pipeline (#2314): the hillshade pass opens ONE colour attachment,
+      // so a 2-target pipeline mismatches its attachment state — a WebGPU setPipeline
+      // validation error that invalidates the frame's encoder, and on WebGL2 an rg32uint
+      // target that forces blending off (opaque relief). Relief is not pickable anyway:
+      // its pick output is a constant vec2u(0, 0) written under writeMask 0.
+      false,
       // The method is a per-LAYER constant, so it selects a SPECIALISED pipeline
       // rather than branching per fragment (see buildHillshadeModule).
       hillshadeMethodFlag(this._params.method),

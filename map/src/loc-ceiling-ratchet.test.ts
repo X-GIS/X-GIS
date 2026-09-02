@@ -1795,7 +1795,12 @@ const CEILINGS: Record<string, number> = {
   // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
-  'map/src/render/hillshade-renderer.ts': 850,
+  // 850→855 (#2314): the draw took the bare `isPickEnabled()` and selected a
+  // 2-target (rg32uint) pipeline for a pass that opens ONE colour attachment —
+  // a per-frame WebGPU validation error whenever picking and a DEM layer are both
+  // on. The call site is now a literal `false`; the +5 is the comment recording
+  // why, at the argument it constrains, so the flag cannot drift back.
+  'map/src/render/hillshade-renderer.ts': 855,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
