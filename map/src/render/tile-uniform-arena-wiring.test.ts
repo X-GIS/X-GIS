@@ -78,6 +78,37 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     )
   })
 
+  it('the split stamps are the FRAME id, never the per-render counter (#2309)', () => {
+    // `syncFrame` / `syncShow` dedup on the `frame` argument and are documented
+    // "ONCE per frame". They used to be handed `this.frameCount`, which
+    // increments in BOTH render() bodies — i.e. once per ShowCommand, ~95 a
+    // frame on a dense style (#2273 measured the same cadence for cancelStale).
+    // So the guard never fired inside a frame: measured 11.5 syncFrame calls per
+    // frame across 11.5 DISTINCT stamps, re-copying and re-uploading a frame
+    // block whose span bytes hashed to ONE value all frame long.
+    //
+    // `this.currentFrameId` is the real per-frame id — set by beginFrame(frameId),
+    // which render-loop.ts calls once per frame with the map's own _frameCount.
+    // A source scan, not a unit test, because the class-side guard is already
+    // proven in uniform-split-bind.test.ts: the defect was never in the class,
+    // it was in what the caller passed, and only the call site can show that.
+    for (const m of src.matchAll(/_splitBind!?\.syncFrame\(([^)]*)\)/g)) {
+      expect(m[1], 'syncFrame stamp').toContain('this.currentFrameId')
+      expect(m[1], 'syncFrame stamp must not be the per-render counter').not.toContain(
+        'this.frameCount',
+      )
+    }
+    for (const m of src.matchAll(/_splitBind!?\.syncShow\(([\s\S]*?)\n\s*\)/g)) {
+      expect(m[1], 'syncShow stamp').toContain('this.currentFrameId')
+      expect(m[1], 'syncShow stamp must not be the per-render counter').not.toContain(
+        'this.frameCount',
+      )
+    }
+    // Non-vacuity (#996): the scan must actually have found the call sites.
+    expect([...src.matchAll(/_splitBind!?\.syncFrame\(/g)].length).toBe(3)
+    expect([...src.matchAll(/_splitBind!?\.syncShow\(/g)].length).toBe(3)
+  })
+
   it('the per-tile split resolve stays inside the qualifying gate (unclipped, sliced)', () => {
     // #2042 INC-4c hoisted the resolve to tile-loop scope so fills AND the
     // stroke queue share it; the extrude exclusion moved to recordFillDraw's
