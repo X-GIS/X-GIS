@@ -1036,7 +1036,10 @@ export class Camera {
     // disc fallback off the cursor (the anchored drag was already correct, #602).
     if (representsCenterAs(this.projType) === 'lat-deg') {
       const R = EARTH_R
-      const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+      // Capped screen scale (effectiveMpp), NOT the raw mpp — below the
+      // view-height cap the raw formula over-moves the centre relative to
+      // what 1 px covers on the rendered frame (#2322).
+      const mpp = this.effectiveMpp(this.projType, canvasHeight, dpr)
       const rb = (this.bearing * Math.PI) / 180
       const cb = Math.cos(rb),
         sb = Math.sin(rb)
@@ -1080,7 +1083,11 @@ export class Camera {
     // semantic (1 CSS px = mpp × dpr m); leaving it in now would make
     // the map pan DPR× too fast — symptom: the user-reported "pan
     // feels DPR× more sensitive" on a DPR=3 phone.
-    const metersPerInputPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
+    // Use the CAPPED scale (effectiveMpp), not the raw formula above —
+    // below the view-height cap the raw mpp over-moves the centre relative
+    // to what 1 px covers on the rendered frame (#2322); above the cap the
+    // two are byte-identical.
+    const metersPerInputPixel = this.effectiveMpp(this.projType, canvasHeight, dpr)
 
     // Rotate the screen delta by +bearing to get the map-space delta. This
     // MUST match the drag-anchor path (panToScreenAnchor, which inverts the

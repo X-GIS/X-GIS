@@ -1408,7 +1408,14 @@ const CEILINGS: Record<string, number> = {
   // zoomAt / panToScreenAnchor / maxCameraY take the caller's device scale
   // instead of each re-deriving min(devicePixelRatio, maxDpr) — three inline
   // derivations out, one parameter + its rationale in.
-  'map/src/camera/camera.ts': 1452,
+  // 1452→1459 (#2322, measured post-prettier per §12): pan()'s two raw-mpp
+  // scale lines (sphere-family + flat) now call the existing effectiveMpp
+  // single authority instead of re-deriving the uncapped formula, so the
+  // inertia glide / off-ground fallback moves by the same on-screen scale
+  // the frame is rendered at below the view-height cap. No new file to
+  // extract to — both call sites already had the authority in scope; the
+  // growth is the two swapped lines plus their rationale comments.
+  'map/src/camera/camera.ts': 1459,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
