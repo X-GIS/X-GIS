@@ -18,9 +18,15 @@ import { WebGl2Device } from '@xgis/rhi-webgl2'
 
 /** Both renderers keep `loadingTiles: Map<string, AbortController>` and nothing
  *  fired those controllers on teardown — neither class had a destroy() at all, and
- *  `_releaseGpuResources` never named them. */
+ *  `_releaseGpuResources` never named them.
+ *
+ *  Hillshade's ledger moved to its `DemTileStore` (#2268 / D5 INC-0); raster's has
+ *  not been extracted. Resolve whichever object owns it rather than assuming one
+ *  shape — the point of this gate is that `destroy()` reaches the REAL in-flight
+ *  set, so reading the wrong one would make it pass vacuously. */
 function seamOf(r: object): Map<string, AbortController> {
-  return (r as unknown as { loadingTiles: Map<string, AbortController> }).loadingTiles
+  const owner = (r as { dem?: object }).dem ?? r
+  return (owner as { loadingTiles: Map<string, AbortController> }).loadingTiles
 }
 
 describe('#1570 raster/hillshade renderers abort their in-flight tile fetches', () => {
