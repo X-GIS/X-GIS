@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: bdfe55198f3936e084966cb409a48408c1c2f51d
+  Generated from: 6285c6a645d62623162bd832c21b87e319c4ad8d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since bdfe55198f39
+    bun scripts/emit-changelog.ts --since 6285c6a645d6
 -->
 
 # Changelog
@@ -36,6 +36,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
 - **map:** hand the InputStore to the background clear resolve ([#2257](https://github.com/X-GIS/X-GIS/pull/2257)) `c669971`
 - **compiler+map:** forward an imported style's top-level glyphs (#2121) ([#2261](https://github.com/X-GIS/X-GIS/pull/2261)) `b996e26`
 - **map:** cap the mid-render sync fallback uploads per frame ([#2258](https://github.com/X-GIS/X-GIS/pull/2258)) `2c33ae3`
