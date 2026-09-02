@@ -256,12 +256,12 @@ export class TextStage {
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
    *  letterSpacingPx, rotateRad) for the SINGLE-ANCHOR-STATIC case
    *  (no variable anchors / no radialOffset / single candidate / no
-   *  rotate). Variable-mode labels skip the cache (their layout
-   *  depends on anchor-specific offset evaluation that is more
-   *  intricate to fingerprint safely). Per frame on hit:
-   *  drawX/Y = p.anchorX/Y + cached.dx/dy, bbox = drawX/Y +
-   *  cached.bbox-offsets, color = per-frame p.def.color, halo color
-   *  = per-frame p.def.halo.color (only halo GEOMETRY is cached). */
+   *  rotate). Variable-mode labels skip the cache (their layout depends
+   *  on anchor-specific offset evaluation that is more intricate to
+   *  fingerprint safely). Per frame on hit: drawX/Y = p.anchorX/Y +
+   *  (cached.dx/dy + text-translate) — #2170 made the translate a
+   *  per-frame term, not a cached one — bbox = drawX/Y + cached.bbox-
+   *  offsets, color/halo color = per-frame (halo GEOMETRY is cached). */
   private readonly _layoutCache = new Map<
     number,
     {

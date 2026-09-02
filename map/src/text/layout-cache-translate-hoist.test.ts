@@ -241,7 +241,13 @@ const STAGE_SRC = readFileSync(
   'utf8',
 )
 
-describe('#2170 — the moved term is grouped, so the hoist is bit-identical', () => {
+// "bit-identical" is scoped on purpose. The MISS path is: pre-diff computed
+// `dx += c` then `anchorX + dx`, and the grouped form is that same expression
+// tree, so it agrees for every input. The HIT path deliberately does NOT agree
+// with pre-diff — pre-diff served a translate frozen at the storing frame's
+// bearing, because the key quantised it to 0.1 units before hashing. The
+// grouping is what makes hit and miss agree with EACH OTHER.
+describe('#2170 — the moved term is grouped, so hit and miss agree bit for bit', () => {
   it('IEEE-754 addition is not associative on this domain — the instrument can see it', () => {
     // Validate the instrument against a known positive BEFORE trusting the
     // source assertion below: if these operands were dyadic the two forms
