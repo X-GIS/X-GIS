@@ -2341,7 +2341,16 @@ const CEILINGS: Record<string, number> = {
   // data-driven text-color branch had no way to carry a constant text-opacity
   // at all. Both branches now fold/carry the alpha; +16 is the two fix sites
   // plus their why-comments (post-prettier, `wc -l`).
-  'compiler/src/convert/layers-symbol.ts': 1400,
+  // 1400→1428 (#2320): a non-constant text-max-width (zoom-interpolate or
+  // legacy stops) fell through to the placement-gated spec-default arm and
+  // silently emitted label-max-width-10, discarding the authored value with
+  // zero warnings. The value is now folded through interpolateZoomCall ahead
+  // of the emit chain, like the sibling text-padding / text-letter-spacing
+  // arms, and a shape the fold does not recognise keeps the single default-10
+  // arm plus a warning naming the property. +37 is that fold, the warning, the
+  // review fold-in that gives a NEGATIVE folded stop the same diagnostic the
+  // constant arm already had, and their why-comments (post-prettier, `wc -l`).
+  'compiler/src/convert/layers-symbol.ts': 1437,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2356,7 +2365,13 @@ const CEILINGS: Record<string, number> = {
   // fallthrough, its 5-line why (an earlier arm would capture `label-sort-key-[-3]`,
   // the converter's spelling of a negative CONSTANT), and the knob return entry.
   // MEASURED post-prettier (`wc -l`).
-  'compiler/src/ir/lower-label.ts': 952,
+  // 952→966 (#2320): the `label-max-width-[interpolate(zoom, …)]` arm — the
+  // consumer half of the converter fold. Without it the folded utility hit the
+  // X-GIS0005 fallthrough and LabelDef.maxWidth arrived undefined, which
+  // text-stage reads as "no wrap at any zoom" (worse than the spec default the
+  // fold replaced). +14 = the arm plus the why for seeding the single em value
+  // from the last stop. MEASURED post-prettier (`wc -l`).
+  'compiler/src/ir/lower-label.ts': 966,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).

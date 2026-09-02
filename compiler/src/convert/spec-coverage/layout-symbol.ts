@@ -52,7 +52,7 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   {
     name: 'text-max-width',
     status: 'supported',
-    note: 'Default 10 ems for non-line placement (Mapbox parity).',
+    note: 'Constant + interpolate-by-zoom (LabelDef.maxWidth is a single em value — the authored stops fold into the utility and lower seeds the wrap width from the last one, so it does not vary per zoom); default 10 ems for non-line placement (Mapbox parity).',
     source: 'layers.ts:385',
   },
   { name: 'text-line-height', status: 'supported' },

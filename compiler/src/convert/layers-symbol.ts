@@ -1140,6 +1140,36 @@ export function convertTextLayoutProperties(
     overrides?.placement !== undefined
       ? overrides.placement
       : unwrapLiteralScalar(layout['symbol-placement'])
+  // Zoom-interpolated / legacy-stops form (#2320) — folded here, mirroring
+  // the text-padding / text-letter-spacing arms above, so a non-constant
+  // value no longer falls straight through to the spec-default arm below
+  // and silently emits the default 10. Only shapes interpolateZoomCall
+  // recognises fold; anything else (`["step", ["zoom"], …]`, a data-driven
+  // `["match", …]`, a non-finite number) keeps the default arm and is named
+  // by the warning there — emitting nothing would leave the runtime with no
+  // maxWidth at all ("undefined ⇒ no wrap"), which is further from Mapbox
+  // than the spec default. Gated on placement so a line-placed layer, whose
+  // max-width the spec disables anyway, folds nothing and warns about
+  // nothing.
+  const maxWidthInterp =
+    maxWidth !== undefined &&
+    maxWidth !== null &&
+    typeof maxWidth !== 'number' &&
+    placement !== 'line' &&
+    placement !== 'line-center'
+      ? interpolateZoomCall(maxWidth, warnings, (val, warn) => {
+          if (typeof val !== 'number' || !Number.isFinite(val)) return null
+          // Same spec violation as the constant arm below, so it gets the
+          // same diagnostic — a negative stop clamped in silence is the
+          // silent-loss this issue is about, one shape further in.
+          if (val < 0) {
+            warn.push(
+              `Symbol layer "${layer.id}" — text-max-width stop ${val} is negative; Mapbox spec requires >= 0. Clamped to 0 (label wraps every character).`,
+            )
+          }
+          return String(Math.max(0, val))
+        })
+      : null
   if (typeof maxWidth === 'number' && Number.isFinite(maxWidth)) {
     // Mapbox spec: text-max-width >= 0 (em units). Number.isFinite
     // rejects NaN / Infinity.
@@ -1149,7 +1179,14 @@ export function convertTextLayoutProperties(
       )
     }
     utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
+  } else if (maxWidthInterp !== null) {
+    utils.push(`label-max-width-[${maxWidthInterp}]`)
   } else if (placement !== 'line' && placement !== 'line-center') {
+    if (maxWidth !== undefined && maxWidth !== null) {
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-max-width is neither a constant number nor a zoom interpolation the converter can fold; falling back to the Mapbox spec default 10 ems.`,
+      )
+    }
     utils.push('label-max-width-10')
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
