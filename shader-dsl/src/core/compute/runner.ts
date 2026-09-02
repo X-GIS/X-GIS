@@ -359,6 +359,14 @@ function createWebGl2Runner(
     run(input: Float32Array, invocations?: number): Promise<Uint32Array> {
       if (disposed) throw new Error('createComputeRunner: runner has been disposed')
       const n = invocations ?? input.length
+      // n === 0 is an ordinary steady state (a frame with nothing to dispatch), and the
+      // other two tiers already treat it as one — CPU runs its loop zero times, WebGPU
+      // clamps its buffer to 4 bytes and says so at the clamp. Here it is NOT survivable
+      // further down: `wOut` is clamped but `hOut = ceil(0 / 1)` is 0, and a 1x0 R32UI
+      // texture is not framebuffer-attachment-complete (GLES 3.0 §4.4.4.2), so the
+      // completeness check below throws. Short-circuit before any GL call so the three
+      // tiers agree on the documented `run` contract (#2362).
+      if (n === 0) return Promise.resolve(new Uint32Array(0))
       const wOut = Math.min(Math.max(1, n), MAX_W)
       const hOut = Math.ceil(n / wOut)
 
