@@ -370,10 +370,42 @@ function createWebGl2Runner(
       const wOut = Math.min(Math.max(1, n), MAX_W)
       const hOut = Math.ceil(n / wOut)
 
+      // Snapshot the HOST's global state, BEFORE the first GL call that overwrites it.
+      // `options.gl` is documented "A live WebGL2 context" — the caller's, not one this
+      // runner owns — so everything this dispatch touches has to come back. Only the
+      // viewport did (#2355); BLEND, the current program and the TEXTURE0 binding did not,
+      // and on a shared context an unrestored `disable(BLEND)` silently composited the
+      // host's next alpha-blended draw as opaque.
+      //
+      // Placement is load-bearing twice over. `uploadDataTexture` below binds to the
+      // ACTIVE unit, so a snapshot taken any later records this runner's own texture rather
+      // than the host's. And `TEXTURE_BINDING_2D` is PER-UNIT, so it is read with TEXTURE0
+      // selected — the unit this pass clobbers — instead of off whichever unit the host left
+      // active, which would snapshot a unit that is never touched and restore the wrong one.
+      const wasBlend = gl.isEnabled(gl.BLEND)
+      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM) as WebGLProgram | null
+      const prevActiveTex = gl.getParameter(gl.ACTIVE_TEXTURE) as number
+      gl.activeTexture(gl.TEXTURE0)
+      const prevTex0 = gl.getParameter(gl.TEXTURE_BINDING_2D) as WebGLTexture | null
+      gl.activeTexture(prevActiveTex)
+      /** Hand the borrowed state back. Idempotent, and used on BOTH exits — the
+       *  `createFramebuffer` failure below throws before the try/finally exists, and the
+       *  existing `deleteTexture` there shows that path is meant to clean up after itself. */
+      const restoreHostState = (): void => {
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, prevTex0)
+        gl.activeTexture(prevActiveTex)
+        gl.useProgram(prevProgram)
+        if (wasBlend) gl.enable(gl.BLEND)
+      }
+
       uploadDataTexture(gl, dataTex, input)
 
       const outTex = gl.createTexture()
-      if (!outTex) throw new Error('createComputeRunner: gl.createTexture (out) failed')
+      if (!outTex) {
+        restoreHostState()
+        throw new Error('createComputeRunner: gl.createTexture (out) failed')
+      }
       gl.bindTexture(gl.TEXTURE_2D, outTex)
       gl.texImage2D(
         gl.TEXTURE_2D,
@@ -392,6 +424,7 @@ function createWebGl2Runner(
       const fbo = gl.createFramebuffer()
       if (!fbo) {
         gl.deleteTexture(outTex)
+        restoreHostState()
         throw new Error('createComputeRunner: gl.createFramebuffer failed')
       }
       // Snapshot the viewport: overriding it for the output grid without restoring leaves
@@ -430,6 +463,10 @@ function createWebGl2Runner(
         gl.viewport(vp[0]!, vp[1]!, vp[2]!, vp[3]!)
         gl.deleteFramebuffer(fbo)
         gl.deleteTexture(outTex)
+        // After the deletes: `deleteTexture` unbinds whatever it removes, so restoring the
+        // host's binding last is what leaves TEXTURE0 holding the host's texture rather
+        // than nothing.
+        restoreHostState()
       }
     },
     dispose(): void {
