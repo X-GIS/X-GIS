@@ -572,9 +572,59 @@ export class PipelineFactory {
     // wired — that promise let entry.pipelines stay null with
     // entry.layout still feature/compute, tripping per-frame
     // BindGroupLayout validation (see commit 6080a2f).
+    // #2286 — the outgoing set dies HERE, not at device teardown: build() below
+    // re-assigns every `_fill*Material*` over its live reference and the per-style
+    // maps stay keyed by pipelines it replaces, so the whole set was unreachable
+    // AND undestroyed for the session, with the device alive. Safe because
+    // map.setQuality (the only caller) re-points every consumer immediately —
+    // `_reResolveVariantPipelines()` then the VTR `fillRhiState()` loop
+    // (map.ts:2144-2180) — and no frame renders inside that synchronous block.
+    this.dropMaterials()
     this.shaderCache.clear()
     this.build()
     this.overdrawComposePipeline = null
+  }
+
+  /** Every fill Material this factory owns. ALIASED BY CONSTRUCTION — the
+   *  per-style maps key ONE Material under several pipelines, so an instance is
+   *  yielded more than once; callers do not dedup because `Material.destroy()`
+   *  latches on `_destroyed` and the repeat is a no-op. */
+  private *ownedMaterials(): Generator<Material> {
+    const m = this._fillMaterials
+    if (m) yield* [m.flat, m.ground]
+    if (this._fillExtrudeMaterial) yield this._fillExtrudeMaterial
+    if (this._fillExtrudeMaterialNoPick) yield this._fillExtrudeMaterialNoPick
+    const pat = this._fillPatternMaterials
+    if (pat) yield* [pat.patternGround, pat.patternExtruded]
+    const split = this._fillSplitMaterials
+    if (split) yield* [split.flat, split.ground]
+    for (const e of this._fillPerStyle.values()) yield e.mat
+    for (const e of this._fillPerStyleExtrude.values()) yield e.mat
+    for (const e of this._fillPerStyleSplit.values()) if (e) yield e.mat
+  }
+
+  /** Destroy every fill Material and forget it. ONE authority, shared by
+   *  `rebuild()` (which builds a fresh set after) and `destroy()` (which does
+   *  not), so the two can never drift on WHAT the factory owns. */
+  private dropMaterials(): void {
+    for (const mat of this.ownedMaterials()) mat.destroy()
+    this._fillMaterials = null
+    this._fillExtrudeMaterial = null
+    this._fillExtrudeMaterialNoPick = null
+    this._fillPatternMaterials = null
+    this._fillSplitMaterials = null
+    this._fillPerStyle.clear()
+    this._fillPerStyleExtrude.clear()
+    this._fillPerStyleSplit.clear()
+    this._fillPerStyleInfo.clear()
+  }
+
+  /** Terminal teardown (#2286). The chain MapRendererContent -> FrameRenderer ->
+   *  PipelineFactory had no destroy at any level and leaned on the whole-device
+   *  teardown. The Materials (RHI pipelines + pool buffers) are the releasable
+   *  half; the layouts this class also holds are GC-owned. */
+  destroy(): void {
+    this.dropMaterials()
   }
 
   /** Lazy-build the `?debug=overdraw` final compose pipeline. Samples

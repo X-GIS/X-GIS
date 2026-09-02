@@ -840,6 +840,9 @@ export class HillshadeRenderer {
 
   destroy(): void {
     abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
+    // #2286 — raster twin: the draper was released by the quality rebuild only.
+    this._hillshadeDraper?.destroy()
+    this._hillshadeDraper = undefined
   }
 
   private evictTiles(vis: Set<string>): void {

@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 491d2bfa994ab73347b5882d73fb0919cb9a3cee
+  Generated from: 1bbebeece62335e0bca483163d53d48790c04d4b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 491d2bfa994a
+    bun scripts/emit-changelog.ts --since 1bbebeece623
 -->
 
 # Changelog
@@ -36,6 +36,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** give the fill-Material ownership chain a teardown (#2286) ([#2363](https://github.com/X-GIS/X-GIS/pull/2363)) `1bbebee`
+- **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
+- **text:** a label with no text-font stops asking for a CJK-chain fontstack (#2259) ([#2287](https://github.com/X-GIS/X-GIS/pull/2287)) `2dcfab5`
 - **text:** generation-stamped fade holdovers (#2278) + a witness for the durable hideDemoChrome (#2284) ([#2279](https://github.com/X-GIS/X-GIS/pull/2279)) `491d2bf`
 - **data:** age the prefetch shield per frame, and make _high-pitch-flicker wait for its state (#2273) ([#2272](https://github.com/X-GIS/X-GIS/pull/2272)) `2ccead8`
 - **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
@@ -63,6 +66,11 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **data:** back off a persistently failing virtual-catalog fetcher ([#2181](https://github.com/X-GIS/X-GIS/pull/2181)) `2cfe887`
 - **compiler:** three spec-coverage rows that misdescribed the engine ([#2172](https://github.com/X-GIS/X-GIS/pull/2172)) `ddbe76d`
 
+#### perf
+
+- **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
+- **text:** take text-translate out of the layout cache and its key (#2170) ([#2267](https://github.com/X-GIS/X-GIS/pull/2267)) `77dedde`
+
 #### docs
 
 - **research:** data-ownership audit + 5-year ownership model ([#2243](https://github.com/X-GIS/X-GIS/pull/2243)) `1eb20ca`
@@ -78,6 +86,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- **render:** keep the failing frames and traces the render gates already write (#2282) ([#2285](https://github.com/X-GIS/X-GIS/pull/2285)) `17c1bf8`
 - patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
 
