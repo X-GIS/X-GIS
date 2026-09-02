@@ -316,7 +316,9 @@ describe('non-identifier field name guard (regression)', () => {
     expect(parses(out)).toBe(true)
   })
 
-  it('text-field token "{name:latin}" falls back to ".name"', () => {
+  // #2310: this used to assert the lossy `.name` fallback, which
+  // silently rendered the local-script name instead of the latin one.
+  it('text-field token "{name:latin}" becomes get("name:latin")', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { x: { type: 'vector', url: 'a.pmtiles' } },
@@ -330,7 +332,7 @@ describe('non-identifier field name guard (regression)', () => {
         },
       ],
     })
-    expect(out).toContain('.name')
+    expect(out).toContain('get("name:latin")')
     expect(out).not.toMatch(/\.name:latin/)
     expect(parses(out)).toBe(true)
   })
