@@ -74,6 +74,7 @@ import {
   vec3uT,
   vec4uT,
   vec4fT,
+  voidT,
   type Node,
   type ReadonlyNode,
   type ConstDecl,
@@ -452,6 +453,7 @@ function buildComputeKernelModule(
   const kernel = fn(
     entryName,
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const fid = gid.x
       If(fid.ge(uCount.node.x), () => {

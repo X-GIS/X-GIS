@@ -8,7 +8,7 @@
 // substring-matching tests all still hold.
 
 import { describe, it, expect } from 'vitest'
-import { fn, If, Loop, f32, u32, f32T } from './index.js'
+import { fn, If, Loop, f32, u32, f32T, voidT } from './index.js'
 
 const boom = (): never => {
   throw new ReferenceError('i is not defined')
@@ -49,7 +49,7 @@ describe('builder — authoring-error context (#843)', () => {
 
   it('a throw straight from the fn body gets the fn context alone', () => {
     expect(() =>
-      fn('fs_direct', {}, () => {
+      fn('fs_direct', {}, voidT, () => {
         boom()
       }),
     ).toThrowError(/^while building fn 'fs_direct': i is not defined$/)
