@@ -13,31 +13,18 @@
 
 import { describe, it, expect } from 'vitest'
 import { fn, module, f64T, sqrt, abs, min, max, floor, fract } from '../ir/index.js'
-import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
+import type { ModuleDecl } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from '../passes/fp64-lower.js'
-import { mapModuleExprs } from '../passes/opt/ir-transform.js'
 import { splitF64 } from './df64-lib.js'
 
 // ── The f32-rounding oracle, integer flavor ──
 
-const isF32ish = (t: ShaderType): boolean =>
-  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
-
-const froundWrap = (e: Expr): Expr => {
-  if ((e.op === 'binop' || e.op === 'unop' || e.op === 'call') && isF32ish(e.type)) {
-    if (e.op === 'call' && e.fn === '__fround') return e
-    return { op: 'call', type: e.type, fn: '__fround', args: [e] }
-  }
-  return e
-}
-
-function intOracle(m: ModuleDecl): ReturnType<typeof compileModule> {
-  const cpu = compileModule(mapModuleExprs(fp64Lower(m, { flavor: 'integer' }), froundWrap))
-  cpu.fns['__fround'] = (x: CpuValue) =>
-    Array.isArray(x) ? (x as number[]).map(Math.fround) : Math.fround(x as number)
-  return cpu
-}
+/** The f32 oracle: `fp64Lower`'s output evaluated as a correctly-rounding f32 machine,
+ *  which is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper in
+ *  each of six files; it additionally rounds literals and parameters, which they did not. */
+const intOracle = (m: ModuleDecl) =>
+  compileModule(fp64Lower(m, { flavor: 'integer' }), { precision: 'f32' })
 
 // ── Kernels ──
 

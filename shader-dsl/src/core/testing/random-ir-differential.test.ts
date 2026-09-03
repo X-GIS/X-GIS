@@ -148,6 +148,30 @@ describe('generated-program differentials (#2406)', () => {
     expect(checks).toBeGreaterThan(1000) // the sweep ran at all
   })
 
+  // #2426 — the f32 oracle mode has to reach BOTH engines identically, or they stop being
+  // differentials of each other. One shared `BUILTINS.__fround` entry and one shared pass
+  // should make that free; this arm is what proves it over generated programs rather than
+  // over the eight hand-written cases in precision.test.ts.
+  it('A-f32: the two engines agree in f32 mode as well', () => {
+    const divergences: string[] = []
+    let checks = 0
+    for (const c of CORPUS) {
+      const interp = compileModule(c.module, { precision: 'f32' })
+      const js = compileModuleJs(c.module, { precision: 'f32' })
+      for (const { fn, args, key } of sweep(c.module)) {
+        const a = interp.fns[fn]!(...(clone(args) as never[]))
+        const b = js.fns[fn]!(...(clone(args) as never[]))
+        checks++
+        if (!bitEqual(a, b) && divergences.length < 8)
+          divergences.push(
+            `seed ${c.seed} ${key}: interp=${JSON.stringify(a)} js=${JSON.stringify(b)}`,
+          )
+      }
+    }
+    console.log(`[D6.1 A-f32] ${checks} f32-mode bit-equality checks`)
+    expect(divergences).toEqual([])
+  })
+
   it('B1: O1 is bit-exact — the claim optimize.ts:209 makes in prose', () => {
     const divergences: string[] = []
     let checks = 0

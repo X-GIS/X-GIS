@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { fn, module, f64T, f32T, sqrt, toF32, stageOf } from '../ir/index.js'
-import type { Expr, ModuleDecl, ShaderType } from '../ir/index.js'
+import type { ModuleDecl } from '../ir/index.js'
 import { compileModule, type CpuValue } from '../oracle.js'
 import { fp64Lower } from './fp64-lower.js'
-import { fixpoint, mapModuleExprs } from './opt/index.js'
+import { fixpoint } from './opt/index.js'
 import { splitF64 } from '../fp64/df64-lib.js'
 import { forceInline, type InlineDecision } from './force-inline.js'
 import { inline as inlinePlugin } from '../../emit-prod.js'
@@ -33,23 +33,10 @@ import type { EmitPlugin } from '../emit.js'
 // A driver's fast-math is the failure these cannot see, and this file does not claim it —
 // that is _fp64-known-answer.spec.ts on a real device.
 
-const isF32ish = (t: ShaderType): boolean =>
-  (t.kind === 'scalar' && t.scalar === 'f32') || (t.kind === 'vec' && t.elem === 'f32')
-
-const froundWrap = (e: Expr): Expr => {
-  if ((e.op === 'binop' || e.op === 'unop' || e.op === 'call') && isF32ish(e.type)) {
-    if (e.op === 'call' && e.fn === '__fround') return e
-    return { op: 'call', type: e.type, fn: '__fround', args: [e] }
-  }
-  return e
-}
-
-function f32Oracle(lowered: ModuleDecl): ReturnType<typeof compileModule> {
-  const cpu = compileModule(mapModuleExprs(lowered, froundWrap))
-  cpu.fns['__fround'] = (x: CpuValue) =>
-    Array.isArray(x) ? (x as number[]).map(Math.fround) : Math.fround(x as number)
-  return cpu
-}
+/** The f32 oracle over an ALREADY-lowered module: a correctly-rounding f32 machine, which
+ *  is what the GPU is. `precision: 'f32'` (#2426) replaced a copy of this wrapper here and
+ *  in six fp64 test files. */
+const f32Oracle = (lowered: ModuleDecl) => compileModule(lowered, { precision: 'f32' })
 
 const kernel = module({
   funcs: [

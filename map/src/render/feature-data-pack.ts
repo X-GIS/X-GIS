@@ -13,6 +13,8 @@
 // different colour with no error anywhere, which is the #723 bug class this
 // stable-id scheme exists to close. One authority, two callers.
 
+import { warnCategoricalPaletteWrap } from './category-palette-wrap-warning'
+
 /** #723 — stable, tile-independent categorical palette id. FNV-1a of the
  *  value, masked to 23 bits so it round-trips EXACTLY through the f32
  *  `feat_data` slot (f32 mantissa is 24 bits); the `categorical()` shader
@@ -33,9 +35,20 @@ export function stableCategoryId(v: string): number {
  *  `stableCategoryId(value)` — a pure function of the value, NOT the
  *  per-tile / per-source rank. Shared by the per-tile and source-level
  *  packers so both agree on a value's colour. See #723. */
-export function buildCategoryMap(values: Iterable<string>): Map<string, number> {
+export function buildCategoryMap(
+  values: Iterable<string>,
+  fieldName?: string,
+): Map<string, number> {
   const map = new Map<string, number>()
   for (const v of values) if (!map.has(v)) map.set(v, stableCategoryId(v))
+  // #2428 — the palette this id feeds has a FIXED length and the shader indexes it
+  // modulo that length, so past it the 21st category paints as the 1st. This is the
+  // only place the distinct set exists, so the check lives here at the single
+  // producer and both packers inherit it (§12). `fieldName` is optional so the
+  // #723 subset-independence tests can call this without inventing one; both
+  // PRODUCTION callers pass it, which `categorical-palette-wrap.test.ts` gates at
+  // the source rather than trusting the convention.
+  if (fieldName !== undefined) warnCategoricalPaletteWrap(fieldName, map.size)
   return map
 }
 
@@ -106,7 +119,7 @@ export function packPerTileFeatureData(
         const v = props[fieldName]
         if (typeof v === 'string') vals.push(v)
       }
-      for (const [v, id] of buildCategoryMap(vals)) map.set(v, id)
+      for (const [v, id] of buildCategoryMap(vals, fieldName)) map.set(v, id)
     }
     catMaps.set(fieldName, map)
   }

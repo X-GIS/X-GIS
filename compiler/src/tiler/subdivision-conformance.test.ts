@@ -22,6 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import earcut from 'earcut'
 import { tessellatePolygonToArrays, lonLatToMercF64 } from './vector-tiler'
+import { subdivideTriangleMM, vertexKey } from './subdivide-conforming'
 
 const FEATURE_ID = 1
 
@@ -329,5 +330,205 @@ describe('subdivideTriangleMM conforming subdivision (INC-0)', () => {
       const relErr = Math.abs(meshArea(mesh.verts, mesh.idx) - polyArea) / polyArea
       expect(relErr).toBeLessThan(1e-9)
     }
+  })
+})
+
+// ── Cross-LOD boundary conformance (design "skirt" prerequisite, re-measured) ──
+//
+// The design doc records, as CONFIRMED, that cross-LOD T-junctions "need a SKIRT,
+// not endpoint-stitch", reasoning that a parent tile's edge and the two child
+// sub-edges covering it "have DIFFERENT endpoints" so an endpoint-keyed rule cannot
+// reconcile them. Half of that is wrong, and the wrong half is the load-bearing one:
+// a marked edge always splits at its LINEAR MM MIDPOINT, and the midpoint of a parent
+// tile's edge IS the shared endpoint of its two children — so the refinement is
+// SELF-SIMILAR across LODs and the two sides agree by construction wherever the
+// parent's edge is marked and has depth left.
+//
+// Two mechanisms can still break the agreement, and this suite measures both rather
+// than asserting them away:
+//   - z <= 2: MAX_TRI_SUBDIVIDE_DEPTH stops the parent one level short of what the
+//     2-degree gate wants, while each child starts its own depth budget at 0 and gets
+//     one level further;
+//   - z >= 8: a tile edge is already under the gate, so the PARENT never splits while
+//     the children still meet at the LOD boundary, which is then interior to the
+//     parent's unsplit edge.
+// Both leave a vertex of one mesh interior to the other's edge, and the gap that
+// opens is the SAGITTA of the arc the un-split side spans. That is the quantity that
+// decides whether a skirt is needed, so it is what is asserted here — bounded at
+// SUB-DEVICE-PIXEL at every native zoom, which is why the globe's fill ceiling can
+// reach z0 without one.
+//
+// Bound is deliberately the WORST case: the sphere's screen radius is 512*2^Z/(2*PI)
+// px and the sagitta is taken unforeshortened (a limb-tangent edge). A tile facing
+// the camera sees strictly less.
+
+const MM_WORLD = 20037508.342789244
+
+function mmToUnitSphere(x: number, y: number): [number, number, number] {
+  const lon = ((x / MM_WORLD) * Math.PI) as number
+  const lat = Math.atan(Math.sinh((y / MM_WORLD) * Math.PI))
+  return [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)]
+}
+
+/** Great-circle angle (radians) between two MM points. */
+function centralAngleMM(ax: number, ay: number, bx: number, by: number): number {
+  const a = mmToUnitSphere(ax, ay)
+  const b = mmToUnitSphere(bx, by)
+  const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+  return Math.acos(dot)
+}
+
+/** Parameters (0..1 along A->B) of every vertex the subdivision places ON the
+ *  segment A->B, for a triangle whose third vertex is C. */
+function boundaryParams(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): number[] {
+  const verts: number[] = []
+  const idx: number[] = []
+  const dedup = new Map<string, number>()
+  const add = (x: number, y: number): number => {
+    const k = vertexKey(x, y, 0)
+    const hit = dedup.get(k)
+    if (hit !== undefined) return hit
+    const i = verts.length / 3
+    verts.push(x, y, 0)
+    dedup.set(k, i)
+    return i
+  }
+  subdivideTriangleMM(add(ax, ay), add(bx, by), add(cx, cy), 0, verts, idx, dedup, 0)
+  const dx = bx - ax
+  const dy = by - ay
+  const len2 = dx * dx + dy * dy
+  const out = new Set<number>()
+  for (let i = 0; i < verts.length / 3; i++) {
+    const x = verts[i * 3]
+    const y = verts[i * 3 + 1]
+    const t = ((x - ax) * dx + (y - ay) * dy) / len2
+    if (t < -1e-9 || t > 1 + 1e-9) continue
+    if (Math.hypot(x - (ax + t * dx), y - (ay + t * dy)) > 1e-6) continue
+    out.add(Number(t.toFixed(12)))
+  }
+  return [...out].sort((p, q) => p - q)
+}
+
+interface CrossLod {
+  parent: number[]
+  child: number[]
+  parentOnly: number[]
+  childOnly: number[]
+  /** Worst screen gap in px at NATIVE camera zoom (Z = z). */
+  gapPx: number
+}
+
+/** Subdivide a tile's left edge as the PARENT owns it, then as its two CHILDREN do,
+ *  and compare the two point sets on the shared physical segment. */
+function crossLodBoundary(z: number, tx: number, ty: number): CrossLod {
+  const s = (2 * MM_WORLD) / 2 ** z
+  const x0 = -MM_WORLD + tx * s
+  const yTop = MM_WORLD - ty * s
+  const yBot = yTop - s
+  const yMid = (yTop + yBot) / 2
+  const parent = boundaryParams(x0, yTop, x0, yBot, x0 + s, yTop)
+  const top = boundaryParams(x0, yTop, x0, yMid, x0 + s / 2, yTop)
+  const bot = boundaryParams(x0, yMid, x0, yBot, x0 + s / 2, yTop)
+  const child = [
+    ...new Set(
+      [...top.map((t) => t / 2), ...bot.map((t) => 0.5 + t / 2)].map((t) => Number(t.toFixed(12))),
+    ),
+  ].sort((p, q) => p - q)
+  const near = (set: number[], t: number) => set.some((u) => Math.abs(u - t) < 1e-9)
+  const parentOnly = parent.filter((t) => !near(child, t))
+  const childOnly = child.filter((t) => !near(parent, t))
+
+  // The gap a disagreement opens = the sagitta of the arc the UN-SPLIT side spans
+  // between the two of its own vertices that bracket the other side's extra vertex.
+  const edgeAngle = centralAngleMM(x0, yTop, x0, yBot)
+  const rPx = (512 * 2 ** z) / (2 * Math.PI)
+  const span = (owner: number[], t: number): number => {
+    let lo = 0
+    let hi = 1
+    for (const u of owner) {
+      if (u <= t && u > lo) lo = u
+      if (u >= t && u < hi) hi = u
+    }
+    return hi - lo
+  }
+  let gapPx = 0
+  for (const t of childOnly) gapPx = Math.max(gapPx, sagittaPx(span(parent, t) * edgeAngle, rPx))
+  for (const t of parentOnly) gapPx = Math.max(gapPx, sagittaPx(span(child, t) * edgeAngle, rPx))
+  return { parent, child, parentOnly, childOnly, gapPx }
+}
+
+function sagittaPx(theta: number, rPx: number): number {
+  return rPx * (1 - Math.cos(theta / 2))
+}
+
+describe('cross-LOD boundary conformance (the "skirt" prerequisite, measured)', () => {
+  const LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14]
+  const results = LEVELS.map((z) => ({
+    z,
+    ...crossLodBoundary(
+      z,
+      Math.max(0, Math.min(2 ** z - 1, Math.round(2 ** z * 0.53))),
+      Math.max(0, Math.round(2 ** z * 0.39)),
+    ),
+  }))
+
+  it('never leaves a PARENT vertex the children lack (the direction the design doc named)', () => {
+    // A parent-only vertex would be a hanging node on the CHILD side -- the "different
+    // endpoints" failure the doc predicted. Midpoint bisection makes it impossible:
+    // every parent split point is reachable by the children's own recursion on the
+    // same endpoints, at the same depth budget or better.
+    for (const r of results) {
+      expect({ z: r.z, parentOnly: r.parentOnly.length }).toEqual({ z: r.z, parentOnly: 0 })
+    }
+  })
+
+  it('agrees EXACTLY wherever the parent edge is marked with depth to spare (z3-z7)', () => {
+    for (const r of results.filter((r) => r.z >= 3 && r.z <= 7)) {
+      expect({ z: r.z, childOnly: r.childOnly.length, gapPx: r.gapPx }).toEqual({
+        z: r.z,
+        childOnly: 0,
+        gapPx: 0,
+      })
+    }
+  })
+
+  it('keeps the gap under a tenth of a device pixel through z0-z5 (what lets the fill ceiling reach z0)', () => {
+    // z0-z2 disagree only because MAX_TRI_SUBDIVIDE_DEPTH stops the parent one level
+    // short of what the gate wants while each child starts a fresh depth budget --
+    // and at those levels the sphere is small enough on screen that the resulting
+    // sagitta is invisible. This is the band #2094 opens by lowering the ceiling.
+    for (const r of results.filter((r) => r.z <= 5)) {
+      expect({ z: r.z, over: r.gapPx > 0.1 }).toEqual({ z: r.z, over: false })
+    }
+  })
+
+  it('records the z8-z9 spike the ABSOLUTE 2-degree gate leaves (#2435)', () => {
+    // A z8 tile edge spans ~1.4 degrees -- already under MAX_TRI_DEGREES_FOR_PROJ --
+    // so the parent edge is never split while its two children still meet at the LOD
+    // boundary, which is then interior to it. The gap is the parent edge's own
+    // sagitta, and because the native-zoom screen scale doubles per level while the
+    // gate does not move, it PEAKS exactly where the edge first falls under the gate.
+    // Pinned so the per-tile-level granularity that fixes #2435 is visible here.
+    const spike = results.filter((r) => r.z === 8 || r.z === 9)
+    expect(spike.map((r) => ({ z: r.z, childOnly: r.childOnly.length }))).toEqual([
+      { z: 8, childOnly: 1 },
+      { z: 9, childOnly: 1 },
+    ])
+    expect(spike.every((r) => r.gapPx > 0.4)).toBe(true)
+    console.log(
+      'cross-LOD boundary: ' +
+        results
+          .map(
+            (r) => `z${r.z} p=${r.parent.length} c=${r.child.length} gap=${r.gapPx.toFixed(3)}px`,
+          )
+          .join('  '),
+    )
   })
 })

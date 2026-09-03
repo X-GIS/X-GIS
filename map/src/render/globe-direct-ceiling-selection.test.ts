@@ -22,8 +22,9 @@
 // anti-oscillation hysteresis" (the `Math.round` semantics it describes were
 // reverted to plain `floor` on 2026-05-15 for MapLibre vector-source parity, and
 // the prose was never updated). The `floor` case below is the one that severs:
-// under `Math.round` a camera at zoom 8.60 resolves to currentZ 9 and goes
-// DIRECT, where the chord sagitta still dominates the bake texel.
+// under `Math.round` a camera at zoom 5.60 resolves to currentZ 6 and goes
+// DIRECT one level below the ceiling, where the whole-hemisphere arcs still
+// curve visibly (projections-table.ts quotes the budget).
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -130,7 +131,8 @@ describe('#2093 — the drape LOD ceiling reads the production currentZ', () => 
   it('a maxzoom-2 source keeps the drape at the SAME camera (#2024 coverage survives)', () => {
     // The ceiling is SOURCE-CLAMPED, so a shallow source can never reach it from
     // any camera and keeps the great-circle hug — and with it the #2024 windowed
-    // overzoom. This is the derivation working, and it is what makes the dark/globe
+    // overzoom. This is the derivation working (over-zooming a shallow source
+    // multiplies the chord error by 2^Δz), and it is what makes the dark/globe
     // scenes' synthetic maxLevel-0 sources legitimately keep draping.
     expect(
       drapesAtSelectionZ(currentZAt(9.7, 2)),
@@ -144,30 +146,41 @@ describe('#2093 — the drape LOD ceiling reads the production currentZ', () => 
     ).toBe(true)
   })
 
+  it('MapLibre demotiles (maxzoom 6) reaches the ceiling exactly — direct at every camera ≥ 6', () => {
+    // The owner's demotiles re-check: a maxzoom-6 source clamps currentZ to 6 at
+    // z9.6, which IS the ceiling, so it renders direct — the #2024 windowed bake
+    // no longer owns that route. One level shallower (maxzoom 5) still drapes.
+    expect(currentZAt(9.6, 6)).toBe(6)
+    expect(drapesAtSelectionZ(currentZAt(9.6, 6)), 'demotiles at z9.6 renders direct').toBe(false)
+    expect(currentZAt(6.2, 6)).toBe(6)
+    expect(drapesAtSelectionZ(currentZAt(6.2, 6)), 'demotiles at z6.2 renders direct').toBe(false)
+    expect(drapesAtSelectionZ(currentZAt(9.6, 5)), 'a maxzoom-5 source keeps the drape').toBe(true)
+  })
+
   it('currentZ is FLOOR-based: a camera under the integer boundary still drapes', () => {
     // The severing case. Under `Math.round` — which the derivation's own comment
-    // still advertises — this camera resolves to currentZ 9 and goes DIRECT, at a
-    // tile zoom where the chord sagitta (0.0123 CSS px at Z=8.6) is still WIDER
-    // than the bake texel (0.0106). Every other camera in this file is round/floor
-    // agnostic (9.70 → 9 or 10, both direct; 21.10 and 9.70@maxLevel-2 both clamp),
-    // so without this case the whole file greens under a round restore.
-    expect(currentZAt(8.6, 14), 'zoom 8.60 must floor to 8, not round to 9').toBe(8)
+    // still advertises — this camera resolves to currentZ 6 and goes DIRECT one
+    // level below the ceiling, where a tile-spanning edge is already 5.7 % off at
+    // the frame edge and the hemisphere arcs curve ~10 px (projections-table.ts).
+    // Every other camera in this file is round/floor agnostic, so without this
+    // case the whole file greens under a round restore.
+    expect(currentZAt(5.6, 14), 'zoom 5.60 must floor to 5, not round to 6').toBe(5)
     expect(
-      drapesAtSelectionZ(currentZAt(8.6, 14)),
-      'zoom 8.60 draws tiles at z8, where the chord sagitta still exceeds one bake texel — ' +
-        'so it must keep the drape. Seeing DIRECT here means the currentZ derivation in ' +
-        'tile-selection-cache.ts stopped being floor-based (its comment still says ' +
-        '"Round-based currentZ"), and the LOD ceiling is now applied to a tile zoom the ' +
-        'frame does not draw.',
+      drapesAtSelectionZ(currentZAt(5.6, 14)),
+      'zoom 5.60 draws tiles at z5, one level below the ceiling — so it must keep the drape. ' +
+        'Seeing DIRECT here means the currentZ derivation in tile-selection-cache.ts stopped ' +
+        'being floor-based (its comment still says "Round-based currentZ"), and the LOD ' +
+        'ceiling is now applied to a tile zoom the frame does not draw.',
     ).toBe(true)
   })
 
-  it('GLOBE_DIRECT_MIN_SELECTION_Z is the BAKE_PX crossover (drift pin)', () => {
-    // The ceiling's derivation compares the drape's bake texel against the direct
-    // arm's chord sagitta. Both are the tile's ON-SCREEN SPAN times something, so
-    // the span — and with it TILE_PX — cancels: C/B = (BAKE_PX·π/4)·2^−z. The
-    // governing constant is therefore the DRAPE BAKE resolution, which lives here
-    // in map/ and is mirrored (not imported) by the geo-side predicate test.
+  it('GLOBE_DIRECT_MIN_SELECTION_Z no longer tracks BAKE_PX (the bake texel is not the budget)', () => {
+    // The first derivation compared the chord's RADIAL dip against one bake texel
+    // and put the ceiling at ceil(log2(BAKE_PX·π/4)) = 9 — the dip lies along the
+    // view ray and is not what the eye sees. The ceiling is now the reference-
+    // engine parity point (projections-table.test.ts T4 owns that pin); this
+    // guards that nobody re-derives it from the bake resolution: with BAKE_PX
+    // still 512 the old formula gives 9, and the constant must NOT equal it.
     const src = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), 'vector-drape-renderer.ts'),
       'utf8',
@@ -175,14 +188,96 @@ describe('#2093 — the drape LOD ceiling reads the production currentZ', () => 
     const m = /^const BAKE_PX = (\d+)$/m.exec(src)
     expect(m, 'could not read `const BAKE_PX` from vector-drape-renderer.ts').not.toBeNull()
     const bakePx = Number(m![1])
-    const halved = Math.ceil(Math.log2((bakePx / 2) * (Math.PI / 4)))
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).not.toBe(Math.ceil(Math.log2(bakePx * (Math.PI / 4))))
+  })
+})
+
+// ═══ #2093 follow-up — the ceiling must hold through the zoom-in READINESS HOLD ═══
+//
+// `currentZ` is hysteresed: on a zoom-in the readiness gate holds the OLD LOD until
+// every visible tile at the next LOD is cached (up to READINESS_TIMEOUT_MS). Read off
+// `currentZ` alone, a camera that has crossed the ceiling with the hold still one
+// level under it kept DRAPING — 512px bakes of the held tiles magnified 2^Δzoom× — which is
+// the "baked tiles while zooming in" report that followed #2086. The Selection now
+// also carries `targetZ`, the camera's own `min(floor(zoom), maxLevel)`, and the
+// renderer feeds the predicate `max(currentZ, targetZ)`.
+
+/** Drive ONE cache through `zooms` frame by frame on a catalog with NOTHING cached —
+ *  so every zoom-in step is a readiness HOLD — and return the last Selection. */
+function driveZooms(zooms: number[], sourceMaxLevel: number) {
+  const source = catalogWithMaxLevel(sourceMaxLevel)
+  const cache = new TileSelectionCache()
+  let last: ReturnType<TileSelectionCache['selectForFrame']> = null
+  zooms.forEach((zoom, i) => {
+    last = cache.selectForFrame(
+      globeCam(zoom),
+      PROJ_GLOBE,
+      REPORT_CENTER.lon,
+      REPORT_CENTER.lat,
+      W,
+      H,
+      DPR,
+      i + 1,
+      source,
+      '',
+      MARGIN,
+      sourceMaxLevel,
+      NO_STATS,
+    )
+    if (last === null) throw new Error(`selectForFrame returned null at zoom ${zoom}`)
+  })
+  return last!
+}
+
+describe('#2093 follow-up — the ceiling holds through the zoom-in readiness hold', () => {
+  it('a hold past the ceiling: currentZ stays at 5, targetZ carries the camera LOD 6', () => {
+    const sel = driveZooms([5.3, 6.6], 14)
+    expect(sel.currentZ, 'the gate holds the drawn LOD at 5 while no z6 tile is cached').toBe(5)
+    expect(sel.targetZ, 'the camera asks for floor(6.6) = 6').toBe(6)
     expect(
-      GLOBE_DIRECT_MIN_SELECTION_Z,
-      `the drape bakes each tile into a ${bakePx}px texture, so one texel is the tile's ` +
-        `on-screen span / ${bakePx} while its chord sagitta is span·(2π·2^−z)/8 — the span ` +
-        `cancels and the crossover is ceil(log2(BAKE_PX·π/4)). Halving the bake to ` +
-        `${bakePx / 2}px would move the crossover to ${halved}, and the ceiling must move ` +
-        `with it or the drape is kept past the point where its own texel is the blurrier error.`,
-    ).toBe(Math.ceil(Math.log2(bakePx * (Math.PI / 4))))
+      drapesAtSelectionZ(sel.currentZ),
+      'read off the HELD LOD alone the ceiling still drapes — the pre-fix reading, kept as ' +
+        'the statement of what a currentZ-only gate saw during the hold',
+    ).toBe(true)
+    expect(
+      drapesAtSelectionZ(Math.max(sel.currentZ, sel.targetZ)),
+      'the renderer reads max(currentZ, targetZ): a camera past the ceiling draws its held z5 ' +
+        'tiles DIRECT — crisp and over-zoomed — instead of as 3×-magnified bakes',
+    ).toBe(false)
+  })
+
+  it('targetZ equals currentZ outside a hold — cold camera, and under the source clamp', () => {
+    for (const [zoom, maxLevel, expected] of [
+      [9.6, 14, 9],
+      [6.6, 14, 6],
+      [21.1, 14, 14],
+      [9.7, 2, 2],
+      [2, 14, 2],
+    ] as const) {
+      const sel = driveZooms([zoom], maxLevel)
+      expect(sel.currentZ, `cold camera z${zoom} / maxLevel ${maxLevel}`).toBe(expected)
+      expect(sel.targetZ, `targetZ at z${zoom} / maxLevel ${maxLevel}`).toBe(expected)
+    }
+    // A source that cannot reach the ceiling never produces a targetZ that does —
+    // the hold at 6.6 on a maxLevel-5 source is not a hold at all (target 5 = cz).
+    const clamped = driveZooms([5.3, 6.6], 5)
+    expect(clamped.currentZ).toBe(5)
+    expect(clamped.targetZ, 'targetZ is source-clamped like currentZ').toBe(5)
+    expect(drapesAtSelectionZ(Math.max(clamped.currentZ, clamped.targetZ))).toBe(true)
+  })
+
+  it('the zoom-out hysteresis window keeps the direct arm — max() never demotes', () => {
+    // 6.6 → 5.7: zoom-out only releases below cz − 0.4 = 5.6, so the drawn LOD stays 6
+    // while the camera's own LOD is already 5. max() keeps the direct arm on the z6
+    // tiles the frame draws (today's behaviour); the flip happens with the LOD.
+    const held = driveZooms([6.6, 5.7], 14)
+    expect(held.currentZ).toBe(6)
+    expect(held.targetZ).toBe(5)
+    expect(drapesAtSelectionZ(Math.max(held.currentZ, held.targetZ))).toBe(false)
+    const released = driveZooms([6.6, 5.7, 5.5], 14)
+    expect(released.currentZ).toBe(5)
+    expect(released.targetZ).toBe(5)
+    expect(drapesAtSelectionZ(Math.max(released.currentZ, released.targetZ))).toBe(true)
   })
 })

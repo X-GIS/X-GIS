@@ -56,3 +56,26 @@ export function drapeZoomBucket(camZoom: number, tileZoom: number): number {
 export function drapeStrokeWidthScale(bucket: number): number {
   return Math.pow(2, -bucket / 4)
 }
+
+/** The `dpr` the BAKE's line layer must carry so its antialias band lands at the
+ *  same width on screen as the direct path's (#2346).
+ *
+ *  #1222 above compensates the stroke's CORE width and stops there. The painted
+ *  edge is wider than the core by the fragment's AA half-band, `0.5 / dpr` in
+ *  LAYER pixels (shaders/dsl/line.ts) — and in a bake one layer pixel is one
+ *  BAKE TEXEL, which the sphere magnifies by the very factor #1222 just divided
+ *  out of the core. Writing `dpr = 1` there (as the bake did) therefore paints a
+ *  band of `0.5 · 2^(camZoom − tileZoom) · dpr` device px against the direct
+ *  path's flat 0.5 — measured on OFM Positron at dpr 2, z7.5: road runs of 7.0
+ *  device px against the Mercator control's 3.0, i.e. roads 2.3× too thick, the
+ *  defect no pixel-diff or sharpness scalar names.
+ *
+ *  One bake texel spans `1 / widthScale` CSS px on screen (that IS the quantised
+ *  magnification #1222 measured), so `dpr · 2^(camZoom − tileZoom) = dpr /
+ *  widthScale` makes `0.5 / dpr_uniform` bake texels land as 0.5 device px —
+ *  the direct path's band exactly. At `widthScale = 1` (bake-native zoom) and
+ *  `dpr = 1` this is 1, the value the bake used to hard-code, so the
+ *  bake-native dpr-1 frame is byte-identical. */
+export function bakeStrokeAaDpr(dpr: number, widthScale: number): number {
+  return Math.max(1e-3, dpr) / Math.max(1e-6, widthScale)
+}

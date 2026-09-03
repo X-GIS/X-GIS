@@ -131,7 +131,7 @@ function mvpWrittenFor(translate: readonly [number, number] | undefined): Float3
     provider,
     undefined,
   ] as const
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   ;(drape.renderGlobeFills as any)(...args, translate)
 
   // The GLOBAL block is the frame uniform the drape creates in its constructor,

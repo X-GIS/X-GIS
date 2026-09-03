@@ -131,6 +131,42 @@ const _BREAKABLE_BEFORE_CP: Record<number, true> = { 0x28: true }
 function _charIsWhitespace(cp: number): boolean {
   return cp === 0x09 || cp === 0x0a || cp === 0x0d || cp === 0x20 || cp === 0x3000
 }
+
+/** Measure glyph range [start, end) the way MapLibre measures a line:
+ *  excluding the TRAILING breakable-whitespace advance before summing.
+ *  MapLibre's `TaggedString.trim()` (vendored maplibre-gl@5.24.0
+ *  src/symbol/tagged_string.ts) strips a shaped line before
+ *  `lineLength` is computed; the KP walk here emits break indices at
+ *  `i + 1` past a breakable codepoint, so a break on a space leaves
+ *  that space as the range's LAST glyph and its advance in the width.
+ *
+ *  MEASUREMENT-ONLY, and deliberately TRAILING-ONLY. `start`/`end` stay
+ *  the literal break indices (glyph positioning and the inline-sprite
+ *  index filter in text-stage-helpers.ts both key off them), and
+ *  `fillLineWithInlineImages` starts its pen at `lineX` and advances
+ *  through EVERY glyph in [start, end). A trailing space therefore
+ *  renders no ink, so dropping it from the width puts the ink exactly
+ *  where `lineX = totalAdvance - width` (right) or `* 0.5` (centre)
+ *  intends. A LEADING space is the opposite: the pen still consumes it,
+ *  so narrowing the width without also advancing `start` moves the ink
+ *  RIGHT by one advance — for right-justify that overflows the block by
+ *  `advance + letterSpacing`, strictly worse than the pre-#2336 error of
+ *  half an advance. Matching MapLibre on that side means moving `start`
+ *  too, which is a separate change (see #2446). `rangeWidth` itself
+ *  stays a literal-range sum — other callers depend on it measuring
+ *  exactly [start, end). */
+function measuredRangeWidth(
+  glyphs: readonly GlyphInfo[],
+  advances: ArrayLike<number>,
+  start: number,
+  end: number,
+  letterSpacingPx: number,
+): number {
+  let e = end
+  while (e > start && _charIsWhitespace(glyphs[e - 1]!.codepoint)) e--
+  return rangeWidth(advances, start, e, letterSpacingPx)
+}
+
 // MapLibre's regex-based `codePointAllowsIdeographicBreaking` covers
 // the CJK + Hangul + Hiragana + Katakana + CJK Symbols + Fullwidth
 // ranges. The numeric range form below matches the BMP-only cases the
@@ -296,7 +332,7 @@ function _kpWrapSegment(
       {
         start: segStart,
         end: segEnd,
-        width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+        width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
       },
     ]
   }
@@ -346,7 +382,7 @@ function _kpWrapSegment(
       lines.push({
         start: prev,
         end: idx,
-        width: rangeWidth(advances, prev, idx, letterSpacingPx),
+        width: measuredRangeWidth(glyphs, advances, prev, idx, letterSpacingPx),
       })
     }
     prev = idx
@@ -357,7 +393,7 @@ function _kpWrapSegment(
         {
           start: segStart,
           end: segEnd,
-          width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+          width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
         },
       ]
 }

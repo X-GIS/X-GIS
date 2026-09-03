@@ -585,6 +585,23 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   reddened naming exactly the severed half. Bake after the cut AND after the restore, and
   assert `git status --porcelain map/src/shaders/baked/` is empty before believing either
   run. → #2117
+- A verdict about how code behaves is NOT finished at the first consumer, and the
+  refutation is usually already written in a DOCBLOCK one or two files away. Three verdicts
+  in one session — "the palette is the carrier for a per-feature pattern", "23 bits is the
+  collision space", "text-optional only needs the drop-cascade suppressed" — each died to
+  something the trace had not reached, and TWICE the answer sat in the docstring of the very
+  function being quoted: `feature-data-pack.ts:19-21` names `shader-gen.ts`'s `% <palette>`
+  (space 20, not 2^23 — collisions CERTAIN at 21, not 1% at 411); `text-stage.ts:743-753`
+  states the #609 premise `text-optional: true` falsifies (the surviving icon then seeds NO
+  obstacle box); `rhi-fill-variant.ts:29-31` names the r32float fence an atlas-of-bboxes
+  fails to LINK against on WebGL2. Before acting on "this IS the mechanism" or "this is
+  small": name the INVARIANT the verdict rests on and sweep what DEPENDS on it, not merely
+  what CALLS it — the third case was no caller at all, it was a separate optimisation
+  resting on the same premise. FILING is an action this gate precedes, not a draft of it:
+  the one case that skipped it cost an issue filed and closed not-planned. §6's graph is the
+  sweep tool (`trace_path`, direction `both`); it flapped all session here and the fallback
+  to grep went UNANNOUNCED, which §6.1 forbids for exactly this reason.
+  → `#2427` (filed on the refuted premise), `#2440`, `#2439`
 
 **Process**
 

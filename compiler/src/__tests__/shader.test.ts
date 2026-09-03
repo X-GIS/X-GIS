@@ -8,6 +8,7 @@ import { exprToWGSL, collectFields } from '../codegen/wgsl-expr'
 import { generateShaderVariant } from '../codegen/shader-gen'
 import { nodeToWgslString } from '../codegen/node-to-wgsl'
 import { CAT_PALETTE_SIZE } from '../codegen/categorical-encoder'
+import { evaluate } from '../eval/evaluator'
 import type * as AST from '../parser/ast'
 import { withPragma } from './_pragma'
 import { parseExpressionString } from '../parser/parser'
@@ -63,16 +64,67 @@ describe('WGSL Expression Compiler', () => {
     )
   })
 
-  it('compiles % as a floored-modulo expression, never the raw % operator', () => {
-    // WGSL/JS `%` are truncated remainder and GLSL ES rejects `%` on floats, so
-    // the f32 path emits `a - b * floor(a / b)` — portable across the three
-    // backends + the CPU oracle, preserving parity.
+  it('emits a raw % binop for WGSL, never the floored-modulo composition (#2334)', () => {
+    // The GPU lowering used to route `%` through a hand-composed floored-modulo
+    // expression (`a - b * floor(a / b)`), which disagrees with the CPU
+    // evaluator's JS `%` (truncated remainder) on a negative dividend. WGSL's
+    // native `%` on f32 IS truncated remainder per spec, so the fix is to emit
+    // the raw binop — see the lane-parity block below for the value-level proof.
     const result = exprToWGSL(parseExpr('speed % 50'), fieldMap)
-    expect(result).not.toContain('%')
-    expect(result).toContain('floor(')
-    expect(result).toBe(
-      '(feat_data[((input.feat_id * 3u) + 0u)] - (50.0 * floor((feat_data[((input.feat_id * 3u) + 0u)] / 50.0))))',
-    )
+    expect(result).toContain('%')
+    expect(result).not.toContain('floor(')
+    expect(result).toBe('(feat_data[((input.feat_id * 3u) + 0u)] % 50.0)')
+  })
+
+  describe('% operator: CPU/GPU lane parity (#2334)', () => {
+    // The CPU evaluator (`compiler/src/eval/evaluator.ts`) implements `%` as
+    // JS `%` — TRUNCATED remainder (sign follows the dividend), which is also
+    // the Mapbox/MapLibre spec. The GPU lowering used to compose a FLOORED
+    // modulo instead, silently disagreeing with the CPU lane on any negative
+    // dividend — this block is the regression test for that divergence.
+    //
+    // There is no in-tree harness that executes emitted WGSL/GLSL text
+    // against a real shader compiler, so the GPU lane is reproduced here by
+    // evaluating each backend's emitted FORMULA directly in JS rather than by
+    // parsing the emitted string:
+    //  - `wgslTruncMod` mirrors WGSL's native `%` on f32. JS's own `%` is
+    //    already IEEE-754 truncated remainder (the same operation WGSL's spec
+    //    defines), so this is not an approximation of WGSL — it is the same
+    //    arithmetic operation.
+    //  - `glslTruncMod` mirrors the exact expression the GLSL ES 3.00 backend
+    //    composes for a float `%` (GLSL's native `%` is integer-only, so the
+    //    shared emitter — `shader-dsl/src/core/emit.ts` — routes a float `%`
+    //    through the backend's `floatMod` hook, which spells
+    //    `a - b * trunc(a / b)`; see `shader-dsl/src/core/backends/glsl.ts`).
+    // Both formulas are asserted against the CPU oracle for every case below,
+    // proving lane parity without needing a real GPU/shader compiler in this
+    // package's test harness.
+    const wgslTruncMod = (a: number, b: number): number => a % b
+    const glslTruncMod = (a: number, b: number): number => a - b * Math.trunc(a / b)
+
+    const cases: ReadonlyArray<[label: string, a: number, b: number]> = [
+      ['negative dividend — the witness (CPU -1, floored-GPU used to say 2)', -7, 3],
+      ['positive control — agrees under either rule, so a broken harness cannot fake a pass', 7, 3],
+      ['negative divisor, negative dividend', -7, -3],
+      ['negative divisor, positive dividend', 7, -3],
+      ['non-integer dividend', -7.5, 2],
+    ]
+
+    for (const [label, a, b] of cases) {
+      it(`${label}: ${a} % ${b}`, () => {
+        const cpu = evaluate(parseExpr(`(${a}) % (${b})`), {}) as number
+        expect(wgslTruncMod(a, b)).toBe(cpu)
+        expect(glslTruncMod(a, b)).toBe(cpu)
+      })
+    }
+
+    it('the witness actually distinguishes truncated from floored (sanity check on the test itself)', () => {
+      const flooredMod = (a: number, b: number): number => a - b * Math.floor(a / b)
+      const cpu = evaluate(parseExpr('(-7) % (3)'), {}) as number
+      expect(cpu).toBe(-1)
+      expect(flooredMod(-7, 3)).toBe(2)
+      expect(flooredMod(-7, 3)).not.toBe(cpu)
+    })
   })
 
   it('compiles log10 via log', () => {

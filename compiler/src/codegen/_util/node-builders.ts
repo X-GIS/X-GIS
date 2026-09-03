@@ -10,7 +10,7 @@
 // (rather than constructing the package `Node` class, which `@xgis/shader-dsl`
 // also exports) because the runtime reconstructs the Node from `.expr` anyway,
 // and the structural form keeps the X-GIS layout idioms (feat_data lookups,
-// floored modulo, fill composition) as plain data. The NodeLike / Expr
+// truncated modulo, fill composition) as plain data. The NodeLike / Expr
 // vocabulary lives in the permanent `../node-types`.
 
 import type { NodeLike } from '../node-types'
@@ -231,16 +231,22 @@ export function maxF32(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> 
   return callF32('max', [a, b])
 }
 
-/** floored modulo `a - b * floor(a / b)` — NOT the `%` operator.
+/** `%` binop — TRUNCATED remainder (sign of dividend), matching the CPU
+ *  oracle's JS `%` and the Mapbox/MapLibre spec (#2334).
  *
- *  The `%` BinOp is deliberately avoided: WGSL `%` and the CPU oracle's JS `%`
- *  are TRUNCATED remainder (sign of dividend), GLSL ES rejects `%` on floats
- *  outright, so a raw `%` breaks the three-backend single-emit + CPU↔GPU parity
- *  contract. This floored form composes only portable ops (`-`/`*`/`/`/`floor`,
- *  all three backends + the oracle evaluate them identically) and matches the
- *  codebase's canonical wrap (`value - floor(value / period) * period`). */
+ *  A raw `%` BinOp is safe to emit for both GPU backends: WGSL's native `%`
+ *  on `f32` IS truncated remainder per spec, and GLSL ES 3.00 — whose `%` is
+ *  integer-only — never sees a bare `%` reach its output, because the shared
+ *  emitter (`@xgis/shader-dsl`'s `emitExpr`) intercepts a float `%` binop and
+ *  routes it through the GLSL backend's `floatMod` hook, which spells the
+ *  same truncated formula inline (`a - b * trunc(a / b)`, see
+ *  `shader-dsl/src/core/backends/glsl.ts`). So this stays a raw binop, never
+ *  a hand-composed floored form (`a - b * floor(a / b)`) — floored disagrees
+ *  with truncated on a negative operand and was the CPU↔GPU divergence #2334
+ *  fixed. Name/signature kept stable — `compiler/src/codegen/wgsl-expr.ts`
+ *  calls this directly for every data-driven `%` expression. */
 export function f32Mod(a: NodeLike<'f32'>, b: NodeLike<'f32'>): NodeLike<'f32'> {
-  return f32Sub(a, f32Mul(b, callF32('floor', [f32Div(a, b)])))
+  return f32Binop('%', a, b)
 }
 
 /** A comparison producing a WGSL bool (`(a <cop> b)`). */
@@ -280,10 +286,7 @@ export function binaryVerbatimF32(
   op: string,
   b: NodeLike<'f32'>,
 ): NodeLike<'f32'> {
-  // `%` routes through the floored-modulo expression (portable across the three
-  // backends); the raw `%` BinOp is never emitted for f32.
-  if (op === '%') return f32Mod(a, b)
-  if (op === '+' || op === '-' || op === '*' || op === '/') {
+  if (op === '+' || op === '-' || op === '*' || op === '/' || op === '%') {
     return { expr: { op: 'binop', type: F32_T, bop: op, a: a.expr, b: b.expr } } as NodeLike<'f32'>
   }
   if (op === '<' || op === '>' || op === '<=' || op === '>=' || op === '==' || op === '!=') {
