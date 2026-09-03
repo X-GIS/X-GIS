@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9d93bd975d0ee6db26047a84527169edac3120af
+  Generated from: 830333d8e1eb79cda11e1f8c84f86764518e0b15
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9d93bd975d0e
+    bun scripts/emit-changelog.ts --since 830333d8e1eb
 -->
 
 # Changelog
@@ -38,6 +38,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** thread let bindings through nested let scopes (#2340) ([#2422](https://github.com/X-GIS/X-GIS/pull/2422)) `830333d`
+- **map:** walk hole rings CW in fill-extrusion walls (#2303) ([#2421](https://github.com/X-GIS/X-GIS/pull/2421)) `fd00b6c`
 - **render:** drop the old source's tiles when a raster template changes (#2384) ([#2388](https://github.com/X-GIS/X-GIS/pull/2388)) `f696b5a`
 - **playground:** withValidationCapture must not lose a realm's queue across navigations (#2352) ([#2415](https://github.com/X-GIS/X-GIS/pull/2415)) `e6dfc93`
 - **map/render:** tear down the fill Materials no owner released (#2325) ([#2417](https://github.com/X-GIS/X-GIS/pull/2417)) `7ff4162`
