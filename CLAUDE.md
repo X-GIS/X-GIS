@@ -373,6 +373,12 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   minutes that had never been launched (the log file did not exist). Use a bracket pattern
   (`[v]itest`), or better, do not poll at all — launch with `run_in_background` and read the
   harness's exit code. Same family as the poller entry under Verification.
+- The bracket trick does NOT save you from `pkill -f` — it only stops the pattern matching
+  ITSELF, not the calling shell whose command line still contains it. `pkill -f
+"[c]odebase-memory"` killed the very shell that issued it (exit 143/144), taking the
+  command after it with it. Never `pkill -f` a pattern you just typed: identify the PID first
+  (`ps -eo pid,etimes,comm` filtered on the COMMAND column, which never contains your
+  arguments) and kill by PID, or let the harness's `run_in_background` own the lifecycle.
 - `cd` PERSISTS across a compound command, so a relative path in a restore step resolves
   against the new directory — a `cd playground && … ; cp backup map/src/x.ts` silently writes
   to `playground/map/src/`, leaving the probe's edit live. Cost a reported "the fix does not
