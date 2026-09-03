@@ -333,6 +333,38 @@ const CEILINGS: Record<string, number> = {
   // 5472->5481 (#2325): destroy() releases the FOURTH lazy fill Material,
   // `_fillBakeMatRhi` -- #2286 named three and missed the globe vector-drape bake
   // twin. The array reflows to one entry per line at printWidth 100.
+  // 5466→5469 (#2093 follow-up, measured post-prettier per §12): the drape LOD ceiling
+  // reads `max(currentZ, targetZ)` so a zoom-in readiness HOLD past the ceiling draws
+  // its held coarse tiles direct — one destructured field + a tightened comment.
+  // 5469→5471 (#2346, measured post-prettier): the windowed-bake dispatch is a
+  // texel-DENSITY decision, so its call site hands it `dpr` and the drawn
+  // `neededKeys` — two argument lines; the policy itself lives in
+  // render/drape-overzoom-dispatch.ts.
+  // 5471→5478 (#2346 AA band, measured post-prettier): the mid-render bake is
+  // driven from VectorDrapeRenderer, which has no viewport state, so the frame
+  // dpr is stashed here (`_bakeDpr`, +6 with its rationale) and handed to
+  // bakeTileStrokes (+1). The derivation lives in render/vector-drape-cache.ts.
+  // 5478→5501 (#2346 diagnostics, measured post-prettier): the windowed-bake
+  // switch is atomic, so its usual failure is to do NOTHING — twice this PR that
+  // was inferred from pixels instead of read. The per-slice diagnostic scratch
+  // (`_drapeOverzoomDiagBySlice` + `_sliceOverzoomDiag`) is what turned the
+  // third round into one measurement; the policy stays in
+  // render/drape-overzoom-dispatch.ts.
+  // 5501→5524 (design INC-3, measured post-prettier): the STROKE half of the drape
+  // decision is now its own derivation beside the fill half (`_bakeStrokesGated`,
+  // +14 with its rationale) instead of one line nested inside it, so a frame can
+  // drape its fills and still draw its roads direct. The predicate lives in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_STROKE_Z).
+  // MEASURED 5539 with `wc -l` on the post-prettier merged tree. main reached 5481
+  // (#2249 +1, #2286 +5, #2325 +9) while this branch reached 5524 from the same 5466
+  // base, so the merged file carries BOTH sets of deltas and neither side's number is
+  // right (§12 — the same trap #2286/#2249 already paid for above).
+  // 5539→5541 (measured post-prettier): the merge also collided on the BACKEND-IDENTITY
+  // ratchet, INC-3's stroke gate having added a second `backend` test to a file main had
+  // also grown. The fix hoists what both halves ask — WebGPU, non-extruded, not disabled
+  // — into one `bakeAvailable`, which is net −0 lines of code (six conjuncts out, four
+  // in, two references back). The +2 is its two-line comment; the alternative was an
+  // unexplained hoist.
   // 5481->5515 (#2309): the two prefetch throttles get a per-frame memo. Both are
   // documented "every 10 / 6 FRAMES" but sat on a modulo inside render(), which runs
   // once per ShowCommand -- 106x/frame on OFM Bright, so the modulo could not express
@@ -340,7 +372,11 @@ const CEILINGS: Record<string, number> = {
   // that both failed (`frameCount % 6` ~17.7 hits/frame, `currentFrameId % 6` 106 hits
   // on every 6th) and of why the memo is keyed by `currentZ` -- the cheap-to-forget half
   // that would otherwise be rediscovered the expensive way a third time.
-  'map/src/render/vector-tile-renderer.ts': 5515,
+  // MEASURED 5575 post-prettier on this merged tree. THIRD collision on this key in
+  // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
+  // branch went to 5541 from 5539, so the file again carries both deltas and neither
+  // side's number is right (§12).
+  'map/src/render/vector-tile-renderer.ts': 5575,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2057,7 +2093,10 @@ const CEILINGS: Record<string, number> = {
   // second edit as dead code — the `wantAdvance` false case was ALREADY
   // cleared by the pre-existing `} else {` on the same block — and it was
   // removed; the fix is the clamp alone, re-proven fail-before.)
-  'map/src/render/tile-selection-cache.ts': 1066,
+  // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
+  // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
+  // (currentZ trailing the camera) from the LOD the camera asks for.
+  'map/src/render/tile-selection-cache.ts': 1074,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

@@ -186,10 +186,35 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
       dStart,
     )
     expect(
-      SOURCE.slice(dStart, dEnd).includes('drapesAtSelectionZ(currentZ'),
-      'the `_drapeGlobeFills` derivation must gate on `drapesAtSelectionZ(currentZ)` (#2093) — ' +
-        'dropping the LOD ceiling restores the 512px bake at NATIVE zoom, where its texel ' +
-        '(and its whole AA feather) is wider than the chord sagitta the drape exists to remove.',
+      SOURCE.slice(dStart, dEnd).includes('drapesAtSelectionZ(Math.max(currentZ, targetZ))'),
+      'the `_drapeGlobeFills` derivation must gate on `drapesAtSelectionZ(Math.max(currentZ, ' +
+        'targetZ))` (#2093) — dropping the LOD ceiling restores the 512px bake at NATIVE zoom, ' +
+        'where its texel (and its whole AA feather) is wider than the chord sagitta the drape ' +
+        'exists to remove; reading `currentZ` alone re-drapes every zoom-in readiness HOLD past ' +
+        'the ceiling (the held coarse tiles came back as magnified bakes after #2086).',
+    ).toBe(true)
+  })
+
+  it('the STROKE gate is derived SEPARATELY, on its own ceiling (design INC-3)', () => {
+    // The two used to be one decision: `_drapeStrokes = this._bakeStrokeActive`
+    // INSIDE the `if (this._drapeGlobeFills …)` block, so a fill that draped
+    // dragged its roads into the bake with it. The stroke gate now stands beside
+    // the fill gate and reads `drapesStrokesAtSelectionZ`; re-nesting it (or
+    // re-pointing it at the fill predicate) silently re-couples them and puts the
+    // ~1 px sphere-grid resample back on every road at every zoom.
+    expect(
+      SOURCE.includes('this._bakeStrokesGated =') &&
+        SOURCE.includes('drapesStrokesAtSelectionZ(Math.max(currentZ, targetZ))'),
+      'the stroke half of the drape decision must be its own derivation gated on ' +
+        '`drapesStrokesAtSelectionZ` (design INC-3 — the fill-only drape sub-gate).',
+    ).toBe(true)
+    // And the bake itself must consult the GATED value: `bakeTileToTexture` runs
+    // from VectorDrapeRenderer, which cannot see the selection zoom, so reading
+    // the ungated `_bakeStrokeActive` there would burn strokes into the texture
+    // the gate just said to draw direct.
+    expect(
+      SOURCE.includes('const hasStroke =\n      this._bakeStrokesGated &&'),
+      '`bakeTileToTexture` must skip strokes when the stroke gate is off',
     ).toBe(true)
   })
 })
