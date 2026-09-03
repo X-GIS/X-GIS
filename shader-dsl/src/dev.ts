@@ -43,9 +43,13 @@ export {
   emitSize,
   countOps,
   optimizerReport,
+  profileEmit,
   type EmitSize,
   type OpCount,
   type OptimizerReport,
+  type EmitProfile,
+  type StageTiming,
+  type PassTiming,
 } from './core/measure.js'
 
 // Optimizer pass surface for A/B and pass-level tests (#763 D3 — the former
