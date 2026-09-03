@@ -2115,7 +2115,11 @@ const CEILINGS: Record<string, number> = {
   // import, one call, and the two new struct fields the packer must write.
   // 1034->1037 (#2286): destroy() releases the draper whose only destroy lived in
   // rebuildForQuality(), so a quality toggle reached it and map teardown did not.
-  'map/src/render/raster-renderer.ts': 1037,
+  // 1037->1056 (#2384 F-4): setUrlTemplate cleared failedTiles but not tileCache, and the
+  // key is z/x/y with no url — so the old source's tiles answered for the new one, and
+  // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
+  // abort on a real URL change.
+  'map/src/render/raster-renderer.ts': 1056,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
