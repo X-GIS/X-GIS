@@ -177,6 +177,20 @@ export function convertBackgroundLayer(
     bgIgnored.push('background-opacity (non-constant)')
   }
   if (patternDropped) bgIgnored.push('background-pattern (zoom-crossfade)')
+  // #2333 — minzoom/maxzoom exist on every Mapbox layer (background
+  // included) but the X-GIS `background { … }` directive has no zoom
+  // gate, so an authored bound was silently ignored. Warn only when a
+  // bound narrows the effective range below the full [0, 24] spec
+  // default (validate-layers.ts's out-of-range check uses the same
+  // window) — an explicit `minzoom: 0` or `maxzoom: 24` changes nothing
+  // operationally, so treating either as "no bound authored" keeps a
+  // style that merely restates the default warning-free.
+  if (
+    (typeof bgLayer.minzoom === 'number' && bgLayer.minzoom > 0) ||
+    (typeof bgLayer.maxzoom === 'number' && bgLayer.maxzoom < 24)
+  ) {
+    bgIgnored.push('minzoom/maxzoom')
+  }
   if (bgIgnored.length > 0) {
     warnings.push(`Background layer "${bgLayer.id}" — ignored properties: ${bgIgnored.join(', ')}`)
   }
