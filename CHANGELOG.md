@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 830333d8e1eb79cda11e1f8c84f86764518e0b15
+  Generated from: 2a00b2e65552c8cdb3d93b01cf24a62f0f7282f6
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 830333d8e1eb
+    bun scripts/emit-changelog.ts --since 2a00b2e65552
 -->
 
 # Changelog
@@ -38,6 +38,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map:** track background-color provenance so a background-less re-run drops only the style's fill (#2306) ([#2420](https://github.com/X-GIS/X-GIS/pull/2420)) `2a00b2e`
 - **compiler:** thread let bindings through nested let scopes (#2340) ([#2422](https://github.com/X-GIS/X-GIS/pull/2422)) `830333d`
 - **map:** walk hole rings CW in fill-extrusion walls (#2303) ([#2421](https://github.com/X-GIS/X-GIS/pull/2421)) `fd00b6c`
 - **render:** drop the old source's tiles when a raster template changes (#2384) ([#2388](https://github.com/X-GIS/X-GIS/pull/2388)) `f696b5a`
