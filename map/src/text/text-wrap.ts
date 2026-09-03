@@ -131,6 +131,34 @@ const _BREAKABLE_BEFORE_CP: Record<number, true> = { 0x28: true }
 function _charIsWhitespace(cp: number): boolean {
   return cp === 0x09 || cp === 0x0a || cp === 0x0d || cp === 0x20 || cp === 0x3000
 }
+
+/** Measure glyph range [start, end) the way MapLibre measures a line:
+ *  excluding LEADING and TRAILING breakable-whitespace advances before
+ *  summing. MapLibre's `TaggedString.trim()` (vendored
+ *  maplibre-gl@5.24.0 src/symbol/tagged_string.ts) strips both ends of
+ *  each shaped line before `lineLength` is computed, but the
+ *  Knuth-Plass break/badness walk above (`currentX`) already excludes
+ *  whitespace from ONE side only implicitly — the emitted glyph range
+ *  itself (`start`/`end`) still spans the literal break-to-break
+ *  indices, whitespace included, because glyph positioning/consumer
+ *  indexing downstream depends on that. This is MEASUREMENT-ONLY:
+ *  callers keep `start`/`end` untouched and only narrow the width they
+ *  compute from them. `rangeWidth` itself stays a literal-range sum —
+ *  other callers depend on it measuring exactly [start, end). */
+function measuredRangeWidth(
+  glyphs: readonly GlyphInfo[],
+  advances: ArrayLike<number>,
+  start: number,
+  end: number,
+  letterSpacingPx: number,
+): number {
+  let s = start
+  let e = end
+  while (e > s && _charIsWhitespace(glyphs[e - 1]!.codepoint)) e--
+  while (s < e && _charIsWhitespace(glyphs[s]!.codepoint)) s++
+  return rangeWidth(advances, s, e, letterSpacingPx)
+}
+
 // MapLibre's regex-based `codePointAllowsIdeographicBreaking` covers
 // the CJK + Hangul + Hiragana + Katakana + CJK Symbols + Fullwidth
 // ranges. The numeric range form below matches the BMP-only cases the
@@ -296,7 +324,7 @@ function _kpWrapSegment(
       {
         start: segStart,
         end: segEnd,
-        width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+        width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
       },
     ]
   }
@@ -346,7 +374,7 @@ function _kpWrapSegment(
       lines.push({
         start: prev,
         end: idx,
-        width: rangeWidth(advances, prev, idx, letterSpacingPx),
+        width: measuredRangeWidth(glyphs, advances, prev, idx, letterSpacingPx),
       })
     }
     prev = idx
@@ -357,7 +385,7 @@ function _kpWrapSegment(
         {
           start: segStart,
           end: segEnd,
-          width: rangeWidth(advances, segStart, segEnd, letterSpacingPx),
+          width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
         },
       ]
 }
