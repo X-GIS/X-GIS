@@ -330,7 +330,10 @@ const CEILINGS: Record<string, number> = {
   // file carries BOTH deltas and NEITHER side's number is right. Carrying either
   // across would leave the ceiling one change too low — red on main having been
   // green on both branches (§12).
-  'map/src/render/vector-tile-renderer.ts': 5472,
+  // 5472->5481 (#2325): destroy() releases the FOURTH lazy fill Material,
+  // `_fillBakeMatRhi` -- #2286 named three and missed the globe vector-drape bake
+  // twin. The array reflows to one entry per line at printWidth 100.
+  'map/src/render/vector-tile-renderer.ts': 5481,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1886,7 +1889,10 @@ const CEILINGS: Record<string, number> = {
   // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
   // 1011->1023 (#2286): MapRendererContent.destroy() -- the missing middle of the ownership
   // chain; forwards to the engine half.
-  'map/src/render/renderer.ts': 1023,
+  // 1023->1025 (#2325): MapRendererContent.destroy() now also releases the
+  // GraticuleRenderer its own comment had flagged as a known gap -- one call plus
+  // the comment line that replaces the gap note.
+  'map/src/render/renderer.ts': 1025,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —

@@ -262,6 +262,16 @@ const TABLE: Row[] = [
     via: { file: 'map/src/render/vector-tile-renderer.ts', pattern: '_store.destroy()' },
   },
   {
+    // #2325 — the last `polygon-fill-material.ts` builder product whose owner had
+    // no teardown at all: GraticuleRenderer holds the buildGraticuleLineMaterial
+    // twin, a UniformRing and one geometry buffer per zoom bucket. A CALLER
+    // anchor rather than a tier, because the lifetime is genuinely owned —
+    // MapRendererContent constructs it and now releases it in the same body.
+    file: 'map/src/render/graticule-renderer.ts',
+    method: 'destroy',
+    via: { file: 'map/src/render/renderer.ts', pattern: 'this._graticule.destroy()' },
+  },
+  {
     file: 'map/src/render/heatmap-targets.ts',
     method: 'destroy',
     via: { file: 'map/src/map.ts', pattern: 'heatmapTargets.destroy()' },
