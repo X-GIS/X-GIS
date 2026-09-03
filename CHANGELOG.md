@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9f6c12b0659ef1301e23f5ce3af9d8faafbeabb2
+  Generated from: 2c0459b7fd0deed465bfa1870e390edc86b7e7a1
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9f6c12b0659e
+    bun scripts/emit-changelog.ts --since 2c0459b7fd0d
 -->
 
 # Changelog
@@ -40,6 +40,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **sprite:** inflate icon-stage obstacle bbox by icon-padding (#2339) ([#2450](https://github.com/X-GIS/X-GIS/pull/2450)) `2c0459b`
+- **text:** exclude the trailing space from a wrapped line's measured width (#2336) ([#2452](https://github.com/X-GIS/X-GIS/pull/2452)) `8ea014e`
+- **text:** clear droppedPairKeys on the empty-prepare path too (#2338) ([#2451](https://github.com/X-GIS/X-GIS/pull/2451)) `1d5f5cc`
+- **render:** globe vector quality — the baked path renders at device resolution and the direct path owns the fine zooms (#2093, #2346) `ae308be`
 - **compiler:** emit truncated f32 mod on both backends (#2334) ([#2436](https://github.com/X-GIS/X-GIS/pull/2436)) `9f6c12b`
 - **compiler:** thread stop-pair span into palette curveFraction (#2335) ([#2437](https://github.com/X-GIS/X-GIS/pull/2437)) `febc58e`
 - **data:** the catalog drops a detached backend's result, and the pool releases a failed post (#2391) ([#2424](https://github.com/X-GIS/X-GIS/pull/2424)) `5771e07`
@@ -118,6 +122,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **render:** compile the committed WGSL and GLSL corpora on real Tint and ANGLE (#2444) ([#2448](https://github.com/X-GIS/X-GIS/pull/2448)) `b40839a`
 - **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`
 - **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
 - **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`

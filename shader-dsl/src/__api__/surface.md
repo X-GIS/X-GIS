@@ -378,7 +378,7 @@ when
 workgroupSizeOf
 ```
 
-## `./dev` — 33 exports
+## `./dev` — 37 exports
 
 ```
 assertCaps
@@ -392,6 +392,7 @@ DiagnoseOptions
 DiagnosticReport
 dslError
 emitModuleWithReflection
+EmitProfile
 emitSize
 EmitSize
 ErrorCode
@@ -409,10 +410,13 @@ OpCount
 optimize
 optimizerReport
 OptimizerReport
+PassTiming
+profileEmit
 requiredCaps
 setSourceTracing
 Severity
 SourceLoc
+StageTiming
 summarize
 ```
 
@@ -668,7 +672,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 413 definitions
+## Shapes — 417 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -732,7 +736,7 @@ src/core/emit-prune.ts#pruneRedundantPrototypes  function  (src: string) => stri
 src/core/emit.ts#EmitOptions  interface  { fp64Flavor?: Fp64Flavor; parens?: ParenMode; plugins?: readonly EmitPlugin[] }
 src/core/emit.ts#EmitPlugin  interface  { identity?: string; name: string; transformIR?: (lowered: ModuleDecl) => ModuleDecl; transformText?: (code: string) => string }
 src/core/emit.ts#emitModuleWithReflection  function  (m: ModuleDecl, be: Backend) => { code: string; reflection: Reflection; }
-src/core/emit.ts#lowerForBackend  function  (m: ModuleDecl, be: Backend, level?: OptLevel, fp64Flavor?: Fp64Flavor) => ModuleDecl
+src/core/emit.ts#lowerForBackend  function  (m: ModuleDecl, be: Backend, level?: OptLevel, fp64Flavor?: Fp64Flavor, onStage?: StageSink) => ModuleDecl
 src/core/fp64/df64-lib.ts#FP64_GUARD_NAME  const  "_fp64"
 src/core/fp64/df64-lib.ts#Fp64GuardHandle  interface  { binding: BindingDecl; type: ShaderType }
 src/core/fp64/df64-lib.ts#fp64Guard  function  (at: { group: number; binding: number; }) => Fp64GuardHandle
@@ -973,12 +977,16 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
+src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "wgsl" | "glsl-es300"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
 src/core/measure.ts#OpCount  interface  { arith: number; calls: number; total: number }
 src/core/measure.ts#OptimizerReport  interface  { ops: { readonly o0: OpCount; readonly o2: OpCount; readonly savedCalls: number; readonly savedArith: number; }; size: { readonly o0: EmitSize; readonly o2: EmitSize; readonly savedChars: number; readonly savedLines: number; } }
+src/core/measure.ts#PassTiming  interface  { ms: number; pass: string; runs: number }
+src/core/measure.ts#StageTiming  interface  { ms: number; stage: string }
 src/core/measure.ts#countOps  function  (m: ModuleDecl) => OpCount
 src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
+src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "glsl-es300") => EmitProfile
 src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
 src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
 src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
@@ -1003,8 +1011,8 @@ src/core/passes/opt/const-fold.ts#constFold  function  (m: ModuleDecl) => Module
 src/core/passes/opt/cse.ts#cse  function  (m: ModuleDecl) => ModuleDecl
 src/core/passes/opt/optimize.ts#DEFAULT_PASSES  const  readonly OptPass[]
 src/core/passes/opt/optimize.ts#OptLevel  type  "O0" | "O1" | "O2"
-src/core/passes/opt/optimize.ts#fixpoint  function  (m: ModuleDecl, passes?: readonly OptPass[], maxIters?: number) => ModuleDecl
-src/core/passes/opt/optimize.ts#optimize  function  (m: ModuleDecl, passes?: readonly OptPass[]) => ModuleDecl
+src/core/passes/opt/optimize.ts#fixpoint  function  (m: ModuleDecl, passes?: readonly OptPass[], maxIters?: number, onPass?: PassSink) => ModuleDecl
+src/core/passes/opt/optimize.ts#optimize  function  (m: ModuleDecl, passes?: readonly OptPass[], onPass?: PassSink) => ModuleDecl
 src/core/passes/rename-varrefs.ts#renameVarrefsInFunc  function  (f: FuncDecl, rename: (name: string) => string) => FuncDecl
 src/core/passes/rename-varrefs.ts#rewriteExprsInFunc  function  (f: FuncDecl, rewrite: (e: Expr) => Expr) => FuncDecl
 src/core/passes/required-caps.ts#assertCaps  function  (backend: Backend, m: ModuleDecl) => void
