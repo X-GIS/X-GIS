@@ -65,7 +65,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captureMapFrame, hideDemoChrome, pixelDiffRatio } from './helpers/visual'
 import { installOfflineProxy } from './helpers/offline-proxy'
-import { expectDrape, readChordBudgetPx } from './helpers/drape-budget'
+import { expectDrape, minServableMaxLevel, readChordBudgetPx } from './helpers/drape-budget'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-direct-hold-window__')
@@ -74,7 +74,7 @@ const NET_CACHE = join(HERE, '__net-cache__')
 const DEMO_ID = 'openfreemap_positron'
 /** The #2093 report centre (Seoul west). */
 const CENTER = '37.54704/126.81412'
-/** Below the ceiling AND below the Tier-2 zoom-in prefetch trigger
+/** Inside the drape budget AND below the Tier-2 zoom-in prefetch trigger
  *  (`camera.zoom > currentZ + 0.5` would pre-cache the step LOD and defeat the
  *  hold). currentZ 8 — the last level the tiler leaves UNSPLIT, so a held reading
  *  here is 4x the error of the camera's own (#2094). */
@@ -283,7 +283,7 @@ async function captureHeldFrame(
   if (!box) throw new Error('#map has no bounding box')
 
   await page.evaluate(
-    ({ z, ceiling }) => {
+    ({ z, minMaxLevel }) => {
       const w = window as unknown as Win
       w.__holdT0 = performance.now()
       w.__xgisMap!.camera.zoom = z
@@ -300,7 +300,7 @@ async function captureHeldFrame(
           mapFrames: m?._frameCount,
         }
         for (const [name, e] of m?.vtSources ?? []) {
-          if (e.source.maxLevel < ceiling) continue
+          if (e.source.maxLevel < minMaxLevel) continue
           const sel = e.renderer['_selection'] as
             { _hysteresisZ?: number; _czPendingAdvance?: unknown } | undefined
           row[name] = {
@@ -316,10 +316,10 @@ async function captureHeldFrame(
       }, 50)
       w.__holdTimelineStop = () => clearInterval(id)
     },
-    { z: HOLD_ZOOM, budgetPx: readChordBudgetPx() },
+    { z: HOLD_ZOOM, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
   )
   // The gate is provably holding: a frame has evaluated it under the new camera
-  // (`_czPendingAdvance` set), and every ceiling-reaching source still draws HELD_LOD.
+  // (`_czPendingAdvance` set), and every SERVABLE source still draws HELD_LOD.
   // The SAME page task then PAUSES the render loop (`running = false`; the queued rAF
   // tick early-returns), so no later frame can replace the held one before the shot —
   // on SwiftShader a frame here takes ~7 s, longer than the 5 s readiness timeout, so
@@ -328,13 +328,13 @@ async function captureHeldFrame(
   // resumed by captureAdvancedFrame (or never, if the test fails here).
   try {
     await page.waitForFunction(
-      ({ heldLod, z, ceiling }) => {
+      ({ heldLod, z, minMaxLevel }) => {
         const w = window as unknown as Win
         const m = w.__xgisMap
         if (!m?.vtSources || Math.abs(m.camera.zoom - z) > 1e-9) return false
         let any = false
         for (const [, e] of m.vtSources) {
-          if (e.source.maxLevel < ceiling) continue
+          if (e.source.maxLevel < minMaxLevel) continue
           any = true
           const sel = e.renderer['_selection'] as
             { _hysteresisZ?: number; _czPendingAdvance?: unknown } | undefined
@@ -350,7 +350,7 @@ async function captureHeldFrame(
         if (any) m.running = false
         return any
       },
-      { heldLod: HELD_LOD, z: HOLD_ZOOM, budgetPx: readChordBudgetPx() },
+      { heldLod: HELD_LOD, z: HOLD_ZOOM, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
       { timeout: 180_000, polling: 50 },
     )
   } catch (err) {
@@ -365,17 +365,17 @@ async function captureHeldFrame(
   }
   const png = await page.screenshot({ clip: box, animations: 'disabled' })
   // Elapsed since the gate's own timer started (the first held frame), for the record.
-  const holdElapsedMs = await page.evaluate((ceiling) => {
+  const holdElapsedMs = await page.evaluate((minMaxLevel) => {
     const w = window as unknown as Win
     let since = w.__holdT0 ?? 0
     for (const [, e] of w.__xgisMap?.vtSources ?? []) {
-      if (e.source.maxLevel < ceiling) continue
+      if (e.source.maxLevel < minMaxLevel) continue
       const sel = e.renderer['_selection'] as
         { _czPendingAdvance?: { since: number } | null } | undefined
       if (sel?._czPendingAdvance) since = sel._czPendingAdvance.since
     }
     return performance.now() - since
-  }, readChordBudgetPx())
+  }, minServableMaxLevel(HOLD_ZOOM))
   const state = await dumpState(page)
   const timeline = await page.evaluate(() => {
     const w = window as unknown as Win
@@ -402,21 +402,21 @@ async function captureAdvancedFrame(
     m._scheduleFrame?.()
   })
   await page.waitForFunction(
-    ({ stepLod, ceiling }) => {
+    ({ stepLod, minMaxLevel }) => {
       const w = window as unknown as Win
       const m = w.__xgisMap
       if (!m?.vtSources) return false
       let pending = 0
       for (const [, e] of m.vtSources) {
         pending += e.source.getPendingLoadCount?.() ?? 0
-        if (e.source.maxLevel < ceiling) continue
+        if (e.source.maxLevel < minMaxLevel) continue
         const sel = e.renderer['_selection'] as { _hysteresisZ?: number } | undefined
         if (sel?._hysteresisZ !== stepLod) return false
       }
       if (pending > 0) m.invalidate?.()
       return pending === 0
     },
-    { stepLod: STEP_LOD, budgetPx: readChordBudgetPx() },
+    { stepLod: STEP_LOD, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
     { timeout: 180_000, polling: 100 },
   )
   const png = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
@@ -427,7 +427,7 @@ async function captureAdvancedFrame(
   return { png, png2, state }
 }
 
-test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hold', () => {
+test.describe('#2094 — the drape budget holds through the zoom-in readiness hold', () => {
   // Serial: the sever arm compares against the direct arm's held frame on disk.
   test.describe.configure({ mode: 'serial', timeout: 900_000 })
   test.use({ viewport: { width: 1024, height: 720 } })
@@ -450,7 +450,7 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
     const sharpHeld = await edgeSharpness(page, held.png)
     const sharpAdvanced = await edgeSharpness(page, adv.png)
     const report = {
-      ceiling,
+      budgetPx: readChordBudgetPx(),
       holdElapsedMs: held.holdElapsedMs,
       stalledStepRequests: held.stall.stalledCount(),
       noiseFloor,
@@ -499,8 +499,9 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
       expect(
         s.drapeGlobeFills,
         `${name}: the held frame is still DRAPED at camera z${HOLD_ZOOM} (currentZ ${s.hysteresisZ}) — ` +
-          `the ceiling is being read off the held LOD, not the camera's, so every zoom-in that ` +
-          `starts below z${ceiling} shows 2^(zoom−${HELD_LOD})×-magnified bakes until the step tiles land`,
+          `the drape budget is being priced on the held LOD, not the camera's, so every ` +
+          `zoom-in through this band shows 2^(zoom−${HELD_LOD})×-magnified bakes until the ` +
+          `step tiles land`,
       ).toBe(false)
       expect(s.drapeStrokes, `${name}: strokes still baked during the hold`).toBe(false)
     }

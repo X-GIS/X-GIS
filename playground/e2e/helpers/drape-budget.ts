@@ -66,3 +66,13 @@ export function expectDrape(sourceMaxLevel: number, cameraZoom: number): boolean
   const drawnZ = Math.max(0, Math.min(Math.floor(cameraZoom), sourceMaxLevel))
   return directChordErrorPx(drawnZ, cameraZoom) > readChordBudgetPx()
 }
+
+/** The smallest source `maxLevel` that is SERVABLE at `cameraZoom` — i.e. the
+ *  threshold a page-side filter can compare against, since the error falls
+ *  monotonically as a source gets deeper. Derived from the budget, so a spec never
+ *  hard-codes a level. Returns `Infinity` when no source depth clears the budget at
+ *  this camera (which is itself a loud, meaningful answer for a gate's premise). */
+export function minServableMaxLevel(cameraZoom: number): number {
+  for (let ml = 0; ml <= 24; ml++) if (!expectDrape(ml, cameraZoom)) return ml
+  return Infinity
+}

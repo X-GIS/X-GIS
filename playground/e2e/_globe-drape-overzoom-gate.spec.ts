@@ -71,12 +71,8 @@
 // this spec proves the wiring end-to-end on the real GPU path.
 
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { captureMapFrame } from './helpers/visual'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
+import { expectDrape } from './helpers/drape-budget'
 
 const STYLE = [
   'xgis 1',

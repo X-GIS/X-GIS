@@ -55,7 +55,7 @@
 // blank" into "N remote assets 404'd" instead of a mystery.
 
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captureMapFrame, type RGB } from './helpers/visual'

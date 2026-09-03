@@ -82,12 +82,9 @@
 // upload/load counters decide, and a non-zero residual FAILS.
 
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { writeFileSync } from 'node:fs'
 import { captureMapFrame, pixelDiffRatio } from './helpers/visual'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
+import { expectDrape, directChordErrorPx } from './helpers/drape-budget'
 
 // Verbatim from _globe-drape-overzoom-gate.spec.ts — same source, same layer,
 // same fill, so the coast profile below measures the same edge it did.
@@ -428,18 +425,18 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
   ).toBe(0)
 
   const draped = await dumpSources(page)
-  // Scoped to `ceilingReaching` for the same reason the CAUSE was, but here the
+  // Scoped to `servable` for the same reason the CAUSE was, but here the
   // scoping is what gives the assertion any information at all: the sub-ceiling
   // `world__polar_cap` drapes in BOTH arms, so an unscoped "some source drapes"
   // is true whether or not the override is wired, and would green a severed
   // lever (§12 — an assertion must DISTINGUISH the states it tests).
-  const drapingNow = ceilingReaching.filter((k) => draped[k]?.drapeGlobeFills)
+  const drapingNow = servable.filter((k) => draped[k]?.drapeGlobeFills)
   expect(
     drapingNow,
     `__XGIS_FORCE_VECTOR_DRAPE is set but no source ABOVE the ceiling reports _drapeGlobeFills — ` +
       `the override at vector-tile-renderer.ts:3621 is not wired, so the two arms below are the ` +
       `same arm and the comparison proves nothing. above-ceiling sources: ` +
-      ceilingReaching
+      servable
         .map(
           (k) =>
             `${k}{fills:${draped[k]?.drapeGlobeFills},baked:${draped[k]?.bakedCount},` +
@@ -447,7 +444,7 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
         )
         .join(' '),
   ).not.toEqual([])
-  const bakedTotal = ceilingReaching.reduce((acc, k) => acc + (draped[k]?.bakedCount ?? 0), 0)
+  const bakedTotal = servable.reduce((acc, k) => acc + (draped[k]?.bakedCount ?? 0), 0)
   expect(
     bakedTotal,
     'the drape flag is on but the bake cache is empty — nothing was baked, so a softer coast ' +
