@@ -328,12 +328,22 @@ export const voidT = { kind: 'void' } as const satisfies ShaderType
  *  typeEq(structT('DF64Vec2'), structT('DF64Vec2')) // true
  *  ```
  */
-export const structT = (name: string): ShaderType => ({ kind: 'struct', name })
-/** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). */
-export const arrayT = (elem: ShaderType, size?: number): ShaderType => ({
+export const structT = <N extends string>(
+  name: N,
+): { readonly kind: 'struct'; readonly name: N } => ({
+  kind: 'struct',
+  name,
+})
+/** Array type; pass `size` for a fixed-length WGSL array (`array<T, N>`). Both `elem` and
+ *  `size` are preserved as literals so {@link KeyOf} can spell the exact `array<…>` key
+ *  {@link typeKey} produces (#2456). */
+export const arrayT = <E extends ShaderType, S extends number | undefined = undefined>(
+  elem: E,
+  size?: S,
+): { readonly kind: 'array'; readonly elem: E; readonly size: S } => ({
   kind: 'array',
   elem,
-  size,
+  size: size as S,
 })
 
 // Type-level key of a ShaderType literal — the phantom carried by Node<K>.
@@ -360,28 +370,41 @@ export type KeyOf<T> = T extends { kind: 'scalar'; scalar: infer S extends strin
         ? `vec${N}<${E}>`
         : T extends { kind: 'mat'; n: infer N extends number; elem: infer E extends string }
           ? `mat${N}x${N}<${E}>`
-          : // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
-            // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
-            // to `string`, so a texture/sampler argument swap type-checked.
-            T extends { kind: 'texture'; dim: '2d-ms' }
-            ? 'texture_multisampled_2d<f32>'
-            : // #1651 — arm ORDER is immaterial here: the dims are exact literals, so
-              // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
-              // arm comes first. The real hazard is a MISSING arm — it drops an array
-              // resource() node through to the `string` fallback, where it matches no
-              // authoring overload at all (the failure is a confusing "no overload
-              // matches", not a key mismatch).
-              // #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
-              // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
-              // hand an integer texture the FLOAT key, where textureSample's overload
-              // accepts it and naga rejects the emitted WGSL.
-              T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
-              ? `texture_2d_array<${E}>`
-              : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
-                ? `texture_2d<${E}>`
-                : T extends { kind: 'sampler' }
-                  ? 'sampler'
-                  : string
+          : // #2456 — struct / array / void arms. typeKey has emitted `struct:Name`,
+            // `array<K,N>` and `void` since forever; KeyOf had no arm for any of them, so
+            // every struct-typed and array-typed node fell through to the `string` fallback
+            // — the phantom key that swallowed `construct`, `arrayLit` and both struct
+            // declarators' `.construct` (D4.1 in docs/plans/2026-09-01-…).
+            T extends { kind: 'struct'; name: infer N extends string }
+            ? `struct:${N}`
+            : T extends { kind: 'array'; elem: infer E; size: infer S }
+              ? S extends number
+                ? `array<${KeyOf<E>},${S}>`
+                : `array<${KeyOf<E>}>`
+              : T extends { kind: 'void' }
+                ? 'void'
+                : // #763 X6 — texture/sampler arms (spellings match typeKey()): resource()
+                  // promised a SPECIFIC key (`Node<'texture_2d<f32>'>`) but these fell through
+                  // to `string`, so a texture/sampler argument swap type-checked.
+                  T extends { kind: 'texture'; dim: '2d-ms' }
+                  ? 'texture_multisampled_2d<f32>'
+                  : // #1651 — arm ORDER is immaterial here: the dims are exact literals, so
+                    // `{ dim: '2d-array' }` never extends `{ dim: '2d' }` regardless of which
+                    // arm comes first. The real hazard is a MISSING arm — it drops an array
+                    // resource() node through to the `string` fallback, where it matches no
+                    // authoring overload at all (the failure is a confusing "no overload
+                    // matches", not a key mismatch).
+                    // #1703 — `elem` is INFERRED, not hardcoded to f32: a texture2duT resource
+                    // must land on `texture_2d<u32>`, and a hardcoded `<f32>` would silently
+                    // hand an integer texture the FLOAT key, where textureSample's overload
+                    // accepts it and naga rejects the emitted WGSL.
+                    T extends { kind: 'texture'; dim: '2d-array'; elem: infer E extends string }
+                    ? `texture_2d_array<${E}>`
+                    : T extends { kind: 'texture'; dim: '2d'; elem: infer E extends string }
+                      ? `texture_2d<${E}>`
+                      : T extends { kind: 'sampler' }
+                        ? 'sampler'
+                        : string
 /** Element key of a vector key (`vec3<u32>` → `u32`); identity for scalars. */
 export type ElemKey<K extends string> = K extends `vec${number}<${infer E}>` ? E : K
 /** The `KeyOf` string form of {@link Scalar}, minus `'bool'` — the key set accepted wherever
