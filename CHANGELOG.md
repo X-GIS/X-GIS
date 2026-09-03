@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 3c3f0cfaed6ee491b1f1395f95302e76e1573f9b
+  Generated from: 543d921a46bba27bfcbda2d7c627d787bb9d6aa5
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 3c3f0cfaed6e
+    bun scripts/emit-changelog.ts --since 543d921a46bb
 -->
 
 # Changelog
@@ -105,6 +105,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** index the per-style fill fallback by label instead of walking the map (#2309) ([#2441](https://github.com/X-GIS/X-GIS/pull/2441)) `543d921`
 - **map:** make the in-render prefetch throttles per FRAME, not per ShowCommand (#2309) ([#2431](https://github.com/X-GIS/X-GIS/pull/2431)) `639baf2`
 - **render:** the split-bind frame stamp is a frame id, not a per-render counter (#2309) ([#2418](https://github.com/X-GIS/X-GIS/pull/2418)) `9d93bd9`
 - **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
