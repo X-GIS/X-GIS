@@ -81,6 +81,11 @@ function makeFactory() {
   anyF.shaderCache = new Map()
   anyF._fillPerStyle = new Map()
   anyF._fillPerStyleExtrude = new Map()
+  // #2309 — the label indexes the two setters write through. Object.create skips
+  // class field initializers, so every field the factory's write path touches has
+  // to be injected here by hand; a missing one surfaces as `undefined.get(...)`.
+  anyF._fillPerStyleByLabel = new Map()
+  anyF._fillPerStyleExtrudeByLabel = new Map()
   anyF._fillPerStyleInfo = new Map()
   // #2042 INC-4d — walked (and cleared) by dropMaterials; nothing here builds a
   // split twin, so it stays empty.
