@@ -861,6 +861,9 @@ export class XGISMap {
    *  (underscore convention) so the render host can read it, like
    *  `_rasterShow`. */
   _backgroundColor: [number, number, number, number] | null = null
+  /** #2306 — true iff `_backgroundColor` was last set by the style parse
+   *  (parseBackgroundBlock), not by `setBackgroundFill`. */
+  _backgroundColorFromStyle = false
   /** WS-1 — zoom-interpolated `background-color`. When the style authors
    *  `background-color` as `["interpolate", ["linear"], ["zoom"], …]`,
    *  the converter emits `background { fill: interpolate(zoom, …) }` and
@@ -1093,6 +1096,7 @@ export class XGISMap {
         this.showCommands.splice(synthIdx, 1)
       }
       this._backgroundColor = null
+      this._backgroundColorFromStyle = false
       this._dirty.tag(DirtyDomain.STYLE)
       this.invalidate()
       return
@@ -1109,6 +1113,7 @@ export class XGISMap {
       return
     }
     this._backgroundColor = rgba
+    this._backgroundColorFromStyle = false
     // Re-install path: setBackgroundFill(null) earlier in this session
     // tore down the synthetic source; the user is now opting back in.
     // Run the install + prepend the synthetic ShowCommand at sort-order
