@@ -739,6 +739,24 @@ export class VectorTileRenderer {
    *  budget can short-circuit duplicate resets when one source feeds
    *  multiple layer ShowCommands within the same frame. */
   private currentFrameId = 0
+  /** #2309 — prefetch-throttle memo: the frame the two prefetch tiers last
+   *  ran in, and the `currentZ` values already served within it.
+   *
+   *  Both are documented "every 10 / 6 FRAMES", but `render()` runs once per
+   *  ShowCommand (106x/frame on OFM Bright), so NO modulo alone expresses a
+   *  frame cadence: `frameCount % 6` (per-render counter) fired ~17.7x a
+   *  frame, and `currentFrameId % 6` fires 106x on every 6th — same average,
+   *  worse pacing. Only a memo makes "at most once per window" true.
+   *
+   *  Keyed by `currentZ`, not the frame alone: the selector runs per slice
+   *  and a layer's `maxLevel` can hold its `currentZ` below the camera's —
+   *  genuinely different prefetch targets. The other per-slice input,
+   *  `isCached`, only SHRINKS the request set, and a not-yet-fetched tile is
+   *  uncached for EVERY slice, so one run per distinct `currentZ` requests
+   *  exactly the tiles 106 runs did. */
+  private _prefetchMemoFrame = -1
+  private readonly _adjacentPrefetchZooms = new Set<number>()
+  private readonly _zoomPrefetchZooms = new Set<number>()
 
   // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
   // A fills-only sibling of render() for the WebGL2 immediate arm
@@ -4357,7 +4375,19 @@ export class VectorTileRenderer {
     // While the camera is actively moving the prefetched edge tiles
     // are likely to be invalidated within ~100 ms of being fetched
     // — wasted bandwidth + GPU upload pressure on mobile.
-    if (cameraIdle && this.frameCount % 10 === 0) {
+    // #2309 — the memo is what makes "every 10th frame" true; a bare
+    // modulo fires per SLICE, not per frame (see _prefetchMemoFrame).
+    if (this._prefetchMemoFrame !== this.currentFrameId) {
+      this._prefetchMemoFrame = this.currentFrameId
+      this._adjacentPrefetchZooms.clear()
+      this._zoomPrefetchZooms.clear()
+    }
+    if (
+      cameraIdle &&
+      this.currentFrameId % 10 === 0 &&
+      !this._adjacentPrefetchZooms.has(currentZ)
+    ) {
+      this._adjacentPrefetchZooms.add(currentZ)
       this.source.prefetchAdjacent(tiles, currentZ)
     }
 
@@ -4392,9 +4422,13 @@ export class VectorTileRenderer {
     // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
     // the camera is provably heading toward (same centre, next LOD), so the
     // pan-invalidation rationale behind the adjacent-prefetch idle gate does
-    // not apply; cost is bounded by the %6 throttle, the isCached filter,
-    // and the fetch queue's own concurrency cap.
-    if (this.frameCount % 6 === 0) {
+    // not apply; cost is bounded by the 6-frame throttle, the isCached
+    // filter, and the fetch queue's own concurrency cap.
+    // #2309 — that throttle is the modulo AND the per-frame memo. The
+    // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
+    // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
+    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(currentZ)) {
+      this._zoomPrefetchZooms.add(currentZ)
       // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
       // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
       // execution order/throttle is byte-identical to the prior inline block.
