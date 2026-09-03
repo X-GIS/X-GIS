@@ -45,6 +45,7 @@ import {
   validateLayerIdCollisions,
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
+import { reportDroppedBackgroundLayer } from './background-layer-drop'
 import { convertTerrain } from './terrain'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
@@ -686,7 +687,12 @@ export function convertMapboxStyle(
       warnings.push(`Layers array contains a non-object entry (${typeof layer}); skipped.`)
       continue
     }
-    if (layer.type === 'background') continue // handled above
+    if (layer.type === 'background') {
+      // #2333 — bgLayer is the FIRST background layer (bound above);
+      // any other background-type layer reaching here was dropped.
+      reportDroppedBackgroundLayer(layer, bgLayer, warnings, options?.coverage)
+      continue
+    }
     const before = warnings.length
     // Preprocess: a `fill-color: ["match", ["get", field], …]` with
     // many distinct constant colours (typical "one colour per country"
