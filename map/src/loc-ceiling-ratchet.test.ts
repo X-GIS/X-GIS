@@ -359,7 +359,13 @@ const CEILINGS: Record<string, number> = {
   // (#2249 +1, #2286 +5, #2325 +9) while this branch reached 5524 from the same 5466
   // base, so the merged file carries BOTH sets of deltas and neither side's number is
   // right (§12 — the same trap #2286/#2249 already paid for above).
-  'map/src/render/vector-tile-renderer.ts': 5539,
+  // 5539→5541 (measured post-prettier): the merge also collided on the BACKEND-IDENTITY
+  // ratchet, INC-3's stroke gate having added a second `backend` test to a file main had
+  // also grown. The fix hoists what both halves ask — WebGPU, non-extruded, not disabled
+  // — into one `bakeAvailable`, which is net −0 lines of code (six conjuncts out, four
+  // in, two references back). The +2 is its two-line comment; the alternative was an
+  // unexplained hoist.
+  'map/src/render/vector-tile-renderer.ts': 5541,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

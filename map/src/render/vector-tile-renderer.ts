@@ -3719,6 +3719,12 @@ export class VectorTileRenderer {
     // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
     // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
     this._bakeDpr = dpr
+    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS. Both halves
+    // of the drape decision need exactly this, so it is read once (#1046 ratchet).
+    const bakeAvailable =
+      this.rhi.backend !== 'webgl2' &&
+      this.currentExtrudeMode === 'none' &&
+      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
     // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
     // half rather than inside it. Same escape hatches (the force flag holds the
     // drape for A/B arms; the disable flag forces every direct draw), same
@@ -3729,9 +3735,7 @@ export class VectorTileRenderer {
       (drapesStrokesAtSelectionZ(Math.max(currentZ, targetZ)) ||
         (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
           true) &&
-      this.rhi.backend !== 'webgl2' &&
-      this.currentExtrudeMode === 'none' &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+      bakeAvailable
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
       // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the direct arm's chord
@@ -3742,14 +3746,12 @@ export class VectorTileRenderer {
       (drapesAtSelectionZ(Math.max(currentZ, targetZ)) ||
         (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
           true) &&
-      this.rhi.backend !== 'webgl2' &&
-      this.currentExtrudeMode === 'none' &&
+      bakeAvailable &&
       // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
       // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
       // buffer) fill or a sprite pattern — those keep the direct draw.
       !show.shaderVariant?.needsFeatureBuffer &&
-      show.fillPatternUV == null &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+      show.fillPatternUV == null
     if (
       this._drapeGlobeFills &&
       phase !== 'strokes' &&
