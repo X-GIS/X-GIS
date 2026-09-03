@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 543d921a46bba27bfcbda2d7c627d787bb9d6aa5
+  Generated from: 469ac8e13d7352dc14b169ac9c865a06739560dd
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 543d921a46bb
+    bun scripts/emit-changelog.ts --since 469ac8e13d73
 -->
 
 # Changelog
@@ -20,6 +20,10 @@
 This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
 
 ### 2026-09
+
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
 
 #### feat
 
@@ -41,6 +45,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** the globe drape's gate is a PIXEL BUDGET, not a LOD ceiling (#2094) ([#2469](https://github.com/X-GIS/X-GIS/pull/2469)) `469ac8e`
+- **compiler:** warn on dropped background layers and ignored background zoom bounds (#2333) ([#2454](https://github.com/X-GIS/X-GIS/pull/2454)) `b32d941`
 - **map/controller:** fire onPointerDown before the double-tap early return (#2304) ([#2453](https://github.com/X-GIS/X-GIS/pull/2453)) `3c3f0cf`
 - **pipeline:** avg over a group with no numeric cell is NaN, not 0 (#2409) ([#2461](https://github.com/X-GIS/X-GIS/pull/2461)) `08ed4ec`
 - **sprite:** inflate icon-stage obstacle bbox by icon-padding (#2339) ([#2450](https://github.com/X-GIS/X-GIS/pull/2450)) `2c0459b`
@@ -126,6 +132,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** pin the z-fight oracle's denominator before trusting its ratio (#2399) ([#2473](https://github.com/X-GIS/X-GIS/pull/2473)) `d9d751f`
 - **scripts:** assert emit-changelog's --since range relationally, not by a fixed count (#2462) ([#2464](https://github.com/X-GIS/X-GIS/pull/2464)) `f35f970`
 - **render:** compile the committed WGSL and GLSL corpora on real Tint and ANGLE (#2444) ([#2448](https://github.com/X-GIS/X-GIS/pull/2448)) `b40839a`
 - **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`
