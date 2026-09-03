@@ -756,10 +756,10 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Frame ID set by `beginFrame(frameId)`, threaded through to
-   *  `source.resetCompileBudget(frameId)` so the catalog's per-frame
-   *  budget can short-circuit duplicate resets when one source feeds
-   *  multiple layer ShowCommands within the same frame. */
+  /** Frame ID set by `beginFrame(frameId)`, threaded to
+   *  `source.resetCompileBudget(frameId)`, which records it so `cancelStale` can
+   *  age the prefetch shield per FRAME (#2273). The budget reset and backend tick
+   *  there still run per ShowCommand, NOT once per frame — #2277 owns that. */
   private currentFrameId = 0
   /** #2309 — prefetch-throttle memo: the frame the two prefetch tiers last
    *  ran in, and the `currentZ` values already served within it.
