@@ -1405,7 +1405,14 @@ const CEILINGS: Record<string, number> = {
   // anywhere in the file, so `rebuild()` (map.setQuality) dropped the whole fill-Material
   // set undestroyed with the device alive. Adds ownedMaterials/dropMaterials/destroy -- one
   // authority shared by rebuild and teardown.
-  'map/src/render/pipeline-factory.ts': 1709,
+  // 1709->1736 (#2309): the two per-style maps get a write-through label index, so the
+  // fill draw path's dual-instance fallback is one lookup instead of a walk of all 160
+  // entries (measured 698 wasted iterations a frame). The +27 is 2 index fields, the 2
+  // setters that are now the ONLY write authority for the maps, and the clear. The
+  // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
+  // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
+  // under the 800 new-file cap.
+  'map/src/render/pipeline-factory.ts': 1736,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
