@@ -148,10 +148,10 @@ export async function awaitPendingWorkClear(
   page: Page,
   timeoutMs = 20_000,
   scope?: readonly PendingWorkKindName[],
-): Promise<void> {
-  await page.evaluate(
+): Promise<'clear' | 'timeout'> {
+  const arm = (await page.evaluate(
     ([budget, kinds]: [number, readonly string[] | undefined]) => {
-      return new Promise<void>((resolve) => {
+      return new Promise<'clear' | 'timeout'>((resolve) => {
         const m = (
           window as unknown as {
             __xgisMap?: {
@@ -162,7 +162,7 @@ export async function awaitPendingWorkClear(
           }
         ).__xgisMap
         if (!m) {
-          resolve()
+          resolve('clear')
           return
         }
         const t0 = performance.now()
@@ -180,14 +180,30 @@ export async function awaitPendingWorkClear(
             settled = false
           }
           stable = settled ? stable + 1 : 0
-          if (stable >= 5 || performance.now() - t0 > budget) resolve()
+          if (stable >= 5) resolve('clear')
+          else if (performance.now() - t0 > budget) resolve('timeout')
           else requestAnimationFrame(tick)
         }
         requestAnimationFrame(tick)
       })
     },
     [timeoutMs, scope] as [number, readonly string[] | undefined],
-  )
+  )) as 'clear' | 'timeout'
+  if (arm === 'timeout') {
+    // #2370 — SAY WHICH ARM ENDED THE WAIT. Silence here is how a fixed wait
+    // passes for a convergence: `_import-glyphs-wired-gate` documented its
+    // settle as "a frame is not captured while a glyph range is still in
+    // flight" while the mechanism actually delivering it was this budget
+    // expiring, and on `import_maplibre_mirror` the un-scoped union never goes
+    // clear at all (measured: 20358 ms, every time). A caller that reads
+    // `'timeout'` — or just sees this line — knows its settle is a sleep.
+    console.warn(
+      `[awaitPendingWorkClear] budget ${timeoutMs}ms EXPIRED with work still pending` +
+        `${scope ? ` (scope: ${scope.join(', ')})` : ' (scope: all kinds)'}` +
+        ' — this settle did NOT converge; it timed out (#2370).',
+    )
+  }
+  return arm
 }
 
 /** The wait every capture shares: ready, then painted, then composed. Split out
