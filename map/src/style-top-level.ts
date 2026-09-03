@@ -100,6 +100,9 @@ export interface TopLevelStyleHost {
   _light: TopLevelLight
   _atmosphere: TopLevelAtmosphere | null
   _backgroundColor: [number, number, number, number] | null
+  /** #2306 — true iff `_backgroundColor` was last written by `parseBackgroundBlock`
+   *  (not by a host call to `setBackgroundFill`); see the reset it gates below. */
+  _backgroundColorFromStyle: boolean
   _backgroundColorShape:
     import('@xgis/compiler').PropertyShape<readonly [number, number, number, number]> | null
   _backgroundOpacityShape: import('@xgis/compiler').PropertyShape<number> | null
@@ -226,6 +229,13 @@ export function parseBackgroundBlock(host: TopLevelStyleHost, ast: AST.Program):
   // #777 I-E — reset the background pattern before the parse (mirror of the
   // shape resets) so a re-run() with a pattern-less style clears a stale name.
   host._backgroundPattern = null
+  // #2306 — mirror of the resets above, but provenance-gated: a background-less
+  // re-run() must drop a previous style's fill, but must NOT clobber a fill the
+  // host set via setBackgroundFill (which sets the flag false — see map.ts).
+  if (host._backgroundColorFromStyle) {
+    host._backgroundColor = null
+    host._backgroundColorFromStyle = false
+  }
   let bgColor: string | null = null
   for (const stmt of ast.body) {
     if (stmt.kind !== 'BackgroundStatement') continue
@@ -291,7 +301,10 @@ export function parseBackgroundBlock(host: TopLevelStyleHost, ast: AST.Program):
   // function and this is its only behaviour.)
   if (bgColor) {
     const parsed = hexToRgba(bgColor)
-    if (parsed !== null) host._backgroundColor = parsed
+    if (parsed !== null) {
+      host._backgroundColor = parsed
+      host._backgroundColorFromStyle = true
+    }
   }
   // A zoom-interp background-color has no constant `_backgroundColor`.
   // Seed it from the first stop so the synthetic earth-surface install
@@ -303,6 +316,9 @@ export function parseBackgroundBlock(host: TopLevelStyleHost, ast: AST.Program):
       host._backgroundColorShape.kind === 'zoom-interpolated'
         ? host._backgroundColorShape.stops[0]?.value
         : undefined
-    if (first) host._backgroundColor = [first[0], first[1], first[2], first[3]]
+    if (first) {
+      host._backgroundColor = [first[0], first[1], first[2], first[3]]
+      host._backgroundColorFromStyle = true
+    }
   }
 }

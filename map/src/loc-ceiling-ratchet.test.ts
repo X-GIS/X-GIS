@@ -913,7 +913,11 @@ const CEILINGS: Record<string, number> = {
   // dropped -- `renderer` (the MapRendererContent -> FrameRenderer -> PipelineFactory chain
   // that owns every fill Material) and the under-occluder, whose only destroy lived in
   // setBackgroundFill. Teardown code paying an ownership debt, not feature growth.
-  'map/src/map.ts': 5432,
+  // 5432->5437 (#2306): `_backgroundColorFromStyle` provenance flag (field + doc) and its
+  // two clears in setBackgroundFill's null/non-null branches, so a style-set fill and a
+  // host-set fill (setBackgroundFill) can be told apart when a background-less re-run()
+  // resets the style-owned one. Pre-prettier measurement; parent session re-measures.
+  'map/src/map.ts': 5437,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
