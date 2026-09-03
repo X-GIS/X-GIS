@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2a00b2e65552c8cdb3d93b01cf24a62f0f7282f6
+  Generated from: 5771e07ba4828d7b1276c6a4d817df10638eda3a
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2a00b2e65552
+    bun scripts/emit-changelog.ts --since 5771e07ba482
 -->
 
 # Changelog
@@ -38,6 +38,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **data:** the catalog drops a detached backend's result, and the pool releases a failed post (#2391) ([#2424](https://github.com/X-GIS/X-GIS/pull/2424)) `5771e07`
 - **map:** track background-color provenance so a background-less re-run drops only the style's fill (#2306) ([#2420](https://github.com/X-GIS/X-GIS/pull/2420)) `2a00b2e`
 - **compiler:** thread let bindings through nested let scopes (#2340) ([#2422](https://github.com/X-GIS/X-GIS/pull/2422)) `830333d`
 - **map:** walk hole rings CW in fill-extrusion walls (#2303) ([#2421](https://github.com/X-GIS/X-GIS/pull/2421)) `fd00b6c`
