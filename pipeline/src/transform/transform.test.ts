@@ -171,4 +171,53 @@ describe('@xgis/pipeline · transform', () => {
     expect(Number.isNaN(vs[gs.indexOf('bad')]!)).toBe(true)
     expect(vs[gs.indexOf('good')]).toBe(5)
   })
+  // ── #2409 ──────────────────────────────────────────────────────────────
+  // `avg` over a group with no numeric cell used to return 0. That is the
+  // same "0 is legitimate data" objection #2358 settled for min/max, one
+  // notch worse: an out-of-range Infinity at least looks wrong, while 0 is
+  // byte-identical to a group that genuinely averages to zero AND passes
+  // every `Number.isFinite` caller guard, so it reaches a downstream
+  // domain/scale as a fabricated datum.
+  it('avg over a group with no numeric cell is NaN, not a fabricated 0 (#2409)', () => {
+    const t = fromRows([
+      { g: 'a', v: 'N/A' },
+      { g: 'a', v: '-' },
+    ])
+    expect(Number.isNaN(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0] as number)).toBe(
+      true,
+    )
+  })
+
+  it('control: a group that genuinely averages to zero still returns 0, not NaN (#2409)', () => {
+    // The assertion above must distinguish "no data" from "the data is 0".
+    // Without this control, `avg` could be made to return NaN whenever the
+    // accumulator lands on zero and the witness would still pass.
+    const t = fromRows([
+      { g: 'a', v: -1 },
+      { g: 'a', v: 1 },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0]).toBe(0)
+  })
+
+  it('control: blank cells do not make a partially-numeric avg NaN (#2409)', () => {
+    // n > 0 is what gates the sentinel, so one real cell among blanks must
+    // still average over the cells that exist.
+    const t = fromRows([
+      { g: 'a', v: '' },
+      { g: 'a', v: 4 },
+      { g: 'a', v: ' ' },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'avg' } }).col('v')[0]).toBe(4)
+  })
+
+  it('sum deliberately keeps 0 for an all-non-numeric group (#2409)', () => {
+    // Out of scope on purpose: the empty sum IS 0 (the additive identity),
+    // whereas the mean of nothing is undefined. Pinned so the #2409 change
+    // is not later "completed" by sweeping sum in with it.
+    const t = fromRows([
+      { g: 'a', v: 'N/A' },
+      { g: 'a', v: '-' },
+    ])
+    expect(groupBy(t, { by: ['g'], agg: { v: 'sum' } }).col('v')[0]).toBe(0)
+  })
 })
