@@ -228,6 +228,9 @@ export const ISOLATED = [
   'map/src/stats-byte-telemetry.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
+  // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
+  //     realm under test for the duration of each `evaluate` (#2352).
+  'playground/e2e/helpers/validation.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',
   'shared/src/safety.test.ts',
