@@ -847,6 +847,7 @@ export class TextStage {
     // #777 I-A — reset the per-frame paired-bbox stash before laying out this
     // frame's labels; refilled as each icon-paired label is shaped below.
     this._pairFitBox.clear()
+    this.droppedPairKeys.clear() // #2338: hoisted so the empty-frame return below clears too
     // #777 I-G — reset the per-frame inline-image quad stash (mirror above).
     this._inlineImagePlacements.length = 0
     // iter-285 — snapshot submitted count BEFORE collision pass.
@@ -2004,7 +2005,6 @@ export class TextStage {
     // IconStage collision) while text could be collision-rejected,
     // visible as "white shield boxes without road numbers" on
     // highway-shield-* layers.
-    this.droppedPairKeys.clear()
     // shaped[i] is built 1:1 from this.pending in iteration order
     // above (line ~941). The collision-input may reorder but each
     // ShapedLabel still references its source PendingLabel by index.
