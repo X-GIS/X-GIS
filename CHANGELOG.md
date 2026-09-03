@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 5771e07ba4828d7b1276c6a4d817df10638eda3a
+  Generated from: a79a44a40f927f8541969f1ba576e392dd279aee
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 5771e07ba482
+    bun scripts/emit-changelog.ts --since a79a44a40f92
 -->
 
 # Changelog
@@ -23,6 +23,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
+- **map:** say so when a categorical() field outgrows the auto palette ([#2433](https://github.com/X-GIS/X-GIS/pull/2433)) `9dd57df`
 - **compiler:** data-driven fill/line/fill-extrusion-pattern via the match split ([#2410](https://github.com/X-GIS/X-GIS/pull/2410)) `3e87fa0`
 - **rhi-webgl2:** fail loud on a per-target writeMask ES 3.00 cannot honour (#2349) ([#2402](https://github.com/X-GIS/X-GIS/pull/2402)) `14c2374`
 - **compiler:** per-feature symbol-sort-key + narrow the text-pitch-alignment gap warning to its real residual ([#2221](https://github.com/X-GIS/X-GIS/pull/2221)) `54a5905`
@@ -94,12 +96,14 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** make the in-render prefetch throttles per FRAME, not per ShowCommand (#2309) ([#2431](https://github.com/X-GIS/X-GIS/pull/2431)) `639baf2`
 - **render:** the split-bind frame stamp is a frame id, not a per-render counter (#2309) ([#2418](https://github.com/X-GIS/X-GIS/pull/2418)) `9d93bd9`
 - **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
 - **text:** take text-translate out of the layout cache and its key (#2170) ([#2267](https://github.com/X-GIS/X-GIS/pull/2267)) `77dedde`
 
 #### refactor
 
+- **engine+render:** one RetireQueue the hand-mirrored deferred-destroy lists collapse into ([#2405](https://github.com/X-GIS/X-GIS/pull/2405)) `a79a44a`
 - **map:** delete RenderStats.tilesLoaded and gpuBuffers — no producer ever wrote them (#2307) ([#2407](https://github.com/X-GIS/X-GIS/pull/2407)) `4f85bd2`
 - **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
 
