@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a79a44a40f927f8541969f1ba576e392dd279aee
+  Generated from: 9f6c12b0659ef1301e23f5ce3af9d8faafbeabb2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a79a44a40f92
+    bun scripts/emit-changelog.ts --since 9f6c12b0659e
 -->
 
 # Changelog
@@ -40,6 +40,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** emit truncated f32 mod on both backends (#2334) ([#2436](https://github.com/X-GIS/X-GIS/pull/2436)) `9f6c12b`
+- **compiler:** thread stop-pair span into palette curveFraction (#2335) ([#2437](https://github.com/X-GIS/X-GIS/pull/2437)) `febc58e`
 - **data:** the catalog drops a detached backend's result, and the pool releases a failed post (#2391) ([#2424](https://github.com/X-GIS/X-GIS/pull/2424)) `5771e07`
 - **map:** track background-color provenance so a background-less re-run drops only the style's fill (#2306) ([#2420](https://github.com/X-GIS/X-GIS/pull/2420)) `2a00b2e`
 - **compiler:** thread let bindings through nested let scopes (#2340) ([#2422](https://github.com/X-GIS/X-GIS/pull/2422)) `830333d`
@@ -109,6 +111,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **claude:** a verdict is not finished at the first consumer — §12 ledger entry ([#2443](https://github.com/X-GIS/X-GIS/pull/2443)) `991f9b4`
 - **research:** data-ownership audit + 5-year ownership model ([#2243](https://github.com/X-GIS/X-GIS/pull/2243)) `1eb20ca`
 - **site:** add diagram-first blog post "The engine in seven pictures" ([#2210](https://github.com/X-GIS/X-GIS/pull/2210)) `67fc326`
 - **tech:** add dual-edition technical deep-dive series ([#2206](https://github.com/X-GIS/X-GIS/pull/2206)) `3b843ff`

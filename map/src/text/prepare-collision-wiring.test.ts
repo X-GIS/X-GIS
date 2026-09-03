@@ -215,6 +215,57 @@ describe('prepare() collision wiring (text-stage.ts:1915-1968)', () => {
     expect(stage.getDroppedPairKeys().size, 'droppedPairKeys re-cleared each prepare').toBe(0)
   })
 
+  it('droppedPairKeys: an EMPTY prepare() between two non-empty ones does not leak a stale pairKey (#2338)', () => {
+    // WITNESS — fails before the #2338 hoist. IconStage holds this set BY
+    // REFERENCE (label-pass.ts), so a stale key surviving an empty-frame
+    // prepare() (style toggle / tile flush) would wrongly drop a later
+    // icon whose freshly-minted, RECYCLED pairKey happens to equal it.
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addLabel(litValue('L'), {}, 100, 100, pointDef(), undefined, undefined, 'k')
+    stage.addLabel(litValue('W'), {}, 108, 100, pointDef(), undefined, undefined, 'w')
+    stage.prepare()
+    expect(captured[0]!.length).toBe(1)
+    expect(stage.getDroppedPairKeys().has('k'), "frame 1: loser L's pairKey stamped").toBe(true)
+
+    // Frame 2: zero labels — the early-return branch. Must start from an
+    // empty set per the getDroppedPairKeys() doc contract (:724-728),
+    // not carry frame 1's 'k' forward.
+    stage.reset()
+    stage.beginFrame()
+    stage.prepare()
+    expect(
+      stage.getDroppedPairKeys().size,
+      'BUG: empty-frame prepare() must clear droppedPairKeys just like a non-empty one does',
+    ).toBe(0)
+  })
+
+  it('droppedPairKeys: non-empty prepare() still clears+recomputes exactly as before the hoist (control)', () => {
+    // CONTROL — proves the hoist left the always-worked case unchanged:
+    // back-to-back non-empty frames must not leak frame 1's dropped key
+    // into frame 2, even when frame 2 REUSES that same pairKey (the
+    // sequence-counter recycling the issue describes) on a label that
+    // this time does NOT collide.
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addLabel(litValue('L'), {}, 100, 100, pointDef(), undefined, undefined, 'k')
+    stage.addLabel(litValue('W'), {}, 108, 100, pointDef(), undefined, undefined, 'w')
+    stage.prepare()
+    expect(captured[0]!.length).toBe(1)
+    expect(stage.getDroppedPairKeys().has('k')).toBe(true)
+
+    stage.reset()
+    stage.beginFrame()
+    stage.addLabel(litValue('M'), {}, 300, 300, pointDef(), undefined, undefined, 'k')
+    stage.prepare()
+    expect(captured[1]!.length).toBe(1)
+    expect(
+      stage.getDroppedPairKeys().has('k'),
+      "frame 2's own 'k' was not collided this frame, so it must not be stamped",
+    ).toBe(false)
+    expect(stage.getDroppedPairKeys().size).toBe(0)
+  })
+
   it('wasLastPrepareFullyResolved: true on empty + fully-resident prepare; false when glyphs withheld (overflow)', () => {
     const { stage } = makeStage()
     // Empty prepare → resolved true (nothing to resolve).

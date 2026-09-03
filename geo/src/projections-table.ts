@@ -267,72 +267,114 @@ export function bakesVectorDrape(projType: number, globeMode: boolean): boolean 
   return globeMode || (r ? !r.isFlat && !r.isGlobe && !r.isCylindrical : false)
 }
 
-/** Selection zoom (currentZ) at and above which the bake→drape path stops
- *  paying for itself and the direct arm wins (#2093 F1 — the LOD ceiling).
+/** Selection zoom (`currentZ`, or the camera's own `targetZ` during a zoom-in
+ *  readiness hold — the renderer feeds `max(currentZ, targetZ)`) at and above
+ *  which the sphere route stops baking→draping vector layers and renders them
+ *  DIRECT (#2093 F1 — the LOD ceiling; lowered 9 → 6 on the post-merge report).
  *
- *  DERIVATION. The drape trades BLUR for great-circle HUG, so compare the two
- *  errors in CSS px at camera zoom Z for a tile of zoom z:
+ *  WHAT THE TWO ARMS COST. The drape rasterises each tile into a 512px,
+ *  dpr-blind, single-sample bake (vector-drape-renderer.ts BAKE_PX) whose texel
+ *  is both the resolution floor and the whole AA feather band, magnified by
+ *  2^(zoom − z) · dpr on screen — a blur every edge in the frame pays, at every
+ *  zoom below the ceiling. The direct arm draws the tile's own vertices on the
+ *  sphere with device-pixel AA; its error is on CHORDS — straight screen-space
+ *  segments between two projected vertices standing in for the great-circle arc
+ *  between them. Two terms, both proportional to the SQUARE of the chord length
+ *  D, so invisible on ordinary tile geometry (vertex spacing is a small fraction
+ *  of the tile) and visible only on tile-spanning straight edges (clip
+ *  boundaries against a differently-filled neighbour, straight borders):
  *
- *  Write `span = TILE_PX·2^(Z−z)` for the tile's on-screen width in CSS px
- *  (TILE_PX, world-scale.ts:24). Both errors are that span times something:
+ *    - PERSPECTIVE DISPLACEMENT. A chord dips D²/(8R) under the surface, so its
+ *      interior projects through a deeper perspective divisor than the surface
+ *      it stands for: an edge crossing the view at screen offset y lands at
+ *      y·(1 − ε), ε ≈ D²/(2·R·h), h the camera height. With h ≈ 10.9·R·2^−Z for
+ *      a 1024-px viewport and D = the tile span 2πR·2^−z, ε = 1.81·2^(Z−2z):
+ *      at native zoom (Z = z) 2.8 % at z6, 1.4 % at z7, 0.7 % at z8 — at most
+ *      14 / 7 / 3.5 px at the frame edge for a straight edge spanning the whole
+ *      tile, 0 at the frame centre.
+ *    - ARC CURVATURE. A great circle passing at angle δ from the nadir projects
+ *      to a curve whose sagitta over an on-screen length L is L²·sin δ/(8·R_px),
+ *      R_px = TILE_PX·2^Z/(2π). Inside a 1024-px viewport at pitch 0 that is
+ *      ≤ 10106·4^−Z px — 2.5 px at Z = 6, 0.6 px at Z = 7 — and pitch pushes
+ *      the far field to larger δ (≈ 8 px worst case at z6 / pitch 60).
  *
- *    - HUG (what the direct arm loses): a tile-clipped edge is drawn as a
- *      CHORD under the sphere, sagging over the tile's angular width 2π·2^-z
- *      by ~(1/8)·span·(angular width), i.e. C = (TILE_PX·π/4)·2^(Z−2z) CSS px.
- *    - BLUR (what the drape pays): the tile bakes to BAKE_PX texels across
- *      (vector-drape-renderer.ts:55), so one texel is B = span/BAKE_PX CSS px.
- *      That texel is BOTH the drape's resolution floor AND its whole AA feather
- *      band — the bake runs at dpr=1 with mpp = tileExtent/BAKE_PX, so line.ts's
- *      `halfAa = 0.5/dpr` (:899) feather is one bake texel wide and magnifies
- *      with it.
+ *  Both bound the same pathological input and both improve 4× per zoom level,
+ *  while the bake's blur never improves. MapLibre's globe draws these tiles
+ *  direct with subdivision granularity max(1, 128·2^−z) — 2 at z6, none from z7
+ *  up — and blends to a flat Mercator plane above ~z6, whose own deviation from
+ *  the sphere across a 1024-px viewport at z6 is ~12 px. Six is therefore the
+ *  parity point: the blur is gone from every zoom where the reference engine
+ *  needs no more than a 2×2 subdivision, and the residual chord error is of the
+ *  order it accepts. Below six the whole-hemisphere views make the arcs curve
+ *  visibly and the great-circle hug of the bake is worth its blur — the same
+ *  trade that EXCLUDED oblique(6) (see :242-244), read at the other end. The
+ *  durable end state is the reference engines' own: subdivide coarse geometry
+ *  in the tiler and retire the bake (#2094).
  *
- *  Camera zoom Z CANCELS, and so does TILE_PX — it scales the span, which is
- *  the numerator of BOTH errors: C/B = (BAKE_PX·π/4)·2^(−z). So the verdict
- *  depends on the TILE zoom alone, and direct wins for every
- *  z ≥ ceil(log2(BAKE_PX·π/4)) = ceil(log2(128π)) = 9 — at EVERY camera zoom,
- *  which is why this is a selection-zoom gate and not a camera-zoom one.
+ *  The earlier derivation (9) compared the chord's RADIAL dip against one bake
+ *  texel; that dip lies along the view ray at the frame centre and is not what
+ *  the eye sees — the two terms above are. Corrected on the owner's post-merge
+ *  report, with the direct arm measured sharper and closer to the Mercator
+ *  control at z7.5 / 8.6 / 9.6 on OFM Positron and MapLibre demotiles.
  *
- *  THE CROSSOVER IS GOVERNED BY BAKE_PX, NOT BY TILE_PX. Today the two are both
- *  512, so `TILE_PX·2π/8` happens to give the same 128π — a coincidence, not a
- *  derivation. Anything that changes the drape's bake resolution MOVES this
- *  constant (halving BAKE_PX → 8, doubling → 10), and #2094 proposes exactly
- *  that (dpr-aware bake density). The drift is caught by the BAKE_PX pin in
- *  map/src/render/globe-direct-ceiling-selection.test.ts, which is where a
- *  reader who changes BAKE_PX will be sent.
+ *  MAPPING ONTO currentZ / targetZ. `currentZ = floor(cameraZoom)` clamped to the
+ *  source maxLevel (tile-selection-cache.ts), and the globe selector
+ *  force-descends the focal tile to that zoom (globe-visible-tiles.ts:434), so
+ *  the tiles under the camera centre are drawn AT the gated zoom — threshold =
+ *  crossover, no off-by-one. currentZ is HYSTERESED (it trails the camera in a
+ *  zoom-in readiness hold), so the renderer feeds `max(currentZ, targetZ)`,
+ *  `targetZ` being the camera's own clamped LOD: a camera past the ceiling
+ *  draws its held coarse tiles direct rather than as magnified bakes.
  *
- *  MAPPING TILE z ONTO currentZ. `currentZ = floor(cameraZoom)`, clamped to the
- *  source maxLevel (tile-selection-cache.ts:51, :377/:387 — plain `floor` for
- *  MapLibre vector-source parity, reverted there from `+0.7` on 2026-05-15).
- *  The globe selector runs with `selMaxZ = currentZ` and force-descends the
- *  focal tile to that max (globe-visible-tiles.ts:434), so the tiles under the
- *  camera centre are drawn AT currentZ — the threshold is therefore the
- *  crossover itself, 9, with no off-by-one. Horizon tiles come in coarser
- *  (`tz < floor(desiredZ)`, :474) and would prefer the drape on the worst-case
- *  C, but they are limb-foreshortened into few pixels while the focal set owns
- *  the frame, and a frame cannot mix the two paths without a seam.
- *
- *  Getting this mapping wrong is what a `round`-based reading of currentZ cost
- *  once: at the #2093 report camera (zoom 9.70 → currentZ 9) a ceiling of 10
- *  left the drape running — measured, on the fix itself, before this correction.
- *
- *  currentZ is a HYSTERESED zoom bucket (tile-selection-cache.ts:368-390), so
- *  the switch cannot flap on a camera hovering at the boundary, and it is then
- *  SOURCE-CLAMPED to `source.maxLevel` (:598-599) — so a low-maxzoom source
- *  (demotiles, maxzoom 2) never reaches the ceiling and keeps the drape, and
- *  its #2024 overzoom windowing, at EVERY camera zoom. Below the gate the
- *  drape's great-circle hug is worth its blur: the same trade that EXCLUDED
- *  oblique(6) (see the comment at :242-244), read at the other end.
- *
- *  Ellipsoid flattening moves the crossover by <0.01 of a zoom level —
- *  irrelevant to an integer threshold. */
-export const GLOBE_DIRECT_MIN_SELECTION_Z = 9
+ *  THE SOURCE CLAMP IS LOAD-BEARING. Both terms grow with the tile span
+ *  (2^(Z−2z): over-zooming a shallow source by Δz multiplies ε by 2^Δz), so the
+ *  gate is on the zoom the tiles are actually DRAWN at, never on the camera's
+ *  alone. A source whose maxzoom is below the ceiling — the maxzoom-2 demotiles
+ *  mirror, and the engine's synthetic earth-surface / polar-cap sources at
+ *  maxLevel 0, whose world-spanning quads have no chord budget at all — keeps
+ *  the drape and its #2024 windowed overzoom at every camera zoom. MapLibre's
+ *  own demotiles (maxzoom 6) reaches the ceiling exactly and is direct from z6. */
+export const GLOBE_DIRECT_MIN_SELECTION_Z = 6
 
 /** Whether the bake→drape path still wins at this selection zoom (#2093 F1).
- *  See GLOBE_DIRECT_MIN_SELECTION_Z for the chord-sagitta-vs-bake-texel
- *  derivation; at or above the ceiling the direct arm is sharper at every
- *  camera zoom. */
+ *  See GLOBE_DIRECT_MIN_SELECTION_Z for the chord-error derivation; at or above
+ *  the ceiling the direct arm is the sharper and the better-placed frame. */
 export function drapesAtSelectionZ(currentZ: number): boolean {
   return currentZ < GLOBE_DIRECT_MIN_SELECTION_Z
+}
+
+/** The same ceiling for STROKES, as its own constant (design INC-3 — the
+ *  fill-only drape sub-gate).
+ *
+ *  Fills and strokes were one decision because they share one bake texture: the
+ *  stroke rasterises on top of the fill in the tile RT and the sphere grid draws
+ *  the pair. But their error budgets are not the same shape, so their ceilings
+ *  are not the same number.
+ *
+ *  A FILL is an AREA. Two adjacent tiles that subdivide their shared border
+ *  independently can leave a hairline crack once the edges bow onto the sphere,
+ *  and the globe renders MIXED LOD every frame (coarse horizon, fine focal), so
+ *  the cross-LOD case is live. That is what still holds fills at
+ *  GLOBE_DIRECT_MIN_SELECTION_Z: the skirt that closes it is unbuilt.
+ *
+ *  A STROKE is a CURVE. It covers no area, so it has no neighbour to leave a gap
+ *  against — a mis-subdivided line is a slightly wrong line, never a hole — and
+ *  `subdivideChainMM` densifies it with the SAME 2° / depth-5 rule the fill
+ *  triangles get (compiler/src/tiler/subdivide-conforming.ts), so the outline
+ *  tracks the surface exactly as its fill does. What the drape costs it is
+ *  unconditional: the baked stroke is resampled onto the sphere grid, ~1 px of
+ *  filter on every road at every zoom, which is what the owner reads as "the
+ *  roads are still thick".
+ *
+ *  So strokes go direct everywhere on the sphere route (0 = no zoom drapes them)
+ *  while fills wait for the skirt. */
+export const GLOBE_DIRECT_MIN_STROKE_Z = 0
+
+/** Whether the bake→drape path still wins for STROKES at this selection zoom.
+ *  See GLOBE_DIRECT_MIN_STROKE_Z for why this is a different number from the
+ *  fill ceiling rather than the same one read twice. */
+export function drapesStrokesAtSelectionZ(currentZ: number): boolean {
+  return currentZ < GLOBE_DIRECT_MIN_STROKE_Z
 }
 
 // ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /
