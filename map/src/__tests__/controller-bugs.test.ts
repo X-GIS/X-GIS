@@ -4,6 +4,7 @@
 // #7  pitch>0 inertia velocity captured in world space
 // #11 pinch out+back returns to same zoom (logarithmic)
 // #12 double-tap 2nd tap registers pointer before early-return
+// #2304 double-tap 2nd tap's onPointerDown reaches map/layer listeners too
 // #13 exact-0 pinch sentinels not dropped
 // #2  disc drag keeps grabbed point under cursor (needs camera.discDragAnchorAt / panDiscToScreenAnchor)
 
@@ -386,6 +387,129 @@ describe('#12 double-tap bookkeeping before early return', () => {
     const calls = (canvas.setPointerCapture as ReturnType<typeof vi.fn>).mock.calls
     const hasPid2 = calls.some((c) => c[0] === pid2)
     expect(hasPid2).toBe(true)
+  })
+})
+
+// ═══ #2304 double-tap 2nd press must still reach onPointerDown ═════════════
+// The double-tap branch (#12, above) `return`s before the map/layer callback
+// used to fire, so the 2nd tap produced onPointerUp with no matching
+// onPointerDown. The fix moves the callback to right after
+// setPointerCapture, ahead of the double-tap `return`.
+describe('#2304 double-tap second press fires onPointerDown before the early return', () => {
+  it('witness: two touch presses fire onPointerDown x2, paired with onPointerUp x2', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    const onPointerDown = vi.fn()
+    const onPointerUp = vi.fn()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }), {
+      onPointerDown,
+      onPointerUp,
+    })
+
+    const pid1 = ++_pid
+    canvas.dispatchEvent(
+      pe('pointerdown', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'touch' }),
+    )
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'touch' }),
+    )
+
+    // Second press within the double-tap window/deadzone → the handler runs
+    // zoomAt(1) and returns early. onPointerDown must still fire for it.
+    const pid2 = ++_pid
+    const nowBase = globalThis.performance.now()
+    const nowSpy = vi.spyOn(globalThis.performance, 'now').mockReturnValue(nowBase + 100)
+    try {
+      canvas.dispatchEvent(
+        pe('pointerdown', { pointerId: pid2, clientX: 202, clientY: 201, pointerType: 'touch' }),
+      )
+    } finally {
+      nowSpy.mockRestore()
+    }
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid2, clientX: 202, clientY: 201, pointerType: 'touch' }),
+    )
+
+    expect(camera.zoomAt, 'confirms the double-tap branch actually ran').toHaveBeenCalledTimes(1)
+    expect(onPointerDown).toHaveBeenCalledTimes(2)
+    expect(onPointerUp).toHaveBeenCalledTimes(2)
+  })
+
+  it('control: a mouse double-press is unaffected — onPointerDown still fires twice', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    const onPointerDown = vi.fn()
+    const onPointerUp = vi.fn()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }), {
+      onPointerDown,
+      onPointerUp,
+    })
+
+    const pid1 = ++_pid
+    canvas.dispatchEvent(
+      pe('pointerdown', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'mouse' }),
+    )
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'mouse' }),
+    )
+
+    const pid2 = ++_pid
+    const nowBase = globalThis.performance.now()
+    const nowSpy = vi.spyOn(globalThis.performance, 'now').mockReturnValue(nowBase + 100)
+    try {
+      canvas.dispatchEvent(
+        pe('pointerdown', { pointerId: pid2, clientX: 202, clientY: 201, pointerType: 'mouse' }),
+      )
+    } finally {
+      nowSpy.mockRestore()
+    }
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid2, clientX: 202, clientY: 201, pointerType: 'mouse' }),
+    )
+
+    // Mouse always skipped the double-tap `if` (pointerType !== 'mouse' guard),
+    // so moving the callback earlier does not change its outcome here — the
+    // asymmetry the witness above catches is touch/pen-only.
+    expect(camera.zoomAt).not.toHaveBeenCalled()
+    expect(onPointerDown).toHaveBeenCalledTimes(2)
+    expect(onPointerUp).toHaveBeenCalledTimes(2)
+  })
+
+  it('each press delivers onPointerDown exactly once — no duplicate firing', () => {
+    _pid = 0
+    const canvas = makeCanvas()
+    const camera = makeCamera()
+    const ctrl = new PanZoomController()
+    const onPointerDown = vi.fn()
+    ctrl.attach(canvas, camera as never, () => ({ projectionName: 'mercator' }), { onPointerDown })
+
+    const pid1 = ++_pid
+    canvas.dispatchEvent(
+      pe('pointerdown', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'touch' }),
+    )
+    canvas.dispatchEvent(
+      pe('pointerup', { pointerId: pid1, clientX: 200, clientY: 200, pointerType: 'touch' }),
+    )
+
+    const pid2 = ++_pid
+    const nowBase = globalThis.performance.now()
+    const nowSpy = vi.spyOn(globalThis.performance, 'now').mockReturnValue(nowBase + 100)
+    try {
+      canvas.dispatchEvent(
+        pe('pointerdown', { pointerId: pid2, clientX: 202, clientY: 201, pointerType: 'touch' }),
+      )
+    } finally {
+      nowSpy.mockRestore()
+    }
+
+    // Each pointerId must appear exactly once, in press order — a duplicate
+    // (old + new call site both firing) would show pid2 twice.
+    const seenIds = onPointerDown.mock.calls.map((call) => (call[2] as PointerEvent).pointerId)
+    expect(seenIds).toEqual([pid1, pid2])
   })
 })
 

@@ -56,6 +56,11 @@ import {
   buildPatternFillMaterials,
   type FillRhiState,
 } from './material/polygon-fill-material'
+import {
+  indexPerStyleByLabel,
+  type PerStyleLabelOwner,
+  type PerStyleTwin,
+} from './material/per-style-label-index'
 import type { Material, RhiPipelineHandle } from '@xgis/engine'
 
 // ═══ Polygon shader emit ═══
@@ -106,10 +111,28 @@ export class PipelineFactory {
    *  routes the flat/ground non-extrude fill through these via the FillRhiState getter below. */
   private _fillMaterials: { flat: Material; ground: Material } | null = null
   /** LIVE per-style fill Material map (grown by registerFillMaterials as variant pipelines build). */
-  private _fillPerStyle = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
+  private _fillPerStyle = new Map<RhiPipelineHandle, PerStyleTwin>()
   /** #1252 — per-style EXTRUDE twins, keyed by the variant's extruded pipelines
    *  (feature layout). Only populated for needsFeatureBuffer variants. */
-  private _fillPerStyleExtrude = new Map<GPURenderPipeline, { mat: Material; variant: number }>()
+  private _fillPerStyleExtrude = new Map<RhiPipelineHandle, PerStyleTwin>()
+  /** #2309 — label index over the two per-style maps above, so the fill draw
+   *  path's dual-instance fallback is ONE lookup instead of a walk of the whole
+   *  map (698 wasted iterations a frame, measured). Write-through, never
+   *  derived: the contract and why it cannot be a size-invalidated cache live in
+   *  material/per-style-label-index.ts. */
+  private _fillPerStyleByLabel = new Map<string, PerStyleLabelOwner>()
+  private _fillPerStyleExtrudeByLabel = new Map<string, PerStyleLabelOwner>()
+
+  /** The one place either per-style map is written, so the map and its label
+   *  index can never drift. */
+  private setPerStyle(key: RhiPipelineHandle, entry: PerStyleTwin): void {
+    this._fillPerStyle.set(key, entry)
+    indexPerStyleByLabel(this._fillPerStyleByLabel, key, entry)
+  }
+  private setPerStyleExtrude(key: RhiPipelineHandle, entry: PerStyleTwin): void {
+    this._fillPerStyleExtrude.set(key, entry)
+    indexPerStyleByLabel(this._fillPerStyleExtrudeByLabel, key, entry)
+  }
   /** Opaque 3D-extrude fill Material (default shader; the base extrude pipelines, not per-variant). */
   private _fillExtrudeMaterial: Material | null = null
   /** pointer-events:none (no-pick, pick writeMask 0) twin of _fillExtrudeMaterial — only built when
@@ -154,6 +177,8 @@ export class PipelineFactory {
       },
       perStyle: this._fillPerStyle,
       perStyleExtrude: this._fillPerStyleExtrude,
+      perStyleByLabel: this._fillPerStyleByLabel,
+      perStyleExtrudeByLabel: this._fillPerStyleExtrudeByLabel,
       extrude: this._fillExtrudeMaterial
         ? {
             mat: this._fillExtrudeMaterial,
@@ -289,10 +314,10 @@ export class PipelineFactory {
       vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
       pickEnabled: isPickEnabled(),
     })
-    this._fillPerStyle.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
-    this._fillPerStyle.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
-    this._fillPerStyle.set(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
-    this._fillPerStyle.set(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
+    this.setPerStyle(pipelines.fillPipeline, { mat: flat, variant: 0 })
+    this.setPerStyle(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })
+    this.setPerStyle(pipelines.fillPipelineGround, { mat: ground, variant: 0 })
+    this.setPerStyle(pipelines.fillPipelineGroundFallback, { mat: ground, variant: 1 })
     // #2042 INC-4d — remember the variant per per-style pipeline so the lazy
     // split-twin build (perStyleSplitTwin) can derive its module on demand.
     for (const p of [
@@ -321,8 +346,8 @@ export class PipelineFactory {
         vertexLayout: toVertexBufferLayout(POLYGON_EXTRUDED_FORMAT),
         pickEnabled: isPickEnabled(),
       })
-      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtruded, { mat: extrudeMat, variant: 0 })
-      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedFallback, {
+      this.setPerStyleExtrude(pipelines.fillPipelineExtruded, { mat: extrudeMat, variant: 0 })
+      this.setPerStyleExtrude(pipelines.fillPipelineExtrudedFallback, {
         mat: extrudeMat,
         variant: 1,
       })
@@ -331,11 +356,11 @@ export class PipelineFactory {
       // extrusion routes here (the twin still writes pick — a minor pre-existing
       // imperfection for that rare combo, not a crash; a dedicated no-pick twin
       // is a follow-up).
-      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedNoPick, {
+      this.setPerStyleExtrude(pipelines.fillPipelineExtrudedNoPick, {
         mat: extrudeMat,
         variant: 0,
       })
-      this._fillPerStyleExtrude.set(pipelines.fillPipelineExtrudedFallbackNoPick, {
+      this.setPerStyleExtrude(pipelines.fillPipelineExtrudedFallbackNoPick, {
         mat: extrudeMat,
         variant: 1,
       })
@@ -615,6 +640,8 @@ export class PipelineFactory {
     this._fillSplitMaterials = null
     this._fillPerStyle.clear()
     this._fillPerStyleExtrude.clear()
+    this._fillPerStyleByLabel.clear()
+    this._fillPerStyleExtrudeByLabel.clear()
     this._fillPerStyleSplit.clear()
     this._fillPerStyleInfo.clear()
   }
@@ -1217,10 +1244,10 @@ export class PipelineFactory {
         pickEnabled,
         pickWriteMask: 0,
       })
-      this._fillPerStyle.set(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
-      this._fillPerStyle.set(this.fillPipelineFallbackNoPick, { mat: np.flat, variant: 1 })
-      this._fillPerStyle.set(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
-      this._fillPerStyle.set(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
+      this.setPerStyle(this.fillPipelineNoPick, { mat: np.flat, variant: 0 })
+      this.setPerStyle(this.fillPipelineFallbackNoPick, { mat: np.flat, variant: 1 })
+      this.setPerStyle(this.fillPipelineGroundNoPick, { mat: np.ground, variant: 0 })
+      this.setPerStyle(this.fillPipelineGroundFallbackNoPick, { mat: np.ground, variant: 1 })
       this._fillExtrudeMaterialNoPick = buildExtrudeMaterial({
         rhi: this.ctx.rhi,
         shader: pickShader,

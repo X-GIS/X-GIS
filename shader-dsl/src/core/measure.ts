@@ -18,7 +18,11 @@
 // Both are compile-time-derivable (no GPU); the real-GPU cycle/timing axis is P3.
 
 import type { ModuleDecl, Expr, Stmt, FuncDecl } from './ir/index.js'
-import { emitModule, emitModuleAt, lowerWgsl } from './backends/wgsl.js'
+import { emitModule, emitModuleAt, lowerWgsl, wgslBackend } from './backends/wgsl.js'
+import { glslEs300Backend } from './backends/glsl.js'
+import { lowerForBackend } from './emit.js'
+import type { Backend } from './backend.js'
+import { fixpoint, irEqual } from './passes/opt/optimize.js'
 
 // ── Source size ──
 
@@ -226,5 +230,86 @@ export function optimizerReport(m: ModuleDecl): OptimizerReport {
       savedCalls: opsO0.calls - opsO2.calls,
       savedArith: opsO0.arith - opsO2.arith,
     },
+  }
+}
+
+// ── Where the emit time actually goes (#2449, direction record D1.1) ────────────────────
+//
+// Every recorded compile cost in this repo is a TOTAL: 58-184 ms per retained family
+// (map/src/render/material/wgsl-for.ts:85), 80 ms for the polygon vertex emit against a 2 ms
+// module build (:115-116), a 2211 -> 492 ms hillshade fixpoint (baked/seed-hillshade.ts:7).
+// `lowerForBackend` runs eight stages and the last of them is a per-function fixpoint of ten
+// passes over up to eight iterations, so a total says nothing about which of the eighteen
+// things to attack. This measures them.
+
+/** One pre-emit stage's wall-clock. The `stage` names are `lowerForBackend`'s own steps. */
+export interface StageTiming {
+  readonly stage: string
+  readonly ms: number
+}
+
+/** One optimizer pass, summed over every function and every fixpoint iteration it ran in. */
+export interface PassTiming {
+  readonly pass: string
+  readonly ms: number
+  /** How many times the pass ran — functions × iterations. */
+  readonly runs: number
+}
+
+/** Where one module's emit spends its time, stage by stage and pass by pass.
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
+export interface EmitProfile {
+  readonly target: 'wgsl' | 'glsl-es300'
+  /** Wall-clock for the whole pre-emit pipeline; `stages` sums to this. */
+  readonly totalMs: number
+  /** In pipeline order, so the reader sees the sequence and not just the winner. */
+  readonly stages: readonly StageTiming[]
+  /** The `optimize` stage broken down, heaviest first. Sums to that stage's `ms`. */
+  readonly passes: readonly PassTiming[]
+}
+
+/** Profile `m`'s pre-emit pipeline. Runs the REAL `lowerForBackend` with a stopwatch, not a
+ *  re-derived copy of it, so a stage cannot be measured that the emit path does not run.
+ *
+ *  Timing is wall-clock on one machine: read the SHAPE (which stage dominates, by how much),
+ *  never the absolute milliseconds, and re-measure on the same commit before believing a
+ *  gradient (CLAUDE.md §12).
+ *
+ *  Exported from `@xgis/shader-dsl/dev`.
+ */
+export function profileEmit(m: ModuleDecl, target: 'wgsl' | 'glsl-es300' = 'wgsl'): EmitProfile {
+  const be: Backend = target === 'wgsl' ? wgslBackend : glslEs300Backend
+  const stages: StageTiming[] = []
+  const passMs = new Map<string, { ms: number; runs: number }>()
+
+  // The pass sink is installed by swapping the backend's `optimize` for the same `fixpoint`
+  // call carrying a sink. Both shipped backends ARE `(m) => fixpoint(m)`, and the assertion
+  // below proves the substitution produced the same module — so this measures the production
+  // optimizer rather than something adjacent to it.
+  const instrumented: Backend = {
+    ...be,
+    optimize: (mod: ModuleDecl) =>
+      fixpoint(mod, undefined, undefined, (pass, ms) => {
+        const cur = passMs.get(pass) ?? { ms: 0, runs: 0 }
+        passMs.set(pass, { ms: cur.ms + ms, runs: cur.runs + 1 })
+      }),
+  }
+
+  const lowered = lowerForBackend(m, instrumented, undefined, undefined, (stage, ms) =>
+    stages.push({ stage, ms }),
+  )
+  // The substitution above must not have changed the result.
+  if (!irEqual(lowered, lowerForBackend(m, be)))
+    throw new Error('profileEmit: the instrumented optimizer produced a different module')
+
+  return {
+    target,
+    totalMs: stages.reduce((a, s) => a + s.ms, 0),
+    stages,
+    passes: [...passMs.entries()]
+      .map(([pass, v]) => ({ pass, ms: v.ms, runs: v.runs }))
+      .sort((a, b) => b.ms - a.ms),
   }
 }
