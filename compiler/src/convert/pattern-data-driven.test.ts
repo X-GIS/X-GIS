@@ -1,21 +1,33 @@
 // Where the pattern properties' support boundary actually sits (#2380).
 //
-// `fill-pattern`, `line-pattern` and `fill-extrusion-pattern` all support the
-// CONSTANT string form end-to-end and decline every expression form with a
-// warning. That boundary had NO test at all: the warning strings appear only in
-// `paint-fill.ts` / `paint-line.ts` / `paint-fill-extrusion.ts` and nowhere under
-// a `*.test.ts`, so nothing pinned which forms convert and which fall back.
+// `fill-pattern`, `line-pattern` and `fill-extrusion-pattern` accept a CONSTANT
+// sprite name, and — since #2380 INC-0 — a `match()` over sprite names, which the
+// converter splits into one sublayer per unique sprite so each carries the
+// constant form. Every other expression form is still declined with a warning.
 //
-// This file pins it in both directions, which is the point — an assertion that
-// only checked the warning could not tell "the expression form is declined" from
-// "the converter warns about everything", and the three spec-coverage rows say
-// `status: 'supported'` precisely because nothing forced the distinction.
+// That boundary had NO test at all before this file: the warning strings appear
+// only in `paint-fill.ts` / `paint-line.ts` / `paint-fill-extrusion.ts` and
+// nowhere under a `*.test.ts`, so nothing pinned which forms convert and which
+// fall back — which is part of why the three spec-coverage rows read
+// `status: 'supported'` while the note said constant-only.
 //
-// WHEN #2380's INC-0 LANDS, the `match()` arms below flip: the warning stops and
-// the pattern reaches the IR. The `["get"]` arms stay as they are until INC-1 —
-// they are a different risk, not a bigger version of the same one (the open-ended
-// form needs the hashed 23-bit `stableCategoryId` palette path, which `match()`
-// bypasses entirely by composing the mapping into the variant shader).
+// It pins the boundary in BOTH directions on purpose: an assertion that only
+// checked the warning could not tell "this form is declined" from "the converter
+// warns about everything", and one that only checked the emit could not tell a
+// real split from a layer that merely mentioned three sprite names.
+//
+// THE SPLIT IS NOT A SHADER CHANGE, and an earlier draft of this comment said it
+// was. There is no per-feature variant and no UV-bbox palette here: each
+// sublayer draws a constant pattern through the pipelines that already existed.
+// The variant route was considered and rejected — it needs a per-feature REPEAT
+// as well as a bbox (sprite sizes differ, and repeat is recomputed per frame from
+// camera zoom), and an atlas of bboxes hits `rhiVariantFillSupported`'s r32float
+// fence and fails to LINK on WebGL2 rather than drawing wrong.
+//
+// The `["get"]` arms below stay declined — INC-1, and a different risk rather
+// than a bigger version of this one: an open-ended key set has no compile-time
+// sprite list to split on, so it needs the hashed 23-bit `stableCategoryId`
+// palette path and the collision question that comes with it.
 
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle, type StyleCoverage } from './mapbox-to-xgis'
@@ -81,7 +93,7 @@ const PATTERN_CASES = [
   },
 ] as const
 
-describe('#2380 — the pattern properties support the CONSTANT form only', () => {
+describe('#2380 — pattern properties: constant and match() convert, other expressions decline', () => {
   // The CONTROL arm. Without it the declining arms below carry no information:
   // a converter that warned on every form, or emitted nothing for any form,
   // would satisfy them just as well.
