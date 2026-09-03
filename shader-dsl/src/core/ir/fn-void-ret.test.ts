@@ -11,6 +11,7 @@ import {
   voidT,
   type FnHandle,
   type Node,
+  type ReadonlyNode,
 } from './index.js'
 import { emitModule } from '../backends/wgsl.js'
 
@@ -76,5 +77,24 @@ describe('#2458 — fn() and the void body', () => {
     expect([_k]).not.toContain(false)
     expect(_exactRejectsFallback).toBe(false)
     expect(emitModule(module({ funcs: [k] }))).toContain('fn cs_entry()')
+  })
+
+  it('the token moves NO emitted byte — it names what inferReturnType already computed', () => {
+    // The claim this PR's 29 call sites rest on. The shape is the one every migrated site has:
+    // a bare `Return()` early-out guard (no value, so inferReturnType's scan skips it — it
+    // requires `s.expr`) and a statement, never a value, last.
+    const body = (b: { x: ReadonlyNode<'f32'> }) => {
+      If(b.x.gt(0), () => {
+        Return()
+      })
+      Return()
+    }
+    const withToken = fn('void_kernel', { x: f32T }, voidT, body, { stage: 'compute' })
+    // @ts-expect-error — #2458: the inferring overload no longer accepts a void body. This arm
+    // exists ONLY to emit what the pre-change call site emitted, so the two can be compared.
+    const inferred = fn('void_kernel', { x: f32T }, body, { stage: 'compute' })
+    expect(emitModule(module({ funcs: [withToken] }))).toBe(
+      emitModule(module({ funcs: [inferred] })),
+    )
   })
 })
