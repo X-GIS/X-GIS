@@ -1549,7 +1549,14 @@ const CEILINGS: Record<string, number> = {
   // #2273 raised 1478 -> 1492: the prefetch shield now ages per frame (a frame-id
   // record in resetCompileBudget + a guard in cancelStale). Six lines of logic;
   // the rest is the measured rationale. Nothing here is a separable unit.
-  'data/src/tile-catalog.ts': 1492,
+  // #2391 raised 1492 -> 1503: the detached-producer guard (audit F-8). ONE line of
+  // logic in acceptResult plus a two-statement reorder in attachBackend; the rest is
+  // the two rationales, and they are the load-bearing part — the obvious spelling of
+  // this guard silently drops the polar caps and the synthetic earth surface, because
+  // both emit from inside attach(). A first draft cost +17 and was trimmed to +11 by
+  // moving the full argument onto the issue. Not separable: the check belongs at the
+  // single sink chokepoint. MEASURED post-prettier.
+  'data/src/tile-catalog.ts': 1503,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -2407,7 +2414,11 @@ const CEILINGS: Record<string, number> = {
   // rewritten (not just the formula swapped) to argue from this path's own economics —
   // 3 fixed attempts + a 5-minute exhaustion cost — rather than leave the prior AWS
   // unbounded-retry citation standing unexplained against a different formula.
-  'data/src/vector-tile-loader.ts': 835,
+  // #2391 lowered 835 -> 833: the header described `XGVTBinarySource` delegating to
+  // `TileCatalog.loadFromURL` — a class and a method that no longer exist anywhere
+  // (audit F-9; `.xgvt` gave way to PMTiles). Two lines of doc rot removed, so the
+  // ceiling comes down with them per this file's own shrink-only rule.
+  'data/src/vector-tile-loader.ts': 833,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {

@@ -134,10 +134,10 @@ export class TileCatalog {
   private backends: TileSource[] = []
   /** Per-key dispatch shortcut: which backend produced a given
    *  preregistered XGVTIndex entry. Populated by attachBackend
-   *  whenever a backend's meta.entries is non-empty (XGVT-binary).
-   *  Lazy-discovery backends (PMTiles, GeoJSON-runtime) don't
-   *  preregister — their tiles are routed via the iterate-and-ask
-   *  fallback in requestTiles. */
+   *  whenever a backend's meta.entries is non-empty. Every backend
+   *  in the tree today is lazy-discovery (PMTiles, GeoJSON-runtime,
+   *  the virtual adapter) and preregisters nothing — their tiles are
+   *  routed via the iterate-and-ask fallback in requestTiles. */
   private entryToBackend = new Map<number, TileSource>()
 
   /** Lazy reference to the in-memory GeoJSON backend, used by
@@ -286,14 +286,18 @@ export class TileCatalog {
    *  - getBounds() reflects the bounding union of all attached
    *    backends; maxLevel is the max-of-maxes; getPropertyTable()
    *    returns the first attached backend's table (first-attached-wins).
-   *  - Backends with meta.entries (XGVT-binary) preregister into
-   *    entryToBackend so dispatch is O(1) for those keys.
+   *  - Backends with meta.entries preregister into entryToBackend so
+   *    dispatch is O(1) for those keys. No backend in the tree does.
    *  Soft cap: catalog accepts any number of backends. Dispatch
    *  precedence is attach order — see plans/delegated-hopping-cray.md
    *  §1.2 for rationale. */
   attachBackend(backend: TileSource): void {
-    backend.attach(this.makeSink(backend))
+    // #2391 — membership BEFORE the sink is handed over, so `acceptResult`'s
+    // still-attached check holds by construction: geojson-polar-cap and
+    // synthetic-earth-surface both emit SYNCHRONOUSLY from inside attach(), and
+    // pushing after it would drop their tiles outright.
     this.backends.push(backend)
+    backend.attach(this.makeSink(backend))
     this.mergeBackendMeta(backend)
     this.checkLayoutVersion(backend)
   }
@@ -408,6 +412,13 @@ export class TileCatalog {
     backend?: TileSource,
   ): void {
     if (this._destroyed) return // #1570 — nowhere to go; every write below is dead weight
+    // #2391 F-8 — nor may a DETACHED backend's in-flight result. `detachBackend` reaches
+    // the producer only through the OPTIONAL `backend.detach?.()` (a silent no-op for every
+    // remote source until #1571, and still one for any backend that omits it), so the
+    // catalog cannot rely on a producer stopping when asked; and detachBackend deliberately
+    // does not evict, so a late write would be stamped with an owner already released.
+    // `this.backends` is the ONE authority — a separate "detached" set would be a second.
+    if (backend !== undefined && !this.backends.includes(backend)) return
     // #1371 — first result of a refresh: clear what the PREVIOUS backend left for this key, so
     // slices the new production does not emit cannot survive. Marked replaced either way, so
     // the renderer swaps (or drops) the tile it is currently drawing.

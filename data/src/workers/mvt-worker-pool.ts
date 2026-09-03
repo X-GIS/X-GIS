@@ -406,26 +406,47 @@ export class MvtWorkerPool {
       }
       this.pending.set(taskId, { resolve, reject, workerIndex })
       const w = this.workers[workerIndex]
-      w.postMessage(
-        {
-          kind: 'compile-mvt',
-          taskId,
-          bytes,
-          z,
-          x,
-          y,
-          maxZoom,
-          tileWidthMerc,
-          tileHeightMerc,
-          layers,
-          extrudeExprs,
-          extrudeBaseExprs,
-          showSlices,
-          strokeWidthExprs,
-          strokeColorExprs,
-        },
-        [bytes],
-      )
+      try {
+        w.postMessage(
+          {
+            kind: 'compile-mvt',
+            taskId,
+            bytes,
+            z,
+            x,
+            y,
+            maxZoom,
+            tileWidthMerc,
+            tileHeightMerc,
+            layers,
+            extrudeExprs,
+            extrudeBaseExprs,
+            showSlices,
+            strokeWidthExprs,
+            strokeColorExprs,
+          },
+          [bytes],
+        )
+      } catch (err) {
+        // #2391 F-6 — a synchronous throw here (a structured-clone failure of the
+        // payload: `extrudeExprs` / `showSlices` / `strokeColorExprs` are all
+        // style-derived) is INSIDE the executor, so it rejects this promise, and
+        // every caller-side path is already correct — pmtiles-backend.ts:556-571
+        // catches, pushes an empty result, and `.finally` frees the loading slot.
+        // What no caller can reach is the entry set above. Without this delete it
+        // outlives the settled promise forever: `pendingCount` drifts up for the
+        // rest of the session (the perf overlay reads it, as does
+        // _perf-worker-receive), and the resolve/reject closures stay pinned. The
+        // later blanket rejections in dispose() and the worker-error path re-settle
+        // an already-settled promise, so the drift never announces itself.
+        //
+        // NOT the #2091 case: that throw comes from `ensureWorkers()`, which runs
+        // BEFORE the executor, where `pending` was never touched — the caller's
+        // try/catch is the right fix there. Rethrown, not swallowed: the rejection
+        // is what releases the catalog's loading slot.
+        this.pending.delete(taskId)
+        throw err
+      }
     })
   }
 
