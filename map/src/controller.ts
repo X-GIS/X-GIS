@@ -340,11 +340,12 @@ export class PanZoomController implements Controller {
     }
 
     const onPointerDown = (e: PointerEvent) => {
-      // #12: register pointer BEFORE any early-return so every pointerdown
-      // has a paired setPointerCapture + activePointers entry, keeping
-      // down/up symmetric even when we bail early (e.g. double-tap zoom).
+      // #12: register pointer, capture it, and fire onPointerDown BEFORE any early-return
+      // — every pointerdown then pairs a setPointerCapture + activePointers entry + one
+      // onPointerDown call, keeping state and down/up counts symmetric (e.g. double-tap zoom).
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
+      events?.onPointerDown?.(e.clientX, e.clientY, e)
 
       // Double-tap detection (single finger only). Mouse is excluded
       // (#1265): a real mouse double-click ALSO satisfies this timing
@@ -367,7 +368,6 @@ export class PanZoomController implements Controller {
         lastTapX = e.clientX
         lastTapY = e.clientY
       }
-      events?.onPointerDown?.(e.clientX, e.clientY, e)
 
       if (activePointers.size === 1) {
         pressX = e.clientX
