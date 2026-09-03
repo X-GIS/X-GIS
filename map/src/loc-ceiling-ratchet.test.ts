@@ -2451,6 +2451,20 @@ const CEILINGS: Record<string, number> = {
   // of every string) — the exact defect a future "harden the null case" edit would
   // reintroduce. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
   'compiler/src/eval/evaluator-helpers.ts': 872,
+  // Baselined 805 (#2471, main merge) — a genuine unrelated-PR collision, the same
+  // shape as the #1602/#1603 one recorded above, and the §12 double-delta trap in its
+  // purest form: NEITHER SIDE BREACHED ALONE. Common ancestor 791; main's #2454
+  // (background-layer drop warnings) took it to 797; this branch's #2471 (Mapbox v3
+  // `imports` lowering) took it to 799. The two edits are in different regions, so git
+  // merged them with no conflict and the file took BOTH deltas — 805, red on main having
+  // been green on both branches. Extraction is already spent on both sides: #2454 put its
+  // logic in `background-layer-drop.ts` and #2471 put its in `style-imports.ts`, each
+  // leaving a one-line call site here; what remains is the converter's own body, and the
+  // only way under 800 now is deleting the comments that say WHY each call site sits
+  // where it does — degrading the record to absorb someone else's delta. MEASURED
+  // post-prettier on the MERGED tree (`wc -l`), set EXACTLY to the count, not picked
+  // between sides. Shrink-only from here.
+  'compiler/src/convert/mapbox-to-xgis.ts': 805,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
