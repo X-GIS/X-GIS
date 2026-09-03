@@ -376,7 +376,12 @@ const CEILINGS: Record<string, number> = {
   // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
   // branch went to 5541 from 5539, so the file again carries both deltas and neither
   // side's number is right (§12).
-  'map/src/render/vector-tile-renderer.ts': 5575,
+  // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
+  // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
+  // widened markDrawn argument lists at both sites plus the comments naming what
+  // the encoding preserves; the pack itself and its arithmetic argument were
+  // EXTRACTED to draw-dedup-key.ts rather than parked here.
+  'map/src/render/vector-tile-renderer.ts': 5583,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
