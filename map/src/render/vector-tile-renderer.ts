@@ -4860,9 +4860,9 @@ export class VectorTileRenderer {
             this.frameBlock.buffer,
             sliceLayer,
             this.currentPickId & 0xffff,
-            this.frameCount,
+            this.currentFrameId,
           )
-          this._splitBind!.syncFrame(this.frameBlock.buffer, this.frameCount)
+          this._splitBind!.syncFrame(this.frameBlock.buffer, this.currentFrameId)
           const bg = this._splitBind!.bindGroup()
           if (bg) {
             splitBind = { bg, tileOff, showOff }
@@ -5198,9 +5198,9 @@ export class VectorTileRenderer {
               this.frameBlock.buffer,
               sliceLayer,
               this.currentPickId & 0xffff,
-              this.frameCount,
+              this.currentFrameId,
             )
-            this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+            this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
             const bg = this._splitBind.bindGroup()
             if (bg) splitBind = { bg, tileOff, showOff }
           }
@@ -5419,9 +5419,9 @@ export class VectorTileRenderer {
           this.frameBlock.buffer,
           sliceLayer,
           this.currentPickId & 0xffff,
-          this.frameCount,
+          this.currentFrameId,
         )
-        this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+        this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
         strokeSplitBg = this._splitBind.bindGroup()
       }
       // line-gap-width double-draw: when the second offset slot was
