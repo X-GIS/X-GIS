@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 469ac8e13d7352dc14b169ac9c865a06739560dd
+  Generated from: c74cf6e9ad9876fcd931e93c874604bf80c2a845
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 469ac8e13d73
+    bun scripts/emit-changelog.ts --since c74cf6e9ad98
 -->
 
 # Changelog
@@ -27,6 +27,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** lower Mapbox v3 `imports` to xgis import statements (#2471) ([#2475](https://github.com/X-GIS/X-GIS/pull/2475)) `a2a40b0`
 - **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
 - **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
 - **map:** say so when a categorical() field outgrows the auto palette ([#2433](https://github.com/X-GIS/X-GIS/pull/2433)) `9dd57df`
@@ -45,6 +46,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** token strings keep non-identifier keys instead of throwing out of lower() (#2310) ([#2480](https://github.com/X-GIS/X-GIS/pull/2480)) `c74cf6e`
 - **render:** the globe drape's gate is a PIXEL BUDGET, not a LOD ceiling (#2094) ([#2469](https://github.com/X-GIS/X-GIS/pull/2469)) `469ac8e`
 - **compiler:** warn on dropped background layers and ignored background zoom bounds (#2333) ([#2454](https://github.com/X-GIS/X-GIS/pull/2454)) `b32d941`
 - **map/controller:** fire onPointerDown before the double-tap early return (#2304) ([#2453](https://github.com/X-GIS/X-GIS/pull/2453)) `3c3f0cf`
@@ -132,6 +134,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** awaitPendingWorkClear reports whether it converged or timed out (#2370) ([#2466](https://github.com/X-GIS/X-GIS/pull/2466)) `0ab7208`
+- **e2e:** the world-copies gate settles on its own precondition and reports the timeout (#2478) ([#2479](https://github.com/X-GIS/X-GIS/pull/2479)) `3da305a`
 - **e2e:** pin the z-fight oracle's denominator before trusting its ratio (#2399) ([#2473](https://github.com/X-GIS/X-GIS/pull/2473)) `d9d751f`
 - **scripts:** assert emit-changelog's --since range relationally, not by a fixed count (#2462) ([#2464](https://github.com/X-GIS/X-GIS/pull/2464)) `f35f970`
 - **render:** compile the committed WGSL and GLSL corpora on real Tint and ANGLE (#2444) ([#2448](https://github.com/X-GIS/X-GIS/pull/2448)) `b40839a`
