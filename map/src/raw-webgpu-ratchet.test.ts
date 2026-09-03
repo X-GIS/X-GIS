@@ -178,7 +178,10 @@ const BASELINE: Record<string, number> = {
   // 79→82 (#2042 INC-4b): SPLIT_FILL_LAYOUT_ENTRIES + the split layout build
   // (createBindGroupLayout with hasDynamicOffset — inexpressible through the
   // RHI reflect adapter, which never emits dynamic offsets) + the layout field.
-  'map/src/render/pipeline-factory.ts': 82,
+  // 82->80 (#2309): the two per-style map declarations were `Map<GPURenderPipeline, ...>`
+  // and only compiled because RhiPipelineHandle is structural; they now say what the
+  // exposed FillRhiState contract has always said, RhiPipelineHandle. Two raw tokens gone.
+  'map/src/render/pipeline-factory.ts': 80,
   // 16→15 (#1057 inc2): flushTilePoints's `pass: GPURenderPassEncoder` retyped to
   // `RhiRenderPass` (flushTilePointsRhi) — the wrap moved up to VTR.emitTilePointsRhi.
   // 15→10 (#1913): buildPointBglEntries' four hand-authored `GPUShaderStage.*` rows

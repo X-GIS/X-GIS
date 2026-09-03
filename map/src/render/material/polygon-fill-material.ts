@@ -14,6 +14,7 @@ import type {
   RhiPipelineHandle,
   VertexFormat,
 } from '@xgis/engine'
+import { type PerStyleLabelOwner, type PerStyleTwin } from './per-style-label-index'
 import {
   wrapWebGpuBindGroupLayout,
   wrapWebGpuBindGroup,
@@ -52,13 +53,19 @@ export interface FillRhiState {
   /** Per-STYLE (data-driven) fills compile their own shader → their own pipeline; this LIVE map
    *  (grown by PipelineFactory as layers are added) routes each per-style fill pipeline to its
    *  Material twin + variant. Checked before the default `pipes` above. */
-  perStyle: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
+  perStyle: Map<RhiPipelineHandle, PerStyleTwin> | null
   /** #1252 — per-STYLE EXTRUDED fills: a data-driven fill that also extrudes compiles its own
    *  feature-layout extrude Material (buildExtrudeMaterial over the variant WGSL). Routes each
    *  variant extruded pipeline (fillPipelineExtruded / …Fallback + nopick) to that twin so
    *  fs_fill_extrude samples feat_data[fid]. Checked on the bindZBuffer path BEFORE `extrude`
    *  (the shared base twin). null / miss → the base extrude twin (constant-fill path). */
-  perStyleExtrude: Map<RhiPipelineHandle, { mat: Material; variant: number }> | null
+  perStyleExtrude: Map<RhiPipelineHandle, PerStyleTwin> | null
+  /** #2309 — `label -> the FIRST-registered entry carrying that label`, the index
+   *  the dual-instance fallback below reads instead of walking `perStyle`. Kept in
+   *  step with the map by `PipelineFactory.setPerStyle` / `setPerStyleExtrude`,
+   *  the single write authority. null on a state built without one. */
+  perStyleByLabel: Map<string, PerStyleLabelOwner> | null
+  perStyleExtrudeByLabel: Map<string, PerStyleLabelOwner> | null
   /** Opaque 3D-extruded fill (default shader): the extrude Material + the two native pipelines it
    *  twins. Routed on the bindZBuffer path. The *NoPick fields twin the pointer-events:none extrude
    *  pipelines (only built when picking is on; null otherwise). null = extrude stays raw. */
@@ -599,15 +606,13 @@ export function recordFillDraw(
     if (!bindZBuffer) {
       // Flat fill. Per-style (data-driven) pipelines route via their own cached Material twin; the
       // rest match the default-shader flat/ground pipes.
-      let ps = eff.perStyle?.get(pipeline)
-      if (!ps && eff.perStyle && pipeline.label) {
-        for (const [k, v] of eff.perStyle) {
-          if (eq(k)) {
-            ps = v
-            break
-          }
-        }
-      }
+      // #2309 — identity first, then the dual-instance label fallback as ONE
+      // lookup. This used to walk the whole `perStyle` map: measured on OFM
+      // Bright z14.7 the identity get misses on 92% of draws and the walk then
+      // covered all 160 entries and matched nothing, 698 iterations a frame.
+      const ps =
+        eff.perStyle?.get(pipeline) ??
+        (pipeline.label ? eff.perStyleByLabel?.get(pipeline.label)?.entry : undefined)
       const p = eff.pipes
       mat = ps
         ? ps.mat
@@ -639,15 +644,10 @@ export function recordFillDraw(
       // feature-layout extrude twin (fs_fill_extrude samples feat_data[fid]). Identity
       // then label match, mirroring the flat perStyle lookup. extrudeSolid=true so the
       // #1080 translucent front-shell two-draw applies to data-driven extrusions too.
-      let pse = eff.perStyleExtrude?.get(pipeline)
-      if (!pse && eff.perStyleExtrude && pipeline.label) {
-        for (const [k, v] of eff.perStyleExtrude) {
-          if (eq(k)) {
-            pse = v
-            break
-          }
-        }
-      }
+      // #2309 — same index as the flat path above, mirroring its lookup order.
+      const pse =
+        eff.perStyleExtrude?.get(pipeline) ??
+        (pipeline.label ? eff.perStyleExtrudeByLabel?.get(pipeline.label)?.entry : undefined)
       if (pse) {
         mat = pse.mat
         variant = pse.variant

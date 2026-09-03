@@ -309,6 +309,8 @@ function drawnPipelineLabels(opts: { frontShell: boolean; shell: boolean }): str
     pipes: null,
     perStyle: null,
     perStyleExtrude: null,
+    perStyleByLabel: null,
+    perStyleExtrudeByLabel: null,
     extrude: { mat, write, test: { label: 'fill-pipeline-extruded-fallback' } },
     pattern: null,
     split: null,
