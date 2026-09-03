@@ -39,6 +39,8 @@
 import type { Expr, Stmt, ModuleDecl, StructDecl, ShaderType, BinOp } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
+import { froundF32 } from './passes/precision.js'
+import type { CpuPrecision } from './oracle.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -461,12 +463,18 @@ interface CodegenRuntime {
  *
  *  Exported from `@xgis/shader-dsl`.
  */
-export function compileModuleJs(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
+export function compileModuleJs(
+  m: ModuleDecl,
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision },
+): CpuModule {
   // Identical preamble to compileModule so the generated code walks the SAME IR
   // the interpreter would (validate rejects malformed modules; autoVars
-  // materialises plain-const assignables into var bindings).
+  // materialises plain-const assignables into var bindings; froundF32 makes f32
+  // arithmetic round like the target's — #2426, and it must be the same rewrite in
+  // the same place, or the two engines stop being differentials of each other).
   validate(m)
-  const mv = autoVars(m)
+  const av = autoVars(m)
+  const mv = opts?.precision === 'f32' ? froundF32(av) : av
   const gpuStubs = opts?.gpuStubs ?? false
 
   const mod: ModCtx = {
