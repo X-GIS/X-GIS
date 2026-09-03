@@ -9,13 +9,10 @@ import {
   enumerateWorldCopies,
   routeToSphereSelector,
   bakesVectorDrape,
-  GLOBE_DIRECT_MIN_SELECTION_Z,
-  drapesAtSelectionZ,
   GLOBE_DIRECT_MIN_STROKE_Z,
   drapesStrokesAtSelectionZ,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
-import { TILE_PX } from './world-scale'
 
 // The PROJECTIONS table is the SINGLE SOURCE OF TRUTH (authority flip, P1):
 // the world-copy / sphere-routing predicates now DERIVE from these rows.
@@ -242,132 +239,33 @@ describe('PROJECTIONS table', () => {
 })
 
 // ── T4: the #2093 F1 drape LOD ceiling ──
-// bakesVectorDrape says WHICH SURFACE drapes; GLOBE_DIRECT_MIN_SELECTION_Z says
-// HOW LONG it is worth draping. The bake→drape path trades BLUR (one 512px-bake
-// texel, magnified on screen — also the drape's whole AA feather band) for the
-// direct arm's CHORD error, which lives only on tile-spanning straight edges and
-// improves 4× per zoom level. The ceiling is the reference-engine parity point
-// (projections-table.ts derives it): the zoom from which MapLibre's globe needs no
-// more than a 2×2 subdivision to draw the same tiles direct.
-describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () => {
-  /** MapLibre's globe subdivides fill geometry at granularity
-   *  max(1, BASE / 2^z) — subdivision.ts's `SubdivisionGranularityExpression(128, 1)`
-   *  for fills. The reference engine's own constant, mirrored here as the parity
-   *  oracle the ceiling is derived from. */
-  const MAPLIBRE_FILL_BASE_GRANULARITY = 128
-  /** Reference viewport width (CSS px) the error budgets are quoted for. */
-  const VIEWPORT_PX = 1024
-  /** Camera height above the surface in earth radii at zoom Z, for a 60° fov
-   *  over VIEWPORT_PX: h/R = 0.866·W·(2π/(TILE_PX·2^Z)). */
-  const cameraHeightR = (Z: number): number =>
-    (0.866 * VIEWPORT_PX * 2 * Math.PI) / (TILE_PX * 2 ** Z)
-  /** PERSPECTIVE DISPLACEMENT of a chord spanning a whole tile of zoom z at camera
-   *  zoom Z: ε = D²/(2·R·h) with D/R = 2π·2^−z — the fraction of its screen
-   *  offset an edge is pulled toward the frame centre. */
-  const perspectiveEps = (Z: number, z: number): number =>
-    (2 * Math.PI * 2 ** -z) ** 2 / (2 * cameraHeightR(Z))
-  /** ARC CURVATURE inside the viewport at pitch 0: the projected sagitta of a
-   *  great-circle arc of on-screen length W passing at the viewport's own
-   *  angular half-width from the nadir, W³/(16·R_px²), R_px = TILE_PX·2^Z/(2π). */
-  const arcSagittaPx = (Z: number): number => {
-    const rPx = (TILE_PX * 2 ** Z) / (2 * Math.PI)
-    return VIEWPORT_PX ** 3 / (16 * rPx * rPx)
-  }
-
-  it('=== the ceiling is the MapLibre 2×2-subdivision parity point', () => {
-    // The reference engine subdivides a tile of zoom z into max(1, 128/2^z) cells
-    // per axis and draws it direct; from the zoom where that is ≤ 2 it is
-    // drawing the same tiles with at most a 2×2 split, and above ~z6 it blends to
-    // a flat Mercator plane altogether. Direct-from-six is that parity point.
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(
-      Math.ceil(Math.log2(MAPLIBRE_FILL_BASE_GRANULARITY / 2)),
-    )
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
-  })
-
-  it('the chord budget at the ceiling is what the derivation quotes, and shrinks 4× per level', () => {
-    // Native zoom (Z = z): the two error terms of a tile-spanning straight edge.
-    // These are the numbers projections-table.ts commits to; a drift in either
-    // formula — or in TILE_PX — reddens here with the new value in the message.
-    const z = GLOBE_DIRECT_MIN_SELECTION_Z
-    const eps = perspectiveEps(z, z)
-    const arc = arcSagittaPx(z)
-    expect(
-      eps,
-      `perspective displacement at native z${z}: ${(eps * 100).toFixed(2)} %`,
-    ).toBeCloseTo(1.81 * 2 ** -z, 2)
-    expect(eps * (VIEWPORT_PX / 2), 'px at the frame edge').toBeLessThan(15)
-    expect(arc, `arc sagitta at Z=${z}: ${arc.toFixed(2)} px`).toBeCloseTo(10106 * 4 ** -z, 1)
-    expect(arc).toBeLessThan(2.6)
-    for (let k = z; k < 14; k++) {
-      expect(
-        perspectiveEps(k + 1, k + 1) / perspectiveEps(k, k),
-        'ε halves per level at native zoom',
-      ).toBeCloseTo(0.5, 6)
-      expect(arcSagittaPx(k + 1) / arcSagittaPx(k), 'the arc term quarters per level').toBeCloseTo(
-        0.25,
-        6,
-      )
-    }
-    // One level BELOW the ceiling the same edge is already twice as far off and
-    // the whole-hemisphere arcs curve visibly — the drape's hug is worth its blur.
-    expect(perspectiveEps(z - 1, z - 1) * (VIEWPORT_PX / 2)).toBeGreaterThan(25)
-    expect(arcSagittaPx(z - 1)).toBeGreaterThan(9)
-  })
-
-  it('over-zooming a shallow source multiplies the chord error — the source clamp is load-bearing', () => {
-    // ε = 1.81·2^(Z−2z): drawing z2 tiles at camera z10 (the maxzoom-2 demotiles
-    // mirror at _globe-drape-overzoom-gate's camera) puts a tile-spanning edge
-    // hundreds of percent off — the gate must read the DRAWN zoom, never the
-    // camera's, and such a source keeps the drape at every camera zoom.
-    expect(perspectiveEps(10, 2)).toBeGreaterThan(1)
-    expect(drapesAtSelectionZ(2), 'currentZ clamps to 2 on that source').toBe(true)
-    // MapLibre's own demotiles (maxzoom 6) reaches the ceiling exactly.
-    expect(drapesAtSelectionZ(6), 'a maxzoom-6 source at any camera zoom ≥ 6 renders direct').toBe(
-      false,
-    )
-  })
-
-  it('covers the #2093 report cameras (their selection zooms both go direct)', () => {
-    // This file owns the PREDICATE half only. The CAMERA → currentZ half — that
-    // zoom 9.70 on a maxLevel-14 source really resolves to 9, and 21.10 to 14 —
-    // is driven through the production `TileSelectionCache.selectForFrame` in
-    // map/src/render/globe-direct-ceiling-selection.test.ts. Reimplementing
-    // `min(floor(cameraZoom), maxLevel)` here would be a SECOND AUTHORITY for a
-    // derivation geo cannot reach (map → geo, never the reverse), green by
-    // construction whatever the engine actually computes.
-    expect(drapesAtSelectionZ(9), '#2093 native-zoom camera: zoom 9.70 → currentZ 9').toBe(false)
-    expect(
-      drapesAtSelectionZ(14),
-      '#2093 deep-overzoom camera: zoom 21.10 on a maxLevel-14 source → currentZ 14',
-    ).toBe(false)
-    expect(
-      drapesAtSelectionZ(2),
-      'currentZ 2 — the globe overview, and equally zoom 9.70 on a maxzoom-2 source — keeps ' +
-        'the great-circle drape and its #2024 windowed overzoom',
-    ).toBe(true)
-  })
-
-  it('drapesAtSelectionZ() switches exactly at the ceiling (5 drapes, 6 goes direct)', () => {
-    expect(drapesAtSelectionZ(5), 'below the ceiling the great-circle hug is worth its blur').toBe(
-      true,
-    )
-    expect(
-      drapesAtSelectionZ(GLOBE_DIRECT_MIN_SELECTION_Z),
-      'at the ceiling the direct arm is the sharper, better-placed frame — render direct',
-    ).toBe(false)
-  })
-})
-
-// ═══ design INC-3 — strokes have their OWN ceiling, and it is not the fill's ═══
+// ═══ T4 MOVED — the fill drape's WHEN is no longer geo's (#2094) ═══
 //
-// Fills and strokes shared one decision because they share one bake texture. Their
-// error budgets do not have the same shape: a fill is an AREA (a mis-subdivided
-// shared border between two LODs leaves a hairline crack, and the globe renders
-// mixed LOD every frame), a stroke is a CURVE (no neighbour, no gap — and
-// `subdivideChainMM` densifies it with the same 2°/depth-5 rule the fill triangles
-// get). What the drape costs a stroke is unconditional: a resample onto the sphere
-// grid, ~1 px of filter on every road at every zoom.
+// This block pinned `GLOBE_DIRECT_MIN_SELECTION_Z`, a LOD CEILING, plus the
+// perspective-displacement and arc-curvature budgets it was derived from. The
+// ceiling is retired: it could not express the question the two paths differ on,
+// and the symptom was that every low zoom on a deep source kept the bake — the
+// owner saw the z0-z5 blur on WebGPU while WebGL2, which never bakes, looked
+// right, improving only on zoom-in past z6.
+//
+// Its replacement prices both paths in PIXELS and needs the tiler's subdivision
+// rule, which geo may not import (geo depends on @xgis/shared only), so both the
+// predicate and its pins moved to the consumer:
+//
+//     map/src/render/globe-drape-budget.ts       — GLOBE_DRAPE_CHORD_BUDGET_PX,
+//                                                  directChordErrorPx, drapesAtChordBudget
+//     map/src/render/globe-drape-budget.test.ts  — every native zoom direct, the
+//                                                  two cameras measured direct-better,
+//                                                  the shallow sources that must drape,
+//                                                  the closed form, the #2435 peak
+//     compiler/src/tiler/subdivision-conformance.test.ts
+//                                                — `tileSegmentAngleRad` against what
+//                                                  the real subdivision leaves
+//
+// That set is strictly larger than what T4 asserted, which is why this is a move
+// and not a deletion. What geo still owns is WHICH SURFACE drapes
+// (`bakesVectorDrape`, T3 above) and the STROKE half below.
+
 describe('T5: GLOBE_DIRECT_MIN_STROKE_Z — the stroke half of the drape decision', () => {
   it('strokes never drape on the sphere route — at any selection zoom', () => {
     for (const z of [0, 1, 2, 5, 6, 9, 14, 22]) {
@@ -379,18 +277,13 @@ describe('T5: GLOBE_DIRECT_MIN_STROKE_Z — the stroke half of the drape decisio
     }
   })
 
-  it('is a SEPARATE constant from the fill ceiling, not the same one read twice', () => {
-    // The whole point of INC-3: the two can move independently. A refactor that
-    // re-points one at the other silently re-couples them.
-    expect(GLOBE_DIRECT_MIN_STROKE_Z).not.toBe(GLOBE_DIRECT_MIN_SELECTION_Z)
+  it('is a SEPARATE decision from the fill gate, not the same one read twice', () => {
+    // The whole point of INC-3: the two move independently. They now differ in
+    // SHAPE as well as value — the fill gate is a per-camera pixel budget in
+    // map/src/render/globe-drape-budget.ts, this one is a constant, because no
+    // amount of over-zoom makes the bake the better tool for a curve. A refactor
+    // that re-points one at the other silently re-couples them.
     expect(GLOBE_DIRECT_MIN_STROKE_Z).toBe(0)
-  })
-
-  it('the FILL ceiling is unmoved — the cross-LOD skirt still gates it', () => {
-    // Strokes going direct says nothing about fills: the crack a fill can leave
-    // between two LODs is an area defect with no stroke analogue, and the skirt
-    // that closes it is unbuilt (design correction #4).
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
-    expect(drapesAtSelectionZ(5), 'fills below the ceiling still drape').toBe(true)
+    expect(drapesStrokesAtSelectionZ(0)).toBe(false)
   })
 })

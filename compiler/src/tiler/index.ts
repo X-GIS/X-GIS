@@ -75,3 +75,4 @@ export {
   type QuantizedDecode,
 } from './dequant-mirror'
 export type { GeoJSONFeature, GeoJSONGeometry, GeoJSONFeatureCollection } from './geojson-types'
+export { tileSegmentAngleRad } from './subdivide-conforming'

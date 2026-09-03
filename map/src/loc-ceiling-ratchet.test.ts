@@ -376,7 +376,13 @@ const CEILINGS: Record<string, number> = {
   // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
   // branch went to 5541 from 5539, so the file again carries both deltas and neither
   // side's number is right (§12).
-  'map/src/render/vector-tile-renderer.ts': 5575,
+  // 5575→5576 (#2094, measured post-prettier): the fill drape's WHEN moved OUT of
+  // this file's dependency — `drapesAtSelectionZ` came from @xgis/geo alongside
+  // `bakesVectorDrape`, `drapesAtChordBudget` comes from ./globe-drape-budget — so
+  // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
+  // is unchanged in length (one predicate call, one extra argument) and both comment
+  // blocks were trimmed back to their prior height to keep it at exactly one.
+  'map/src/render/vector-tile-renderer.ts': 5576,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

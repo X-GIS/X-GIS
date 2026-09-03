@@ -4,20 +4,21 @@
 // drew Positron's roads and boundaries visibly softer than mercator, because
 // EVERY vector layer rasterized into a fixed 512px DPR-blind single-sample tile
 // bake and was draped onto the sphere grid (vector-tile-renderer.ts:3615 —
-// `_drapeGlobeFills` / `_drapeStrokes`). The F1 fix is a LOD ceiling: at and
-// above `GLOBE_DIRECT_MIN_SELECTION_Z` (geo/src/projections-table.ts:305) the
-// frame's maxLevel-clamped `currentZ` puts the route on the DIRECT ECEF path,
-// where geometry is magnified instead of a texture. Below the ceiling — and for
-// any source whose maxLevel keeps `currentZ` under it — the bake→drape stays,
-// with its great-circle hug and its #2024 windowed overzoom.
+// `_drapeGlobeFills` / `_drapeStrokes`). The fix is a PIXEL BUDGET
+// (map/src/render/globe-drape-budget.ts, #2094 — it began as the #2093 LOD ceiling
+// and became a budget when a level proved unable to express the question): a
+// source whose maxLevel-clamped `currentZ` can SERVE this camera inside the budget
+// puts the route on the DIRECT ECEF path, where geometry is magnified instead of a
+// texture. A source the camera has run past — nothing here can supply the detail
+// the cached mesh lacks — keeps the bake→drape and its #2024 windowed overzoom.
 //
 // This gate is the campaign's closing statement at the REPORTED camera, in the
 // §12 cause → effect → sever order:
 //
-//   1. CAUSE   every CEILING-REACHING vt source renders DIRECT this frame
+//   1. CAUSE   every SERVABLE vt source renders DIRECT this frame
 //              (`_drapeGlobeFills` and `_drapeStrokes` false) and bakes ZERO NEW
 //              keys across a forced repaint — the mechanism, asserted before any
-//              pixel. PER SOURCE, never across sources: the ceiling is SOURCE-
+//              pixel. PER SOURCE, never across sources: the budget is SOURCE-
 //              CLAMPED, and this scene carries a synthetic
 //              `__synthetic_earth_surface__` source at maxLevel 0 (map.ts) that
 //              KEEPS the drape at every camera zoom — by the derivation, not
@@ -54,11 +55,12 @@
 // blank" into "N remote assets 404'd" instead of a mystery.
 
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captureMapFrame, type RGB } from './helpers/visual'
 import { installOfflineProxy } from './helpers/offline-proxy'
+import { expectDrape } from './helpers/drape-budget'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // Shared with the INC-1 probe on purpose: the byte cache is keyed by URL, so a
@@ -67,6 +69,8 @@ const NET_CACHE = join(HERE, '__net-cache__')
 
 const DEMO_ID = 'openfreemap_positron'
 const CAMERA = '9.70/37.54704/126.81412'
+/** The camera's own zoom — what the drape budget is priced at (#2094). */
+const CAMERA_ZOOM = 9.7
 /** Playwright captures at the context's deviceScaleFactor, so 1 CSS px of styled
  *  width is DPR device px in the returned PNG. Pinned, and re-asserted in-page
  *  against the engine's own canvas backing scale before any width is judged. */
@@ -80,27 +84,6 @@ const WHITE: RGB = [255, 255, 255] // motorway inner fill
 
 /** Styled CSS widths at z9.7, from the campaign's style read. */
 const STYLED_CSS_PX: Record<string, number> = { boundary: 2.41, casing: 3.84 }
-
-/** Selection zooms below this keep the bake→drape. Only a source whose OWN
- *  `maxLevel` reaches it can go direct at this camera, so it is what scopes every
- *  drape assertion below.
- *
- *  READ FROM THE ENGINE SOURCE, never mirrored: a spec that hard-codes the ceiling
- *  is a second authority for it, and the two drift silently the day the constant
- *  moves (CLAUDE.md §12). The engine module cannot be imported here — raw-Node spec
- *  transpilation does not resolve its `@xgis/shared` import — so the literal is
- *  parsed out of the file instead, and a parse failure is loud.
- *
- *  Called from a test BODY, never at module scope: a module-scope read that throws
- *  aborts collection for every spec in the suite (#1638). Same helper, same reason,
- *  as `_globe-direct-overzoom-sharpness-gate.spec.ts`. */
-function readGlobeDirectMinSelectionZ(): number {
-  const src = readFileSync(join(HERE, '../../geo/src/projections-table.ts'), 'utf8')
-  const m = /export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)/.exec(src)
-  if (!m)
-    throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from geo/src/projections-table.ts')
-  return Number(m[1])
-}
 
 // ── Thresholds (every one justified in the report; measured numbers are printed
 //    on both the pass and fail paths so a re-calibration never needs a re-run) ──
@@ -260,12 +243,12 @@ async function dumpSources(page: Page): Promise<Record<string, SourceState>> {
   })
 }
 
-/** The sources whose own `maxLevel` can reach the ceiling — the only ones the
+/** The sources this camera can be SERVED by — the only ones the
  *  #2093 direct claim is about, because `currentZ` is source-clamped. Every
  *  caller asserts the result NON-EMPTY: an empty scope would turn the assertions
  *  that follow into statements about nothing. */
-function ceilingReachingSources(state: Record<string, SourceState>, ceiling: number): string[] {
-  return Object.keys(state).filter((k) => state[k].maxLevel >= ceiling)
+function servableSources(state: Record<string, SourceState>): string[] {
+  return Object.keys(state).filter((k) => !expectDrape(state[k].maxLevel, CAMERA_ZOOM))
 }
 
 /** One-line source dump for a failure message — names + maxLevel + drape state. */
@@ -716,33 +699,37 @@ test('#2093 — Positron on the globe @ z9.7 renders DIRECT, with native-sharp s
   // `__synthetic_earth_surface__` at maxLevel 0, which therefore KEEPS the drape at
   // every camera zoom — the derivation working, not failing. Judging it against the
   // direct claim accuses the fix of doing exactly what it documents.
-  const ceiling = readGlobeDirectMinSelectionZ()
-  const ceilingReaching = ceilingReachingSources(after, ceiling)
+  // #2094 — the gate is a PIXEL BUDGET now, so a source is in scope when the budget
+  // says this camera can be SERVED by it, not when its maxLevel clears a constant.
+  // `expectDrape` reads the engine's own literals (helpers/drape-budget.ts); the
+  // arithmetic it repeats is pinned against the real predicate by
+  // map/src/render/globe-drape-budget.test.ts.
+  const servable = servableSources(after)
   expect(
-    ceilingReaching,
-    `no source here has maxLevel ≥ ${ceiling}, so nothing below would be a statement about ` +
-      `the #2093 ceiling — the scoping would be the escape hatch instead of the correction. ` +
-      `sources: ${describeSources(after)}`,
+    servable,
+    `no source here can serve z${CAMERA_ZOOM} inside the drape budget, so nothing below would be a ` +
+      `statement about the direct arm — the scoping would be the escape hatch instead of ` +
+      `the correction. sources: ${describeSources(after)}`,
   ).not.toEqual([])
 
-  const draping = ceilingReaching.filter((k) => after[k].drapeGlobeFills || after[k].drapeStrokes)
+  const draping = servable.filter((k) => after[k].drapeGlobeFills || after[k].drapeStrokes)
   expect(
     draping.map((k) => `${k}{fills:${after[k].drapeGlobeFills},strokes:${after[k].drapeStrokes}}`),
-    `these ceiling-reaching sources still bake→drape at currentZ ≥ ` +
-      `GLOBE_DIRECT_MIN_SELECTION_Z (${ceiling}). The #2093 LOD ceiling ` +
-      `(geo/src/projections-table.ts:305, wired at vector-tile-renderer.ts:3615) is not ` +
+    `these sources can be SERVED at z${CAMERA_ZOOM} — their direct chord error is inside the ` +
+      `drape budget — and still bake→drape. The #2094 budget ` +
+      `(map/src/render/globe-drape-budget.ts, wired in vector-tile-renderer.ts) is not ` +
       `reached for them. sources: ${describeSources(after)}`,
   ).toEqual([])
 
-  // Scoped for the same reason: a sub-ceiling source is SUPPOSED to keep baking,
+  // Scoped for the same reason: an unservable source is SUPPOSED to keep baking,
   // so its new keys are not evidence of anything about the direct arm.
-  const newKeys = ceilingReaching.flatMap((k) => {
+  const newKeys = servable.flatMap((k) => {
     const seen = new Set(before[k]?.bakedKeys ?? [])
     return after[k].bakedKeys.filter((key) => !seen.has(key)).map((key) => `${k}:${key}`)
   })
   expect(
     newKeys.slice(0, 20),
-    'a ceiling-reaching source baked NEW drape textures across a forced 30-frame repaint — ' +
+    'a servable source baked NEW drape textures across a forced 30-frame repaint — ' +
       'its flags above say direct while its bake cache says otherwise, so one of them is lying',
   ).toEqual([])
 
@@ -839,23 +826,23 @@ test('#2093 sever — holding the drape above the ceiling softens the same edges
   // whether or not the override is wired — it would green a severed lever, which is
   // precisely the `_adaptive-quality-ladder-gate` trap (§12: an assertion must
   // DISTINGUISH the states it tests).
-  const ceiling = readGlobeDirectMinSelectionZ()
-  const ceilingReaching = ceilingReachingSources(state, ceiling)
+  const servable = servableSources(state)
   expect(
-    ceilingReaching,
-    `no source here has maxLevel ≥ ${ceiling}, so the override has nothing to hold above the ` +
-      `ceiling and this arm cannot differ from the direct arm. sources: ${describeSources(state)}`,
+    servable,
+    `no source here can serve z${CAMERA_ZOOM} inside the drape budget, so the override has ` +
+      `nothing to hold and this arm cannot differ from the direct arm. ` +
+      `sources: ${describeSources(state)}`,
   ).not.toEqual([])
 
-  const drapingNames = ceilingReaching.filter((k) => state[k].drapeGlobeFills)
+  const drapingNames = servable.filter((k) => state[k].drapeGlobeFills)
   expect(
     drapingNames,
-    `__XGIS_FORCE_VECTOR_DRAPE is set but no source ABOVE the ceiling reports ` +
+    `__XGIS_FORCE_VECTOR_DRAPE is set but no SERVABLE source reports ` +
       `_drapeGlobeFills — the override at vector-tile-renderer.ts:3621 is not wired, so this ` +
       `arm is a second copy of the direct arm and proves nothing. sources: ` +
       describeSources(state),
   ).not.toEqual([])
-  const bakedTotal = ceilingReaching.reduce((acc, k) => acc + state[k].bakedKeys.length, 0)
+  const bakedTotal = servable.reduce((acc, k) => acc + state[k].bakedKeys.length, 0)
   expect(
     bakedTotal,
     'the drape flag is on above the ceiling but that source baked nothing — no texture was ' +
