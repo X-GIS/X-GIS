@@ -81,9 +81,11 @@ describe('#603 — cross-tile line-icon dedup (position-bucket gate)', () => {
     stage.addIcon(200, 200, 'circle') // collide defaults false
     const obs = stage.computeObstacles()
     expect(obs).toHaveLength(1)
-    // bbox should centre on (100,100) with half-width = 10*1*1 = 10
-    expect(obs[0]!.bbox.minX).toBeCloseTo(90)
-    expect(obs[0]!.bbox.maxX).toBeCloseTo(110)
+    // bbox centres on (100,100), half-width = 10*1*1 = 10, plus the default
+    // icon-padding (2) * dpr (1) = 2 — see #2339 (computeObstacles now
+    // matches resolveCollideDrops/pairedIconHalfExtents' anchor∓half∓pad box).
+    expect(obs[0]!.bbox.minX).toBeCloseTo(88)
+    expect(obs[0]!.bbox.maxX).toBeCloseTo(112)
   })
 
   it('computeObstacles propagates groupKey from pairKey', () => {
@@ -140,6 +142,41 @@ describe('#603 — cross-tile line-icon dedup (position-bucket gate)', () => {
     stage.prepare()
     expect(draws().length).toBe(1)
     expect(draws()[0]!.anchorX).toBe(100)
+  })
+})
+
+// ─── #2339 — computeObstacles inflates the bbox by icon-padding ─────────────
+//
+// computeObstacles() omitted the `pad = p.padding * dpr` term that
+// resolveCollideDrops (icon-collide-overlap.ts) and pairedIconHalfExtents
+// (icon-stage.ts) both apply for the same PendingIcon.padding field, so the
+// text-collision obstacle box was narrower than the icon's actual collision
+// footprint by `padding * dpr` per side — a different-group label could sit
+// inside the icon's authored icon-padding margin. Fixed at icon-stage.ts
+// computeObstacles by adding the same pad term to all four bbox sides.
+
+describe('#2339 — computeObstacles matches icon-padding used elsewhere in the file', () => {
+  it('inflates the bbox by padding * dpr, matching resolveCollideDrops/pairedIconHalfExtents', () => {
+    const { stage } = makeIconStub(2) // dpr=2 also exercises the `* this.dpr` scaling
+    stage.addIcon(100, 100, 'oneway', { collide: true, padding: 5 })
+    const obs = stage.computeObstacles()
+    // sizeScale = 1*dpr(2) = 2 → drawW = 20*2 = 40 → half = 20
+    // pad = padding(5) * dpr(2) = 10 → box = anchor ∓ half ∓ pad = 100 ∓ 30
+    expect(obs[0]!.bbox.minX).toBeCloseTo(70)
+    expect(obs[0]!.bbox.maxX).toBeCloseTo(130)
+    expect(obs[0]!.bbox.minY).toBeCloseTo(70)
+    expect(obs[0]!.bbox.maxY).toBeCloseTo(130)
+  })
+
+  // Control: padding=0 leaves the box byte-identical to the pre-fix,
+  // un-padded formula — proves the assertions above are attributable to the
+  // added pad term, not to a moved fixture or an unrelated formula change.
+  it('control: padding=0 leaves the bbox byte-identical to the un-padded box', () => {
+    const { stage } = makeIconStub()
+    stage.addIcon(100, 100, 'oneway', { collide: true, padding: 0 })
+    const obs = stage.computeObstacles()
+    expect(obs[0]!.bbox.minX).toBe(90)
+    expect(obs[0]!.bbox.maxX).toBe(110)
   })
 })
 
