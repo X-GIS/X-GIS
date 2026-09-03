@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 543d921a46bba27bfcbda2d7c627d787bb9d6aa5
+  Generated from: 469ac8e13d7352dc14b169ac9c865a06739560dd
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 543d921a46bb
+    bun scripts/emit-changelog.ts --path shader-dsl --since 469ac8e13d73
 -->
 
 # Changelog — shader-dsl
@@ -22,6 +22,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
 
 ### 2026-09
+
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
 
 #### feat
 
