@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 2c0459b7fd0deed465bfa1870e390edc86b7e7a1
+  Generated from: 3c3f0cfaed6ee491b1f1395f95302e76e1573f9b
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 2c0459b7fd0d
+    bun scripts/emit-changelog.ts --since 3c3f0cfaed6e
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
 - **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
 - **map:** say so when a categorical() field outgrows the auto palette ([#2433](https://github.com/X-GIS/X-GIS/pull/2433)) `9dd57df`
 - **compiler:** data-driven fill/line/fill-extrusion-pattern via the match split ([#2410](https://github.com/X-GIS/X-GIS/pull/2410)) `3e87fa0`
@@ -40,6 +41,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/controller:** fire onPointerDown before the double-tap early return (#2304) ([#2453](https://github.com/X-GIS/X-GIS/pull/2453)) `3c3f0cf`
+- **pipeline:** avg over a group with no numeric cell is NaN, not 0 (#2409) ([#2461](https://github.com/X-GIS/X-GIS/pull/2461)) `08ed4ec`
 - **sprite:** inflate icon-stage obstacle bbox by icon-padding (#2339) ([#2450](https://github.com/X-GIS/X-GIS/pull/2450)) `2c0459b`
 - **text:** exclude the trailing space from a wrapped line's measured width (#2336) ([#2452](https://github.com/X-GIS/X-GIS/pull/2452)) `8ea014e`
 - **text:** clear droppedPairKeys on the empty-prepare path too (#2338) ([#2451](https://github.com/X-GIS/X-GIS/pull/2451)) `1d5f5cc`
@@ -122,6 +125,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **scripts:** assert emit-changelog's --since range relationally, not by a fixed count (#2462) ([#2464](https://github.com/X-GIS/X-GIS/pull/2464)) `f35f970`
 - **render:** compile the committed WGSL and GLSL corpora on real Tint and ANGLE (#2444) ([#2448](https://github.com/X-GIS/X-GIS/pull/2448)) `b40839a`
 - **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`
 - **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
