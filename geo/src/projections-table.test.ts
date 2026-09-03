@@ -11,6 +11,8 @@ import {
   bakesVectorDrape,
   GLOBE_DIRECT_MIN_SELECTION_Z,
   drapesAtSelectionZ,
+  GLOBE_DIRECT_MIN_STROKE_Z,
+  drapesStrokesAtSelectionZ,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
 import { TILE_PX } from './world-scale'
@@ -354,5 +356,41 @@ describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () 
       drapesAtSelectionZ(GLOBE_DIRECT_MIN_SELECTION_Z),
       'at the ceiling the direct arm is the sharper, better-placed frame — render direct',
     ).toBe(false)
+  })
+})
+
+// ═══ design INC-3 — strokes have their OWN ceiling, and it is not the fill's ═══
+//
+// Fills and strokes shared one decision because they share one bake texture. Their
+// error budgets do not have the same shape: a fill is an AREA (a mis-subdivided
+// shared border between two LODs leaves a hairline crack, and the globe renders
+// mixed LOD every frame), a stroke is a CURVE (no neighbour, no gap — and
+// `subdivideChainMM` densifies it with the same 2°/depth-5 rule the fill triangles
+// get). What the drape costs a stroke is unconditional: a resample onto the sphere
+// grid, ~1 px of filter on every road at every zoom.
+describe('T5: GLOBE_DIRECT_MIN_STROKE_Z — the stroke half of the drape decision', () => {
+  it('strokes never drape on the sphere route — at any selection zoom', () => {
+    for (const z of [0, 1, 2, 5, 6, 9, 14, 22]) {
+      expect(
+        drapesStrokesAtSelectionZ(z),
+        `selection zoom ${z}: a baked stroke is resampled onto the sphere grid, which no bake ` +
+          `density removes — the "roads are still thick" report. Strokes go direct.`,
+      ).toBe(false)
+    }
+  })
+
+  it('is a SEPARATE constant from the fill ceiling, not the same one read twice', () => {
+    // The whole point of INC-3: the two can move independently. A refactor that
+    // re-points one at the other silently re-couples them.
+    expect(GLOBE_DIRECT_MIN_STROKE_Z).not.toBe(GLOBE_DIRECT_MIN_SELECTION_Z)
+    expect(GLOBE_DIRECT_MIN_STROKE_Z).toBe(0)
+  })
+
+  it('the FILL ceiling is unmoved — the cross-LOD skirt still gates it', () => {
+    // Strokes going direct says nothing about fills: the crack a fill can leave
+    // between two LODs is an area defect with no stroke analogue, and the skirt
+    // that closes it is unbuilt (design correction #4).
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
+    expect(drapesAtSelectionZ(5), 'fills below the ceiling still drape').toBe(true)
   })
 })

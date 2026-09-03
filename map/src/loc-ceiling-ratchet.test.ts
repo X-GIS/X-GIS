@@ -331,7 +331,12 @@ const CEILINGS: Record<string, number> = {
   // (`_drapeOverzoomDiagBySlice` + `_sliceOverzoomDiag`) is what turned the
   // third round into one measurement; the policy stays in
   // render/drape-overzoom-dispatch.ts.
-  'map/src/render/vector-tile-renderer.ts': 5501,
+  // 5501→5524 (design INC-3, measured post-prettier): the STROKE half of the drape
+  // decision is now its own derivation beside the fill half (`_bakeStrokesGated`,
+  // +14 with its rationale) instead of one line nested inside it, so a frame can
+  // drape its fills and still draw its roads direct. The predicate lives in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_STROKE_Z).
+  'map/src/render/vector-tile-renderer.ts': 5524,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

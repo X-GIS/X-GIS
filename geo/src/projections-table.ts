@@ -343,6 +343,40 @@ export function drapesAtSelectionZ(currentZ: number): boolean {
   return currentZ < GLOBE_DIRECT_MIN_SELECTION_Z
 }
 
+/** The same ceiling for STROKES, as its own constant (design INC-3 — the
+ *  fill-only drape sub-gate).
+ *
+ *  Fills and strokes were one decision because they share one bake texture: the
+ *  stroke rasterises on top of the fill in the tile RT and the sphere grid draws
+ *  the pair. But their error budgets are not the same shape, so their ceilings
+ *  are not the same number.
+ *
+ *  A FILL is an AREA. Two adjacent tiles that subdivide their shared border
+ *  independently can leave a hairline crack once the edges bow onto the sphere,
+ *  and the globe renders MIXED LOD every frame (coarse horizon, fine focal), so
+ *  the cross-LOD case is live. That is what still holds fills at
+ *  GLOBE_DIRECT_MIN_SELECTION_Z: the skirt that closes it is unbuilt.
+ *
+ *  A STROKE is a CURVE. It covers no area, so it has no neighbour to leave a gap
+ *  against — a mis-subdivided line is a slightly wrong line, never a hole — and
+ *  `subdivideChainMM` densifies it with the SAME 2° / depth-5 rule the fill
+ *  triangles get (compiler/src/tiler/subdivide-conforming.ts), so the outline
+ *  tracks the surface exactly as its fill does. What the drape costs it is
+ *  unconditional: the baked stroke is resampled onto the sphere grid, ~1 px of
+ *  filter on every road at every zoom, which is what the owner reads as "the
+ *  roads are still thick".
+ *
+ *  So strokes go direct everywhere on the sphere route (0 = no zoom drapes them)
+ *  while fills wait for the skirt. */
+export const GLOBE_DIRECT_MIN_STROKE_Z = 0
+
+/** Whether the bake→drape path still wins for STROKES at this selection zoom.
+ *  See GLOBE_DIRECT_MIN_STROKE_Z for why this is a different number from the
+ *  fill ceiling rather than the same one read twice. */
+export function drapesStrokesAtSelectionZ(currentZ: number): boolean {
+  return currentZ < GLOBE_DIRECT_MIN_STROKE_Z
+}
+
 // ── Capability accessor used by the flat-vs-ECEF MVP gate (camera /
 //    label-pass / render-loop). Add siblings (isFlatProj / periodicOf /
 //    cullThresholdOf …) here when a real consumer needs them — not before. ──
