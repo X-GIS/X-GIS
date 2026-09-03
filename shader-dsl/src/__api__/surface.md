@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 362 exports
+## `.` — 363 exports
 
 ```
 abs
@@ -74,6 +74,7 @@ Continue
 cos
 cosh
 CpuModule
+CpuPrecision
 CpuStruct
 CpuValue
 cross
@@ -667,7 +668,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 412 definitions
+## Shapes — 413 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -700,7 +701,7 @@ src/core/backends/wgsl.ts#intLit  function  (v: number, scalar: "i32" | "u32") =
 src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => ModuleDecl
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
-src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
+src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
@@ -931,7 +932,7 @@ src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
 src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
 src/core/ir/types.ts#arrayT  const  (elem: ShaderType, size?: number) => ShaderType
 src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "bool"; }
@@ -939,8 +940,8 @@ src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }
 src/core/ir/types.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64"; }
-src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
-src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } & { elem: "f64"; }
+src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; }
+src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } & { elem: "f64"; }
 src/core/ir/types.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
 src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; }
 src/core/ir/types.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
@@ -979,7 +980,8 @@ src/core/measure.ts#countOps  function  (m: ModuleDecl) => OpCount
 src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
 src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
-src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
+src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
+src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
 src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "over-budget" | "not-inlinable" }
