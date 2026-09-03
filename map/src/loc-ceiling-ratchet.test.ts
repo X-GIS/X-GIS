@@ -1995,7 +1995,11 @@ const CEILINGS: Record<string, number> = {
   // relocation loop this removes is provable from `compact()` leaving
   // bumpPtr === liveBytes, and that argument has to sit next to the code it
   // justifies. Lower this when the compaction/grow pair is extracted whole.
-  'map/src/render/gpu-tile-store.ts': 1000,
+  // 1000→996 (#2405): two hand-rolled retired-buffer arrays — each with its own
+  // push sites and its own drain loop stating one rule — became one shared
+  // RetireQueue. A consolidation that pays for its own comments, so the number
+  // comes DOWN rather than being held; RE-MEASURED post-prettier.
+  'map/src/render/gpu-tile-store.ts': 996,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
