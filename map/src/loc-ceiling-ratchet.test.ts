@@ -333,7 +333,14 @@ const CEILINGS: Record<string, number> = {
   // 5472->5481 (#2325): destroy() releases the FOURTH lazy fill Material,
   // `_fillBakeMatRhi` -- #2286 named three and missed the globe vector-drape bake
   // twin. The array reflows to one entry per line at printWidth 100.
-  'map/src/render/vector-tile-renderer.ts': 5481,
+  // 5481->5515 (#2309): the two prefetch throttles get a per-frame memo. Both are
+  // documented "every 10 / 6 FRAMES" but sat on a modulo inside render(), which runs
+  // once per ShowCommand -- 106x/frame on OFM Bright, so the modulo could not express
+  // a frame cadence in ANY form. The +34 is 3 fields plus the record of the two forms
+  // that both failed (`frameCount % 6` ~17.7 hits/frame, `currentFrameId % 6` 106 hits
+  // on every 6th) and of why the memo is keyed by `currentZ` -- the cheap-to-forget half
+  // that would otherwise be rediscovered the expensive way a third time.
+  'map/src/render/vector-tile-renderer.ts': 5515,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
