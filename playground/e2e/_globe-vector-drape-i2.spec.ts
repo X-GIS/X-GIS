@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 // as a CHORD under the sphere. I2 bakes each visible tile's fill to a tile-local
 // texture (I1 #990) and drapes it on the fine raster sphere grid so it hugs the
 // curve. This proves it on the REAL GPU with the SAME warm/stable tile set,
-// toggling ONLY the drape via `__XGIS_DISABLE_VECTOR_DRAPE`. Order OFF→ON→OFF so
+// toggling ONLY the drape. Order OFF→ON→OFF so
 // the OFF↔OFF pair is the tile-drift floor and OFF↔ON is the drape effect — the
 // drift-vs-drape disambiguation the reloc-DC0 trap demands.
 // Headed WebGPU only (the bake is WebGPU-only). `minimal` = local ne_110m country
@@ -22,6 +22,7 @@ type Win = Window & {
   __xgisReady?: boolean
   __xgisActiveBackend?: string
   __XGIS_DISABLE_VECTOR_DRAPE?: boolean
+  __XGIS_FORCE_VECTOR_DRAPE?: boolean
   __xgisMap?: {
     invalidate?: () => void
     getCamera?: () => { projType?: number; globeMode?: boolean; zoom?: number }
@@ -47,10 +48,27 @@ async function settle(page: import('@playwright/test').Page, ms: number): Promis
   )
 }
 
+// ── #2094 RE-POINT (the lever moved; the subject did not) ──────────────────
+// The fill drape's gate is a PIXEL BUDGET now, not a LOD ceiling, and at this
+// camera a source that can serve z2 is priced at ~0.1 px of direct chord error —
+// so the drape no longer runs by DEFAULT here and `__XGIS_DISABLE_VECTOR_DRAPE`
+// alone stopped moving the scene: both arms drew the same direct fills and this
+// gate reddened on its own distinguishing assertion ("curved drape must differ
+// from flat chord", measured 0). A subject retired out from under it, not a
+// regression — exactly what happened to _globe-vector-line-drape at INC-3.
+//
+// The MECHANISM is still live and still shipping (it is what an over-zoomed
+// source takes: a maxzoom-2 mirror at z10.3, the engine's maxLevel-0 quads), so
+// the gate follows it rather than being deleted or relaxed: the ON arm now sets
+// `__XGIS_FORCE_VECTOR_DRAPE`, the escape hatch `_drapeGlobeFills` carries for
+// exactly this, and the OFF arm keeps `__XGIS_DISABLE_VECTOR_DRAPE`. Same scene,
+// same camera, same three frames, same assertions — one flag name on the ON side.
 async function setDrape(page: import('@playwright/test').Page, on: boolean): Promise<void> {
-  await page.evaluate((disable) => {
-    ;(window as unknown as Win).__XGIS_DISABLE_VECTOR_DRAPE = disable
-  }, !on)
+  await page.evaluate((wantDrape) => {
+    const w = window as unknown as Win
+    w.__XGIS_DISABLE_VECTOR_DRAPE = !wantDrape
+    w.__XGIS_FORCE_VECTOR_DRAPE = wantDrape
+  }, on)
   // Two settle passes so the toggled path fully repaints before capture.
   await settle(page, 900)
   await settle(page, 700)

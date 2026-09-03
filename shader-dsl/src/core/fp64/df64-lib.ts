@@ -539,7 +539,10 @@ function defVecHelpers(n: 2 | 3 | 4): FuncDecl[] {
   // always the true vT carried by the param/member exprs.
   type V = ReadonlyNode<'vec2<f32>'>
   const asV = (x: ReadonlyNode): V => x as unknown as V
-  const pair = (hi: ReadonlyNode, lo: ReadonlyNode): Node => construct(sT, [hi, lo])
+  // No `: Node` return annotation on these three: since #2456 `construct` carries the
+  // struct key, and annotating widens it straight back to `Node<string>` — which is what
+  // the sibling fns' now-precise struct params reject.
+  const pair = (hi: ReadonlyNode, lo: ReadonlyNode) => construct(sT, [hi, lo])
   const hi = (x: ReadonlyNode): V => asV(member(x, 'hi', vT))
   const lo = (x: ReadonlyNode): V => asV(member(x, 'lo', vT))
 
@@ -712,11 +715,11 @@ function defMatHelpers(n: 2 | 3 | 4): FuncDecl[] {
   const vecFT: ShaderType = VEC_F32_T[n]
   const LANES = 'xyzw'.slice(0, n).split('')
   type P = ReadonlyNode<'vec2<f32>'>
-  const col = (m: ReadonlyNode, j: number): Node => member(m, `c${j}`, vT)
+  const col = (m: ReadonlyNode, j: number) => member(m, `c${j}`, vT)
   // lane c of a DF64VecN → the df64 scalar (hi.c, lo.c).
   const laneOf = (v: ReadonlyNode, c: string): P =>
     vec2(member(member(v, 'hi', vecFT), c, f32T), member(member(v, 'lo', vecFT), c, f32T)) as P
-  const gatherVec = (ls: readonly ReadonlyNode[]): Node =>
+  const gatherVec = (ls: readonly ReadonlyNode[]) =>
     construct(vT, [
       construct(
         vecFT,

@@ -22,7 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import earcut from 'earcut'
 import { tessellatePolygonToArrays, lonLatToMercF64 } from './vector-tiler'
-import { subdivideTriangleMM, vertexKey } from './subdivide-conforming'
+import { subdivideTriangleMM, vertexKey, tileSegmentAngleRad } from './subdivide-conforming'
 
 const FEATURE_ID = 1
 
@@ -530,5 +530,63 @@ describe('cross-LOD boundary conformance (the "skirt" prerequisite, measured)', 
           )
           .join('  '),
     )
+  })
+})
+
+// ── `tileSegmentAngleRad` must equal what the subdivision ACTUALLY does ──────
+//
+// The renderer prices the direct sphere path with this number
+// (map/src/render/globe-drape-budget.ts): the screen error of a chord standing in
+// for its arc is `R_px·(1 − cos(theta/2))`, and theta is whatever the tiler left.
+// The function is a CLOSED FORM over two module-private constants, so nothing but
+// a test can stop it drifting from the recursion it summarises — and a drift here
+// would silently mis-price every drape decision on the globe.
+describe('tileSegmentAngleRad === the finest edge the real subdivision leaves', () => {
+  it('matches the measured spacing on an EQUATORIAL tile edge, z1-z10', () => {
+    for (let z = 1; z <= 10; z++) {
+      const s = (2 * MM_WORLD) / 2 ** z
+      // ty = 2^(z-1) puts this tile's TOP edge exactly on the equator, where a tile
+      // spans the full 2*PI/2^z of longitude the closed form is written for.
+      const x0 = -MM_WORLD + Math.round(2 ** z * 0.31) * s
+      const params = boundaryParams(x0, 0, x0 + s, 0, x0, -s)
+      let widest = 0
+      for (let i = 1; i < params.length; i++) {
+        widest = Math.max(widest, params[i] - params[i - 1])
+      }
+      const measuredRad = widest * ((2 * Math.PI) / 2 ** z)
+      expect({ z, ok: Math.abs(measuredRad - tileSegmentAngleRad(z)) < 1e-9 }).toEqual({
+        z,
+        ok: true,
+      })
+    }
+  })
+
+  it('is clamped by the DEPTH cap where the gate alone cannot be reached (z0-z2)', () => {
+    // A z0 edge spans 360 deg and the gate wants 2 deg: that is 7.5 bisections, and
+    // MAX_TRI_SUBDIVIDE_DEPTH stops at 5. The returned angle is then the capped one,
+    // not the gate — the low-zoom half of the sawtooth the budget has to survive.
+    const deg = (r: number) => (r * 180) / Math.PI
+    expect(deg(tileSegmentAngleRad(0))).toBeCloseTo(360 / 32, 9)
+    expect(deg(tileSegmentAngleRad(1))).toBeCloseTo(180 / 32, 9)
+    expect(deg(tileSegmentAngleRad(2))).toBeCloseTo(90 / 32, 9)
+  })
+
+  it('returns the WHOLE tile span once an edge is already under the gate (#2435)', () => {
+    // From z8 a tile edge is under MAX_TRI_DEGREES_FOR_PROJ, so nothing splits and the
+    // segment IS the tile. This is the peak the direct path's native-zoom error has,
+    // and the reason #2435 asks for a per-tile-level granularity.
+    for (const z of [8, 9, 10, 12, 14]) {
+      expect({ z, whole: tileSegmentAngleRad(z) === (2 * Math.PI) / 2 ** z }).toEqual({
+        z,
+        whole: true,
+      })
+    }
+    // ...and NOT below z8, where the gate is still doing work.
+    for (const z of [3, 4, 5, 6, 7]) {
+      expect({ z, whole: tileSegmentAngleRad(z) === (2 * Math.PI) / 2 ** z }).toEqual({
+        z,
+        whole: false,
+      })
+    }
   })
 })

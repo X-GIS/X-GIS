@@ -520,9 +520,6 @@ export class ReadonlyNode<K extends string = string> {
    *  result-type parameter. Components are validated (xyzw/rgba, each within
    *  the source's lane count). */
   swizzle<S extends string>(comps: S): Node<SwizzleKey<K, S>>
-  /** @deprecated The explicit-result-type form — the key is inferred from the
-   *  components string now; a hand-written key can silently lie. */
-  swizzle<R extends string>(comps: string): Node<R>
   swizzle(comps: string): Node {
     const t = this.type
     if (!isVec(t) && !isVec64(t)) throw dslError('SD0008', `.${comps} on ${typeKey(t)}`)
@@ -1871,7 +1868,7 @@ export function callFn<T extends ShaderType>(
  *  const v = construct(vec3fT, [1, 0, 0])  // same result as vec3(1, 0, 0)
  *  ```
  */
-export const construct = (type: ShaderType, args: NodeLike[]): Node => {
+export const construct = <T extends ShaderType>(type: T, args: NodeLike[]): Node<KeyOf<T>> => {
   // A bare-number component lifts to the constructed type's ELEMENT scalar — so `vec4(pos, 0, 1)` emits
   // f32 components and `vec2u(0, 1)` emits u32 ones, dropping the f32()/u32() wrapper. Non-vec (struct)
   // args are typed field Nodes already, so the f32 fallback never lifts a stray number.
@@ -1884,7 +1881,7 @@ export const construct = (type: ShaderType, args: NodeLike[]): Node => {
           ? type.elem.scalar
           : 'f32'
   const elemT = elem === 'u32' ? u32T : elem === 'i32' ? i32T : elem === 'f64' ? f64T : f32T
-  return new Node({
+  return new Node<KeyOf<T>>({
     op: 'construct',
     type,
     args: args.map(
@@ -2118,9 +2115,18 @@ export const transformMat4 = (
 ): Node<'vec4<f32>'> =>
   new Node<'vec4<f32>'>({ op: 'binop', type: vec4fT, bop: '*', a: m.expr, b: v.expr })
 
-/** A fixed-length array literal — `array<elemKey, N>(...)`. */
-export const arrayLit = (elem: ShaderType, ...items: ReadonlyNode[]): Node =>
-  new Node({ op: 'construct', type: arrayT(elem, items.length), args: items.map((n) => n.expr) })
+/** A fixed-length array literal — `array<elemKey, N>(...)`. The result key carries the
+ *  element key AND the literal item count (#2456), so `arrayLit(f32T, a, b, c)` is
+ *  `Node<'array<f32,3>'>` — the exact key {@link typeKey} produces for its runtime type. */
+export const arrayLit = <E extends ShaderType, const I extends readonly ReadonlyNode[]>(
+  elem: E,
+  ...items: I
+): Node<`array<${KeyOf<E>},${I['length']}>`> =>
+  new Node<`array<${KeyOf<E>},${I['length']}>`>({
+    op: 'construct',
+    type: arrayT(elem, items.length),
+    args: items.map((n) => n.expr),
+  })
 
 // ── Composite arithmetic sugar (readability killer #2) ──
 // JS has no infix operators, so plain math reads as `.mul().add()` chains. These

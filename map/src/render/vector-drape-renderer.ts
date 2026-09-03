@@ -15,9 +15,12 @@
 // SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
-// COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
-// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the direct arm's chord error is
-// inside the reference-engine budget, the bake's blur is not, and direct renders.
+// OVER-ZOOM ONLY (#2094) — that same caller also gates on drapesAtChordBudget, so a
+// tile the source can supply at the camera's own level renders DIRECT: the direct
+// arm's chord error is then under the bake's own resample cost. What is left for the
+// bake is the tile too coarse for its camera, where the mesh (cached per tile,
+// projection- and zoom-independent by design) has no detail to give and only the
+// #2024 windowed sub-tiles can supply it.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
@@ -63,7 +66,7 @@ const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
  *  sampled freezes at its high-water mark — up to `maxCachedEntriesFor(BAKE_BYTES)`
  *  512² RGBA8 textures (384 desktop / 96 mobile, i.e. ~384 / ~96 MiB) held until
  *  `destroy()`. Before the LOD ceiling the globe drape never went permanently
- *  cold; past `GLOBE_DIRECT_MIN_SELECTION_Z` the direct arm renders every vector
+ *  cold; under `GLOBE_DRAPE_CHORD_BUDGET_PX` the direct arm renders every vector
  *  layer, so nothing re-enters the cache and none of it can ever be sampled again.
  *
  *  30 frames (~0.5 s at 60 fps) is the compromise: an ACTIVE drape only ever

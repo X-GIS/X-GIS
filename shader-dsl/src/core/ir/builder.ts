@@ -476,7 +476,10 @@ function subBody(parent: Builder, fn: (b: Builder) => ReadonlyNode | void, kind?
 // no return type. The args mapped-type's own K is the PARAM key (unrelated).
 /** A forwardable struct field proxy (a handle param / `.of()` view) — accepted
  *  anywhere a struct-typed argument is, via its raw-node `$` accessor. */
-type StructArg = { readonly $: ReadonlyNode }
+// #2456 — keyed: a sot field proxy's `$` now carries `struct:${Name}`, so a body that
+// returns the proxy (`return o`) infers the fn's return key instead of collapsing to
+// `string`. Defaulted, so the loose ARGUMENT positions below stay unchanged.
+type StructArg<R extends string = string> = { readonly $: ReadonlyNode<R> }
 
 /** The type `fn()` returns — a typed, callable handle that IS also a `FuncDecl`, so the same
  *  value both makes calls (`foo({ lon, lat })`) and drops straight into `module({ funcs: [foo]
@@ -613,7 +616,7 @@ type FnOpts = {
 type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
-) => ReadonlyNode<R> | StructArg | void
+) => ReadonlyNode<R> | StructArg<R> | void
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
