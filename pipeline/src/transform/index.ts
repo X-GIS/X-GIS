@@ -79,12 +79,18 @@ function aggregate(col: readonly Cell[], rows: readonly number[], kind: Agg): nu
     else if (kind === 'min') acc = Math.min(acc, v)
     else if (kind === 'max') acc = Math.max(acc, v)
   }
-  if (kind === 'avg') return n > 0 ? acc / n : 0
+  if (kind === 'avg' && n > 0) return acc / n
   // min/max seed with +/-Infinity, so a group whose cells are ALL non-numeric
   // ('N/A', '-', '' — ordinary in ingested CSV) skips every row above and
   // returns the untouched seed. Infinity reaching a Table column is worse than
   // it looks: it is a plausible-shaped extreme, so a downstream domain/scale
   // computation consumes it silently rather than rejecting it.
+  //
+  // #2409 — `avg` joins them, and its old answer was worse still: it returned
+  // 0, which is not merely plausible but INDISTINGUISHABLE from a group that
+  // genuinely averages to zero, and passes every `Number.isFinite` caller
+  // guard. `sum` deliberately stays out: the empty sum really is 0 (the
+  // additive identity), whereas the mean of nothing is undefined.
   //
   // NaN is the sentinel because `aggregate` returns `number` (Cell is
   // `number | string`), so there is no out-of-band value available, and of the
@@ -93,7 +99,7 @@ function aggregate(col: readonly Cell[], rows: readonly number[], kind: Agg): nu
   // function already uses to mean "not numeric". Callers test with
   // `Number.isFinite`, which rejects both the old and the new value; what
   // changes is that NaN cannot be silently arithmetic'd into a plausible result.
-  if ((kind === 'min' || kind === 'max') && n === 0) return NaN
+  if ((kind === 'min' || kind === 'max' || kind === 'avg') && n === 0) return NaN
   return acc
 }
 
