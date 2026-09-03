@@ -705,6 +705,13 @@ export interface LabelDef {
   iconCollide?: boolean
   iconIgnorePlacement?: boolean
   iconOptional?: boolean
+  /** Mapbox `text-optional` (layout, boolean; #2440) — `true` lets the paired
+   *  ICON survive when only the label loses its collision. Absent / `false` is
+   *  the spec default AND X-GIS's existing pair contract, so it stays a missing
+   *  field and those styles are byte-identical. Constant form only.
+   *  `isTextOptional` (text-stage.ts) is the single consumer-side authority and
+   *  carries why the obstacle-box half is load-bearing. */
+  textOptional?: boolean
   /** Mapbox `icon-padding` (layout, px) — per-icon collision-box padding.
    *  Constant form only; absent = spec default 2, applied at the IconStage
    *  collision box (icon-stage.ts). Non-constant forms deferred (data-driven

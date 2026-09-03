@@ -91,6 +91,7 @@ export function foldLabelKnobs(
     labelIconOptional?: boolean
     labelIconPadding?: number
     labelIconKeepUpright?: boolean
+    labelTextOptional?: boolean
     labelIconTextFit?: 'width' | 'height' | 'both'
     labelIconTextFitPadding?: [number, number, number, number]
     // iter 113 — opacity PropertyShape inputs (zoom-interp + expr).
@@ -218,6 +219,7 @@ export function foldLabelKnobs(
     ...(knobs.labelIconKeepUpright !== undefined
       ? { iconKeepUpright: knobs.labelIconKeepUpright }
       : {}),
+    ...(knobs.labelTextOptional !== undefined ? { textOptional: knobs.labelTextOptional } : {}),
     ...(knobs.labelIconTextFit !== undefined ? { iconTextFit: knobs.labelIconTextFit } : {}),
     ...(knobs.labelIconTextFitPadding !== undefined
       ? { iconTextFitPadding: knobs.labelIconTextFitPadding }

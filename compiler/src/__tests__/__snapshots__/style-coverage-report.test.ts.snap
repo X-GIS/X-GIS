@@ -732,11 +732,9 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "airport",
-      "reasons": [
-        "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -804,7 +802,6 @@ exports[`style coverage > openfreemap-bright coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
-    "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }
 `;
@@ -1419,11 +1416,9 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "airport",
-      "reasons": [
-        "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1495,9 +1490,7 @@ exports[`style coverage > openfreemap-liberty coverage matches snapshot 1`] = `
       "type": "vector",
     },
   ],
-  "warnings": [
-    "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
-  ],
+  "warnings": [],
 }
 `;
 
@@ -1775,11 +1768,9 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
       "type": "symbol",
     },
     {
-      "action": "lossy",
+      "action": "converted",
       "layerId": "airport",
-      "reasons": [
-        "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
-      ],
+      "reasons": [],
       "type": "symbol",
     },
     {
@@ -1847,7 +1838,6 @@ exports[`style coverage > openfreemap-positron coverage matches snapshot 1`] = `
   ],
   "warnings": [
     "Source "ne2_shaded" (type=raster) is declared but never referenced by any layer; dropped from emit (saves a tile fetch + IR slot). Layers may have been removed in the style but the source declaration was left behind.",
-    "Symbol layer "airport" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.",
   ],
 }
 `;
