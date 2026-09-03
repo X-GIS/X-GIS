@@ -133,18 +133,28 @@ function _charIsWhitespace(cp: number): boolean {
 }
 
 /** Measure glyph range [start, end) the way MapLibre measures a line:
- *  excluding LEADING and TRAILING breakable-whitespace advances before
- *  summing. MapLibre's `TaggedString.trim()` (vendored
- *  maplibre-gl@5.24.0 src/symbol/tagged_string.ts) strips both ends of
- *  each shaped line before `lineLength` is computed, but the
- *  Knuth-Plass break/badness walk above (`currentX`) already excludes
- *  whitespace from ONE side only implicitly — the emitted glyph range
- *  itself (`start`/`end`) still spans the literal break-to-break
- *  indices, whitespace included, because glyph positioning/consumer
- *  indexing downstream depends on that. This is MEASUREMENT-ONLY:
- *  callers keep `start`/`end` untouched and only narrow the width they
- *  compute from them. `rangeWidth` itself stays a literal-range sum —
- *  other callers depend on it measuring exactly [start, end). */
+ *  excluding the TRAILING breakable-whitespace advance before summing.
+ *  MapLibre's `TaggedString.trim()` (vendored maplibre-gl@5.24.0
+ *  src/symbol/tagged_string.ts) strips a shaped line before
+ *  `lineLength` is computed; the KP walk here emits break indices at
+ *  `i + 1` past a breakable codepoint, so a break on a space leaves
+ *  that space as the range's LAST glyph and its advance in the width.
+ *
+ *  MEASUREMENT-ONLY, and deliberately TRAILING-ONLY. `start`/`end` stay
+ *  the literal break indices (glyph positioning and the inline-sprite
+ *  index filter in text-stage-helpers.ts both key off them), and
+ *  `fillLineWithInlineImages` starts its pen at `lineX` and advances
+ *  through EVERY glyph in [start, end). A trailing space therefore
+ *  renders no ink, so dropping it from the width puts the ink exactly
+ *  where `lineX = totalAdvance - width` (right) or `* 0.5` (centre)
+ *  intends. A LEADING space is the opposite: the pen still consumes it,
+ *  so narrowing the width without also advancing `start` moves the ink
+ *  RIGHT by one advance — for right-justify that overflows the block by
+ *  `advance + letterSpacing`, strictly worse than the pre-#2336 error of
+ *  half an advance. Matching MapLibre on that side means moving `start`
+ *  too, which is a separate change (see #2446). `rangeWidth` itself
+ *  stays a literal-range sum — other callers depend on it measuring
+ *  exactly [start, end). */
 function measuredRangeWidth(
   glyphs: readonly GlyphInfo[],
   advances: ArrayLike<number>,
@@ -152,11 +162,9 @@ function measuredRangeWidth(
   end: number,
   letterSpacingPx: number,
 ): number {
-  let s = start
   let e = end
-  while (e > s && _charIsWhitespace(glyphs[e - 1]!.codepoint)) e--
-  while (s < e && _charIsWhitespace(glyphs[s]!.codepoint)) s++
-  return rangeWidth(advances, s, e, letterSpacingPx)
+  while (e > start && _charIsWhitespace(glyphs[e - 1]!.codepoint)) e--
+  return rangeWidth(advances, start, e, letterSpacingPx)
 }
 
 // MapLibre's regex-based `codePointAllowsIdeographicBreaking` covers
