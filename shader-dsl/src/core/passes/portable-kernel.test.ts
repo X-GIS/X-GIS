@@ -180,7 +180,7 @@ describe('#1812 SD0110 — portable is a COMPUTE declaration, rejected at author
   })
 
   it('fn() accepts it on a compute entry and records it structurally', () => {
-    const k = fn('ok_kernel', {}, () => undefined, { stage: 'compute', portable: true })
+    const k = fn('ok_kernel', {}, voidT, () => undefined, { stage: 'compute', portable: true })
     expect(k.decl.portable).toBe(true)
   })
 })
@@ -341,6 +341,7 @@ describe('#1812 the declaration survives module() assembly (fn-authored, not han
       fn(
         'paint',
         { gid: builtin('global_invocation_id', vec3uT) },
+        voidT,
         ({ gid }) => {
           const i = gid.x
           If(i.ge(uCount.node.x), () => {
