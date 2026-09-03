@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 5771e07ba4828d7b1276c6a4d817df10638eda3a
+  Generated from: 991f9b4636dccd45a0f10e69f8e60e66ac52ec8b
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 5771e07ba482
+    bun scripts/emit-changelog.ts --path shader-dsl --since 991f9b4636dc
 -->
 
 # Changelog — shader-dsl
@@ -22,6 +22,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
 
 ### 2026-09
+
+#### feat
+
+- **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
 
 #### fix
 

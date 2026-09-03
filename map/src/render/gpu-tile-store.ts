@@ -20,8 +20,9 @@
 // THE CRITICAL INVARIANTS — moved VERBATIM, asserted in tests
 // (plan §5 DO-NOT-SPLIT #5):
 //   1. `releaseTile` free order: line buffers releaseBuffer → outline/line
-//      segment + featureData RETIRE (deferred destroy — see _retiredTileBuffers,
-//      since forceEvictBytes runs mid-render and these are render-bound) →
+//      segment + featureData RETIRE (deferred destroy — see _retired and
+//      _retiredTileBuffers; forceEvictBytes runs mid-render and these are
+//      render-bound) →
 //      releaseTileHook (the Cluster-D compute-handle free) → inner.delete →
 //      count--. The hook is INJECTED (bound to `_featureBinder.releaseTile`);
 //      the store never imports FeatureDataBinder.
@@ -38,11 +39,11 @@
 
 import { GpuBufferPool } from './gpu-buffer-pool'
 import { planArenaCompaction } from './arena-compaction-budget'
-import { GPUArena } from '@xgis/engine'
+import { GPUArena, RetireQueue } from '@xgis/engine'
 // Backend-blind: the store's arena create/compaction/retire all route through the
 // RhiDevice (#832 — the engine arena no longer exposes native buffers); `device`
 // stays raw only for the pooled per-tile buffers + retire queue (later phase).
-import type { RhiDevice, RhiBuffer } from '@xgis/engine'
+import type { RhiDevice } from '@xgis/engine'
 import { getMaxGpuTiles, ARENA_HIGH_WATER, ARENA_LOW_WATER } from './vector-tile-renderer-helpers'
 import type { GPUTile } from './vector-tile-renderer-types'
 
@@ -151,7 +152,7 @@ export class GpuTileStore {
    *  Drained in the post-submit safe window by `runFrameMaintenance` →
    *  `_compactPolyArenas(…, vTarget, iTarget)`, which grows the arena by
    *  relocating the live set into a LARGER buffer — same safe-window +
-   *  `_retiredArenaBuffers` deferral + bundle-invalidation as compaction.
+   *  `_retired` deferral + bundle-invalidation as compaction.
    *  Distinct from `_pendingArenaCompaction` (same-size defrag). */
   private _pendingArenaGrowV = 0
   private _pendingArenaGrowI = 0
@@ -177,13 +178,18 @@ export class GpuTileStore {
   private _evictFutileV = false
   private _evictFutileI = false
 
-  /** Old arena GPUBuffers retired by a compaction, awaiting destroy. A
-   *  compaction swaps `arena.buffer` to a fresh packed buffer; the old
-   *  buffer is pushed here and destroyed on the NEXT `runFrameMaintenance`
-   *  (one full frame later), by which point the compaction's copy submit AND
-   *  any command that referenced the old buffer have drained. Mirrors the
-   *  uniform-ring retired-pool pattern. */
-  private _retiredArenaBuffers: RhiBuffer[] = []
+  /** RHI-typed resources awaiting a deferred destroy — the old arena buffers a
+   *  compaction swapped out, and the standalone per-tile segment buffers an
+   *  eviction released. Both are destroyed on the NEXT `runFrameMaintenance`
+   *  (one full frame later), by which point the compaction's copy submit AND any
+   *  command that referenced them have drained.
+   *
+   *  #2405 — these were TWO hand-rolled arrays here (`_retiredArenaBuffers` and
+   *  `_retiredTileRhiBuffers`, the second added when #834 M5 flipped the segment
+   *  buffers to `RhiBuffer`), each with its own push site and its own drain loop
+   *  implementing one rule. They are one `RetireQueue` now. `_retiredTileBuffers`
+   *  below stays separate only because it holds raw `GPUBuffer`s — see it. */
+  private readonly _retired = new RetireQueue()
 
   /** Standalone per-tile render-bound GPUBuffers (SDF line/outline SEGMENT
    *  buffers — label "line-segments" — plus per-tile feature-data buffers)
@@ -196,11 +202,15 @@ export class GpuTileStore {
    *  NEXT `runFrameMaintenance` (the post-submit safe window the arena-retired
    *  pool uses) + on destroy(). These are standalone buffers (not arena slices
    *  freed by range, not pooled), so deferral is the only safe teardown.
-   *  Mirrors `_retiredArenaBuffers` + TilePointCache.retired (tile-point-cache.ts). */
+   *  #2405 — the RhiBuffer half of this rule moved to `_retired` above; this list
+   *  survives it because `TileGpuRecord.featureDataBuffer` is typed `GPUBuffer`,
+   *  and the shared queue lives in `@xgis/engine`, the RHI-NEUTRAL layer the #991
+   *  ratchet exists to push raw WebGPU tokens out to. Folding this one in means
+   *  flipping that field to `RhiBuffer` the way its segment-buffer siblings
+   *  already were — a typed-field change across the feature-data path, and its
+   *  own increment. Until then the rule is stated in two places, which is exactly
+   *  what #2405 is closing; this is the remaining half. */
   private _retiredTileBuffers: GPUBuffer[] = []
-  /** RhiBuffer siblings of _retiredTileBuffers (#834 M5 — the segment buffers
-   *  flipped to RhiBuffer); drained at the same deferred-destroy point. */
-  private _retiredTileRhiBuffers: RhiBuffer[] = []
 
   private getOrCreatePolyVertexArena(): GPUArena {
     if (this.polyVertexArena === null) {
@@ -365,7 +375,7 @@ export class GpuTileStore {
   /** Per-frame post-submit maintenance, called from VTR `beginFrame` in the
    *  safe window the prior frame's `queue.submit()` has already drained.
    *  Runs, IN THIS ORDER (byte-identical to the in-VTR beginFrame block):
-   *    1. drain `_retiredArenaBuffers` (prior compaction's old buffers),
+   *    1. drain `_retired` + `_retiredTileBuffers` (what a prior frame retired),
    *    2. high-water evict trigger → `evictToBudget`,
    *    3. deferred compaction drain → `_compactPolyArenas`.
    *  `stableKeys` (E) + `releaseTileHook` (D) + the upload-active probe (B)
@@ -400,28 +410,17 @@ export class GpuTileStore {
     const iHi =
       this.polyIndexArena !== null &&
       this.polyIndexArena.highWaterBytes >= this.polyIndexArena.capacityBytes * ARENA_HIGH_WATER
-    // Drain arena buffers retired by a PRIOR frame's compaction. A full
-    // frame has elapsed since they were swapped out (their copy submit +
-    // every render that referenced them has long drained), so destroying
-    // them now is safe — and must happen BEFORE this frame's compaction
-    // pushes new entries, so the list never grows unbounded.
-    if (this._retiredArenaBuffers.length > 0) {
-      for (const b of this._retiredArenaBuffers) this.rhi.destroyBuffer(b)
-      this._retiredArenaBuffers.length = 0
-    }
-    // Drain standalone tile buffers (segment + feature-data) retired by a PRIOR
-    // mid-render eviction (forceEvictBytes) or the prior frame's evictToBudget —
-    // their frame's queue.submit() has drained by now, so destroying them is
-    // safe. Same top-of-frame position as the arena pool: this frame's
-    // evictToBudget (below) pushes new entries that drain next frame, keeping
-    // the list bounded.
+    // Drain what a PRIOR frame retired: the arena buffers a compaction swapped
+    // out, and the standalone tile buffers (segment + feature-data) released by
+    // a mid-render eviction (forceEvictBytes) or the prior frame's
+    // evictToBudget. A full frame has elapsed — their copy submit and every
+    // render that referenced them have drained — so destroying them now is safe.
+    // Position is load-bearing: this must run BEFORE this frame's eviction and
+    // compaction (below) push new entries, or the queue would never bound.
+    this._retired.drain(this.rhi)
     if (this._retiredTileBuffers.length > 0) {
       for (const b of this._retiredTileBuffers) b.destroy()
       this._retiredTileBuffers.length = 0
-    }
-    if (this._retiredTileRhiBuffers.length > 0) {
-      for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
-      this._retiredTileRhiBuffers.length = 0
     }
     // (a1) New frame: clear the per-arena eviction-futility latch so a moved
     // camera (which unprotects last frame's tiles) re-attempts a real evict.
@@ -666,8 +665,8 @@ export class GpuTileStore {
     // frame's render encoder raised `[Buffer "line-segments"] used in submit
     // while destroyed` at the frame submit. RETIRE them — destroyed in the
     // post-submit safe window (next runFrameMaintenance / destroy()).
-    if (tile.outlineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.outlineSegmentBuffer)
-    if (tile.lineSegmentBuffer) this._retiredTileRhiBuffers.push(tile.lineSegmentBuffer)
+    this._retired.retireBuffer(tile.outlineSegmentBuffer)
+    this._retired.retireBuffer(tile.lineSegmentBuffer)
     // Per-tile feature data is ALSO render-bound (bound at featureBindGroup
     // binding 1, drawn via renderTileKeys), so it shares the segment buffers'
     // mid-render-destroy hazard on the forceEvictBytes path. Retire it through
@@ -944,8 +943,8 @@ export class GpuTileStore {
     // captured the old buffer ref this frame (the async-upload guard above
     // already covers the known case); next beginFrame drains the retired
     // list, by which point nothing can still reference them.
-    if (vResult) this._retiredArenaBuffers.push(vResult.oldBuffer)
-    if (iResult) this._retiredArenaBuffers.push(iResult.oldBuffer)
+    this._retired.retireBuffer(vResult?.oldBuffer)
+    this._retired.retireBuffer(iResult?.oldBuffer)
     // Signal the caller that buffer refs moved (and old buffers were retired)
     // so it can invalidate any render bundles recorded against them. The
     // retired buffers are not destroyed until the NEXT runFrameMaintenance, so
@@ -981,16 +980,13 @@ export class GpuTileStore {
     this.zBufferArena = null
     // Phase 6a.5 — destroy any arena buffers retired by a compaction that
     // haven't yet been drained by a subsequent beginFrame.
-    for (const b of this._retiredArenaBuffers) this.rhi.destroyBuffer(b)
-    this._retiredArenaBuffers.length = 0
+    this._retired.drain(this.rhi)
     // Drain standalone tile buffers (segment + feature-data) retired by an
     // eviction but not yet destroyed by a subsequent runFrameMaintenance (their
     // tiles were already deleted from gpuCache, so the per-tile loop above did
     // not reach them).
     for (const b of this._retiredTileBuffers) b.destroy()
     this._retiredTileBuffers.length = 0
-    for (const b of this._retiredTileRhiBuffers) this.rhi.destroyBuffer(b)
-    this._retiredTileRhiBuffers.length = 0
     // Drain the pooled-buffer recycler: pooled line/index/outline buffers are
     // standalone GPUBuffers (NOT arena slices), so the arena destroys above do
     // not reclaim them. Without this they leak until device loss across SPA

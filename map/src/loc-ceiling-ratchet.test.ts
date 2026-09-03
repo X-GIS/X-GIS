@@ -365,7 +365,18 @@ const CEILINGS: Record<string, number> = {
   // — into one `bakeAvailable`, which is net −0 lines of code (six conjuncts out, four
   // in, two references back). The +2 is its two-line comment; the alternative was an
   // unexplained hoist.
-  'map/src/render/vector-tile-renderer.ts': 5541,
+  // 5481->5515 (#2309): the two prefetch throttles get a per-frame memo. Both are
+  // documented "every 10 / 6 FRAMES" but sat on a modulo inside render(), which runs
+  // once per ShowCommand -- 106x/frame on OFM Bright, so the modulo could not express
+  // a frame cadence in ANY form. The +34 is 3 fields plus the record of the two forms
+  // that both failed (`frameCount % 6` ~17.7 hits/frame, `currentFrameId % 6` 106 hits
+  // on every 6th) and of why the memo is keyed by `currentZ` -- the cheap-to-forget half
+  // that would otherwise be rediscovered the expensive way a third time.
+  // MEASURED 5575 post-prettier on this merged tree. THIRD collision on this key in
+  // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
+  // branch went to 5541 from 5539, so the file again carries both deltas and neither
+  // side's number is right (§12).
+  'map/src/render/vector-tile-renderer.ts': 5575,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2020,7 +2031,11 @@ const CEILINGS: Record<string, number> = {
   // relocation loop this removes is provable from `compact()` leaving
   // bumpPtr === liveBytes, and that argument has to sit next to the code it
   // justifies. Lower this when the compaction/grow pair is extracted whole.
-  'map/src/render/gpu-tile-store.ts': 1000,
+  // 1000→996 (#2405): two hand-rolled retired-buffer arrays — each with its own
+  // push sites and its own drain loop stating one rule — became one shared
+  // RetireQueue. A consolidation that pays for its own comments, so the number
+  // comes DOWN rather than being held; RE-MEASURED post-prettier.
+  'map/src/render/gpu-tile-store.ts': 996,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is

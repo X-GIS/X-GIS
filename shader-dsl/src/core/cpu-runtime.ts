@@ -203,6 +203,12 @@ const f16BitsToF32 = (h: number): number => {
 }
 
 export const BUILTINS: Record<string, Builtin> = {
+  // The f32 oracle's rounding step (#2426). NOT authorable and never emitted: `froundF32`
+  // (passes/precision.ts) injects it, and only the CPU engines ever see a module carrying it.
+  // It lives HERE rather than in each engine because both resolve builtins through this one
+  // table — the interpreter by `BUILTINS[e.fn]`, the codegen by `$.B[fn]` — so the two cannot
+  // disagree about what rounding means.
+  __fround: map1(Math.fround),
   sin: map1(Math.sin),
   cos: map1(Math.cos),
   tan: map1(Math.tan),
