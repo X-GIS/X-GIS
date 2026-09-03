@@ -517,9 +517,15 @@ lowering keeps struct `u32` fields in R32F texels (denormal flush risk noted in
 
 ---
 
-## 7. Open decisions for the owner
+## 7. Owner decisions — SETTLED 2026-09-02
 
-| #   | Decision                                                                                                                                                 | Recommendation                                                                                                                                                                       |
+All seven were decided by the owner on 2026-09-02, each as the recommendation below. They are
+FACTS now, not preferences to re-weigh: do not re-open one because the supporting detail has
+scrolled out of a later session's context (§9.5). The two that gated work are unblocked —
+**D2.5** (fp64 in `map/`) starts as decision 3 describes, **D3.6** (`f16`) stays parked by
+decision 5.
+
+| #   | Decision                                                                                                                                                 | DECIDED (2026-09-02) — the recommendation, adopted as written                                                                                                                        |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | Runtime emit: keep it first-class (then invest in speed) or demote it to a dev fallback (then a baked id becomes mandatory for every registered family)? | Demote. Bake is mandatory for the closed set; runtime emit serves `?nobake=1` and open-set style variants only. Speed work (D1.1–1.2) still pays for the residual path.              |
 | 2   | Accept a declared WebGPU-native compute tier that WebGL2 cannot run (fail-closed, `rejected[]`) — a backend asymmetry by design?                         | Yes. It is the portable-tier decision one rung up; the asymmetry is declared, never inferred.                                                                                        |
