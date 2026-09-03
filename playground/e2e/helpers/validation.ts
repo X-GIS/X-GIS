@@ -64,12 +64,20 @@ export async function clearValidationErrors(page: Page): Promise<void> {
 }
 
 /**
+ * A drain point a multi-navigation body must take BEFORE each
+ * `page.goto`: it moves the current realm's queue into the
+ * wrapper's accumulator and resets it, so those errors survive the
+ * navigation that destroys the realm holding them.
+ */
+export type ValidationCheckpoint = () => Promise<void>
+
+/**
  * Wrap a test body so that any WebGPU validation error fired
  * during the body causes the wrapper to throw. Used by the
  * fixture / interaction / reftest specs to make the validation
  * queue an ENFORCED contract (not just a logged one).
  *
- * Usage:
+ * Usage — one navigation, the argument is simply ignored:
  *   test('fixture: point', async ({ page }) => {
  *     await withValidationCapture(page, async () => {
  *       await page.goto('/demo.html?id=fixture_point', ...)
@@ -77,23 +85,95 @@ export async function clearValidationErrors(page: Page): Promise<void> {
  *     })
  *   })
  *
+ * Usage — the body navigates more than once:
+ *   await withValidationCapture(page, async (checkpoint) => {
+ *     await checkpoint()          // nothing to drain yet: no map
+ *     await page.goto('/demo.html?id=A', ...)
+ *     // ... assert on A ...
+ *     await checkpoint()          // drains A's queue before it dies
+ *     await page.goto('/demo.html?id=B', ...)
+ *   })
+ *
+ * WHY the checkpoint exists (#2352). `getValidationErrors` is a
+ * `page.evaluate`, so it can only ever read the queue of the JS
+ * realm that is live RIGHT NOW. A cross-document navigation inside
+ * the body installs a fresh realm and takes the previous one's
+ * queue with it, unread — so a single read after the body could
+ * only ever cover the LAST realm. `reftest.spec.ts` validated the
+ * second of the two fixtures it exists to compare and was blind to
+ * the first; `_inline-match-virt.spec.ts` covered one route of
+ * three.
+ *
  * If validation errors fire INSIDE `fn`, the helper aggregates
- * them into a single multi-line error message so the failure
- * report shows every validation failure, not just the first.
+ * every checkpointed realm plus the final one into a single
+ * multi-line error message, so the failure report shows every
+ * validation failure, not just the first.
  */
-export async function withValidationCapture<T>(page: Page, fn: () => Promise<T>): Promise<T> {
-  // Wait until __xgisMap is on window before clearing — otherwise
-  // we'd reset a missing queue and then the new map's queue would
-  // start fresh anyway, but it's cleaner to ensure the queue
-  // exists before wrapping.
-  // (The page.goto inside `fn` is what installs __xgisMap, so we
-  // can't clear here unconditionally — fn is responsible for the
-  // initial nav. We poll-clear right after fn establishes the
-  // context, then re-check at end.)
-  const result = await fn()
+export async function withValidationCapture<T>(
+  page: Page,
+  fn: (checkpoint: ValidationCheckpoint) => Promise<T>,
+): Promise<T> {
+  // Errors drained from realms the body has already left behind.
+  const seen: CapturedValidationError[] = []
 
-  // Drain the queue and assert empty.
-  const errors = await getValidationErrors(page)
+  // Documents (i.e. realms) installed while the body runs.
+  // `domcontentloaded` is a page-level event — Playwright emits it
+  // for the MAIN frame only — and it fires exactly once per parsed
+  // document, which is precisely the event that replaces the realm
+  // this helper reads.
+  //
+  // Deliberately NOT `framenavigated`: that fires for SAME-document
+  // navigations too, and the demo runner performs several of those
+  // per load — `loadDemo` normalises the URL with
+  // `history.replaceState(?id=…)` and `startHashSync`'s rAF tick
+  // writes the camera pose back at up to 5 Hz
+  // (playground/src/demo-runner.ts). Counting those would trip the
+  // guard below on every single-navigation caller, on a page that
+  // never lost a realm.
+  let documents = 0
+  let checkpoints = 0
+  let checkpointsSinceLastDocument = 0
+  let unreadRealms = 0
+
+  const onDocument = (): void => {
+    documents++
+    // The body owns the FIRST navigation: before it there is no map
+    // and no queue, so nothing can be lost. Every LATER document
+    // destroys a realm, and destroying one that was never drained is
+    // exactly the silent false negative this guards.
+    if (documents > 1 && checkpointsSinceLastDocument === 0) unreadRealms++
+    checkpointsSinceLastDocument = 0
+  }
+  page.on('domcontentloaded', onDocument)
+
+  const checkpoint: ValidationCheckpoint = async () => {
+    seen.push(...(await getValidationErrors(page)))
+    await clearValidationErrors(page)
+    checkpoints++
+    checkpointsSinceLastDocument++
+  }
+
+  let result: T
+  try {
+    result = await fn(checkpoint)
+  } finally {
+    page.off('domcontentloaded', onDocument)
+  }
+
+  // A realm died unread, so the assertion below covers only part of
+  // the run. Fail loudly rather than report "no validation errors"
+  // about queues nobody ever looked at.
+  if (unreadRealms > 0) {
+    throw new Error(
+      `withValidationCapture: the body navigated ${documents} time(s) but took ` +
+        `${checkpoints} checkpoint(s) — validation errors from ${unreadRealms} realm(s) ` +
+        `were discarded unread. Call checkpoint() before each page.goto so the queue of ` +
+        `the realm being replaced is drained first (#2352).`,
+    )
+  }
+
+  // Drain the surviving realm and assert the union is empty.
+  const errors = [...seen, ...(await getValidationErrors(page))]
   if (errors.length > 0) {
     const lines = errors.map((e, i) => `  [${i}] ${e.message}`)
     throw new Error(

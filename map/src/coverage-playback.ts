@@ -57,7 +57,13 @@ export function startCoverageTimePlayback(
             const prev = coverageRegions(host.deps, sourceId)
             if (!prev) return
             if (!cachedTo || cachedTo.toIndex !== toIndex) {
-              const handles = await readRegionsAtGroup(prev, toIndex + 1) // groups are 1-based
+              // #2375 F-5 — the transition read rides the map's guarded fetch, so
+              // `_coverageAbort.cancelAll()` can stop a playback read in flight.
+              const handles = await readRegionsAtGroup(
+                prev,
+                toIndex + 1, // groups are 1-based
+                host.deps.guardedFetch(`coverage source "${sourceId}" playback`),
+              )
               if (host.destroyed()) return // #1569 — the missing post-await re-check
               cachedTo = { toIndex, handles }
             }

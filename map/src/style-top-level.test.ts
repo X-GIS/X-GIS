@@ -14,7 +14,8 @@
 // implementation happens to hold.
 
 import { describe, it, expect } from 'vitest'
-import { applyAtmosphere, type TopLevelStyleHost } from './style-top-level'
+import { Lexer, Parser, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
+import { applyAtmosphere, parseBackgroundBlock, type TopLevelStyleHost } from './style-top-level'
 import {
   ATMOSPHERE_DEFAULT_INNER_COLOR,
   ATMOSPHERE_DEFAULT_OUTER_COLOR,
@@ -28,10 +29,19 @@ function host(): TopLevelStyleHost {
     _light: { position: [1.15, 210, 30], intensity: 0.5, color: [1, 1, 1] },
     _atmosphere: null,
     _backgroundColor: null,
+    _backgroundColorFromStyle: false,
     _backgroundColorShape: null,
     _backgroundOpacityShape: null,
     _backgroundPattern: null,
   }
+}
+
+// #2306 — parse a style source string into the AST.Program parseBackgroundBlock consumes,
+// the same way map.ts's run() does (`new Parser(new Lexer(src).tokenize()).parse()`). Every
+// source needs the mandatory version pragma (X-GIS0008) or the parser throws before we
+// ever reach a background block.
+function parseProgram(src: string) {
+  return new Parser(new Lexer(`xgis ${XGIS_LANGUAGE_MAJOR}\n${src}`).tokenize()).parse()
 }
 
 describe('applyAtmosphere — the `sky` root sub-block (#2052 Phase 1)', () => {
@@ -120,5 +130,34 @@ describe('applyAtmosphere — the `sky` root sub-block (#2052 Phase 1)', () => {
     })
     applyAtmosphere(h, null)
     expect(h._atmosphere).toBeNull()
+  })
+})
+
+describe('parseBackgroundBlock — _backgroundColor provenance (#2306)', () => {
+  it('drops a previous STYLE background fill when the next style has no background block', () => {
+    const h = host()
+    parseBackgroundBlock(h, parseProgram('background { fill: #ff0000 }'))
+    expect(h._backgroundColor).toEqual([1, 0, 0, 1])
+    // styleB declares no background block at all.
+    parseBackgroundBlock(h, parseProgram(''))
+    expect(h._backgroundColor).toBeNull()
+  })
+
+  it('CONTROL: the pattern half of the same reset already works — proves the fixture is sound', () => {
+    const h = host()
+    parseBackgroundBlock(h, parseProgram('background { fill: #ff0000 pattern: pat }'))
+    expect(h._backgroundPattern).toBe('pat')
+    parseBackgroundBlock(h, parseProgram(''))
+    expect(h._backgroundPattern).toBeNull()
+  })
+
+  it('does NOT clear a HOST-set fill (setBackgroundFill) on a background-less re-run', () => {
+    const h = host()
+    // Mirrors what map.ts's setBackgroundFill does: write the field directly, flag false —
+    // this value did not come from the style parse.
+    h._backgroundColor = [0, 1, 0, 1]
+    h._backgroundColorFromStyle = false
+    parseBackgroundBlock(h, parseProgram(''))
+    expect(h._backgroundColor).toEqual([0, 1, 0, 1])
   })
 })

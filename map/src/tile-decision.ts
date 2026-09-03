@@ -193,6 +193,53 @@ const PRIMARY_DECISION: TileDecision = Object.freeze({ kind: 'primary' })
 const DROP_EMPTY_DECISION: TileDecision = Object.freeze({ kind: 'drop-empty-slice' })
 const DROP_NO_ARCHIVE_DECISION: TileDecision = Object.freeze({ kind: 'drop-no-archive' })
 
+/** #2309 — the children-stretch descent, hoisted out of `classifyTile` so it is
+ *  not a closure allocated per call, and walking children by arithmetic instead
+ *  of through a per-node tuple.
+ *
+ *  Why it earns its own function: it visits up to 4 + 16 + 64 = 84 nodes per
+ *  call, and `classifyTile` runs once per (slice, visible tile) per frame —
+ *  ~13 slices x ~30 tiles on OFM Bright — so the worst case was ~33 000 nodes a
+ *  frame, each one a fresh `tileKeyChildren` tuple whose old body also ran
+ *  `tileKeyUnpack`'s O(z) loop. The owner's CPU profile put 158.9 ms of frame
+ *  self-time here. Children are `4 * key + 0..3` (see `tileKeyChildren`), so a
+ *  node now costs one multiply and four predicate calls, and the walk allocates
+ *  nothing.
+ *
+ *  Recursion, not an explicit stack: depth is bounded by MAX_UNDERZOOM_LEVELS
+ *  (3), a constant, so this cannot grow the stack with data the way the
+ *  data-shaped walks elsewhere in this codebase can. Results append to the
+ *  caller's arrays; a cached slice terminates its branch (it fully covers its
+ *  quadrant, so descending past it would draw the same area twice). */
+function collectCachedDescendants(
+  key: number,
+  childZ: number,
+  deepestZ: number,
+  hasSliceInCatalog: (key: number) => boolean,
+  layerCache: Map<number, unknown>,
+  childKeys: number[],
+  childrenNeedingUpload: number[],
+): void {
+  const base = key * 4
+  for (let i = 0; i < 4; i++) {
+    const ck = base + i
+    if (hasSliceInCatalog(ck)) {
+      childKeys.push(ck)
+      if (!layerCache.has(ck)) childrenNeedingUpload.push(ck)
+    } else if (childZ < deepestZ) {
+      collectCachedDescendants(
+        ck,
+        childZ + 1,
+        deepestZ,
+        hasSliceInCatalog,
+        layerCache,
+        childKeys,
+        childrenNeedingUpload,
+      )
+    }
+  }
+}
+
 /** Pure tile-resolution classifier. Replaces the per-tile loop's
  *  branched `if … continue` chain with a single decision return. */
 export function classifyTile(input: ClassifyTileInputs): TileDecision {
@@ -410,17 +457,15 @@ function classifyFallback(input: ClassifyTileInputs): TileDecision {
     const childKeys: number[] = []
     const childrenNeedingUpload: number[] = []
     const deepestZ = Math.min(tileZ + MAX_UNDERZOOM_LEVELS, maxLevel)
-    const collect = (key: number, childZ: number): void => {
-      for (const ck of tileKeyChildren(key)) {
-        if (hasSliceInCatalog(ck)) {
-          childKeys.push(ck)
-          if (!layerCache.has(ck)) childrenNeedingUpload.push(ck)
-        } else if (childZ < deepestZ) {
-          collect(ck, childZ + 1)
-        }
-      }
-    }
-    collect(visibleKey, tileZ + 1)
+    collectCachedDescendants(
+      visibleKey,
+      tileZ + 1,
+      deepestZ,
+      hasSliceInCatalog,
+      layerCache,
+      childKeys,
+      childrenNeedingUpload,
+    )
     if (childKeys.length > 0) {
       // Fetch-frontier push — mirror of the parent-fallback's (iter-284
       // rationale above): the children COVER the tile visually, so nothing

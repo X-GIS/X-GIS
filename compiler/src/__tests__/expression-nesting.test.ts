@@ -81,3 +81,50 @@ describe('expression nesting + depth guards', () => {
     expect(() => exprToXgis(cycle, warnings)).not.toThrow()
   })
 })
+
+describe('nested `let` substitution (#2340)', () => {
+  it('a plain single-level let still converts exactly as before (control)', () => {
+    // Same shape as the "unique binding names" case in
+    // let-duplicate-bindings.test.ts — no nested let involved, so
+    // this path never touches the new descent and must be unaffected.
+    const warnings: string[] = []
+    const result = exprToXgis(['let', 'r', 1, 's', 5, ['+', ['var', 'r'], ['var', 's']]], warnings)
+    expect(result).toBe('(1 + 5)')
+    expect(warnings).toEqual([])
+  })
+
+  it('an outer let binding reaches a var inside a nested let body', () => {
+    // The witness from #2340: a bare `["var", "a"]` two `let`s deep
+    // used to stop at the inner `let` and come back unresolved,
+    // which failed the containing `+` and collapsed the whole
+    // expression to null.
+    const warnings: string[] = []
+    const result = exprToXgis(
+      ['let', 'a', 1, ['let', 'b', 2, ['+', ['var', 'a'], ['var', 'b']]]],
+      warnings,
+    )
+    expect(result).not.toBeNull()
+    expect(result).toBe('(1 + 2)')
+    expect(warnings).toEqual([])
+  })
+
+  it('an inner let name shadows an outer one of the same name', () => {
+    // Proves the merge order (inner names set ON TOP of the outer
+    // copy) rather than accidentally passing because the two values
+    // happen to agree.
+    const warnings: string[] = []
+    const result = exprToXgis(['let', 'a', 1, ['let', 'a', 2, ['var', 'a']]], warnings)
+    expect(result).toBe('2')
+    expect(warnings).toEqual([])
+  })
+
+  it('an inner let binding VALUE expression sees the outer scope, not the inner one', () => {
+    // The outer-vs-merged asymmetry: `b`'s value expression is
+    // evaluated in the ENCLOSING scope (sees `a`), while `b` itself
+    // is only visible inside the inner let's own body.
+    const warnings: string[] = []
+    const result = exprToXgis(['let', 'a', 1, ['let', 'b', ['var', 'a'], ['var', 'b']]], warnings)
+    expect(result).toBe('1')
+    expect(warnings).toEqual([])
+  })
+})

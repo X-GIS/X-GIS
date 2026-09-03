@@ -256,12 +256,12 @@ export class TextStage {
    *  glyphOffsets, totalAdvance, blockTop, blockBottom, haloGeom,
    *  letterSpacingPx, rotateRad) for the SINGLE-ANCHOR-STATIC case
    *  (no variable anchors / no radialOffset / single candidate / no
-   *  rotate). Variable-mode labels skip the cache (their layout
-   *  depends on anchor-specific offset evaluation that is more
-   *  intricate to fingerprint safely). Per frame on hit:
-   *  drawX/Y = p.anchorX/Y + cached.dx/dy, bbox = drawX/Y +
-   *  cached.bbox-offsets, color = per-frame p.def.color, halo color
-   *  = per-frame p.def.halo.color (only halo GEOMETRY is cached). */
+   *  rotate). Variable-mode labels skip the cache (their layout depends
+   *  on anchor-specific offset evaluation that is more intricate to
+   *  fingerprint safely). Per frame on hit: drawX/Y = p.anchorX/Y +
+   *  (cached.dx/dy + text-translate) — #2170 made the translate a
+   *  per-frame term, not a cached one — bbox = drawX/Y + cached.bbox-
+   *  offsets, color/halo color = per-frame (halo GEOMETRY is cached). */
   private readonly _layoutCache = new Map<
     number,
     {
@@ -1168,10 +1168,10 @@ export class TextStage {
         : undefined
       // text-translate-anchor: an explicit viewport leaves [dx,dy]
       // screen-space; map — the v8 DEFAULT — rotates it by the map bearing
-      // (mirror of the fill/line clip-space bake). Resolve ONCE here so
-      // the rotated value flows into BOTH the layout-cache key and the
-      // per-anchor dx/dy add below — a bearing change re-keys the cache
-      // (the rotated tx/ty differ) so a cached entry never goes stale.
+      // (mirror of the fill/line clip-space bake). Resolved ONCE here and
+      // applied at the two drawX/drawY sites below — #2170 took it OUT of
+      // the layout-cache key, so a bearing change no longer re-keys the
+      // cache (layoutCacheKey in text-stage-helpers.ts says why).
       const [txRaw, tyRaw] = p.def.translate
         ? rotateLabelTranslate(
             p.def.translate[0],
@@ -1225,8 +1225,6 @@ export class TextStage {
           anchorStr,
           p.def.offset ? p.def.offset[0] : 0,
           p.def.offset ? p.def.offset[1] : 0,
-          txRaw,
-          tyRaw,
           padding,
           haloOut ? haloOut.width : 0,
           haloOut?.blur ?? 0,
@@ -1258,8 +1256,10 @@ export class TextStage {
               h: hit.blockBottom - hit.blockTop,
             })
           }
-          const drawX = p.anchorX + hit.dx
-          const drawY = p.anchorY + hit.dy
+          // #2170 — the cached dx/dy no longer carry text-translate; grouped
+          // for the same reason as the miss path below.
+          const drawX = p.anchorX + (hit.dx + txRaw * dpr)
+          const drawY = p.anchorY + (hit.dy + tyRaw * dpr)
           // Badge union — a steady scene is ~all cache hits, so the shaping
           // path alone left it a no-op (0 px change until this site landed).
           const cachedBox = deriveLabelBbox(drawX, drawY, hit, p.groundBasis)
@@ -1347,17 +1347,13 @@ export class TextStage {
           dx += p.def.offset[0] * sizePx
           dy += p.def.offset[1] * sizePx
         }
-        if (p.def.translate) {
-          // text-translate is in pixels (Mapbox paint property), not
-          // em-units, so it scales by DPR alone — independent of the
-          // current font size. Stacks on top of text-offset. txRaw/tyRaw
-          // already carry the text-translate-anchor:map bearing rotation
-          // (viewport default = unrotated [dx,dy]).
-          dx += txRaw * dpr
-          dy += tyRaw * dpr
-        }
-        const drawX = p.anchorX + dx
-        const drawY = p.anchorY + dy
+        // #2170 — text-translate is applied HERE, not folded into `dx`, so it
+        // stays out of the cached layout and out of the cache key. THE
+        // PARENTHESES ARE LOAD-BEARING: ungrouped, `+` is left-associative and
+        // reassociates the sum, shifting ~30% of labels by 1 ULP against every
+        // frame drawn before this change (layout-cache-translate-hoist.test.ts).
+        const drawX = p.anchorX + (dx + txRaw * dpr)
+        const drawY = p.anchorY + (dy + tyRaw * dpr)
         // Per-glyph offsets for multi-line layout. Each line gets
         // justified within the bbox according to `justify`; lines
         // stack vertically by lineHeightPx.
@@ -2039,7 +2035,7 @@ export class TextStage {
           const ref = this.fadeLedger.place(fk)
           if (ref !== undefined) {
             chosen.draw.fadeRef = ref
-            this._fadeHoldover.store(fk, chosen.draw)
+            this._fadeHoldover.store(fk, chosen.draw, this.host.getGeneration())
             // Stamp this prepare's bake frame so a later fade-out can reproject
             // the frozen clone; clear it under a non-similarity-safe camera so
             // a stale frame never drives a wrong reprojection (→ graceful pop).
@@ -2077,7 +2073,7 @@ export class TextStage {
     // pruned fully-faded records; the clone + bake stores drop the same keys.
     if (fadeKeys !== null) {
       for (const fk of this.fadeLedger.finishPrepare()) {
-        const held = this._fadeHoldover.get(fk)
+        const held = this._fadeHoldover.get(fk, this.host.getGeneration())
         if (held === undefined) continue
         const emit = holdoverDrawToEmit(
           held,

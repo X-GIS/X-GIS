@@ -13,9 +13,7 @@ export interface RenderStats {
   triangles: number
   lines: number
   tilesVisible: number
-  tilesLoaded: number
   tilesCached: number
-  gpuBuffers: number
   zoom: number
   /** iter-222 — RenderBundle cache stats (Phase RB.B follow-up).
    *  Aggregated across all BundleCache instances (VTR + bg).
@@ -111,9 +109,7 @@ export class StatsTracker {
   triangles = 0
   lines = 0
   tilesVisible = 0
-  tilesLoaded = 0
   tilesCached = 0
-  gpuBuffers = 0
   cachedBytes = 0
   arenaLiveBytes = 0
   arenaCapacityBytes = 0
@@ -183,9 +179,7 @@ export class StatsTracker {
     this.triangles = 0
     this.lines = 0
     this.tilesVisible = 0
-    this.tilesLoaded = 0
     this.tilesCached = 0
-    this.gpuBuffers = 0
     this.cachedBytes = 0
     this.arenaLiveBytes = 0
     this.arenaCapacityBytes = 0
@@ -273,9 +267,7 @@ export class StatsTracker {
       triangles: this.triangles,
       lines: this.lines,
       tilesVisible: this.tilesVisible,
-      tilesLoaded: this.tilesLoaded,
       tilesCached: this.tilesCached,
-      gpuBuffers: this.gpuBuffers,
       zoom: this.zoom,
       bundleHits: this.bundleHits,
       bundleMisses: this.bundleMisses,

@@ -9,8 +9,11 @@
 //      same-named polygonU lane (a swapped span offset fails loud, which the
 //      partition suite's same-value-per-kind packing could not catch), and
 //      the two relocated flag lanes read the retiring vec4s' .w bytes.
-//   2. STAMPS — frame/show copies run once per frameCount per identity
-//      (the write path's whole point: N tiles, one copy).
+//   2. STAMPS — frame/show copies run once per FRAME ID per identity (the
+//      write path's whole point: N tiles, one copy). This suite feeds its own
+//      stamps, so it proves the CLASS's guard; what the caller passes is
+//      pinned separately in tile-uniform-arena-wiring.test.ts, because #2309
+//      was exactly that split — a correct guard fed a per-render counter.
 //   3. WITNESS — the §5 skew hook actually flips the staged fill colour
 //      (a dead witness would let the render gate's skew arm pass vacuously
 //      — the assertion-that-failed-either-way class).

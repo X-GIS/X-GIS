@@ -287,3 +287,291 @@ describe('createComputeRunner — cpu tier value parity', () => {
     }).not.toThrow()
   })
 })
+
+// ── #2362 — n === 0 is a steady state on ALL THREE tiers ──────────────────────────────
+//
+// This is the one place the WebGL2 tier is driven through `run()`, and it is NOT value
+// coverage — see the file header: a dispatch recorded by a stub succeeds whether or not it
+// would have computed anything. What is decidable here is CONTROL FLOW: whether an empty
+// frame reaches GL at all. The stub is inert everywhere except `checkFramebufferStatus`,
+// which implements the one spec rule the defect turned on (GLES 3.0 §4.4.4.2 — an
+// attachment of width or height 0 is not framebuffer-attachment-complete). Pre-fix the
+// first test below threw `R32UI framebuffer incomplete` while the CPU tier, given the same
+// input, resolved to an empty array.
+
+const FB_COMPLETE = 0x8cd5
+const FB_INCOMPLETE_ATTACHMENT = 0x8cd6
+
+/** A WebGL2 context stub: every entry point is a no-op, every unknown constant is a
+ *  distinct number, and the ONLY modelled driver behaviour is attachment completeness. */
+function glStub(): { gl: WebGL2RenderingContext; calls: string[] } {
+  const calls: string[] = []
+  const dims = new WeakMap<object, { w: number; h: number }>()
+  let bound: object | null = null
+  let attached: object | null = null
+  let nextConst = 0x1000
+  const consts = new Map<string, number>([
+    ['FRAMEBUFFER_COMPLETE', FB_COMPLETE],
+    ['COMPILE_STATUS', 0x8b81],
+    ['LINK_STATUS', 0x8b82],
+  ])
+  const api: Record<string, (...args: never[]) => unknown> = {
+    createShader: () => ({}),
+    createProgram: () => ({}),
+    createTexture: () => ({}),
+    createFramebuffer: () => ({}),
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: () => ({}),
+    getParameter: () => new Int32Array([0, 0, 1, 1]),
+    bindTexture: (...a: never[]) => {
+      bound = (a[1] as object | null) ?? null
+    },
+    texImage2D: (...a: never[]) => {
+      if (bound) dims.set(bound, { w: a[3] as unknown as number, h: a[4] as unknown as number })
+    },
+    framebufferTexture2D: (...a: never[]) => {
+      attached = (a[3] as object | null) ?? null
+    },
+    checkFramebufferStatus: () => {
+      const d = attached ? dims.get(attached) : undefined
+      return d && (d.w === 0 || d.h === 0) ? FB_INCOMPLETE_ATTACHMENT : FB_COMPLETE
+    },
+  }
+  const gl = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        if (prop in api) {
+          const f = api[prop]!
+          return (...args: never[]) => {
+            calls.push(prop)
+            return f(...args)
+          }
+        }
+        // An UPPERCASE name is a GL enum; anything else is an entry point we do not model.
+        if (/^[A-Z0-9_]+$/.test(prop)) {
+          if (!consts.has(prop)) consts.set(prop, nextConst++)
+          return consts.get(prop)
+        }
+        return (...args: never[]) => {
+          calls.push(prop)
+          void args
+          return undefined
+        }
+      },
+    },
+  ) as unknown as WebGL2RenderingContext
+  return { gl, calls }
+}
+
+describe('createComputeRunner — an empty dispatch is a steady state on every tier (#2362)', () => {
+  it('webgl2 resolves to an empty Uint32Array, the same as cpu', async () => {
+    const { gl } = glStub()
+    const webgl2 = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+    expect(webgl2.backend).toBe('webgl2')
+    const cpu = await createComputeRunner(makeKernel(), { prefer: ['cpu'] })
+
+    const empty = new Float32Array(0)
+    expect(await webgl2.run(empty)).toEqual(new Uint32Array(0))
+    expect(await cpu.run(empty)).toEqual(new Uint32Array(0))
+  })
+
+  it('the short-circuit targets n === 0 ONLY — a real dispatch still reaches GL', async () => {
+    // The control that separates "empty frames are handled" from "the tier stopped
+    // drawing": with one invocation the GL path must still run end to end.
+    const { gl, calls } = glStub()
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+
+    calls.length = 0
+    await r.run(new Float32Array(0))
+    expect(calls).toEqual([]) // not one GL call for an empty frame
+
+    calls.length = 0
+    await r.run(new Float32Array([0.25]))
+    expect(calls).toContain('drawArrays')
+    expect(calls).toContain('readPixels')
+  })
+
+  it('an explicit `invocations` of 0 over a non-empty input is the same steady state', async () => {
+    // `n` is `invocations ?? input.length`, so the guard must key on n, not on the input.
+    const { gl, calls } = glStub()
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl })
+    calls.length = 0
+    expect(await r.run(RAMP, 0)).toEqual(new Uint32Array(0))
+    expect(calls).toEqual([])
+  })
+})
+
+// ── #2355 — the WebGL2 tier borrows the HOST's context and must give it back ──────────
+//
+// `options.gl` is documented "A live WebGL2 context": the caller's, not one this runner
+// owns. The dispatch overwrites four pieces of global state and the `finally` restored one
+// of them. The viewport already had a snapshot-and-restore, with a comment saying why —
+// "without restoring leaves every later draw in the host's frame rendering at the compute
+// pass's size" — and BLEND, the current program and the TEXTURE0 binding are the same kind
+// of debt, differing only in that a wrong blend enable composites silently instead of
+// visibly. This stub's ONLY modelled behaviour is GL's own get/set semantics for those
+// four; nothing here asserts a computed value.
+
+const GL_BLEND = 0x0be2
+const GL_TEXTURE0 = 0x84c0
+const GL_TEXTURE3 = 0x84c3
+
+/** A WebGL2 stub that REMEMBERS enable-state, the current program, the active texture unit
+ *  and a per-unit TEXTURE_2D binding — the state the runner is supposed to hand back. */
+function statefulGlStub(init: {
+  blend: boolean
+  program: object | null
+  activeUnit?: number
+  tex0?: object | null
+}) {
+  const enabled = new Set<number>(init.blend ? [GL_BLEND] : [])
+  const bindings = new Map<number, object | null>()
+  let activeUnit = init.activeUnit ?? GL_TEXTURE0
+  let program: object | null = init.program
+  const calls: string[] = []
+  if (init.tex0 !== undefined) bindings.set(GL_TEXTURE0, init.tex0)
+
+  const consts = new Map<string, number>([
+    ['BLEND', GL_BLEND],
+    ['TEXTURE0', GL_TEXTURE0],
+    ['CURRENT_PROGRAM', 0x8b8d],
+    ['ACTIVE_TEXTURE', 0x84e0],
+    ['TEXTURE_BINDING_2D', 0x8069],
+    ['VIEWPORT', 0x0ba2],
+    ['FRAMEBUFFER_COMPLETE', FB_COMPLETE],
+    ['COMPILE_STATUS', 0x8b81],
+    ['LINK_STATUS', 0x8b82],
+  ])
+  let nextConst = 0x2000
+  const api: Record<string, (...args: never[]) => unknown> = {
+    createShader: () => ({}),
+    createProgram: () => ({ __computeProgram: true }),
+    createTexture: () => ({ __tex: true }),
+    createFramebuffer: () => ({}),
+    getShaderParameter: () => true,
+    getProgramParameter: () => true,
+    getUniformLocation: () => ({}),
+    checkFramebufferStatus: () => FB_COMPLETE,
+    enable: (...a: never[]) => enabled.add(a[0] as unknown as number),
+    disable: (...a: never[]) => enabled.delete(a[0] as unknown as number),
+    isEnabled: (...a: never[]) => enabled.has(a[0] as unknown as number),
+    useProgram: (...a: never[]) => {
+      program = (a[0] as object | null) ?? null
+    },
+    activeTexture: (...a: never[]) => {
+      activeUnit = a[0] as unknown as number
+    },
+    bindTexture: (...a: never[]) => bindings.set(activeUnit, (a[1] as object | null) ?? null),
+    getParameter: (...a: never[]) => {
+      const pname = a[0] as unknown as number
+      if (pname === 0x0ba2) return new Int32Array([0, 0, 640, 480])
+      if (pname === 0x8b8d) return program
+      if (pname === 0x84e0) return activeUnit
+      if (pname === 0x8069) return bindings.get(activeUnit) ?? null
+      return 0
+    },
+  }
+  const gl = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        if (prop in api) {
+          const f = api[prop]!
+          return (...args: never[]) => {
+            calls.push(prop)
+            return f(...args)
+          }
+        }
+        if (/^[A-Z0-9_]+$/.test(prop)) {
+          if (!consts.has(prop)) consts.set(prop, nextConst++)
+          return consts.get(prop)
+        }
+        return (...args: never[]) => {
+          calls.push(prop)
+          void args
+          return undefined
+        }
+      },
+    },
+  ) as unknown as WebGL2RenderingContext
+  return {
+    gl,
+    calls,
+    blendEnabled: () => enabled.has(GL_BLEND),
+    currentProgram: () => program,
+    activeUnit: () => activeUnit,
+    bindingOn: (unit: number) => bindings.get(unit) ?? null,
+  }
+}
+
+describe('createComputeRunner — the WebGL2 tier restores the host context (#2355)', () => {
+  const INPUT = new Float32Array([1, 2, 3])
+
+  it('leaves BLEND enabled when the host had it enabled', async () => {
+    // Pre-fix: `gl.disable(gl.BLEND)` inside the dispatch with no matching enable, so the
+    // host's next alpha-blended draw composited fully opaque, with no error at the site
+    // that broke.
+    const s = statefulGlStub({ blend: true, program: { __hostProgram: true } })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    await r.run(INPUT)
+    expect(s.blendEnabled()).toBe(true)
+  })
+
+  it('CONTROL — BLEND the host had DISABLED stays disabled', async () => {
+    // An unconditional `gl.enable(gl.BLEND)` restore would pass the test above and break
+    // this one: the runner must return the state it found, not a fixed state.
+    const s = statefulGlStub({ blend: false, program: null })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    await r.run(INPUT)
+    expect(s.blendEnabled()).toBe(false)
+  })
+
+  it("restores the host's current program", async () => {
+    const hostProgram = { __hostProgram: true }
+    const s = statefulGlStub({ blend: false, program: hostProgram })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    await r.run(INPUT)
+    expect(s.currentProgram()).toBe(hostProgram)
+  })
+
+  it("restores the host's TEXTURE0 binding when the host was on TEXTURE0", async () => {
+    const hostTex = { __hostTexture: true }
+    const s = statefulGlStub({ blend: false, program: null, tex0: hostTex })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    await r.run(INPUT)
+    expect(s.activeUnit()).toBe(GL_TEXTURE0)
+    expect(s.bindingOn(GL_TEXTURE0)).toBe(hostTex)
+  })
+
+  it('restores the active unit AND TEXTURE0 when the host was on a DIFFERENT unit', async () => {
+    // `TEXTURE_BINDING_2D` is per-unit, so a snapshot read off whichever unit happened to be
+    // active would record a unit this pass never touches and restore the wrong one. Reading
+    // it with TEXTURE0 selected is what makes the restore faithful for any incoming unit —
+    // this arm is the one that distinguishes the two readings.
+    const hostTex0 = { __hostTexture0: true }
+    const s = statefulGlStub({
+      blend: false,
+      program: null,
+      activeUnit: GL_TEXTURE3,
+      tex0: hostTex0,
+    })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    await r.run(INPUT)
+    expect(s.activeUnit()).toBe(GL_TEXTURE3)
+    // Not the runner's own data texture: that is private and must not stay visible.
+    expect(s.bindingOn(GL_TEXTURE0)).toBe(hostTex0)
+  })
+
+  it('CONTROL — the dispatch still runs; the restore is not a short-circuit', async () => {
+    // Separates "state is restored" from "the pass stopped drawing", which would restore
+    // everything trivially.
+    const s = statefulGlStub({ blend: true, program: null })
+    const r = await createComputeRunner(makeKernel(), { prefer: ['webgl2'], gl: s.gl })
+    s.calls.length = 0
+    await r.run(INPUT)
+    expect(s.calls).toContain('drawArrays')
+    expect(s.calls).toContain('readPixels')
+  })
+})

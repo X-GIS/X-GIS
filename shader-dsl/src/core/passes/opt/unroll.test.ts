@@ -354,10 +354,13 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
     // The pass is built to run on the optimize()->emit fixpoint, where a pass like
     // constProp exposes a loop skipped on the first run. Loop A unrolls immediately;
     // loop B's bound is a const-`let`, so it is deferred until constProp inlines the
-    // literal, then unrolls on the SECOND pass. BOTH bodies declare a local `t`:
-    // unless the fresh-name suffix is seeded past the first pass's `_u0_t`, the second
-    // pass re-mints `_u0_t` — two `let _u0_t` in one WGSL scope (a naga / tint
-    // redeclaration), which oracle value-equality cannot detect.
+    // literal, then unrolls on the SECOND pass. The two bodies must bind DIFFERENT names:
+    // this fixture gave both `t`, which reads as innocuous WGSL (separate loop scopes) but
+    // is the #2341 miscompile — const-prop's per-function map is keyed on the name alone,
+    // so it propagated loop B's literal into loop A's body. `no-shadowed-local` now rejects
+    // that module at every emit, so the collision it used to build has to come from the
+    // pass's OWN minted names instead — see the `_u0_`-seeding test below, which is where
+    // the seedSuffix guard is now pinned.
     const m = module({
       funcs: [
         fn('k', { x: f32T }, f32T, ({ x }, b) => {
@@ -377,8 +380,8 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
             i32(0),
             (j) => j.lt(bnd),
             (cb, j) => {
-              const t = cb.let('t', x.mul(toF32(j)))
-              cb.addAssign(acc, t.add(t))
+              const u = cb.let('u', x.mul(toF32(j)))
+              cb.addAssign(acc, u.add(u))
             },
           )
           b.ret(acc)
@@ -390,10 +393,46 @@ describe('unrollLoops — small fixed-count loop unrolling', () => {
     const twice = unrollLoops(constProp(once))
     expect(countFors(twice)).toBe(0) // constProp exposed loop B → now unrolled
     const names = declNames(twice)
-    expect(new Set(names).size).toBe(names.length) // every binding unique — no `_u0_t` twice
+    expect(new Set(names).size).toBe(names.length)
     // and the twice-unrolled module still computes the original values.
     const orig = compileModule(m).fns.k!
     const opt = compileModule(twice).fns.k!
+    for (const args of [[0.5], [1], [-2]])
+      expect(opt(...args), `args=${args}`).toEqual(orig(...args))
+  })
+
+  it('seeds the fresh-name suffix past a `_u{k}_` name already in the fn', () => {
+    // What the two-pass fixture above can no longer reach, now that a module may not bind
+    // one name twice: the collision seedSuffix actually defends against is with a
+    // `_u{k}_`-shaped name ALREADY in the function — nothing reserves that prefix. Here
+    // `_u0_t` is authored and the loop body binds `t`, so a per-call reset to 0 would mint
+    // a second `_u0_t` in the same scope: a naga / tint redeclaration that oracle
+    // value-equality cannot see, which is why this asserts on the NAMES.
+    const m = module({
+      funcs: [
+        fn('k', { x: f32T }, f32T, ({ x }, b) => {
+          const seeded = b.let('_u0_t', x.mul(2))
+          const acc = b.var('acc', f32T, seeded)
+          b.forRange(
+            'i',
+            i32(0),
+            (i) => i.lt(i32(2)),
+            (cb, i) => {
+              const t = cb.let('t', x.mul(toF32(i)))
+              cb.addAssign(acc, t.mul(t))
+            },
+          )
+          b.ret(acc)
+        }),
+      ],
+    })
+    const out = unrollLoops(m)
+    expect(countFors(out)).toBe(0)
+    const names = declNames(out)
+    expect(names.filter((n) => n === '_u0_t')).toHaveLength(1) // the authored one, not a mint
+    expect(new Set(names).size).toBe(names.length)
+    const orig = compileModule(m).fns.k!
+    const opt = compileModule(out).fns.k!
     for (const args of [[0.5], [1], [-2]])
       expect(opt(...args), `args=${args}`).toEqual(orig(...args))
   })

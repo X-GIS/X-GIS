@@ -659,7 +659,7 @@ export async function stepCoverageRegions(
   // requested hour, plans nothing without holding up its neighbours. A rejection here has
   // committed nothing, so it leaves the mosaic exactly as it was.
   const plans = await Promise.all(
-    [...regions].map(([region, entry]) => planOneRegion(deps, region, entry, indexOrISO)),
+    [...regions].map(([region, entry]) => planOneRegion(deps, sourceId, region, entry, indexOrISO)),
   )
   // Phase 2 — COMMIT. Synchronous by construction: no `await` between the writes, so a
   // competing step cannot interleave and land the mosaic on mixed hours by another route.
@@ -678,6 +678,7 @@ export async function stepCoverageRegions(
  *  `null` means "this region has nowhere to go" — no URL, no time axis, or already there. */
 async function planOneRegion(
   deps: CoverageSourceDeps,
+  sourceId: string,
   region: string,
   entry: CoverageRegionData,
   indexOrISO: number | string,
@@ -689,7 +690,15 @@ async function planOneRegion(
   // Re-read the same, already-validated URL (declared source) — one group of it. No new SSRF
   // surface; the whole-file fallback isn't needed (Range worked at first load).
   const token = deps.time.nextEpoch(region)
-  const handle = await readCoverageRange(entry.url, { group })
+  // #2375 F-5 — ride the GUARDED fetch, where `_coverageAbort`'s signal lives:
+  // without it the reader fell through to the global one, so `cancelAll()` had
+  // nothing to cancel and a step in flight outlived its map. Still the reader
+  // directly, not `fetchCoverageHandle` — the note above says why the whole-file
+  // fallback is unwanted here, and this must not smuggle it in.
+  const handle = await readCoverageRange(entry.url, {
+    group,
+    fetch: deps.guardedFetch(`coverage source "${sourceId}" step`),
+  })
   return { region, url: entry.url, handle, token }
 }
 
@@ -698,12 +707,16 @@ async function planOneRegion(
 export async function readRegionsAtGroup(
   regions: ReadonlyMap<string, CoverageRegionData>,
   group: number,
+  /** #2375 F-5 — the map's guarded fetch, carrying `_coverageAbort`'s signal.
+   *  Required, not optional: a default would silently restore the global-fetch
+   *  path this exists to close. */
+  fetchFn: typeof fetch,
 ): Promise<Map<string, CoverageHandle>> {
   const out = new Map<string, CoverageHandle>()
   await Promise.all(
     [...regions].map(async ([region, entry]) => {
       if (!entry.url) return // a urlless host push has no hour to read
-      out.set(region, await readCoverageRange(entry.url, { group }))
+      out.set(region, await readCoverageRange(entry.url, { group, fetch: fetchFn }))
     }),
   )
   return out

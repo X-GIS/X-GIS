@@ -157,3 +157,78 @@ describe('TileCatalog skeleton (Cesium permanent-root pattern)', () => {
     expect(merged.has(k2), 'skeleton key 2 must be in cancelStale merged set').toBe(true)
   })
 })
+
+// ═══ #2273 — the prefetch shield ages per FRAME, not per cancelStale call ═══
+//
+// `cancelStale` runs once per VectorTileRenderer.render(), and render() runs
+// once per ShowCommand — measured 97 calls per frame (max 105) on OFM Bright at
+// z14. The shield's "12 frames ≈ 200 ms" therefore expired after 12 CALLS, an
+// eighth of a frame, and every sibling prefetch was aborted on the 13th call of
+// the frame that issued it, then re-fetched next frame: 2-3 real network
+// requests per tile and no prefetch ever landing as one.
+describe('prefetch shield aging (#2273)', () => {
+  const shieldOf = (c: TileCatalog) =>
+    (c as unknown as { _prefetchKeys: Set<number> })._prefetchKeys
+
+  it('THE REGRESSION: 100 cancelStale calls inside ONE frame do not age the shield out', () => {
+    const catalog = new TileCatalog()
+    const { backend, cancelStale } = makeStubBackend()
+    catalog.attachBackend(backend)
+    const k = tileKey(14, 13972, 6344)
+    catalog.resetCompileBudget(41) // the frame's id, as render() supplies it
+    catalog.prefetchTiles([k])
+    expect(shieldOf(catalog).has(k)).toBe(true)
+    for (let i = 0; i < 100; i++) catalog.cancelStale(new Set())
+    expect(shieldOf(catalog).has(k), 'shield dropped inside the frame that armed it').toBe(true)
+    // ...and the backend kept being told the key is active, every call.
+    const last = cancelStale.mock.calls.at(-1)![0] as Set<number>
+    expect(last.has(k)).toBe(true)
+  })
+
+  it('still ages out across frames: 13 frames without a new prefetch clears it', () => {
+    const catalog = new TileCatalog()
+    catalog.attachBackend(makeStubBackend().backend)
+    const k = tileKey(14, 13972, 6344)
+    catalog.resetCompileBudget(1)
+    catalog.prefetchTiles([k])
+    for (let f = 1; f <= 12; f++) {
+      catalog.resetCompileBudget(f)
+      catalog.cancelStale(new Set())
+      catalog.cancelStale(new Set()) // a second ShowCommand in the same frame must not count
+    }
+    expect(shieldOf(catalog).has(k), 'cleared early — the second call per frame was counted').toBe(
+      true,
+    )
+    catalog.resetCompileBudget(13)
+    catalog.cancelStale(new Set())
+    expect(shieldOf(catalog).has(k), 'must age out on the 13th FRAME').toBe(false)
+  })
+
+  it('a fresh prefetch inside the window re-arms the age (camera still interested)', () => {
+    const catalog = new TileCatalog()
+    catalog.attachBackend(makeStubBackend().backend)
+    const k = tileKey(14, 13972, 6344)
+    for (let f = 1; f <= 10; f++) {
+      catalog.resetCompileBudget(f)
+      catalog.cancelStale(new Set())
+    }
+    catalog.resetCompileBudget(11)
+    catalog.prefetchTiles([k]) // age -> 0
+    for (let f = 11; f <= 22; f++) {
+      catalog.resetCompileBudget(f)
+      catalog.cancelStale(new Set())
+    }
+    expect(shieldOf(catalog).has(k)).toBe(true)
+  })
+
+  it('no frame id (-1, the default) keeps the pre-#2273 per-call aging', () => {
+    const catalog = new TileCatalog()
+    catalog.attachBackend(makeStubBackend().backend)
+    const k = tileKey(14, 13972, 6344)
+    catalog.prefetchTiles([k])
+    for (let i = 0; i < 12; i++) catalog.cancelStale(new Set())
+    expect(shieldOf(catalog).has(k)).toBe(true)
+    catalog.cancelStale(new Set())
+    expect(shieldOf(catalog).has(k)).toBe(false)
+  })
+})

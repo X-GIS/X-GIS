@@ -4,12 +4,15 @@ import {
   module,
   fn,
   f32T,
+  i32T,
+  u32T,
   boolT,
   sin,
   cos,
   type Stmt,
   type Expr,
   type ModuleDecl,
+  type ShaderType,
 } from '../../ir/index.js'
 import { emitModule } from '../../backends/wgsl.js'
 import { compileModule } from '../../oracle.js'
@@ -212,5 +215,103 @@ describe('optimize — CSE placement', () => {
     for (const v of [0, 0.5, -1.25, 3.75]) {
       expect(compileModule(cse(m)).fns.k(v)).toBeCloseTo(compileModule(m).fns.k(v) as number, 12)
     }
+  })
+
+  // #2408 — a literal's TYPE is part of its identity. `keyOf` used to spell a literal as
+  // `typeof e.value` (always 'number') plus its value, so `u32(-1.0)` and `u32(-1)` shared a
+  // key and CSE rewrote one into the other — in the emitted WGSL and GLSL, not just on the
+  // CPU tier. The two conversions genuinely differ: float→uint saturates to 0, int→uint
+  // reinterprets the bits as 4294967295. Found by the #2406 generated-program differential.
+  it('#2408: does not merge two literals that differ only in type', () => {
+    const u32Lit = (type: ShaderType, value: number): Expr => ({
+      op: 'call',
+      type: u32T,
+      fn: 'u32',
+      args: [{ op: 'lit', type, value }],
+    })
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'both',
+          params: [],
+          ret: u32T,
+          attrs: [],
+          body: [
+            { s: 'var', name: 'a', type: u32T, init: u32Lit(f32T, -1) },
+            { s: 'var', name: 'b', type: u32T, init: u32Lit(i32T, -1) },
+            {
+              s: 'return',
+              expr: {
+                op: 'binop',
+                type: u32T,
+                bop: '-',
+                a: { op: 'varref', type: u32T, name: 'a' },
+                b: { op: 'varref', type: u32T, name: 'b' },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    // 0 - 4294967295 wraps to 1 in u32. Merging the two makes it 0.
+    expect(compileModule(m).fns.both!()).toBe(1)
+    expect(compileModule(cse(m)).fns.both!()).toBe(1)
+    // and the emitted text keeps both spellings, which is where the damage was visible.
+    const wgsl = emitModule(cse(m))
+    expect(wgsl).toContain('u32(-1.0)')
+    expect(wgsl).toContain('u32(-1)')
+  })
+
+  // The same key loss on the other side: `String(-0)` is `"0"`.
+  it('#2408: does not merge -0.0 with 0.0', () => {
+    const lit = (value: number): Expr => ({ op: 'lit', type: f32T, value })
+    const add = (name: string, value: number): Stmt => ({
+      s: 'var',
+      name,
+      type: f32T,
+      init: {
+        op: 'binop',
+        type: f32T,
+        bop: '+',
+        a: { op: 'param', type: f32T, name: 'x' },
+        b: lit(value),
+      },
+    })
+    const m: ModuleDecl = {
+      consts: [],
+      structs: [],
+      bindings: [],
+      funcs: [
+        {
+          name: 'k',
+          params: [{ name: 'x', type: f32T }],
+          ret: f32T,
+          attrs: [],
+          body: [
+            add('p', 0),
+            add('n', -0),
+            {
+              s: 'return',
+              expr: {
+                op: 'binop',
+                type: f32T,
+                bop: '/',
+                a: lit(1),
+                b: { op: 'varref', type: f32T, name: 'n' },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    // At x = -0: `x + 0.0` is +0 and `x + -0.0` is -0. Reciprocals are the cheapest way to
+    // SEE that sign — +Infinity vs -Infinity — because comparing the zeros themselves is
+    // blind (`+0 - -0` is `+0` either way, which is how the first version of this test
+    // passed against the very key it was written to reject).
+    expect(compileModule(m).fns.k!(-0)).toBe(-Infinity)
+    expect(compileModule(cse(m)).fns.k!(-0)).toBe(-Infinity)
   })
 })

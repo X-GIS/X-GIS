@@ -63,14 +63,38 @@ function aggregate(col: readonly Cell[], rows: readonly number[], kind: Agg): nu
   let acc = kind === 'min' ? Infinity : kind === 'max' ? -Infinity : 0
   let n = 0
   for (const i of rows) {
-    const v = Number(col[i])
+    const raw = col[i]
+    // A blank cell ('' or whitespace-only, e.g. an empty CSV field) must be
+    // treated as MISSING, not as zero. `Number('')` and `Number(' ')` are both
+    // +0 per the ECMAScript StringToNumber grammar (the empty/whitespace
+    // string converts to +0), so the `Number.isNaN` guard below never fires
+    // for a blank cell and it would otherwise be silently counted as a real
+    // 0. This check runs on the raw cell (before the numeric coercion) so a
+    // genuine numeric 0 — `number` 0, or the string '0' — is unaffected.
+    if (typeof raw === 'string' && raw.trim() === '') continue
+    const v = Number(raw)
     if (Number.isNaN(v)) continue
     n++
     if (kind === 'sum' || kind === 'avg') acc += v
     else if (kind === 'min') acc = Math.min(acc, v)
     else if (kind === 'max') acc = Math.max(acc, v)
   }
-  return kind === 'avg' ? (n > 0 ? acc / n : 0) : acc
+  if (kind === 'avg') return n > 0 ? acc / n : 0
+  // min/max seed with +/-Infinity, so a group whose cells are ALL non-numeric
+  // ('N/A', '-', '' — ordinary in ingested CSV) skips every row above and
+  // returns the untouched seed. Infinity reaching a Table column is worse than
+  // it looks: it is a plausible-shaped extreme, so a downstream domain/scale
+  // computation consumes it silently rather than rejecting it.
+  //
+  // NaN is the sentinel because `aggregate` returns `number` (Cell is
+  // `number | string`), so there is no out-of-band value available, and of the
+  // in-band candidates NaN is the only one that cannot be mistaken for real
+  // data — 0 is a legitimate min. It also matches the `Number.isNaN` skip this
+  // function already uses to mean "not numeric". Callers test with
+  // `Number.isFinite`, which rejects both the old and the new value; what
+  // changes is that NaN cannot be silently arithmetic'd into a plausible result.
+  if ((kind === 'min' || kind === 'max') && n === 0) return NaN
+  return acc
 }
 
 /** Materialise a row subset into a fresh columnar table (shared by where/filter). */

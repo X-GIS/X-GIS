@@ -107,7 +107,7 @@
 
 import { test, expect } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
-import { captureCanvas } from './helpers/visual'
+import { captureCanvasInPage } from './helpers/visual'
 
 // File-scope, not `test.setTimeout` in the body: a body-scope budget governs the
 // body only, and a loaded SwiftShader runner times out in FIXTURE SETUP
@@ -118,7 +118,25 @@ import { captureCanvas } from './helpers/visual'
 // SwiftShader runner, and one 180s run timed out inside the screenshot settle
 // when it followed a full vitest pass — on CI's shared render-gate leg that
 // margin is the difference between a gate and a flake.
-test.describe.configure({ timeout: 300_000 })
+//
+// 600s, not 300s (#2403): the margin above was measured ALONE, and that is the
+// case the budget does not have to cover. Inside render-shard 1/6 — one worker,
+// 55 specs, 45.4 min — the same three arms cost 1.1 / >5.1 / 3.4 min: the
+// orthographic arm burned the whole 300s on the initial attempt AND both
+// retries, while its stereographic sibling passed with 96s to spare. The arm is
+// not slower than it was: measured ALONE on one container across three trees it
+// is 4.0 min at f1bf7e432 (the commit that wrote the note above), 3.8 on main
+// and 3.7 here — the OLDEST tree the slowest, so the 1.7–1.9 figure describes
+// that machine, not this arm, and no commit doubled anything.
+//
+// Which is why this raises the ceiling instead of relaxing an assertion: given
+// the time, the arm passes and its measurements are byte-identical across all
+// three trees (line total 8285 / 1170 components / largest 391). Nothing is
+// skipped and no tolerance moves. What makes the ceiling bind is co-tenancy —
+// `--shard=1/6` re-partitions whenever the spec list changes, so an unrelated
+// addition re-tenants this gate onto the heaviest shard. #2403 tracks making
+// the arm cheaper and pinning the partition, which are the durable fixes.
+test.describe.configure({ timeout: 600_000 })
 
 /** The camera the issue swept, and the only camera the mirror carries tiles for.
  *  It is also the window where `geolines-label` (minzoom 1) is live and
@@ -383,7 +401,23 @@ for (const { proj, role } of ARMS) {
       return hidden
     })
 
-    const png = await captureCanvas(page, { readyTimeoutMs: 60_000, capture: 'clip' })
+    // Read the frame from the CANVAS, not through the compositor (#2242). Every
+    // measurement below decodes this PNG back INTO the page anyway, so the
+    // compositor round trip bought nothing — and it is the step that hangs:
+    // `page.screenshot` needs the page to keep producing frames, and when it
+    // stops, the call log ends after "fonts loaded" and the 300 s budget is what
+    // ends the arm. Measured on THIS arm in a SwiftShader container: the clip
+    // screenshot took 198 662 ms on one run and 13 026 ms on the next, against
+    // 75 ms for the readback of the same 900x500 frame — the spread is the
+    // stall, not a cost curve a bigger budget could absorb.
+    //
+    // Equivalent, measured, not assumed: identical dimensions at dpr 1, and this
+    // canvas is fully opaque (minimum alpha 255 over 450 000 px), so there is no
+    // page background to composite against. What differs between the two paths
+    // is TIME — two readbacks two seconds apart differ by 15.7% on this
+    // still-converging scene, more than enough to account for the 18.3% between
+    // the paths.
+    const png = await captureCanvasInPage(page, { readyTimeoutMs: 60_000 })
     // On disk for every arm, passing ones included: the frame is the artifact a
     // human reads at full resolution (CLAUDE.md §5), and an attachment alone
     // lives inside the trace zip where a passing arm never writes one.

@@ -116,6 +116,11 @@ export const CODES = {
     summary: 'host-owned resource has a shape the target cannot spell',
     hint: 'hostUniform takes a scalar/vector/matrix — a host-owned STRUCT is hostBlock, which chooses its GLSL spelling with `glsl: "loose" | "std140-block"`; a loose block flattens to one uniform per member, so its members must themselves be scalar/vector/matrix',
   },
+  SD0017: {
+    code: 'SD0017',
+    summary: 'literal cannot be spelled by the target',
+    hint: 'an i32/u32 literal must be an integer inside its 32-bit range and a float literal must be finite — neither WGSL nor GLSL has a NaN/Infinity spelling, and an out-of-range integer literal is a driver compile error; clamp or wrap the host-side value before it becomes a literal (#2276)',
+  },
 
   // ── Module-level gates ──
   SD0020: { code: 'SD0020', summary: 'module validation failed' },
@@ -192,6 +197,16 @@ export const CODES = {
     code: 'SD0111',
     summary: 'portable kernel outside the gather-only tier',
     hint: 'the portable tier is out[gid.x] = f(reads): 1-D gid, one u32 storage output written once at the invocation index, a vec4<u32> dispatch uniform, no raw statements — restructure or drop `portable` to keep the kernel WebGPU-only',
+  },
+
+  // The optimizer's per-function maps are keyed on a binding's NAME alone, so a duplicate
+  // name merges two bindings. Reported per violation by the no-shadowed-local rule (CORE,
+  // so at every emit on both writers) and thrown by `fixpoint`, which additionally covers a
+  // direct optimizeAt() caller and the post-lowering module the rule never sees.
+  SD0112: {
+    code: 'SD0112',
+    summary: 'a local name is declared twice in one function',
+    hint: 'rename one of the two bindings, or omit the name (b.let(value) / b.var(type)) to take a function-unique auto name — the optimizer keys its per-function maps on the name alone, so two bindings sharing one name collapse into one (#2341)',
   },
 } as const satisfies Record<string, ErrorCodeDef>
 

@@ -29,7 +29,7 @@
 // turned on.
 
 import { test, expect } from '@playwright/test'
-import { captureMapFrame } from './helpers/visual'
+import { awaitPendingWorkClear } from './helpers/visual'
 
 const DEMO = '/demo.html?id=import_maplibre_mirror&e2e=1&adaptive=0#1.5/20/140'
 /** Any glyph range request against the mirror — the population. */
@@ -66,11 +66,26 @@ test("the imported style's glyphs URL reaches the runtime AND its PBF range is f
     { timeout: 90_000 },
   )
 
-  // captureMapFrame's settle waits on the pending-work registry, and `glyph` is
-  // one of its kinds (map/src/pending-work.ts:37, :233-238) — so a frame is not
-  // captured while a glyph range is still in flight. That is what makes the
-  // request assertion below deterministic rather than a race.
-  await captureMapFrame(page)
+  // Settle on the pending-work registry, of which `glyph` is one kind
+  // (map/src/pending-work.ts:37, :233-238) — so no assertion below runs while a
+  // glyph range is still in flight. That is what makes the request assertion
+  // deterministic rather than a race.
+  //
+  // This used to be `captureMapFrame(page)`, and BOTH halves of that were cost
+  // this gate never spent on an assertion (#2366):
+  //
+  //   * the screenshot. Nothing here reads a pixel, and `page.screenshot` adds a
+  //     fonts-load wait, a scroll-into-view stability wait and a PNG encode. It
+  //     is also the step that hangs: the CI failures report `locator.screenshot:
+  //     Test timeout` for a gate that asserts only on a URL, a field and a
+  //     network request.
+  //   * the UNSCOPED settle. `captureMapFrame` waits for EVERY pending-work kind
+  //     to clear, and measured on this demo that never happens — `vt-upload` was
+  //     still draining slice uploads at 125 s, so the settle always resolved by
+  //     timing out rather than by converging. `glyph`, the only kind this spec
+  //     depends on, clears in under 20 s. Scoping the wait to it turns a fixed
+  //     budget-length wait into a real convergence.
+  await awaitPendingWorkClear(page, 60_000, ['glyph'])
 
   // 1. The wire itself: the URL the converter collected reached the map.
   //    Fail-before: null.

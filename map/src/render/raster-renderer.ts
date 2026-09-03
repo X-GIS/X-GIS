@@ -16,6 +16,7 @@ import {
   evictToBudget,
   overBudget,
   abortLoadingTiles,
+  dropAllTiles,
   textureBytesOf,
   mipLevelCountFor,
   type LoadedTexture,
@@ -359,8 +360,26 @@ export class RasterRenderer {
    *  source without a scheme MUST clear it, and a separate setter could leave a stale flip
    *  on the new URL. Undefined = `'xyz'`, the pre-existing behaviour. */
   private _scheme: TileRowScheme | undefined
+  /** The template the cached tiles were fetched from (#2384 F-4). Distinct
+   *  from `urlTemplate`, which round-trips through '' on every rebuild. */
+  private _cachedTemplate = ''
   setUrlTemplate(url: string, scheme?: TileRowScheme): void {
+    // #2384 F-4 — a different template is a different SOURCE, and the key is
+    // `z/x/y` with no url, so its tiles answered for the new one; visible tiles
+    // are eviction-exempt, so it never self-healed. Aborting is the other half:
+    // an old-url read resolving after this would land under the new key.
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
+    // The flush is keyed on the template the CACHE belongs to, not on
+    // `urlTemplate`: `rebuildLayers()` resets every raster renderer with
+    // `setUrlTemplate('')` before re-arming the live one (map.ts:3485), so a
+    // plain `url !== this.urlTemplate` would destroy every visible tile on each
+    // projection change or layer rebuild — a correctness fix paid for with a
+    // full re-download. Empty is that reset, never a source, so it drops nothing.
+    if (url !== '' && url !== this._cachedTemplate) {
+      abortLoadingTiles(this.loadingTiles)
+      this._cachedBytes = dropAllTiles(this.tileCache, this.rhi, this._rasterDraper)
+      this._cachedTemplate = url
+    }
     this.urlTemplate = url
     this._scheme = scheme
   }
@@ -1023,6 +1042,10 @@ export class RasterRenderer {
 
   destroy(): void {
     abortLoadingTiles(this.loadingTiles) // #1570 — teardown must CANCEL, not just unschedule
+    // #2286 — the draper's ONLY destroy used to be in rebuildForQuality(), so a
+    // quality toggle released it and map teardown never did.
+    this._rasterDraper?.destroy()
+    this._rasterDraper = undefined
   }
 
   private evictTiles(vis: Set<string>): void {

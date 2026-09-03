@@ -12,8 +12,6 @@
 //                           backend-backed source.
 //   PMTilesArchiveSource  — `.pmtiles` archive, byte-range streamed.
 //   TileJSONSource        — TileJSON manifest pointing at an XYZ MVT server.
-//   XGVTBinarySource      — native binary; overrides attachTo to delegate
-//                           to TileCatalog.loadFromURL (no PMTilesBackend).
 //
 // Public API: a default singleton VectorTileLoader instance + thin function
 // wrappers (`attachPMTilesSource`, `loadPMTilesSource`, `prewarmVectorTileSource`,

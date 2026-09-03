@@ -134,10 +134,10 @@ export class TileCatalog {
   private backends: TileSource[] = []
   /** Per-key dispatch shortcut: which backend produced a given
    *  preregistered XGVTIndex entry. Populated by attachBackend
-   *  whenever a backend's meta.entries is non-empty (XGVT-binary).
-   *  Lazy-discovery backends (PMTiles, GeoJSON-runtime) don't
-   *  preregister — their tiles are routed via the iterate-and-ask
-   *  fallback in requestTiles. */
+   *  whenever a backend's meta.entries is non-empty. Every backend
+   *  in the tree today is lazy-discovery (PMTiles, GeoJSON-runtime,
+   *  the virtual adapter) and preregisters nothing — their tiles are
+   *  routed via the iterate-and-ask fallback in requestTiles. */
   private entryToBackend = new Map<number, TileSource>()
 
   /** Lazy reference to the in-memory GeoJSON backend, used by
@@ -286,14 +286,18 @@ export class TileCatalog {
    *  - getBounds() reflects the bounding union of all attached
    *    backends; maxLevel is the max-of-maxes; getPropertyTable()
    *    returns the first attached backend's table (first-attached-wins).
-   *  - Backends with meta.entries (XGVT-binary) preregister into
-   *    entryToBackend so dispatch is O(1) for those keys.
+   *  - Backends with meta.entries preregister into entryToBackend so
+   *    dispatch is O(1) for those keys. No backend in the tree does.
    *  Soft cap: catalog accepts any number of backends. Dispatch
    *  precedence is attach order — see plans/delegated-hopping-cray.md
    *  §1.2 for rationale. */
   attachBackend(backend: TileSource): void {
-    backend.attach(this.makeSink(backend))
+    // #2391 — membership BEFORE the sink is handed over, so `acceptResult`'s
+    // still-attached check holds by construction: geojson-polar-cap and
+    // synthetic-earth-surface both emit SYNCHRONOUSLY from inside attach(), and
+    // pushing after it would drop their tiles outright.
     this.backends.push(backend)
+    backend.attach(this.makeSink(backend))
     this.mergeBackendMeta(backend)
     this.checkLayoutVersion(backend)
   }
@@ -408,6 +412,13 @@ export class TileCatalog {
     backend?: TileSource,
   ): void {
     if (this._destroyed) return // #1570 — nowhere to go; every write below is dead weight
+    // #2391 F-8 — nor may a DETACHED backend's in-flight result. `detachBackend` reaches
+    // the producer only through the OPTIONAL `backend.detach?.()` (a silent no-op for every
+    // remote source until #1571, and still one for any backend that omits it), so the
+    // catalog cannot rely on a producer stopping when asked; and detachBackend deliberately
+    // does not evict, so a late write would be stamped with an owner already released.
+    // `this.backends` is the ONE authority — a separate "detached" set would be a second.
+    if (backend !== undefined && !this.backends.includes(backend)) return
     // #1371 — first result of a refresh: clear what the PREVIOUS backend left for this key, so
     // slices the new production does not emit cannot survive. Marked replaced either way, so
     // the renderer swaps (or drops) the tile it is currently drawing.
@@ -534,10 +545,13 @@ export class TileCatalog {
   // reset it (per frame, also ticking backends) and gates compile /
   // sub-tile calls through it.
 
-  /** Reset per-frame budget. The frameId arg is reserved for future
-   *  frame-shared budget work (currently unused — each layer gets
-   *  its own sliced budget per the constants above). */
-  resetCompileBudget(_frameId: number = -1): void {
+  /** Reset per-frame budget. `frameId` is the frame the caller is in (#2273
+   *  records it for the prefetch shield); the reset itself still runs per
+   *  call — each layer gets its own sliced budget per the constants above. */
+  resetCompileBudget(frameId: number = -1): void {
+    // #2273 — recorded so `cancelStale` ages the prefetch shield per FRAME. The
+    // budget reset + tick below stay per call on purpose (#2277 owns that).
+    this._frameId = frameId
     this.budget.reset()
     // Drain backend deferred-compile queues (PMTiles raw bytes →
     // compileSingleTile). Backends that compile inline don't
@@ -932,6 +946,10 @@ export class TileCatalog {
    *  cancelled — e.g., camera direction reverses and the previously-
    *  intended next-LOD is no longer interesting. */
   private _prefetchAge: number = 0
+  /** Last `resetCompileBudget` frame id / frame the shield was last aged in
+   *  (#2273). -1 = no frame id supplied: every `cancelStale` call ages. */
+  private _frameId = -1
+  private _prefetchAgedFrame = -1
   // The eviction shield for just-prefetched keys (key → expiresAt ms,
   // 2 s TTL) lives in TileEvictionPolicy (this.eviction); prefetchTiles
   // populates it, evictTiles honours + drains it.
@@ -1110,9 +1128,16 @@ export class TileCatalog {
     // the set so genuinely abandoned fetches become cancellable.
     // 12 frames ≈ 200 ms at 60 fps — comfortably longer than a
     // single prefetch round (Tier 2 every 6, adjacent every 10).
-    this._prefetchAge++
-    if (this._prefetchAge > 12 && this._prefetchKeys.size > 0) {
-      this._prefetchKeys.clear()
+    // #2273 — "frames" must mean frames: this runs once per render(), and
+    // render() runs once per ShowCommand (measured 97/frame on OFM Bright z14),
+    // so per-call aging emptied the shield in an eighth of a frame and every
+    // sibling prefetch was aborted before its bytes landed. Age per frame id.
+    if (this._frameId === -1 || this._frameId !== this._prefetchAgedFrame) {
+      this._prefetchAgedFrame = this._frameId
+      this._prefetchAge++
+      if (this._prefetchAge > 12 && this._prefetchKeys.size > 0) {
+        this._prefetchKeys.clear()
+      }
     }
   }
 

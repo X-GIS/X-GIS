@@ -389,8 +389,6 @@ describe('XGISMap render-path characterization — stats / dump accessors (pre-f
     expect(st.lines).toBe(0)
     expect(st.tilesVisible).toBe(0)
     expect(st.tilesCached).toBe(0)
-    expect(st.tilesLoaded).toBe(0)
-    expect(st.gpuBuffers).toBe(0)
     expect(st.zoom).toBe(0)
     expect(st.bundleHits).toBe(0)
     expect(st.bundleMisses).toBe(0)

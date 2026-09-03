@@ -112,6 +112,55 @@ describe('memberFold — bails rather than guessing', () => {
     expect(retExprOf(body)).toEqual(src)
   })
 
+  // ── #2354: the ARGUMENT side of the same rule ──────────────────────────────────
+  //
+  // Resolving through the `let` is what makes this pass useful, and it is also what
+  // makes the forward a MOVE: `c.x` folds to the argument expression, which is then
+  // evaluated where the READ is, not where the construct was. So every name the
+  // argument reads has to be as stable as the binding. Only the binding was checked,
+  // and df64 lowering emits exactly the losing shape — a `vec2(hi, lo)` bound to a
+  // `let` whose scalar is a running accumulator reassigned later in the same block.
+
+  it('#2354 leaves the read alone when a construct ARGUMENT is reassigned', () => {
+    const src = mem(ref('_c', vec2fT), 'x')
+    const body = foldBody([
+      letS('_c', ctor(vec2fT, [ref('h'), lit(0)])),
+      {
+        s: 'assign',
+        target: ref('h'),
+        expr: { op: 'binop', type: f32T, bop: '+', a: ref('h'), b: lit(10) },
+      },
+      ret(src),
+    ])
+    // Pre-fix this folded to a bare `ref('h')`, which reads h + 10 — the value the
+    // construct never saw.
+    expect(retExprOf(body)).toEqual(src)
+  })
+
+  it('#2354 a mutation ANYWHERE in the fn disqualifies it, including before the let', () => {
+    // `mutated` is function-wide by design (const-prop's rule), so the guard must not
+    // be read as "between the binding and the read" — this arm pins the conservative
+    // reading rather than leaving it to a future reader to assume the narrow one.
+    const src = mem(ref('_c', vec2fT), 'y')
+    const body = foldBody([
+      { s: 'assign', target: ref('lo'), expr: lit(7) },
+      letS('_c', ctor(vec2fT, [ref('hi'), ref('lo')])),
+      ret(src),
+    ])
+    expect(retExprOf(body)).toEqual(src)
+  })
+
+  it('#2354 CONTROL — an unmutated argument still folds, and a sibling mutation does not block it', () => {
+    // Separates "the argument guard works" from "the pass stopped folding": `hi`/`lo`
+    // are clean, and an unrelated mutated name in the same fn must not disqualify them.
+    const body = foldBody([
+      { s: 'assign', target: ref('other'), expr: lit(1) },
+      letS('_c', ctor(vec2fT, [ref('hi'), ref('lo')])),
+      ret(mem(ref('_c', vec2fT), 'y')),
+    ])
+    expect(retExprOf(body)).toEqual(ref('lo'))
+  })
+
   it('skips a fn containing a raw Stmt', () => {
     const src = mem(ref('_c', vec2fT), 'x')
     const body = foldBody([
