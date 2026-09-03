@@ -7,7 +7,7 @@
 //
 // #2093 moves this camera out from under it. `currentZ` is maxLevel-clamped, the
 // countries source's maxLevel is ≥ 10, so at z15.3 the frame is at or above
-// `GLOBE_DIRECT_MIN_SELECTION_Z` and the route renders DIRECT — the drape, and
+// the #2094 drape budget and the route renders DIRECT — the drape, and
 // with it the whole windowed-overzoom mechanism, no longer runs here at all.
 // Nothing in the old gate notices that: `_drapeGlobeFills` false makes its
 // virtual-bake-keys cause assertion red, so this file states the post-#2093
@@ -110,27 +110,6 @@ const STYLE = [
  *  transcendental displacement (#2025). */
 const CENTER = { lon: 20.07, lat: 32.17 }
 const ZOOM = 15.3
-
-/** Selection zooms below this keep the bake→drape. A source whose maxLevel
- *  clamps currentZ under it can never reach the direct path from any camera —
- *  a valid engine state, not a failure, so the spec skips rather than asserting
- *  into it.
- *
- *  READ FROM THE ENGINE SOURCE, never mirrored: a spec that hard-codes the
- *  ceiling is a second authority for it, and the two drift silently the day the
- *  constant moves (CLAUDE.md §12). The engine module cannot be imported here —
- *  raw-Node spec transpilation does not resolve its `@xgis/shared` import — so
- *  the literal is parsed out of the file instead, and a parse failure is loud.
- *
- *  Called from the test BODY, never at module scope: a module-scope read that
- *  throws aborts collection for every spec in the suite (#1638). */
-function readGlobeDirectMinSelectionZ(): number {
-  const src = readFileSync(join(HERE, '../../geo/src/projections-table.ts'), 'utf8')
-  const m = /export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)/.exec(src)
-  if (!m)
-    throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from geo/src/projections-table.ts')
-  return Number(m[1])
-}
 
 /** The original gate's windowed-bake bound. The direct path is sharper than any
  *  bake by construction (it magnifies geometry, not texels), so holding it to
@@ -351,13 +330,19 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
   expect(names.length, 'no vt source — the inline style never took').toBeGreaterThan(0)
 
   const maxLevel = Math.max(...names.map((k) => direct[k].maxLevel))
-  const GLOBE_DIRECT_MIN_SELECTION_Z = readGlobeDirectMinSelectionZ()
+  // #2094 — the gate is a PIXEL BUDGET now: this camera reaches the direct arm when
+  // the deepest source here can SERVE it inside the budget, which is a question about
+  // the chord error of what it draws, not about a level. At z15.3 that means a
+  // maxLevel-14 source (0.06 px) reaches it and a maxLevel-10 source (15.5 px) does
+  // not — so if the runtime source ever shallows, this skips loudly with the number
+  // rather than asserting into a frame the drape correctly owns.
   test.skip(
-    maxLevel < GLOBE_DIRECT_MIN_SELECTION_Z,
-    `source maxLevel ${maxLevel} clamps currentZ below GLOBE_DIRECT_MIN_SELECTION_Z ` +
-      `(${GLOBE_DIRECT_MIN_SELECTION_Z}), so this camera can never reach the #2093 direct ` +
-      `path and the assertions below would be vacuous. The drape — and its #2024 windowed ` +
-      `overzoom — correctly still owns this route; _globe-drape-overzoom-gate covers it.`,
+    expectDrape(maxLevel, ZOOM),
+    `the deepest source here (maxLevel ${maxLevel}) is priced at ` +
+      `${directChordErrorPx(Math.min(Math.floor(ZOOM), maxLevel), ZOOM).toFixed(2)} px of direct ` +
+      `chord error at z${ZOOM}, past the #2094 drape budget, so this camera can never reach the ` +
+      `direct path and the assertions below would be vacuous. The drape — and its #2024 ` +
+      `windowed overzoom — correctly still owns this route; _globe-drape-overzoom-gate covers it.`,
   )
 
   // PER SOURCE, not across sources. The ceiling is SOURCE-CLAMPED (currentZ is
@@ -367,26 +352,26 @@ test('#2093 — the #2024 overzoom camera renders DIRECT, distinguishably from t
   // therefore KEEPS the drape at every camera zoom — that is the derivation
   // working, not failing, and judging it against the direct claim accuses the fix
   // of doing exactly what it documents. The scalar `maxLevel` above only decides
-  // whether ANY source can reach the ceiling (the skip); every assertion below is
-  // scoped to the sources that actually do.
-  const ceilingReaching = names.filter((k) => direct[k].maxLevel >= GLOBE_DIRECT_MIN_SELECTION_Z)
+  // whether ANY source can serve this camera (the skip); every assertion below is
+  // scoped to the sources that actually can.
+  const servable = names.filter((k) => !expectDrape(direct[k].maxLevel, ZOOM))
   expect(
-    ceilingReaching,
-    `no source here has maxLevel ≥ ${GLOBE_DIRECT_MIN_SELECTION_Z}, so nothing below would be a ` +
-      `statement about the ceiling. sources: ` +
+    servable,
+    `no source here can serve z${ZOOM} inside the #2094 drape budget, so nothing below would ` +
+      `be a statement about the direct arm. sources: ` +
       names.map((k) => `${k}{maxLevel:${direct[k].maxLevel}}`).join(' '),
   ).not.toEqual([])
 
-  const stillDraping = ceilingReaching.filter((k) => direct[k].drapeGlobeFills)
+  const stillDraping = servable.filter((k) => direct[k].drapeGlobeFills)
   expect(
     stillDraping.map(
       (k) =>
         `${k}{maxLevel:${direct[k].maxLevel},strokes:${direct[k].drapeStrokes},` +
         `baked:${direct[k].bakedCount}}`,
     ),
-    `these sources still bake→drape at z${ZOOM} with maxLevel ≥ ${GLOBE_DIRECT_MIN_SELECTION_Z}. ` +
-      `The #2093 LOD ceiling (geo/src/projections-table.ts:305, wired at ` +
-      `vector-tile-renderer.ts:3615) did not engage.`,
+    `these sources still bake→drape at z${ZOOM} although the budget says the camera can be ` +
+      `SERVED by them. The #2094 chord budget (map/src/render/globe-drape-budget.ts, wired ` +
+      `in vector-tile-renderer.ts) did not engage.`,
   ).toEqual([])
 
   // ── EFFECT — the coast edge, on the original gate's own metric ─────────────

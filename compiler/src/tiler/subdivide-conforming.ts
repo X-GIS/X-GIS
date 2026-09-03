@@ -71,6 +71,31 @@ export function vertexKey(x: number, y: number, fid: number): string {
 const MAX_TRI_DEGREES_FOR_PROJ = 2
 const MAX_TRI_SUBDIVIDE_DEPTH = 5
 
+/** The angular span (radians) of the FINEST edge this subdivision leaves on a
+ *  tile of level `tileZ`, at the equator — where a tile is widest and the budget
+ *  that consumes this must survive.
+ *
+ *  A renderer pricing the DIRECT sphere path needs exactly this number: the
+ *  screen error of a chord standing in for its arc is `R_px·(1 − cos(θ/2))`, and
+ *  θ is what the tiler decided, not what the renderer wishes. It lives here
+ *  rather than being re-derived at the call site because both constants below
+ *  are module-private and a second copy of the rule would drift the day either
+ *  moves (map/src/render/globe-drape-budget.ts is the consumer).
+ *
+ *  The recursion this mirrors: `edgeExceedsGateMM` marks an edge while its span
+ *  exceeds MAX_TRI_DEGREES_FOR_PROJ, every marked edge is bisected at its MM
+ *  midpoint, so the span halves per level until it is under the gate or
+ *  MAX_TRI_SUBDIVIDE_DEPTH stops it — whichever comes first. A tile already
+ *  under the gate is emitted whole, which is why the returned angle STOPS
+ *  shrinking around z8 and the direct path's error peaks there (#2435). */
+export function tileSegmentAngleRad(tileZ: number): number {
+  const span = (2 * Math.PI) / 2 ** Math.max(0, tileZ)
+  const gate = MAX_TRI_DEGREES_FOR_PROJ * (Math.PI / 180)
+  if (span <= gate) return span
+  const splits = Math.min(MAX_TRI_SUBDIVIDE_DEPTH, Math.ceil(Math.log2(span / gate)))
+  return span / 2 ** splits
+}
+
 function mmToLonLatDeg(x: number, y: number): [number, number] {
   const lon = x / DSFUN_EARTH_R / DSFUN_DEG2RAD
   const lat = (2 * Math.atan(Math.exp(y / DSFUN_EARTH_R)) - Math.PI / 2) / DSFUN_DEG2RAD

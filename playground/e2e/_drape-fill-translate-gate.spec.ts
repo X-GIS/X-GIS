@@ -143,8 +143,8 @@ async function runGlobe(page: Page, drape: boolean): Promise<Measured> {
   // addInitScript here does NOT work: measured, both arms then came back
   // byte-identical with the drape off in each.
   //
-  // __XGIS_FORCE_VECTOR_DRAPE holds the drape past the #2093 LOD ceiling
-  // (`drapesAtSelectionZ`, vector-tile-renderer.ts) — its own comment names A/B
+  // __XGIS_FORCE_VECTOR_DRAPE holds the drape past the #2094 chord budget
+  // (`drapesAtChordBudget`, vector-tile-renderer.ts) — its own comment names A/B
   // and sever-arm gates as its purpose.
   await page.evaluate((on) => {
     const g = globalThis as {
