@@ -361,7 +361,7 @@ export class FeatureDataBinder {
             const v = row[fi]
             if (typeof v === 'string') vals.push(v)
           }
-          for (const [v, id] of buildCategoryMap(vals)) map.set(v, id)
+          for (const [v, id] of buildCategoryMap(vals, fieldName)) map.set(v, id)
         }
         catMaps.set(fieldName, map)
       }
