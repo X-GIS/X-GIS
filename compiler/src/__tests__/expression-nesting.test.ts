@@ -123,10 +123,7 @@ describe('nested `let` substitution (#2340)', () => {
     // evaluated in the ENCLOSING scope (sees `a`), while `b` itself
     // is only visible inside the inner let's own body.
     const warnings: string[] = []
-    const result = exprToXgis(
-      ['let', 'a', 1, ['let', 'b', ['var', 'a'], ['var', 'b']]],
-      warnings,
-    )
+    const result = exprToXgis(['let', 'a', 1, ['let', 'b', ['var', 'a'], ['var', 'b']]], warnings)
     expect(result).toBe('1')
     expect(warnings).toEqual([])
   })

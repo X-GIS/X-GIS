@@ -87,9 +87,9 @@ import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape, drapesAtSelectionZ } from '@xgis/geo'
+import { bakesVectorDrape, drapesAtSelectionZ, drapesStrokesAtSelectionZ } from '@xgis/geo'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
+import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -328,6 +328,27 @@ export class VectorTileRenderer {
    *  grid) instead of drawing as ECEF chords; false off the globe (flat path
    *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
   private _drapeGlobeFills = false
+  /** #2346 — the frame's device pixel ratio, stashed for the mid-render bake.
+   *  `bakeTileToTexture` is driven from VectorDrapeRenderer (which has no
+   *  viewport state), and the baked stroke's AA band is the one screen-space
+   *  quantity that must survive the bake — see bakeStrokeAaDpr. */
+  private _bakeDpr = 1
+  /** #2346 / design INC-3 — `_bakeStrokeActive` AFTER the STROKE ceiling
+   *  (`drapesStrokesAtSelectionZ`). `_bakeStrokeActive` says the show HAS a
+   *  drape-worthy stroke; this says the drape should still be the one drawing it.
+   *  Read by `bakeTileToTexture` (which runs from VectorDrapeRenderer and cannot
+   *  see the selection zoom) and by the bake cache key, so a ceiling change
+   *  re-bakes instead of serving a texture with strokes burnt into it. */
+  private _bakeStrokesGated = false
+  /** #2346 — why the windowed-bake dispatch did what it did on the last frame.
+   *  The switch is atomic, so its usual failure is to do nothing at all; this is
+   *  the only place a gate or probe can read the cause. */
+  readonly _drapeOverzoomDiag: DrapeOverzoomDiag = {}
+  /** Per-slice copy of the above. One VectorTileRenderer serves every slice of a
+   *  source and each gets its own render() call, so the single-instance scratch
+   *  only ever holds the LAST one — which, measured, was a sparse layer whose
+   *  legitimate "no geometry here" reading was mistaken for the dense layers'. */
+  readonly _drapeOverzoomDiagBySlice = new Map<string, DrapeOverzoomDiag>()
   /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
   private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
@@ -923,6 +944,19 @@ export class VectorTileRenderer {
    *  WebGL2 (the offscreen encoder is WebGPU-only; the WebGL2 drape is a later
    *  slice). `fill` is straight-alpha RGBA 0..1. The caller owns the returned
    *  texture's lifetime (`rhi.destroyTexture`). */
+  /** #2346 — the per-slice windowed-bake diagnostic scratch. Cleared in place so
+   *  a reader always sees the LAST frame's answer for that slice, never a stale
+   *  field from an earlier one. */
+  private _sliceOverzoomDiag(sliceLayer: string): DrapeOverzoomDiag {
+    let d = this._drapeOverzoomDiagBySlice.get(sliceLayer)
+    if (!d) {
+      d = {}
+      this._drapeOverzoomDiagBySlice.set(sliceLayer, d)
+    }
+    for (const k of Object.keys(d)) delete (d as Record<string, unknown>)[k]
+    return d
+  }
+
   bakeTileToTexture(
     sliceLayer: string,
     key: number,
@@ -945,7 +979,7 @@ export class VectorTileRenderer {
     // still bake (strokes only) so the line curves. Skip only when there is nothing to draw.
     const hasFill = cached.indexCount > 0
     const hasStroke =
-      this._bakeStrokeActive &&
+      this._bakeStrokesGated &&
       this.lineRenderer != null &&
       (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
     if (!hasFill && !hasStroke) return null
@@ -1101,6 +1135,7 @@ export class VectorTileRenderer {
         this._bakeStroke,
         this._linePatternActiveForShow,
         strokeWidthScale,
+        this._bakeDpr,
       )
     }
 
@@ -2840,6 +2875,7 @@ export class VectorTileRenderer {
       parentAtMaxLevel,
       archiveAncestor,
       currentZ,
+      targetZ,
       cameraIdle,
     } = sel
 
@@ -2990,6 +3026,7 @@ export class VectorTileRenderer {
     // #599 line-drape — reset per render(); set at the drape seam / layer-slot block below.
     this._drapeStrokes = false
     this._bakeStrokeActive = false
+    this._bakeStrokesGated = false
 
     // Write uniforms through the typed block's fixed-arity setters (zero
     // per-call allocation — the hot-loop surface; #733 P2d).
@@ -3699,22 +3736,40 @@ export class VectorTileRenderer {
     // #2093 LOD CEILING: the trade reverses once the tiles are fine enough, so past
     // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
     // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
-    this._drapeGlobeFills =
-      bakesVectorDrape(projType, camera.globeMode) &&
-      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the 512px bake's blur
-      // exceeds the direct path's chord sagitta at every camera zoom;
-      // __XGIS_FORCE_VECTOR_DRAPE holds the drape for A/B and sever-arm gates.
-      (drapesAtSelectionZ(currentZ) ||
-        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
-          true) &&
+    this._bakeDpr = dpr
+    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS. Both halves
+    // of the drape decision need exactly this, so it is read once (#1046 ratchet).
+    const bakeAvailable =
       this.rhi.backend !== 'webgl2' &&
       this.currentExtrudeMode === 'none' &&
+      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+    // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
+    // half rather than inside it. Same escape hatches (the force flag holds the
+    // drape for A/B arms; the disable flag forces every direct draw), same
+    // WebGPU-only and same held-vs-camera LOD reading.
+    this._bakeStrokesGated =
+      this._bakeStrokeActive &&
+      bakesVectorDrape(projType, camera.globeMode) &&
+      (drapesStrokesAtSelectionZ(Math.max(currentZ, targetZ)) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
+      bakeAvailable
+    this._drapeGlobeFills =
+      bakesVectorDrape(projType, camera.globeMode) &&
+      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the direct arm's chord
+      // error is inside the reference-engine budget and the bake's blur is not. Read off the drawn
+      // LOD OR the camera's (`targetZ`): inside a zoom-in readiness hold currentZ trails
+      // the camera, and held tiles past the ceiling must draw direct, not as magnified
+      // bakes (_globe-direct-hold-window-gate). __XGIS_FORCE_VECTOR_DRAPE holds the drape.
+      (drapesAtSelectionZ(Math.max(currentZ, targetZ)) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
+      bakeAvailable &&
       // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
       // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
       // buffer) fill or a sprite pattern — those keep the direct draw.
       !show.shaderVariant?.needsFeatureBuffer &&
-      show.fillPatternUV == null &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+      show.fillPatternUV == null
     if (
       this._drapeGlobeFills &&
       phase !== 'strokes' &&
@@ -3722,12 +3777,14 @@ export class VectorTileRenderer {
       // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
       // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
       // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
-      (!this._skipFillDraw || this._bakeStrokeActive)
+      (!this._skipFillDraw || this._bakeStrokesGated)
     ) {
       this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
-      // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
-      // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
-      this._drapeStrokes = this._bakeStrokeActive
+      // #599 line-drape — a baked stroke is drawn by the sphere grid, so the direct
+      // ECEF-chord draw for this show is suppressed (see `drawStrokes` in renderTileKeys).
+      // Design INC-3: the stroke ceiling is its OWN number, so a frame can drape its
+      // fills and still draw its roads direct — see GLOBE_DIRECT_MIN_STROKE_Z.
+      this._drapeStrokes = this._bakeStrokesGated
       // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
       // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
       // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
@@ -3737,8 +3794,11 @@ export class VectorTileRenderer {
         currentZ,
         cssWidth: canvasWidth / dpr,
         cssHeight: canvasHeight / dpr,
+        dpr,
+        diag: this._sliceOverzoomDiag(sliceLayer),
         source: this.source,
         sliceLayer,
+        neededKeys,
         layerCache: this.getOrCreateLayerCache(sliceLayer),
         uploadResident: (parentKey) =>
           this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
@@ -3752,7 +3812,7 @@ export class VectorTileRenderer {
         camera,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
-        strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
+        strokeBakeKey(this._bakeStrokesGated, this._bakeStroke),
         camera.zoom,
         sliceLayer,
         neededKeys,

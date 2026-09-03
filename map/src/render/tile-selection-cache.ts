@@ -137,6 +137,11 @@ export interface Selection {
   parentAtMaxLevel: number[]
   archiveAncestor: number[]
   currentZ: number
+  /** The LOD the CAMERA asks for — `min(floor(camera.zoom), source.maxLevel)`,
+   *  what the readiness gate steps `currentZ` toward; equal to it except inside
+   *  a zoom-in hold, where `currentZ` trails it until the step tiles land. The
+   *  drape LOD ceiling reads `max(currentZ, targetZ)` (#2093 follow-up). */
+  targetZ: number
   maxLevel: number
   /** Camera-idle (no movement for IDLE_GRACE_MS) — read by the
    *  Tier-1/Tier-2 speculative prefetch gates in render(). */
@@ -606,6 +611,8 @@ export class TileSelectionCache {
     if (cz > sourceMaxLevel) cz = sourceMaxLevel
     this._hysteresisZ = cz
     const currentZ = Math.max(0, Math.min(maxSubTileZ, cz))
+    // The camera's own LOD, clamped like `cz` — currentZ once every hold releases.
+    const targetZ = Math.max(0, Math.min(maxSubTileZ, Math.min(Math.floor(z), sourceMaxLevel)))
 
     // Per-MVT-layer zoom-range culling — when the source publishes
     // metadata.vector_layers (PMTiles / TileJSON), each layer's
@@ -1059,6 +1066,7 @@ export class TileSelectionCache {
       parentAtMaxLevel,
       archiveAncestor,
       currentZ,
+      targetZ,
       maxLevel,
       cameraIdle,
     }

@@ -11,6 +11,8 @@ import {
   bakesVectorDrape,
   GLOBE_DIRECT_MIN_SELECTION_Z,
   drapesAtSelectionZ,
+  GLOBE_DIRECT_MIN_STROKE_Z,
+  drapesStrokesAtSelectionZ,
 } from './projections-table'
 import { MERCATOR_LAT_LIMIT } from './projection'
 import { TILE_PX } from './world-scale'
@@ -242,40 +244,88 @@ describe('PROJECTIONS table', () => {
 // ── T4: the #2093 F1 drape LOD ceiling ──
 // bakesVectorDrape says WHICH SURFACE drapes; GLOBE_DIRECT_MIN_SELECTION_Z says
 // HOW LONG it is worth draping. The bake→drape path trades BLUR (one 512px-bake
-// texel — also the drape's whole AA feather band) for HUG (the chord sagitta the
-// direct arm leaves under the sphere). Camera zoom CANCELS out of that ratio, so
-// the crossover is a property of the TILE zoom alone — which is what makes a
-// single selection-zoom integer a legitimate gate rather than a tuned constant.
+// texel, magnified on screen — also the drape's whole AA feather band) for the
+// direct arm's CHORD error, which lives only on tile-spanning straight edges and
+// improves 4× per zoom level. The ceiling is the reference-engine parity point
+// (projections-table.ts derives it): the zoom from which MapLibre's globe needs no
+// more than a 2×2 subdivision to draw the same tiles direct.
 describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () => {
-  // One drape bake texture is BAKE_PX square (map/src/render/vector-drape-
-  // renderer.ts:55 `const BAKE_PX = 512`). MIRRORED here, never imported: map
-  // depends on geo, never the reverse. The mirror is pinned equal to its
-  // authority by map/src/render/globe-direct-ceiling-selection.test.ts — the
-  // mirror + drift-gate pattern MERCATOR_POLE_LIMIT already uses above.
-  const BAKE_PX = 512
+  /** MapLibre's globe subdivides fill geometry at granularity
+   *  max(1, BASE / 2^z) — subdivision.ts's `SubdivisionGranularityExpression(128, 1)`
+   *  for fills. The reference engine's own constant, mirrored here as the parity
+   *  oracle the ceiling is derived from. */
+  const MAPLIBRE_FILL_BASE_GRANULARITY = 128
+  /** Reference viewport width (CSS px) the error budgets are quoted for. */
+  const VIEWPORT_PX = 1024
+  /** Camera height above the surface in earth radii at zoom Z, for a 60° fov
+   *  over VIEWPORT_PX: h/R = 0.866·W·(2π/(TILE_PX·2^Z)). */
+  const cameraHeightR = (Z: number): number =>
+    (0.866 * VIEWPORT_PX * 2 * Math.PI) / (TILE_PX * 2 ** Z)
+  /** PERSPECTIVE DISPLACEMENT of a chord spanning a whole tile of zoom z at camera
+   *  zoom Z: ε = D²/(2·R·h) with D/R = 2π·2^−z — the fraction of its screen
+   *  offset an edge is pulled toward the frame centre. */
+  const perspectiveEps = (Z: number, z: number): number =>
+    (2 * Math.PI * 2 ** -z) ** 2 / (2 * cameraHeightR(Z))
+  /** ARC CURVATURE inside the viewport at pitch 0: the projected sagitta of a
+   *  great-circle arc of on-screen length W passing at the viewport's own
+   *  angular half-width from the nadir, W³/(16·R_px²), R_px = TILE_PX·2^Z/(2π). */
+  const arcSagittaPx = (Z: number): number => {
+    const rPx = (TILE_PX * 2 ** Z) / (2 * Math.PI)
+    return VIEWPORT_PX ** 3 / (16 * rPx * rPx)
+  }
 
-  /** Chord sagitta of a tile-wide edge at TILE zoom `z`, in CSS px at camera
-   *  zoom `Z`: span·θ/8, where the tile spans `TILE_PX·2^(Z−z)` CSS px
-   *  (world-scale.ts — the zoom↔pixel anchor) and subtends `2π·2^−z`. */
-  const sagittaPx = (Z: number, z: number): number =>
-    (TILE_PX * 2 ** (Z - z) * (2 * Math.PI * 2 ** -z)) / 8
-  /** One bake texel of that same tile, in the same CSS px — its on-screen span
-   *  spread over the BAKE_PX-wide bake. This is BOTH the drape's resolution
-   *  floor AND its whole AA feather band (the bake runs at dpr=1). */
-  const bakeTexelPx = (Z: number, z: number): number => (TILE_PX * 2 ** (Z - z)) / BAKE_PX
+  it('=== the ceiling is the MapLibre 2×2-subdivision parity point', () => {
+    // The reference engine subdivides a tile of zoom z into max(1, 128/2^z) cells
+    // per axis and draws it direct; from the zoom where that is ≤ 2 it is
+    // drawing the same tiles with at most a 2×2 split, and above ~z6 it blends to
+    // a flat Mercator plane altogether. Direct-from-six is that parity point.
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(
+      Math.ceil(Math.log2(MAPLIBRE_FILL_BASE_GRANULARITY / 2)),
+    )
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
+  })
 
-  it('=== the chord-sagitta crossover, mapped 1:1 onto currentZ', () => {
-    // C/B = (BAKE_PX·π/4)·2^−z. `TILE_PX` CANCELS — it scales the tile's
-    // on-screen span, which is the numerator of BOTH errors — so the crossover
-    // is set by the BAKE resolution alone and the direct arm wins from TILE zoom
-    // ceil(log2(BAKE_PX·π/4)) = 9 upward. (The BAKE_PX mirror above is pinned to
-    // vector-drape-renderer.ts by the map-side gate; this file may not import it.)
-    // `currentZ` is floor(cameraZoom) clamped to the source maxLevel, and the
-    // globe selector force-descends the FOCAL tile to selMaxZ = currentZ
-    // (globe-visible-tiles.ts:434), so the tiles under the camera centre are
-    // drawn AT currentZ — the threshold maps 1:1, no off-by-one.
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(Math.ceil(Math.log2((BAKE_PX * Math.PI) / 4)))
-    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(9)
+  it('the chord budget at the ceiling is what the derivation quotes, and shrinks 4× per level', () => {
+    // Native zoom (Z = z): the two error terms of a tile-spanning straight edge.
+    // These are the numbers projections-table.ts commits to; a drift in either
+    // formula — or in TILE_PX — reddens here with the new value in the message.
+    const z = GLOBE_DIRECT_MIN_SELECTION_Z
+    const eps = perspectiveEps(z, z)
+    const arc = arcSagittaPx(z)
+    expect(
+      eps,
+      `perspective displacement at native z${z}: ${(eps * 100).toFixed(2)} %`,
+    ).toBeCloseTo(1.81 * 2 ** -z, 2)
+    expect(eps * (VIEWPORT_PX / 2), 'px at the frame edge').toBeLessThan(15)
+    expect(arc, `arc sagitta at Z=${z}: ${arc.toFixed(2)} px`).toBeCloseTo(10106 * 4 ** -z, 1)
+    expect(arc).toBeLessThan(2.6)
+    for (let k = z; k < 14; k++) {
+      expect(
+        perspectiveEps(k + 1, k + 1) / perspectiveEps(k, k),
+        'ε halves per level at native zoom',
+      ).toBeCloseTo(0.5, 6)
+      expect(arcSagittaPx(k + 1) / arcSagittaPx(k), 'the arc term quarters per level').toBeCloseTo(
+        0.25,
+        6,
+      )
+    }
+    // One level BELOW the ceiling the same edge is already twice as far off and
+    // the whole-hemisphere arcs curve visibly — the drape's hug is worth its blur.
+    expect(perspectiveEps(z - 1, z - 1) * (VIEWPORT_PX / 2)).toBeGreaterThan(25)
+    expect(arcSagittaPx(z - 1)).toBeGreaterThan(9)
+  })
+
+  it('over-zooming a shallow source multiplies the chord error — the source clamp is load-bearing', () => {
+    // ε = 1.81·2^(Z−2z): drawing z2 tiles at camera z10 (the maxzoom-2 demotiles
+    // mirror at _globe-drape-overzoom-gate's camera) puts a tile-spanning edge
+    // hundreds of percent off — the gate must read the DRAWN zoom, never the
+    // camera's, and such a source keeps the drape at every camera zoom.
+    expect(perspectiveEps(10, 2)).toBeGreaterThan(1)
+    expect(drapesAtSelectionZ(2), 'currentZ clamps to 2 on that source').toBe(true)
+    // MapLibre's own demotiles (maxzoom 6) reaches the ceiling exactly.
+    expect(drapesAtSelectionZ(6), 'a maxzoom-6 source at any camera zoom ≥ 6 renders direct').toBe(
+      false,
+    )
   })
 
   it('covers the #2093 report cameras (their selection zooms both go direct)', () => {
@@ -298,47 +348,49 @@ describe('T4: GLOBE_DIRECT_MIN_SELECTION_Z — the #2093 drape LOD ceiling', () 
     ).toBe(true)
   })
 
-  it('the blur-vs-sagitta verdict is INDEPENDENT of camera zoom (Z cancels)', () => {
-    // Two claims, in premise → conclusion order (§12: assert the CAUSE before the
-    // EFFECT, so a red run names the half that broke).
-    //
-    //   1. Z-INDEPENDENCE. The whole justification for gating on the SELECTION
-    //      zoom is that the camera zoom drops out of C/B. Every Z must reproduce
-    //      the verdict computed at the reference Z.
-    //   2. THE CONSTANT. The analytic sagitta-vs-texel comparison is the ORACLE;
-    //      `drapesAtSelectionZ` — i.e. GLOBE_DIRECT_MIN_SELECTION_Z — is the thing
-    //      under test. A wrong ceiling reddens this sweep, which is what makes it
-    //      a gate rather than a restatement of JavaScript's Math.
-    const REF_Z = 0
-    for (const Z of [2, 9.7, 15.3, 21.1]) {
-      for (let z = 2; z <= 14; z++) {
-        const C = sagittaPx(Z, z)
-        const B = bakeTexelPx(Z, z)
-        expect(
-          C >= B,
-          `Z=${Z} z=${z}: sagitta ${C}px vs bake texel ${B}px. FAILURE HERE MEANS the ` +
-            `drape-vs-direct verdict moved with the CAMERA zoom. C/B must reduce to ` +
-            `(BAKE_PX·π/4)·2^−z — a function of the TILE zoom alone — or gating the drape ` +
-            `on a single selection-zoom integer is not legitimate at all.`,
-        ).toBe(sagittaPx(REF_Z, z) >= bakeTexelPx(REF_Z, z))
-        expect(
-          drapesAtSelectionZ(z),
-          `z=${z} (measured at Z=${Z}): sagitta ${C}px vs bake texel ${B}px. FAILURE HERE ` +
-            `MEANS GLOBE_DIRECT_MIN_SELECTION_Z (${GLOBE_DIRECT_MIN_SELECTION_Z}) is not the ` +
-            `crossover its derivation claims — the drape is kept where its bake texel is ` +
-            `already wider than the chord it removes, or dropped where the chord still wins.`,
-        ).toBe(C >= B)
-      }
-    }
-  })
-
-  it('drapesAtSelectionZ() switches exactly at the ceiling (8 drapes, 9 goes direct)', () => {
-    expect(drapesAtSelectionZ(8), 'below the ceiling the great-circle hug is worth its blur').toBe(
+  it('drapesAtSelectionZ() switches exactly at the ceiling (5 drapes, 6 goes direct)', () => {
+    expect(drapesAtSelectionZ(5), 'below the ceiling the great-circle hug is worth its blur').toBe(
       true,
     )
     expect(
       drapesAtSelectionZ(GLOBE_DIRECT_MIN_SELECTION_Z),
-      'at the ceiling the 512px bake is blurrier than the chord it removes — render direct',
+      'at the ceiling the direct arm is the sharper, better-placed frame — render direct',
     ).toBe(false)
+  })
+})
+
+// ═══ design INC-3 — strokes have their OWN ceiling, and it is not the fill's ═══
+//
+// Fills and strokes shared one decision because they share one bake texture. Their
+// error budgets do not have the same shape: a fill is an AREA (a mis-subdivided
+// shared border between two LODs leaves a hairline crack, and the globe renders
+// mixed LOD every frame), a stroke is a CURVE (no neighbour, no gap — and
+// `subdivideChainMM` densifies it with the same 2°/depth-5 rule the fill triangles
+// get). What the drape costs a stroke is unconditional: a resample onto the sphere
+// grid, ~1 px of filter on every road at every zoom.
+describe('T5: GLOBE_DIRECT_MIN_STROKE_Z — the stroke half of the drape decision', () => {
+  it('strokes never drape on the sphere route — at any selection zoom', () => {
+    for (const z of [0, 1, 2, 5, 6, 9, 14, 22]) {
+      expect(
+        drapesStrokesAtSelectionZ(z),
+        `selection zoom ${z}: a baked stroke is resampled onto the sphere grid, which no bake ` +
+          `density removes — the "roads are still thick" report. Strokes go direct.`,
+      ).toBe(false)
+    }
+  })
+
+  it('is a SEPARATE constant from the fill ceiling, not the same one read twice', () => {
+    // The whole point of INC-3: the two can move independently. A refactor that
+    // re-points one at the other silently re-couples them.
+    expect(GLOBE_DIRECT_MIN_STROKE_Z).not.toBe(GLOBE_DIRECT_MIN_SELECTION_Z)
+    expect(GLOBE_DIRECT_MIN_STROKE_Z).toBe(0)
+  })
+
+  it('the FILL ceiling is unmoved — the cross-LOD skirt still gates it', () => {
+    // Strokes going direct says nothing about fills: the crack a fill can leave
+    // between two LODs is an area defect with no stroke analogue, and the skirt
+    // that closes it is unbuilt (design correction #4).
+    expect(GLOBE_DIRECT_MIN_SELECTION_Z).toBe(6)
+    expect(drapesAtSelectionZ(5), 'fills below the ceiling still drape').toBe(true)
   })
 })

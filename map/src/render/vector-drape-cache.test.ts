@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
+import {
+  planBakeEvictions,
+  drapeZoomBucket,
+  drapeStrokeWidthScale,
+  bakeStrokeAaDpr,
+} from './vector-drape-cache'
 
 // #599 I3 — the globe vector-drape baked-fill cache eviction policy. Pure, so it
 // runs without the RasterDraper / WebGPU stack. Entries are `{ lastCall }` (the
@@ -116,5 +121,55 @@ describe('drapeZoomBucket / drapeStrokeWidthScale — #1222 screen-px stroke con
       worst = Math.max(worst, Math.max(onScreen, 1 / onScreen))
     }
     expect(worst).toBeLessThanOrEqual(Math.pow(2, 1 / 8) + 1e-9)
+  })
+})
+
+// ═══ #2346 — the baked AA band must land at the direct path's width ═══
+//
+// #1222 above compensates the stroke's CORE width. The painted edge is wider
+// than the core by the fragment's AA half-band (`0.5 / dpr` LAYER px), and in a
+// bake one layer pixel is one BAKE TEXEL — which the sphere magnifies by exactly
+// the factor #1222 divided out of the core. The bake wrote `dpr = 1`, so the
+// band was `0.5 · 2^(camZoom − tileZoom) · dpr` device px against the direct
+// path's flat 0.5: measured 7.0 device px of road against the Mercator control's
+// 3.0 at z7.5 / dpr 2 on OFM Positron.
+describe('bakeStrokeAaDpr — the AA band survives the bake (#2346)', () => {
+  /** What the fragment actually paints beyond the core, in DEVICE px, when the
+   *  bake is sampled at magnification `m` on a `dpr` display: the half-band is
+   *  `0.5 / aaDpr` BAKE TEXELS, and one bake texel is `m` CSS px = `m · dpr`
+   *  device px. The direct path's own band is a flat 0.5 device px. */
+  const paintedHalfBandDevicePx = (m: number, dpr: number): number =>
+    (0.5 / bakeStrokeAaDpr(dpr, drapeStrokeWidthScale(drapeZoomBucket(Math.log2(m), 0)))) * m * dpr
+
+  it('pays back the magnification the bucket measured — at every dpr and depth', () => {
+    for (const dpr of [1, 2, 3]) {
+      for (const m of [1, 1.19, 1.41, 2, 2.83, 4]) {
+        expect(
+          paintedHalfBandDevicePx(m, dpr),
+          `magnification ${m}× at dpr ${dpr}: the baked AA band must paint the direct path's ` +
+            `0.5 device px. Wider means every stroke on the globe is thicker than the same ` +
+            `stroke on mercator — the "roads are too thick" report.`,
+        ).toBeCloseTo(0.5, 1)
+      }
+    }
+  })
+
+  it('is 1 at the bake-native dpr-1 anchor, so that frame is byte-identical', () => {
+    // The value the bake used to hard-code. Anything else here would re-bake
+    // every dpr-1 native-zoom tile for no reason.
+    expect(bakeStrokeAaDpr(1, 1)).toBe(1)
+  })
+
+  it('scales with dpr alone when the bake is already at the camera zoom', () => {
+    // No magnification to undo: the band must simply be a device pixel wide, so
+    // a 2× display asks the bake for a half-band half as wide in texels.
+    expect(bakeStrokeAaDpr(2, 1)).toBe(2)
+    expect(bakeStrokeAaDpr(3, 1)).toBe(3)
+  })
+
+  it('never returns a non-finite or zero dpr, whatever the caller passes', () => {
+    // The uniform divides: a 0 would put NaN in every fragment of the frame.
+    expect(bakeStrokeAaDpr(0, 1)).toBeGreaterThan(0)
+    expect(Number.isFinite(bakeStrokeAaDpr(2, 0))).toBe(true)
   })
 })
