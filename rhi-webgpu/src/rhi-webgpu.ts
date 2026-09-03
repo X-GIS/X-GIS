@@ -420,6 +420,7 @@ export class WebGpuDevice implements RhiDevice {
       // WebGPU reads `RhiPipelineDesc.code` and ignores vsCode/fsCode entirely.
       shaderLanguage: 'wgsl',
       renderBundles: true,
+      outOfFramePasses: true,
       chainFrame: true,
     } as const)
   }
