@@ -439,15 +439,15 @@ already exists (`vs_main_ecef_extruded`).
 
 ## WS-16 — Misc top-level / sources · M–L
 
-| Item           | Status today      | Plan                                                                      | Tier |
-| -------------- | ----------------- | ------------------------------------------------------------------------- | ---- |
-| `fog`          | unsupported (low) | Depth-based post-process mix pass                                         | M    |
-| `sky`          | unsupported (low) | Sky dome (`sky-color`/`-atmosphere`/`-type`); pairs with globe atmosphere | M    |
-| `image` source | unsupported (low) | Single-image draped on a quad in the loader                               | S    |
-| `video` source | unsupported (low) | `<video>` → texture per frame; reuse image-source quad                    | M    |
-| `imports`      | unsupported       | Parse Mapbox v3 style-import & merge before convert                       | M    |
-| `transition`   | unsupported (low) | Per-property fade-in (global + per-paint)                                 | M    |
-| `metadata`     | unsupported (low) | Informational — keep dropping (no-op)                                     | —    |
+| Item           | Status today      | Plan                                                                                      | Tier |
+| -------------- | ----------------- | ----------------------------------------------------------------------------------------- | ---- |
+| `fog`          | unsupported (low) | Depth-based post-process mix pass                                                         | M    |
+| `sky`          | unsupported (low) | Sky dome (`sky-color`/`-atmosphere`/`-type`); pairs with globe atmosphere                 | M    |
+| `image` source | unsupported (low) | Single-image draped on a quad in the loader                                               | S    |
+| `video` source | unsupported (low) | `<video>` → texture per frame; reuse image-source quad                                    | M    |
+| `imports`      | partial (#2471)   | `url` entries lower to xgis `import "<url>"`; `mapbox://` / inline `data` / `config` warn | —    |
+| `transition`   | unsupported (low) | Per-property fade-in (global + per-paint)                                                 | M    |
+| `metadata`     | unsupported (low) | Informational — keep dropping (no-op)                                                     | —    |
 
 ---
 

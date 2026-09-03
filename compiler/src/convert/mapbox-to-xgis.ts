@@ -47,6 +47,7 @@ import {
 import { convertBackgroundLayer } from './convert-background-layer'
 import { reportDroppedBackgroundLayer } from './background-layer-drop'
 import { convertTerrain } from './terrain'
+import { emitStyleImports } from './style-imports'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
 
@@ -221,6 +222,12 @@ export function convertMapboxStyle(
     lines.push('')
   }
 
+  // Mapbox v3 `imports` (#2471) — spliced HERE, ahead of the sources and layers
+  // below, because `resolveImportsAsync` places an import's statements at the
+  // import's own line: emit order is DRAW order, so the imported basemap lands
+  // under the root style's own layers.
+  emitStyleImports(style.imports, lines, warnings)
+
   // ── Top-level style fields without an X-GIS equivalent ─────────────
   // The Mapbox style spec defines several top-level fields beyond
   // `sources` / `layers` / `name`. The CONVERTER doesn't encode any
@@ -230,13 +237,14 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   light / imports — Mapbox v3 additions, none implemented.
+  //   light — a Mapbox v3 addition, not implemented.
   //                (`terrain` moved out of this list in #2095 — the block is now
   //                parsed + emitted, with its own precise warning below instead of
   //                the generic one here. `fog` and `transition` moved out in #2166
   //                for the opposite reason: still unimplemented, but "ignored" is
   //                the wrong sentence for both — each has its own precise warning
-  //                below.)
+  //                below. `imports` moved out in #2471 for a third reason: it is
+  //                now IMPLEMENTED, lowered to xgis import statements above.)
   //
   // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
   // omitted — they're host-integration concerns (the playground's
@@ -289,9 +297,9 @@ export function convertMapboxStyle(
   // for both, in opposite directions: fog's block is two unrelated halves only
   // one of which is hopeless, and transition costs a converted style nothing at
   // rest. Each gets its own precise warning below.
+  // `imports` LEFT it in #2471 for a third reason: it now WORKS (see above).
   const gapFields = [
     'lights',
-    'imports',
     'models',
     // #2007 — three more root fields with the same "converter never
     // reads this" shape. `state` closes an asymmetry: the
