@@ -429,7 +429,17 @@ async function captureAdvancedFrame(
 
 test.describe('#2094 — the drape budget holds through the zoom-in readiness hold', () => {
   // Serial: the sever arm compares against the direct arm's held frame on disk.
-  test.describe.configure({ mode: 'serial', timeout: 900_000 })
+  //
+  // The budget is 2x the sum of this gate's OWN declared inner waits, and it has to be:
+  // at 900_000 it was EQUAL to that sum, so the gate could spend exactly the allowances
+  // it documents and still be killed by its parent, with nothing left for boot, frame
+  // time or the four in-page PNG decodes. captureHeldFrame declares 180 s (ready) +
+  // 120 s (converge) + 180 s (hold witness); captureAdvancedFrame declares 180 s
+  // (drain) + 2x120 s (capture) = 900 s. It only ever passed because those waits
+  // normally return early -- which is not headroom, it is luck, and CI spent it
+  // (#2483: three attempts, each killed at 900 s inside a page.evaluate PNG decode;
+  // the same test passes here on SwiftShader in 12.3 min, i.e. 82 % of the old budget).
+  test.describe.configure({ mode: 'serial', timeout: 1_800_000 })
   test.use({ viewport: { width: 1024, height: 720 } })
 
   test.beforeAll(() => {
