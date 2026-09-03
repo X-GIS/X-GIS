@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 991f9b4636dccd45a0f10e69f8e60e66ac52ec8b
+  Generated from: 9f6c12b0659ef1301e23f5ce3af9d8faafbeabb2
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 991f9b4636dc
+    bun scripts/emit-changelog.ts --since 9f6c12b0659e
 -->
 
 # Changelog
@@ -40,6 +40,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** emit truncated f32 mod on both backends (#2334) ([#2436](https://github.com/X-GIS/X-GIS/pull/2436)) `9f6c12b`
 - **compiler:** thread stop-pair span into palette curveFraction (#2335) ([#2437](https://github.com/X-GIS/X-GIS/pull/2437)) `febc58e`
 - **data:** the catalog drops a detached backend's result, and the pool releases a failed post (#2391) ([#2424](https://github.com/X-GIS/X-GIS/pull/2424)) `5771e07`
 - **map:** track background-color provenance so a background-less re-run drops only the style's fill (#2306) ([#2420](https://github.com/X-GIS/X-GIS/pull/2420)) `2a00b2e`
