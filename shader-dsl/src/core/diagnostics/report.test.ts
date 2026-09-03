@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { diagnose, formatReport } from './report.js'
-import { module, fn, f32T, f32 } from '../ir/index.js'
+import { module, fn, f32T, f32, voidT } from '../ir/index.js'
 import type { Backend, CapProfile } from '../backend.js'
 
 // A minimal backend stub that covers everything EXCEPT compute — diagnose() reads only
@@ -31,7 +31,7 @@ describe('diagnose / formatReport', () => {
   })
 
   it('reports a missing backend capability alongside lint (non-throwing)', () => {
-    const m = module({ funcs: [fn('cs', {}, () => {}, { stage: 'compute' })] })
+    const m = module({ funcs: [fn('cs', {}, voidT, () => {}, { stage: 'compute' })] })
     const r = diagnose(m, { rules: 'core', backend: noComputeBackend })
     const cap = r.diagnostics.find((d) => d.ruleId === 'unsupported-capability')
     expect(cap).toBeDefined()
@@ -48,7 +48,7 @@ describe('diagnose / formatReport', () => {
     )
     expect(formatReport(clean)).toBe('no diagnostics')
 
-    const m = module({ funcs: [fn('cs', {}, () => {}, { stage: 'compute' })] })
+    const m = module({ funcs: [fn('cs', {}, voidT, () => {}, { stage: 'compute' })] })
     const text = formatReport(diagnose(m, { rules: 'core', backend: noComputeBackend }))
     expect(text).toContain('error[SD0030]')
     expect(text).toContain('unsupported-capability')

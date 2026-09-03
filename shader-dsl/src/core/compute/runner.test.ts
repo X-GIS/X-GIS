@@ -29,6 +29,7 @@ import {
   u32T,
   vec3uT,
   vec4uT,
+  voidT,
   type ModuleDecl,
 } from '../../index.js'
 import { createComputeRunner, type GpuDeviceLike } from '../../compute.js'
@@ -42,6 +43,7 @@ function makeKernel(opts?: { portable?: boolean; name?: string }): ModuleDecl {
   const kernel = fn(
     opts?.name ?? 'scale_features',
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const i = gid.x
       If(i.ge(dispatchU.node.x), () => {
@@ -66,6 +68,7 @@ function makePaintKernel(): ModuleDecl {
   const kernel = fn(
     'paint',
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const i = gid.x
       If(i.ge(uCount.node.x), () => {
@@ -129,6 +132,7 @@ function makeGroup1Kernel(): ModuleDecl {
   const kernel = fn(
     'scale_features',
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const i = gid.x
       If(i.ge(dispatchU.node.x), () => {
@@ -215,6 +219,7 @@ describe('createComputeRunner — the tier gate is not re-decided here', () => {
         fn(
           'scale_features',
           { gid: builtin('global_invocation_id', vec3uT) },
+          voidT,
           ({ gid }) => {
             const i = gid.x
             If(i.ge(dispatchU.node.x), () => {

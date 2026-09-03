@@ -36,6 +36,7 @@ import {
   u32T,
   vec3uT,
   vec4uT,
+  voidT,
   type ModuleDecl,
 } from '@xgis/shader-dsl'
 import type { WebGl2Device } from '@xgis/rhi-webgl2'
@@ -54,6 +55,7 @@ const kernelModule = (portable: boolean): ModuleDecl => {
       fn(
         'paint',
         { gid: builtin('global_invocation_id', vec3uT) },
+        voidT,
         ({ gid }) => {
           const i = gid.x
           If(i.ge(uCount.node.x), () => {
