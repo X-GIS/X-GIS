@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: d965a386e853b11623bce3109b270a2dc8aa614d
+  Generated from: 9d93bd975d0ee6db26047a84527169edac3120af
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since d965a386e853
+    bun scripts/emit-changelog.ts --since 9d93bd975d0e
 -->
 
 # Changelog
@@ -23,6 +23,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **compiler:** data-driven fill/line/fill-extrusion-pattern via the match split ([#2410](https://github.com/X-GIS/X-GIS/pull/2410)) `3e87fa0`
 - **rhi-webgl2:** fail loud on a per-target writeMask ES 3.00 cannot honour (#2349) ([#2402](https://github.com/X-GIS/X-GIS/pull/2402)) `14c2374`
 - **compiler:** per-feature symbol-sort-key + narrow the text-pitch-alignment gap warning to its real residual ([#2221](https://github.com/X-GIS/X-GIS/pull/2221)) `54a5905`
 - **compiler/convert:** zoom-axis bezier colour densify + per-feature collator options ([#2217](https://github.com/X-GIS/X-GIS/pull/2217)) `702cd72`
@@ -37,6 +38,11 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **render:** drop the old source's tiles when a raster template changes (#2384) ([#2388](https://github.com/X-GIS/X-GIS/pull/2388)) `f696b5a`
+- **playground:** withValidationCapture must not lose a realm's queue across navigations (#2352) ([#2415](https://github.com/X-GIS/X-GIS/pull/2415)) `e6dfc93`
+- **map/render:** tear down the fill Materials no owner released (#2325) ([#2417](https://github.com/X-GIS/X-GIS/pull/2417)) `7ff4162`
+- **compiler/eval:** index_of no longer maps a null needle to '' (#2385) ([#2414](https://github.com/X-GIS/X-GIS/pull/2414)) `f2fd73f`
+- **pipeline:** treat blank cells as missing in aggregate() (#2378) ([#2413](https://github.com/X-GIS/X-GIS/pull/2413)) `a35989b`
 - **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
 - **map/render:** release a pass's per-host entry before replacing it (#2337) ([#2401](https://github.com/X-GIS/X-GIS/pull/2401)) `e3e3e61`
 - **playground:** overdraw capture reports painted / sampled, not painted / painted (#2356) ([#2396](https://github.com/X-GIS/X-GIS/pull/2396)) `9692834`
@@ -84,11 +90,13 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **render:** the split-bind frame stamp is a frame id, not a per-render counter (#2309) ([#2418](https://github.com/X-GIS/X-GIS/pull/2418)) `9d93bd9`
 - **tiles+labels:** allocation-free child descent, and no dead cadence measurement (#2309) ([#2345](https://github.com/X-GIS/X-GIS/pull/2345)) `ea162c8`
 - **text:** take text-translate out of the layout cache and its key (#2170) ([#2267](https://github.com/X-GIS/X-GIS/pull/2267)) `77dedde`
 
 #### refactor
 
+- **map:** delete RenderStats.tilesLoaded and gpuBuffers — no producer ever wrote them (#2307) ([#2407](https://github.com/X-GIS/X-GIS/pull/2407)) `4f85bd2`
 - **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
 
 #### docs
@@ -99,6 +107,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`
 - **e2e:** read the mirror gate's frame from the canvas, not the compositor (#2242) ([#2371](https://github.com/X-GIS/X-GIS/pull/2371)) `80355d9`
 - **e2e:** settle the glyphs gate on the kind it asserts, not on a screenshot (#2366) ([#2367](https://github.com/X-GIS/X-GIS/pull/2367)) `1392e6d`
 - **ownership:** teardown-reachability ratchet + DEV owner-leak detector ([#2269](https://github.com/X-GIS/X-GIS/pull/2269)) `bdfe551`
