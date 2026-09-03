@@ -546,6 +546,17 @@ describe('entrypoint', () => {
     }).stdout.trim() === 'true'
   const hasDeepHistory = !isShallow
 
+  // #2462 — the range probe below compares TWO `--since` bounds instead of pinning an
+  // absolute bullet count, so it needs both to resolve. `main~50` is far enough back
+  // that this repo always has it in a deep clone; skip rather than error if it ever
+  // does not.
+  const RANGE_NEAR = 'main~5'
+  const RANGE_FAR = 'main~50'
+  const farRefResolves =
+    spawnSync('git', ['rev-parse', '--verify', '--quiet', `${RANGE_FAR}^{commit}`], {
+      encoding: 'utf8',
+    }).status === 0
+
   it.skipIf(!hasDeepHistory)('emits to stdout when run directly', () => {
     const run = spawnSync('bun', [script], { encoding: 'utf8' })
     expect(run.status).toBe(0)
@@ -565,14 +576,38 @@ describe('entrypoint', () => {
     expect(run.stdout).toBe('')
   })
 
-  it.skipIf(!hasDeepHistory)('resolves a ref --since into an exclusive range (spawned)', () => {
-    const run = spawnSync('bun', [script, '--since', 'main~5'], { encoding: 'utf8' })
-    expect(run.status).toBe(0)
-    expect(run.stdout).toContain('Lower bound: main~5 (exclusive)')
-    expect(run.stdout).toContain('bun scripts/emit-changelog.ts --since main~5')
-    expect(run.stdout).not.toContain('> CHANGELOG.md')
-    expect((run.stdout.match(/^- /gm) ?? []).length).toBe(5)
-  })
+  it.skipIf(!hasDeepHistory || !farRefResolves)(
+    'resolves a ref --since into an exclusive range (spawned)',
+    () => {
+      const bullets = (out: string) => (out.match(/^- /gm) ?? []).length
+      const near = spawnSync('bun', [script, '--since', RANGE_NEAR], { encoding: 'utf8' })
+      expect(near.status).toBe(0)
+      expect(near.stdout).toContain(`Lower bound: ${RANGE_NEAR} (exclusive)`)
+      expect(near.stdout).toContain(`bun scripts/emit-changelog.ts --since ${RANGE_NEAR}`)
+      expect(near.stdout).not.toContain('> CHANGELOG.md')
+
+      // #2462 — RELATIONAL, because the bullet count is not a function of the range
+      // length. This used to assert `toBe(5)` on the premise "the range is 5 commits,
+      // so 5 bullets", and that premise is false in this repo's ordinary state: a
+      // `chore(changelog): regenerate…` commit lands after nearly every merge and the
+      // emitter drops it, so a tip-5 window routinely yields 3. The old constant was
+      // red on every deep clone and green in CI only because the shallow checkout
+      // skipped it — dark where it was gated, wrong where it ran.
+      //
+      // A wider lower bound must yield strictly MORE bullets. That is the property
+      // the test is actually about (does `--since` restrict the range at all?), it
+      // needs no magic constant, and it does not re-implement the emitter's own
+      // "is this commit changelog-eligible" rule — which would be a second authority
+      // free to drift from the emitter. It is also immune to a stale local `main`,
+      // since both bounds resolve against the same ref.
+      const far = spawnSync('bun', [script, '--since', RANGE_FAR], { encoding: 'utf8' })
+      expect(far.status).toBe(0)
+      expect(
+        bullets(far.stdout),
+        `--since ${RANGE_FAR} must cover more commits than --since ${RANGE_NEAR}`,
+      ).toBeGreaterThan(bullets(near.stdout))
+    },
+  )
 
   it.skipIf(!hasDeepHistory)('treats an ISO-date --since as a date bound (spawned)', () => {
     // Structural assertion only (the banner names the branch taken): asserting
