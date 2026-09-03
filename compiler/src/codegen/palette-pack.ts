@@ -72,14 +72,23 @@ function clamp01(v: number): number {
 
 /** Mapbox-spec curve. `base === 1` is linear; `base !== 1` is
  *  `["interpolate", ["exponential", base], …]` — see Mapbox's
- *  interpolation-curves doc. The runtime evaluation matches what
- *  MapLibre / mapbox-gl-js compute at the same (zoom, stops, base). */
-function curveFraction(t: number, base: number): number {
+ *  interpolation-curves doc. `span` is the RAW zoom delta between the
+ *  bracketing stops (`hi.zoom - lo.zoom`, not the normalised `t`), and
+ *  the curve is applied to `t * span` — matching the runtime's
+ *  `interpolateZoom` (map/src/render/renderer-helpers.ts), which is
+ *  the oracle this must agree with. `span === 1` reduces this to the
+ *  old `(base^t - 1) / (base - 1)` form exactly, so single-zoom-level
+ *  stop pairs are unaffected (#2335).
+ *
+ *  `base === 1` stays linear regardless of span (unchanged). `span
+ *  === 0` (two stops at the same zoom, degenerate) has no curve to
+ *  apply — the caller already pins `t` to 0 for this case, and this
+ *  returns it unchanged instead of dividing 0/0 into a colour texel. */
+function curveFraction(t: number, base: number, span: number): number {
   if (base === 1 || Math.abs(base - 1) < 1e-6) return t
-  // (base^t - 1) / (base^t1 - 1)  with t in [0,1] and t1=1.
-  // Re-derive with denom base-1 (closed form when t1=1).
-  const denom = base - 1
-  return (Math.pow(base, t) - 1) / denom
+  const denom = Math.pow(base, span) - 1
+  if (denom === 0) return t
+  return (Math.pow(base, t * span) - 1) / denom
 }
 
 function lerpRgba(
@@ -116,8 +125,12 @@ export function evalColorGradientAt(
   while (i < stops.length - 1 && stops[i + 1]!.zoom <= zoom) i++
   const lo = stops[i]!
   const hi = stops[i + 1]!
-  const t = (zoom - lo.zoom) / (hi.zoom - lo.zoom)
-  return lerpRgba(lo.value, hi.value, curveFraction(t, g.base))
+  const span = hi.zoom - lo.zoom
+  // Duplicate-zoom stops (span === 0) would otherwise divide 0/0 → NaN.
+  // Mirror the runtime's guard (renderer-helpers.ts interpolateZoom):
+  // pin to the lower stop's value.
+  const t = span === 0 ? 0 : (zoom - lo.zoom) / span
+  return lerpRgba(lo.value, hi.value, curveFraction(t, g.base, span))
 }
 
 export function evalScalarGradientAt(g: ScalarGradient, zoom: number): number {
@@ -129,8 +142,9 @@ export function evalScalarGradientAt(g: ScalarGradient, zoom: number): number {
   while (i < stops.length - 1 && stops[i + 1]!.zoom <= zoom) i++
   const lo = stops[i]!
   const hi = stops[i + 1]!
-  const t = (zoom - lo.zoom) / (hi.zoom - lo.zoom)
-  return lo.value + (hi.value - lo.value) * curveFraction(t, g.base)
+  const span = hi.zoom - lo.zoom
+  const t = span === 0 ? 0 : (zoom - lo.zoom) / span
+  return lo.value + (hi.value - lo.value) * curveFraction(t, g.base, span)
 }
 
 // ─── Packing ───────────────────────────────────────────────────────
