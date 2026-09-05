@@ -65,8 +65,10 @@ export function selectFlatTiles(
   canvasHeight: number,
   dpr: number,
 ): TileCoord[] {
-  if (projType === 0)
-    return visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
   const proj = flatSelectorProjection(projType, projCenterLon, projCenterLat)
+  // Branch on the projection the table handed back, not on projType (#996): the
+  // Mercator singleton keeps the frustum selector — byte-identical hot path.
+  if (proj === mercatorProj)
+    return visibleTilesFrustum(camera, mercatorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
   return visibleTilesSSE(camera, proj, currentZ, canvasWidth, canvasHeight, 0, dpr)
 }
