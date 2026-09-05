@@ -26,6 +26,20 @@ describe('Phase-2 text shader — DSL emission (SDF glyph + halo)', () => {
     expect(w).toContain('(u.halo_width <= 0.0)') // no-halo early return
     expect(w).not.toContain('fwidth(') // text AA is analytic, not a screen derivative
   })
+  it('fragment: the no-halo branch is PREMULTIPLIED like the halo branch (#2502)', () => {
+    // The material blends with source factor ONE (text-material.ts `blend:
+    // 'premult'`), so a straight `(fill.rgb, a)` return adds the full colour
+    // wherever a = 0 — every glyph slot of a light halo-less label rendered as
+    // a solid quad. Both select arms must carry rgb·a.
+    // The emitter CSEs `fill.rgb * a` into a `let`; resolve it rather than
+    // matching the text shape (CLAUDE.md §12: count on the IR, not the text).
+    const fs = w.slice(w.indexOf('@fragment'))
+    const premul = fs.match(/let (_cse\d+) = \(u\.fill_color\.rgb \* (_cse\d+)\);/)
+    expect(premul, 'a premultiplied fill term must exist').not.toBeNull()
+    const [, rgbA, a] = premul!
+    expect(fs).toContain(`vec4<f32>(${rgbA}, ${a}), (u.halo_width <= 0.0)`) // the no-halo arm
+    expect(fs).not.toContain('vec4<f32>(u.fill_color.rgb,')
+  })
   it('is structurally balanced', () => {
     expect((w.match(/{/g) ?? []).length).toBe((w.match(/}/g) ?? []).length)
     expect((w.match(/\(/g) ?? []).length).toBe((w.match(/\)/g) ?? []).length)
