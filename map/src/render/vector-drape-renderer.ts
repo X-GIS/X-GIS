@@ -305,6 +305,7 @@ export class VectorDrapeRenderer {
           mercSouth,
           mercY(north) - mercSouth,
           gridN,
+          opacity,
         )
         tiles.push({
           texture: tex,
@@ -372,6 +373,7 @@ export class VectorDrapeRenderer {
         mercSouth,
         mercY(north) - mercSouth,
         gridN,
+        opacity,
       )
       // The scratch block is reused per tile — COPY its bytes for the batch entry.
       tiles.push({
@@ -420,7 +422,23 @@ export class VectorDrapeRenderer {
         // globe ECEF anchor put planet-scale metres in those lanes — every
         // draped fill landed off-screen (fills invisible on ortho/azi/stereo).
         rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat),
-        { opacity, hueRotate: 0, brightnessMin: 0, brightnessMax: 1, saturation: 0, contrast: 0 },
+        // #2291 — the per-show fill-opacity rides the PER-TILE lane
+        // (tile_ecef_center.w, written above), never this global: the global
+        // uniform is ONE buffer every group-0 bind group references and
+        // RasterDraper.draw rewrites it per slice-layer, so on WebGPU (deferred
+        // queue.writeBuffer, last-writer-wins at the single frame submit) every
+        // slice would drape with the LAST slice's opacity. fs_tile multiplies
+        // raster_params.x and tile_ecef_center.w into alpha identically, so 1
+        // here is the exact same fragment alpha for a single-slice frame. Every
+        // remaining global lane is frame-constant across slices.
+        {
+          opacity: 1,
+          hueRotate: 0,
+          brightnessMin: 0,
+          brightnessMax: 1,
+          saturation: 0,
+          contrast: 0,
+        },
       )
       this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled(), this._framePoolBase)
       // Advance so the NEXT slice-layer's draw() this frame gets fresh pool slots
@@ -554,5 +572,10 @@ export class VectorDrapeRenderer {
     }
     this.baked.clear()
     this.visibleKeys.clear()
+    // #2292 — the RasterDraper owns the Materials (pipelines + global uniform + pool
+    // buffers) and its two samplers; nothing else references them, so on a quality
+    // flip (live-session churn, not teardown) they would leak. #1578 built
+    // RasterDraper.destroy() for exactly this and this path never called it.
+    this.draper.destroy()
   }
 }

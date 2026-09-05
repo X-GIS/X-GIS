@@ -3,7 +3,7 @@
 import type { Camera } from './camera'
 import { unprojectGlobeFromCamera } from './camera'
 import { promotesToGlobeWhenTilted } from '@xgis/geo'
-import { getMaxDpr } from '@xgis/engine'
+import { canvasEffectiveDpr } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 import {
   getPinchAngle,
@@ -264,7 +264,10 @@ export class PanZoomController implements Controller {
     let lastY = 0
 
     // Touch state for pinch-to-zoom
-    const activePointers = new Map<number, { x: number; y: number }>()
+    // The entry carries `pointerType` because the 2->1 handoff below must ask the
+    // cooperativeGestures predicate about the pointer that REMAINS down, and a
+    // pointerup only carries the type of the one that left (#2295 follow-up).
+    const activePointers = new Map<number, { x: number; y: number; pointerType: string }>()
     let lastPinchDist = 0
 
     // RAF lifecycle: the inertia + smooth-zoom loops self-reschedule via
@@ -339,11 +342,26 @@ export class PanZoomController implements Controller {
       }, COOP_HINT_HOLD_MS)
     }
 
+    /** #1264/#2295 — single authority for "does `cooperativeGestures` deny
+     *  this pointer a single-finger drag-pan?". Returns the live option when
+     *  it blocks (so the caller can feed `showCoopHint`) and `undefined` when
+     *  the drag is allowed. Every site that arms a one-pointer drag — the
+     *  pointerdown press AND the pointerup 2→1 handoff — asks here, so the
+     *  contract is a property of the single-pointer STATE, not of which event
+     *  happened to create it. Mouse/pen and the default-off case return
+     *  `undefined`, keeping pre-#1264 behaviour byte-identical. */
+    const coopDeniesTouchDrag = (
+      pointerType: string,
+    ): boolean | CooperativeGesturesOptions | undefined => {
+      const coop = getState().cooperativeGestures
+      return pointerType === 'touch' && coop !== undefined && coop !== false ? coop : undefined
+    }
+
     const onPointerDown = (e: PointerEvent) => {
       // #12: register pointer, capture it, and fire onPointerDown BEFORE any early-return
       // — every pointerdown then pairs a setPointerCapture + activePointers entry + one
       // onPointerDown call, keeping state and down/up counts symmetric (e.g. double-tap zoom).
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType })
       canvas.setPointerCapture(e.pointerId)
       events?.onPointerDown?.(e.clientX, e.clientY, e)
 
@@ -360,7 +378,14 @@ export class PanZoomController implements Controller {
         if (dt < 300 && dist < 30) {
           // Double tap → zoom in
           const rDt = canvas.getBoundingClientRect()
-          camera.zoomAt(1, e.clientX - rDt.left, e.clientY - rDt.top, canvas.width, canvas.height)
+          camera.zoomAt(
+            1,
+            e.clientX - rDt.left,
+            e.clientY - rDt.top,
+            canvas.width,
+            canvas.height,
+            canvasEffectiveDpr(canvas),
+          )
           lastTapTime = 0
           return
         }
@@ -403,8 +428,7 @@ export class PanZoomController implements Controller {
           // the page for this drag (`touch-action:'pan-y'` when
           // cooperativeGestures is on) — this only stops the MAP itself from
           // also panning underneath that native scroll.
-          const coop = getState().cooperativeGestures
-          const coopBlocksTouch = e.pointerType === 'touch' && coop !== undefined && coop !== false
+          const coopBlocksTouch = coopDeniesTouchDrag(e.pointerType)
 
           // Right-click or Ctrl+click → prepare rotate mode (activated on move)
           if (e.button === 2 || e.ctrlKey) {
@@ -414,10 +438,10 @@ export class PanZoomController implements Controller {
             rotateStartX = e.clientX
             rotateStartY = e.clientY
             rotateActivated = false
-          } else if (coopBlocksTouch) {
+          } else if (coopBlocksTouch !== undefined) {
             isDragging = false
             isRotating = false
-            showCoopHint(coop, 'touch')
+            showCoopHint(coopBlocksTouch, 'touch')
           } else {
             isDragging = true
             isRotating = false
@@ -439,10 +463,7 @@ export class PanZoomController implements Controller {
             // bounding rect — the canvas may not sit at viewport (0,0)
             // (header / editor pane / etc), and unprojectToZ0 expects
             // coords in [0, canvas.width / canvas.height].
-            const dprNow =
-              typeof window !== 'undefined'
-                ? Math.min(window.devicePixelRatio || 1, getMaxDpr())
-                : 1
+            const dprNow = canvasEffectiveDpr(canvas)
             const r0 = canvas.getBoundingClientRect()
             const sxA = (e.clientX - r0.left) * dprNow,
               syA = (e.clientY - r0.top) * dprNow
@@ -497,6 +518,10 @@ export class PanZoomController implements Controller {
           }
         } // closes the #1265 shift-drag else branch
       } else if (activePointers.size === 2) {
+        // #2296: multi-touch is click-ineligible (MapLibre parity — a
+        // two-finger tap emits no `click`), so the latch armed by the FIRST
+        // finger must be cleared, or its zero-travel pointerup fires onClick.
+        pressEligible = false
         // #4: entering two-pointer mode must clear any pending rotate state
         // so lifting back to one finger does not wrongly activate rotation.
         isDragging = false
@@ -528,6 +553,7 @@ export class PanZoomController implements Controller {
     let inertiaAnimating = false
 
     const MAX_INERTIA_VEL = 15 // cap velocity (CSS px/frame)
+    const INERTIA_MAX_IDLE_MS = 160 // MapLibre HandlerInertia's sample window
 
     const applyInertia = safe('inertia', () => {
       // Bail if the controller was detached after this frame was queued but
@@ -542,7 +568,7 @@ export class PanZoomController implements Controller {
         inertiaRaf = null
         return
       }
-      camera.pan(panVelX, panVelY, canvas.width, canvas.height)
+      camera.pan(panVelX, panVelY, canvas.width, canvas.height, canvasEffectiveDpr(canvas))
       panVelX *= 0.9
       panVelY *= 0.9
       inertiaRaf = requestAnimationFrame(applyInertia)
@@ -571,7 +597,7 @@ export class PanZoomController implements Controller {
     let pinchAngleAccum = 0
 
     const onPointerMove = (e: PointerEvent) => {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType })
 
       // Hover dispatch — fires every move regardless of drag/rotate state.
       // Downstream rAF coalesces, so a fast drag still only spends one
@@ -688,6 +714,7 @@ export class PanZoomController implements Controller {
             center.y - rPin.top,
             canvas.width,
             canvas.height,
+            canvasEffectiveDpr(canvas),
           )
         }
         lastPinchDist = dist
@@ -724,8 +751,7 @@ export class PanZoomController implements Controller {
         lastMoveTime = now
 
         const r1 = canvas.getBoundingClientRect()
-        const dprMove =
-          typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const dprMove = canvasEffectiveDpr(canvas)
         const sxM = (e.clientX - r1.left) * dprMove,
           syM = (e.clientY - r1.top) * dprMove
 
@@ -753,6 +779,7 @@ export class PanZoomController implements Controller {
               e.clientY - r1.top,
               canvas.width,
               canvas.height,
+              dprMove,
             )
           }
 
@@ -776,7 +803,7 @@ export class PanZoomController implements Controller {
           // Anchor missed ground (cursor above horizon at drag start)
           // — fall back to delta-based pan so the user can still drag
           // out of the no-ray-hit region.
-          camera.pan(dx, dy, canvas.width, canvas.height)
+          camera.pan(dx, dy, canvas.width, canvas.height, dprMove)
           panVelX = dx * (16 / dt)
           panVelY = dy * (16 / dt)
         }
@@ -795,8 +822,7 @@ export class PanZoomController implements Controller {
         if (boxZoomEl) boxZoomEl.style.display = 'none'
         if (boxZoomArmed) {
           boxZoomArmed = false
-          const dprBox =
-            typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+          const dprBox = canvasEffectiveDpr(canvas)
           const rBox = canvas.getBoundingClientRect()
           const sx0 = (boxStartX - rBox.left) * dprBox,
             sy0 = (boxStartY - rBox.top) * dprBox
@@ -852,6 +878,16 @@ export class PanZoomController implements Controller {
       activePointers.delete(e.pointerId)
       if (activePointers.size === 0) {
         // Start inertia only for fast flicks, cap velocity
+        // #2294 — panVelX/Y are sampled only on pointermove, so a drag that ends
+        // with the pointer HELD stationary leaves the last-move velocity frozen
+        // and this release would fling from it. Discard a sample older than the
+        // recency window: the pointer was at rest, so there is no flick to
+        // continue. Zeroed (not just skipped) so applyInertia's own <0.5 bail
+        // stays consistent with what the gate decided.
+        if (performance.now() - lastMoveTime > INERTIA_MAX_IDLE_MS) {
+          panVelX = 0
+          panVelY = 0
+        }
         panVelX = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelX))
         panVelY = Math.max(-MAX_INERTIA_VEL, Math.min(MAX_INERTIA_VEL, panVelY))
         if (isDragging && (Math.abs(panVelX) > 2 || Math.abs(panVelY) > 2)) {
@@ -892,11 +928,19 @@ export class PanZoomController implements Controller {
         // #4: lifting back to one finger after a two-pointer gesture must
         // clear pending/active rotate state so the remaining finger pans
         // instead of activating rotation on the next move.
-        isDragging = true
+        // #2295: but only where a pointerdown would have armed that drag —
+        // under `cooperativeGestures` a single TOUCH finger never pans, and
+        // lifting out of a pinch is the normal END of every pinch.
+        const remaining = activePointers.values().next().value!
+        // Ask about the pointer that REMAINS down, not about `e` — the pointerup of
+        // the finger that LEFT. Reading its type let a touch finger pan when a
+        // pen/mouse lifted beside it (#2295, unfixed for that sequence) and blocked
+        // a mouse drag when a touch pointer did (a new one). The helper's docblock
+        // already says the contract is a property of the single-pointer STATE.
+        isDragging = coopDeniesTouchDrag(remaining.pointerType) === undefined
         isRotating = false
         isRotatePending = false
         rotateActivated = false
-        const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
         lastMoveTime = performance.now()
@@ -914,8 +958,7 @@ export class PanZoomController implements Controller {
         // pointermove asks panToScreenAnchor to place that stale
         // world point under the lifted-to position — a visible jump
         // to the remaining finger's location.
-        const dprUp =
-          typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+        const dprUp = canvasEffectiveDpr(canvas)
         const rUp = canvas.getBoundingClientRect()
         const sxU = (remaining.x - rUp.left) * dprUp,
           syU = (remaining.y - rUp.top) * dprUp
@@ -997,12 +1040,27 @@ export class PanZoomController implements Controller {
       }
       const diff = targetZoom - camera.zoom
       if (Math.abs(diff) < 0.005) {
-        if (diff !== 0) camera.zoomAt(diff, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+        if (diff !== 0)
+          camera.zoomAt(
+            diff,
+            zoomScreenX,
+            zoomScreenY,
+            canvas.width,
+            canvas.height,
+            canvasEffectiveDpr(canvas),
+          )
         animating = false
         zoomRaf = null
         return
       }
-      camera.zoomAt(diff * 0.2, zoomScreenX, zoomScreenY, canvas.width, canvas.height)
+      camera.zoomAt(
+        diff * 0.2,
+        zoomScreenX,
+        zoomScreenY,
+        canvas.width,
+        canvas.height,
+        canvasEffectiveDpr(canvas),
+      )
       zoomRaf = requestAnimationFrame(animateZoom)
     })
 

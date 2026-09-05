@@ -8,8 +8,11 @@ export interface InterpolateZoomShape {
    *  `interpolate(zoom, …)` xgis form; `'exponential'` emits
    *  `interpolate_exp(zoom, base, …)` which the lower pass detects
    *  and stores alongside the stops so the runtime can apply the
-   *  same accelerated curve Mapbox would. */
-  curve: 'linear' | 'exponential'
+   *  same accelerated curve Mapbox would. `'step'` emits `step(zoom,
+   *  …)` — the legacy `{type: "interval", stops: […]}` shape, whose
+   *  MapLibre semantics hold the greatest stop <= the input rather
+   *  than interpolating between stops (#2329). */
+  curve: 'linear' | 'exponential' | 'step'
   /** Curve base — meaningful only when `curve === 'exponential'`.
    *  Default 1 (= linear) for the linear branch; explicit value for
    *  the exponential branch. */

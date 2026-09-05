@@ -65,15 +65,17 @@ export default function GlobeDemo({ base }: Props) {
       if (!map) return
       const rect = canvas.getBoundingClientRect()
       const delta = -e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.003)
-      map
-        .getCamera()
-        .zoomAt(
-          Math.max(-1, Math.min(1, delta)),
-          e.clientX - rect.left,
-          e.clientY - rect.top,
-          canvas.width,
-          canvas.height,
-        )
+      map.getCamera().zoomAt(
+        Math.max(-1, Math.min(1, delta)),
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+        canvas.width,
+        canvas.height,
+        // The scale the canvas is sized at, never a re-derived policy dpr:
+        // during an interaction (and under the maxTextureDimension2D clamp)
+        // the swapchain sits below it, and the zoom anchors the wrong point.
+        map.getCanvasDpr(),
+      )
     }
 
     const startMount = async () => {

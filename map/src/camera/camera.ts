@@ -1,6 +1,6 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { getMaxDpr, computeLogDepthFc } from '@xgis/engine'
+import { effectiveDpr, computeLogDepthFc } from '@xgis/engine'
 import { type ECEF } from '@xgis/shared'
 import {
   lonLatToMercator,
@@ -1012,9 +1012,7 @@ export class Camera {
   }
 
   /** Compute the maximum camera Y offset for the current zoom (content stays on screen) */
-  private maxCameraY(canvasHeight: number): number {
-    const dpr =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+  private maxCameraY(canvasHeight: number, dpr: number): number {
     const metersPerPixel = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
     const visibleHalf = ((canvasHeight / dpr) * metersPerPixel) / 2
     // Camera can move until the Mercator edge reaches the screen edge
@@ -1022,14 +1020,18 @@ export class Camera {
   }
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
-  pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number): void {
+  pan(
+    dx: number,
+    dy: number,
+    _canvasWidth: number,
+    canvasHeight: number,
+    dpr: number = effectiveDpr(),
+  ): void {
     // #2322 — scale screen pixels by the metres each is RENDERED at: effectiveMpp,
     // the capped authority every renderer reads (WORLD_MERC / cssH for Mercator,
     // 2R / cssH for ortho at whole-earth zooms), not the raw tile-pyramid mpp, which
     // over-moved the inertia glide and the off-ground drag up to 6.6× below the cap.
-    // `canvasHeight` is DEVICE px (the controller passes canvas.height); dpr as in maxCameraY.
-    const dpr =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
+    // `canvasHeight` is DEVICE px (the controller passes canvas.height); `dpr` is the scale the canvas is CURRENTLY sized at (#2289).
     const mpp = this.effectiveMpp(this.projType, canvasHeight, dpr)
     // Surface-degree pan for the sphere-family centre representation
     // (representsCenterAs==='lat-deg'): globe 7 AND the untilted discs 3/4/5.
@@ -1095,7 +1097,7 @@ export class Camera {
     const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
-    const maxY = this.maxCameraY(canvasHeight)
+    const maxY = this.maxCameraY(canvasHeight, dpr)
     const newY = this.centerY + mapDy * metersPerInputPixel
     this.centerY = Math.max(-maxY, Math.min(maxY, newY))
     this._syncCenterLatFromMercator()
@@ -1115,13 +1117,18 @@ export class Camera {
   /** Zoom by delta at CSS screen position (clientX/clientY). Anchors the
    *  world point under the cursor: unproject via the BEFORE-zoom MVP, apply
    *  the delta, re-unproject, shift centerX/Y by the difference. Any
-   *  pitch/bearing (unprojectToZ0 walks the full MVP). */
+   *  pitch/bearing (unprojectToZ0 walks the full MVP).
+   *
+   *  `dpr` MUST be the scale the canvas is CURRENTLY sized at
+   *  (`canvasEffectiveDpr`) — a re-derived `min(devicePixelRatio, maxDpr)`
+   *  disagrees with the swapchain while it sits at `QUALITY.interactionDpr`. */
   zoomAt(
     delta: number,
     screenX: number,
     screenY: number,
     canvasWidth: number,
     canvasHeight: number,
+    dpr: number = effectiveDpr(),
   ): void {
     // A pure zoom must NOT move the centre latitude. Capture the TRUE centre
     // latitude and the Mercator-derived latitude BEFORE any centerY mutation,
@@ -1130,8 +1137,6 @@ export class Camera {
     // _carryCenterLatThroughZoom.
     const _latPreserve = this.centerLatDeg
     const _mercLatPreserve = mercatorYToLat(this.centerY)
-    const dpr =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     // unprojectToZ0 takes DEVICE-pixel screen coords (it scales by
     // canvasWidth which is device-px). Convert CSS clientX/Y → device.
     const sxDev = screenX * dpr
@@ -1273,7 +1278,7 @@ export class Camera {
     }
 
     // Clamp after zoom: visible area changes with zoom level.
-    const maxY = this.maxCameraY(canvasHeight)
+    const maxY = this.maxCameraY(canvasHeight, dpr)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
     this._carryCenterLatThroughZoom(_latPreserve, _mercLatPreserve)
     this.clampCenterToBounds()
@@ -1288,7 +1293,11 @@ export class Camera {
    *  Correct under any pitch/bearing (the unprojection walks the live MVP).
    *
    *  GLOBE MODE: `anchorWorldX/Y` are the anchored LON/LAT degrees instead
-   *  (captured via the ray↔sphere inverse) — globe-anchor.ts. */
+   *  (captured via the ray↔sphere inverse) — globe-anchor.ts.
+   *
+   *  `dpr` MUST be the scale the canvas is CURRENTLY sized at
+   *  (`canvasEffectiveDpr`) — a re-derived `min(devicePixelRatio, maxDpr)`
+   *  disagrees with the swapchain while it sits at `QUALITY.interactionDpr`. */
   panToScreenAnchor(
     anchorWorldX: number,
     anchorWorldY: number,
@@ -1296,9 +1305,8 @@ export class Camera {
     cursorY: number,
     canvasWidth: number,
     canvasHeight: number,
+    dpr: number = effectiveDpr(),
   ): void {
-    const dpr =
-      typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
     if (this.globeMode) {
       // #11: ground-track the sphere via centerLatDeg (the Mercator path
       // below would clamp a pole-ward centre back to ±85.05).
@@ -1345,7 +1353,7 @@ export class Camera {
     const halfWorld = WORLD_MERC / 2
     if (this.centerX > halfWorld) this.centerX -= WORLD_MERC
     else if (this.centerX < -halfWorld) this.centerX += WORLD_MERC
-    const maxY = this.maxCameraY(canvasHeight)
+    const maxY = this.maxCameraY(canvasHeight, dpr)
     this.centerY = Math.max(-maxY, Math.min(maxY, this.centerY))
     this._syncCenterLatFromMercator()
     this.clampCenterToBounds()

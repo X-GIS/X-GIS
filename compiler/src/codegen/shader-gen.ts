@@ -313,15 +313,32 @@ function processColorValue(
         if (rgba) fallbackRgba = rgba
       }
 
+      // #2316 — a NUMERIC label is its own id. The category scheme below exists
+      // because a string cannot live in the f32 `feat_data` slot, so compile
+      // time and the packer agree on "sorted index of the pattern" instead. A
+      // number can: every packer writes a numeric feature value into that slot
+      // RAW and never looks one up by `String(value)` (feature-data-pack.ts) —
+      // so keying a numeric arm by its sorted index made every authored arm
+      // unreachable and let a small integer paint the arm authored for another
+      // value. Restricted to integers the f32 slot round-trips exactly and the
+      // i32 scrutinee can spell (|v| <= 2^24); a float label, a huge one, or a
+      // block mixing string and numeric labels keeps the category path, which
+      // is the only encoding a string has.
+      const labelArms = arms.filter((a) => a.pattern !== '_')
+      const numericKeyed =
+        labelArms.length > 0 &&
+        labelArms.every(
+          (a) =>
+            typeof a.pattern === 'number' &&
+            Number.isInteger(a.pattern) &&
+            Math.abs(a.pattern) <= 0x1000000,
+        )
+
       // Sort patterns alphabetically to match runtime category ID assignment
       // (the packer maps string→ID in this same order; the IDs index the cases).
-      const sortedPatterns = arms
-        .filter((a) => a.pattern !== '_')
-        .map((a) => String(a.pattern))
-        .sort()
+      const sortedPatterns = numericKeyed ? [] : labelArms.map((a) => String(a.pattern)).sort()
       const rgbaByPattern = new Map<string, [number, number, number, number]>()
-      for (const arm of arms) {
-        if (arm.pattern === '_') continue
+      for (const arm of labelArms) {
         const rgba = resolveColorFromAST(arm.value)
         if (rgba) rgbaByPattern.set(String(arm.pattern), rgba)
       }
@@ -329,10 +346,17 @@ function processColorValue(
       // Scrutinee is the feature field cast to i32 — same shape as the compute
       // match kernel (`toI32(featData.at(fid))`). Each case is `[id, color]`;
       // the backend's lowerModule hoists the matchExpr into a var + switch.
-      const cases = sortedPatterns
-        .map((pat, i) => [i, rgbaByPattern.get(pat)] as const)
+      // A duplicate numeric label would spell the SAME case twice (not a legal
+      // switch); the Set keeps the first, which is the arm the evaluator takes.
+      const casePatterns: ReadonlyArray<readonly [number, string]> = numericKeyed
+        ? [...new Set(labelArms.map((a) => a.pattern as number))].map(
+            (n) => [n, String(n)] as const,
+          )
+        : sortedPatterns.map((pat, i) => [i, pat] as const)
+      const cases = casePatterns
+        .map(([id, pat]) => [id, rgbaByPattern.get(pat)] as const)
         .filter((c): c is readonly [number, [number, number, number, number]] => c[1] !== undefined)
-        .map(([i, rgba]) => [i, vec4fFromRgba(rgba)] as const)
+        .map(([id, rgba]) => [id, vec4fFromRgba(rgba)] as const)
       const nodeExpr = matchVec4(
         toI32(astToNode(fieldExpr, fieldMap)),
         cases,
@@ -344,9 +368,10 @@ function processColorValue(
       // `match(.field) { … }` shape with a FieldAccess argument exposes
       // a single field — chained / function-call arguments fall through
       // to the legacy "unique-data sort" path (which is correct when
-      // the patterns cover every possible feature value).
+      // the patterns cover every possible feature value). A numeric-keyed
+      // block publishes NOTHING: its ids ARE the values the packer writes.
       const categoryOrder: Record<string, string[]> = {}
-      if (fieldExpr.kind === 'FieldAccess' && fieldExpr.object === null) {
+      if (!numericKeyed && fieldExpr.kind === 'FieldAccess' && fieldExpr.object === null) {
         categoryOrder[fieldExpr.field] = sortedPatterns
       }
 
