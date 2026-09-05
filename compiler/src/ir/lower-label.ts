@@ -69,7 +69,11 @@ export function lowerLabelProps(
   let labelHaloColorZoomStopsBase: number | undefined
   let labelHaloBlur: number | undefined
   let labelSpacing: number | undefined
-  let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
+  // #2224 — derived FROM LabelDef, not restated. The literal union here was a
+  // second authority for the same enum: LabelDef gained `viewport-glyph` and
+  // this line rejected it, which tsc caught but only after the value had
+  // already been accepted by the converter and the parse arm below.
+  let labelRotationAlignment: import('./render-node').LabelDef['rotationAlignment']
   let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelKeepUpright: boolean | undefined
   let labelMaxAngle: number | undefined

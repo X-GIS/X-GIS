@@ -2476,7 +2476,11 @@ const CEILINGS: Record<string, number> = {
   // 963->969 (#2224): the `label-rotation-alignment-viewport-glyph` parse arm
   // plus the two-line note that the two viewport utilities are an exact-match
   // pair, not a prefix pair. MEASURED post-prettier.
-  'compiler/src/ir/lower-label.ts': 969,
+  // 969->973 (#2224): the local's type derived from LabelDef instead of
+  // restating the enum, plus the 4-line why (the literal union was a second
+  // authority and rejected the value the converter had already accepted).
+  // MEASURED post-prettier.
+  'compiler/src/ir/lower-label.ts': 973,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
