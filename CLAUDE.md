@@ -305,6 +305,10 @@ apologise for; it is a process problem with a fix.
   self-contained issue per shippable unit, written so someone with **zero context** can pick it
   up: the symptom, the root cause at `file:line`, what was already ruled out and by what
   evidence, the open decisions, and the verification that closes it.
+  `.github/ISSUE_TEMPLATE/intent.md` is that shape as a template — the Stage-1 `intent.md`
+  sections from Anthropic's AI-native SDLC loop, filed as an ISSUE rather than a committed file
+  so this repo keeps ONE authority for why a work item exists (a parallel `intent/` tree would
+  be the two-authorities drift §12 warns about).
 - **Record a constraint the moment it is discovered**, in the issue or a `docs/plans/` note —
   especially one that took real work to find (a precision limit, a measured cost, a backend
   asymmetry). A constraint that is expensive to discover and cheap to forget WILL be rediscovered
