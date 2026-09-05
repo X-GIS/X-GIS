@@ -363,7 +363,8 @@ export function scan(opts: ScanOptions): { clones: Clone[]; stats: ScanStats; re
 // Method: re-emit every file with TypeScript's own scanner, replacing each identifier with
 // `_` and each string/number literal with a constant, blanking comment TEXT but keeping its
 // newlines so a hit still maps to the original line. Run the same detector on that tree and
-// subtract everything the token pass already reports.
+// subtract every pair whose range the token pass already covers (by OVERLAP — see
+// `shapeOnlyClones` for why an equal-start key is wrong).
 //
 // REPORT ONLY, never a gate. Two noise classes dominate the raw output and both are
 // legitimate code: a uniform list matching ITSELF shifted by one entry (a 270-row colour
@@ -437,13 +438,20 @@ export function shapeOnlyClones(
   readShaped: (file: string) => string,
   minDiversity = 0.5,
 ): Clone[] {
+  // jscpd's file ORDER inside a pair is not canonical: it emits both (a,b) and (b,a) for
+  // different fragments of one file pair — 60 such pairs in the token pass alone, measured
+  // 2026-09-05. The two passes do agree today (0 flips), but a subtraction that rests on
+  // that agreement would silently under-subtract the day a version bump changes it, so each
+  // token span is indexed under BOTH orientations.
   const byPair = new Map<string, Array<readonly [number, number, number, number]>>()
-  for (const t of token) {
-    const k = `${t.a.file}|${t.b.file}`
+  const index = (k: string, span: readonly [number, number, number, number]): void => {
     const at = byPair.get(k)
-    const span = [t.a.start, t.a.end, t.b.start, t.b.end] as const
     if (at === undefined) byPair.set(k, [span])
     else at.push(span)
+  }
+  for (const t of token) {
+    index(`${t.a.file}|${t.b.file}`, [t.a.start, t.a.end, t.b.start, t.b.end])
+    index(`${t.b.file}|${t.a.file}`, [t.b.start, t.b.end, t.a.start, t.a.end])
   }
   const alreadyGated = (c: Clone): boolean =>
     (byPair.get(`${c.a.file}|${c.b.file}`) ?? []).some(

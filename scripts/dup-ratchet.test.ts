@@ -132,6 +132,13 @@ describe('shapeOnlyClones — the two noise classes the shape lens must discard'
     expect(shapeOnlyClones([shaped], [token], read)).toEqual([])
   })
 
+  it('drops one the token pass reports with the two files SWAPPED', () => {
+    // jscpd's file order inside a pair is not canonical — it emits both (a,b) and (b,a).
+    const shaped = clone('a.ts', 1, 20, 'b.ts', 41, 60)
+    const token = clone('b.ts', 41, 60, 'a.ts', 1, 20)
+    expect(shapeOnlyClones([shaped], [token], () => CODE)).toEqual([])
+  })
+
   it('keeps one on a file pair the token pass flags ELSEWHERE — a different finding', () => {
     const shaped = clone('code.ts', 1, 15, 'code.ts', 21, 35)
     const elsewhere = clone('code.ts', 60, 79, 'code.ts', 90, 109)
