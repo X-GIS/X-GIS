@@ -11,7 +11,10 @@ import { isPickEnabled } from '@xgis/engine'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
+import { polygonWgslId } from '../shaders/baked/ids'
+import { bakedSource } from '../shaders/baked/store'
 import { bodyEpochValue } from '../body-epoch'
+import { shipSource } from './material/wgsl-for'
 import type { ShaderVariantInfo } from './renderer-types'
 
 /** Bridge a renderer-side ShaderVariantInfo to the polygon COMPOSER's variant shape
@@ -87,7 +90,19 @@ export function buildShader(variant?: ShaderVariantInfo | null): string {
   const cacheKey = `${variant?.key ?? '__base__'}::${pick ? 1 : 0}::b${bodyEpochValue()}`
   const hit = _buildShaderWgslCache.get(cacheKey)
   if (hit !== undefined) return hit
-  const wgsl = emitPolygonWgsl(toComposerVariant(variant), pick)
+  const composed = toComposerVariant(variant)
+  // #2499 — the null-variant base is the closed-set key `wgsl/polygon/{pick,nopick}`: baked,
+  // installed at device attach, and until now asked for by nobody (the WebGPU polygon path
+  // never went through `wgslFor`, so every boot re-ran the 80 ms emit the bake exists to
+  // skip). Same seam contract as `wgslFor`: the store first, then `shipSource(emit)` so a hit
+  // and a miss serve the same text; `pick` is the ONE value driving both the id and the
+  // emit. The body guard is the store's own, per lookup — a Moon boot reads `closed` and
+  // emits, and the epoch in the cache key keeps that emit from answering for Earth.
+  // A composer variant is the OPEN set (style-derived bytes) and stays a raw runtime emit.
+  const wgsl =
+    composed === null
+      ? (bakedSource(polygonWgslId(pick)) ?? shipSource(emitPolygonWgsl(null, pick)))
+      : emitPolygonWgsl(composed, pick)
   _buildShaderWgslCache.set(cacheKey, wgsl)
   return wgsl
 }
