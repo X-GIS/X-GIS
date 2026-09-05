@@ -167,4 +167,44 @@ describe('#777 I-G — fillPointGlyphOffsetsWithImages (multi-line + justify)', 
     expect(out).toHaveLength(1)
     expect(out[0]!.dx).toBe(0) // the image is the first thing on the line
   })
+
+  it("#2496 — an image anchored on a hard newline is the PREVIOUS line's trailing image, and widens that line only", () => {
+    // "AB⟨img⟩\nCD": parseInlineImages strips to "AB\nCD" with the image at
+    // glyphIndex 2 — the `\n`. The wrapper splits on it: lines [0,2) and
+    // [3,5), so glyph 2 belongs to no line and the next line starts AFTER
+    // it. MapLibre makes the image a section character before the newline,
+    // i.e. the last character of line 1 — so it must emit once, at the end
+    // of line 0, and count toward line 0's width, not line 1's. Before this
+    // fix the boundary filter matched neither line: the image was dropped
+    // while resolveInlineImageSprites still widened the block by it.
+    const off = new Float32Array(10)
+    const out: ShapedInlineImage[] = []
+    const lines = [
+      { start: 0, end: 2, width: 20 },
+      { start: 3, end: 5, width: 20 },
+    ]
+    const imgs: InlineImageSprite[] = [{ name: 'pat', glyphIndex: 2, advancePx: 16, heightPx: 16 }]
+    // totalAdvance = max line width incl. images = 20 + 16 = 36. Centre justify:
+    // line 0 (20 + 16 = 36) → lineX 0; line 1 (20) → lineX 8.
+    fillPointGlyphOffsetsWithImages(
+      off,
+      [10, 10, 10, 10, 10],
+      lines,
+      [0, 30],
+      0,
+      0,
+      36,
+      'center',
+      16,
+      imgs,
+      out,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]!.dx).toBe(20) // after "AB", at the end of line 0
+    expect(out[0]!.dy).toBe(0 - 0.25 * 16 - 8) // on line 0's baseline band, not line 1's
+    expect(off[0]).toBe(0) // "A" at line 0's origin (the image widened line 0 to the block width)
+    expect(off[6]).toBe(8) // "C" centred on the narrower line 1
+    expect(off[4]).toBe(8) // the `\n` slot is parked on line 1's pen origin (#2446), not left stale
+    expect(off[5]).toBe(30)
+  })
 })

@@ -2323,7 +2323,14 @@ const CEILINGS: Record<string, number> = {
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
   // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
-  'compiler/src/tiler/vector-tiler.ts': 1603,
+  // 1603->1616 (#2435, measured post-prettier): threading `tileZ` to the subdivision
+  // so its angular gate can be per-tile-level. Ten of the thirteen lines are prettier
+  // re-wrapping ONE call site — `tilePolygonPart(...)` crossed the print width at its
+  // ninth argument and became eleven lines. The other three are the parameter and its
+  // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
+  // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
+  // dependency the gate now genuinely has.
+  'compiler/src/tiler/vector-tiler.ts': 1616,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
@@ -2434,7 +2441,11 @@ const CEILINGS: Record<string, number> = {
   // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
   // `label-text-optional` utility; the non-constant form keeps a warning of its
   // own. MEASURED post-prettier.
-  'compiler/src/convert/layers-symbol.ts': 1396,
+  // 1396->1424 (#2331): four warn-and-drop else arms (icon-rotate, text-offset,
+  // text-translate, symbol-placement) where a non-constant form used to vanish
+  // with no diagnostic; each records WHY its form reaches the arm. MEASURED
+  // post-prettier (`git show HEAD:<file> | wc -l`).
+  'compiler/src/convert/layers-symbol.ts': 1424,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
