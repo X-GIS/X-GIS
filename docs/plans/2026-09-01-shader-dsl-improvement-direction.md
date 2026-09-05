@@ -21,16 +21,16 @@ not independently reproduced.
 
 ## 0. Where it stands — measured on this tree, not remembered
 
-| Quantity                    | Value                                                                                                                                                         | Source                                            |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Core (non-test) size        | ~27.1k LOC / 230 files under `shader-dsl/src`; largest `backends/glsl.ts` 2233, `ir/node.ts` 2147, `ir/builder.ts` 1573                                       | `wc -l` on this tree                              |
-| Unit suite                  | 137 files / 1544 tests, all green, 52 s                                                                                                                       | `npx vitest run --root . shader-dsl` on this tree |
-| In-repo consumers           | `map/src/shaders/dsl`: 56 files / 13.7k LOC (143 `fn(`, 22 `uniformStruct`, 18 `storageBuffer`); `compiler/src/codegen`: 11 files; `rhi-webgpu` reflection    | `grep -rl '@xgis/shader-dsl'`, `grep -c`          |
-| `reflect()` callers         | 49 inbound (uniform-slot modules, bind-group registry, drapers, variant-family, semantic-diff)                                                                | codebase-memory `trace_path reflect inbound`      |
-| Escape hatches in consumers | 0 `rawStmt` / `b.raw` / `hostBlock` / `externVar` in `map/` + `compiler/` non-test code; 6 `externFn` (`projections.ts:429-439`); 4 forced casts              | `grep` on this tree                               |
-| IR-level workarounds        | 22 `new Node({ op: 'varref' … })`, 11 `new Builder()`, 11 named `Let('x', …)`, 6 `b.placeholder` in `map/src/shaders/dsl` — the placeholder-composition idiom | `grep` on this tree                               |
-| Committed baked shader text | 6 generated files, 742,525 bytes, 106 keys (`baked-{glsl,wgsl}-{boot,hillshade,lazy}.generated.ts`)                                                           | `ls -la map/src/shaders/baked/`, `registry.ts`    |
-| External consumer           | dc4i.js: 41 portable entries across 26 modules, 4 `variantFamily` families, 0 raw GLSL files, `hostBlock`/`externVar` in production                           | #1806 (2026-08-18)                                |
+| Quantity                    | Value                                                                                                                                                                                                                                      | Source                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Core (non-test) size        | ~27.1k LOC / 230 files under `shader-dsl/src`; largest `backends/glsl.ts` 2233, `ir/node.ts` 2147, `ir/builder.ts` 1573                                                                                                                    | `wc -l` on this tree                                  |
+| Unit suite                  | 137 files / 1544 tests, all green, 52 s                                                                                                                                                                                                    | `npx vitest run --root . shader-dsl` on this tree     |
+| In-repo consumers           | `map/src/shaders/dsl`: 56 files / 13.7k LOC (143 `fn(`, 22 `uniformStruct`, 18 `storageBuffer`); `compiler/src/codegen`: 11 files; `rhi-webgpu` reflection                                                                                 | `grep -rl '@xgis/shader-dsl'`, `grep -c`              |
+| `reflect()` callers         | 49 inbound (uniform-slot modules, bind-group registry, drapers, variant-family, semantic-diff)                                                                                                                                             | codebase-memory `trace_path reflect inbound`          |
+| Escape hatches in consumers | 0 `rawStmt` / `b.raw` / `hostBlock` / `externVar` in `map/` + `compiler/` non-test code; 6 `externFn` (`projections.ts:429-439`); 4 forced casts                                                                                           | `grep` on this tree                                   |
+| IR-level workarounds        | 22 `new Node({ op: 'varref' … })`, 11 `new Builder()`, 11 named `Let('x', …)`, 6 `b.placeholder` in `map/src/shaders/dsl` — the placeholder-composition idiom                                                                              | `grep` on this tree                                   |
+| Committed baked shader text | 6 generated files, 864,836 bytes, 114 keys (`baked-{glsl,wgsl}-{boot,hillshade,lazy}.generated.ts`) — was 742,525 bytes / 106 keys before #2499 keyed the split-bind twins, oit-compose, extrude-shell and the three unwired lazy families | `ls -la map/src/shaders/baked/`, `registry.ts`; #2499 |
+| External consumer           | dc4i.js: 41 portable entries across 26 modules, 4 `variantFamily` families, 0 raw GLSL files, `hostBlock`/`externVar` in production                                                                                                        | #1806 (2026-08-18)                                    |
 
 **Capability standing, as the package itself states it** (`shader-dsl/README.md` taxonomy):
 Author STRONG · Type-check STRONG · Optimize STRONG · Validate/lint STRONG · CPU-oracle
@@ -146,6 +146,22 @@ format (§5).
 instrument does not exist yet — it is the first deliverable here); `baked-sync.test.ts`
 remains the byte gate; the §0 cost table is re-measured after each step. Size: S (1, 2),
 M (3), S/M (4), S (5).
+
+**Status (2026-09-05).** 1 landed (#2449 → #2459, `profileEmit`). 2 ANSWERED, not built
+(#2459): one repeated lowering per boot, and bake-by-default takes the count to zero. 3 is
+#2499, landed in #2506 / #2516 and their follow-up: the boot provenance gate
+(`_2499-boot-shader-provenance-gate.spec.ts`) found a WebGPU boot compiling **28 of 30**
+shader modules from runtime-emitted text — the legacy polygon base (`buildShader(null)`
+never asked the store; `wgsl/polygon` was baked and read by nobody), the split-bind twins
+and oit-compose (no WGSL-only key shape), each on frame one — plus three registered lazy
+families baked, shipped and read by nobody. Now: `WgslOnlyFamily` / `WgslOnlyPlainFamily`
+/ `oit-compose` key shapes; every registered family reads its bake; the seam's id is
+REQUIRED with `LIVE` as the spelled open-set door; both doors are shrink-only lists
+(`shader-seam-doors.test.ts`); the five `*-uniform-slots.ts` helpers derive from the
+`uniformStruct` handle, so a fully baked boot builds no module and never pays the
+projection fixpoint. The gate's WebGPU runtime table is empty and baked vs `?nobake=1`
+frames hash equal on both backends. 4 (bake HMR) and 5 (off-main-thread residual emit)
+are open; the residual emit is the open set (coverage, composer variants) plus `?nobake=1`.
 
 ### D2 — Precision as a checked property
 
@@ -343,9 +359,20 @@ gate.
 2. Structured-control-flow annotations: block ids, loop preheaders, dominance by construction
    (the IR is structured, so no general CFG is needed) — one scope analysis shared by
    CSE / cse-local / GVN / LICM, LICM v2 placing invariants at preheaders, GVN across
-   `else if` / `switch` headers (M–L).
+   `else if` / `switch` headers (M–L). **Measured out (#2465, 2026-09-05):** the premise was
+   wrong — the two scope walks cost ≤ 14.6 ms of a ~236 ms optimize (they run once per
+   function per pass; `keyOf` runs per expression node, 254k times per `line` emit). The
+   real lever landed as #2492: `keyOf` memoised on the `Expr` object, optimize −25 % to
+   −37 %, soundness verified by a 12,405-test recompute-and-compare sweep. LICM v2: the
+   five `_licm` lets that sit in branch-nested loops are all uniform/storage reads — nothing
+   to gain. GVN across `else if` is unsound (the arms' conditions are not both evaluated);
+   `switch` scrutinee tallying measured 26 candidate sites against 2,363 — not worth a pass.
 3. Dead-store and unused-parameter DCE; `deadBranch` for literal `switch` / `for false`
-   (S–M).
+   (S–M). **Measured out (#2465):** over 409 functions — 0 dead declarations, 4 dead
+   assigns (`compute_line_color._av6`, three unrolled tails in
+   `vs_arrow_retained_advected`), 2 unused parameters that are IO-contract locations
+   (`center` on `vs_point` / `vs_heatmap`), 0 literal `switch` / `for` / `if`. Nothing here
+   pays for a pass.
 4. Uniformity analysis: a conservative lint first (derivatives / `textureSample` under
    conditions that depend on fragment inputs, builtins or storage indices), then an emit
    requirement (M–L).
@@ -494,6 +521,10 @@ lowering keeps struct `u32` fields in R32F texels (denormal flush risk noted in
 | **Widening the public barrel with `core/` internals**                    | `shader-dsl/AGENTS.md`: `core/` is private; the API-surface gate (`src/api-surface.test.ts`) exists so the surface grows by decision, not accretion.                                                                                                                                                                                                                                                                                                                                             |
 | **GLSL ES 1.00 / WebGL1**                                                | No `uint`, bit ops, UBO or `switch` — the IR cannot be lowered honestly; the web has moved on.                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **Transform feedback as a second GPGPU vehicle now**                     | Deferred in #1903 with its reason (varying-layout negotiation, two-authorities drift); revisit only for kernels whose output is not a 32-bit-per-invocation container.                                                                                                                                                                                                                                                                                                                           |
+| **A shared scope analysis for the CSE family (D5.2 as written)**         | Measured, not argued (#2465): the scope walks are ≤ 14.6 ms of a ~236 ms optimize and `collectLocals` / `collectMutatedRoots` have 15 / 17 callers reaching the GLSL backend, `unroll`, `const-prop`, `copy-prop` and `member-fold` — the refactor owed all of their gates for under 6 %. The cost lever was `keyOf` (per-node, 254k calls per `line` emit), memoised in #2492.                                                                                                                  |
+| **LICM v2 preheaders / GVN across `else if` and `switch` headers**       | #2465: every `_licm` let that lands in a branch-nested loop is a uniform/storage read, so preheaders move nothing; `else if` GVN is unsound (only the first arm's condition is evaluated on every path); `switch` scrutinee tallying measured 26 sites against 2,363. Re-open only with a corpus that changes those counts.                                                                                                                                                                      |
+| **Dead-store / unused-parameter DCE (D5.3)**                             | Measured over 409 functions (#2465): 0 dead declarations, 4 dead assigns, 2 unused parameters that are IO locations and cannot be removed, 0 literal switch/for/if. A pass with nothing to delete is a pass to maintain.                                                                                                                                                                                                                                                                         |
+| **An in-memory content-addressed cache of lowered modules (D1.2)**       | #2459 measured one repeated lowering per boot; bake-by-default (#2499) makes the boot count zero, which a cache cannot beat. The open set (coverage, composer variants) is keyed per variant already (`buildShader` / `buildSplitShader` memos).                                                                                                                                                                                                                                                 |
 
 ---
 
