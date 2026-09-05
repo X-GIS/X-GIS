@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1a7f2bc4cf2174cbe42714b93535b5fd9593b1e5
+  Generated from: fb601cb095b674680445949cc14c3c895d84782f
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1a7f2bc4cf21
+    bun scripts/emit-changelog.ts --since fb601cb095b6
 -->
 
 # Changelog
@@ -123,6 +123,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **rhi:** the globe drape asks a CAPABILITY, not the backend's name (#2474) ([#2483](https://github.com/X-GIS/X-GIS/pull/2483)) `fb601cb`
 - **engine+render:** one RetireQueue the hand-mirrored deferred-destroy lists collapse into ([#2405](https://github.com/X-GIS/X-GIS/pull/2405)) `a79a44a`
 - **map:** delete RenderStats.tilesLoaded and gpuBuffers — no producer ever wrote them (#2307) ([#2407](https://github.com/X-GIS/X-GIS/pull/2407)) `4f85bd2`
 - **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
