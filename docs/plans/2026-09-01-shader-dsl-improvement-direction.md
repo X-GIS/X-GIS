@@ -160,8 +160,15 @@ REQUIRED with `LIVE` as the spelled open-set door; both doors are shrink-only li
 (`shader-seam-doors.test.ts`); the five `*-uniform-slots.ts` helpers derive from the
 `uniformStruct` handle, so a fully baked boot builds no module and never pays the
 projection fixpoint. The gate's WebGPU runtime table is empty and baked vs `?nobake=1`
-frames hash equal on both backends. 4 (bake HMR) and 5 (off-main-thread residual emit)
-are open; the residual emit is the open set (coverage, composer variants) plus `?nobake=1`.
+frames hash equal on both backends. 4 is #2535: `renderAllBakedModules()`
+(`map/src/shaders/baked/bake-all.ts`) is now the ONE authority for what the six files
+contain, and `playground/dev/bake-shaders-on-edit.ts` re-runs it inside the dev server
+through Vite's SSR module runner — no `bun run build`, because the server resolves
+`@xgis/shader-dsl` to source — writing only the artifacts whose bytes moved. The
+dependency set is DERIVED from what the runner evaluated (172 files), never a glob, so it
+cannot go blind when a helper moves. Measured: 7.5 s per re-bake, 2 of 6 artifacts
+rewritten for a one-literal edit in `line.ts`. 5 (off-main-thread residual emit) is open;
+the residual emit is the open set (coverage, composer variants) plus `?nobake=1`.
 
 ### D2 — Precision as a checked property
 
