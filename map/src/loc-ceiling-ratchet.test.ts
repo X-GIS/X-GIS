@@ -2284,7 +2284,14 @@ const CEILINGS: Record<string, number> = {
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
   // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
-  'compiler/src/tiler/vector-tiler.ts': 1603,
+  // 1603->1616 (#2435, measured post-prettier): threading `tileZ` to the subdivision
+  // so its angular gate can be per-tile-level. Ten of the thirteen lines are prettier
+  // re-wrapping ONE call site — `tilePolygonPart(...)` crossed the print width at its
+  // ninth argument and became eleven lines. The other three are the parameter and its
+  // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
+  // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
+  // dependency the gate now genuinely has.
+  'compiler/src/tiler/vector-tiler.ts': 1616,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

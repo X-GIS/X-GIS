@@ -259,7 +259,9 @@ function tessellate(rings: number[][][]): { verts: number[]; idx: number[] } {
   const verts: number[] = []
   const idx: number[] = []
   const dedup = new Map<string, number>()
-  tessellatePolygonToArrays(rings, FEATURE_ID, verts, idx, dedup)
+  // tileZ 0 — `tileGateRad(0)` IS the absolute 2 deg rule (#2435's per-level floor
+  // only binds from z6), so these conformance tests keep their original subject.
+  tessellatePolygonToArrays(rings, FEATURE_ID, verts, idx, dedup, 0)
   return { verts, idx }
 }
 
@@ -387,6 +389,9 @@ function boundaryParams(
   by: number,
   cx: number,
   cy: number,
+  /** Level of the tile that OWNS this edge — selects its gate (#2435). The parent
+   *  and its children are deliberately different, which is the whole subject here. */
+  tileZ: number,
 ): number[] {
   const verts: number[] = []
   const idx: number[] = []
@@ -400,7 +405,7 @@ function boundaryParams(
     dedup.set(k, i)
     return i
   }
-  subdivideTriangleMM(add(ax, ay), add(bx, by), add(cx, cy), 0, verts, idx, dedup, 0)
+  subdivideTriangleMM(add(ax, ay), add(bx, by), add(cx, cy), 0, verts, idx, dedup, 0, tileZ)
   const dx = bx - ax
   const dy = by - ay
   const len2 = dx * dx + dy * dy
@@ -433,9 +438,9 @@ function crossLodBoundary(z: number, tx: number, ty: number): CrossLod {
   const yTop = MM_WORLD - ty * s
   const yBot = yTop - s
   const yMid = (yTop + yBot) / 2
-  const parent = boundaryParams(x0, yTop, x0, yBot, x0 + s, yTop)
-  const top = boundaryParams(x0, yTop, x0, yMid, x0 + s / 2, yTop)
-  const bot = boundaryParams(x0, yMid, x0, yBot, x0 + s / 2, yTop)
+  const parent = boundaryParams(x0, yTop, x0, yBot, x0 + s, yTop, z)
+  const top = boundaryParams(x0, yTop, x0, yMid, x0 + s / 2, yTop, z + 1)
+  const bot = boundaryParams(x0, yMid, x0, yBot, x0 + s / 2, yTop, z + 1)
   const child = [
     ...new Set(
       [...top.map((t) => t / 2), ...bot.map((t) => 0.5 + t / 2)].map((t) => Number(t.toFixed(12))),
@@ -489,39 +494,49 @@ describe('cross-LOD boundary conformance (the "skirt" prerequisite, measured)', 
     }
   })
 
-  it('agrees EXACTLY wherever the parent edge is marked with depth to spare (z3-z7)', () => {
-    for (const r of results.filter((r) => r.z >= 3 && r.z <= 7)) {
-      expect({ z: r.z, childOnly: r.childOnly.length, gapPx: r.gapPx }).toEqual({
-        z: r.z,
-        childOnly: 0,
-        gapPx: 0,
-      })
+  it('holds EVERY level under the #2435 budget (~0.25 px at native zoom)', () => {
+    // Before the per-level floor this band read 0 exactly at z3-z7 and then SPIKED to
+    // 1.027 px at z8, where a tile edge first falls under the absolute gate and stops
+    // being split while its children still meet at its midpoint. The floor trades that
+    // spike for small gaps at z5/z7 (0.126 / 0.130 px) and closes z8/z9 outright.
+    // What is asserted is the PROPERTY the issue closes on, not the per-level shape:
+    // no boundary anywhere exceeds the budget. Reverting `tileGateRad` to the absolute
+    // rule reddens this at z8 (1.027 px).
+    for (const r of results) {
+      expect({ z: r.z, over: r.gapPx > 0.26 }).toEqual({ z: r.z, over: false })
     }
   })
 
-  it('keeps the gap under a tenth of a device pixel through z0-z5 (what lets the fill ceiling reach z0)', () => {
+  it('keeps the gap under a seventh of a device pixel through z0-z5 (what lets the fill ceiling reach z0)', () => {
     // z0-z2 disagree only because MAX_TRI_SUBDIVIDE_DEPTH stops the parent one level
     // short of what the gate wants while each child starts a fresh depth budget --
     // and at those levels the sphere is small enough on screen that the resulting
     // sagitta is invisible. This is the band #2094 opens by lowering the ceiling.
+    //
+    // The bound was a TENTH of a pixel while z3-z5 read exactly 0. #2435's per-level
+    // floor moved z5 to 0.126 px, and that is the trade, stated rather than absorbed
+    // by a quietly larger number: z5 and z7 gain ~0.13 px so that z8 and z9 lose
+    // 1.027 px and 0.510 px, taking the worst boundary anywhere from 1.027 to 0.252.
+    // 0.15 is the same "invisible at these levels" claim with the new shape measured
+    // under it, not a threshold widened until the suite passed.
     for (const r of results.filter((r) => r.z <= 5)) {
-      expect({ z: r.z, over: r.gapPx > 0.1 }).toEqual({ z: r.z, over: false })
+      expect({ z: r.z, over: r.gapPx > 0.15 }).toEqual({ z: r.z, over: false })
     }
   })
 
-  it('records the z8-z9 spike the ABSOLUTE 2-degree gate leaves (#2435)', () => {
-    // A z8 tile edge spans ~1.4 degrees -- already under MAX_TRI_DEGREES_FOR_PROJ --
-    // so the parent edge is never split while its two children still meet at the LOD
-    // boundary, which is then interior to it. The gap is the parent edge's own
-    // sagitta, and because the native-zoom screen scale doubles per level while the
-    // gate does not move, it PEAKS exactly where the edge first falls under the gate.
-    // Pinned so the per-tile-level granularity that fixes #2435 is visible here.
+  it('CLOSES the z8-z9 spike the absolute 2-degree gate left (#2435)', () => {
+    // A z8 tile edge spans ~1.4 degrees -- under MAX_TRI_DEGREES_FOR_PROJ -- so the
+    // absolute gate never split it while its two children still met at its midpoint,
+    // and the gap was the parent edge's own sagitta: 1.027 px at z8, 0.510 at z9, the
+    // peak of the whole curve. `tileGateRad`'s per-level floor splits those edges, so
+    // both boundaries are now exactly conforming. This is the assertion that fails if
+    // the floor is reverted -- it is the defect, stated as its absence.
     const spike = results.filter((r) => r.z === 8 || r.z === 9)
     expect(spike.map((r) => ({ z: r.z, childOnly: r.childOnly.length }))).toEqual([
-      { z: 8, childOnly: 1 },
-      { z: 9, childOnly: 1 },
+      { z: 8, childOnly: 0 },
+      { z: 9, childOnly: 0 },
     ])
-    expect(spike.every((r) => r.gapPx > 0.4)).toBe(true)
+    expect(spike.every((r) => r.gapPx === 0)).toBe(true)
     console.log(
       'cross-LOD boundary: ' +
         results
@@ -548,7 +563,7 @@ describe('tileSegmentAngleRad === the finest edge the real subdivision leaves', 
       // ty = 2^(z-1) puts this tile's TOP edge exactly on the equator, where a tile
       // spans the full 2*PI/2^z of longitude the closed form is written for.
       const x0 = -MM_WORLD + Math.round(2 ** z * 0.31) * s
-      const params = boundaryParams(x0, 0, x0 + s, 0, x0, -s)
+      const params = boundaryParams(x0, 0, x0 + s, 0, x0, -s, z)
       let widest = 0
       for (let i = 1; i < params.length; i++) {
         widest = Math.max(widest, params[i] - params[i - 1])
@@ -572,17 +587,18 @@ describe('tileSegmentAngleRad === the finest edge the real subdivision leaves', 
   })
 
   it('returns the WHOLE tile span once an edge is already under the gate (#2435)', () => {
-    // From z8 a tile edge is under MAX_TRI_DEGREES_FOR_PROJ, so nothing splits and the
-    // segment IS the tile. This is the peak the direct path's native-zoom error has,
-    // and the reason #2435 asks for a per-tile-level granularity.
-    for (const z of [8, 9, 10, 12, 14]) {
+    // From z10 the tile edge is under `tileGateRad` (clamped at FAST_SKIP_ANGLE_RAD
+    // there), so nothing splits and the segment IS the tile. Before #2435's per-level
+    // floor this began at z8; z8 and z9 now split once and twice respectively, which
+    // is what takes the native-zoom chord error's peak from 1.571 px down to 0.393 px.
+    for (const z of [10, 12, 14]) {
       expect({ z, whole: tileSegmentAngleRad(z) === (2 * Math.PI) / 2 ** z }).toEqual({
         z,
         whole: true,
       })
     }
-    // ...and NOT below z8, where the gate is still doing work.
-    for (const z of [3, 4, 5, 6, 7]) {
+    // ...and NOT below z10, where the gate is still doing work.
+    for (const z of [3, 4, 5, 6, 7, 8, 9]) {
       expect({ z, whole: tileSegmentAngleRad(z) === (2 * Math.PI) / 2 ** z }).toEqual({
         z,
         whole: false,
