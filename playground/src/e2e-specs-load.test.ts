@@ -586,8 +586,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     'batch-flaky (2026-08-18, #1349): green in a 56-spec parallel batch, then full-canvas near-black (0/1024000 white px) at position 82/85 of a serial WORKERS=1 batch -- whole-scene draw failure under long-batch contention; isolate before registering',
   '_line-proof.spec.ts':
     'red on main, adjudicated STALE HARNESS (2026-08-18): hand-packs the pre-#1539 272B TileUniforms layout, 368B since 6395120f -- GL_INVALID_OPERATION at draw; repack the harness, then register',
-  '_multiline-labels.spec.ts':
-    'adjudicated SUPERSEDED (2026-08-18): _labels-gl2-gate boots the same multiline_labels demo, registered, with a stronger readPixels white-text assert; this spec reads via toBlob, which is dead on the default WebGPU canvas',
   '_ortho-backface-cull.spec.ts':
     'red solo, adjudicated ENV (2026-08-18): unclipped full-page screenshot counts Monaco editor #82aaff AA fringes as back-hemisphere blue; the cull itself verified working -- clip to the canvas box or hideDemoChrome, then register',
   '_pbf-glyphs-offline.spec.ts':
