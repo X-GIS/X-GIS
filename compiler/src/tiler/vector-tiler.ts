@@ -431,7 +431,9 @@ export function tessellatePolygonToArrays(
   featureId: number,
   outVerts: number[],
   outIdx: number[],
-  dedupMap?: Map<string, number>,
+  dedupMap: Map<string, number> | undefined,
+  /** Tile level — selects the subdivision's angular gate (#2435). */
+  tileZ: number,
 ): void {
   // Input rings are in MERCATOR METERS (MM), per docs/COORDINATES.md.
   // Triangle edges are straight in MM — matches GPU rendering so there's
@@ -478,6 +480,7 @@ export function tessellatePolygonToArrays(
         outIdx,
         dedupMap,
         0,
+        tileZ,
       )
     }
   } else {
@@ -1155,7 +1158,7 @@ function processZoomLevelShared(
             const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
             if (!acceptSplit) {
               const repairedRings = [dataRings[0]!, ...holes]
-              tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+              tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap, z)
               featureIds.add(fid)
               tilePolygons.push({ rings: repairedRings, featId: fid })
             } else {
@@ -1164,7 +1167,7 @@ function processZoomLevelShared(
               const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
               if (effectiveOuters.length === 1) {
                 const repairedRings = [effectiveOuters[0]!, ...holes]
-                tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+                tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap, z)
                 featureIds.add(fid)
                 tilePolygons.push({ rings: repairedRings, featId: fid })
               } else {
@@ -1178,7 +1181,7 @@ function processZoomLevelShared(
                 }
                 for (let si = 0; si < effectiveOuters.length; si++) {
                   const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
-                  tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+                  tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap, z)
                   tilePolygons.push({ rings: subRings, featId: fid })
                 }
                 featureIds.add(fid)
@@ -1212,7 +1215,7 @@ function processZoomLevelShared(
               // Densify the outline to the FILL's angular gate so a long low-zoom edge
               // curves on globe/non-Mercator instead of stroking a straight chord across
               // the sphere (#585). Collinear midpoints keep fill/outline coincidence.
-              const densified = subdivideChainMM(clean)
+              const densified = subdivideChainMM(clean, z)
               const chain = augmentChainWithArc(densified, isClosed, { mmInput: true })
               if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
             }
@@ -1402,7 +1405,17 @@ export function compileSingleTile(
     // tessellate / DSFUN-pack helpers stay in their current modules
     // (the vertex bytes are a CPU↔WGSL contract).
     if (part.type === 'polygon' && part.rings) {
-      tilePolygonPart(part, fid, clipMerc, precisionMM, scratch, dedupMap, featureIds, tilePolygons)
+      tilePolygonPart(
+        part,
+        fid,
+        clipMerc,
+        precisionMM,
+        scratch,
+        dedupMap,
+        featureIds,
+        tilePolygons,
+        z,
+      )
     }
 
     if (part.type === 'line' && part.coords) {

@@ -37,14 +37,27 @@ export function readChordBudgetPx(): number {
   return literal('map/src/render/globe-drape-budget.ts', 'GLOBE_DRAPE_CHORD_BUDGET_PX')
 }
 
+/** Mirror of `tileGateRad` (#2435) — the angular gate applied inside a tile of level
+ *  `tileZ`: the absolute rule, tightened to hold the native-zoom chord sagitta under
+ *  MAX_CHORD_SAGITTA_PX, never looser than the absolute rule, and clamped below at the
+ *  angle FAST_SKIP_MM guarantees. Every constant is read from the subdivision
+ *  authority; only the combining arithmetic is repeated here. */
+function tileGateRad(tileZ: number): number {
+  const A = 'compiler/src/tiler/subdivide-conforming.ts'
+  const absolute = literal(A, 'MAX_TRI_DEGREES_FOR_PROJ') * (Math.PI / 180)
+  const sagittaPx = literal(A, 'MAX_CHORD_SAGITTA_PX')
+  const fastSkipDeg = literal(A, 'FAST_SKIP_ANGLE_RAD')
+  const perLevel = Math.sqrt((sagittaPx * Math.PI) / 32) * 2 ** (-Math.max(0, tileZ) / 2)
+  return Math.max(fastSkipDeg * (Math.PI / 180), Math.min(absolute, perLevel))
+}
+
 /** Mirror of `tileSegmentAngleRad` — the finest edge the tiler leaves on a tile of
  *  level `tileZ`, at the equator. Both constants are read from the subdivision
  *  authority. */
 export function tileSegmentAngleRad(tileZ: number): number {
-  const gateDeg = literal('compiler/src/tiler/subdivide-conforming.ts', 'MAX_TRI_DEGREES_FOR_PROJ')
   const depth = literal('compiler/src/tiler/subdivide-conforming.ts', 'MAX_TRI_SUBDIVIDE_DEPTH')
   const span = (2 * Math.PI) / 2 ** Math.max(0, tileZ)
-  const gate = gateDeg * (Math.PI / 180)
+  const gate = tileGateRad(tileZ)
   if (span <= gate) return span
   return span / 2 ** Math.min(depth, Math.ceil(Math.log2(span / gate)))
 }
