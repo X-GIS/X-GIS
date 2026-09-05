@@ -31,7 +31,11 @@ import { ComputeLayerHandle } from './compute-layer-handle'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { GPUTile } from './vector-tile-renderer-types'
 import { polygonUniformSlots } from './polygon-uniform-slots'
-import { buildCategoryMap, packPerTileFeatureData } from './feature-data-pack'
+import {
+  buildCategoryMap,
+  deriveSeededCategoryOrder,
+  packPerTileFeatureData,
+} from './feature-data-pack'
 import { xlog } from '@xgis/shared'
 
 // Bind-group binding range size for binding 0 (the uniform ring). Derived
@@ -59,7 +63,7 @@ export interface PaletteResources {
 // feature-data-pack.ts so the RHI fill path (which has no GPUDevice to hand
 // this binder) packs the SAME bytes. Re-exported here: both names are part of
 // `@xgis/map`'s surface via `export * from './render/feature-data-binder'`.
-export { stableCategoryId, buildCategoryMap } from './feature-data-pack'
+export { stableCategoryId, buildCategoryMap, deriveSeededCategoryOrder } from './feature-data-pack'
 
 // ═══ #1947 — the source-level feat_data sparsity bound ═══
 //
@@ -129,6 +133,27 @@ export class FeatureDataBinder {
   // stride-8 `fid`. Empty when no data-driven paint expr is wired.
   private latestVariantFields: readonly string[] = []
   private latestVariantCategoryOrder: Record<string, readonly string[]> = {}
+  /** #2439 — the source's COMPLETE seeded feature list, when it was attached
+   *  from a whole FeatureCollection, plus the value lists derived from it.
+   *
+   *  The features are held and the lists derived LAZILY, on first pack, for two
+   *  reasons that a derive-at-attach version got wrong. (1) ORDER: the field
+   *  list arrives with the variant in `buildFeatureDataBuffer`, so a caller
+   *  deriving at attach time has to know it runs after that — a coupling
+   *  nothing enforced. (2) STALENESS: `setSourceData`'s reseed-in-place path
+   *  (source-manager `_reseedInPlace`) swaps the backend and KEEPS this
+   *  renderer, so a pre-derived list would describe the OLD value set and rank
+   *  the new data against it. Re-seeding replaces the features and drops the
+   *  memo, so the lists cannot outlive the data they came from.
+   *
+   *  Lives here rather than on VTR because this file is the feature-data
+   *  authority, and its own header calls a category id computed differently on
+   *  one backend "drift exactly where drift is invisible": the webgl2 twin
+   *  reads this same object through `seededCategoryOrder()`.
+   *  Undefined for a streamed MVT/PMTiles source, which has no complete
+   *  distinct set and correctly keeps the hashed `stableCategoryId`. */
+  private seededFeatures: readonly { properties?: Record<string, unknown> | null }[] | undefined
+  private seededOrderMemo: Readonly<Record<string, readonly string[]>> | undefined
   /** Compute path (P4) — captured at `buildFeatureDataBuffer` time
    *  when the show's variant carries `computeBindings`. Drives
    *  per-tile `ComputeLayerHandle` construction inside
@@ -203,6 +228,28 @@ export class FeatureDataBinder {
 
   hasFeatureData(): boolean {
     return this.featureDataBuffer !== null
+  }
+
+  /** Seed (or re-seed) this source's complete feature list (#2439). Called at
+   *  attach AND on every in-place data swap; passing `undefined` drops the
+   *  dense index back to the hashed fallback. */
+  setSeededFeatures(
+    features: readonly { properties?: Record<string, unknown> | null }[] | undefined,
+  ): void {
+    this.seededFeatures = features
+    this.seededOrderMemo = undefined
+  }
+
+  /** The derived value lists, computed once per seeding. Undefined until a
+   *  variant has been captured — the field list decides what is scanned. */
+  seededCategoryOrder(): Readonly<Record<string, readonly string[]>> | undefined {
+    if (!this.seededFeatures || this.latestVariantFields.length === 0) return undefined
+    this.seededOrderMemo ??= deriveSeededCategoryOrder(
+      this.seededFeatures,
+      this.latestVariantFields,
+      this.latestVariantCategoryOrder,
+    )
+    return this.seededOrderMemo
   }
 
   /** Recreate every cached per-tile feature bind group against the
@@ -424,6 +471,7 @@ export class FeatureDataBinder {
       featureProps,
       this.latestVariantFields,
       this.latestVariantCategoryOrder,
+      this.seededCategoryOrder(),
     )
     if (!packed) return null
     const { data } = packed
