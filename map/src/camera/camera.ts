@@ -862,21 +862,36 @@ export class Camera {
    *  `min(rawMpp, cap/canvasHeightCss)`, so the `mpp × MVPscale` cancellation
    *  that holds pixel width constant is restored across the whole zoom range.
    *
-   *  `projType` is passed (not read from `this.projType`) and the flat/3D branch
-   *  MIRRORS `getViewForProjection` exactly, so the returned scale always matches
-   *  the matrix that call produced. Globe / ECEF (globeMode or projType 7) mirror
-   *  `buildECEFFrameView`'s cap instead: it saturates the TRUE-metre view height
-   *  at `min(WORLD_MERC·cosLat, 2·EARTH_R)`, which in the Mercator-mpp basis this
-   *  method returns is `min(rawMpp, capMerc/canvasHeightCss)` with
-   *  `capMerc = min(WORLD_MERC·cosLat, 2·EARTH_R)/cosLat` — byte-identical to
-   *  `rawMpp` above z* and frozen at the ECEF frame's on-screen scale below it
-   *  (#964p2, same divergence class as #739). `cosLat` uses
-   *  `mercatorYToLatRad(centerY)` to match the builder's `cam_lat` exactly.
+   *  `projType` is passed (not read from `this.projType`) and the branches MIRROR
+   *  `getViewForProjection` IN ITS ORDER — one arm per reachable builder — so the
+   *  returned scale always matches the matrix that call produced (#2332: keying the
+   *  globe on `globeMode || isGlobeProj(projType)` merged two builders with
+   *  different cap policies and mirrored the one that does NOT run in globeMode):
+   *
+   *  - `globeMode` → `_globeFrame`/`buildGlobeFrame`/`globeAltitude`, whose view
+   *    height is `cssHeightPx · rawMpp` (this method's own basis): UNCAPPED for the
+   *    perspective globe (#450 — it follows MapLibre's pixel scale at every zoom and
+   *    SHRINKS as you zoom out), and for the azimuthal-promoted disc (`globeOrtho`)
+   *    capped by the FLAT per-projType cap keyed on the SOURCE kind
+   *    (`azimuthalProjType`) that keeps it continuous across the pitch=0 boundary.
+   *  - `isGlobeProj(projType)` WITHOUT `globeMode` → `buildECEFFrameView`, which
+   *    saturates the TRUE-metre view height at `min(WORLD_MERC·cosLat, 2·EARTH_R)` —
+   *    in this method's Mercator basis `min(rawMpp, capMerc/canvasHeightCss)` with
+   *    `capMerc = min(WORLD_MERC·cosLat, 2·EARTH_R)/cosLat` — byte-identical to
+   *    `rawMpp` above z* and frozen at the ECEF frame's scale below it (#964p2, same
+   *    divergence class as #739). `cosLat` uses `mercatorYToLatRad(centerY)` to
+   *    match the builder's `cam_lat` exactly.
+   *
    *  `canvasHeight` is DEVICE px and `dpr` converts it to the CSS basis, matching
    *  `buildRTCMatrix`'s `canvasHeight / dpr`. */
   effectiveMpp(projType: number, canvasHeight: number, dpr: number = 1): number {
     const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
-    if (this.globeMode || isGlobeProj(projType)) {
+    if (this.globeMode) {
+      if (!this.globeOrtho) return rawMpp
+      const capOrtho = flatViewHeightCapM(this.azimuthalProjType, WORLD_MERC)
+      return Math.min(rawMpp, capOrtho / (canvasHeight / dpr))
+    }
+    if (isGlobeProj(projType)) {
       const cosLat = Math.cos(mercatorYToLatRad(this.centerY))
       const capMerc = Math.min(WORLD_MERC * cosLat, 2 * EARTH_R) / cosLat
       return Math.min(rawMpp, capMerc / (canvasHeight / dpr))
