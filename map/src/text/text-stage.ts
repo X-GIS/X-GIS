@@ -1139,6 +1139,7 @@ export class TextStage {
         sizePx,
         letterSpacingPx,
         maxWidthPx,
+        p.inlineImages,
       )
       // Total bounding box width = max line width.
       let totalAdvance = 0
