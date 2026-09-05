@@ -9,6 +9,8 @@
 import { BLEND_ALPHA } from '@xgis/rhi-webgpu'
 import { emitOverdrawComposeWgsl } from '@xgis/engine'
 import { emitOitComposeWgsl } from '../shaders/dsl/oit-compose'
+import { oitComposeWgslId } from '../shaders/baked/ids'
+import { bakedWgsl } from './material/wgsl-for'
 
 interface BuiltPipeline {
   pipeline: GPURenderPipeline
@@ -24,8 +26,11 @@ export function buildOitComposePipeline(
   sampleCount: number,
 ): BuiltPipeline {
   const isMsaa = sampleCount > 1
+  // #2499 — `wgsl/oit-compose/s<n>` is baked for every `QUALITY.msaa` count; the store first,
+  // the emit on a miss. `sampleCount` is the one value driving the id and the emit (isMsaa
+  // is derived from it here exactly as the registry derives it).
   const module = device.createShaderModule({
-    code: emitOitComposeWgsl(sampleCount, isMsaa),
+    code: bakedWgsl(() => emitOitComposeWgsl(sampleCount, isMsaa), oitComposeWgslId(sampleCount)),
     label: 'oit-compose',
   })
   const layout = device.createBindGroupLayout({
