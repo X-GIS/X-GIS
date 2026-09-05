@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a3d63bb20c1da82096e80f7d88a2e6b326cf3890
+  Generated from: 6c2fdfd9a12e1138a67cf2cc06e67e793cc6accc
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a3d63bb20c1d
+    bun scripts/emit-changelog.ts --since 6c2fdfd9a12e
 -->
 
 # Changelog
@@ -48,6 +48,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map+compiler:** issue-hunt 2026-09-02 — 31 verified defects across three packages, three new real-GPU gates ([#2330](https://github.com/X-GIS/X-GIS/pull/2330)) `fdd304f`
+- **compiler+map:** text-rotation-alignment `viewport-glyph` billboards instead of following the tangent (#2224) ([#2546](https://github.com/X-GIS/X-GIS/pull/2546)) `b30ab89`
+- **map+compiler:** `categorical()` data-sized palette + dense index (#2439), and stop claiming raster-dem is unsupported (#2520) ([#2510](https://github.com/X-GIS/X-GIS/pull/2510)) `f99a092`
+- **map/render:** the hillshade draw never asks for the pick pipeline its pass has no attachment for (#2314) ([#2552](https://github.com/X-GIS/X-GIS/pull/2552)) `8991336`
 - **map/diagnostics:** snapshot and replay read the frame's centre-latitude authority ([#2528](https://github.com/X-GIS/X-GIS/pull/2528)) `b8c9e45`
 - **shaders/polygon:** discard the seam-straddling fill needles a rotated cut leaves across the frame (#1496) ([#2540](https://github.com/X-GIS/X-GIS/pull/2540)) `da30483`
 - **map/text:** premultiply the no-halo text branch — a halo-less label rendered as solid slot quads (#2502) ([#2514](https://github.com/X-GIS/X-GIS/pull/2514)) `9e3f8c8`
@@ -149,6 +153,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **github:** add the Intent issue template — Stage-1 record of the AI-native SDLC loop ([#2562](https://github.com/X-GIS/X-GIS/pull/2562)) `3f96944`
 - **map/render:** the frame-id comment claimed a short-circuit that does not exist (#2277) ([#2484](https://github.com/X-GIS/X-GIS/pull/2484)) `97f320e`
 - **claude:** a verdict is not finished at the first consumer — §12 ledger entry ([#2443](https://github.com/X-GIS/X-GIS/pull/2443)) `991f9b4`
 - **research:** data-ownership audit + 5-year ownership model ([#2243](https://github.com/X-GIS/X-GIS/pull/2243)) `1eb20ca`
@@ -157,6 +162,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **playground/e2e:** multiline-labels gate measures the wrap through the mandated helpers, and is registered (#2455) ([#2524](https://github.com/X-GIS/X-GIS/pull/2524)) `2ae9b84`
+- **e2e:** give the two-boot compute sweep the budget its own body spends (#2541) ([#2545](https://github.com/X-GIS/X-GIS/pull/2545)) `6a7257d`
 - **playground:** give the e2e-specs-load collection test the 180 s budget its own execFileSync declares (#2494) ([#2527](https://github.com/X-GIS/X-GIS/pull/2527)) `25082da`
 - **e2e:** awaitPendingWorkClear reports whether it converged or timed out (#2370) ([#2466](https://github.com/X-GIS/X-GIS/pull/2466)) `0ab7208`
 - **e2e:** the world-copies gate settles on its own precondition and reports the timeout (#2478) ([#2479](https://github.com/X-GIS/X-GIS/pull/2479)) `3da305a`
@@ -176,6 +183,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **render:** keep the failing frames and traces the render gates already write (#2282) ([#2285](https://github.com/X-GIS/X-GIS/pull/2285)) `17c1bf8`
 - patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
+
+#### chore
+
+- **quality:** jscpd duplication ratchet, consolidation policy (ADR-0013) and the 2026-09-05 audit ([#2533](https://github.com/X-GIS/X-GIS/pull/2533)) `6c2fdfd`
 
 ### 2026-08
 
