@@ -150,3 +150,12 @@ export interface RenderArgs {
   readonly fillPipelineExtrudedOverride: RhiPipelineHandle | undefined
   readonly fillPipelineExtrudedFallbackOverride: RhiPipelineHandle | undefined
 }
+
+/** #2508 phase 1 output — this layer's slot. */
+export interface LayerSlot {
+  /** Slice identity (`computeSliceKey`): the source layer + filter hash the
+   *  worker emitted this layer's tiles under. */
+  readonly sliceLayer: string
+  /** This slice's resident GPU tiles. */
+  readonly layerCache: Map<number, GPUTile>
+}
