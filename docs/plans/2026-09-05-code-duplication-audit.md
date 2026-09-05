@@ -22,6 +22,11 @@ lines skipped), `.ts .tsx .js .mjs` through the JavaScript tokenizer. Scan set:
 
 ## Numbers
 
+Measured at `67af14c` (main, 2026-09-05 09:00Z). The committed `.jscpd-baseline.json` tracks
+the tree the PR merges into, so its fingerprint count can differ from these figures by the
+clones `main` edited in the meantime (at the first merge: 278 fingerprints, +4 −6 against
+the 280 below — all four re-fingerprinted pairs sit in files `main` changed).
+
 Source only (898 files at or above the token floor, 232k lines):
 
 | minTokens / minLines | clones | duplicated lines | duplicated tokens |

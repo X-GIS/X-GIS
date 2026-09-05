@@ -735,6 +735,10 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   dependency") — say so in the marker.
 - Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
   (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
+- **After merging `main` into a branch, re-run `bun run dup`.** The baseline is a snapshot
+  of the whole tree: main's edits inside a baselined clone move its fingerprint, so the
+  merged tree reads as new + stale. `bun run dup:accept` on the merged tree fixes it (the
+  LOC-ceiling merge-union playbook, §12); never hand-edit `.jscpd-baseline.json`.
 - **The detector is token-level and not perfect.** `.jscpd.json` routes `.ts/.tsx` through
   jscpd's JavaScript tokenizer on purpose: the TypeScript one has a deterministic blind spot
   (repro in the ADR), while the JS one flagged every planted whole-function copy above the

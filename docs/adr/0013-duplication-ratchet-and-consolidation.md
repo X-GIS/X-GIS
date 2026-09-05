@@ -170,5 +170,11 @@ baseline has been shrinking for a while.
   annotation-only differences (visible to the `--type-insensitive` lens, not to the gate).
 - (−) The baseline is opaque hex; the review signal is the +/− line count and the PR text.
 - (−) Two more root files and one more CI step; the `changes` filter carries both files.
+- (−) The baseline is a snapshot of the whole tree, so it moves when ANY branch edits inside
+  a baselined clone — observed on this ADR's own PR: merging `main` re-fingerprinted three
+  pairs main had touched and left six stale entries. After merging `main` (or resolving a
+  conflict on `.jscpd-baseline.json`), run `bun run dup:accept` on the merged tree and commit
+  the result; never hand-edit the file. Same playbook as the LOC-ceiling merge union in
+  CLAUDE.md §12.
 - The thresholds and the tests decision are measurements to revisit, not constants: when the
   source baseline is under ~50 fingerprints, consider 50/5 and gating tests.
