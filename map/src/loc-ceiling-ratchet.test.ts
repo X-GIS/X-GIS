@@ -1245,7 +1245,9 @@ const CEILINGS: Record<string, number> = {
   // capabilities/symbol.ts and the spec-coverage note all point here rather than
   // restate it (an earlier draft restated it four times and cost 33 lines).
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  'map/src/text/text-stage.ts': 2171,
+  // 2171→2172 (#2446): one argument — the label's inline-image anchors — threaded
+  // into wrapWithKnuthPlass so the whitespace trim stops at an image.
+  'map/src/text/text-stage.ts': 2172,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
