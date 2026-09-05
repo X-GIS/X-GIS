@@ -222,6 +222,14 @@ export interface RenderFrameState {
   readonly anyInArchive: boolean
   /** `globalThis.__XGIS_INVARIANTS` snapshot for this call. */
   readonly _inv: boolean | undefined
+  /** Fallback ancestors for the visible tiles missing their own resident
+   *  tile, index-parallel with `fallbackOffsets` / `fallbackVisibleKeys`.
+   *  NOT readonly: `drawFallback` re-sorts the three in place (deepest z
+   *  last) and the epilogue reads that order. */
+  fallbackKeys: number[]
+  /** `Selection.protectedAncestors` — selector-injected fallback-only
+   *  ancestors kept resident. */
+  readonly protectedAncestors: number[]
 }
 
 export class VectorTileRenderer {
@@ -3663,7 +3671,9 @@ export class VectorTileRenderer {
       lineLayerOffset,
       lineLayerOffsetGap,
       anyInArchive,
+      protectedAncestors,
       _inv,
+      fallbackKeys,
     }
 
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
@@ -4286,24 +4296,33 @@ export class VectorTileRenderer {
       }
     }
 
+    this.trackStableSetAndPoints(args, ctx)
+  }
+
+  /** #2508 phase 10 — epilogue. Records this layer's stable tile set (needed +
+   *  fallback + selector-protected ancestors: every key whose buffers a draw
+   *  recorded this frame still binds, so the deferred eviction cannot destroy
+   *  one before `queue.submit()`), then emits the tile-based points. Consumes
+   *  only. */
+  private trackStableSetAndPoints(args: RenderArgs, ctx: RenderFrameState): void {
     // Track stable tile set for eviction protection and point rendering.
     // IMPORTANT: include fallbackKeys too — those tiles' buffers are bound
     // in bind groups used by the draw calls we just recorded. Evicting them
     // now would destroy their buffers before `queue.submit()` runs, causing
     // "Buffer used in submit while destroyed" validation errors.
-    if (fallbackKeys.length > 0 || protectedAncestors.length > 0) {
+    if (ctx.fallbackKeys.length > 0 || ctx.protectedAncestors.length > 0) {
       const merged = this._scratchMergedStableKeys
       merged.clear()
-      for (const k of neededKeys) merged.add(k)
-      for (const k of fallbackKeys) merged.add(k)
+      for (const k of ctx.neededKeys) merged.add(k)
+      for (const k of ctx.fallbackKeys) merged.add(k)
       // Selector-injected fallback-only ancestors (currently the
       // high-pitch parent inject) — protected from eviction so they
       // stay resident and the eviction-driven foreground ancestor-
       // block regression doesn't reappear under the mobile cap.
-      for (const k of protectedAncestors) merged.add(k)
+      for (const k of ctx.protectedAncestors) merged.add(k)
       this.stableKeys = [...merged]
     } else {
-      this.stableKeys = neededKeys
+      this.stableKeys = ctx.neededKeys
     }
 
     // GPU cache eviction is deferred to beginFrame() — see the comment there
@@ -4313,16 +4332,16 @@ export class VectorTileRenderer {
     // Tile-based points via PointRenderer (if available); the single-
     // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
     this.emitTilePointsRhi(
-      rhiPass,
-      camera,
-      projType,
-      projCenterLon,
-      projCenterLat,
-      canvasWidth,
-      canvasHeight,
-      dpr,
-      show,
-      pointRenderer,
+      args.rhiPass,
+      args.camera,
+      args.projType,
+      args.projCenterLon,
+      args.projCenterLat,
+      args.canvasWidth,
+      args.canvasHeight,
+      args.dpr,
+      args.show,
+      args.pointRenderer,
     )
   }
 
