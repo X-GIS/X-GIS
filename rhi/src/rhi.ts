@@ -411,11 +411,17 @@ export interface RhiComputePassDesc {
 
 /** A command encoder — the scope offscreen passes are recorded into and
  *  submitted from. WebGPU wraps `GPUCommandEncoder` (begin-pass + finish→
- *  queue.submit). WebGL2 fail-closes: `createCommandEncoder` throws (slice-1
- *  WebGL2 is screen-pass only; MRT + offscreen FBOs are the full-frame phase).
- *  Additive + inert: the render loop keeps creating + submitting its RAW
- *  `GPUCommandEncoder` today — this seam is what P1 adopts to route the passes
- *  through the RHI. */
+ *  queue.submit). WebGL2 fail-closes ONE LEVEL IN, not at creation:
+ *  `createCommandEncoder` RETURNS a copy-scoped encoder (buffer copies work — the
+ *  GPUArena compaction needs them) whose `beginRenderPass` throws, because an
+ *  out-of-frame utility encoder must never originate a pass. So the METHOD's
+ *  presence answers a different question than "can a pass be recorded here"; that
+ *  one is `caps.outOfFramePasses`, and reading the method as a proxy for it is the
+ *  premise #2474 records as refuted.
+ *  Also past tense now: the render loop no longer creates a raw `GPUCommandEncoder`
+ *  — the frame's passes originate through `acquireFrameEncoder` (#1046 F3), so THIS
+ *  seam is the utility path (arena compaction, the VTR bake), not a migration
+ *  scaffold. Corrected alongside the sentence above, in the same docblock. */
 export interface RhiCommandEncoder {
   /** Begin an offscreen / MRT render pass; record draws against the returned
    *  pass, then call `pass.end()` (mirroring the raw `subPass.end()` every
@@ -508,6 +514,16 @@ export interface RhiCaps {
    *  the bundle path exists to avoid). Consumer: VectorTileRenderer's
    *  shouldBundle gates. */
   readonly renderBundles: boolean
+  /** A render pass can be recorded on an encoder from `createCommandEncoder` — i.e.
+   *  OUTSIDE the frame's screen-pass lifecycle. WebGPU: true. WebGL2: false — its
+   *  `createCommandEncoder` returns a COPY-SCOPED encoder (buffer copies only) whose
+   *  `beginRenderPass` throws, so the METHOD's presence is not a proxy for this cap
+   *  and an optional-call `?.` cannot stand in for asking it. Note this is narrower
+   *  than "can render offscreen": WebGL2 does that through `beginOffscreenPass`,
+   *  nested INSIDE the frame. Consumer: VectorTileRenderer's `bakeAvailable` — the
+   *  globe fill drape bakes each tile through an offscreen pass on such an encoder,
+   *  and this cap is what that decision used to spell as the device's name (#2474). */
+  readonly outOfFramePasses: boolean
   /** This device can host the UNIFIED pass chain's whole frame (#1046 Inc-4):
    *  the frame encoder, the multi-pass origination surface AND the loop tail
    *  (render-target allocation, validation scopes, compute dispatch, timer
