@@ -4,7 +4,12 @@
 // no logic or symbol renames. `LayerDrawPhase` remains part of the
 // public surface and is re-exported from vector-tile-renderer.ts.
 
-import type { RhiBindGroup, RhiBuffer } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer, RhiPipelineHandle, RhiRenderPass } from '@xgis/engine'
+import type { Camera } from '../camera'
+import type { ShowCommand } from './renderer-types'
+import type { ResolvedShow } from './resolved-show'
+import type { PointRenderer } from './point-renderer'
+import type { BindGroupRegistry } from './bind-group-registry'
 
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).
@@ -112,4 +117,36 @@ export interface GPUTile {
    *  changed on every upload/eviction anywhere in the cache (over-
    *  invalidates). */
   uploadEpoch: number
+} /** The bind-group-layout family the registry deals in (`baseLayout()`), spelled
+ *  through the map-side owner of layouts rather than as the native type (#991). */
+export type ShowBindGroupLayout = NonNullable<ReturnType<BindGroupRegistry['baseLayout']>>
+
+/** #2508 — `VectorTileRenderer.render()`'s parameter list as one value, so the
+ *  render phases (`drawPrimary`, `drawFallback`, …) read it as `args.<name>`
+ *  instead of each re-declaring a slice of the 22 parameters. Built once per
+ *  `render()` call and never written afterwards. The parameter docs on
+ *  `render()` itself remain the contract; this mirrors them field for field. */
+export interface RenderArgs {
+  readonly rhiPass: RhiRenderPass
+  readonly camera: Camera
+  readonly projType: number
+  readonly projCenterLon: number
+  readonly projCenterLat: number
+  readonly canvasWidth: number
+  readonly canvasHeight: number
+  readonly show: ShowCommand
+  readonly fillPipeline: RhiPipelineHandle
+  readonly linePipeline: RhiPipelineHandle
+  readonly bindGroupLayout: ShowBindGroupLayout
+  readonly fillPipelineFallback: RhiPipelineHandle | undefined
+  readonly linePipelineFallback: RhiPipelineHandle | undefined
+  readonly pointRenderer: PointRenderer | null | undefined
+  readonly phase: LayerDrawPhase
+  readonly dpr: number
+  readonly fillPipelineGroundOverride: RhiPipelineHandle | undefined
+  readonly fillPipelineGroundFallbackOverride: RhiPipelineHandle | undefined
+  readonly translucentBucket: boolean
+  readonly resolvedShow: ResolvedShow
+  readonly fillPipelineExtrudedOverride: RhiPipelineHandle | undefined
+  readonly fillPipelineExtrudedFallbackOverride: RhiPipelineHandle | undefined
 }

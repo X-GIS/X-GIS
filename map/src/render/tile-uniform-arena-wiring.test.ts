@@ -161,7 +161,8 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     // halting the render loop ("allocated 1 ring slots where the encoded
     // bundle recorded 2").
     expect(src).toContain('this._lastWalkRingFree = splitWalkSkip')
-    expect(src).toMatch(/if \(_inv && !this\._lastWalkRingFree\) \{/)
+    // #2508 — the primary draw is a render phase; `_inv` reaches it as `ctx._inv`.
+    expect(src).toMatch(/if \(ctx\._inv && !this\._lastWalkRingFree\) \{/)
     // #2042 INC-4d — the qualification's fill term must be capability-based
     // (default pipes OR an eligible per-style twin), and the stroke clause
     // must consult the draper's derivation verdict — NOT a bare

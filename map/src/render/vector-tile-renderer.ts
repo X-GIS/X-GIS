@@ -105,7 +105,7 @@ import {
 import { hexToRgba } from '../feature-helpers'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import { arenaByteTotals } from '../render-stats-bytes'
-import type { GPUTile, LayerDrawPhase } from './vector-tile-renderer-types'
+import type { GPUTile, LayerDrawPhase, RenderArgs } from './vector-tile-renderer-types'
 import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
@@ -183,6 +183,47 @@ const ANCESTOR_PROTECT_DEPTH = 22
  *   - Cluster G `_drawStats` (FrameDrawStats): per-frame draw stats,
  *     diagnostics, dedup, trace stash.
  */
+/** The pass encoder `unwrapWebGpuPass` yields, narrowed to the render-pass side
+ *  (a bundle encoder has no `setStencilReference`). Spelled through the seam it
+ *  comes from rather than as the native type — this is not a new GPU touch, it
+ *  is the one `render()` already unwraps (#991) — so when that seam moves to an
+ *  RHI handle this follows without an edit. */
+export type UnwrappedRenderPass = Extract<
+  ReturnType<typeof unwrapWebGpuPass>,
+  { setStencilReference(ref: number): void }
+>
+
+/** #2508 — the frame-scoped state `render()` computes in its early phases
+ *  (pass unwrap → layer slot → tile selection → paint resolution → tile
+ *  classification) and its later phases consume. Declared here, next to its
+ *  producer, because `pass` is typed through the unwrap seam this file owns. Every field was a
+ *  `render()` local crossing a phase boundary; the set is MEASURED by the
+ *  free-variable analysis of each extracted phase, not designed — a field is
+ *  here because a later phase reads it. */
+export interface RenderFrameState {
+  /** The WebGPU pass encoder unwrapped from `args.rhiPass`. */
+  readonly pass: UnwrappedRenderPass
+  /** Slice identity (`computeSliceKey`): the source layer + filter hash the
+   *  worker emitted this layer's tiles under. */
+  readonly sliceLayer: string
+  /** This slice's resident GPU tiles. */
+  readonly layerCache: Map<number, GPUTile>
+  /** Selection output (tile-selection-cache.ts): the tile keys the drawn zoom
+   *  needs this frame … */
+  readonly neededKeys: number[]
+  /** … and the world-copy longitude offsets (degrees) each is drawn at. */
+  readonly worldOffDeg: number[]
+  /** Layer-slot uniform offsets the paint phase allocated; `-1` for the gap
+   *  offset means the single-line legacy path (see `renderTileKeys`). */
+  readonly lineLayerOffset: number
+  readonly lineLayerOffsetGap: number
+  /** True once a visible tile resolved through the in-archive path; the
+   *  primary draw is skipped otherwise (every key would `continue`). */
+  readonly anyInArchive: boolean
+  /** `globalThis.__XGIS_INVARIANTS` snapshot for this call. */
+  readonly _inv: boolean | undefined
+}
+
 export class VectorTileRenderer {
   /** Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
    *  through it; the native WebGPU seams unwrap via ringBufferNative(). */
@@ -2701,6 +2742,31 @@ export class VectorTileRenderer {
     fillPipelineExtrudedOverride?: RhiPipelineHandle,
     fillPipelineExtrudedFallbackOverride?: RhiPipelineHandle,
   ): void {
+    // #2508 — the parameter list as one value for the render phases below.
+    const args: RenderArgs = {
+      rhiPass,
+      camera,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      canvasWidth,
+      canvasHeight,
+      show,
+      fillPipeline,
+      linePipeline,
+      bindGroupLayout,
+      fillPipelineFallback,
+      linePipelineFallback,
+      pointRenderer,
+      phase,
+      dpr,
+      fillPipelineGroundOverride,
+      fillPipelineGroundFallbackOverride,
+      translucentBucket,
+      resolvedShow,
+      fillPipelineExtrudedOverride,
+      fillPipelineExtrudedFallbackOverride,
+    }
     // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
     // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
     if (this.rhi.caps.executionModel === 'immediate' && phase !== 'oit-fill')
@@ -3587,6 +3653,19 @@ export class VectorTileRenderer {
       this._drawStats.incDecisionCount(d)
     }
 
+    // #2508 — the frame state the phases below consume (RenderFrameState).
+    const ctx: RenderFrameState = {
+      pass,
+      sliceLayer,
+      layerCache,
+      neededKeys,
+      worldOffDeg,
+      lineLayerOffset,
+      lineLayerOffsetGap,
+      anyInArchive,
+      _inv,
+    }
+
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
     // and become available in gpuCache within the same frame.
     //
@@ -3838,332 +3917,7 @@ export class VectorTileRenderer {
       )
     }
 
-    // Render current zoom tiles (stencil write) — with world copy offsets.
-    // Translucent line passes have NO depth/stencil attachment, so skip the
-    // stencil reference call there.
-    //
-    // Skip primary renderTileKeys when no tile went through the in-
-    // archive path: every neededKey is over-zoom so its gpuCache.get
-    // returns null inside renderTileKeys (none of them are populated;
-    // fast path uploads only PARENTS, never the over-zoom keys
-    // themselves). The function's loop would iterate every key just
-    // to `continue`, burning N method calls + N drawKey computations
-    // per layer for zero output.
-    if (anyInArchive) {
-      if (phase !== 'strokes') pass.setStencilReference(1)
-      // Ground-layer fill (`extrude.kind === 'none'`) uses the
-      // depth-disabled pipeline so coplanar layers resolve via
-      // painter's order. Layers with `extrude:` keep the regular
-      // depth-write pipeline; the per-feature extruded path takes
-      // its own branch inside renderTileKeys.
-      //
-      // Pick the depth-disabled ground pipeline whose layout matches
-      // the show's bind-group layout. Two cases:
-      //   • Show is base-layout (no variant feature buffer): use the
-      //     renderer-level default `fillPipelineGround` (base-only).
-      //   • Show is variant + featureBindGroupLayout: use the
-      //     `fillPipelineGroundOverride` the caller built for THIS
-      //     variant (matches layout). When that's absent (very old
-      //     caller / test stub), fall back to `fillPipeline` and
-      //     accept depth-write — better z-fighting than a layout
-      //     mismatch that drops the whole encoder.
-      const groundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
-      // ?debug=overdraw: VTR's internal `fillPipelineGround` targets the
-      // swapchain format, but the caller's `fillPipelineGroundOverride`
-      // is the r16float debug variant. Always prefer the override here
-      // so the entire opaque pass agrees on the r16float attachment.
-      const groundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
-        ? (fillPipelineGroundOverride ?? fillPipeline)
-        : groundIsBase
-          ? this._bindGroups.groundPipeline()
-          : (fillPipelineGroundOverride ?? null)
-      // Fill-pattern routing. When the show has a resolved pattern UV bbox
-      // AND the variant pipeline path isn't active AND overdraw isn't
-      // active (r16float surface), swap the ground pipeline for the
-      // pattern variant. The pattern pipeline uses the same base
-      // bindGroupLayout, so it's only valid on the `groundIsBase` path;
-      // variant + feature-data pattern shows fall through to the generic
-      // fillPipeline (renders solid colour, not crash).
-      const patternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        groundIsBase &&
-        show.fillPatternUV != null &&
-        this._bindGroups.patternGroundPipeline() !== null
-      const groundChoice = patternActive
-        ? this._bindGroups.patternGroundPipeline()
-        : groundForLayout
-      const mainFill =
-        this.currentExtrudeMode === 'none' && groundChoice !== null ? groundChoice : fillPipeline
-      // Fill-extrusion-pattern: when the extruded pattern pipeline is wired
-      // and the show has a resolved pattern UV bbox, route per-feature
-      // extruded draws to the pattern variant. Same gate as the ground path.
-      const extrudedPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        groundIsBase &&
-        show.fillPatternUV != null &&
-        this._bindGroups.patternExtrudedPipeline() !== null
-      // #1252 — the SHOW's variant extruded pipeline wins when present (a
-      // data-driven fill on the feature layout); otherwise the pattern-extrude
-      // variant, then the shared base extruded pipeline. A data-driven fill and
-      // a fill-pattern are mutually exclusive (both own fill_color slots), so
-      // the override never collides with extrudedPatternActive.
-      const extrudedPipeline =
-        fillPipelineExtrudedOverride ??
-        (extrudedPatternActive
-          ? this._bindGroups.patternExtrudedPipeline()
-          : this._bindGroups.extrudedPipeline())
-      // Bundle wrap for the primary opaque pass call. Gated to the main
-      // opaque attachment context (excludes OIT, debug overdraw,
-      // translucent stroke bucket, the standalone strokes phase). Cache key
-      // includes every input that affects the recorded draws OR the bundle
-      // descriptor; the next miss re-encodes from scratch.
-      //
-      // Hit path: re-runs renderTileKeys for state side effects (uniform
-      // staging, strokeQueue population) but `_skipFillDrawForBundle` +
-      // `_skipStrokeDrawForBundle` mute the actual draw emit;
-      // `executeBundles([bundle])` replays the cached commands.
-      // Miss path: getOrEncode runs renderTileKeys with the bundle encoder —
-      // state side effects + draws recorded into the bundle, then
-      // `executeBundles` replays into the real pass.
-      // Bundle ONLY when every needed tile is in layer cache. Partial-set
-      // bundles caused the user-reported flicker (OFM Bright import + wheel
-      // zoom):
-      //
-      //   1. Fast zoom selects new neededKeys; tiles A,B not loaded yet.
-      //   2. Bundle encodes — recordTileFill skips A,B (cache miss
-      //      inside per-tile loop), records draws for already-loaded
-      //      C,D only.
-      //   3. Bundle cached under key with ueXor reflecting only C,D's
-      //      uploadEpochs ("tiles not yet in layerCache contribute 0" was
-      //      the design gap).
-      //   4. Frame N+1: same neededKeys, same ueXor (A,B still loading,
-      //      C,D unchanged) → cache HIT → replays the partial bundle
-      //      with A,B missing → polygon fills disappear for A,B until
-      //      they finally upload + bump ueXor.
-      //   5. Strokes don't hit this because `phase === 'strokes'` skips
-      //      the bundle path entirely, and the fallback ancestor path is
-      //      also bundled with the same gap.
-      //
-      // Gating shouldBundle on the all-loaded invariant eliminates the
-      // partial-encode case. During fast zoom we fall through to a direct
-      // renderTileKeys call (no bundle, no cache); steady-state (all tiles
-      // loaded) keeps the 97.6% hit rate.
-      //
-      // #1190 — DEFAULT ON again (WebGPU only; WebGL2 has no render
-      // bundles). The prior default-off was containment for an
-      // then-undiagnosed replay bug: interactive navigation showed a
-      // MOSTLY EMPTY canvas (iPhone OFM Bright z=7.53 pitch 3.6) even
-      // under the all-loaded gate, because the recorded bundles bake
-      // UniformRing dynamic offsets and the ring CURSOR BASE (every
-      // allocation earlier in the frame, across the VTR's other shows +
-      // fallback walks) was not part of the cache key — an upstream
-      // alloc-count change replayed stale offsets under a hit. The key
-      // now pins `ringCursor` + the stroke draws' layer-slot offsets
-      // (BundleKeyState), making a stale-offset replay a MISS by
-      // construction; the hit-path dev invariant below proves the
-      // re-walk still lands draw-for-draw on the baked offsets.
-      // `_bundle-replay-parity-gate.spec.ts` is the interactive §5 gate
-      // the old single-static-screenshot validation lacked.
-      //   __XGIS_BUNDLE_OFF = true   → A/B + emergency escape hatch
-      let allTilesLoaded = true
-      for (let i = 0; i < neededKeys.length; i++) {
-        if (!layerCache.get(neededKeys[i]!)) {
-          allTilesLoaded = false
-          break
-        }
-      }
-      const _bundleOff = (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
-      const shouldBundle =
-        !_bundleOff &&
-        this.rhi.caps.renderBundles &&
-        !isOverdrawActive(this.rhi.caps) &&
-        !translucentBucket &&
-        phase !== 'strokes' &&
-        phase !== 'oit-fill' &&
-        allTilesLoaded
-      if (shouldBundle) {
-        // Structural cache key: a single structuralHashKey() over a typed
-        // state literal. Adding a new dependency below = one new property;
-        // the hash adapts and the cache invalidates correctly without
-        // string-template churn. See _cache/structural-key.ts.
-        const pickOn = isPickEnabled()
-        const samples = getSampleCount()
-        const epochs: number[] = new Array(neededKeys.length)
-        for (let i = 0; i < neededKeys.length; i++) {
-          epochs[i] = layerCache.get(neededKeys[i]!)!.uploadEpoch
-        }
-        // `satisfies BundleKeyState` enforces that every property of the
-        // contract is filled. Adding a new dimension to BundleKeyState
-        // breaks BOTH call sites here (primary + fallback) until the literal
-        // is updated.
-        const keyState = {
-          sliceLayer,
-          phase,
-          // Order significant — neededKeys is iteration order, the
-          // same order the bundle records draws in.
-          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-          neededKeys: neededKeys,
-          epochs,
-          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-          worldOffsets: this._worldOffScratchKey(worldOffDeg),
-          bindGroupEpoch: this._bindGroups.epoch(),
-          pickOn,
-          samples,
-          mainPipelineLabel: mainFill.label ?? null,
-          linePipelineLabel: linePipeline.label ?? null,
-          // #1190 — the walk's dynamic-offset base and the stroke draws'
-          // baked layer-slot offsets. Without the cursor, an EARLIER
-          // show's allocation-count change let this show's key hit while
-          // its baked offsets pointed at foreign slots — the "mostly
-          // empty canvas during interactive navigation" that kept the
-          // bundle path disabled. See BundleKeyState field docs.
-          // #2042 INC-5b — a RING-FREE walk (every draw split-bound; see
-          // _walkRingFree) bakes no per-tile ring reader, so the live
-          // cursor is not a replay dependency there: keying it anyway made
-          // one tile's residency flip re-record every downstream show
-          // (PR #2090's sweep: bundleMisses ≈ N per window). The -2
-          // sentinel decouples ring-free shows from the frame's ring
-          // traffic; every _walkRingFree input is itself pinned by this
-          // key, so record and hit agree on the verdict.
-          ringCursor: this._walkRingFree(
-            mainFill,
-            bindGroupLayout,
-            phase,
-            translucentBucket,
-            null,
-            show.shaderVariant,
-            sliceLayer,
-          )
-            ? -2
-            : this._ringCursorForBundleKey(),
-          lineLayerOffset,
-          lineLayerOffsetGap,
-          // #2093 — these SELECT what the bundle records (`drawFills` /
-          // `drawStrokes`); nothing else in the key separates the two arms.
-          // Full derivation: the BundleKeyState field docs.
-          drapeGlobeFills: this._drapeGlobeFills,
-          drapeStrokes: this._drapeStrokes,
-        } as const satisfies BundleKeyState
-        const cacheKey = `vt:${sliceLayer}:${phase}:${structuralHashKey(keyState)}`
-        const desc: BundleEncodeDescriptor = {
-          colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
-          depthStencilFormat: 'depth24plus-stencil8',
-          sampleCount: samples,
-          depthReadOnly: false,
-          stencilReadOnly: false,
-          label: cacheKey,
-        }
-        let wasMiss = false
-        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, (encoder) => {
-          wasMiss = true
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
-          this.renderTileKeys(
-            neededKeys,
-            encoder,
-            mainFill,
-            linePipeline,
-            projCenterLon,
-            projCenterLat,
-            worldOffDeg,
-            lineLayerOffset,
-            lineLayerOffsetGap,
-            phase,
-            layerCache,
-            extrudedPipeline,
-            bindGroupLayout,
-            translucentBucket,
-            undefined,
-            show.shaderVariant,
-            sliceLayer,
-          )
-        })
-        if (wasMiss) {
-          // #1190 — pin the encode walk's ring-slot alloc count to the bundle.
-          this._bundleWalkAllocs.set(
-            bundle,
-            this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor),
-          )
-        } else {
-          // Cache hit: replay path. Re-run renderTileKeys for state
-          // side effects with both skip flags TRUE — recordTileFill
-          // + drawSegments no-op; uniform staging + strokeQueue
-          // population still happens.
-          this._skipFillDrawForBundle = true
-          this._skipStrokeDrawForBundle = true
-          this.renderTileKeys(
-            neededKeys,
-            pass,
-            mainFill,
-            linePipeline,
-            projCenterLon,
-            projCenterLat,
-            worldOffDeg,
-            lineLayerOffset,
-            lineLayerOffsetGap,
-            phase,
-            layerCache,
-            extrudedPipeline,
-            bindGroupLayout,
-            translucentBucket,
-            undefined,
-            show.shaderVariant,
-            sliceLayer,
-          )
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
-          // #1190 invariant — the hit re-walk must land its uniforms on
-          // EXACTLY the offsets the bundle baked: same base (ringCursor is
-          // in the key, so it matches by key equality) AND same alloc
-          // count. A mismatch means an input to renderTileKeys changed
-          // under an unchanged BundleKeyState — the class of bug that
-          // produced the mostly-empty interactive canvas. Fail loud in
-          // dev; the key fix (not this check) is what prevents it.
-          // EXEMPT under a ring-reader-free walk (#2042 INC-5): a
-          // splitWalkSkip call bakes no per-tile ring readers (every fill
-          // and stroke binds the three-range split group; even the seed
-          // tile's ring stage is write-only), so alloc-count alignment is
-          // a vacuous proxy there — record packs fresh tiles (1 + k
-          // allocs), the next hit's re-walk skips them (1), and both
-          // replay correctly. Key equality ⇒ identical qualification
-          // inputs ⇒ the exemption is stable across record and hit.
-          if (_inv && !this._lastWalkRingFree) {
-            const expected = this._bundleWalkAllocs.get(bundle)
-            const got = this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor)
-            if (expected !== undefined && got !== expected) {
-              throw new Error(
-                `[XGIS INVARIANT] bundle hit re-walk allocated ${got} ring slots where ` +
-                  `the encoded bundle recorded ${expected} (key ${cacheKey}). An input to ` +
-                  `renderTileKeys changed under an unchanged BundleKeyState — the baked ` +
-                  `dynamic offsets no longer align. Add the missing input to ` +
-                  `_cache/bundle-cache-key.ts.`,
-              )
-            }
-          }
-        }
-        pass.executeBundles([bundle])
-      } else {
-        this.renderTileKeys(
-          neededKeys,
-          pass,
-          mainFill,
-          linePipeline,
-          projCenterLon,
-          projCenterLat,
-          worldOffDeg,
-          lineLayerOffset,
-          lineLayerOffsetGap,
-          phase,
-          layerCache,
-          extrudedPipeline,
-          bindGroupLayout,
-          translucentBucket,
-          undefined,
-          show.shaderVariant,
-          sliceLayer,
-        )
-      }
-    }
+    this.drawPrimary(args, ctx)
 
     // Render fallback ancestors (stencil test) — with world offsets for wrapping
     if (fillPipelineFallback && fallbackKeys.length > 0) {
@@ -4570,6 +4324,344 @@ export class VectorTileRenderer {
       show,
       pointRenderer,
     )
+  }
+
+  /** #2508 phase 7 — draw the current-zoom tiles (stencil write) across the
+   *  world copies. A pure CONSUMER of the frame: every argument is a value
+   *  `render()` has already fixed, and nothing computed here is read by a
+   *  later phase (free-variable analysis: 0 writes to `render()` locals, 0
+   *  declarations read after it). The body is the former `render()` block,
+   *  moved — it decides bundle vs direct dispatch per world copy and hands
+   *  each set of keys to `renderTileKeys`. */
+  private drawPrimary(args: RenderArgs, ctx: RenderFrameState): void {
+    // Render current zoom tiles (stencil write) — with world copy offsets.
+    // Translucent line passes have NO depth/stencil attachment, so skip the
+    // stencil reference call there.
+    //
+    // Skip primary renderTileKeys when no tile went through the in-
+    // archive path: every neededKey is over-zoom so its gpuCache.get
+    // returns null inside renderTileKeys (none of them are populated;
+    // fast path uploads only PARENTS, never the over-zoom keys
+    // themselves). The function's loop would iterate every key just
+    // to `continue`, burning N method calls + N drawKey computations
+    // per layer for zero output.
+    if (ctx.anyInArchive) {
+      if (args.phase !== 'strokes') ctx.pass.setStencilReference(1)
+      // Ground-layer fill (`extrude.kind === 'none'`) uses the
+      // depth-disabled pipeline so coplanar layers resolve via
+      // painter's order. Layers with `extrude:` keep the regular
+      // depth-write pipeline; the per-feature extruded path takes
+      // its own branch inside renderTileKeys.
+      //
+      // Pick the depth-disabled ground pipeline whose layout matches
+      // the show's bind-group layout. Two cases:
+      //   • Show is base-layout (no variant feature buffer): use the
+      //     renderer-level default `fillPipelineGround` (base-only).
+      //   • Show is variant + featureBindGroupLayout: use the
+      //     `fillPipelineGroundOverride` the caller built for THIS
+      //     variant (matches layout). When that's absent (very old
+      //     caller / test stub), fall back to `fillPipeline` and
+      //     accept depth-write — better z-fighting than a layout
+      //     mismatch that drops the whole encoder.
+      const groundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
+      // ?debug=overdraw: VTR's internal `fillPipelineGround` targets the
+      // swapchain format, but the caller's `fillPipelineGroundOverride`
+      // is the r16float debug variant. Always prefer the override here
+      // so the entire opaque pass agrees on the r16float attachment.
+      const groundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
+        ? (args.fillPipelineGroundOverride ?? args.fillPipeline)
+        : groundIsBase
+          ? this._bindGroups.groundPipeline()
+          : (args.fillPipelineGroundOverride ?? null)
+      // Fill-pattern routing. When the show has a resolved pattern UV bbox
+      // AND the variant pipeline path isn't active AND overdraw isn't
+      // active (r16float surface), swap the ground pipeline for the
+      // pattern variant. The pattern pipeline uses the same base
+      // bindGroupLayout, so it's only valid on the `groundIsBase` path;
+      // variant + feature-data pattern shows fall through to the generic
+      // fillPipeline (renders solid colour, not crash).
+      const patternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        groundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternGroundPipeline() !== null
+      const groundChoice = patternActive
+        ? this._bindGroups.patternGroundPipeline()
+        : groundForLayout
+      const mainFill =
+        this.currentExtrudeMode === 'none' && groundChoice !== null
+          ? groundChoice
+          : args.fillPipeline
+      // Fill-extrusion-pattern: when the extruded pattern pipeline is wired
+      // and the show has a resolved pattern UV bbox, route per-feature
+      // extruded draws to the pattern variant. Same gate as the ground path.
+      const extrudedPatternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        groundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternExtrudedPipeline() !== null
+      // #1252 — the SHOW's variant extruded pipeline wins when present (a
+      // data-driven fill on the feature layout); otherwise the pattern-extrude
+      // variant, then the shared base extruded pipeline. A data-driven fill and
+      // a fill-pattern are mutually exclusive (both own fill_color slots), so
+      // the override never collides with extrudedPatternActive.
+      const extrudedPipeline =
+        args.fillPipelineExtrudedOverride ??
+        (extrudedPatternActive
+          ? this._bindGroups.patternExtrudedPipeline()
+          : this._bindGroups.extrudedPipeline())
+      // Bundle wrap for the primary opaque pass call. Gated to the main
+      // opaque attachment context (excludes OIT, debug overdraw,
+      // translucent stroke bucket, the standalone strokes phase). Cache key
+      // includes every input that affects the recorded draws OR the bundle
+      // descriptor; the next miss re-encodes from scratch.
+      //
+      // Hit path: re-runs renderTileKeys for state side effects (uniform
+      // staging, strokeQueue population) but `_skipFillDrawForBundle` +
+      // `_skipStrokeDrawForBundle` mute the actual draw emit;
+      // `executeBundles([bundle])` replays the cached commands.
+      // Miss path: getOrEncode runs renderTileKeys with the bundle encoder —
+      // state side effects + draws recorded into the bundle, then
+      // `executeBundles` replays into the real pass.
+      // Bundle ONLY when every needed tile is in layer cache. Partial-set
+      // bundles caused the user-reported flicker (OFM Bright import + wheel
+      // zoom):
+      //
+      //   1. Fast zoom selects new neededKeys; tiles A,B not loaded yet.
+      //   2. Bundle encodes — recordTileFill skips A,B (cache miss
+      //      inside per-tile loop), records draws for already-loaded
+      //      C,D only.
+      //   3. Bundle cached under key with ueXor reflecting only C,D's
+      //      uploadEpochs ("tiles not yet in layerCache contribute 0" was
+      //      the design gap).
+      //   4. Frame N+1: same neededKeys, same ueXor (A,B still loading,
+      //      C,D unchanged) → cache HIT → replays the partial bundle
+      //      with A,B missing → polygon fills disappear for A,B until
+      //      they finally upload + bump ueXor.
+      //   5. Strokes don't hit this because `phase === 'strokes'` skips
+      //      the bundle path entirely, and the fallback ancestor path is
+      //      also bundled with the same gap.
+      //
+      // Gating shouldBundle on the all-loaded invariant eliminates the
+      // partial-encode case. During fast zoom we fall through to a direct
+      // renderTileKeys call (no bundle, no cache); steady-state (all tiles
+      // loaded) keeps the 97.6% hit rate.
+      //
+      // #1190 — DEFAULT ON again (WebGPU only; WebGL2 has no render
+      // bundles). The prior default-off was containment for an
+      // then-undiagnosed replay bug: interactive navigation showed a
+      // MOSTLY EMPTY canvas (iPhone OFM Bright z=7.53 pitch 3.6) even
+      // under the all-loaded gate, because the recorded bundles bake
+      // UniformRing dynamic offsets and the ring CURSOR BASE (every
+      // allocation earlier in the frame, across the VTR's other shows +
+      // fallback walks) was not part of the cache key — an upstream
+      // alloc-count change replayed stale offsets under a hit. The key
+      // now pins `ringCursor` + the stroke draws' layer-slot offsets
+      // (BundleKeyState), making a stale-offset replay a MISS by
+      // construction; the hit-path dev invariant below proves the
+      // re-walk still lands draw-for-draw on the baked offsets.
+      // `_bundle-replay-parity-gate.spec.ts` is the interactive §5 gate
+      // the old single-static-screenshot validation lacked.
+      //   __XGIS_BUNDLE_OFF = true   → A/B + emergency escape hatch
+      let allTilesLoaded = true
+      for (let i = 0; i < ctx.neededKeys.length; i++) {
+        if (!ctx.layerCache.get(ctx.neededKeys[i]!)) {
+          allTilesLoaded = false
+          break
+        }
+      }
+      const _bundleOff = (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
+      const shouldBundle =
+        !_bundleOff &&
+        this.rhi.caps.renderBundles &&
+        !isOverdrawActive(this.rhi.caps) &&
+        !args.translucentBucket &&
+        args.phase !== 'strokes' &&
+        args.phase !== 'oit-fill' &&
+        allTilesLoaded
+      if (shouldBundle) {
+        // Structural cache key: a single structuralHashKey() over a typed
+        // state literal. Adding a new dependency below = one new property;
+        // the hash adapts and the cache invalidates correctly without
+        // string-template churn. See _cache/structural-key.ts.
+        const pickOn = isPickEnabled()
+        const samples = getSampleCount()
+        const epochs: number[] = new Array(ctx.neededKeys.length)
+        for (let i = 0; i < ctx.neededKeys.length; i++) {
+          epochs[i] = ctx.layerCache.get(ctx.neededKeys[i]!)!.uploadEpoch
+        }
+        // `satisfies BundleKeyState` enforces that every property of the
+        // contract is filled. Adding a new dimension to BundleKeyState
+        // breaks BOTH call sites here (primary + fallback) until the literal
+        // is updated.
+        const keyState = {
+          sliceLayer: ctx.sliceLayer,
+          phase: args.phase,
+          // Order significant — neededKeys is iteration order, the
+          // same order the bundle records draws in.
+          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+          neededKeys: ctx.neededKeys,
+          epochs,
+          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+          worldOffsets: this._worldOffScratchKey(ctx.worldOffDeg),
+          bindGroupEpoch: this._bindGroups.epoch(),
+          pickOn,
+          samples,
+          mainPipelineLabel: mainFill.label ?? null,
+          linePipelineLabel: args.linePipeline.label ?? null,
+          // #1190 — the walk's dynamic-offset base and the stroke draws'
+          // baked layer-slot offsets. Without the cursor, an EARLIER
+          // show's allocation-count change let this show's key hit while
+          // its baked offsets pointed at foreign slots — the "mostly
+          // empty canvas during interactive navigation" that kept the
+          // bundle path disabled. See BundleKeyState field docs.
+          // #2042 INC-5b — a RING-FREE walk (every draw split-bound; see
+          // _walkRingFree) bakes no per-tile ring reader, so the live
+          // cursor is not a replay dependency there: keying it anyway made
+          // one tile's residency flip re-record every downstream show
+          // (PR #2090's sweep: bundleMisses ≈ N per window). The -2
+          // sentinel decouples ring-free shows from the frame's ring
+          // traffic; every _walkRingFree input is itself pinned by this
+          // key, so record and hit agree on the verdict.
+          ringCursor: this._walkRingFree(
+            mainFill,
+            args.bindGroupLayout,
+            args.phase,
+            args.translucentBucket,
+            null,
+            args.show.shaderVariant,
+            ctx.sliceLayer,
+          )
+            ? -2
+            : this._ringCursorForBundleKey(),
+          lineLayerOffset: ctx.lineLayerOffset,
+          lineLayerOffsetGap: ctx.lineLayerOffsetGap,
+          // #2093 — these SELECT what the bundle records (`drawFills` /
+          // `drawStrokes`); nothing else in the key separates the two arms.
+          // Full derivation: the BundleKeyState field docs.
+          drapeGlobeFills: this._drapeGlobeFills,
+          drapeStrokes: this._drapeStrokes,
+        } as const satisfies BundleKeyState
+        const cacheKey = `vt:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(keyState)}`
+        const desc: BundleEncodeDescriptor = {
+          colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
+          depthStencilFormat: 'depth24plus-stencil8',
+          sampleCount: samples,
+          depthReadOnly: false,
+          stencilReadOnly: false,
+          label: cacheKey,
+        }
+        let wasMiss = false
+        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, (encoder) => {
+          wasMiss = true
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+          this.renderTileKeys(
+            ctx.neededKeys,
+            encoder,
+            mainFill,
+            args.linePipeline,
+            args.projCenterLon,
+            args.projCenterLat,
+            ctx.worldOffDeg,
+            ctx.lineLayerOffset,
+            ctx.lineLayerOffsetGap,
+            args.phase,
+            ctx.layerCache,
+            extrudedPipeline,
+            args.bindGroupLayout,
+            args.translucentBucket,
+            undefined,
+            args.show.shaderVariant,
+            ctx.sliceLayer,
+          )
+        })
+        if (wasMiss) {
+          // #1190 — pin the encode walk's ring-slot alloc count to the bundle.
+          this._bundleWalkAllocs.set(
+            bundle,
+            this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor),
+          )
+        } else {
+          // Cache hit: replay path. Re-run renderTileKeys for state
+          // side effects with both skip flags TRUE — recordTileFill
+          // + drawSegments no-op; uniform staging + strokeQueue
+          // population still happens.
+          this._skipFillDrawForBundle = true
+          this._skipStrokeDrawForBundle = true
+          this.renderTileKeys(
+            ctx.neededKeys,
+            ctx.pass,
+            mainFill,
+            args.linePipeline,
+            args.projCenterLon,
+            args.projCenterLat,
+            ctx.worldOffDeg,
+            ctx.lineLayerOffset,
+            ctx.lineLayerOffsetGap,
+            args.phase,
+            ctx.layerCache,
+            extrudedPipeline,
+            args.bindGroupLayout,
+            args.translucentBucket,
+            undefined,
+            args.show.shaderVariant,
+            ctx.sliceLayer,
+          )
+          this._skipFillDrawForBundle = false
+          this._skipStrokeDrawForBundle = false
+          // #1190 invariant — the hit re-walk must land its uniforms on
+          // EXACTLY the offsets the bundle baked: same base (ringCursor is
+          // in the key, so it matches by key equality) AND same alloc
+          // count. A mismatch means an input to renderTileKeys changed
+          // under an unchanged BundleKeyState — the class of bug that
+          // produced the mostly-empty interactive canvas. Fail loud in
+          // dev; the key fix (not this check) is what prevents it.
+          // EXEMPT under a ring-reader-free walk (#2042 INC-5): a
+          // splitWalkSkip call bakes no per-tile ring readers (every fill
+          // and stroke binds the three-range split group; even the seed
+          // tile's ring stage is write-only), so alloc-count alignment is
+          // a vacuous proxy there — record packs fresh tiles (1 + k
+          // allocs), the next hit's re-walk skips them (1), and both
+          // replay correctly. Key equality ⇒ identical qualification
+          // inputs ⇒ the exemption is stable across record and hit.
+          if (ctx._inv && !this._lastWalkRingFree) {
+            const expected = this._bundleWalkAllocs.get(bundle)
+            const got = this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor)
+            if (expected !== undefined && got !== expected) {
+              throw new Error(
+                `[XGIS INVARIANT] bundle hit re-walk allocated ${got} ring slots where ` +
+                  `the encoded bundle recorded ${expected} (key ${cacheKey}). An input to ` +
+                  `renderTileKeys changed under an unchanged BundleKeyState — the baked ` +
+                  `dynamic offsets no longer align. Add the missing input to ` +
+                  `_cache/bundle-cache-key.ts.`,
+              )
+            }
+          }
+        }
+        ctx.pass.executeBundles([bundle])
+      } else {
+        this.renderTileKeys(
+          ctx.neededKeys,
+          ctx.pass,
+          mainFill,
+          args.linePipeline,
+          args.projCenterLon,
+          args.projCenterLat,
+          ctx.worldOffDeg,
+          ctx.lineLayerOffset,
+          ctx.lineLayerOffsetGap,
+          args.phase,
+          ctx.layerCache,
+          extrudedPipeline,
+          args.bindGroupLayout,
+          args.translucentBucket,
+          undefined,
+          args.show.shaderVariant,
+          ctx.sliceLayer,
+        )
+      }
+    }
   }
 
   /** #1632 — this renderer's tile-point cache namespace. `sliceLayer` alone
