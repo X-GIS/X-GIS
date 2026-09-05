@@ -40,6 +40,12 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
     expect(specFiles.length, `no .spec.ts files under ${E2E_DIR}`).toBeGreaterThan(300)
   })
 
+  // #2494 — ONE budget. The execFileSync below carries 180 s, but an `it()` with no
+  // timeout of its own inherits vitest's 30 s `testTimeout` (vitest.config.ts), so under
+  // a full-suite run — where `--list` competes with the worker pool and stretches past
+  // 30 s while taking ~5 s alone — vitest killed this test with 150 s of the inner budget
+  // unspent, and the failure read as the collection break it exists to detect. The
+  // same number governs both layers now; the collection-error arm is unchanged.
   it('`playwright test --list` collects every spec file, with no collection errors', () => {
     let stdout: string
     try {
@@ -75,7 +81,7 @@ describe('every e2e spec loads — a module-scope throw aborts the whole suite (
       `--list collected ${filesCollected} of ${specFiles.length} spec files — a spec that ` +
         `fails to load takes the whole suite with it (#1638)`,
     ).toBeGreaterThanOrEqual(specFiles.length)
-  })
+  }, 180_000)
 })
 
 // ═══ Every e2e spec is either run by CI or knowingly dark (#1817) ═══

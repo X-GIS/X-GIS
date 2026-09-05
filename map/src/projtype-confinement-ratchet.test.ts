@@ -91,13 +91,14 @@ const BASELINE: Record<string, number> = {
   // non-Mercator raster-jitter fix deduped the cam-anchor split into the shared
   // rasterFrameCamAnchor() authority (RasterRenderer + HillshadeRenderer drive the
   // same vs_tile, so the anchor must be single-authority), leaving ONLY the tile
-  // selector `=== 0` here (2 → 1). The remaining `=== 0` is Mercator-only, and
-  // isFlat/isCylindrical are broader (0/1/2), so no membership accessor preserves it.
-  'map/src/render/hillshade-renderer.ts': 1,
-  'map/src/render/prefetch-scheduler.ts': 1,
-  // raster-renderer keeps the flat-Mercator tile selector `=== 0` + the one in
-  // rasterFrameCamAnchor (the shared cam-anchor authority now lives here).
-  'map/src/render/raster-renderer.ts': 2,
+  // selector `=== 0` (2 → 1). #2302 then moved the flat tile selector of BOTH
+  // twins and the prefetch walk into render/flat-tile-selector.ts, which branches on
+  // the projection object the table returns rather than on projType — so the
+  // hillshade and prefetch-scheduler entries are gone (routed; locked at 0).
+  // raster-renderer keeps only the `=== 0` in rasterFrameCamAnchor (the shared
+  // cam-anchor authority lives here): Mercator-SPECIFIC, and isFlat/isCylindrical
+  // are broader (0/1/2), so no membership accessor preserves it.
+  'map/src/render/raster-renderer.ts': 1,
 }
 
 describe('projType-confinement ratchet: dispatch via the membership table (#996)', () => {

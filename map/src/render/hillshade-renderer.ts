@@ -13,9 +13,9 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { frameCenterLatOf, type Camera } from '../camera'
-import { visibleTilesFrustum, type TileRowScheme } from '@xgis/data'
+import type { TileRowScheme, TileCoord } from '@xgis/data'
+import { selectFlatTiles } from './flat-tile-selector'
 import { type EvictableTile } from './raster-cache-budget'
-import { mercator as mercatorProj } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
@@ -477,7 +477,7 @@ export class HillshadeRenderer {
     const centerLat = frameCenterLatOf(camera, projType) // #2315/#2500 — sphere family reads centerLatDeg
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
-    let tiles: ReturnType<typeof visibleTilesFrustum>
+    let tiles: TileCoord[]
     if (routeToSphereSelector(projType, camera.globeMode)) {
       const globeTiles = globeVisibleTiles(
         centerLon,
@@ -498,11 +498,17 @@ export class HillshadeRenderer {
         tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
-      const selectorProj =
-        projType === 0
-          ? mercatorProj
-          : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-      tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+      // Flat projections: cull space == draw space (#2302) — mirror of the raster twin.
+      tiles = selectFlatTiles(
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        currentZ,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
     }
     // Spatial clip (#1984) — applied to the SELECTION, so the leaf loop, the parent-fallback
     // prefetch, the eviction set and the draw list all see it. Mirror of the raster twin.
