@@ -183,3 +183,88 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
     })
   })
 })
+
+// ── #2547: the FOLDED authoring of the same seam crossing ──
+//
+// Everything above drives the past-seam convention (165→195). Most producers
+// emit the other one: a LineString folded back into (−180, 180], e.g.
+// [[170,0],[-170,0]] for the same 20° span. `subdivideLine` interpolated the
+// intermediates on the unwrapped branch (171…189) but pushed the authored
+// endpoint −170 verbatim, leaving a 359° step. The part's bbox then spanned
+// −170…189, `pushLinePartWithWrap` copied that, and the per-tile clip handed a
+// piece to every z2 column on the equator.
+//
+// Oracle: the folded input must tile like the same span written unwrapped —
+// the representation the #1221 path above already handles.
+describe('#2547 folded antimeridian authoring tiles like the unwrapped span', () => {
+  /** Drive a producer-shaped Feature through the real entry points and report
+   *  both quantities the 359° step corrupted: the lon extent of each emitted
+   *  part (including its world-copy), and the z2 columns that receive line
+   *  geometry.
+   *
+   *  Vertex COUNTS are deliberately not compared: the two authorings differ by
+   *  one ULP in `greatCircleDistanceDeg` (acos of cos(20°) vs of cos(−340°)),
+   *  which lands either side of `Math.ceil` and is not what this gate is about. */
+  function tiledSeamCrossing(coords: number[][]): {
+    partLonRanges: [number, number][]
+    columns: number[]
+  } {
+    const feature = {
+      type: 'Feature',
+      properties: { name: 'seam-crosser' },
+      geometry: { type: 'LineString', coordinates: coords },
+    } as unknown as GeoJSONInput
+    const parts = decomposeFeatures([feature] as never)
+    const columns: number[] = []
+    for (let x = 0; x < 4; x++) {
+      const tile = compileSingleTile(parts, 2, x, 1, 7)
+      if (tile && tile.lineVertices.length > 0) columns.push(x)
+    }
+    return { partLonRanges: parts.map((p) => [p.minLon, p.maxLon]), columns }
+  }
+
+  it('(a) a two-point folded crossing tiles like its unwrapped twin', () => {
+    // Instrument check: the unwrapped control is the documented two-tile
+    // world-copy result (x3 carries 170→180, x0 the −360-shifted tail).
+    const unwrapped = tiledSeamCrossing([
+      [170, 0],
+      [190, 0],
+    ])
+    expect(unwrapped.columns).toEqual([0, 3])
+    expect(unwrapped.partLonRanges).toEqual([
+      [170, 190],
+      [-190, -170],
+    ])
+
+    // FAIL-BEFORE: the folded arm's part spanned −170…189 and reached x1
+    // (−90…0) and x2 (0…90), nowhere near the feature.
+    const folded = tiledSeamCrossing([
+      [170, 0],
+      [-170, 0],
+    ])
+    expect(folded).toEqual(unwrapped)
+  })
+
+  it('(b) a folded polyline crossing the seam twice tiles like its unwrapped twin', () => {
+    // Per vertex, not just the last one: each successive point has to be
+    // carried onto the running branch, so the offset accumulates and cancels.
+    const folded = tiledSeamCrossing([
+      [175, 20],
+      [-175, 22],
+      [175, 24],
+      [-175, 26],
+    ])
+    const unwrapped = tiledSeamCrossing([
+      [175, 20],
+      [185, 22],
+      [175, 24],
+      [185, 26],
+    ])
+    expect(unwrapped.columns).toEqual([0, 3])
+    expect(unwrapped.partLonRanges).toEqual([
+      [175, 185],
+      [-185, -175],
+    ])
+    expect(folded).toEqual(unwrapped)
+  })
+})

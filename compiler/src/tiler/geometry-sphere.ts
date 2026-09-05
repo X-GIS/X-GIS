@@ -69,6 +69,10 @@ export function subdivideLine(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
   const DEG2RAD = Math.PI / 180
   const out: number[][] = [coords[0]]
+  // Running multiple of 360° that carries every emitted vertex onto the branch
+  // the FIRST coordinate defines. Zero for a line authored past the seam, so
+  // that convention is emitted byte-for-byte as authored.
+  let lonOffset = 0
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i],
       b = coords[i + 1]
@@ -90,9 +94,21 @@ export function subdivideLine(coords: number[][]): number[][] {
     //     way round and draw a world-spanning line — the failure mode a naive
     //     lon lerp introduces. Unwrapping it to +20 crosses the seam the short
     //     way, which is what the great-circle interpolant did implicitly.
+    //     The unwrapped branch has to carry the ENDPOINT too (#2547): emitting
+    //     the interpolated 171…189 and then the authored −170 left a 359° step,
+    //     which the part bbox and the per-tile clip read as a segment sweeping
+    //     the equator. `lonOffset` accumulates across the WHOLE coordinate
+    //     list, so a folded polyline crossing the seam several times stays on
+    //     one branch throughout.
     const rawDLon = b[0] - a[0]
-    const dLon = rawDLon - 360 * Math.round(rawDLon / 360)
+    const wraps = Math.round(rawDLon / 360)
+    const dLon = rawDLon - 360 * wraps
     const dLat = b[1] - a[1]
+    const aLon = a[0] + lonOffset
+    lonOffset -= 360 * wraps
+    // `b` verbatim while the branch is the authored one (identity, and it keeps
+    // any 3rd/4th ordinate); rebuilt onto the running branch once it is not.
+    const bOut = lonOffset === 0 ? b : [b[0] + lonOffset, ...b.slice(1)]
 
     // How long is the edge, measured along the path actually drawn? The
     // great-circle distance answered that exactly while the interpolant WAS
@@ -112,16 +128,16 @@ export function subdivideLine(coords: number[][]): number[][] {
     const arcDeg = greatCircleDistanceDeg(a[0], a[1], b[0], b[1])
     const spanDeg = Math.max(arcDeg, Math.hypot(dLat, dLon * cosMax))
     if (spanDeg < 0.5) {
-      out.push(b)
+      out.push(bOut)
       continue
     }
 
     const K = Math.min(64, Math.ceil(spanDeg))
     for (let k = 1; k < K; k++) {
       const t = k / K
-      out.push([a[0] + dLon * t, a[1] + dLat * t])
+      out.push([aLon + dLon * t, a[1] + dLat * t])
     }
-    out.push(b)
+    out.push(bOut)
   }
   return out
 }
