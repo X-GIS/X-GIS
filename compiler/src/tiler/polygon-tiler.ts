@@ -49,6 +49,8 @@ export function tilePolygonPart(
   dedupMap: Map<string, number>,
   featureIds: Set<number>,
   tilePolygons: { rings: number[][][]; featId: number }[],
+  /** Tile level — threaded to the subdivision's per-level angular gate (#2435). */
+  tileZ: number,
 ): void {
   // rings are ALREADY MM (makePolygonPart). The FILL uses the raw
   // `clipped` ring at every zoom (no simplification) so it shares the
@@ -74,7 +76,7 @@ export function tilePolygonPart(
       const acceptSplit = needsBacktrackRepair(dataRings[0]!, holes)
       if (!acceptSplit) {
         const repairedRings = [dataRings[0]!, ...holes]
-        tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+        tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap, tileZ)
         featureIds.add(fid)
         tilePolygons.push({ rings: repairedRings, featId: fid })
       } else {
@@ -89,7 +91,7 @@ export function tilePolygonPart(
         const effectiveOuters = usableOuters.length > 0 ? usableOuters : [dataRings[0]!]
         if (effectiveOuters.length === 1) {
           const repairedRings = [effectiveOuters[0]!, ...holes]
-          tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap)
+          tessellatePolygonToArrays(repairedRings, fid, scratch.pv, scratch.pi, dedupMap, tileZ)
           featureIds.add(fid)
           tilePolygons.push({ rings: repairedRings, featId: fid })
         } else {
@@ -113,7 +115,7 @@ export function tilePolygonPart(
           }
           for (let si = 0; si < effectiveOuters.length; si++) {
             const subRings = [effectiveOuters[si]!, ...subHoles[si]!]
-            tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap)
+            tessellatePolygonToArrays(subRings, fid, scratch.pv, scratch.pi, dedupMap, tileZ)
             tilePolygons.push({ rings: subRings, featId: fid })
           }
           featureIds.add(fid)
@@ -158,7 +160,9 @@ export function tilePolygonPart(
         // only at z8, where a tile edge is already under MAX_TRI_DEGREES_FOR_PROJ and
         // this call is a no-op, so the two paths agreed vacuously. That rung now also
         // runs where the gate FIRES.
-        const densified = subdivideChainMM(clean)
+        // #2435 threaded `tileZ`: the gate is now per-tile-level, and the outline must
+        // be densified to the SAME granularity as the fill or they stop coinciding again.
+        const densified = subdivideChainMM(clean, tileZ)
         const chain = augmentChainWithArc(densified, isClosed, { mmInput: true })
         if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
       }

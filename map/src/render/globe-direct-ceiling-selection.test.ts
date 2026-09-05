@@ -150,8 +150,14 @@ describe('#2094 — the drape budget reads the production currentZ', () => {
 
   it('MapLibre demotiles (maxzoom 6): direct while it can serve, draped once it cannot', () => {
     // The owner's demotiles re-check. maxzoom 6 clamps currentZ to 6 from z6 up, so
-    // the error is the camera scale alone: 0.39 px at native, 1.57 px at z8 —
-    // direct; 4.76 px at z9.6, past the budget, so the windowed bake takes over.
+    // the error is the camera scale alone, doubling per level of camera zoom.
+    //
+    // #2435 moved this crossover TWO LEVELS DEEPER. The per-tile-level gate splits a
+    // z6 edge to 0.7031 deg where the absolute 2 deg gate left it at 1.4062, so the
+    // direct arm's error halves at every camera: z9.6 was 4.76 px (draped) and is now
+    // 1.19 px (direct). The bake is not needed until z12. That is the SAME direction
+    // #2094 exists for — a better direct arm wins in more places — measured here
+    // rather than assumed.
     expect(currentZAt(6.2, 6)).toBe(6)
     expect(drapesAtChordBudget(currentZAt(6.2, 6), 6.2), 'demotiles at z6.2 renders direct').toBe(
       false,
@@ -159,7 +165,15 @@ describe('#2094 — the drape budget reads the production currentZ', () => {
     expect(drapesAtChordBudget(currentZAt(8, 6), 8), 'demotiles at z8 renders direct').toBe(false)
     expect(
       drapesAtChordBudget(currentZAt(9.6, 6), 9.6),
-      'demotiles at z9.6 is 4.76 px of direct chord error — past the budget',
+      'demotiles at z9.6 is 1.19 px after #2435 — inside the budget, so DIRECT (it was 4.76 px)',
+    ).toBe(false)
+    expect(
+      drapesAtChordBudget(currentZAt(11, 6), 11),
+      'z11 is 3.14 px — still inside the budget',
+    ).toBe(false)
+    expect(
+      drapesAtChordBudget(currentZAt(12, 6), 12),
+      'z12 is 6.28 px — past it, so the windowed bake takes over',
     ).toBe(true)
   })
 })
@@ -202,27 +216,67 @@ function driveZooms(zooms: number[], sourceMaxLevel: number) {
 }
 
 describe('#2093 follow-up — the budget holds through the zoom-in readiness hold', () => {
-  it('the 8 → 9 hold: the two readings price 4x apart, and only one of them drapes', () => {
-    // The hold must cross a level where the TILER's segment angle actually changes,
-    // or the two readings are the same number. z5 and z6 both subdivide down to
-    // 1.40625 deg, so the old 5.3 → 6.6 pair prices identically under a pixel
-    // budget and cannot witness anything. z8 is the last level the gate leaves
-    // UNSPLIT (#2435) and z9 is split once, so the error differs 4x across that
-    // step — which is the #2093 report camera pair, restored.
+  it('#2435 made a one- or two-level hold safe BY CONSTRUCTION, at every level', () => {
+    // This test used to witness the fix at a single camera pair (8.3 → 9.6), where the
+    // held and advanced readings priced 4x apart and only the held one draped. #2435
+    // flattened that: the per-tile-level gate splits z7/z8/z9, so z8 and z9 now share
+    // theta = 0.3516 deg and the pair prices 1x. The old witness cannot fire anywhere.
+    //
+    // What replaced it is stronger than what it asserted — an EXHAUSTIVE claim over the
+    // whole domain instead of one camera pair. Enumerating every hold of one and two
+    // levels at every level (held = t - lag, camera = t + 0.6):
+    //
+    //   lag 1   worst 1.190 px @ held z10, cam 11.6   never drapes
+    //   lag 2   worst 2.381 px @ held z10, cam 12.6   never drapes
+    //
+    // So after #2435 a shallow readiness hold cannot route to the bake no matter where
+    // the camera is — it is not the budget happening to land well, it is arithmetic.
+    for (const lag of [1, 2]) {
+      for (let t = lag; t <= 22; t++) {
+        const held = t - lag
+        const cam = t + 0.6
+        expect({ lag, held, cam, drapes: drapesAtChordBudget(held, cam) }).toEqual({
+          lag,
+          held,
+          cam,
+          drapes: false,
+        })
+      }
+    }
+    expect(directChordErrorPx(10, 11.6)).toBeCloseTo(1.19, 2)
+    expect(directChordErrorPx(10, 12.6)).toBeCloseTo(2.381, 2)
+  })
+
+  it('the max(currentZ, targetZ) read still DECIDES at a three-level hold', () => {
+    // #2093's fix — the renderer prices `max(currentZ, targetZ)`, not `currentZ` alone —
+    // must keep a case where the two readings disagree, or the assertion above would be
+    // the only thing left and the mechanism would go unwitnessed (CLAUDE.md section 12:
+    // an assertion carries information only if it distinguishes the states it tests).
+    //
+    // It does, three levels deep: lag 3 reaches 4.762 px at held z10 / cam 13.6, past the
+    // 4 px budget. A fast zoom that outruns the readiness gate by three levels is exactly
+    // the "baked tiles while zooming in" report, and this is where the fix earns its keep.
+    const HELD = 10
+    const CAM = 13.6
+    expect(
+      drapesAtChordBudget(HELD, CAM),
+      'read off the HELD LOD alone the budget drapes — 4.76 px, the pre-fix reading',
+    ).toBe(true)
+    expect(
+      drapesAtChordBudget(Math.max(HELD, Math.floor(CAM)), CAM),
+      'the renderer reads max(currentZ, targetZ): the camera can be served at its own LOD, ' +
+        'so the held coarse tiles draw DIRECT — crisp and over-zoomed — not as magnified bakes',
+    ).toBe(false)
+    expect(directChordErrorPx(HELD, CAM)).toBeCloseTo(4.762, 2)
+  })
+
+  it('the hysteresis hold is real: the gate holds the drawn LOD behind the camera', () => {
+    // The selection half of the same story, kept from the original witness: with nothing
+    // cached, a zoom-in leaves currentZ behind targetZ. This is what makes the two
+    // readings above different inputs rather than a hypothetical.
     const sel = driveZooms([8.3, 9.6], 14)
     expect(sel.currentZ, 'the gate holds the drawn LOD at 8 while no z9 tile is cached').toBe(8)
     expect(sel.targetZ, 'the camera asks for floor(9.6) = 9').toBe(9)
-    expect(directChordErrorPx(8, 9.6) / directChordErrorPx(9, 9.6)).toBeCloseTo(4, 1)
-    expect(
-      drapesAtChordBudget(sel.currentZ, 9.6),
-      'read off the HELD LOD alone the budget drapes — the pre-fix reading, kept as the ' +
-        'statement of what a currentZ-only gate saw during the hold',
-    ).toBe(true)
-    expect(
-      drapesAtChordBudget(Math.max(sel.currentZ, sel.targetZ), 9.6),
-      'the renderer reads max(currentZ, targetZ): a camera whose own LOD is servable draws ' +
-        'its held coarse tiles DIRECT — crisp and over-zoomed — not as magnified bakes',
-    ).toBe(false)
   })
 
   it('targetZ equals currentZ outside a hold — cold camera, and under the source clamp', () => {

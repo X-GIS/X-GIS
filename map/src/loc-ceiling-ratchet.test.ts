@@ -2528,7 +2528,14 @@ const CEILINGS: Record<string, number> = {
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
   // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
-  'compiler/src/tiler/vector-tiler.ts': 1603,
+  // 1603->1616 (#2435, measured post-prettier): threading `tileZ` to the subdivision
+  // so its angular gate can be per-tile-level. Ten of the thirteen lines are prettier
+  // re-wrapping ONE call site — `tilePolygonPart(...)` crossed the print width at its
+  // ninth argument and became eleven lines. The other three are the parameter and its
+  // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
+  // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
+  // dependency the gate now genuinely has.
+  'compiler/src/tiler/vector-tiler.ts': 1616,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
@@ -2639,6 +2646,10 @@ const CEILINGS: Record<string, number> = {
   // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
   // `label-text-optional` utility; the non-constant form keeps a warning of its
   // own. MEASURED post-prettier.
+  // 1396->1424 (#2331): four warn-and-drop else arms (icon-rotate, text-offset,
+  // text-translate, symbol-placement) where a non-constant form used to vanish
+  // with no diagnostic; each records WHY its form reaches the arm. MEASURED
+  // post-prettier (`git show HEAD:<file> | wc -l`).
   // 1384→1400 (#2318): a constant text-opacity paired with a zoom-interpolated
   // text-color folded no alpha (label rendered opaque at every zoom), and the
   // data-driven text-color branch had no way to carry a constant text-opacity
@@ -2657,20 +2668,13 @@ const CEILINGS: Record<string, number> = {
   // raised this key from a common base, so the merged file carries BOTH deltas and
   // neither side's number is right (§12). Measured 1449 with `wc -l` on the
   // post-prettier merged tree.
-  // 1449→1482 (#2331): text-offset, text-translate, and icon-rotate each had an
-  // `if` recognising only the constant form with no `else` to warn on a
-  // non-constant one (zoom-interpolate expression, legacy stops, data-driven
-  // `["get", …]`) — the property silently became [0,0] / no rotation with zero
-  // diagnostic. symbol-placement had the same gap one shape further in: its
-  // final `else if` only caught an invalid STRING, so a legacy multi-stop
-  // `{stops:[...]}` function (only single-stop legacy functions fold to a
-  // constant before this point) fell through the entire if/else-if chain with
-  // no utility and no warning. +33 is the four warn+drop else-branches, each
-  // mirroring #1977's icon-offset gap warning, plus their why-comments
-  // (post-prettier, `wc -l`). +2 more for the review fold-in that splits
-  // icon-rotate's recognised-constant test from its non-default emit test, so a
-  // constant `icon-rotate: 0` (the default) stops falling into the warn arm.
-  'compiler/src/convert/layers-symbol.ts': 1484,
+  // FIFTH merge (2026-09-05, main <- issue-hunt branch): this branch's own #2331 fix (the same
+  // four warn-and-drop arms, +35 here) was SUPERSEDED by main's 2dd796b above and dropped;
+  // its witness (layers-symbol-nonconstant-drop-warns.test.ts) passes against main's arms and
+  // stays as distinct coverage. #2318 (+16) and #2320 (+37) from this branch stack on main's
+  // 1424, so neither side's number is right (§12). RE-MEASURED post-prettier (`wc -l`) on the
+  // merged tree.
+  'compiler/src/convert/layers-symbol.ts': 1477,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to

@@ -71,6 +71,72 @@ export function vertexKey(x: number, y: number, fid: number): string {
 const MAX_TRI_DEGREES_FOR_PROJ = 2
 const MAX_TRI_SUBDIVIDE_DEPTH = 5
 
+// ─── #2435 — the gate is ABSOLUTE, and the screen scale is not ───────────────
+//
+// MAX_TRI_DEGREES_FOR_PROJ bounds an edge's ANGULAR span, but the screen size of
+// that span grows with the tile level: a chord of angle T at native zoom deviates
+// from its arc by `(TILE_PX*2^z/2pi)*(1-cos(T/2))` px, which DOUBLES per level
+// while the gate holds T fixed. Where a tile edge falls under the gate it stops
+// being split at all, and a finer neighbour then puts a vertex in the middle of
+// that unsplit edge — a hanging node whose gap is the edge's own sagitta.
+//
+// So the gate takes a per-tile-level FLOOR: bounding the native-zoom sagitta at
+// MAX_CHORD_SAGITTA_PX gives `theta <= sqrt(T_px*pi/32) * 2^(-z/2)`, and the
+// MINIMUM with the absolute gate means no level refined today becomes coarser
+// (z3 is depth-capped at 5 splits and the per-level angle there is LOOSER than
+// the cap already delivers — applying it as a replacement rather than a floor
+// would regress z3 from 0.049 px to 0.196 px).
+//
+// T_px = 0.25 is MEASURED, not derived, and two earlier derivations picked wrong.
+// The quantity that closes #2435 is the CRACK — the coarser side's segment sagitta
+// read at the FINER level's camera, i.e. twice that level's own chord error — and
+// sizing on the chord instead picks a value that misses the target. Driving the
+// real subdivision on a tile at ~lat 46 (NOT the equatorial closed form: a tile's
+// vertical edge spans far less latitude than longitude there, and the gate marks on
+// `max(|dlon|,|dlat|)`), worst crack across z0..z12 against realised triangle count
+// on a coastline-shaped tile-filling ring:
+//
+//   T_px    worst crack (native)   realised cost      levels touched
+//   absolute 2 deg  0.74 px        1.00x              —
+//   0.5             0.39 px        2.09x @ z7         z6..z9
+//   0.25            0.211 px       4.09x @ z7         z5..z9     <- here
+//   0.125           0.176 px       5.66x @ z7         z4..z9
+//
+// 0.25 is the CHEAPEST value meeting #2435's closing criterion (~0.25 px at native
+// zoom). Below it the curve flattens — z9..z12 are immovable for every T because
+// their tile edges are already under the gate — so 0.125 buys 0.035 px for another
+// 1.6x. The 4x here is measured on real geometry; the "4^extra-splits" bound is a
+// fully-marked triangle and overstates it, because clipped polygon rings already
+// carry short edges the gate never marks.
+//
+// What this does NOT do: close every LOD boundary. Conformance needs the parent and
+// child split counts to differ by exactly one on their shared edge, which no
+// per-level angular rule guarantees everywhere — tightening T RELOCATES the worst
+// boundary rather than removing it (measured: z7 1.483 -> 0, z6 0 -> 0.774 at
+// T=0.5). The claim is a bounded worst case, not a conforming mesh across LODs.
+//
+// It also does not make the gate impure per edge: every edge inside one tile is
+// judged at that tile's z, so two triangles sharing an edge still always agree —
+// the invariant `edgeExceedsGateMM` and the red-green closure rest on.
+const MAX_CHORD_SAGITTA_PX = 0.25
+
+/** The finest angular gate (radians) applied inside a tile of level `tileZ`: the
+ *  absolute rule, tightened to hold the native-zoom chord sagitta under
+ *  MAX_CHORD_SAGITTA_PX, and never LOOSER than the absolute rule.
+ *
+ *  Clamped below at FAST_SKIP_ANGLE_RAD because `edgeExceedsGateMM`'s MM early-out
+ *  claims an edge under FAST_SKIP_MM is "definitely below the gate" -- a claim that
+ *  silently becomes false if the gate ever drops under it. The clamp costs nothing
+ *  (it binds only at z >= 10, whose tile span is already finer than the per-level
+ *  angle, so the gate does not bind there at all) and it keeps that early-out's
+ *  premise true by construction rather than by coincidence. Pinned by
+ *  `subdivision-conformance.test.ts`. */
+export function tileGateRad(tileZ: number): number {
+  const absolute = MAX_TRI_DEGREES_FOR_PROJ * (Math.PI / 180)
+  const perLevel = Math.sqrt((MAX_CHORD_SAGITTA_PX * Math.PI) / 32) * 2 ** (-Math.max(0, tileZ) / 2)
+  return Math.max(FAST_SKIP_ANGLE_RAD, Math.min(absolute, perLevel))
+}
+
 /** The angular span (radians) of the FINEST edge this subdivision leaves on a
  *  tile of level `tileZ`, at the equator — where a tile is widest and the budget
  *  that consumes this must survive.
@@ -90,7 +156,7 @@ const MAX_TRI_SUBDIVIDE_DEPTH = 5
  *  shrinking around z8 and the direct path's error peaks there (#2435). */
 export function tileSegmentAngleRad(tileZ: number): number {
   const span = (2 * Math.PI) / 2 ** Math.max(0, tileZ)
-  const gate = MAX_TRI_DEGREES_FOR_PROJ * (Math.PI / 180)
+  const gate = tileGateRad(tileZ)
   if (span <= gate) return span
   const splits = Math.min(MAX_TRI_SUBDIVIDE_DEPTH, Math.ceil(Math.log2(span / gate)))
   return span / 2 ** splits
@@ -157,6 +223,10 @@ function getOrAddVertexMM(
 // both projection and the subdivision decision — the common case at z>=8 (tile
 // spans <0.7° at z=8).
 const FAST_SKIP_MM = 50_000
+/** The angular span FAST_SKIP_MM guarantees an edge is under (0.45 deg of lon at any
+ *  latitude; the lat direction is looser still). `tileGateRad` is clamped to this so
+ *  the early-out's "definitely below the gate" claim stays true by construction. */
+const FAST_SKIP_ANGLE_RAD = 0.45 * (Math.PI / 180)
 
 /** Per-EDGE refine decision: does this MM edge's angular span exceed
  *  MAX_TRI_DEGREES_FOR_PROJ? This is a PURE function of the two endpoints —
@@ -166,11 +236,17 @@ const FAST_SKIP_MM = 50_000
  *  red-green closure in `subdivideTriangleMM` conforming (no hanging nodes).
  *  Mirrors the FAST_SKIP_MM early-out: an edge clearly below the gate returns
  *  false without projecting. */
-function edgeExceedsGateMM(ax: number, ay: number, bx: number, by: number): boolean {
+function edgeExceedsGateMM(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  gateDeg: number,
+): boolean {
   if (Math.abs(bx - ax) < FAST_SKIP_MM && Math.abs(by - ay) < FAST_SKIP_MM) return false
   const [lonA, latA] = mmToLonLatDeg(ax, ay)
   const [lonB, latB] = mmToLonLatDeg(bx, by)
-  return Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > MAX_TRI_DEGREES_FOR_PROJ
+  return Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > gateDeg
 }
 
 /** Recursively refine a triangle into a CONFORMING densified mesh: no vertex
@@ -208,6 +284,10 @@ export function subdivideTriangleMM(
   outIdx: number[],
   dedupMap: Map<string, number>,
   depth: number,
+  /** The level of the tile whose geometry this is. Selects the angular gate
+   *  (`tileGateRad`) — constant across one tile, so two triangles sharing an edge
+   *  still always agree on marking it (#2435). */
+  tileZ: number,
 ): void {
   const x0 = outVerts[i0 * 3],
     y0 = outVerts[i0 * 3 + 1]
@@ -239,9 +319,10 @@ export function subdivideTriangleMM(
     return
   }
 
-  const marked01 = edgeExceedsGateMM(x0, y0, x1, y1)
-  const marked12 = edgeExceedsGateMM(x1, y1, x2, y2)
-  const marked20 = edgeExceedsGateMM(x2, y2, x0, y0)
+  const gateDeg = tileGateRad(tileZ) * (180 / Math.PI)
+  const marked01 = edgeExceedsGateMM(x0, y0, x1, y1, gateDeg)
+  const marked12 = edgeExceedsGateMM(x1, y1, x2, y2, gateDeg)
+  const marked20 = edgeExceedsGateMM(x2, y2, x0, y0, gateDeg)
   const nMarked = (marked01 ? 1 : 0) + (marked12 ? 1 : 0) + (marked20 ? 1 : 0)
 
   if (nMarked === 0) {
@@ -259,7 +340,7 @@ export function subdivideTriangleMM(
     return getOrAddVertexMM((ax + bx) * 0.5, (ay + by) * 0.5, featureId, outVerts, dedupMap)
   }
   const recurse = (a: number, b: number, c: number): void =>
-    subdivideTriangleMM(a, b, c, featureId, outVerts, outIdx, dedupMap, depth + 1)
+    subdivideTriangleMM(a, b, c, featureId, outVerts, outIdx, dedupMap, depth + 1, tileZ)
 
   if (nMarked === 3) {
     // Red 4-split.
@@ -330,12 +411,15 @@ export function subdivideTriangleMM(
  *  and #387's parallel outline path silently dropped on merge.
  *
  *  Returns the densified chain; the original endpoints are always preserved in order. */
-export function subdivideChainMM(chain: number[][]): number[][] {
+export function subdivideChainMM(chain: number[][], tileZ: number): number[][] {
   if (chain.length < 2) return chain
   // Reuses the module-level FAST_SKIP_MM (50 km MM, below 0.45° lon / 0.5° lat
   // at any latitude < 85) so a short segment skips the projection entirely —
   // the same early-out the FILL subdivision uses.
   const out: number[][] = [chain[0]]
+  // Same per-tile-level gate as the FILL (#2435) — the outline must be densified to
+  // the fill's granularity or the two stop coinciding.
+  const gateDeg = tileGateRad(tileZ) * (180 / Math.PI)
   const emit = (ax: number, ay: number, bx: number, by: number, depth: number): void => {
     if (
       depth < MAX_TRI_SUBDIVIDE_DEPTH &&
@@ -343,7 +427,7 @@ export function subdivideChainMM(chain: number[][]): number[][] {
     ) {
       const [lonA, latA] = mmToLonLatDeg(ax, ay)
       const [lonB, latB] = mmToLonLatDeg(bx, by)
-      if (Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > MAX_TRI_DEGREES_FOR_PROJ) {
+      if (Math.max(Math.abs(lonB - lonA), Math.abs(latB - latA)) > gateDeg) {
         const mx = (ax + bx) * 0.5,
           my = (ay + by) * 0.5
         emit(ax, ay, mx, my, depth + 1)

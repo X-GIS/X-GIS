@@ -361,14 +361,13 @@ export function convertIconProperties(
   // extraction). Zero logic change.
   convertIconOffset(layer, layout, utils, warnings)
   const iconRotate = unwrapLiteralScalar(layout['icon-rotate'])
-  if (typeof iconRotate === 'number') {
-    // 0 is the default (no rotation) and needs no utility — but it IS a
-    // recognised constant, so it must not fall into the warn arm below.
-    if (iconRotate !== 0) utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
-  } else if (layout['icon-rotate'] !== undefined && layout['icon-rotate'] !== null) {
-    // #2331 — non-constant icon-rotate (data-driven `["get", …]` or a zoom
-    // expression) silently became "no rotation" with ZERO diagnostic.
-    // Warn + drop, mirroring #1977's icon-offset gap warning.
+  if (typeof iconRotate === 'number' && iconRotate !== 0) {
+    utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
+  } else if (typeof iconRotate !== 'number' && iconRotate !== undefined && iconRotate !== null) {
+    // #2331 — a data-driven / zoom-interpolated / legacy-stops icon-rotate
+    // used to fall out of this `if` with no diagnostic: the icon rendered
+    // unrotated and nothing said so. Warn + drop, the #1977 convertIconOffset
+    // shape; expression support stays a documented follow-up.
     warnings.push(
       `Symbol layer "${layer.id}" — icon-rotate non-constant form not yet supported — value dropped: ${JSON.stringify(layout['icon-rotate']).slice(0, 80)}`,
     )
@@ -733,10 +732,8 @@ export function convertTextLayoutProperties(
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
   } else if (layout['text-offset'] !== undefined && layout['text-offset'] !== null) {
-    // #2331 — non-constant text-offset (zoom-interpolate expression, legacy
-    // {stops:[...]} function, or a malformed shape) silently became [0,0]
-    // with ZERO diagnostic. Warn + drop, mirroring #1977's icon-offset gap
-    // warning.
+    // #2331 — non-constant text-offset (interpolate / legacy stops / a
+    // malformed pair) silently became (0, 0). Warn + drop (#1977 shape).
     warnings.push(
       `Symbol layer "${layer.id}" — text-offset non-constant form not yet supported — value dropped: ${JSON.stringify(layout['text-offset']).slice(0, 80)}`,
     )
@@ -757,10 +754,7 @@ export function convertTextLayoutProperties(
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
   } else if (paint['text-translate'] !== undefined && paint['text-translate'] !== null) {
-    // #2331 — non-constant text-translate (zoom-interpolate expression,
-    // legacy {stops:[...]} function, or a malformed shape) silently became
-    // [0,0] with ZERO diagnostic. Warn + drop, mirroring #1977's icon-offset
-    // gap warning.
+    // #2331 — same gap for the paint-side pixel nudge.
     warnings.push(
       `Symbol layer "${layer.id}" — text-translate non-constant form not yet supported — value dropped: ${JSON.stringify(paint['text-translate']).slice(0, 80)}`,
     )
@@ -1328,14 +1322,13 @@ export function convertTextLayoutProperties(
       `Symbol layer "${layer.id}" — symbol-placement "${placement.slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`,
     )
   } else if (placement !== undefined && placement !== null && typeof placement !== 'string') {
-    // #2331 — a legacy multi-stop {stops:[...]} function (only single-stop
-    // legacy functions get folded to a constant by zoom-function-fold.ts)
-    // or an unrecognised expression form left `placement` as a non-string
-    // object/array here, silently falling through this whole if/else-if
-    // chain with ZERO diagnostic — no label-along-path/label-line-center,
-    // no warning. Warn + drop, mirroring the invalid-enum-string arm above.
+    // #2331 — a legacy multi-stop `{stops: [[10,'point'],[12,'line']]}` (only
+    // SINGLE-stop functions fold to a constant, zoom-function-fold.ts) or an
+    // expression the step parser above did not recognise reaches here as an
+    // object/array; it used to match no arm and the label stayed point-placed
+    // with no diagnostic. Warn + drop.
     warnings.push(
-      `Symbol layer "${layer.id}" — symbol-placement is neither a constant enum value nor a form the converter can fold — value dropped: ${JSON.stringify(placement).slice(0, 80)}`,
+      `Symbol layer "${layer.id}" — symbol-placement non-constant form not yet supported — value dropped (point placement used): ${JSON.stringify(layout['symbol-placement']).slice(0, 80)}`,
     )
   }
 
