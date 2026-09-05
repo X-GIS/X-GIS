@@ -387,12 +387,20 @@ const CEILINGS: Record<string, number> = {
   // widened markDrawn argument lists at both sites plus the comments naming what
   // the encoding preserves; the pack itself and its arithmetic argument were
   // EXTRACTED to draw-dedup-key.ts rather than parked here.
-  // MERGE UNION -> 5584 (MEASURED, not summed): FOURTH collision on this key. Main's
-  // #2094 (+1) and this branch's #2309 (+8) both start from 5575 and touch disjoint
-  // regions, so the merged file carries BOTH deltas and neither side's number is right
-  // (§12). 5575 + 1 + 8 = 5584 and `wc -l` on the merged tree agrees — the agreement
-  // is a cross-check, the measurement is the authority.
-  'map/src/render/vector-tile-renderer.ts': 5584,
+  // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
+  // asking whether `createCommandEncoder` EXISTS and started asking the capability.
+  // The one-line optional-call guard becomes a two-line guard, and the three comment
+  // lines are the refuted premise written down where the next reader meets it — the
+  // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
+  // hands out a copy-scoped encoder), and a reader who believed it would delete the
+  // routing guard into a runtime throw. The routing site itself is net zero.
+  // MERGE UNION -> MEASURED: FIFTH collision on this key, and the second on this one
+  // branch. Three disjoint deltas now stack over the 5575 common base: #2094 (+1) and
+  // #2474 (+4) from main, #2309 (+8) here. Every side's number is stale by exactly the
+  // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
+  // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
+  // kept here only as a cross-check that nothing was dropped in the resolution.
+  'map/src/render/vector-tile-renderer.ts': 5588,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2047,7 +2055,10 @@ const CEILINGS: Record<string, number> = {
   // the helper. Failure-path cleanup paying an ownership debt, not feature growth.
   // 1546->1564 (#2349): a fail-loud guard for a per-target `writeMask` ES 3.00 cannot
   // honour — `gl.colorMask` is one global, and the request was being dropped silently.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1564,
+  // 1564->1565 (#2474): the `outOfFramePasses: false` caps line — the WebGL2 half of
+  // the capability the globe drape's bake gate keys on. Exactly the shape of the
+  // 1521->1522 `renderBundles` entry above.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1565,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.

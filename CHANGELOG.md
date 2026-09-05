@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 34efec1e069c7d3c63ed56cb14f813a422974dc0
+  Generated from: fb601cb095b674680445949cc14c3c895d84782f
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 34efec1e069c
+    bun scripts/emit-changelog.ts --since fb601cb095b6
 -->
 
 # Changelog
@@ -28,6 +28,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **map+compiler:** `text-optional` lets a rejected label's icon survive (#2440) ([#2485](https://github.com/X-GIS/X-GIS/pull/2485)) `1a7f2bc`
 - **compiler:** lower Mapbox v3 `imports` to xgis import statements (#2471) ([#2475](https://github.com/X-GIS/X-GIS/pull/2475)) `a2a40b0`
 - **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
 - **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
@@ -122,6 +123,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **rhi:** the globe drape asks a CAPABILITY, not the backend's name (#2474) ([#2483](https://github.com/X-GIS/X-GIS/pull/2483)) `fb601cb`
 - **engine+render:** one RetireQueue the hand-mirrored deferred-destroy lists collapse into ([#2405](https://github.com/X-GIS/X-GIS/pull/2405)) `a79a44a`
 - **map:** delete RenderStats.tilesLoaded and gpuBuffers — no producer ever wrote them (#2307) ([#2407](https://github.com/X-GIS/X-GIS/pull/2407)) `4f85bd2`
 - **map:** extract the DEM tile store out of HillshadeRenderer ([#2280](https://github.com/X-GIS/X-GIS/pull/2280)) `b623794`
