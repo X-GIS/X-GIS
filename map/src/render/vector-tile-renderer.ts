@@ -187,6 +187,17 @@ const ANCESTOR_PROTECT_DEPTH = 22
  *   - Cluster G `_drawStats` (FrameDrawStats): per-frame draw stats,
  *     diagnostics, dedup, trace stash.
  */
+/** #2508 phase 0 output — what `render()`'s guards PROVE before anything else runs.
+ *  `source` is carried rather than re-read as `this.source` inside a later phase: the
+ *  guard's narrowing does not survive the phase boundary, and a phase must not re-guard
+ *  a case its caller already excluded. */
+export interface GuardedFrame {
+  /** The WebGPU pass encoder unwrapped from `args.rhiPass`. */
+  readonly pass: UnwrappedRenderPass
+  /** The tile catalogue this renderer draws, proven present by the no-data guard. */
+  readonly source: TileCatalog
+}
+
 /** The pass encoder `unwrapWebGpuPass` yields, narrowed to the render-pass side
  *  (a bundle encoder has no `setStencilReference`). Spelled through the seam it
  *  comes from rather than as the native type — this is not a new GPU touch, it
@@ -2821,32 +2832,9 @@ export class VectorTileRenderer {
       fillPipelineExtrudedOverride,
       fillPipelineExtrudedFallbackOverride,
     }
-    // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
-    // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
-    if (this.rhi.caps.executionModel === 'immediate' && phase !== 'oit-fill')
-      return this._drawStats.recordMissedTiles(
-        renderImmediateArm(this, {
-          rhiPass,
-          camera,
-          projType,
-          projCenterLon,
-          projCenterLat,
-          canvasWidth,
-          canvasHeight,
-          dpr,
-          show,
-          resolvedShow,
-          phase,
-          translucentBucket,
-          pointRenderer,
-        }),
-      )
-    // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
-    // tile plumbing is still gap-blocked native debt (drape/points take RHI).
-    const pass = unwrapWebGpuPass(rhiPass) as GPURenderPassEncoder
-    if (!this.source?.hasData()) return
-    const index = this.source.getIndex()
-    if (!index) return
+    const guard = this.guardAndUnwrapPass(args)
+    if (!guard) return
+    const pass = guard.pass
 
     // Sliced-source slot for this layer. PMTiles emits per-show slices when
     // the source-attach config carries `showSlices` — the slice key combines
@@ -2929,7 +2917,7 @@ export class VectorTileRenderer {
     // would get a fresh sub-tile budget → 4× more sub-tile clips
     // per frame than intended → GPU buffer creation burst →
     // Chrome STATUS_BREAKPOINT at over-zoom.
-    this.source.resetCompileBudget(this.currentFrameId)
+    guard.source.resetCompileBudget(this.currentFrameId)
     this._drawStats.resetRenderedDraws()
     // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
     // resets it to 0. Multiple render() calls within one frame
@@ -2945,7 +2933,7 @@ export class VectorTileRenderer {
     // "filling in" order correct (near-z-to-current first).
     this.drainPendingUploads()
 
-    const maxLevel = this.source.maxLevel
+    const maxLevel = guard.source.maxLevel
     // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
     // to match the camera's universal maxZoom, not the old maxLevel+6.
     // (Still used downstream by the Tier-2 prefetch gate below; the
@@ -2994,7 +2982,7 @@ export class VectorTileRenderer {
       canvasHeight,
       dpr,
       this.currentFrameId,
-      this.source,
+      guard.source,
       sliceLayer,
       offsetMarginPx,
       maxLevel,
@@ -3468,7 +3456,7 @@ export class VectorTileRenderer {
     const sliceCached = (k: number): boolean => {
       let v = sliceCachedMemo.get(k)
       if (v === undefined) {
-        v = layerCache.has(k) || this.source!.hasTileData(k, sliceLayer)
+        v = layerCache.has(k) || guard.source!.hasTileData(k, sliceLayer)
         sliceCachedMemo.set(k, v)
       }
       return v
@@ -3549,7 +3537,7 @@ export class VectorTileRenderer {
           // classifies as drop-empty instead of queued-with-fallback.
           hasNonEmptySliceInCatalog: (k) => {
             if (layerCache.has(k)) return true
-            const d = this.source!.getTileData(k, sliceLayer)
+            const d = guard.source!.getTileData(k, sliceLayer)
             return (
               !!d &&
               (d.vertices.length > 0 ||
@@ -3558,12 +3546,12 @@ export class VectorTileRenderer {
                 !!d.fullCover)
             )
           },
-          hasAnySliceInCatalog: (k) => this.source!.hasTileData(k),
-          hasEntryInIndex: (k) => this.source!.hasEntryInIndex(k),
+          hasAnySliceInCatalog: (k) => guard.source!.hasTileData(k),
+          hasEntryInIndex: (k) => guard.source!.hasEntryInIndex(k),
           // Consecutive fetch failures on record for the key — a `pending`
           // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
           // what lets the consumer below stop counting it as a missed tile.
-          failureCount: (k) => this.source!.getTileFailureCount(k),
+          failureCount: (k) => guard.source!.getTileFailureCount(k),
           sliceLayer,
           // Coherence: any peer slice for this tile still queued blocks
           // primary in this layer too, so all consumers transition
@@ -3582,7 +3570,7 @@ export class VectorTileRenderer {
         if (decision.parentNeedsFetch) {
           parentKeysSet.add(decision.parentKey)
         } else if (decision.parentNeedsUpload) {
-          const data = this.source.getTileData(decision.parentKey, sliceLayer)
+          const data = guard.source.getTileData(decision.parentKey, sliceLayer)
           perfMarkStart('vtr.upload')
           if (data) this.doUploadTile(decision.parentKey, data, sliceLayer)
           perfMarkEnd('vtr.upload')
@@ -3611,7 +3599,7 @@ export class VectorTileRenderer {
       // upload lands. Unwrap and process the inner uniformly.
       let inner: TileDecision = decision
       if (decision.kind === 'queued-with-fallback') {
-        this.uploadTile(key, this.source.getTileData(key, sliceLayer)!, sliceLayer)
+        this.uploadTile(key, guard.source.getTileData(key, sliceLayer)!, sliceLayer)
         inner = decision.fallback
       }
 
@@ -3626,7 +3614,7 @@ export class VectorTileRenderer {
           perfMarkStart('vtr.upload')
           this.doUploadTile(
             inner.parentKey,
-            this.source.getTileData(inner.parentKey, sliceLayer)!,
+            guard.source.getTileData(inner.parentKey, sliceLayer)!,
             sliceLayer,
           )
           perfMarkEnd('vtr.upload')
@@ -3643,7 +3631,7 @@ export class VectorTileRenderer {
         if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
       } else if (inner.kind === 'child-fallback') {
         for (const ck of inner.childrenNeedingUpload) {
-          const childData = this.source.getTileData(ck, sliceLayer)
+          const childData = guard.source.getTileData(ck, sliceLayer)
           perfMarkStart('vtr.upload')
           if (childData) this.doUploadTile(ck, childData, sliceLayer)
           perfMarkEnd('vtr.upload')
@@ -3728,7 +3716,7 @@ export class VectorTileRenderer {
       archiveAncestor,
       frame,
       tiles,
-      source: this.source,
+      source: guard.source,
       cameraIdle,
       targetZ,
       selectorProj,
@@ -3747,6 +3735,44 @@ export class VectorTileRenderer {
     this.prefetchTiers(args, ctx)
 
     this.trackStableSetAndPoints(args, ctx)
+  }
+
+  /** #2508 phase 0 — the frame guards, and the two things they PROVE. Routes an
+   *  immediate-execution device to its own arm (#1046), unwraps the chain's neutral
+   *  pass handle ONCE, and refuses a source with no data / no index. Returns `null`
+   *  when this call draws nothing — `render()` stops there — and otherwise the
+   *  unwrapped pass plus the source it just proved present, because the narrowing
+   *  that proof gives `this.source` does not survive the phase boundary. */
+  private guardAndUnwrapPass(args: RenderArgs): GuardedFrame | null {
+    // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
+    // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
+    if (this.rhi.caps.executionModel === 'immediate' && args.phase !== 'oit-fill') {
+      this._drawStats.recordMissedTiles(
+        renderImmediateArm(this, {
+          rhiPass: args.rhiPass,
+          camera: args.camera,
+          projType: args.projType,
+          projCenterLon: args.projCenterLon,
+          projCenterLat: args.projCenterLat,
+          canvasWidth: args.canvasWidth,
+          canvasHeight: args.canvasHeight,
+          dpr: args.dpr,
+          show: args.show,
+          resolvedShow: args.resolvedShow,
+          phase: args.phase,
+          translucentBucket: args.translucentBucket,
+          pointRenderer: args.pointRenderer,
+        }),
+      )
+      return null
+    }
+    // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
+    // tile plumbing is still gap-blocked native debt (drape/points take RHI).
+    const pass = unwrapWebGpuPass(args.rhiPass) as GPURenderPassEncoder
+    if (!this.source?.hasData()) return null
+    const index = this.source.getIndex()
+    if (!index) return null
+    return { pass, source: this.source }
   }
 
   /** #2508 phase 9 — prefetch tiers: the adjacent tiles (idle only, every 10th
