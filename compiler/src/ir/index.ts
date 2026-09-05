@@ -99,5 +99,8 @@ export {
   resolveRotationAlignment,
   resolvePitchAlignment,
   groundAlignsAtRuntime,
+  // #2224 — the runtime's tangent gate reads this through the barrel; a
+  // predicate map/src cannot import is a second copy waiting to be written.
+  tangentRotates,
   type ResolvedAlignment,
 } from './label-alignment'

@@ -65,7 +65,10 @@ export function foldLabelKnobs(
     labelJustify?: 'auto' | 'left' | 'center' | 'right'
     labelPlacement?: 'point' | 'line' | 'line-center'
     labelSpacing?: number
-    labelRotationAlignment?: 'map' | 'viewport' | 'auto'
+    // #2224 — derived FROM LabelDef, not restated. A literal union here is a
+    // second authority for the same enum; when LabelDef gained
+    // `viewport-glyph` this line silently rejected it.
+    labelRotationAlignment?: import('./render-node').LabelDef['rotationAlignment']
     labelPitchAlignment?: 'map' | 'viewport' | 'auto'
     labelKeepUpright?: boolean
     labelMaxAngle?: number

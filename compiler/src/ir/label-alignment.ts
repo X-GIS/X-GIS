@@ -31,13 +31,33 @@ export function isLinePlacement(placement: unknown): boolean {
 
 /** `text-rotation-alignment`, resolved. An explicit enum wins; `auto` (and any
  *  absent / malformed value, which the converter reports separately) falls to
- *  the placement default. */
+ *  the placement default.
+ *
+ *  #2224 — the spec has FOUR values, not three. `viewport-glyph` keeps the
+ *  glyphs upright in the VIEWPORT while the label itself is placed along the
+ *  line; MapLibre's own `recalculate` rewrites only `auto`, so the value
+ *  survives to its `pitchWithMap` test (`=== 'map'`), which is false for it.
+ *  Both of this file's consumers therefore need it on the `viewport` side, and
+ *  X-GIS's per-glyph upright rendering is the residual recorded on #2224 — the
+ *  label billboards, which is the half that decides tangent rotation and the
+ *  ground basis. */
 export function resolveRotationAlignment(
   placement: unknown,
   rotationAlignment: unknown,
 ): ResolvedAlignment {
   if (rotationAlignment === 'map' || rotationAlignment === 'viewport') return rotationAlignment
+  if (rotationAlignment === 'viewport-glyph') return 'viewport'
   return isLinePlacement(placement) ? 'map' : 'viewport'
+}
+
+/** Does a LINE-placed label follow the road tangent? #2224 — the runtime's
+ *  tangent gate and the ground gate below used to spell this twice, as
+ *  `rotationAlignment !== 'viewport'`, and a fourth enum value split them: a
+ *  `viewport-glyph` layer read as tangent-rotated in one and ground-aligned in
+ *  the other, while MapLibre billboards it. One predicate now, so the two
+ *  cannot disagree again — the drift `label-alignment.ts` exists to prevent. */
+export function tangentRotates(placement: unknown, rotationAlignment: unknown): boolean {
+  return resolveRotationAlignment(placement, rotationAlignment) === 'map'
 }
 
 /** `text-pitch-alignment`, resolved through the full spec chain.
@@ -131,6 +151,6 @@ export function groundAlignsAtRuntime(
   // The ONLY ground-aligned cell of the tiled column (see DOMAIN above): line
   // placement that reaches the tangent-rotated curved branch. Point and
   // line-center both fall through to `false`.
-  if (placement === 'line') return rotationAlignment !== 'viewport'
+  if (placement === 'line') return tangentRotates(placement, rotationAlignment)
   return false
 }
