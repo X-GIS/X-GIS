@@ -185,6 +185,13 @@ function pushCap(
   // being passed POSITIONALLY into tileOpacity, so the cap flag never reached the
   // shader (globe pole caps rendered as ordinary tiles) and the south cap wrote
   // tileOpacity = −1. Pass both, in order, like raster's pushRasterCap.
+  //
+  // #2539 — a cap is NOT displaced, and `demSub` is left at its all-zero default to
+  // say so. The cap fans this tile's band edge (±85.0511°) out to the geographic
+  // pole, so its vertices sit at latitudes the tile's DEM does not cover; sampling
+  // there would read clamped edge texels and pull a spike out of the pole. The polar
+  // fan is a few degrees of otherwise-empty ocean or ice, so flat is both correct
+  // and invisible.
   writeRasterTileUniform(
     block,
     west,
@@ -331,6 +338,31 @@ export class HillshadeRenderer {
   private _opacity = 1
   /** Set the layer opacity (resolved from the hillshade show's paintShapes.common.opacity
    *  by applyHillshadePaint, shared by the native pass + the WebGL2 twin). */
+  /** D5 INC-3 (#2539) — terrain vertical exaggeration for the DISPLACED surface.
+   *
+   *  ZERO BY DEFAULT, and that default is the feature's contract rather than a
+   *  cautious placeholder: a `hillshade` layer is a 2D shading layer in the Mapbox
+   *  spec, and 3D displacement belongs to the separate top-level `terrain` block.
+   *  Displacing every existing hillshade would change every existing scene for
+   *  everyone who never asked for terrain. At 0 this multiplies the decoded metres
+   *  by exactly 0.0, so the vertex is bit-identical to the pre-terrain one.
+   *
+   *  Set by the host that owns the `terrain` block (a style path, or the playground's
+   *  `?terrain=` for the render gate) — the value rides `TileUniforms.dem_sub.w`. */
+  private _terrainExaggeration = 0
+
+  /** @see _terrainExaggeration — 0 (default) means no displacement at all. */
+  setTerrainExaggeration(e: number): void {
+    if (Number.isFinite(e)) this._terrainExaggeration = Math.max(0, e)
+  }
+
+  /** The exaggeration currently in force (0 = flat). Read by the render gate, which
+   *  must be able to assert the lever it pulled actually reached the renderer — an
+   *  accessor nothing can reach is not a diagnostic (§12). */
+  terrainExaggeration(): number {
+    return this._terrainExaggeration
+  }
+
   setOpacity(o: number): void {
     if (Number.isFinite(o)) this._opacity = Math.max(0, Math.min(1, o))
   }
@@ -560,14 +592,32 @@ export class HillshadeRenderer {
     // or misplace the DEM sheet in every non-Mercator projection exactly as the basemap did.
     const camAnchor = rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat)
     const B = rasterBlock()
-    writeRasterFrameUniform(B, frame, projType, projCenterLon, projCenterLat, camAnchor, {
-      opacity: this._opacity,
-      hueRotate: 0,
-      brightnessMin: 0,
-      brightnessMax: 1,
-      saturation: 0,
-      contrast: 0,
-    })
+    writeRasterFrameUniform(
+      B,
+      frame,
+      projType,
+      projCenterLon,
+      projCenterLat,
+      camAnchor,
+      {
+        opacity: this._opacity,
+        hueRotate: 0,
+        brightnessMin: 0,
+        brightnessMax: 1,
+        saturation: 0,
+        contrast: 0,
+      },
+      // #2539 — the VERTEX stage decodes with the same four factors the fragment does.
+      // Read from `_params.unpack`, the one place the encoding was resolved
+      // (`demUnpack()`), so a source that declares `terrarium` displaces by the same
+      // metres it shades by — the #2003 mix-up, one stage earlier.
+      [
+        this._params.unpack.redFactor,
+        this._params.unpack.greenFactor,
+        this._params.unpack.blueFactor,
+        this._params.unpack.baseShift,
+      ],
+    )
     const HB = hsBlock()
     writeHillshadeGlobalUniform(HB, this._params, (camera.bearing ?? 0) * DEG2RAD)
 
@@ -622,6 +672,14 @@ export class HillshadeRenderer {
           mercDiff,
           gridN,
           tileOpacity,
+          0,
+          // #2539 — the IDENTITY sub-rect, and it is identity by construction rather
+          // than by luck: `emitCached` draws the surface at the DEM tile's OWN
+          // renderCoord (the exact tile, or the ancestor `findCachedParent` resolved),
+          // so the grid's uv already maps 1:1 onto the texture bound for it. The
+          // scale/corner machinery from #2525 becomes load-bearing in the increment
+          // that draws a RASTER tile over an ancestor DEM, where the two coords differ.
+          [1, 0, 0, this._terrainExaggeration],
         )
         tilesArr.push({
           texture,

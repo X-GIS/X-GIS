@@ -111,9 +111,24 @@ export class HillshadeDraper {
         // (the uniformStruct first arg): 'Uniforms' (shared vertex) + 'HillshadeUniforms'.
         [
           { binding: 0, kind: 'uniform', name: 'Uniforms' },
-          { binding: 1, kind: 'texture' },
+          { binding: 1, kind: 'texture', name: 'tex' },
           { binding: 2, kind: 'sampler' },
           { binding: HS_GLOBAL_BINDING, kind: 'uniform', name: 'HillshadeUniforms' },
+          // D5 INC-3 (#2539) — the SAME DEM, bound a second time for the VERTEX
+          // stage. Binding 1 is the fragment's (Sobel over the packed texels);
+          // binding 4 is the shared `vs_tile`'s, whose slot must mean "the DEM" in
+          // every module that uses that vertex — for a RASTER draw binding 1 is
+          // imagery, so the vertex cannot read elevation from it. One texture, two
+          // bindings, and no branch in the shared authority.
+          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
+          // stage against the layout's visibility and rejects the pipeline outright —
+          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
+          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
+          // textures PER STAGE, so widening every texture would charge the vertex budget for
+          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
+          // path is the other caller).
+          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
+          { binding: 5, kind: 'sampler', vertexVisible: true },
         ],
         // The per-tile pool block MUST be named too: once ANY block in the
         // program is bound by name (group 0 above), the unnamed by-declaration-
@@ -172,6 +187,11 @@ export class HillshadeDraper {
         { binding: 1, resource: { view: this.viewOf(texture) } },
         { binding: 2, resource: this.nearestSampler },
         { binding: HS_GLOBAL_BINDING, resource: { buffer: hsBuf } },
+        // #2539 — the vertex stage's view of the same DEM, same NEAREST sampler
+        // (a bilinear blend of packed DEM bytes decodes to garbage in the vertex
+        // stage exactly as it does in the fragment).
+        { binding: 4, resource: { view: this.viewOf(texture) } },
+        { binding: 5, resource: this.nearestSampler },
       ])
       m.set(key, bg)
     }

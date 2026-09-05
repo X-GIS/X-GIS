@@ -37,6 +37,12 @@ export class RasterDraper {
     this._pickMaterial = undefined
     this.rhi.destroySampler(this.linearSampler.sampler)
     this.rhi.destroySampler(this.nearestSampler.sampler)
+    // #2539 — the DEM stub is device-lifetime but owned HERE, so it is released
+    // here; a texture created lazily and never destroyed is the same leak shape
+    // `dropTexture` exists to prevent one level down.
+    if (this._demStubTex) this.rhi.destroyTexture(this._demStubTex)
+    this._demStubTex = null
+    this._demStubView = null
     this.globalBGByTex.clear()
     this.viewByTex.clear()
   }
@@ -48,6 +54,8 @@ export class RasterDraper {
   private _pickMaterial?: Material
   private readonly linearSampler
   private readonly nearestSampler
+  private _demStubTex: RhiTexture | null = null
+  private _demStubView: RhiTextureView | null = null
   // Cached global bind group per texture → per `${pick}${resampling}` key. The non-pick /
   // pick Materials have distinct global uniforms + layouts, and `raster-resampling` toggles
   // the sampler, so the bind group is keyed by both.
@@ -63,8 +71,15 @@ export class RasterDraper {
   ) {
     // WGSL for WebGPU; split GLSL ES for WebGl2Device (createPipeline picks by backend).
     // Raster is texture-only (uniform + texture + sampler) — no storage buffers — so the
-    // GLSL emit needs no data-texture emulation, and group 0's single UBO + single texture
-    // bind correctly by ORDER (no reflection name needed).
+    // GLSL emit needs no data-texture emulation.
+    //
+    // #2539 — the second half of that sentence used to read "group 0's single UBO +
+    // single texture bind correctly by ORDER (no reflection name needed)", and it was
+    // true for exactly as long as there was ONE texture. The DEM makes two, and
+    // rhi-webgl2 refuses the group outright rather than mis-binding it: "bind-group
+    // layout has 2 sampler-uniform entries but bindings 1, 4 are unnamed — WebGL2 pairs
+    // unnamed entries BY ORDER within one reflection class". Both texture entries below
+    // therefore carry the shader's own reflection name.
     //
     // #1473 residue — this site kept the pre-`wgsl-for.ts` shape after every sibling
     // draper moved: it emitted the WGSL unconditionally (dead weight on a WebGL2 device)
@@ -86,8 +101,22 @@ export class RasterDraper {
       groups: [
         [
           { binding: 0, kind: 'uniform' },
-          { binding: 1, kind: 'texture' },
+          { binding: 1, kind: 'texture', name: 'tex' },
           { binding: 2, kind: 'sampler' },
+          // D5 INC-3 (#2539) — the DEM the VERTEX stage reads. Present in the layout
+          // whether or not a terrain source is configured: the shader samples it
+          // unconditionally (a per-tile branch on residency would be lane-divergent)
+          // and multiplies by `tile.dem_sub.w`, which is 0 with no DEM. So the binding
+          // must always be satisfiable, and `demStub()` below is what satisfies it.
+          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
+          // stage against the layout's visibility and rejects the pipeline outright —
+          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
+          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
+          // textures PER STAGE, so widening every texture would charge the vertex budget for
+          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
+          // path is the other caller).
+          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
+          { binding: 5, kind: 'sampler', vertexVisible: true },
         ],
         [{ binding: 0, kind: 'uniform' }],
       ],
@@ -116,6 +145,33 @@ export class RasterDraper {
     this.nearestSampler = { sampler: rhi.createSampler({ mag: 'nearest', min: 'nearest' }) }
   }
 
+  /** The 1×1 DEM every draw binds when no elevation covers it (D5 INC-3, #2539).
+   *
+   *  Its CONTENT does not matter and that is the point: `tile.dem_sub.w` is 0 in
+   *  exactly the cases this is bound, so whatever decodes out of it is multiplied by
+   *  0.0 before it reaches a vertex. It exists to satisfy WebGPU's "every binding in
+   *  the layout must be filled" rule — the same job `pipeline-factory.ts`'s palette
+   *  stub does — not to supply a height. All-zero bytes rather than a sentinel so a
+   *  read that somehow escaped the multiply would be a flat surface, not a spike.
+   *
+   *  Device-lifetime and created on first draw, so a map with no raster layer never
+   *  allocates it. */
+  private demStub(): RhiTextureView {
+    if (!this._demStubView) {
+      const tex = this.rhi.createTexture({
+        width: 1,
+        height: 1,
+        format: 'rgba8unorm',
+        usage: ['sample', 'copy-dst'],
+        label: 'raster-dem-stub',
+      })
+      this.rhi.writeTexture(tex, new Uint8Array([0, 0, 0, 255]), 4, 1, 1)
+      this._demStubTex = tex
+      this._demStubView = this.rhi.createView(tex)
+    }
+    return this._demStubView
+  }
+
   /** Lazily build the pick-pass Material (colour + rg32uint MRT). Deferred so the non-pick path —
    *  including the WebGl2 checker, which fail-closes on an rg32uint MRT — never builds it.
    *
@@ -135,8 +191,22 @@ export class RasterDraper {
       groups: [
         [
           { binding: 0, kind: 'uniform' },
-          { binding: 1, kind: 'texture' },
+          { binding: 1, kind: 'texture', name: 'tex' },
           { binding: 2, kind: 'sampler' },
+          // D5 INC-3 (#2539) — the DEM the VERTEX stage reads. Present in the layout
+          // whether or not a terrain source is configured: the shader samples it
+          // unconditionally (a per-tile branch on residency would be lane-divergent)
+          // and multiplies by `tile.dem_sub.w`, which is 0 with no DEM. So the binding
+          // must always be satisfiable, and `demStub()` below is what satisfies it.
+          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
+          // stage against the layout's visibility and rejects the pipeline outright —
+          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
+          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
+          // textures PER STAGE, so widening every texture would charge the vertex budget for
+          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
+          // path is the other caller).
+          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
+          { binding: 5, kind: 'sampler', vertexVisible: true },
         ],
         [{ binding: 0, kind: 'uniform' }],
       ],
@@ -188,6 +258,13 @@ export class RasterDraper {
         { binding: 0, resource: { buffer: material.globalUniform! } },
         { binding: 1, resource: { view: this.viewOf(texture) } },
         { binding: 2, resource: nearest ? this.nearestSampler : this.linearSampler },
+        // #2539 — raster imagery has no DEM of its own yet (draping imagery over
+        // terrain is the next increment), so this is always the stub; the sampler is
+        // NEAREST because a bilinear blend of PACKED DEM bytes decodes to garbage,
+        // and pinning it here means the sampler is right by construction the day a
+        // real DEM arrives rather than by remembering to change it.
+        { binding: 4, resource: { view: this.demStub() } },
+        { binding: 5, resource: this.nearestSampler },
       ])
       m.set(key, bg)
     }

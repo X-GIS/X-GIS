@@ -1921,7 +1921,15 @@ const CEILINGS: Record<string, number> = {
   // closure became a delegate to `DemTileStore.resolve`. Shrink-only ratchet
   // honoured — the first draft GREW the file by 4 on the strength of a comment
   // and was cut back; the explanation lives on the store's method instead.
-  'map/src/render/hillshade-renderer.ts': 746,
+  // 746 -> 804 (#2539, D5 INC-3): the terrain half of this renderer — the
+  // exaggeration field + its setter + the read-back accessor a gate needs, the DEM
+  // unpack threaded into the frame uniform, and the per-tile sub-rect. Every one of
+  // those is a value this file is the only place to source: `_params.unpack` is
+  // resolved here (`demUnpack()`), the exaggeration is a per-LAYER setting, and the
+  // sub-rect comes from the DemTileStore this renderer owns. #2525 had just taken
+  // this key DOWN 753 -> 746 by moving the pyramid walk into the store, so the net
+  // against the pre-terrain tree is +51 for a feature, not for accumulated drift.
+  'map/src/render/hillshade-renderer.ts': 804,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2280,7 +2288,13 @@ const CEILINGS: Record<string, number> = {
   // branch), so the merged file carries both deltas and neither side's number is
   // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
   // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
-  'map/src/render/raster-renderer.ts': 1060,
+  // 1060 -> 1072 (#2539, D5 INC-3): two optional parameters on the SHARED uniform
+  // writers — `demUnpack` on the frame writer, `demSub` on the per-tile writer — plus
+  // the docblocks that say what "all-zero = no terrain" means at each. They live here
+  // because `writeRasterFrameUniform` / `writeRasterTileUniform` are the single
+  // authority both the raster and the hillshade renderers pack through; duplicating
+  // them at the two call sites is what this file exists to prevent.
+  'map/src/render/raster-renderer.ts': 1072,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

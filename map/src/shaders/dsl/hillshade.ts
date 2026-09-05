@@ -88,6 +88,8 @@ import {
   rasterTileU,
   rasterTex,
   rasterTexSampler,
+  rasterDemTex,
+  rasterDemSampler,
 } from './raster'
 import { needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS } from './ecef'
@@ -149,6 +151,8 @@ const U = rasterU
 const Tile = rasterTileU
 const tex = rasterTex
 const texSampler = rasterTexSampler
+const demTex = rasterDemTex
+const demSampler = rasterDemSampler
 
 const hillshadeFragmentOutput = (pickEnabled: boolean) =>
   ioStruct('HillshadeFragmentOutput', {
@@ -457,7 +461,18 @@ export const buildHillshadeModule = (pickEnabled: boolean, methodFlag = -1): Mod
       VsOut.decl,
       hillshadeFragmentOutput(pickEnabled).decl,
     ],
-    bindings: [U.binding, tex.binding, texSampler.binding, HS.binding, Tile.binding],
+    // #2539 — the DEM pair the SHARED `rasterVsTile` reads to displace. A module that
+    // reuses a vertex authority owes that authority's bindings: without these the WGSL
+    // parses to `unresolved value 'dem_tex'` and the hillshade pass never compiles.
+    bindings: [
+      U.binding,
+      tex.binding,
+      texSampler.binding,
+      demTex.binding,
+      demSampler.binding,
+      HS.binding,
+      Tile.binding,
+    ],
     funcs: [
       ...getGpuProjectionFuncs(),
       rasterVsTile,

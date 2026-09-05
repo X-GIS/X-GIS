@@ -133,6 +133,11 @@ export function writeRasterFrameUniform(
   projCenterLat: number,
   camAnchor: readonly [number, number, number],
   c: RasterColorParams,
+  /** D5 INC-3 (#2539) — the terrain DEM's unpack factors (redFactor, greenFactor,
+   *  blueFactor, baseShift), as `demUnpack()` (hillshade-renderer.ts) resolves them
+   *  per encoding. Default ALL-ZERO = no terrain source; the vertex decode is then 0
+   *  and, since `dem_sub.w` is 0 as well, the displacement is exactly 0.0. */
+  demUnpack: readonly [number, number, number, number] = [0, 0, 0, 0],
 ): void {
   const ge = globeEyeUniform(frame.eye)
   // DSFUN hi/lo split of the camera anchor (full rationale: raster.ts
@@ -150,6 +155,7 @@ export function writeRasterFrameUniform(
     cam_ecef_center: [hi(camAnchor[0]), hi(camAnchor[1]), hi(camAnchor[2]), 0],
     cam_ecef_center_l: [lo(camAnchor[0]), lo(camAnchor[1]), lo(camAnchor[2]), 0],
     globe_eye: [ge[0], ge[1], ge[2], ge[3]],
+    dem_unpack: [demUnpack[0], demUnpack[1], demUnpack[2], demUnpack[3]],
   })
 }
 
@@ -174,6 +180,11 @@ export function writeRasterTileUniform(
    *  Mercator tile (byte-identical), +1 = north cap, −1 = south cap. vs_tile's
    *  select() reads this to fan the band edge to the pole. Default 0. */
   capSign = 0,
+  /** D5 INC-3 (#2539) — where this tile sits inside the RESIDENT DEM texture, from
+   *  `DemTileStore.resolve()`: (scale, u0, v0, gain). `gain` is 0 when no DEM covers
+   *  the tile and the terrain exaggeration when one does, so the default below is
+   *  "no terrain" and every pre-terrain call site keeps its exact vertex. */
+  demSub: readonly [number, number, number, number] = [0, 0, 0, 0],
 ): void {
   const trig = rasterGridTrig(west, east, mercSouth, mercDiff, gridN)
   block.write({
@@ -183,6 +194,7 @@ export function writeRasterTileUniform(
     grid: [gridN, capSign],
     row_trig: trig.rows,
     col_trig: trig.cols,
+    dem_sub: [demSub[0], demSub[1], demSub[2], demSub[3]],
   })
 }
 
