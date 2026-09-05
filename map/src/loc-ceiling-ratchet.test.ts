@@ -2612,7 +2612,20 @@ const CEILINGS: Record<string, number> = {
   // raised this key from a common base, so the merged file carries BOTH deltas and
   // neither side's number is right (§12). Measured 1449 with `wc -l` on the
   // post-prettier merged tree.
-  'compiler/src/convert/layers-symbol.ts': 1449,
+  // 1449→1482 (#2331): text-offset, text-translate, and icon-rotate each had an
+  // `if` recognising only the constant form with no `else` to warn on a
+  // non-constant one (zoom-interpolate expression, legacy stops, data-driven
+  // `["get", …]`) — the property silently became [0,0] / no rotation with zero
+  // diagnostic. symbol-placement had the same gap one shape further in: its
+  // final `else if` only caught an invalid STRING, so a legacy multi-stop
+  // `{stops:[...]}` function (only single-stop legacy functions fold to a
+  // constant before this point) fell through the entire if/else-if chain with
+  // no utility and no warning. +33 is the four warn+drop else-branches, each
+  // mirroring #1977's icon-offset gap warning, plus their why-comments
+  // (post-prettier, `wc -l`). +2 more for the review fold-in that splits
+  // icon-rotate's recognised-constant test from its non-default emit test, so a
+  // constant `icon-rotate: 0` (the default) stops falling into the warn arm.
+  'compiler/src/convert/layers-symbol.ts': 1484,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
