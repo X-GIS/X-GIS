@@ -610,6 +610,7 @@ export function fillPointGlyphOffsetsWithImages(
   inlineSprites: readonly InlineImageSprite[],
   out: ShapedInlineImage[],
 ): void {
+  let prevEnd = 0
   for (let li = 0; li < lines.length; li++) {
     const ln = lines[li]!
     const lastLine = li === lines.length - 1
@@ -631,6 +632,17 @@ export function fillPointGlyphOffsetsWithImages(
     if (effectiveJustify === 'right') lineX = totalAdvance - lineWidth
     else if (effectiveJustify === 'center') lineX = (totalAdvance - lineWidth) * 0.5
     const lineY = baselineY[li]! + centreShift
+    // #2446 — the wrapper moves `ln.start` past leading whitespace, so the
+    // glyphs between the previous line's end and this start (the `\n` of a
+    // segment break, trimmed blanks) belong to NO line and the pen below
+    // never visits them. Park them on this line's pen origin: they render
+    // no ink there, and no `glyphOffsets` slot is left unwritten for the
+    // renderer, the layout cache or a holdover copy to read stale.
+    for (let gi = prevEnd; gi < ln.start; gi++) {
+      glyphOffsets[gi * 2] = lineX
+      glyphOffsets[gi * 2 + 1] = lineY
+    }
+    prevEnd = ln.end
     fillLineWithInlineImages(
       glyphOffsets,
       advances,

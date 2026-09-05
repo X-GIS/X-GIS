@@ -16,6 +16,13 @@
 import type { GlyphInfo } from './sdf/glyph-atlas-host'
 import type { WrappedLineRange, KPBreak } from './text-stage-types'
 
+/** The one field of `InlineImageRun` (text-stage-helpers.ts) the wrapper
+ *  reads: the glyph index the image is inserted BEFORE. Structural, so
+ *  the wrap engine stays free of the stage's sprite types. */
+export interface InlineImageAnchor {
+  readonly glyphIndex: number
+}
+
 /** LRU cache for wrap results. Same (glyph sequence, font, size,
  *  letter-spacing, maxWidth) tuple produces identical line breaks. On
  *  rapid zoom in / out the same label text reappears with a small set
@@ -48,6 +55,7 @@ function pretextCacheKey(
   fontSizePx: number,
   letterSpacingPx: number,
   maxWidthPx: number,
+  inlineImages: readonly InlineImageAnchor[] | undefined,
 ): number {
   let h = 0x811c9dc5 | 0 // FNV-1a 32-bit offset basis
   // fontKey character codes
@@ -68,6 +76,12 @@ function pretextCacheKey(
   for (let i = 0; i < glyphs.length; i++) {
     h = Math.imul(h ^ glyphs[i]!.codepoint, 0x01000193)
     h = Math.imul(h ^ ((advances[i]! * 2) | 0), 0x01000193)
+  }
+  // #2446 — an inline image stops the whitespace trim at its anchor, so
+  // the same glyph run wraps DIFFERENTLY with and without one. `+ 1` so
+  // an anchor at index 0 is not the identity xor.
+  if (inlineImages !== undefined) {
+    for (const img of inlineImages) h = Math.imul(h ^ (img.glyphIndex + 1), 0x01000193)
   }
   return h | 0
 }
@@ -132,39 +146,48 @@ function _charIsWhitespace(cp: number): boolean {
   return cp === 0x09 || cp === 0x0a || cp === 0x0d || cp === 0x20 || cp === 0x3000
 }
 
-/** Measure glyph range [start, end) the way MapLibre measures a line:
- *  excluding the TRAILING breakable-whitespace advance before summing.
- *  MapLibre's `TaggedString.trim()` (vendored maplibre-gl@5.24.0
- *  src/symbol/tagged_string.ts) strips a shaped line before
- *  `lineLength` is computed; the KP walk here emits break indices at
- *  `i + 1` past a breakable codepoint, so a break on a space leaves
- *  that space as the range's LAST glyph and its advance in the width.
+/** Build one emitted line from break range [start, end) the way MapLibre
+ *  shapes it: `TaggedString.trim()` (vendored maplibre-gl@5.24.0
+ *  src/symbol/tagged_string.ts) strips whitespace from BOTH ends of a
+ *  line before `lineLength` is computed. The KP walk here emits break
+ *  indices at `i + 1` past a breakable codepoint, so a break on a space
+ *  leaves that space as the range's LAST glyph; a LEADING space arises
+ *  from a consecutive-space run or a segment that begins on whitespace
+ *  ("AB\n  CD").
  *
- *  MEASUREMENT-ONLY, and deliberately TRAILING-ONLY. `start`/`end` stay
- *  the literal break indices (glyph positioning and the inline-sprite
- *  index filter in text-stage-helpers.ts both key off them), and
- *  `fillLineWithInlineImages` starts its pen at `lineX` and advances
- *  through EVERY glyph in [start, end). A trailing space therefore
- *  renders no ink, so dropping it from the width puts the ink exactly
- *  where `lineX = totalAdvance - width` (right) or `* 0.5` (centre)
- *  intends. A LEADING space is the opposite: the pen still consumes it,
- *  so narrowing the width without also advancing `start` moves the ink
- *  RIGHT by one advance — for right-justify that overflows the block by
- *  `advance + letterSpacing`, strictly worse than the pre-#2336 error of
- *  half an advance. Matching MapLibre on that side means moving `start`
- *  too, which is a separate change (see #2446). `rangeWidth` itself
+ *  Leading whitespace moves `start` AND leaves the width (#2446) — the
+ *  pen in `fillLineWithInlineImages` starts at `lineX` on glyph `start`,
+ *  so the two must move together: narrowing the width alone shifts the
+ *  ink RIGHT by `advance + letterSpacing` (the rejected form, see the
+ *  issue's table). Trailing whitespace leaves the width ONLY — `end`
+ *  stays the literal break index (#2336), the pen still consumes the
+ *  space, and since it renders no ink the ink lands exactly where
+ *  `lineX = totalAdvance - width` (right) or `* 0.5` (centre) intends.
+ *
+ *  An inline image is not a glyph here (it is spliced in at
+ *  `glyphIndex`, i.e. BEFORE that glyph), but in MapLibre it is a
+ *  section character that `trim()` stops at. Mirror that: a whitespace
+ *  glyph an image is anchored on is preceded by the image, so it is not
+ *  leading; a trailing scan stops at an anchor the same way. That also
+ *  keeps every anchor inside `[start, end]`, which the sprite filter in
+ *  `fillPointGlyphOffsetsWithImages` keys off. `rangeWidth` itself
  *  stays a literal-range sum — other callers depend on it measuring
  *  exactly [start, end). */
-function measuredRangeWidth(
+function trimmedLine(
   glyphs: readonly GlyphInfo[],
   advances: ArrayLike<number>,
   start: number,
   end: number,
   letterSpacingPx: number,
-): number {
+  inlineImages: readonly InlineImageAnchor[] | undefined,
+): WrappedLineRange {
+  const anchored = (k: number): boolean =>
+    inlineImages !== undefined && inlineImages.some((img) => img.glyphIndex === k)
+  let s = start
+  while (s < end && _charIsWhitespace(glyphs[s]!.codepoint) && !anchored(s)) s++
   let e = end
-  while (e > start && _charIsWhitespace(glyphs[e - 1]!.codepoint)) e--
-  return rangeWidth(advances, start, e, letterSpacingPx)
+  while (e > s && _charIsWhitespace(glyphs[e - 1]!.codepoint) && !anchored(e)) e--
+  return { start: s, end, width: rangeWidth(advances, s, e, letterSpacingPx) }
 }
 
 // MapLibre's regex-based `codePointAllowsIdeographicBreaking` covers
@@ -324,17 +347,12 @@ function _kpWrapSegment(
   segStart: number,
   segEnd: number,
   hasZeroWidthSpaces: boolean,
+  inlineImages: readonly InlineImageAnchor[] | undefined,
 ): WrappedLineRange[] {
   const n = segEnd - segStart
   if (n <= 0) return [{ start: segStart, end: segEnd, width: 0 }]
   if (maxWidthPx === Infinity) {
-    return [
-      {
-        start: segStart,
-        end: segEnd,
-        width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
-      },
-    ]
+    return [trimmedLine(glyphs, advances, segStart, segEnd, letterSpacingPx, inlineImages)]
   }
   // 1. targetWidth = totalWidth / ceil(totalWidth / maxWidth).
   //    MapLibre `determineAverageLineWidth` sums getGlyphAdvance
@@ -379,23 +397,13 @@ function _kpWrapSegment(
   let prev = segStart
   for (const idx of indices) {
     if (idx > prev) {
-      lines.push({
-        start: prev,
-        end: idx,
-        width: measuredRangeWidth(glyphs, advances, prev, idx, letterSpacingPx),
-      })
+      lines.push(trimmedLine(glyphs, advances, prev, idx, letterSpacingPx, inlineImages))
     }
     prev = idx
   }
   return lines.length > 0
     ? lines
-    : [
-        {
-          start: segStart,
-          end: segEnd,
-          width: measuredRangeWidth(glyphs, advances, segStart, segEnd, letterSpacingPx),
-        },
-      ]
+    : [trimmedLine(glyphs, advances, segStart, segEnd, letterSpacingPx, inlineImages)]
 }
 
 export function wrapWithKnuthPlass(
@@ -408,6 +416,9 @@ export function wrapWithKnuthPlass(
   fontSizePx: number,
   letterSpacingPx: number,
   maxWidthPx: number,
+  // #2446 — where the label's inline images sit; the whitespace trim
+  // stops at an anchor (see `trimmedLine`). Omitted for plain labels.
+  inlineImages?: readonly InlineImageAnchor[],
 ): WrappedLineRange[] {
   const cacheKey = pretextCacheKey(
     glyphs,
@@ -416,6 +427,7 @@ export function wrapWithKnuthPlass(
     fontSizePx,
     letterSpacingPx,
     maxWidthPx,
+    inlineImages,
   )
   const hit = _pretextCache.get(cacheKey)
   if (hit) {
@@ -461,6 +473,7 @@ export function wrapWithKnuthPlass(
       seg.start,
       seg.end,
       hasZeroWidthSpaces,
+      inlineImages,
     )
     for (const ln of segLines) lines.push(ln)
   }
@@ -484,9 +497,18 @@ export function wrapForTesting(
   advances: readonly number[],
   maxWidthPx: number,
   letterSpacingPx = 0,
+  /** #2446 — glyph indices inline images are anchored on (inserted BEFORE). */
+  imageGlyphIndices?: readonly number[],
 ): { start: number; end: number; width: number }[] {
   const glyphs = codepoints.map((cp) => ({ codepoint: cp }) as unknown as GlyphInfo)
-  return wrapWithKnuthPlass(glyphs, advances, '__wrap_test__', 16, letterSpacingPx, maxWidthPx).map(
-    (l) => ({ start: l.start, end: l.end, width: l.width }),
-  )
+  const inlineImages = imageGlyphIndices?.map((glyphIndex) => ({ glyphIndex }))
+  return wrapWithKnuthPlass(
+    glyphs,
+    advances,
+    '__wrap_test__',
+    16,
+    letterSpacingPx,
+    maxWidthPx,
+    inlineImages,
+  ).map((l) => ({ start: l.start, end: l.end, width: l.width }))
 }

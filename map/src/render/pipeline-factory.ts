@@ -697,9 +697,9 @@ export class PipelineFactory {
     // the polygon DSL composer. The composer's `pickEnabled` flag drives
     // the pick-attachment field + write directly (replaces the old
     // __PICK_FIELD__ / __PICK_WRITE__ regex markers in POLYGON_SHADER_SOURCE).
-    // F4 — via the memoized `buildShader(null)` (byte-identical to
-    // `emitPolygonWgsl(null, isPickEnabled())`) so the base-shader emit is
-    // shared with any other null-variant build instead of re-optimized.
+    // F4 — via the memoized `buildShader(null)` (the baked `wgsl/polygon` bytes,
+    // or `shipSource(emitPolygonWgsl(null, isPickEnabled()))` on a miss — #2499) so
+    // the base shader is shared with any other null-variant build, never re-emitted.
     const pickShader = buildShader(null)
     const shaderModule = device.createShaderModule({
       code: pickShader,

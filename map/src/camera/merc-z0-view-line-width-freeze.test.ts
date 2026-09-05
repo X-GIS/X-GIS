@@ -127,20 +127,19 @@ describe('#739 normal (above sub-cap) band is untouched — DC=0 by construction
     expect(cam.effectiveMpp(0, canvasH, 1)).toBe(rawMpp(1.1))
   })
 
-  it('globe (projType 7) is now capped at the ECEF frame scale in the sub-cap band (#964)', () => {
-    // #964 closed the path #739 scoped out. The globe MVP (buildECEFFrameView)
-    // saturates the view height at min(WORLD_MERC·cosLat, 2·EARTH_R), which
-    // FREEZES the on-screen scale at low zoom while rawMpp keeps halving — the
-    // same divergence class as the flat #739 bug. effectiveMpp's globe branch
-    // now mirrors that cap, so size consumers read the frozen frame scale, not
-    // the uncapped mpp. At the equator the cap is 2·EARTH_R, so the effective
-    // mpp on a tall viewport is 2·EARTH_R / canvasHeightCss.
+  it('globe (projType 7) in globeMode is UNCAPPED — it renders through globeAltitude, not buildECEFFrameView (#2332)', () => {
+    // #964 mirrored buildECEFFrameView's cap here, but a globeMode camera never
+    // reaches that builder: getViewForProjection → getECEFFrameView short-circuits
+    // into _globeFrame → buildGlobeFrame → globeAltitude, whose perspective
+    // branch has NO z<1 cap (#450) — the disc shrinks as you zoom out. So the
+    // scale the globe MVP renders at is rawMpp at every zoom, and effectiveMpp
+    // must say so; the ECEF cap is the non-globeMode arm (camera.test.ts #964p2).
     const cam = flatMercCam(0)
     cam.globeMode = true
-    expect(cam.effectiveMpp(7, 1080, 1)).toBeCloseTo((2 * EARTH_R) / 1080, 6)
-    // …strictly below the uncapped raw mpp the pre-#964 branch returned.
-    expect(cam.effectiveMpp(7, 1080, 1)).toBeLessThan(rawMpp(0))
-    // Above z* the cap does not bind — byte-identical to raw mpp (no regression).
+    expect(cam.effectiveMpp(7, 1080, 1)).toBe(rawMpp(0))
+    // …NOT the ECEF frame cap the pre-#2332 branch returned (6.6× smaller at z0).
+    expect(cam.effectiveMpp(7, 1080, 1)).toBeGreaterThan((2 * EARTH_R) / 1080)
+    // Above z* the two arms agree — byte-identical to raw mpp (no regression).
     const camHi = flatMercCam(6)
     camHi.globeMode = true
     expect(camHi.effectiveMpp(7, 1080, 1)).toBe(rawMpp(6))

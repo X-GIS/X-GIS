@@ -25,8 +25,7 @@ import {
   type CameraSnapshot,
 } from '../tile-decision'
 import { visibleTilesFrustumSampled } from '@xgis/data'
-import { Camera } from '../camera'
-import { mercatorYToLat } from '@xgis/geo'
+import { Camera, frameCenterLatOf } from '../camera'
 import type { Projection } from '@xgis/geo'
 import { tileKey } from '@xgis/compiler'
 import { speculativeFetchAllowed, activeBody } from '@xgis/shared'
@@ -157,15 +156,15 @@ export class PrefetchScheduler {
     futureCam.maxZoom = camera.maxZoom
     const targetZ = Math.max(0, Math.min(Math.floor(future.zoom), source.maxLevel))
     // The projection the GPU draws with (#2302): built at the LIVE camera's
-    // centre — the render loop's proj_params.y/z (render-loop.ts frame
-    // centreLon/centreLat) — not the future camera's, so the sampled walk culls
+    // centre — the render loop's proj_params.y/z, read through the same frameCenterLatOf
+    // authority (#2315) — not the future camera's, so the sampled walk culls
     // in the space vs_tile draws in. `visibleTilesFrustumSampled` is itself
     // projection-aware (forward/inverse); it only ever lacked the real object.
     const R = activeBody().sphereR
     const selectorProj: Projection = flatSelectorProjection(
       projType,
       (camera.centerX / R) * (180 / Math.PI),
-      mercatorYToLat(camera.centerY),
+      frameCenterLatOf(camera, projType),
     )
     const futureTiles = visibleTilesFrustumSampled(
       futureCam,
