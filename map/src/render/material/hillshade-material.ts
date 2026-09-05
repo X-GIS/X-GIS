@@ -20,6 +20,7 @@ import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView, RhiBuffer } f
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { rasterGridVertexCount } from '../../shaders/dsl/raster'
+import { DEM_VERTEX_BIND_ENTRIES } from './raster-material'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
@@ -115,20 +116,17 @@ export class HillshadeDraper {
           { binding: 2, kind: 'sampler' },
           { binding: HS_GLOBAL_BINDING, kind: 'uniform', name: 'HillshadeUniforms' },
           // D5 INC-3 (#2539) — the SAME DEM, bound a second time for the VERTEX
-          // stage. Binding 1 is the fragment's (Sobel over the packed texels);
-          // binding 4 is the shared `vs_tile`'s, whose slot must mean "the DEM" in
-          // every module that uses that vertex — for a RASTER draw binding 1 is
-          // imagery, so the vertex cannot read elevation from it. One texture, two
-          // bindings, and no branch in the shared authority.
-          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
-          // stage against the layout's visibility and rejects the pipeline outright —
-          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
-          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
-          // textures PER STAGE, so widening every texture would charge the vertex budget for
-          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
-          // path is the other caller).
-          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
-          { binding: 5, kind: 'sampler', vertexVisible: true },
+          // stage. Binding 1 is the fragment's (Sobel over the packed texels); the pair
+          // below is the shared `vs_tile`'s, whose slot must mean "the DEM" in every
+          // module that uses that vertex — for a RASTER draw binding 1 is imagery, so
+          // the vertex cannot read elevation from it. One texture, two bindings, and no
+          // branch in the shared authority.
+          //
+          // Spread from raster-material rather than repeated: the entries are one fact
+          // about `vs_tile`, and two copies is exactly the drift this file's own
+          // `name`-on-every-uniform note exists to prevent. See there for why
+          // `vertexVisible` is required rather than decorative.
+          ...DEM_VERTEX_BIND_ENTRIES,
         ],
         // The per-tile pool block MUST be named too: once ANY block in the
         // program is bound by name (group 0 above), the unnamed by-declaration-

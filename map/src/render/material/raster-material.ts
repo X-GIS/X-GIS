@@ -5,7 +5,13 @@
 // builder that turns visible tiles into generic DrawItems. The pipeline/layouts/
 // pool/global-uniform + the draw loop are the shared generic core (material.ts).
 
-import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView } from '@xgis/engine'
+import type {
+  RhiDevice,
+  RhiBindGroup,
+  RhiTexture,
+  RhiTextureView,
+  RhiBindLayoutEntry,
+} from '@xgis/engine'
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitRasterWgsl, buildRasterModule, rasterGridVertexCount } from '../../shaders/dsl/raster'
@@ -26,6 +32,42 @@ export interface RasterTile {
    *  MUST equal the N packed into the per-tile uniform's `grid.x` lane. */
   gridN: number
 }
+
+// ── The raster program's bind-group shape, in ONE place (#2539) ──
+//
+// Written three times before this: the non-pick material, the pick material, and
+// hillshade's — which is the moment ADR-0013 says to extract rather than copy again.
+// It is also the correct single authority independently of the ratchet: all three run
+// the SAME `vs_tile`, so a group-0 that differs between them is a bug by definition,
+// and the pick variant differs from the non-pick one only in its colour targets.
+//
+// `vertexVisible` on the DEM pair is REQUIRED, not decorative: WebGPU checks the
+// entry point's stage against the layout's visibility and rejects the pipeline outright
+// — "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in the
+// layout (ShaderStage::Fragment)". It is opt-IN because WebGPU counts sampled textures
+// PER STAGE, so widening every texture would charge the vertex budget for bindings no
+// vertex reads (rhi.ts's own reasoning; particle advection is the other caller).
+//
+// The DEM is in the layout whether or not a terrain source is configured: the shader
+// samples it unconditionally — a per-tile branch on residency would be lane-divergent —
+// and multiplies by `tile.dem_sub.w`, which is 0 when no DEM covers the tile. So the
+// binding must ALWAYS be satisfiable, which is what `demStub()` exists for.
+/** The DEM texture + sampler the shared `vs_tile` reads elevation from. Exported so
+ *  hillshade's own group 0 carries the identical pair rather than a second copy. */
+export const DEM_VERTEX_BIND_ENTRIES: readonly RhiBindLayoutEntry[] = [
+  { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
+  { binding: 5, kind: 'sampler', vertexVisible: true },
+]
+/** Group 0 of the raster program: global uniform, tile colour texture + its sampler,
+ *  then the DEM pair. Both raster materials (pick and non-pick) use it verbatim. */
+const RASTER_GROUP0: RhiBindLayoutEntry[] = [
+  { binding: 0, kind: 'uniform' },
+  { binding: 1, kind: 'texture', name: 'tex' },
+  { binding: 2, kind: 'sampler' },
+  ...DEM_VERTEX_BIND_ENTRIES,
+]
+/** Group 1: the per-tile uniform, fed from the material's pool. */
+const RASTER_TILE_GROUP: RhiBindLayoutEntry[] = [{ binding: 0, kind: 'uniform' }]
 
 export class RasterDraper {
   /** Release the GPU objects this draper owns (#1578). Called by `rebuildForQuality()`
@@ -98,28 +140,7 @@ export class RasterDraper {
       }),
       format: format as 'bgra8unorm',
       sampleCount,
-      groups: [
-        [
-          { binding: 0, kind: 'uniform' },
-          { binding: 1, kind: 'texture', name: 'tex' },
-          { binding: 2, kind: 'sampler' },
-          // D5 INC-3 (#2539) — the DEM the VERTEX stage reads. Present in the layout
-          // whether or not a terrain source is configured: the shader samples it
-          // unconditionally (a per-tile branch on residency would be lane-divergent)
-          // and multiplies by `tile.dem_sub.w`, which is 0 with no DEM. So the binding
-          // must always be satisfiable, and `demStub()` below is what satisfies it.
-          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
-          // stage against the layout's visibility and rejects the pipeline outright —
-          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
-          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
-          // textures PER STAGE, so widening every texture would charge the vertex budget for
-          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
-          // path is the other caller).
-          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
-          { binding: 5, kind: 'sampler', vertexVisible: true },
-        ],
-        [{ binding: 0, kind: 'uniform' }],
-      ],
+      groups: [RASTER_GROUP0, RASTER_TILE_GROUP],
       colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
@@ -188,28 +209,7 @@ export class RasterDraper {
       }),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
-      groups: [
-        [
-          { binding: 0, kind: 'uniform' },
-          { binding: 1, kind: 'texture', name: 'tex' },
-          { binding: 2, kind: 'sampler' },
-          // D5 INC-3 (#2539) — the DEM the VERTEX stage reads. Present in the layout
-          // whether or not a terrain source is configured: the shader samples it
-          // unconditionally (a per-tile branch on residency would be lane-divergent)
-          // and multiplies by `tile.dem_sub.w`, which is 0 with no DEM. So the binding
-          // must always be satisfiable, and `demStub()` below is what satisfies it.
-          // `vertexVisible` is REQUIRED, not decorative: WebGPU checks the entry-point's
-          // stage against the layout's visibility and rejects the pipeline outright —
-          // "Entry point's stage (ShaderStage::Vertex) is not in the binding visibility in
-          // the layout (ShaderStage::Fragment)". It is opt-in because WebGPU counts sampled
-          // textures PER STAGE, so widening every texture would charge the vertex budget for
-          // bindings no vertex reads (rhi.ts's own reasoning, and the particle-advection
-          // path is the other caller).
-          { binding: 4, kind: 'texture', name: 'dem_tex', vertexVisible: true },
-          { binding: 5, kind: 'sampler', vertexVisible: true },
-        ],
-        [{ binding: 0, kind: 'uniform' }],
-      ],
+      groups: [RASTER_GROUP0, RASTER_TILE_GROUP],
       colorTargets: [
         { format: this.format as 'bgra8unorm', blend: 'alpha' },
         { format: 'rg32uint' },
