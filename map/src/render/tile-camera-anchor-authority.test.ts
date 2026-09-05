@@ -54,6 +54,16 @@ const CASES: readonly AnchorCase[] = [
     camLat: 35.6812,
   },
   { label: 'world z0 corner', west: -180, south: -85.051129, worldOff: 0, camLon: 10, camLat: 20 },
+  // #2315 — pole-ward camera (|lat| > 85.051129): the ECEF camera term must NOT
+  // be Mercator-clamped (the mirror formula reproduces the unclamped authority).
+  {
+    label: 'pole-ward camera lat 89',
+    west: -180,
+    south: 85.051129,
+    worldOff: 0,
+    camLon: 0,
+    camLat: 89,
+  },
   {
     label: 'Tokyo z14, worldOff=360',
     west: 139.74609375,
@@ -92,7 +102,9 @@ function refEcef(
   const tSin = Math.sin(tLatR)
   const tCos = Math.cos(tLatR)
   const tN = R / Math.sqrt(1 - tileE2 * tSin * tSin)
-  const camLatR = c.camLat * DEG2RAD // #2315 — camera term is unclamped (mirrors the authority)
+  // #2315 — the CAMERA term is unclamped (it must equal the orbit matrix's RTC
+  // origin, which reaches the pole); only the tile term keeps clampMercLat.
+  const camLatR = c.camLat * DEG2RAD
   const camLonR = c.camLon * DEG2RAD
   const camSin = Math.sin(camLatR)
   const camCos = Math.cos(camLatR)

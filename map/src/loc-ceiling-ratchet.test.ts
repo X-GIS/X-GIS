@@ -1342,6 +1342,8 @@ const CEILINGS: Record<string, number> = {
   // capabilities/symbol.ts and the spec-coverage note all point here rather than
   // restate it (an earlier draft restated it four times and cost 33 lines).
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  // 2171→2172 (#2446): one argument — the label's inline-image anchors — threaded
+  // into wrapWithKnuthPlass so the whitespace trim stops at an image.
   // 2149→2178 (#2313 — an unshapeable curved line label must still be counted).
   // The three early-outs of the line-shaping loop (no glyphs, degenerate
   // polyline, glyph walk rejected by run length / text-max-angle) `continue`d
@@ -1369,7 +1371,11 @@ const CEILINGS: Record<string, number> = {
   // raised this key from a common base, so the merged file carries BOTH deltas and
   // neither side's number is right (§12). Measured 2217 with `wc -l` on the
   // post-prettier merged tree.
-  'map/src/text/text-stage.ts': 2217,
+  // MERGE RE-MEASURE (2026-09-05, third main merge): main's #2503 (leading-whitespace
+  // trim) and #2507 (limb-cull) landed on this file while this branch carried #2313 and
+  // #2323, so the merged file holds every delta and neither side's number is right.
+  // Measured 2218 with `wc -l` on the post-prettier merged tree.
+  'map/src/text/text-stage.ts': 2218,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1524,7 +1530,12 @@ const CEILINGS: Record<string, number> = {
   // origin must be the same point, and the saturated value put them 441 km apart at
   // lat 89. That prose is the reason a future edit cannot 'simplify' the branch away.
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  'map/src/render-loop-helpers.ts': 869,
+  // 869->841 (2026-09-05, third main merge): this branch's #2315 helper
+  // `frameCenterLatDeg` was superseded by main's `frameCenterLatOf` (view-matrix.ts,
+  // #2507), which took over its only call site in render-loop.ts, so the helper and
+  // its test were removed as the orphans the merge created. Shrink-only: measured 841
+  // with `wc -l` on the post-prettier merged tree.
+  'map/src/render-loop-helpers.ts': 841,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
   // the already-emitted wgsl is plumbed through create{Variant}Pipelines[Async]
@@ -1581,6 +1592,10 @@ const CEILINGS: Record<string, number> = {
   // Nothing to extract — the rule reads `this.pitch` and writes this class's own
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
+  // 1442→1441 (#2332): effectiveMpp's docblock rewritten to the builder it mirrors.
+  // MERGE UNION (#2507 <- main): main's -1 (#2332, above) and the branch's -1 (#2500:
+  // the disc zoomAt branch's viewport-fit clamp + latPreserve reset block became one
+  // dual write, _setDiscCenterLat) compose. MEASURED post-merge: 1440. A LOWERING.
   // 1442→1452 (interaction-dpr anchor fix, measured post-prettier per §12): pan /
   // zoomAt / panToScreenAnchor / maxCameraY take the caller's device scale
   // instead of each re-deriving min(devicePixelRatio, maxDpr) — three inline
@@ -1601,7 +1616,12 @@ const CEILINGS: Record<string, number> = {
   // the per-arm builder map that replaces the one-line claim the split refutes.
   // Nothing to extract: it is a two-line decision about this class's own fields,
   // and moving it out would re-create the mirror-drift the fix closes.
-  'map/src/camera/camera.ts': 1474,
+  // MERGE RE-MEASURE (2026-09-05, third main merge): main's #2332 (6e34251, kept as the
+  // implementation) and this branch's #2289 (dpr-anchored pan/zoom) + #2322 (pan scale
+  // cap) all raised this key from a common base; the merged file carries every delta and
+  // neither side's number is right. Measured 1457 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/camera/camera.ts': 1457,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
@@ -1967,7 +1987,11 @@ const CEILINGS: Record<string, number> = {
   // 932→924 (#2315): the inline RTC-centre-latitude clamp (and its S5/S10 roadmap
   // comment, now landed) became one call to render-loop-helpers' frameCenterLatDeg;
   // the orphaned `poleLimit` import went with it. A LOWERING. MEASURED post-prettier.
-  'map/src/render-loop.ts': 924,
+  // 924->932 (2026-09-05, third main merge): render-loop.ts is main's file verbatim after
+  // #2507 superseded this branch's #2315 there, and main's own ceiling for it is 932 —
+  // the merge had kept this branch's 924 because both sides raised the key inside one
+  // conflict hunk. Measured 932 with `wc -l` on the merged tree (identical to main).
+  'map/src/render-loop.ts': 932,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
   // landed since hillshade was copied from it — the per-tile fade ramp + its
@@ -2310,7 +2334,9 @@ const CEILINGS: Record<string, number> = {
   // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
   // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
   // (currentZ trailing the camera) from the LOD the camera asks for.
-  'map/src/render/tile-selection-cache.ts': 1074,
+  // 1074->1073 (#2500): the open-coded sphere-family centre-lat branch became one
+  // frameCenterLatOf call (the frame token's authority). A LOWERING.
+  'map/src/render/tile-selection-cache.ts': 1073,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

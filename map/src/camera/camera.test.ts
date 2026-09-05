@@ -26,7 +26,7 @@ import { describe, expect, it } from 'vitest'
 import { Camera } from './camera'
 import { zoomAtGlobeAnchored, type GlobeAnchorCamera } from './globe-anchor'
 import { ecefToENUOf } from './view-matrix'
-import { lonLatToMercator, isGlobeProj } from '@xgis/geo'
+import { lonLatToMercator, isGlobeProj, flatViewHeightCapM } from '@xgis/geo'
 
 /** Inverse of `lonLatToMercator` for the round-trip assertion below.
  *  Local copy because the loader/geojson module doesn't export one
@@ -917,6 +917,100 @@ describe('Camera — effectiveMpp globe/ECEF cos-lat cap (#964p2)', () => {
     const naive = rawMppOf(1.0) // what the reverted branch returns
     expect(cam.effectiveMpp(7, HTALL, DPR) / frame).toBeCloseTo(1, 4) // fixed path
     expect(naive / frame).toBeGreaterThan(4) // reverted path is way off → (a) fails
+  })
+})
+
+// ── Camera.effectiveMpp mirrors the builder that ACTUALLY runs (#2332) ──
+//
+// #964p2 above proves the non-globeMode ECEF arm against buildECEFFrameView. A
+// globeMode camera never reaches that builder: getViewForProjection →
+// getECEFFrameView short-circuits into _globeFrame → buildGlobeFrame →
+// globeAltitude, whose perspective branch is UNCAPPED (#450). effectiveMpp used
+// to apply the ECEF cap there anyway — 6.6× too small at z0 on a 1080 px canvas
+// — so every metre-scaled size consumer (dash spacing, metre-radius points, the
+// heatmap kernel) read the right scale only past z*. This suite measures the
+// scale from the matrix getViewForProjection returns and asserts effectiveMpp
+// equals it for every builder the call can reach in globeMode.
+describe('Camera — effectiveMpp mirrors the globe builders (#2332)', () => {
+  const WORLD_MERC = 40075016.686
+  const TILE_PX_ = 512
+  const H1080 = 1080
+  const rawMppOf = (z: number) => WORLD_MERC / TILE_PX_ / Math.pow(2, z)
+
+  /** Metres per CSS px the globe RTC matrix renders at the focus, measured from
+   *  the matrix itself: project the RTC origin and a d-metre ENU-east offset and
+   *  read their NDC-x separation. TRUE metres — globeAltitude sets the altitude
+   *  from `cssH·rawMpp` with no latitude factor, so this is the basis the globe
+   *  frame actually draws in. An independent witness of the frame, not a re-run
+   *  of the fix's formula. */
+  function globeFrameMpp(cam: Camera, w: number, h: number): number {
+    const mvp = cam.getViewForProjection(7, w, h, DPR).matrix
+    const Renu = ecefToENUOf({ centerX: cam.centerX, centerLatDeg: cam.centerLatDeg })
+    const d = 5000
+    const enu = [d, 0, 0]
+    const ecef = [0, 0, 0]
+    for (let i = 0; i < 3; i++) {
+      let s = 0
+      for (let j = 0; j < 3; j++) s += Renu[i * 4 + j] * enu[j] // Renu^T · enu
+      ecef[i] = s
+    }
+    const c0 = mulMatVec4(mvp, [0, 0, 0, 1])
+    const c1 = mulMatVec4(mvp, [ecef[0], ecef[1], ecef[2], 1])
+    const px = Math.abs(c1[0] / c1[3] - c0[0] / c0[3]) * (w / DPR / 2)
+    return d / px
+  }
+
+  it('perspective globe (setProjection(7)): effectiveMpp equals the frame scale at z0..z6 — the sub-cap band included', () => {
+    for (const z of [0, 1, 2, 3, 6]) {
+      const cam = new Camera(0, 0, z)
+      expect(cam.setProjection(7)).toBe(7)
+      expect(cam.globeMode).toBe(true)
+      expect(cam.globeOrtho).toBe(false)
+      const frame = globeFrameMpp(cam, H1080, H1080)
+      expect(cam.effectiveMpp(7, H1080, DPR) / frame).toBeCloseTo(1, 2)
+      expect(cam.effectiveMpp(7, H1080, DPR)).toBe(rawMppOf(z))
+    }
+  })
+
+  it('discriminator: the ECEF cap the old globe arm applied is 1.6–6.6× off below z*', () => {
+    // What the pre-#2332 branch returned for a globeMode camera: the
+    // buildECEFFrameView cap, which the globe path never runs. It must
+    // DIVERGE from the measured frame scale, which is exactly what the
+    // parity assertion above catches if the arm regresses.
+    const EARTH_R_ = 6378137
+    for (const [z, ratio] of [
+      [0, 6.6],
+      [1, 3.3],
+      [2, 1.6],
+    ] as const) {
+      const cam = new Camera(0, 0, z)
+      cam.setProjection(7)
+      const oldArm = Math.min(rawMppOf(z), (2 * EARTH_R_) / H1080)
+      expect(globeFrameMpp(cam, H1080, H1080) / oldArm).toBeGreaterThan(ratio)
+    }
+  })
+
+  it('perspective globe at lat 45: the focus still renders at rawMpp (no latitude factor in globeAltitude)', () => {
+    for (const z of [0, 2, 6]) {
+      const cam = new Camera(0, 45, z)
+      cam.setProjection(7)
+      expect(globeFrameMpp(cam, H1080, H1080) / rawMppOf(z)).toBeCloseTo(1, 2)
+      expect(cam.effectiveMpp(7, H1080, DPR)).toBe(rawMppOf(z))
+    }
+  })
+
+  it('azimuthal-promoted disc (globeOrtho): the flat cap of the SOURCE projType, measured and by formula', () => {
+    for (const azi of [3, 4]) {
+      for (const z of [0, 1, 3, 6]) {
+        const cam = new Camera(0, 0, z)
+        cam.globeMode = true
+        cam.globeOrtho = true
+        cam.azimuthalProjType = azi
+        const expected = Math.min(rawMppOf(z), flatViewHeightCapM(azi, WORLD_MERC) / H1080)
+        expect(cam.effectiveMpp(7, H1080, DPR)).toBe(expected)
+        expect(cam.effectiveMpp(7, H1080, DPR) / globeFrameMpp(cam, H1080, H1080)).toBeCloseTo(1, 2)
+      }
+    }
   })
 })
 

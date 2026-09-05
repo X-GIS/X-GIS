@@ -98,31 +98,88 @@ describe('Knuth-Plass wrap — line-width trims trailing whitespace (#2336)', ()
     expect(lines[1]).toEqual({ start: 6, end: 11, width: 50 }) // "中中中中中"
   })
 
-  it('control: a LEADING blank is deliberately still measured — trimming it without moving `start` would shift ink', () => {
-    // "AB\n  CD" — the `\n` forces a fresh segment starting "  CD".
-    // With a generous maxWidth the segment stays one line, so its
-    // emitted range is the WHOLE segment [3,7) — start lands directly
-    // on the first of the two leading spaces.
-    //
-    // This case is EXCLUDED from the fix on purpose. text-stage-helpers'
-    // `fillLineWithInlineImages` starts its pen at `lineX` and advances
-    // through every glyph in [start, end), so the two leading spaces are
-    // consumed before any ink. Narrowing the width to 20 while `start`
-    // stays 3 would set `lineX = totalAdvance - 20` on right-justify and
-    // then push the ink 20px past it — worse than the 10px half-shift the
-    // untrimmed width produces. The MapLibre-faithful form advances
-    // `start` as well, which the inline-sprite index filter makes a
-    // separate change (#2446). Pinned here so a future "symmetry" edit
-    // has to argue with a red test.
+  describe('#2446 — leading whitespace moves `start` WITH the width (MapLibre `trim()` on both ends)', () => {
     const NL = 0x0a
-    const cps = [A, 0x42 /* B */, NL, SP, SP, 0x43 /* C */, 0x44 /* D */]
-    const adv = cps.map(() => 10)
-    const lines = wrapForTesting(cps, adv, 1000)
-    expect(lines.length).toBe(2)
-    expect(lines[0]).toEqual({ start: 0, end: 2, width: 20 }) // "AB" — unaffected
-    expect(lines[1]!.start).toBe(3) // index unchanged: still points at the first leading space
-    expect(lines[1]!.end).toBe(7)
-    expect(lines[1]!.width).toBe(40) // "  CD" — leading run still counted, trailing "D" is not whitespace
+    const B = 0x42
+    const C = 0x43
+    const D = 0x44
+
+    it('a segment that begins on whitespace ("AB\\n  CD") emits line 1 as {start: 5, end: 7, width: 20}', () => {
+      // The `\n` forces a fresh segment starting "  CD". With a generous
+      // maxWidth the segment stays one line; `start` must land on "C",
+      // not on the first blank, and the width must be "CD" only — the
+      // pen in `fillLineWithInlineImages` starts at `lineX` on glyph
+      // `start`, so moving one without the other shifts the ink (the
+      // issue's rejected width-only form). `end` stays the literal
+      // break index.
+      const cps = [A, B, NL, SP, SP, C, D]
+      const adv = cps.map(() => 10)
+      const lines = wrapForTesting(cps, adv, 1000)
+      expect(lines.length).toBe(2)
+      expect(lines[0]).toEqual({ start: 0, end: 2, width: 20 }) // "AB" — unaffected
+      expect(lines[1]).toEqual({ start: 5, end: 7, width: 20 }) // "CD" — both blanks trimmed
+    })
+
+    it('the FIRST line trims too: " CD" → {start: 1, end: 3, width: 20}', () => {
+      const cps = [SP, C, D]
+      const adv = cps.map(() => 10)
+      expect(wrapForTesting(cps, adv, 1000)).toEqual([{ start: 1, end: 3, width: 20 }])
+    })
+
+    it('an all-whitespace segment collapses to an EMPTY line that still takes a line feed', () => {
+      // MapLibre `shapeLines`: a line that trims to nothing still adds
+      // `lineHeight` ("Still need a line feed after empty line").
+      const cps = [A, B, NL, SP]
+      const adv = cps.map(() => 10)
+      const lines = wrapForTesting(cps, adv, 1000)
+      expect(lines.length).toBe(2)
+      expect(lines[1]).toEqual({ start: 4, end: 4, width: 0 })
+    })
+
+    it('an inline image anchored ON the leading blank stops the trim — the image precedes the blank', () => {
+      // "⟨img⟩ CD": parseInlineImages strips to " CD" with the image at
+      // glyphIndex 0 (inserted BEFORE glyph 0). In MapLibre the image is a
+      // section character, so `trim()` stops at it and the blank is
+      // interior: width = blank + C + D. Trimming here would ALSO move
+      // `start` past the image's anchor, and the sprite filter in
+      // `fillPointGlyphOffsetsWithImages` (`glyphIndex >= start`) would
+      // drop the image.
+      const cps = [SP, C, D]
+      const adv = cps.map(() => 10)
+      expect(wrapForTesting(cps, adv, 1000, 0, [0])).toEqual([{ start: 0, end: 3, width: 30 }])
+    })
+
+    it('an inline image anchored AFTER the leading blank does not stop the trim (" ⟨img⟩CD")', () => {
+      const cps = [SP, C, D]
+      const adv = cps.map(() => 10)
+      // The anchor (1) stays inside the emitted [start, end].
+      expect(wrapForTesting(cps, adv, 1000, 0, [1])).toEqual([{ start: 1, end: 3, width: 20 }])
+    })
+
+    it('the mirror on the trailing side: an image anchored at `end` keeps the blank before it in the width', () => {
+      // "CD ⟨img⟩" → "CD " with the image at glyphIndex 3 (after the last
+      // glyph). The pen consumes the blank and THEN emits the image, so
+      // the block must measure C + D + blank (30) — the #2336 trailing
+      // trim alone (20) under-measures the block by the blank.
+      const cps = [C, D, SP]
+      const adv = cps.map(() => 10)
+      expect(wrapForTesting(cps, adv, 1000, 0, [3])).toEqual([{ start: 0, end: 3, width: 30 }])
+      // Control — no image: the #2336 trailing trim stands.
+      expect(wrapForTesting(cps, adv, 1000)).toEqual([{ start: 0, end: 3, width: 20 }])
+    })
+
+    it('the wrap cache keys on the anchors: the same glyph run with and without an image must not share an entry', () => {
+      // Same codepoints, advances, font key, size, spacing and maxWidth —
+      // only the image differs. Without the anchor folded into
+      // `pretextCacheKey`, the second call would return the first call's
+      // cached (trimmed) lines. Order matters: plain first, so the plain
+      // entry is the one a colliding key would serve.
+      const cps = [SP, C, D]
+      const adv = cps.map(() => 10)
+      expect(wrapForTesting(cps, adv, 640)).toEqual([{ start: 1, end: 3, width: 20 }])
+      expect(wrapForTesting(cps, adv, 640, 0, [0])).toEqual([{ start: 0, end: 3, width: 30 }])
+      expect(wrapForTesting(cps, adv, 640)).toEqual([{ start: 1, end: 3, width: 20 }]) // LRU hit, still trimmed
+    })
   })
 
   it('consecutive-space run + centre/right-justify symptom: no emitted line ever measures a boundary space', () => {
@@ -143,15 +200,16 @@ describe('Knuth-Plass wrap — line-width trims trailing whitespace (#2336)', ()
     }
   })
 
-  it('Infinity path (no wrap): a single unwrapped line trims its trailing whitespace run', () => {
+  it('Infinity path (no wrap): a single unwrapped line trims its whitespace runs on both ends', () => {
     const cps = [SP, SP, 0x48 /* H */, 0x69 /* i */, SP, SP]
     const adv = cps.map(() => 10)
     const lines = wrapForTesting(cps, adv, Infinity)
     expect(lines.length).toBe(1)
-    expect(lines[0]!.start).toBe(0) // index unchanged
+    // Both trailing spaces drop from the width (`end` stays literal —
+    // the pen consumes them, they render no ink); the two leading ones
+    // drop from the width AND move `start` past them (#2446).
+    expect(lines[0]!.start).toBe(2)
     expect(lines[0]!.end).toBe(6)
-    // Both trailing spaces drop (60 → 40); the two leading ones stay, per
-    // the control above — the pen consumes them, so the width must too.
-    expect(lines[0]!.width).toBe(40)
+    expect(lines[0]!.width).toBe(20)
   })
 })

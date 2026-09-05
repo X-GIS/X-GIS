@@ -140,12 +140,11 @@ export function computeTileCameraAnchor(
   const tSin = Math.sin(tLatR)
   const tCos = Math.cos(tLatR)
   const tN = R / Math.sqrt(1 - E2 * tSin * tSin)
-  // #2315 — the CAMERA ECEF term must NOT be Mercator-clamped: the frame's
-  // centre latitude reaches ±90° on the sphere family, and the MVP these
-  // vertices are multiplied by puts its RTC origin at lonLatToECEF(clon,
-  // centerLatDeg). Clamping here left the anchor 441 km short at lat 89 and
-  // drew the whole tile sheet 181 px off the point/label frame. The TILE term
-  // above keeps its clamp — tile corners live on the Mercator grid.
+  // The CAMERA term is NOT Mercator-clamped: it must equal lonLatToECEF(cam) —
+  // the orbit matrix's RTC origin (buildGlobeFrame reads centerLatDeg, which
+  // reaches the pole). Clamping it here put the tile sheet 441 km off the
+  // point/label frame at lat 89 (#2315). Only the TILE term keeps the clamp
+  // (a Mercator tile edge is never past ±85.051129°).
   const camLatR = camLatDeg * DEG2RAD
   const camLonR = camLonDeg * DEG2RAD
   const camSin = Math.sin(camLatR)

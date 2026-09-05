@@ -12,10 +12,9 @@
 // (writeRasterTileUniform).
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import type { Camera } from '../camera'
+import { frameCenterLatOf, type Camera } from '../camera'
 import { visibleTilesFrustum, type TileRowScheme } from '@xgis/data'
 import { type EvictableTile } from './raster-cache-budget'
-import { mercatorYToLat } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
@@ -475,7 +474,7 @@ export class HillshadeRenderer {
     // Tile selection — mirror raster: sphere selector on the globe, flat frustum otherwise.
     const R = activeBody().sphereR
     const centerLon = (camera.centerX / R) * (180 / Math.PI)
-    const centerLat = mercatorYToLat(camera.centerY)
+    const centerLat = frameCenterLatOf(camera, projType) // #2315/#2500 — sphere family reads centerLatDeg
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
     let tiles: ReturnType<typeof visibleTilesFrustum>

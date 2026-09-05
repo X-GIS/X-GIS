@@ -23,13 +23,14 @@ import {
   flushPerFrameMarks,
 } from './__profile__/perf-marks'
 import { mercatorYToLat } from '@xgis/geo'
-import { PROJECTION_NAME_TO_TYPE } from '@xgis/geo'
+import { PROJECTION_NAME_TO_TYPE, representsCenterAs } from '@xgis/geo'
+import { frameCenterLatOf } from './camera/view-matrix'
 import { adaptiveDprScale, effectiveDpr } from '@xgis/engine'
 import { resizeCanvas, pushValidationError } from '@xgis/rhi-webgpu'
 import { isOverdrawActive, sceneScalePinned } from './debug-flags'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { invalidateResolvedShowCache } from './render/resolved-show'
-import { frameCenterLatDeg, reportErrorScope } from './render-loop-helpers'
+import { reportErrorScope } from './render-loop-helpers'
 import { GpuFaultDrain } from './render-loop-gpu-fault'
 import { keepLoopWarm } from './render-loop-keep-warm'
 import { SCOPE_TILE_COUNT } from './pending-work'
@@ -197,7 +198,12 @@ export class RenderLoop {
     // presets that set interactionDpr (balanced/battery/?adaptiveDpr).
     const mpp = WORLD_MERC / TILE_PX / Math.pow(2, this.host.camera.zoom)
     const visHalfY = ((h / dpr) * mpp) / 2
-    const maxY = Math.max(0, MAX_MERC - visHalfY)
+    // Viewport-fit bound: cylindrical family only. The sphere family's centre
+    // authority is centerLatDeg (an orbit camera has no world edge to keep on
+    // screen); pinning its Mercator mirror to the equator at whole-earth zoom
+    // is what split the two centres in #2500. It stays ±MAX_MERC-bounded.
+    const maxY =
+      representsCenterAs(projType) === 'lat-deg' ? MAX_MERC : Math.max(0, MAX_MERC - visHalfY)
     this.host.camera.centerY = Math.max(-maxY, Math.min(maxY, this.host.camera.centerY))
 
     // X wrap — camera is allowed to pan infinitely in either direction, but
@@ -221,10 +227,12 @@ export class RenderLoop {
     // RTC: Camera center IS projection center. Always.
     const R = EARTH.sphereR
     const centerLon = (this.host.camera.centerX / R) * (180 / Math.PI)
-    // The RTC-centre latitude, read through the centre representation the
-    // projections table declares and clamped to its pole limit (#2315 — see
-    // frameCenterLatDeg). Feeds the ProjectionToken every renderer anchors on.
-    const centerLat = frameCenterLatDeg(this.host.camera)
+    // RTC-centre latitude from the projection's own centre authority
+    // (frameCenterLatOf: centerLatDeg for the sphere family, the Mercator
+    // mirror for the cylindrical one), poleLimit-clamped. This is the value
+    // buildGlobeFrame / getECEFCenter read, so the tile anchors packed from the
+    // token coincide with the orbit matrix's RTC origin. #2315 / #2500.
+    const centerLat = frameCenterLatOf(this.host.camera, projType)
 
     perfMarkEnd('frame.prep')
 

@@ -13,7 +13,7 @@ import {
 import { hexToRgba } from './feature-helpers'
 import { EARTH, lonLatToECEF, eyeHorizon } from '@xgis/shared'
 import { EARTH_R } from '@xgis/geo'
-import { mercatorYToLat, poleLimit, representsCenterAs } from '@xgis/geo'
+import { mercatorYToLat } from '@xgis/geo'
 import {
   projectCpu,
   projectGeomCpu,
@@ -32,34 +32,6 @@ import { xlog } from '@xgis/shared'
 // it is the projected-x circumference. (Numerically WORLD_MERC ≈ this value,
 // but they are kept distinct so the non-merc copy offset tracks project_geom.)
 export const WORLD_CIRC = 2 * Math.PI * EARTH.sphereR
-
-/** The frame's RTC centre latitude in degrees — the value every renderer's
- *  camera anchor is built from (the ProjectionToken's `centerLat`).
- *
- *  The RAW latitude comes from the representation the projections table
- *  DECLARES (`representsCenterAs`), exactly as tile-selection-cache /
- *  tile-decision already read it, so selection and draw share ONE centre. The
- *  sphere family (globe + the azimuthal discs) stores its centre as a TRUE
- *  latitude in `centerLatDeg` and reaches ±90°; `mercatorYToLat(centerY)`
- *  saturates at ±85.051129°. Reading the saturated value here anchored the
- *  tile / raster / hillshade / drape renderers 441 km from the RTC origin their
- *  own MVP is built on (`buildGlobeFrame` / `Camera.getECEFCenter`, both
- *  `centerLatDeg`) — 181 px of tile-vs-symbol displacement at lat 89, z5 (#2315).
- *  Cylindrical projections keep `centerLatDeg === mercatorYToLat(centerY)` by the
- *  Camera invariant, so they are byte-identical either way.
- *
- *  Clamped to the projection's pole limit (projections-table `poleLimit` SoT:
- *  ±85.051129° cylindrical, ±90° sphere). */
-export function frameCenterLatDeg(
-  camera: Pick<Camera, 'projType' | 'centerY' | 'centerLatDeg'>,
-): number {
-  const pl = poleLimit(camera.projType)
-  const raw =
-    representsCenterAs(camera.projType) === 'lat-deg'
-      ? camera.centerLatDeg
-      : mercatorYToLat(camera.centerY)
-  return Math.max(-pl, Math.min(pl, raw))
-}
 
 /** Report BOTH outcomes of a popped validation scope (#1046 F4 — the promise
  *  comes from `RhiDevice.popValidationScope`, message-or-null). Fire-and-forget
