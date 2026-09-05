@@ -638,21 +638,14 @@ export class HillshadeRenderer {
     }
 
     // Nearest cached ancestor (1–4 levels up) — the missing-tile fallback AND the
-    // zoom-IN cross-fade underlay.
+    // zoom-IN cross-fade underlay. Ancestors ONLY (the exact tile is the branch
+    // above), so the store walk starts at the parent: "1–4 up" = "0–3 up from it"
+    // (#2525). `ox` (world copy) stays here — the store knows nothing about copies.
     const findCachedParent = (coord: { z: number; x: number; y: number; ox?: number }) => {
-      for (let pz = 1; pz <= 4; pz++) {
-        const parentZ = coord.z - pz
-        if (parentZ < 0) break
-        const px = coord.x >> pz
-        const py = coord.y >> pz
-        const entry = this.dem.get(`${parentZ}/${px}/${py}`)
-        if (entry)
-          return {
-            renderCoord: { z: parentZ, x: px, y: py, ox: (coord.ox ?? coord.x) >> pz },
-            entry,
-          }
-      }
-      return null
+      const r = this.dem.resolve(coord.z - 1, coord.x >> 1, coord.y >> 1, 3)
+      if (!r) return null
+      const ox = (coord.ox ?? coord.x) >> (r.levelsUp + 1)
+      return { renderCoord: { z: r.z, x: r.x, y: r.y, ox }, entry: r.entry }
     }
 
     // Cached DIRECT children — on a zoom-OUT the just-departed higher-detail tiles

@@ -1917,7 +1917,11 @@ const CEILINGS: Record<string, number> = {
   // carries both deltas and neither side's number is right (§12) — RE-MEASURED
   // post-prettier (`wc -l`) on the merged tree.
   // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
-  'map/src/render/hillshade-renderer.ts': 753,
+  // 753->746 (#2525, D5 INC-1, measured post-prettier): the `findCachedParent`
+  // closure became a delegate to `DemTileStore.resolve`. Shrink-only ratchet
+  // honoured — the first draft GREW the file by 4 on the strength of a comment
+  // and was cut back; the explanation lives on the store's method instead.
+  'map/src/render/hillshade-renderer.ts': 746,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
