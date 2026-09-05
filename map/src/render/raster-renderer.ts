@@ -1,9 +1,9 @@
 // ═══ Raster Tile Renderer — 텍스처 타일을 GPU 투영으로 렌더링 ═══
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
-import type { Camera } from '../camera'
+import { frameCenterLatOf, type Camera } from '../camera'
 import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
-import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
+import { mercator as mercatorProj } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
@@ -674,7 +674,7 @@ export class RasterRenderer {
     // causing blank coverage gaps on the globe (#596).
     const R = activeBody().sphereR
     const centerLon = (camera.centerX / R) * (180 / Math.PI)
-    const centerLat = mercatorYToLat(camera.centerY)
+    const centerLat = frameCenterLatOf(camera, projType) // #2315/#2500 — sphere family reads centerLatDeg
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
     let tiles: ReturnType<typeof visibleTilesFrustum>

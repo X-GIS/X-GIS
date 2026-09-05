@@ -1447,7 +1447,10 @@ const CEILINGS: Record<string, number> = {
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
   // 1442→1441 (#2332): effectiveMpp's docblock rewritten to the builder it mirrors.
-  'map/src/camera/camera.ts': 1441,
+  // MERGE UNION (#2507 <- main): main's -1 (#2332, above) and the branch's -1 (#2500:
+  // the disc zoomAt branch's viewport-fit clamp + latPreserve reset block became one
+  // dual write, _setDiscCenterLat) compose. MEASURED post-merge: 1440. A LOWERING.
+  'map/src/camera/camera.ts': 1440,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
@@ -2132,7 +2135,9 @@ const CEILINGS: Record<string, number> = {
   // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
   // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
   // (currentZ trailing the camera) from the LOD the camera asks for.
-  'map/src/render/tile-selection-cache.ts': 1074,
+  // 1074->1073 (#2500): the open-coded sphere-family centre-lat branch became one
+  // frameCenterLatOf call (the frame token's authority). A LOWERING.
+  'map/src/render/tile-selection-cache.ts': 1073,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
