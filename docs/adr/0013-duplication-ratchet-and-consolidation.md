@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-05
-- **Related**: `.jscpd.json`, `.jscpd-baseline.json`, `scripts/dup-ratchet.ts` (+
+- **Related**: `.jscpd.json`, `scripts/dup-ratchet.ts` (+
   `scripts/dup-ratchet.test.ts`), `.github/workflows/test.yml` (`lint` job),
   `scripts/precheck.ts`, `map/src/loc-ceiling-ratchet.test.ts`,
   `engine/src/dependency-direction-ratchet.test.ts`, CLAUDE.md §14,
@@ -78,9 +78,25 @@ noticing.
 4. Hand-rolled token hashing in TypeScript — reimplementing a mature detector for no gain.
 5. Gating tests too — deferred, see Decision 3.
 6. jscpd 4 (the Node engine) — detects the case the 5.x TypeScript tokenizer misses, but it
-   is the deprecated branch and has no baseline mode; the 5.x JavaScript tokenizer gives the
-   same recall on every probe.
+   is the deprecated branch and has neither baseline mode; the 5.x JavaScript tokenizer gives
+   the same recall on every probe.
 7. The 5.x TypeScript tokenizer for the gate — rejected: deterministic blind spot, below.
+8. **A COMMITTED FINGERPRINT BASELINE — implemented first, then reverted the same day, and
+   the reason is the load-bearing part of this record.** `.jscpd-baseline.json` held the
+   fingerprint of every clone pair; the gate diffed it and reddened on a new fingerprint or a
+   stale one, `bun run dup:accept` re-recorded it, and net growth needed `--allow-growth`.
+   It gives a debt number in the repo that can only shrink, which is why it was chosen. It
+   does not survive this repo's merge cadence. A fingerprint covers the token stream of a
+   PAIR, so any commit editing inside any of the ~280 baselined regions re-fingerprints it —
+   and CI evaluates the PR's MERGE COMMIT, so a PR that changed nothing goes red the moment
+   main touches a clone region. Measured, not predicted: main took 4 commits in 19 minutes
+   (one of them #2540, in `map/src/shaders/dsl/polygon.ts`), and PR #2533's `lint` job failed
+   on 2 new + 2 stale fingerprints 40 minutes after the baseline was recorded, none of them
+   the branch's work. At that cadence every open PR pays a merge-and-re-record commit per
+   burst — which each supersede its own CI run — and a gate with that tax gets bypassed
+   within a week. That is the same argument Decision 3 uses to keep test duplication out of
+   the gate, turned on the gate itself. `--baseline-from-ref` removes the whole class: with
+   nothing stored, nothing can go stale, and the debt number moves to `dup:report`.
 
 ## Decision
 
@@ -109,23 +125,34 @@ The TypeScript lens stays for triage — `bun run dup:report --type-insensitive`
 choice is revisited when upstream fixes it (repro: the two files above,
 `jscpd -c .jscpd.json --format typescript --formats-exts typescript:ts`).
 
-### 2. The gate: a fingerprint baseline that can only shrink
+### 2. The gate: no PR may add a clone its base does not already have
 
 `bun run dup` (`scripts/dup-ratchet.ts`) runs in the CI `lint` job beside eslint and knip,
-and first in `precheck`. jscpd fingerprints each clone pair by its token content — probed
-stable under line shifts, file renames and unrelated edits — and a THIRD copy of a
-baselined pair produces a new fingerprint (probed), so the rule-of-three moment is exactly
-what turns the gate red. Red on: a new fingerprint; a stale one (the debt shrank and the
-baseline was not re-recorded — the #996 vacuity lesson); a `jscpd:ignore-start` without a
-reason. `bun run dup:accept` rewrites the baseline and refuses NET growth without
-`--allow-growth` (editing inside an existing copy moves its fingerprint, +1/−1, and needs no
-flag). A `+` line in the baseline diff is a review question; the accept command prints the
-clones it records. Verified by cutting the mechanism on the real tree — a planted whole
-function reddens the gate naming both files (`parseColor`, the very case the TypeScript
-tokenizer missed), a fingerprint whose clone no longer exists reddens it as stale and
-`dup:accept` then shrinks the baseline without a flag, a bare marker reddens it, a reasoned
-marker is accepted — and by `scripts/dup-ratchet.test.ts`, which walks the same ladder
-against the real binary on a fixture.
+and first in `precheck`. It scans the working tree and compares the clone set against the
+tree of a base ref (`jscpd --baseline-from-ref`), reddening on any pair absent from the base
+— and on a `jscpd:ignore-start` without a reason. Nothing is stored: the comparison baseline
+is rebuilt from the ref on each run, in ~4 s over 233k lines.
+
+**The base is the merge base with `origin/main`, falling back to `origin/main` itself when
+the history is shallow** — which is the exact answer under CI, whose checkout IS the PR
+merged into main, so "new versus main" is precisely "added by this PR". `resolveBaseRef`
+fetches `main` with an explicit refspec when the ref is absent (a `actions/checkout` clone
+carries only the checked-out ref) and THROWS when it cannot resolve one: a scan without a
+base marks every clone new, so a silent failure would invert the gate. Loud is the only safe
+direction — the poller lesson in CLAUDE.md §12.
+
+**The ratchet property survives the loss of the baseline file, and gets stronger.** Main can
+never GAIN a clone, because every PR is gated against main's own clone set at merge time and
+no `--allow-growth` escape hatch exists. What is lost is the committed debt NUMBER; that
+moves to `bun run dup:report`, with the 2026-09-05 snapshot in the audit doc.
+
+Verified by cutting the mechanism on the real tree — a whole function copied verbatim into a
+sibling file (`parseColor`, the very case the TypeScript tokenizer missed) reddens the gate
+naming both files at 586 tokens, removing it greens it, a bare marker reddens it, a reasoned
+marker is accepted — and by `scripts/dup-ratchet.test.ts`, which walks the ladder against
+the real binary and a real git ref: a base commit that already carries a clone pair reports
+it NOT new; a third copy added on top IS new and names the file that added it; once the base
+itself carries that third copy, nothing is new again.
 
 ### 3. Tests are reported, not gated
 
@@ -150,31 +177,37 @@ baseline has been shrinking for a while.
    become the helper. Across packages the SECOND copy must — or be marked as a deliberate
    twin — because a cross-package copy is two authorities for one fact.
 3. **Consolidate = helper + rewrite EVERY copy in the same PR + keep the guard.** The
-   baseline diff showing only removals is the proof every copy went (Coccinelle's tree-wide
-   rewrite). Where a copy is easy to reintroduce, a ratchet test or an ESLint
+   copies must go together because the gate only sees what the PR ADDS — a half-done
+   consolidation leaves the survivors green (Coccinelle's tree-wide rewrite is the model).
+   Where a copy is easy to reintroduce, a ratchet test or an ESLint
    `no-restricted-syntax` rule naming the helper stays in the tree (the `.cocci` that stays).
    Where a DSL twin is folded, emitted shaders stay byte-identical (the existing goldens and
    hash gates).
 4. **Deliberate twins are recorded where they live**: `// jscpd:ignore-start — <reason>
-(#issue)` … `// jscpd:ignore-end`. The gate rejects a bare marker. Accepted temporary
-   debt is `bun run dup:accept --allow-growth` plus the reason in the PR.
+(#issue)` … `// jscpd:ignore-end`. The gate rejects a bare marker, and the marker is the
+   ONLY way past it — there is no `--allow-growth`, by design: accepting a copy without
+   saying why in the code is exactly what turned the first design into a rubber stamp.
 5. **One issue per cluster** (CLAUDE.md §9.5): `file:line` of every copy, the remedy class,
    the helper's home, and the gate that proves it closed.
 
 ## Consequences
 
-- (+) Mechanical, ~0.5 s, no build. New duplication cannot enter unnoticed; existing debt is
-  a number that only goes down; the queue is ranked, and each cluster names its remedy.
+- (+) Mechanical, ~4 s, no build, nothing committed to keep in sync. A clone this PR adds
+  cannot enter unnoticed; the queue is ranked, and each cluster names its remedy.
+- (+) Immune to base movement: main can merge under an open PR all day and the gate's
+  verdict does not change, because the comparison is rebuilt from the base each run. That
+  is the property the first design lacked (Alternative 8).
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
 - (−) Token-level: identifier renames and reordered statements are invisible; so are
   annotation-only differences (visible to the `--type-insensitive` lens, not to the gate).
-- (−) The baseline is opaque hex; the review signal is the +/− line count and the PR text.
-- (−) Two more root files and one more CI step; the `changes` filter carries both files.
-- (−) The baseline is a snapshot of the whole tree, so it moves when ANY branch edits inside
-  a baselined clone — observed on this ADR's own PR: merging `main` re-fingerprinted three
-  pairs main had touched and left six stale entries. After merging `main` (or resolving a
-  conflict on `.jscpd-baseline.json`), run `bun run dup:accept` on the merged tree and commit
-  the result; never hand-edit the file. Same playbook as the LOC-ceiling merge union in
-  CLAUDE.md §12.
-- The thresholds and the tests decision are measurements to revisit, not constants: when the
-  source baseline is under ~50 fingerprints, consider 50/5 and gating tests.
+- (−) The debt number lives in `dup:report` and this ADR's table, not in a file CI diffs —
+  so a slow drift downward is not celebrated anywhere. Acceptable: the gate's job is to stop
+  new duplication, and the queue is what drives the number down.
+- (−) The gate needs `origin/main` reachable. In a network-less environment it throws rather
+  than passing; that is deliberate, but it does mean `bun run dup` is not usable offline on a
+  fresh clone until `main` has been fetched once.
+- (−) Two PRs in flight can each add the same copy, each green against main, and land a new
+  clone between them. The committed baseline had the same hole; the next PR's gate catches
+  the result.
+- The thresholds and the tests decision are measurements to revisit, not constants: when
+  `dup:report` shows the source clone count under ~50, consider 50/5 and gating tests.

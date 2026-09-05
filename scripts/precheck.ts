@@ -52,7 +52,7 @@ const steps: Step[] = [
   {
     // The CI `lint` job runs the same command; ~0.5 s here, so it goes first and a
     // pasted block fails the push before the ~2 min vitest pass starts.
-    label: 'duplication ratchet (jscpd)',
+    label: 'duplication gate (jscpd)',
     cmd: 'bun',
     args: ['scripts/dup-ratchet.ts'],
   },
@@ -118,7 +118,7 @@ function fmt(ms: number): string {
 // run it either, so we skip it locally too. Keep in sync with test.yml's `code`
 // filter.
 const CODE_PATH =
-  /^(compiler|engine|map|shared|geo|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.(config|setup)\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$|^scripts\/dup-ratchet\.ts$|^\.jscpd(-baseline)?\.json$/
+  /^(compiler|engine|map|shared|geo|blueprint|shader-dsl|rhi|rhi-webgl2|rhi-webgpu|data|pipeline|playground)\/|(^|\/)package\.json$|^bun\.lockb?$|^tsconfig.*\.json$|^vitest\.(config|setup)\.ts$|^\.github\/workflows\/test\.yml$|^scripts\/precheck\.ts$|^scripts\/dup-ratchet\.ts$|^\.jscpd\.json$/
 
 /**
  * The files this push would add, or `null` if the range can't be determined

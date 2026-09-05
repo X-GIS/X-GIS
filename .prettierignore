@@ -29,7 +29,3 @@ docs/standards/s-111/111_Feature_Catalogue_2.0.0.xml
 # Generator-owned coverage report — the emitter is the single format authority
 # (a prettier reflow here just gets rewritten by the next full vitest run).
 compiler/src/__tests__/__coverage__/SUMMARY.md
-
-# Generator-owned duplication baseline — jscpd writes it (`bun run dup:accept`) and is the
-# single format authority; a prettier reflow would just be rewritten by the next accept.
-.jscpd-baseline.json

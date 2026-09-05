@@ -1,18 +1,23 @@
-// ═══ The duplication ratchet must DISTINGUISH — new copy red, stale entry red, clean green ═══
+// ═══ The duplication gate must DISTINGUISH — a copy this branch adds is red, main's is not ═══
 //
 // CLAUDE.md §12: an assertion carries information only if it distinguishes the states of the
 // thing it tests, and "cut the specific mechanism and confirm the message names the severed
-// half". So the real jscpd binary runs here against a fixture on disk and the ladder is
-// walked end to end: two copies → one clone; baseline it → zero new; a THIRD copy → one new
-// (the rule-of-three moment the gate exists for); delete the copies → the baseline entry is
-// stale. The pure helpers (baseline diff, clone classes, clustering, marker check) get their
-// own cases because the report and the gate's verdict are built from them.
+// half". So the real jscpd binary runs here against a real git fixture and the ladder is
+// walked end to end: a base commit that already contains a clone pair; the same tree scanned
+// against that base reports nothing new; a THIRD copy added on top is reported new and named
+// — which is the rule-of-three moment the gate exists for.
 //
-// The fixture is a 14-line function (~150 tokens) so it stays a clone if `.jscpd.json`'s
-// minTokens is raised later — the ladder pins the COMMITTED config, not a private one.
+// The fixture is a git repo, not a directory, because the base is a REF: the mechanism under
+// test is `--baseline-from-ref`, and a test that faked the base would be testing nothing.
+// `resolveBaseRef` gets the case that matters for safety — a repo with no `origin/main` must
+// THROW, never return a base that silently marks every clone new (or none).
+//
+// The fixture function is ~170 tokens so it stays a clone if `.jscpd.json`'s minTokens is
+// raised later — the ladder pins the COMMITTED config, not a private one.
 
 import { describe, it, expect } from 'vitest'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -20,7 +25,7 @@ import {
   bareMarkers,
   classify,
   clusterClones,
-  diffBaseline,
+  resolveBaseRef,
   scan,
   type Clone,
 } from './dup-ratchet.js'
@@ -39,18 +44,6 @@ const clone = (
   lines,
   tokens: lines * 8,
   isNew: true,
-})
-
-describe('diffBaseline — what entered and what left', () => {
-  it('reports added (new clones) and removed (stale entries) as sorted fingerprint lists', () => {
-    const committed = { version: 1, fingerprints: { a1: 1, b2: 1 } }
-    const current = { version: 1, fingerprints: { b2: 1, c3: 1, a0: 1 } }
-    expect(diffBaseline(committed, current)).toEqual({ added: ['a0', 'c3'], removed: ['a1'] })
-  })
-  it('is empty both ways when nothing changed', () => {
-    const b = { version: 1, fingerprints: { a1: 1 } }
-    expect(diffBaseline(b, { ...b })).toEqual({ added: [], removed: [] })
-  })
 })
 
 describe('classify — the four remedy classes', () => {
@@ -114,7 +107,15 @@ describe('bareMarkers — an intentional twin carries its reason', () => {
   })
 })
 
-// ── The ladder, against the real binary and the committed .jscpd.json ──────────
+describe('resolveBaseRef — a lost base is loud, never silent', () => {
+  it('throws in a repo with no reachable origin/main', () => {
+    const root = mkdtempSync(join(tmpdir(), 'dup-nobase-'))
+    git(root, 'init', '--quiet')
+    expect(() => resolveBaseRef(root)).toThrow(/origin\/main/)
+  })
+})
+
+// ── The ladder, against the real binary, the committed .jscpd.json, and a real ref ─────
 
 const FIXTURE_FN = `export function fixtureFn(a: number, b: number, c: number): number {
   const s = a + b
@@ -132,44 +133,47 @@ const FIXTURE_FN = `export function fixtureFn(a: number, b: number, c: number): 
 }
 `
 
-describe('scan — the gate ladder on a fixture tree (real jscpd)', () => {
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
+}
+
+describe('scan against a base ref (real jscpd, real git)', () => {
+  // Base commit already carries the a↔b clone: the debt the branch inherits, not its doing.
   const root = mkdtempSync(join(tmpdir(), 'dup-ladder-'))
+  git(root, 'init', '--quiet')
   mkdirSync(join(root, 'src'))
   writeFileSync(join(root, 'src', 'a.ts'), FIXTURE_FN)
   writeFileSync(join(root, 'src', 'b.ts'), FIXTURE_FN)
-  const baseline = join(root, 'baseline.json')
+  git(root, 'add', '-A')
+  git(root, 'commit', '--quiet', '-m', 'base')
+  const base = git(root, 'rev-parse', 'HEAD')
   const opts = { root, roots: ['src'], ignore: IGNORE }
 
-  it('two copies are one clone, repo-relative, above the committed token floor', () => {
-    const { clones, stats } = scan(opts)
+  it('the clone the base already has is found, and is NOT new', () => {
+    const { clones, stats } = scan({ ...opts, baseRef: base })
     expect(clones).toHaveLength(1)
     expect(clones[0]).toMatchObject({ a: { file: 'src/a.ts' }, b: { file: 'src/b.ts' } })
     expect(clones[0]!.tokens).toBeGreaterThanOrEqual(70)
+    expect(clones[0]!.isNew).toBe(false)
     expect(classify(clones[0]!)).toBe('intra-dir')
     expect(stats.files).toBe(2)
   })
 
-  it('once baselined the same clone is not new; a THIRD copy is', () => {
-    scan({ ...opts, baseline, updateBaseline: true })
-    expect(scan({ ...opts, baseline }).clones.map((c) => c.isNew)).toEqual([false])
-
+  it('a THIRD copy added on top of the base IS new, and names the file that added it', () => {
     writeFileSync(join(root, 'src', 'c.ts'), FIXTURE_FN)
-    const third = scan({ ...opts, baseline })
-    expect(third.clones.filter((c) => c.isNew).length).toBeGreaterThan(0)
-    expect(third.clones.some((c) => c.a.file === 'src/c.ts' || c.b.file === 'src/c.ts')).toBe(true)
+    const fresh = scan({ ...opts, baseRef: base }).clones.filter((c) => c.isNew)
+    expect(fresh.length).toBeGreaterThan(0)
+    expect(fresh.every((c) => c.a.file === 'src/c.ts' || c.b.file === 'src/c.ts')).toBe(true)
   })
 
-  it('deleting the copies leaves the baseline entry stale, which the diff reports', () => {
-    rmSync(join(root, 'src', 'b.ts'))
-    rmSync(join(root, 'src', 'c.ts'))
-    const tmp = join(root, 'baseline-rescan.json')
-    copyFileSync(baseline, tmp)
-    const { clones } = scan({ ...opts, baseline: tmp, updateBaseline: true })
-    expect(clones).toEqual([])
-    const read = (p: string) =>
-      JSON.parse(readFileSync(p, 'utf8')) as Parameters<typeof diffBaseline>[0]
-    const d = diffBaseline(read(baseline), read(tmp))
-    expect(d.added).toEqual([])
-    expect(d.removed).toHaveLength(1)
+  it('once the base itself carries the third copy, nothing is new again', () => {
+    git(root, 'add', '-A')
+    git(root, 'commit', '--quiet', '-m', 'third copy lands on the base')
+    const moved = git(root, 'rev-parse', 'HEAD')
+    expect(scan({ ...opts, baseRef: moved }).clones.filter((c) => c.isNew)).toEqual([])
   })
 })

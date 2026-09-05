@@ -1,26 +1,36 @@
 #!/usr/bin/env bun
-// ═══ Duplication ratchet — a jscpd fingerprint baseline that can only shrink ═══
+// ═══ Duplication gate — no PR may add a clone that main does not already have ═══
 //
-//   bun run dup                    CI gate: red on a NEW clone or a STALE baseline entry
-//   bun run dup:accept             rewrite .jscpd-baseline.json (shrink freely; growth
-//                                  needs --allow-growth, and the PR must say why)
+//   bun run dup                    CI gate: red on a clone this branch adds over main
 //   bun run dup:report [--tests] [--top N] [--min-tokens K] [--type-insensitive]
 //                                  the ranked work queue: clone clusters by size × spread
 //
-// MEASURED 2026-09-05 on this tree (~900 source files, 231k lines; tests excluded), with
-// the tokenizer .jscpd.json selects (see below):
+// WHAT IT ASSERTS, and why it is a SET DIFFERENCE and not a number. A percentage hides a
+// 200-line paste behind a 2000-line feature landing in the same PR (CLAUDE.md §5: gate on
+// direction, never on an absolute %). So the gate compares the branch's clone set against
+// the clone set of the commit it is measured from, and fails on any pair that is new. The
+// ratchet property falls out by construction: main can never GAIN a clone, because no PR
+// may add one — no committed number to keep in sync, and no escape hatch.
 //
-//   minTokens 50 / minLines 5 → see the ADR's table
-//   minTokens 70 / minLines 5 → the gate (the ADR records the count at baseline time)
-//   with tests (2.5k files, 527k lines): ~5× the duplicated lines — `--tests` shows them
+// WHY NOT A COMMITTED FINGERPRINT BASELINE (the first design, reverted 2026-09-05 after CI
+// refuted it). jscpd can write its fingerprint set to a file that the gate diffs, which
+// gives a visible debt number that only shrinks. It does not survive this repo's merge
+// cadence: a fingerprint covers the token stream of a clone PAIR, so ANY commit that edits
+// inside ANY of the ~280 baselined regions re-fingerprints it, and the gate then reds on an
+// open PR that did nothing. Measured here: main took 4 commits in 19 minutes, one of them
+// (#2540) touching `map/src/shaders/dsl/polygon.ts`, and PR #2533's `lint` job went red on
+// the merge commit 40 minutes after the baseline was recorded — 2 new + 2 stale, none of
+// them this branch's work. At that cadence every open PR pays a merge-and-re-record commit
+// per burst, which is a gate that gets bypassed within a week (the same reasoning that
+// keeps test duplication out of the gate, applied to the gate itself). `--baseline-from-ref`
+// removes the class: nothing is stored, so nothing can go stale.
 //
-// The gate does NOT assert a percentage — a ratio hides a 200-line paste behind a 2000-
-// line feature landing in the same PR (CLAUDE.md §5: gate on direction, never on an
-// absolute %). It asserts the SET of clones: jscpd fingerprints every clone pair by its
-// token stream, so a fingerprint survives moving lines, renaming the file, or editing
-// unrelated code (all three probed), and a NEW fingerprint is a new copy — including the
-// THIRD copy of something already baselined, which is exactly the "rule of three" moment
-// (probed: a third copy of a baselined pair is reported as new).
+// THE BASE IS THE MERGE BASE WITH `origin/main`, falling back to `origin/main` itself where
+// history is shallow — which is the exact answer under CI, whose checkout IS this PR merged
+// into main, so "new vs main" is precisely "added by this PR". `resolveBaseRef` fetches
+// `main` when the ref is absent and THROWS when it cannot be resolved: a gate that loses its
+// base must be red, never quietly green (CLAUDE.md §12, the poller that read a missing key
+// as an empty result).
 //
 // WHY .jscpd.json ROUTES .ts/.tsx THROUGH THE *JAVASCRIPT* TOKENIZER. jscpd 5's TypeScript
 // tokenizer (Rust engine, three weeks old at 5.1.2) strips type annotations — which finds
@@ -34,11 +44,6 @@
 // uses the JS tokenizer (30 planted whole-function copies: every one above the token floor
 // was flagged). The TS lens stays available for triage: `dup:report --type-insensitive`.
 //
-// Shrink-only, like map/src/loc-ceiling-ratchet.test.ts and the dependency-direction
-// ratchet: a fingerprint that no longer matches any clone must leave the baseline in the
-// same commit (`bun run dup:accept`). That is the #996 lesson — a baseline that outlives
-// its subject is a number that stopped meaning "current debt".
-//
 // Tests are deliberately outside the gate (they hold ~88% of the duplicated lines). Their
 // remedy is different — shared fixture builders, or deleting redundant specs — and a gate
 // that fails a new spec for copying an `arrange` block gets bypassed within a week. They
@@ -47,8 +52,8 @@
 // The policy this enforces (where a shared helper lives, when the third copy triggers
 // consolidation, how an intentional twin is marked) is docs/adr/0013-*.md.
 
-import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -58,7 +63,6 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** Detection parameters (minTokens / minLines / mode / format) — the ONE definition of
  *  "what is a clone", shared by the gate and the report so they cannot drift. */
 export const CONFIG_FILE = '.jscpd.json'
-export const BASELINE_FILE = '.jscpd-baseline.json'
 
 /** What the gate scans: library src trees, the playground's app code and e2e helpers,
  *  the site's TS, and the repo scripts. Every root must exist — a moved tree would
@@ -110,9 +114,9 @@ export interface Clone {
   readonly b: Fragment
   readonly lines: number
   readonly tokens: number
-  /** Not in the baseline handed to jscpd. Meaningful only when one was given — without a
-   *  baseline jscpd reports `false` for every clone (measured), so the report mode never
-   *  reads it. */
+  /** Absent from the base ref's clone set — i.e. added by this branch. Meaningful only
+   *  when `baseRef` was given; without one jscpd reports `false` for every clone
+   *  (measured), so the report mode never reads it. */
   readonly isNew: boolean
 }
 export interface ScanStats {
@@ -121,10 +125,6 @@ export interface ScanStats {
   readonly clones: number
   readonly duplicatedLines: number
   readonly percentage: number
-}
-export interface Baseline {
-  readonly version: number
-  readonly fingerprints: Readonly<Record<string, number>>
 }
 export type CloneClass = 'intra-file' | 'intra-dir' | 'intra-workspace' | 'cross-workspace'
 
@@ -180,19 +180,6 @@ export function parseReport(
       duplicatedLines: t.duplicatedLines,
       percentage: t.percentage,
     },
-  }
-}
-
-/** Fingerprints that entered (new clones) and left (stale entries) between two baselines. */
-export function diffBaseline(
-  committed: Baseline,
-  current: Baseline,
-): { added: string[]; removed: string[] } {
-  const was = new Set(Object.keys(committed.fingerprints))
-  const now = new Set(Object.keys(current.fingerprints))
-  return {
-    added: [...now].filter((k) => !was.has(k)).sort(),
-    removed: [...was].filter((k) => !now.has(k)).sort(),
   }
 }
 
@@ -303,9 +290,9 @@ export interface ScanOptions {
   readonly root: string
   readonly roots: readonly string[]
   readonly ignore: readonly string[]
-  /** A baseline file to compare against; with `updateBaseline` it is REWRITTEN in place. */
-  readonly baseline?: string
-  readonly updateBaseline?: boolean
+  /** Compare against this git ref's tree: clones absent from it are reported `isNew`.
+   *  Nothing is written — the comparison baseline is built from the ref on each run. */
+  readonly baseRef?: string
   readonly minTokens?: number
   /** Report-only lens: jscpd's TypeScript tokenizer (type-annotation-insensitive, with the
    *  known blind spot described in the header). Never used by the gate. */
@@ -339,8 +326,7 @@ export function scan(opts: ScanOptions): { clones: Clone[]; stats: ScanStats; re
       '--formats-exts',
       'typescript:ts;tsx:tsx;javascript:js,mjs',
     )
-  if (opts.baseline) args.push('--baseline', opts.baseline)
-  if (opts.updateBaseline) args.push('--update-baseline')
+  if (opts.baseRef) args.push('--baseline-from-ref', opts.baseRef)
   args.push(...opts.roots)
   const r = spawnSync(process.execPath, args, { cwd: opts.root, encoding: 'utf8' })
   const reportPath = join(outDir, 'jscpd-report.json')
@@ -353,7 +339,51 @@ export function scan(opts: ScanOptions): { clones: Clone[]; stats: ScanStats; re
   return { ...parsed, reportPath }
 }
 
-const readBaseline = (p: string): Baseline => JSON.parse(readFileSync(p, 'utf8')) as Baseline
+/** The commit this branch is measured against.
+ *
+ *  MERGE BASE with `origin/main` where the history is there; `origin/main` itself where it
+ *  is not — CI checks out at depth 1, and there the checkout IS the PR merged into main, so
+ *  main's tip is the correct and exact base. Fetches `main` shallowly when the ref is
+ *  missing. THROWS rather than returning undefined: `scan` without a `baseRef` marks every
+ *  clone new, so a silent failure here would turn the gate from "added by this branch" into
+ *  "every clone in the repo" — loud is the only safe direction (CLAUDE.md §12). */
+export function resolveBaseRef(root: string): string {
+  const git = (...args: string[]): string =>
+    execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+  const has = (ref: string): boolean => {
+    try {
+      git('rev-parse', '--verify', '--quiet', `${ref}^{commit}`)
+      return true
+    } catch {
+      return false
+    }
+  }
+  if (!has('origin/main')) {
+    try {
+      // Explicit refspec: `actions/checkout` configures `remote.origin.fetch` for the
+      // checked-out ref ONLY, so a bare `fetch origin main` can leave `origin/main`
+      // unresolvable and the gate blind. --depth=1 is enough — only main's TREE is read.
+      git('fetch', '--depth=1', 'origin', '+refs/heads/main:refs/remotes/origin/main')
+    } catch {
+      /* reported by the throw below */
+    }
+  }
+  if (!has('origin/main')) {
+    throw new Error(
+      'dup: cannot resolve `origin/main` — the gate has no base to compare against.\n' +
+        '  In CI add `git fetch --depth=1 origin main` before this step; locally run it once.',
+    )
+  }
+  try {
+    return git('merge-base', 'HEAD', 'origin/main')
+  } catch {
+    return 'origin/main' // shallow history: main's tip is the base CI actually wants
+  }
+}
 
 // ── Modes ────────────────────────────────────────────────────────────────────
 
@@ -379,46 +409,26 @@ function summary(stats: ScanStats, extra = ''): string {
 /** `bun run dup` — the gate. */
 function check(root: string): number {
   assertRoots(root, SCAN_ROOTS)
-  const committedPath = join(root, BASELINE_FILE)
-  if (!existsSync(committedPath)) {
-    console.error(`dup: ${BASELINE_FILE} missing — create it once with \`bun run dup:accept\``)
-    return 2
-  }
-  const committed = readBaseline(committedPath)
-  const tmp = join(mkdtempSync(join(tmpdir(), 'jscpd-base-')), BASELINE_FILE)
-  copyFileSync(committedPath, tmp)
+  const baseRef = resolveBaseRef(root)
   const { clones, stats } = scan({
     root,
     roots: SCAN_ROOTS,
     ignore: [...IGNORE, ...TEST_IGNORE],
-    baseline: tmp,
-    updateBaseline: true,
+    baseRef,
   })
-  const { removed } = diffBaseline(committed, readBaseline(tmp))
   const fresh = clones.filter((c) => c.isNew)
   const bare = bareMarkers(SCAN_ROOTS.flatMap((r) => [...walkSources(root, r)]))
-  console.log(
-    summary(stats, `; baseline ${Object.keys(committed.fingerprints).length} fingerprints`),
-  )
+  console.log(summary(stats, `; base ${baseRef.slice(0, 12)}`))
 
   let red = false
   if (fresh.length) {
     red = true
-    console.error(`\n✗ ${fresh.length} NEW clone(s) not in ${BASELINE_FILE}:`)
+    console.error(`\n✗ ${fresh.length} clone(s) this branch adds over its base:`)
     for (const c of fresh) console.error(`  ${formatClone(c)}`)
     console.error(
-      `\n  A new copy — including a THIRD copy of an existing pair — is the moment to extract\n` +
-        `  the shared helper (${POLICY}). If the twin is deliberate, mark it\n` +
-        `  \`// jscpd:ignore-start — <reason>\` … \`// jscpd:ignore-end\`. If you only edited an\n` +
-        `  EXISTING copy in place, its fingerprint moved: \`bun run dup:accept\` re-records it\n` +
-        `  (the count may not grow). Accepting new debt is \`--allow-growth\` plus a reason in the PR.`,
-    )
-  }
-  if (removed.length) {
-    red = true
-    console.error(
-      `\n✗ ${removed.length} STALE fingerprint(s) in ${BASELINE_FILE} match no clone any more.\n` +
-        `  The debt shrank — record it in this same commit: \`bun run dup:accept\`.`,
+      `\n  A new copy — including a THIRD copy of a pair the base already has — is the moment\n` +
+        `  to extract the shared helper (${POLICY}). If the twin is\n` +
+        `  deliberate, mark it \`// jscpd:ignore-start — <reason>\` … \`// jscpd:ignore-end\`.`,
     )
   }
   if (bare.length) {
@@ -427,51 +437,8 @@ function check(root: string): number {
       `\n✗ jscpd:ignore-start without a reason on the same line:\n  ${bare.join('\n  ')}`,
     )
   }
-  if (!red) console.log('✓ duplication ratchet: no new clones, baseline current')
+  if (!red) console.log('✓ duplication gate: this branch adds no clone its base lacks')
   return red ? 1 : 0
-}
-
-/** `bun run dup:accept [--allow-growth]` — rewrite the baseline from the tree. */
-function accept(root: string, allowGrowth: boolean): number {
-  assertRoots(root, SCAN_ROOTS)
-  const committedPath = join(root, BASELINE_FILE)
-  const first = !existsSync(committedPath)
-  const committed: Baseline = first ? { version: 1, fingerprints: {} } : readBaseline(committedPath)
-  const tmp = join(mkdtempSync(join(tmpdir(), 'jscpd-base-')), BASELINE_FILE)
-  if (!first) copyFileSync(committedPath, tmp)
-  const { clones, stats } = scan({
-    root,
-    roots: SCAN_ROOTS,
-    ignore: [...IGNORE, ...TEST_IGNORE],
-    baseline: tmp,
-    updateBaseline: true,
-  })
-  const current = readBaseline(tmp)
-  const { added, removed } = diffBaseline(committed, current)
-  const fresh = clones.filter((x) => x.isNew)
-  console.log(summary(stats))
-  // The ratchet is on the COUNT. Editing inside an existing copy moves its fingerprint
-  // (+1 −1, net 0) and must not need a flag; a third copy is +1 −0 and does.
-  if (added.length > removed.length && !first && !allowGrowth) {
-    console.error(
-      `\n✗ refusing to grow ${BASELINE_FILE}: +${added.length} −${removed.length} fingerprints. New clones:`,
-    )
-    for (const c of fresh) console.error(`  ${formatClone(c)}`)
-    console.error(`\n  Extract the helper, or re-run with --allow-growth and justify it in the PR.`)
-    return 1
-  }
-  copyFileSync(tmp, committedPath)
-  console.log(
-    `✓ ${BASELINE_FILE} ${first ? 'created' : 'updated'}: +${added.length} −${removed.length} ` +
-      `(${Object.keys(current.fingerprints).length} fingerprints)`,
-  )
-  if (fresh.length && !first) {
-    console.log(
-      `  re-fingerprinted / accepted clones (a \`+\` line in the baseline diff is a review question):`,
-    )
-    for (const c of fresh) console.log(`  ${formatClone(c)}`)
-  }
-  return 0
 }
 
 /** `bun run dup:report [--tests] [--top N] [--min-tokens K] [--type-insensitive]` — the
@@ -560,8 +527,6 @@ if (import.meta.main) {
       minTokens: mt === undefined ? undefined : Number(mt),
       typeInsensitive: argv.includes('--type-insensitive'),
     })
-  } else if (argv.includes('--accept')) {
-    code = accept(REPO_ROOT, argv.includes('--allow-growth'))
   } else {
     code = check(REPO_ROOT)
   }

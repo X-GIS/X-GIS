@@ -723,12 +723,12 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
 `ADT/Support` + TableGen, rustc `tidy`, the rule of three) — full rationale in
 `docs/adr/0013-duplication-ratchet-and-consolidation.md`:
 
-- **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): a jscpd
-  fingerprint baseline (`.jscpd-baseline.json`) that can only shrink. A NEW clone (≥70 tokens /
-  5 lines, tests excluded) or a STALE entry is red. Never edit the baseline by hand:
-  `bun run dup:accept` re-records it, and refuses net growth without `--allow-growth` plus a
-  reason in the PR. Editing inside an existing copy moves its fingerprint (+1 −1) — that is
-  an accept, not growth.
+- **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): jscpd
+  compares this branch's clone set against the tree of its merge base with `origin/main` and
+  reds on any pair the base does not have (≥70 tokens / 5 lines, tests excluded). Nothing is
+  stored, so main moving under an open PR cannot red it. There is no accept command and no
+  `--allow-growth`: the only way past the gate is to remove the copy or mark a deliberate
+  twin (below).
 - **Before authoring a sibling** of an existing packer / material / backend / converter, run
   `bun run dup:report` and read the cluster it will join. The third copy within a package,
   or the SECOND copy across a package boundary, is the moment to extract — not "later".
@@ -736,8 +736,9 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   import (the dependency-direction ratchet decides): pure math / collections → `shared/`,
   geodesy → `geo/`, IR walkers → `shader-dsl/src/core/ir`, a render-side family → a
   table-driven base beside it. Never upward, never a new package for one helper.
-- **Consolidate = helper + rewrite EVERY copy in the same PR + a guard.** The baseline diff
-  showing only removals is the proof all copies went; where a copy is easy to reintroduce,
+- **Consolidate = helper + rewrite EVERY copy in the same PR + a guard.** The gate only sees
+  what a branch ADDS, so leaving two of five copies behind is GREEN — `bun run dup:report`
+  showing the cluster gone is the proof, not the gate. Where a copy is easy to reintroduce,
   add a ratchet test or `no-restricted-syntax` rule naming the helper (the Coccinelle
   pattern: the semantic patch stays in tree).
 - **A deliberate twin** is marked `// jscpd:ignore-start — <reason> (#issue)` …
@@ -746,10 +747,6 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   dependency") — say so in the marker.
 - Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
   (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
-- **After merging `main` into a branch, re-run `bun run dup`.** The baseline is a snapshot
-  of the whole tree: main's edits inside a baselined clone move its fingerprint, so the
-  merged tree reads as new + stale. `bun run dup:accept` on the merged tree fixes it (the
-  LOC-ceiling merge-union playbook, §12); never hand-edit `.jscpd-baseline.json`.
 - **The detector is token-level and not perfect.** `.jscpd.json` routes `.ts/.tsx` through
   jscpd's JavaScript tokenizer on purpose: the TypeScript one has a deterministic blind spot
   (repro in the ADR), while the JS one flagged every planted whole-function copy above the

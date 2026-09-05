@@ -46,7 +46,6 @@
     "lint:fix": "eslint . --fix",
     "knip": "knip",
     "dup": "bun scripts/dup-ratchet.ts",
-    "dup:accept": "bun scripts/dup-ratchet.ts --accept",
     "dup:report": "bun scripts/dup-ratchet.ts --report",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

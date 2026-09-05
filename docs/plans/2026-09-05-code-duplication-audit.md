@@ -7,11 +7,10 @@ it, and the ranked work queue. Policy and rationale: ADR-0013
 ## How to reproduce
 
 ```
-bun run dup                       # the gate (CI `lint` job + first precheck step)
-bun run dup:report --top 40       # ranked clusters, source only
+bun run dup                       # the gate: clones this branch adds over its merge base
+bun run dup:report --top 40       # ranked clusters, source only — the debt number lives here
 bun run dup:report --tests        # include *.test.ts / *.spec.ts
 bun run dup:report --type-insensitive   # jscpd's TypeScript tokenizer lens (see caveat)
-bun run dup:accept                # re-record .jscpd-baseline.json (shrink-only by default)
 ```
 
 Detector: jscpd 5.1.2, `.jscpd.json` = 70 tokens / 5 lines / `mild` (comments and blank
@@ -22,10 +21,10 @@ lines skipped), `.ts .tsx .js .mjs` through the JavaScript tokenizer. Scan set:
 
 ## Numbers
 
-Measured at `67af14c` (main, 2026-09-05 09:00Z). The committed `.jscpd-baseline.json` tracks
-the tree the PR merges into, so its fingerprint count can differ from these figures by the
-clones `main` edited in the meantime (at the first merge: 278 fingerprints, +4 −6 against
-the 280 below — all four re-fingerprinted pairs sit in files `main` changed).
+Measured at `67af14c` (main, 2026-09-05 09:00Z). Nothing in the repo pins these numbers —
+the gate compares against the merge base and stores no count — so re-run `bun run dup:report`
+for the current figure; main moves them by a few clones an hour (it moved from 280 to 278
+within the day this was written, without any consolidation).
 
 Source only (898 files at or above the token floor, 232k lines):
 
@@ -155,5 +154,7 @@ a 42-token function among the probes).
 5. Rows 9, 12, 13, 20 ride the existing god-file decomposition (#991); rows 7 and 16 when
    touching those files.
 
-Every step: `bun run dup:accept` shows only removals; a guard (ratchet test or ESLint
-restriction naming the new helper) lands with the helper.
+Every step: EVERY copy in the cluster goes in the same PR — the gate only sees what a
+branch adds, so a half-done consolidation is green; the proof is `bun run dup:report`
+showing the cluster gone. A guard (ratchet test or an ESLint restriction naming the new
+helper) lands with the helper.
