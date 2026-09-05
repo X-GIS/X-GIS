@@ -230,6 +230,11 @@ export interface RenderFrameState {
   /** `Selection.protectedAncestors` — selector-injected fallback-only
    *  ancestors kept resident. */
   readonly protectedAncestors: number[]
+  /** World-copy offsets parallel to `fallbackKeys`. */
+  fallbackOffsets: number[]
+  /** The visible tile each fallback push fills for (its bounds become the
+   *  per-tile clip mask), parallel to `fallbackKeys`. */
+  fallbackVisibleKeys: number[]
 }
 
 export class VectorTileRenderer {
@@ -3398,8 +3403,8 @@ export class VectorTileRenderer {
     // for a per-render `closestExistingByI` mirror, since the
     // sliceLayer-independent ancestor result is identical across
     // every same-frame ShowCommand render.
-    let fallbackKeys: number[] = []
-    let fallbackOffsets: number[] = []
+    const fallbackKeys: number[] = []
+    const fallbackOffsets: number[] = []
     /** Parallel to `fallbackKeys`: the visible-tile key each fallback
      *  push is FILLING FOR. When a parent z=11 ancestor renders as
      *  fallback for a missing visible z=15 child, the per-tile clip
@@ -3407,7 +3412,7 @@ export class VectorTileRenderer {
      *  z=15 child's mercator bounds — otherwise the parent's data
      *  spills over neighboring children (some primary-loaded with
      *  their OWN buildings, causing cross-z depth fights). */
-    let fallbackVisibleKeys: number[] = []
+    const fallbackVisibleKeys: number[] = []
     const toLoad: number[] = []
     // Memoize sliceCached lookups across the per-tile + prefetch loops
     // within this render. Adjacent visible tiles share ancestors so
@@ -3673,7 +3678,9 @@ export class VectorTileRenderer {
       anyInArchive,
       protectedAncestors,
       _inv,
+      fallbackVisibleKeys,
       fallbackKeys,
+      fallbackOffsets,
     }
 
     // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
@@ -3929,285 +3936,7 @@ export class VectorTileRenderer {
 
     this.drawPrimary(args, ctx)
 
-    // Render fallback ancestors (stencil test) — with world offsets for wrapping
-    if (fillPipelineFallback && fallbackKeys.length > 0) {
-      // Sort ascending by z (smallest-z first → deepest-z last). Where
-      // multiple z-level parents overlap in screen space (z=11 parent
-      // covers area that z=14 parent also covers), the deepest z draws
-      // last and wins LEQUAL fragment competition. Without this the
-      // simpler-geometry parent could occlude the more-detailed one
-      // depending on fallbackKeys insertion order.
-      //
-      // Do NOT dedup by (key, offset): each push renders the SAME parent
-      // with a DIFFERENT per-tile visible clip mask (one push per visible
-      // tile it fills for), so dedup'ing would erase coverage of N-1
-      // visible tiles.
-      if (fallbackKeys.length > 1) {
-        const indexed: { k: number; o: number; vk: number; z: number }[] = []
-        for (let i = 0; i < fallbackKeys.length; i++) {
-          const k = fallbackKeys[i]
-          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
-          let z = 0
-          while (Math.pow(4, z + 1) <= k) z++
-          indexed.push({ k, o: fallbackOffsets[i], vk: fallbackVisibleKeys[i], z })
-        }
-        indexed.sort((a, b) => a.z - b.z)
-        fallbackKeys = indexed.map((c) => c.k)
-        fallbackOffsets = indexed.map((c) => c.o)
-        fallbackVisibleKeys = indexed.map((c) => c.vk)
-      }
-      if (phase !== 'strokes') pass.setStencilReference(0)
-      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
-      // set, override the fallback fill colour to bright red. Lets the
-      // user visually confirm whether parent/child fallback is actually
-      // rendering during a "white flash" — if red is visible, the bug
-      // is downstream of fallback rendering (e.g., later layer covering
-      // it, alpha = 0, render order); if no red appears, the fallback
-      // path itself is dropping the tile.
-      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
-      let _origR = 0,
-        _origG = 0,
-        _origB = 0
-      if (_debugRed) {
-        // Save/override RGB only — alpha stays whatever the tile loop last
-        // wrote (the setter's fixed arity re-writes it with its current value).
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a0 = this.frameBlock.fieldOffset('fill_color') / 4
-        _origR = f32[a0]!
-        _origG = f32[a0 + 1]!
-        _origB = f32[a0 + 2]!
-        this.frameBlock.set.fill_color(1.0, 0.0, 0.0, f32[a0 + 3]!)
-      }
-      // Same layout-matched ground pickup as the primary path —
-      // base layout uses the renderer-level fallback ground; feature
-      // layout uses the variant's fallback ground override.
-      const fallbackGroundIsBase = bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
-        ? (fillPipelineGroundFallbackOverride ?? fillPipelineFallback ?? null)
-        : fallbackGroundIsBase
-          ? this._bindGroups.groundPipelineFallback()
-          : (fillPipelineGroundFallbackOverride ?? null)
-      // Fill-pattern fallback routing (mirror of the primary path above).
-      const fallbackPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        show.fillPatternUV != null &&
-        this._bindGroups.patternGroundPipelineFallback() !== null
-      const fallbackGroundChoice = fallbackPatternActive
-        ? this._bindGroups.patternGroundPipelineFallback()
-        : fallbackGroundForLayout
-      const fallbackFill =
-        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
-          ? fallbackGroundChoice
-          : fillPipelineFallback
-      // Fill-extrusion-pattern fallback path mirror.
-      const fallbackExtrudedPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        show.fillPatternUV != null &&
-        this._bindGroups.patternExtrudedPipelineFallback() !== null
-      const fallbackExtrudedPipeline =
-        fillPipelineExtrudedFallbackOverride ??
-        (fallbackExtrudedPatternActive
-          ? this._bindGroups.patternExtrudedPipelineFallback()
-          : this._bindGroups.extrudedPipelineFallback())
-      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
-      // to the fallbackKeys renderTileKeys invocation. Same gate + same
-      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
-      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
-      // part of the invalidation surface. Tiles + visibleKeys + offsets
-      // together fully describe the recorded draws.
-      // Mirror the primary path's all-loaded gate. Fallback keys are by
-      // construction picked from layerCache, but an entry could be evicted
-      // between selection and bundle encode (LRU under tight cap). Cheap
-      // guard avoids the same partial-set replay class of bug.
-      let fbAllLoaded = true
-      for (let i = 0; i < fallbackKeys.length; i++) {
-        if (!layerCache.get(fallbackKeys[i]!)) {
-          fbAllLoaded = false
-          break
-        }
-      }
-      // #1190 — fallback path defaults ON with the primary (same key fix,
-      // same escape hatch; see the primary-site rationale).
-      const _fbBundleOff =
-        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
-      const fbShouldBundle =
-        !_fbBundleOff &&
-        this.rhi.caps.renderBundles &&
-        !isOverdrawActive(this.rhi.caps) &&
-        !translucentBucket &&
-        phase !== 'strokes' &&
-        phase !== 'oit-fill' &&
-        !_debugRed &&
-        fbAllLoaded
-      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
-      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
-      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
-      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
-      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
-      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
-      // encoded — and the direct arm both flow through here), restore in `finally` so
-      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
-      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
-      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
-      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
-      const _fbSavedDrapeStrokes = this._drapeStrokes
-      this._drapeGlobeFills = false
-      this._drapeStrokes = false
-      try {
-        if (fbShouldBundle) {
-          // Structural cache key (mirrors primary path; see
-          // _cache/structural-key.ts).
-          const fbPickOn = isPickEnabled()
-          const fbSamples = getSampleCount()
-          const fbEpochs: number[] = new Array(fallbackKeys.length)
-          for (let i = 0; i < fallbackKeys.length; i++) {
-            fbEpochs[i] = layerCache.get(fallbackKeys[i]!)?.uploadEpoch ?? 0
-          }
-          const fbKeyState = {
-            sliceLayer,
-            phase,
-            // Fallback bundle has no `neededKeys` (the primary side),
-            // only fallback tile keys; populate both for uniform shape
-            // — the structural hash treats null + the array distinctly.
-            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-            neededKeys: fallbackKeys,
-            fallbackKeys: fallbackKeys.slice(),
-            fallbackVisibleKeys: fallbackVisibleKeys ? fallbackVisibleKeys.slice() : null,
-            epochs: fbEpochs,
-            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-            worldOffsets: this._worldOffScratchKey(fallbackOffsets),
-            bindGroupEpoch: this._bindGroups.epoch(),
-            pickOn: fbPickOn,
-            samples: fbSamples,
-            mainPipelineLabel: fallbackFill.label ?? null,
-            linePipelineLabel: linePipelineFallback?.label ?? null,
-            // #1190 — mirror of the primary site: the fallback walk's
-            // dynamic-offset base (it runs AFTER the primary walk, so
-            // its base also moves with the primary's alloc count) and
-            // the stroke draws' baked layer-slot offsets.
-            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
-            // walks pass visibleKeysForClip, which disqualifies ring-free
-            // by definition (their clip_bounds live in ring slots).
-            ringCursor: this._ringCursorForBundleKey(),
-            lineLayerOffset,
-            lineLayerOffsetGap,
-            // #2093 — mirror of the primary site. The #1076 fallback dispatch
-            // PINS both false above; the key follows the field, not a literal.
-            drapeGlobeFills: this._drapeGlobeFills,
-            drapeStrokes: this._drapeStrokes,
-          } as const satisfies BundleKeyState
-          const fbCacheKey = `vt-fb:${sliceLayer}:${phase}:${structuralHashKey(fbKeyState)}`
-          const fbDesc: BundleEncodeDescriptor = {
-            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
-            depthStencilFormat: 'depth24plus-stencil8',
-            sampleCount: fbSamples,
-            depthReadOnly: false,
-            stencilReadOnly: false,
-            label: fbCacheKey,
-          }
-          let fbWasMiss = false
-          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
-            fbWasMiss = true
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            this.renderTileKeys(
-              fallbackKeys,
-              encoder,
-              fallbackFill,
-              linePipelineFallback!,
-              projCenterLon,
-              projCenterLat,
-              fallbackOffsets,
-              lineLayerOffset,
-              lineLayerOffsetGap,
-              phase,
-              layerCache,
-              fallbackExtrudedPipeline,
-              bindGroupLayout,
-              translucentBucket,
-              fallbackVisibleKeys,
-              show.shaderVariant,
-              sliceLayer,
-            )
-          })
-          if (fbWasMiss) {
-            // #1190 — pin the encode walk's alloc count (mirror of primary).
-            this._bundleWalkAllocs.set(
-              fbBundle,
-              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
-            )
-          } else {
-            this._skipFillDrawForBundle = true
-            this._skipStrokeDrawForBundle = true
-            this.renderTileKeys(
-              fallbackKeys,
-              pass,
-              fallbackFill,
-              linePipelineFallback!,
-              projCenterLon,
-              projCenterLat,
-              fallbackOffsets,
-              lineLayerOffset,
-              lineLayerOffsetGap,
-              phase,
-              layerCache,
-              fallbackExtrudedPipeline,
-              bindGroupLayout,
-              translucentBucket,
-              fallbackVisibleKeys,
-              show.shaderVariant,
-              sliceLayer,
-            )
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            // #1190 invariant — mirror of the primary site; see there.
-            if (_inv) {
-              const expected = this._bundleWalkAllocs.get(fbBundle)
-              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
-              if (expected !== undefined && got !== expected) {
-                throw new Error(
-                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
-                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
-                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
-                    `add the missing input to _cache/bundle-cache-key.ts.`,
-                )
-              }
-            }
-          }
-          pass.executeBundles([fbBundle])
-        } else {
-          this.renderTileKeys(
-            fallbackKeys,
-            pass,
-            fallbackFill,
-            linePipelineFallback!,
-            projCenterLon,
-            projCenterLat,
-            fallbackOffsets,
-            lineLayerOffset,
-            lineLayerOffsetGap,
-            phase,
-            layerCache,
-            fallbackExtrudedPipeline,
-            bindGroupLayout,
-            translucentBucket,
-            fallbackVisibleKeys,
-            show.shaderVariant,
-            sliceLayer,
-          )
-        }
-      } finally {
-        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
-        this._drapeStrokes = _fbSavedDrapeStrokes
-      }
-      if (_debugRed) {
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a3 = this.frameBlock.fieldOffset('fill_color') / 4 + 3
-        this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
-      }
-    }
+    this.drawFallback(args, ctx)
 
     // Prefetch adjacent + next zoom (every 10th frame, idle only).
     // While the camera is actively moving the prefetched edge tiles
@@ -4297,6 +4026,297 @@ export class VectorTileRenderer {
     }
 
     this.trackStableSetAndPoints(args, ctx)
+  }
+
+  /** #2508 phase 8 — draw the fallback ancestors (stencil test) across the
+   *  world copies for the visible tiles with no resident tile of their own.
+   *  A consumer with ONE frame-state write, stated here because the epilogue
+   *  depends on it: the three parallel fallback arrays are re-sorted into
+   *  `ctx` (smallest z first, deepest last, so the most detailed parent wins
+   *  the LEQUAL fragment competition) and the stable set is built from that
+   *  order. The drape flags are saved, cleared around the dispatch and
+   *  restored — the fallback draws direct even when the primary drapes
+   *  (#1076). */
+  private drawFallback(args: RenderArgs, ctx: RenderFrameState): void {
+    // Render fallback ancestors (stencil test) — with world offsets for wrapping
+    if (args.fillPipelineFallback && ctx.fallbackKeys.length > 0) {
+      // Sort ascending by z (smallest-z first → deepest-z last). Where
+      // multiple z-level parents overlap in screen space (z=11 parent
+      // covers area that z=14 parent also covers), the deepest z draws
+      // last and wins LEQUAL fragment competition. Without this the
+      // simpler-geometry parent could occlude the more-detailed one
+      // depending on fallbackKeys insertion order.
+      //
+      // Do NOT dedup by (key, offset): each push renders the SAME parent
+      // with a DIFFERENT per-tile visible clip mask (one push per visible
+      // tile it fills for), so dedup'ing would erase coverage of N-1
+      // visible tiles.
+      if (ctx.fallbackKeys.length > 1) {
+        const indexed: { k: number; o: number; vk: number; z: number }[] = []
+        for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+          const k = ctx.fallbackKeys[i]
+          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
+          let z = 0
+          while (Math.pow(4, z + 1) <= k) z++
+          indexed.push({ k, o: ctx.fallbackOffsets[i], vk: ctx.fallbackVisibleKeys[i], z })
+        }
+        indexed.sort((a, b) => a.z - b.z)
+        ctx.fallbackKeys = indexed.map((c) => c.k)
+        ctx.fallbackOffsets = indexed.map((c) => c.o)
+        ctx.fallbackVisibleKeys = indexed.map((c) => c.vk)
+      }
+      if (args.phase !== 'strokes') ctx.pass.setStencilReference(0)
+      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
+      // set, override the fallback fill colour to bright red. Lets the
+      // user visually confirm whether parent/child fallback is actually
+      // rendering during a "white flash" — if red is visible, the bug
+      // is downstream of fallback rendering (e.g., later layer covering
+      // it, alpha = 0, render order); if no red appears, the fallback
+      // path itself is dropping the tile.
+      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
+      let _origR = 0,
+        _origG = 0,
+        _origB = 0
+      if (_debugRed) {
+        // Save/override RGB only — alpha stays whatever the tile loop last
+        // wrote (the setter's fixed arity re-writes it with its current value).
+        const f32 = new Float32Array(this.frameBlock.buffer)
+        const a0 = this.frameBlock.fieldOffset('fill_color') / 4
+        _origR = f32[a0]!
+        _origG = f32[a0 + 1]!
+        _origB = f32[a0 + 2]!
+        this.frameBlock.set.fill_color(1.0, 0.0, 0.0, f32[a0 + 3]!)
+      }
+      // Same layout-matched ground pickup as the primary path —
+      // base layout uses the renderer-level fallback ground; feature
+      // layout uses the variant's fallback ground override.
+      const fallbackGroundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
+      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
+        ? (args.fillPipelineGroundFallbackOverride ?? args.fillPipelineFallback ?? null)
+        : fallbackGroundIsBase
+          ? this._bindGroups.groundPipelineFallback()
+          : (args.fillPipelineGroundFallbackOverride ?? null)
+      // Fill-pattern fallback routing (mirror of the primary path above).
+      const fallbackPatternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        fallbackGroundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternGroundPipelineFallback() !== null
+      const fallbackGroundChoice = fallbackPatternActive
+        ? this._bindGroups.patternGroundPipelineFallback()
+        : fallbackGroundForLayout
+      const fallbackFill =
+        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
+          ? fallbackGroundChoice
+          : args.fillPipelineFallback
+      // Fill-extrusion-pattern fallback path mirror.
+      const fallbackExtrudedPatternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        fallbackGroundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternExtrudedPipelineFallback() !== null
+      const fallbackExtrudedPipeline =
+        args.fillPipelineExtrudedFallbackOverride ??
+        (fallbackExtrudedPatternActive
+          ? this._bindGroups.patternExtrudedPipelineFallback()
+          : this._bindGroups.extrudedPipelineFallback())
+      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
+      // to the fallbackKeys renderTileKeys invocation. Same gate + same
+      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
+      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
+      // part of the invalidation surface. Tiles + visibleKeys + offsets
+      // together fully describe the recorded draws.
+      // Mirror the primary path's all-loaded gate. Fallback keys are by
+      // construction picked from layerCache, but an entry could be evicted
+      // between selection and bundle encode (LRU under tight cap). Cheap
+      // guard avoids the same partial-set replay class of bug.
+      let fbAllLoaded = true
+      for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+        if (!ctx.layerCache.get(ctx.fallbackKeys[i]!)) {
+          fbAllLoaded = false
+          break
+        }
+      }
+      // #1190 — fallback path defaults ON with the primary (same key fix,
+      // same escape hatch; see the primary-site rationale).
+      const _fbBundleOff =
+        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
+      const fbShouldBundle =
+        !_fbBundleOff &&
+        this.rhi.caps.renderBundles &&
+        !isOverdrawActive(this.rhi.caps) &&
+        !args.translucentBucket &&
+        args.phase !== 'strokes' &&
+        args.phase !== 'oit-fill' &&
+        !_debugRed &&
+        fbAllLoaded
+      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
+      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
+      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
+      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
+      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
+      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
+      // encoded — and the direct arm both flow through here), restore in `finally` so
+      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
+      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
+      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
+      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
+      const _fbSavedDrapeStrokes = this._drapeStrokes
+      this._drapeGlobeFills = false
+      this._drapeStrokes = false
+      try {
+        if (fbShouldBundle) {
+          // Structural cache key (mirrors primary path; see
+          // _cache/structural-key.ts).
+          const fbPickOn = isPickEnabled()
+          const fbSamples = getSampleCount()
+          const fbEpochs: number[] = new Array(ctx.fallbackKeys.length)
+          for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+            fbEpochs[i] = ctx.layerCache.get(ctx.fallbackKeys[i]!)?.uploadEpoch ?? 0
+          }
+          const fbKeyState = {
+            sliceLayer: ctx.sliceLayer,
+            phase: args.phase,
+            // Fallback bundle has no `neededKeys` (the primary side),
+            // only fallback tile keys; populate both for uniform shape
+            // — the structural hash treats null + the array distinctly.
+            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+            neededKeys: ctx.fallbackKeys,
+            fallbackKeys: ctx.fallbackKeys.slice(),
+            fallbackVisibleKeys: ctx.fallbackVisibleKeys ? ctx.fallbackVisibleKeys.slice() : null,
+            epochs: fbEpochs,
+            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+            worldOffsets: this._worldOffScratchKey(ctx.fallbackOffsets),
+            bindGroupEpoch: this._bindGroups.epoch(),
+            pickOn: fbPickOn,
+            samples: fbSamples,
+            mainPipelineLabel: fallbackFill.label ?? null,
+            linePipelineLabel: args.linePipelineFallback?.label ?? null,
+            // #1190 — mirror of the primary site: the fallback walk's
+            // dynamic-offset base (it runs AFTER the primary walk, so
+            // its base also moves with the primary's alloc count) and
+            // the stroke draws' baked layer-slot offsets.
+            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
+            // walks pass visibleKeysForClip, which disqualifies ring-free
+            // by definition (their clip_bounds live in ring slots).
+            ringCursor: this._ringCursorForBundleKey(),
+            lineLayerOffset: ctx.lineLayerOffset,
+            lineLayerOffsetGap: ctx.lineLayerOffsetGap,
+            // #2093 — mirror of the primary site. The #1076 fallback dispatch
+            // PINS both false above; the key follows the field, not a literal.
+            drapeGlobeFills: this._drapeGlobeFills,
+            drapeStrokes: this._drapeStrokes,
+          } as const satisfies BundleKeyState
+          const fbCacheKey = `vt-fb:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(fbKeyState)}`
+          const fbDesc: BundleEncodeDescriptor = {
+            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
+            depthStencilFormat: 'depth24plus-stencil8',
+            sampleCount: fbSamples,
+            depthReadOnly: false,
+            stencilReadOnly: false,
+            label: fbCacheKey,
+          }
+          let fbWasMiss = false
+          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
+            fbWasMiss = true
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+            this.renderTileKeys(
+              ctx.fallbackKeys,
+              encoder,
+              fallbackFill,
+              args.linePipelineFallback!,
+              args.projCenterLon,
+              args.projCenterLat,
+              ctx.fallbackOffsets,
+              ctx.lineLayerOffset,
+              ctx.lineLayerOffsetGap,
+              args.phase,
+              ctx.layerCache,
+              fallbackExtrudedPipeline,
+              args.bindGroupLayout,
+              args.translucentBucket,
+              ctx.fallbackVisibleKeys,
+              args.show.shaderVariant,
+              ctx.sliceLayer,
+            )
+          })
+          if (fbWasMiss) {
+            // #1190 — pin the encode walk's alloc count (mirror of primary).
+            this._bundleWalkAllocs.set(
+              fbBundle,
+              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
+            )
+          } else {
+            this._skipFillDrawForBundle = true
+            this._skipStrokeDrawForBundle = true
+            this.renderTileKeys(
+              ctx.fallbackKeys,
+              ctx.pass,
+              fallbackFill,
+              args.linePipelineFallback!,
+              args.projCenterLon,
+              args.projCenterLat,
+              ctx.fallbackOffsets,
+              ctx.lineLayerOffset,
+              ctx.lineLayerOffsetGap,
+              args.phase,
+              ctx.layerCache,
+              fallbackExtrudedPipeline,
+              args.bindGroupLayout,
+              args.translucentBucket,
+              ctx.fallbackVisibleKeys,
+              args.show.shaderVariant,
+              ctx.sliceLayer,
+            )
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+            // #1190 invariant — mirror of the primary site; see there.
+            if (ctx._inv) {
+              const expected = this._bundleWalkAllocs.get(fbBundle)
+              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
+              if (expected !== undefined && got !== expected) {
+                throw new Error(
+                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
+                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
+                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
+                    `add the missing input to _cache/bundle-cache-key.ts.`,
+                )
+              }
+            }
+          }
+          ctx.pass.executeBundles([fbBundle])
+        } else {
+          this.renderTileKeys(
+            ctx.fallbackKeys,
+            ctx.pass,
+            fallbackFill,
+            args.linePipelineFallback!,
+            args.projCenterLon,
+            args.projCenterLat,
+            ctx.fallbackOffsets,
+            ctx.lineLayerOffset,
+            ctx.lineLayerOffsetGap,
+            args.phase,
+            ctx.layerCache,
+            fallbackExtrudedPipeline,
+            args.bindGroupLayout,
+            args.translucentBucket,
+            ctx.fallbackVisibleKeys,
+            args.show.shaderVariant,
+            ctx.sliceLayer,
+          )
+        }
+      } finally {
+        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
+        this._drapeStrokes = _fbSavedDrapeStrokes
+      }
+      if (_debugRed) {
+        const f32 = new Float32Array(this.frameBlock.buffer)
+        const a3 = this.frameBlock.fieldOffset('fill_color') / 4 + 3
+        this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
+      }
+    }
   }
 
   /** #2508 phase 10 — epilogue. Records this layer's stable tile set (needed +

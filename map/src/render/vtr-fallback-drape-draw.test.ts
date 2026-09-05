@@ -41,11 +41,18 @@ const SOURCE = readFileSync(
 )
 
 // The fallback DISPATCH region: from the fallback gate (`fillPipelineFallback &&
-// fallbackKeys.length > 0`) to the prefetch block that follows it. Both dispatch
+// fallbackKeys.length > 0`) to the end of the method that holds it. Both dispatch
 // arms — the bundle-record arm (`getOrEncode` encodes the bundle) and the direct
 // arm — live inside this slice.
-const FB_GATE = 'if (fillPipelineFallback && fallbackKeys.length > 0) {'
-const FB_END = '// Prefetch adjacent + next zoom'
+//
+// #2508: the dispatch moved from render()'s body into the `drawFallback` phase, so the
+// gate reads its inputs off the frame records (`args.` / `ctx.`). The END anchor is now
+// the enclosing method's closing brace — the first line that is exactly two spaces and
+// `}` after the gate, since every brace inside the dispatch is more deeply indented.
+// That is ordering-independent: the old anchor was the prefetch COMMENT, which only
+// worked while that block happened to follow this one in the file.
+const FB_GATE = 'if (args.fillPipelineFallback && ctx.fallbackKeys.length > 0) {'
+const FB_END = '\n  }\n'
 const fbStart = SOURCE.indexOf(FB_GATE)
 const fbEnd = SOURCE.indexOf(FB_END, fbStart)
 const fbRegion = fbStart >= 0 && fbEnd > fbStart ? SOURCE.slice(fbStart, fbEnd) : ''
@@ -57,7 +64,7 @@ describe('globe fallback draws under a drape-active primary (#1076)', () => {
     )
     expect(
       fbEnd,
-      `prefetch end-anchor not found after the fallback gate: ${JSON.stringify(FB_END)}`,
+      `method-end anchor not found after the fallback gate: ${JSON.stringify(FB_END)}`,
     ).toBeGreaterThan(fbStart)
   })
 
