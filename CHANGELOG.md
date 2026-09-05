@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: b04ebd17ced73198d093e514ac21670c37435a54
+  Generated from: c1af16b110c8ceed1f6e57a9fbb1d80b6e1f5245
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since b04ebd17ced7
+    bun scripts/emit-changelog.ts --since c1af16b110c8
 -->
 
 # Changelog
@@ -48,6 +48,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **tiler:** the on-demand path skipped the outline densification its fill gets (#2497) ([#2505](https://github.com/X-GIS/X-GIS/pull/2505)) `c1af16b`
 - **compiler:** symbol (icon-only) is supported — the row, not the feature (#2489) ([#2493](https://github.com/X-GIS/X-GIS/pull/2493)) `b04ebd1`
 - **compiler:** token strings keep non-identifier keys instead of throwing out of lower() (#2310) ([#2480](https://github.com/X-GIS/X-GIS/pull/2480)) `c74cf6e`
 - **render:** the globe drape's gate is a PIXEL BUDGET, not a LOD ceiling (#2094) ([#2469](https://github.com/X-GIS/X-GIS/pull/2469)) `469ac8e`
