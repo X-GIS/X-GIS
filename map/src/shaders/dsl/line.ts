@@ -271,6 +271,12 @@ const LAYER = uniformStruct(
     gradient_pos: arrayOf(vec4fT, 2),
   },
 )
+// Exported (distinct barrel names) for the module-free layout helper (#2499 step 4):
+// line-uniform-slots.ts derives `LineLayer`'s f32 slots from THIS handle via wgslLayout,
+// the way polygonU / rasterU / hillshadeU / heatmapAccumU already serve theirs — and,
+// because `LineLayer` NESTS `PatternSlot` (`patterns: arrayOf(PatternSlot, 3)`), the layout
+// needs that decl too: a struct handle names its nested structs, it does not carry them.
+export { LAYER as lineLayerU, PatternSlot as linePatternSlot }
 
 const LineSegment = structDecl('LineSegment', {
   // DSFUN endpoint pairs in tile-local Mercator meters.

@@ -18,6 +18,13 @@ import { join } from 'path'
 //
 // The fix: read the size LAZILY. Allowed = instance field (ctor-time, post-init),
 // method / function body (draw-time). Forbidden = module-level const, static field.
+//
+// #2499 step 4 RETIRED THE PREMISE for the named helpers: polygonUniform* / rasterUniform* /
+// hillshadeUniform* / heatmapUniform* / lineLayerUniform* now derive their layout from the
+// uniformStruct HANDLE (`wgslLayout(u.struct, 'std140')`, module-free — see
+// uniform-slots-module-free.test.ts) and no longer emit anything, so an eager call can no
+// longer throw. The raw `reflect(build*Module())` primitive still does, and this gate still
+// forbids it at import; the helper names stay in the regex as the lazy-use convention.
 
 // The scanned files live in map/src/render. (They passed through
 // runtime/src/engine/render before the P3 extraction; that path was kept as a
