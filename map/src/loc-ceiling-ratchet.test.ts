@@ -2129,7 +2129,9 @@ const CEILINGS: Record<string, number> = {
   // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
   // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
   // (currentZ trailing the camera) from the LOD the camera asks for.
-  'map/src/render/tile-selection-cache.ts': 1074,
+  // 1074->1073 (#2500): the open-coded sphere-family centre-lat branch became one
+  // frameCenterLatOf call (the frame token's authority). A LOWERING.
+  'map/src/render/tile-selection-cache.ts': 1073,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`

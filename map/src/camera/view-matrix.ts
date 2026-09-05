@@ -18,6 +18,7 @@
 
 import { lonLatToECEF, ecefToENURotation, type ECEF } from '@xgis/shared'
 import { WORLD_MERC, TILE_PX, buildGlobeMatrix, EARTH_R, mercatorYToLatRad } from '@xgis/geo'
+import { mercatorYToLat, poleLimit, representsCenterAs } from '@xgis/geo'
 import { mul4, perspectiveMatrix } from '@xgis/shared'
 
 /** Resolved camera state read by the pure matrix builders. The Camera fills
@@ -405,6 +406,28 @@ export function buildECEFFrameView(
 export function ecefCenterOf(view: { centerX: number; centerLatDeg: number }): ECEF {
   const RAD2DEG = 180 / Math.PI
   return lonLatToECEF((view.centerX / EARTH_R) * RAD2DEG, view.centerLatDeg)
+}
+
+/** The frame's RTC / projection-token centre latitude, clamped to the
+ *  projection's poleLimit — the SAME authority `buildGlobeFrame` and
+ *  `ecefCenterOf` read, so every tile anchor built from it coincides with the
+ *  orbit matrix's RTC origin by construction. Sphere family (`lat-deg`): the
+ *  true `centerLatDeg`; cylindrical (`mercator-y`): `mercatorYToLat(centerY)`,
+ *  which equals it there by the camera-controller invariant.
+ *
+ *  #2315 / #2500: deriving it from `centerY` for the sphere family split the
+ *  two centres wherever the Mercator mirror diverges from the true latitude —
+ *  past ±85.051129° (Mercator saturation) and at whole-earth zoom (the
+ *  viewport-fit clamp pinned centerY to the equator) — so fills, rasters and
+ *  drapes drew ≈ R·sin(lat) off points and labels (58 px at globe z0, lat 45). */
+export function frameCenterLatOf(
+  view: { centerY: number; centerLatDeg: number },
+  projType: number,
+): number {
+  const raw =
+    representsCenterAs(projType) === 'lat-deg' ? view.centerLatDeg : mercatorYToLat(view.centerY)
+  const pl = poleLimit(projType)
+  return Math.max(-pl, Math.min(pl, raw))
 }
 
 /** ECEF→ENU rotation at the camera anchor. Pure mirror of

@@ -85,6 +85,7 @@ import { verticalWritingActive, fillVerticalColumn } from './vertical-writing'
 import { groundBasisAabb } from './ground-basis'
 import { wrapWithKnuthPlass, cjkBucketFor } from './text-wrap'
 import { TextStageDiagnostics, type DumpedLabel } from './text-stage-diagnostics'
+import { limbCullsBox } from './limb-cull'
 // iter-265 — sub-phase drill inside prepare(). encoder.stage-prepare
 // shows 1.31 ms/frame in iter-263 budget but we don't know which
 // inner phase dominates (point shape vs curved line layout vs
@@ -1807,15 +1808,14 @@ export class TextStage {
     // greedyPlaceBboxes + per-shape place loop. greedy is O(N²) so
     // dense-label scenes (low-z world view) spend a chunk here.
     perfMarkStart('stage-prepare.collision')
-    // #1042 R3 — globe limb cull: drop a POINT label (idx < point count) whose
-    // collision box (built above, the single quad-height authority) rises past
-    // the projected silhouette (empty bboxes ⇒ unplaced + paired icon drops),
-    // else a multi-line label floats past the limb. +Inf off-globe/flat/lines.
+    // #1042 R3 / #2501 — globe limb cull: drop a POINT label (idx < point count)
+    // whose collision box (built above, the single quad authority) crosses the
+    // projected silhouette on ANY side (empty bboxes ⇒ unplaced + paired icon
+    // drops). limbCullsBox tests the box corners, so a wide name near the
+    // left/right limb is culled too (was half-height only). +Inf off-globe.
     const nPoint = this.pending.length
     const limbCull = (idx: number, b: { minX: number; minY: number; maxX: number; maxY: number }) =>
-      limbInset !== undefined &&
-      idx < nPoint &&
-      limbInset((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2) < (b.maxY - b.minY) / 2 + 2
+      limbInset !== undefined && idx < nPoint && limbCullsBox(limbInset, b)
     const collisionInput: CollisionItem[] = shaped.map((s, idx) => ({
       bboxes: s.layouts[0] && limbCull(idx, s.layouts[0].bbox) ? [] : s.layouts.map((l) => l.bbox),
       allowOverlap: s.allowOverlap,

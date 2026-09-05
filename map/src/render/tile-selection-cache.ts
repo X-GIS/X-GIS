@@ -38,6 +38,7 @@ import { tileKey, tileKeyParent } from '@xgis/compiler'
 import { enumerateWorldCopies, routeToSphereSelector, isGlobeProj, isMercatorProj } from '@xgis/geo'
 import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
+import { frameCenterLatOf } from '../camera/view-matrix'
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
 import { warnSelectionTruncated } from './selection-truncation'
@@ -747,12 +748,10 @@ export class TileSelectionCache {
         const R = activeBody().sphereR
         const lon = (camera.centerX / R) * (180 / Math.PI)
         // Sphere family reads the true centre latitude (centerLatDeg reaches the
-        // pole; mercatorYToLat(centerY) saturates at ±85.051, diverging from the
-        // rendered sphere past that). Mirrors buildGlobeFrame/getECEFCenter.
-        const lat =
-          representsCenterAs(projType) === 'lat-deg'
-            ? camera.centerLatDeg
-            : mercatorYToLat(camera.centerY)
+        // pole; mercatorYToLat(centerY) saturates at ±85.051 and is pinned to the
+        // equator at whole-earth zoom). The SAME authority the frame token and
+        // buildGlobeFrame/getECEFCenter read (#2315/#2500).
+        const lat = frameCenterLatOf(camera, projType)
         const cssW = canvasWidth / dpr
         const cssH = canvasHeight / dpr
         // Disc projections (ortho/azi/stereo) fill the viewport even at low
