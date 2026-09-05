@@ -48,7 +48,11 @@ export function decodeMvtTile(
       // long horizontal slivers (visible as horizontal stripes
       // crossing oceans at low z). Clamp here so all vertices land
       // inside the planet's lon/lat range.
-      const clampedGeom = clampGeometryToPlanet(gj.geometry as GeoJSONGeometry)
+      // #2511 — one quantisation unit of THIS tile: a point further than that
+      // beyond ±180° is geojsonvt's antimeridian wrap copy, not noise.
+      const lonUnit = 360 / (layer.extent * Math.pow(2, z))
+      const clampedGeom = clampGeometryToPlanet(gj.geometry as GeoJSONGeometry, lonUnit)
+      if (!clampedGeom) continue
       out.push({
         type: 'Feature',
         // #1375 — MVT Feature tag 1 (`id`). `GeoJSONFeature.id` is documented
@@ -117,12 +121,29 @@ function clampPosLatOnly(p: number[]): number[] {
   return [Number.isFinite(p[0]) ? p[0] : 0, clampLat(p[1])]
 }
 
-function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
+// #2511 — POINT arm: a point beyond ±180° by more than one quantisation unit is
+// the antimeridian wrap copy geojsonvt emits into the tile's buffer (the same
+// beyond-±180 run the line arm keeps unclamped, #1221 R4). Clamping it onto the
+// seam drew a PHANTOM marker at exactly lon ±180 for every point within the
+// tiler's buffer of the world edge (lon 100 / 127 / 170 at z0), in every world
+// copy, on Mercator, the discs and the globe alike. The neighbouring world's
+// copy of the point is drawn by the world-copy loop, so the wrap copy is
+// DROPPED. Within one unit (a point ON the antimeridian, un-quantised to
+// 180.0x) it is noise: clamp as before. Returns null when nothing survives.
+function planetPoint(p: number[], lonUnit: number): number[] | null {
+  return Math.abs(p[0]!) > 180 + lonUnit ? null : clampPos(p)
+}
+
+function clampGeometryToPlanet(g: GeoJSONGeometry, lonUnit: number): GeoJSONGeometry | null {
   switch (g.type) {
-    case 'Point':
-      return { type: 'Point', coordinates: clampPos(g.coordinates) }
-    case 'MultiPoint':
-      return { type: 'MultiPoint', coordinates: g.coordinates.map(clampPos) }
+    case 'Point': {
+      const c = planetPoint(g.coordinates, lonUnit)
+      return c ? { type: 'Point', coordinates: c } : null
+    }
+    case 'MultiPoint': {
+      const cs = g.coordinates.map((p) => planetPoint(p, lonUnit)).filter((c) => c !== null)
+      return cs.length > 0 ? { type: 'MultiPoint', coordinates: cs } : null
+    }
     case 'LineString':
       return { type: 'LineString', coordinates: g.coordinates.map(clampPosLatOnly) }
     case 'MultiLineString':
@@ -140,7 +161,11 @@ function clampGeometryToPlanet(g: GeoJSONGeometry): GeoJSONGeometry {
     // MVT never encodes GeometryCollection (spec has no GC geometry type),
     // but the union arm exists (RFC 7946 §3.1.8) — clamp members recursively
     // so the function stays total over its declared domain.
-    case 'GeometryCollection':
-      return { type: 'GeometryCollection', geometries: g.geometries.map(clampGeometryToPlanet) }
+    case 'GeometryCollection': {
+      const gs = g.geometries
+        .map((m) => clampGeometryToPlanet(m, lonUnit))
+        .filter((m) => m !== null)
+      return gs.length > 0 ? { type: 'GeometryCollection', geometries: gs } : null
+    }
   }
 }

@@ -93,7 +93,7 @@ async function loadAndDump(
         // `any`: inspectPipeline()'s DECLARED frame type is { tilesVisible, missedTiles }
         // and carries no `drawnByZoom`, though the runtime object does — the same reason
         // the evaluate at the bottom of this function reaches the map through `any`.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const m = (window as unknown as { __xgisMap?: any }).__xgisMap
         if (!m?.inspectPipeline) return true
         m.invalidate?.()

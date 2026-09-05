@@ -118,6 +118,13 @@ nul
 # npm pack output — local tarballs from `npm pack` / clean-room verification
 *.tgz
 
+# Python bytecode. The repo ships .py under .claude/skills/ (compare-diff.py and
+# friends); running one as a script leaves nothing behind, but IMPORTING one — which
+# is the natural way to reuse its PNG codec — writes __pycache__/ next to it and trips
+# the repo's own untracked-files check.
+__pycache__/
+*.pyc
+
 # Local Claude Code harness state (per-machine). EXCEPTION: .claude/agents/
 # holds project reviewer agents meant to travel with the repo (like the
 # already-tracked settings.json / skills/), so it is carved back in — a
