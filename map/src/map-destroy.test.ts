@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { XGISMap } from './map'
-import { QUALITY } from '@xgis/engine'
+import { QUALITY, updateQuality } from '@xgis/engine'
 import { xlog } from '@xgis/shared'
 
 // destroy() teardown is GPU-free in its guard/null-safety paths, so the
@@ -137,6 +137,41 @@ describe('#1569 coverage machinery does not outlive the map', () => {
     expect(inner.rawDatasets.has('scene-a-only'), 'the ghost payload is pruned').toBe(false)
     // …and the map is NOT destroyed — reinit must stay re-runnable.
     expect(() => map.invalidate()).not.toThrow()
+  })
+})
+
+// ═══ #2305 — setQuality before run() must not throw ════════════════════════
+//
+// setQuality's only precondition guard checks `_destroyed`; a constructed-
+// but-never-run() map has `_destroyed === false`, so the guard does not
+// fire. `renderer` / `rasterRenderer` / `hillshadeRenderer` / `coverageRenderer`
+// are only assigned inside run()/runBinary(), so a `msaa` or `picking` patch
+// mutated the process-global QUALITY and then threw dereferencing the
+// unassigned renderer — leaving the host with an uncaught TypeError AND a
+// half-applied quality change (a retry is a no-op since QUALITY already
+// flipped).
+describe('#2305 setQuality before run() does not throw', () => {
+  it('setQuality({ picking }) on a never-run map does not throw and still applies', () => {
+    const map = new XGISMap(stubCanvas())
+    const before = QUALITY.picking
+    try {
+      expect(() => map.setQuality({ picking: !before })).not.toThrow()
+      expect(QUALITY.picking, 'the pre-boot value is honoured once run() reads it').toBe(!before)
+    } finally {
+      updateQuality({ picking: before })
+    }
+  })
+
+  it('setQuality({ msaa }) on a never-run map does not throw and still applies', () => {
+    const map = new XGISMap(stubCanvas())
+    const before = QUALITY.msaa
+    const target = before === 4 ? 1 : 4
+    try {
+      expect(() => map.setQuality({ msaa: target })).not.toThrow()
+      expect(QUALITY.msaa, 'the pre-boot value is honoured once run() reads it').toBe(target)
+    } finally {
+      updateQuality({ msaa: before })
+    }
   })
 })
 

@@ -2124,7 +2124,11 @@ export class XGISMap {
     const dprChanged =
       before.maxDpr !== after.maxDpr || before.interactionDpr !== after.interactionDpr
 
-    if (msaaChanged || pickingChanged) {
+    // #2305 — `renderer` / `rasterRenderer` / `hillshadeRenderer` / `coverageRenderer`
+    // are only assigned inside run()/runBinary(); on a constructed-but-never-run map
+    // there is nothing to rebuild yet (run() reads QUALITY live via getSampleCount() /
+    // isPickEnabled(), so the value above is still honoured once it boots).
+    if ((msaaChanged || pickingChanged) && this.renderer) {
       // Force next renderFrame to recreate msaa / stencil / pick
       // textures at the new sampleCount. The existing size-change gate
       // (`msaaWidth !== w`) won't trip on its own since width/height

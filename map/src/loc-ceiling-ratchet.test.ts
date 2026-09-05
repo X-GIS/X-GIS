@@ -1055,7 +1055,15 @@ const CEILINGS: Record<string, number> = {
   // raised this key from a common base, so the merged file carries BOTH deltas and
   // neither side's number is right (§12). Measured 5473 with `wc -l` on the
   // post-prettier merged tree.
-  'map/src/map.ts': 5473,
+  // 5473->5477 (#2305): setQuality's msaa/picking rebuild fan-out now guards on
+  // `this.renderer` being assigned — pre-run() it dereferenced an unassigned
+  // renderer field right after `updateQuality(patch)` had already mutated the
+  // process-global QUALITY, throwing a TypeError with no way to retell whether the
+  // half-applied patch stuck. 1 changed condition + a 4-line comment on why the
+  // guard holds (run()/runBinary() are the only assignment sites; the boot itself
+  // reads QUALITY live, so the pre-boot value is still honoured). Measured with
+  // `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5477,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
