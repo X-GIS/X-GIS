@@ -207,3 +207,13 @@ export interface TileSelection {
   /** `Selection.cameraIdle`. */
   readonly cameraIdle: boolean
 }
+
+/** #2508 phase 3 output — the layer-slot uniform offsets the paint phase
+ *  allocated. (Its other outputs are the renderer's per-call paint fields —
+ *  `current*`, `cached*`, the bake-stroke state — read by the draw phases
+ *  through `this`.) */
+export interface PaintSlots {
+  readonly lineLayerOffset: number
+  /** `-1` means the single-line legacy path (see `renderTileKeys`). */
+  readonly lineLayerOffsetGap: number
+}
