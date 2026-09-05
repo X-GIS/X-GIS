@@ -4002,6 +4002,9 @@ export class XGISMap {
         let syncLayout: GPUBindGroupLayout | null = null
         if (variantSync && (variantSync.preamble || variantSync.needsFeatureBuffer)) {
           try {
+            // #2439 — hand the complete collection over so `categorical()` gets a
+            // dense index instead of a hashed one. Derived lazily in the binder.
+            if (variantSync.needsFeatureBuffer) vtRenderer.setSeededFeatures(filtered.features)
             syncPipelines = this.renderer.getOrCreateVariantPipelines(variantSync)
             syncLayout = this.renderer.getOrBuildVariantLayout(variantSync)
             vtRenderer.setComputePlan(this._currentComputePlan)

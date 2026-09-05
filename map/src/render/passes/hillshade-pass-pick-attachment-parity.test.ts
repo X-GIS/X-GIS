@@ -1,29 +1,55 @@
-// #2314: hillshade drew a 2-target (pick) pipeline into its 1-attachment pass.
+// ═══ Hillshade draw must never ask for the pick pipeline (#2314) ═══
 //
-// Witness: the hillshade pass opens a render pass with N colour attachments; the
-// pipeline HillshadeRenderer selects for that pass must carry exactly N colour targets
-// (WebGPU validation: pipeline attachment state must match the pass it is set on).
-// Drives the REAL chain — hillshadePass.execute → HillshadeRenderer.render →
-// HillshadeDraper.draw → Material → rhi.createPipeline — over the WebGPU stub device,
-// recording the pass descriptor on one side and the pipeline descriptor on the other.
+// hillshade-pass.ts opens exactly ONE colour attachment, unconditionally
+// (`colorAttachments: [{ view: colorView, ... }]`, hillshade-pass.ts:122) — the
+// file has zero references to a `pickView`. HillshadeDraper, though, builds a
+// TWO-colour-target pipeline (bgra8unorm + rg32uint, hillshade-material.ts:
+// 125-127) whenever `draw()` is called with `pick: true`, labelled
+// 'hillshade-pick-pipeline-rhi'. Passing the bare `isPickEnabled()` into that
+// `pick` argument (the pre-#2314 shape of HillshadeRenderer.render's draw
+// call) is a pass/draper attachment-count contract violation the type system
+// cannot see: on WebGPU, Dawn rejects every `setPipeline` with
+//
+//   Attachment state of [RenderPipeline "hillshade-pick-pipeline-rhi"] is not
+//   compatible with [RenderPassEncoder]… expects an attachment state of
+//   { colorTargets: [0={format:TextureFormat::BGRA8Unorm}] }
+//
+// which invalidates the frame's whole command buffer — a blank map, with
+// picking on, at 100% modal on one colour bucket (measured on
+// fixture_hillshade_local). Relief is not pickable anyway — fs_hillshade's
+// pick fragment writes vec2u(0,0) under writeMask 0 — so the fix is simply to
+// never ask for the twin: HillshadeRenderer.render's draw call now hardcodes
+// `false`.
+//
+// This pins the CONTRACT the fix rests on: the hillshade PASS is the
+// authority on how many colour targets a hillshade PIPELINE may carry, and no
+// pipeline HillshadeDraper builds may exceed it. Driven over the REAL chain —
+// installWebGPUStub + initGPU + HillshadeRenderer, the hillshade-loadtile-rhi
+// idiom — spying on `ctx.rhi.createPipeline`, with `QUALITY.picking` both true
+// and false so the guard is non-vacuous in EITHER direction: with picking
+// off, `isPickEnabled()` already returns false and this gate would stay green
+// even reverted, so it is the picking-ON arm that actually pins the
+// mechanism; the picking-OFF arm only confirms the fix does not regress the
+// ordinary path. Both arms need their own "at least one pipeline was
+// created" guard — a draw that never reaches materialFor proves nothing about
+// either.
+//
+// Fail-before: reverting the draw-call argument to `isPickEnabled()` reds the
+// picking-ON case below with a 2-target pipeline and this test's own message
+// (see CLAUDE.md §5 for the paired before/after run this file was written to
+// support).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   installWebGPUStub,
   type StubInstallation,
 } from '../../../../rhi-webgpu/src/__test-support__/webgpu-stub'
-import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { wrapWebGpuPass, initGPU, type GPUContext } from '@xgis/rhi-webgpu'
+import { Camera, HillshadeRenderer, armHillshadeSource } from '@xgis/map'
 import { QUALITY } from '@xgis/engine'
-import { HillshadeRenderer } from '../hillshade-renderer'
-import { hillshadePass } from './hillshade-pass'
-import { makeProjectionToken } from '../projection-token'
-import { Camera } from '../../camera'
-import { seedShaderSources, _resetShaderEmitCache } from '../../shaders/emit/shader-emit-pool'
-import type { FrameContext } from '../frame-context'
-import type { SceneView } from '../scene-view'
 
 let stub: StubInstallation
-const origPicking = QUALITY.picking
+const priorFetch = globalThis.fetch
 
 beforeEach(() => {
   if (typeof HTMLCanvasElement === 'undefined') {
@@ -36,117 +62,115 @@ beforeEach(() => {
     } as never
   }
   stub = installWebGPUStub()
-  _resetShaderEmitCache()
-  // Sources are already "known" so materialFor() builds the pipeline on the first draw.
-  const SRC = { vertex: '', fragment: '', wgsl: '// stub' }
-  seedShaderSources({ family: 'hillshade', pick: true, methodFlag: 0 }, SRC)
-  seedShaderSources({ family: 'hillshade', pick: false, methodFlag: 0 }, SRC)
+  // Tile loads are irrelevant to this gate (materialFor runs whether or not any
+  // tile is resident yet) but render() still ISSUES them — a never-resolving
+  // fetch keeps this hermetic (no real network) without reaching into
+  // DemTileStore internals the way source-scheme-wiring.test.ts's recorderOn
+  // does for a different purpose (recording the requested URLs).
+  globalThis.fetch = (() => new Promise<Response>(() => {})) as typeof fetch
 })
 afterEach(() => {
-  QUALITY.picking = origPicking
   stub.uninstall()
-  vi.restoreAllMocks()
+  globalThis.fetch = priorFetch
 })
 
+const origPicking = QUALITY.picking
+afterEach(() => {
+  QUALITY.picking = origPicking
+})
+
+const W = 2000
+const H = 800
+const DPR = 1
+const ZOOM = 1
+const PROJ_TYPE = 0
+
 async function makeCtx(): Promise<GPUContext> {
-  const canvas = { width: 800, height: 600 } as unknown as HTMLCanvasElement
+  const canvas = { width: W, height: H } as unknown as HTMLCanvasElement
   Object.setPrototypeOf(canvas, HTMLCanvasElement.prototype)
   return initGPU(canvas) as unknown as Promise<GPUContext>
 }
 
-async function runFrame(picking: boolean): Promise<{
-  passAttachments: number
-  pipelineTargets: number[]
-}> {
-  QUALITY.picking = picking
-  const gpu = await makeCtx()
-  const pipelineTargets: number[] = []
-  const origCreate = gpu.rhi.createPipeline.bind(gpu.rhi)
-  vi.spyOn(gpu.rhi, 'createPipeline').mockImplementation((desc) => {
-    pipelineTargets.push(desc.colorTargets.length)
-    return origCreate(desc)
-  })
-
-  const hr = new HillshadeRenderer(gpu)
-  hr.setUrlTemplate('https://dem.example.com/{z}/{x}/{y}.png')
-  // Never let a tile load touch the network; the draw path does not need a resident tile
-  // to select (and build) its pipeline.
-  ;(hr as unknown as { loadTileTexture: () => Promise<unknown> }).loadTileTexture = () =>
-    new Promise<unknown>(() => {})
-
-  const captured: { desc: { colorAttachments: unknown[] } }[] = []
-  const enc = {
-    beginRenderPass: (desc: { colorAttachments: unknown[] }) => {
-      const p = {
-        desc,
-        end() {},
-        setPipeline() {},
-        setBindGroup() {},
-        setVertexBuffer() {},
-        setIndexBuffer() {},
-        draw() {},
-        drawIndexed() {},
-      }
-      captured.push(p)
-      return p
-    },
-  }
-  const colorView = { __rhiColorView: true }
-  const stencilView = { __rhiStencilView: true }
-  const sceneResolveView = { __rhiSceneResolveView: true }
-  const pickView = picking ? { __rhiPickView: true } : null
-  const ctx = {
-    rhi: gpu.rhi,
-    rhiEncoder: enc,
-    rhiScreenView: { __rhiScreenView: true },
-    rhiColorView: colorView,
-    rhiStencilView: stencilView,
-    rhiSceneResolveView: sceneResolveView,
-    rhiColorViewScreen: colorView,
-    passScope: (_label: string, fn: () => void) => fn(),
-    useResolve: false,
-    rt: { pickTexture: picking ? {} : null, pickView, stencilView },
-    projection: makeProjectionToken(0, 0, 0),
-    scene: { w: 800, h: 600, dpr: 1 },
-    screen: { w: 800, h: 600, dpr: 1 },
-    _elapsedMs: 0,
-  } as unknown as FrameContext
-  const camera = new Camera(0, 0, 2)
-  camera.projType = 0
-  const host = {
-    hillshadeRenderer: hr,
-    _hillshadeShow: null,
+/** Mirrors source-scheme-wiring.test.ts's drive() — one synchronous render()
+ *  call through the real WebGPU stub. */
+function drive(ctx: GPUContext, renderer: { render: (...a: never[]) => void }): void {
+  const camera = new Camera(0, 0, ZOOM)
+  camera.projType = PROJ_TYPE
+  const encoder = (
+    ctx.device as unknown as {
+      createCommandEncoder: () => { beginRenderPass: () => GPURenderPassEncoder }
+    }
+  ).createCommandEncoder()
+  ;(renderer.render as (...a: unknown[]) => void)(
+    wrapWebGpuPass(encoder.beginRenderPass()),
     camera,
-    _elapsedMs: 0,
-    inputs: null,
-  }
-  const scene = {
-    hasHillshade: true,
-    overdraw: false,
-    resolveOwner: 'none',
-  } as unknown as SceneView
-
-  hillshadePass.execute(ctx, scene, host as never)
-
-  expect(captured, 'the hillshade pass must open exactly one render pass').toHaveLength(1)
-  expect(pipelineTargets, 'the draw must have built exactly one hillshade pipeline').toHaveLength(1)
-  return { passAttachments: captured[0].desc.colorAttachments.length, pipelineTargets }
+    PROJ_TYPE,
+    0,
+    0,
+    W,
+    H,
+    0,
+    DPR,
+  )
 }
 
-describe('hillshade pass ↔ hillshade pipeline attachment-state agreement', () => {
-  it('picking OFF: one attachment, one colour target (control arm)', async () => {
-    const r = await runFrame(false)
-    expect(r.passAttachments).toBe(1)
-    expect(r.pipelineTargets[0]).toBe(1)
+/** One macrotask flush — enough to drain the shader-emit-pool's microtask
+ *  chain. Node has no `Worker`, so `requestShaderSources` resolves through
+ *  the synchronous main-thread `emitFor` fallback wrapped in one
+ *  `Promise.resolve().then()` (seed-hillshade.test.ts:15); a macrotask always
+ *  runs after every already-queued microtask, so this is robust regardless of
+ *  exactly how many `.then()` layers are in that chain. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/** Arms a DEM source and drives render() until the (memoised, per
+ *  methodFlag+pick) hillshade Material has actually been constructed, then
+ *  returns every colour-target count `ctx.rhi.createPipeline` was asked for
+ *  along the way. The FIRST drive() only ever kicks off the async shader
+ *  emit — materialFor's `peekShaderSources` misses, it fires
+ *  `requestShaderSources` and returns null, and HillshadeDraper.draw() draws
+ *  nothing. The SECOND drive(), after the emit settles, is what finds the
+ *  cache hit and actually builds the Material — i.e. actually calls
+ *  createPipeline. Zero resident DEM tiles is fine: materialFor runs
+ *  regardless of how many tiles the draw list carries (hillshade-material.ts
+ *  draw()). */
+async function pipelineColorTargetCounts(picking: boolean): Promise<number[]> {
+  QUALITY.picking = picking
+  const ctx = await makeCtx()
+  const renderer = new HillshadeRenderer(ctx)
+  armHillshadeSource(renderer, { _tileUrl: 'https://dem.example.com/{z}/{x}/{y}.png' })
+  renderer.setParams({ tileSize: 256 })
+  const spy = vi.spyOn(ctx.rhi, 'createPipeline')
+
+  drive(ctx, renderer)
+  await settle()
+  drive(ctx, renderer)
+
+  return spy.mock.calls.map(([desc]) => desc.colorTargets?.length ?? -1)
+}
+
+/** Vacuity guard + the shared assertion: every pipeline the draw created must
+ *  carry exactly 1 colour target, the one hillshade-pass.ts opens. */
+function assertAllSingleTarget(counts: number[]): void {
+  expect(
+    counts.length,
+    'no pipeline was created — the draw never reached materialFor, so this proves nothing',
+  ).toBeGreaterThan(0)
+  for (const n of counts) {
+    expect(
+      n,
+      `hillshade created a ${n}-target pipeline; the hillshade pass opens 1 colour attachment (#2314)`,
+    ).toBe(1)
+  }
+}
+
+describe('HillshadeRenderer.render draw never asks for the 2-target pick pipeline (#2314)', () => {
+  it('picking ON: every pipeline the draw creates still carries exactly 1 colour target', async () => {
+    assertAllSingleTarget(await pipelineColorTargetCounts(true))
   })
 
-  it('picking ON (WebGPU, presentablePassMrt): the pipeline target count equals the pass attachment count', async () => {
-    const r = await runFrame(true)
-    expect(
-      r.pipelineTargets[0],
-      `HillshadeRenderer selected a ${r.pipelineTargets[0]}-target pipeline for a pass the ` +
-        `hillshade pass opened with ${r.passAttachments} colour attachment(s) — WebGPU rejects ` +
-        `setPipeline (attachment state mismatch) and the whole frame's command buffer is invalid`,
-    ).toBe(r.passAttachments)
+  it('picking OFF: every pipeline the draw creates carries exactly 1 colour target', async () => {
+    assertAllSingleTarget(await pipelineColorTargetCounts(false))
   })
 })

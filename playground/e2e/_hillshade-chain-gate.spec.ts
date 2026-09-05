@@ -12,7 +12,7 @@
 //
 // Headless SwiftShader WebGPU (HEADED=0 XGIS_SOFTWARE_GPU=1) — the chain arm.
 
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,7 +21,7 @@ import { PNG } from 'pngjs'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__render-verify__')
 
-test('local raster-dem renders as shaded relief through the chain', async ({ page }) => {
+async function runChainGate(page: Page, opts: { picking: boolean }): Promise<void> {
   test.setTimeout(120_000)
   mkdirSync(OUT, { recursive: true })
   const errors: string[] = []
@@ -33,9 +33,8 @@ test('local raster-dem renders as shaded relief through the chain', async ({ pag
 
   // The demo opens at z11 (Demo.zoom) — the DEM's Sobel deriv scale is
   // calibrated there; no test-only camera (the gl2 gate's rationale).
-  await page.goto('/demo.html?id=fixture_hillshade_local&e2e=1', {
-    waitUntil: 'domcontentloaded',
-  })
+  const url = `/demo.html?id=fixture_hillshade_local&e2e=1${opts.picking ? '&picking=1' : ''}`
+  await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
     null,
@@ -77,7 +76,10 @@ test('local raster-dem renders as shaded relief through the chain', async ({ pag
     png = PNG.sync.read(await page.locator('#map').screenshot({ type: 'png' }))
     m = measure(png)
   }
-  writeFileSync(join(OUT, 'hillshade-chain-gate.png'), PNG.sync.write(png))
+  writeFileSync(
+    join(OUT, `hillshade-chain-gate${opts.picking ? '-picking' : ''}.png`),
+    PNG.sync.write(png),
+  )
 
   const state = await page.evaluate(() => {
     const w = window as unknown as {
@@ -103,4 +105,18 @@ test('local raster-dem renders as shaded relief through the chain', async ({ pag
   expect(m.lit, `lit pixels ${m.lit}/${m.total}`).toBeGreaterThan(m.total * 0.05)
   expect(m.nonEmptyBins, 'luminance levels present (shading structure)').toBeGreaterThanOrEqual(3)
   expect(m.spread, `dark→light luminance range ${m.spread}`).toBeGreaterThanOrEqual(24)
+}
+
+test('local raster-dem renders as shaded relief through the chain', async ({ page }) => {
+  await runChainGate(page, { picking: false })
+})
+
+// #2314 — picking attaches a pick target to the opaque/oit passes but NEVER to
+// the hillshade pass, which opens one colour attachment unconditionally. A
+// hillshade draw that asked for the 2-target pick pipeline made Dawn reject every
+// setPipeline and invalidated the frame's whole command buffer: a blank map,
+// measured at 100% modal on one colour bucket. This arm is the reachability gate
+// that combination never had.
+test('the same chain survives GPU picking (#2314)', async ({ page }) => {
+  await runChainGate(page, { picking: true })
 })

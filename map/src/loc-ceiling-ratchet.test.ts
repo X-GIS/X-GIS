@@ -400,6 +400,15 @@ const CEILINGS: Record<string, number> = {
   // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
   // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
   // kept here only as a cross-check that nothing was dropped in the resolution.
+  // 5588->5596 (#2439, re-measured POST-MERGE — twice): the seeded `categorical()` value
+  // lists are OWNED BY `feature-data-binder.ts`, not by this file — what lands here is
+  // the 2-line forwarder to it plus one argument at the webgl2 packer call. The first
+  // draft did hold the state here (field + docblock + setter, +19) and was extracted
+  // precisely because this gate said so.
+  // SIXTH collision, same key, and the worst shape §12 names: #2309 (+8, main) and
+  // #2439 (+8, here) both wrote 5588 over the 5580 base — the SAME number from two
+  // different deltas, so the source merged with no conflict and this file conflicted
+  // only on the COMMENT. 5580 + 8 + 8 = 5596 = `wc -l` on the merged tree.
   // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
   // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
   // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
@@ -421,7 +430,9 @@ const CEILINGS: Record<string, number> = {
   // (+8, the numeric draw-dedup sub-key) and this branch's #2292/#2301 stack over the
   // common base, so neither side's number is right (§12). Measured 5605 with `wc -l` on
   // the post-prettier merged tree.
-  'map/src/render/vector-tile-renderer.ts': 5605,
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 5613 is `wc -l` on the merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5613,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1044,6 +1055,12 @@ const CEILINGS: Record<string, number> = {
   // two clears in setBackgroundFill's null/non-null branches, so a style-set fill and a
   // host-set fill (setBackgroundFill) can be told apart when a background-less re-run()
   // resets the style-owned one. Pre-prettier measurement; parent session re-measures.
+  // 5437->5440 (#2439, measured post-prettier): three lines — a one-line
+  // `setSeededFeatures(filtered.features)` at the attach site plus its two-line why.
+  // An earlier draft derived the value lists HERE and cost 11 (call, rationale,
+  // import); moving the derivation into the binder, lazily, cut this to the wire AND
+  // fixed a staleness bug, so the smaller number is the better design rather than a
+  // trimmed comment. Ratcheting DOWN from the 5448 that draft measured.
   // 5419→5427 (hunt 2026-09-02): `_releaseGpuResources` now drops the synthetic
   // earth-surface background's two owner refs (`_syntheticBackend`,
   // `underOccluder`) it was leaking across a re-run — 3 statements plus the
@@ -1095,7 +1112,9 @@ const CEILINGS: Record<string, number> = {
   // authority and what re-deriving it costs, which is the half that keeps the
   // next host from writing `min(devicePixelRatio, maxDpr)` again. Measured with
   // `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5490,
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 5493 is `wc -l` on the merged tree.
+  'map/src/map.ts': 5493,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1233,6 +1252,12 @@ const CEILINGS: Record<string, number> = {
   // SAME flag — one authority, not a hand-copied predicate that could drift into meaning
   // two different things on one page. Net +8: the exported function + its doc, minus the
   // inline `useLegacy` expression and the comment lines it replaced.
+  // 1068->1073 (#2439, measured post-prettier): `_reseedInPlace` KEEPS the renderer
+  // by design, so the dense `categorical()` index derived from the previous data
+  // would rank the new data against the OLD value set — a wrong-colour bug, not a
+  // missed optimisation. One `setSeededFeatures(reprojected.features)` next to the
+  // existing `reseedTiles()`, plus the four lines saying why a reader must not drop
+  // it. Re-seeding drops the binder's memo, so the ranks cannot outlive their data.
   // 1068→1094 (#2300, and re-measured over the #2299 per-source `_showSourceMaps`
   // bump this file had already taken): `resetForReinit()` — the manager half of the
   // teardown spine, which now releases `hostSeededFC` / `vtBackends` /
@@ -1240,7 +1265,9 @@ const CEILINGS: Record<string, number> = {
   // scene's seeded collections cannot outlive it. +26 = the 4-line body and the
   // recorded reasoning (why nothing keyed there is still live after either teardown
   // path, and what the stale FC did to `updateFeature`). MEASURED post-prettier.
-  'map/src/source-manager.ts': 1094,
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 1099 is `wc -l` on the merged tree.
+  'map/src/source-manager.ts': 1099,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only

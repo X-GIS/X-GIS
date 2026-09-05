@@ -727,12 +727,7 @@ export class HillshadeRenderer {
       B.buffer,
       HB.buffer,
       tilesArr,
-      // NEVER the pick pipeline (#2314): the hillshade pass opens ONE colour attachment,
-      // so a 2-target pipeline mismatches its attachment state — a WebGPU setPipeline
-      // validation error that invalidates the frame's encoder, and on WebGL2 an rg32uint
-      // target that forces blending off (opaque relief). Relief is not pickable anyway:
-      // its pick output is a constant vec2u(0, 0) written under writeMask 0.
-      false,
+      false, // #2314 — the pass opens ONE colour attachment (see the parity gate)
       // The method is a per-LAYER constant, so it selects a SPECIALISED pipeline
       // rather than branching per fragment (see buildHillshadeModule).
       hillshadeMethodFlag(this._params.method),

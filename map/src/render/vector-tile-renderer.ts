@@ -1431,6 +1431,7 @@ export class VectorTileRenderer {
               sliceLayer,
               key,
               this.source.getTileData(key, sliceLayer)?.featureProps,
+              this._featureBinder.seededCategoryOrder(),
             )
           : pack.active
             ? this.fillPatternTileBgRhi()
@@ -2336,6 +2337,13 @@ export class VectorTileRenderer {
       sliceLayer,
       fn,
     )
+  }
+
+  /** Seeded `categorical()` features (#2439) — forwarder; the binder owns them. */
+  setSeededFeatures(
+    features: readonly { properties?: Record<string, unknown> | null }[] | undefined,
+  ): void {
+    this._featureBinder.setSeededFeatures(features)
   }
 
   hasFeatureData(): boolean {

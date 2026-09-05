@@ -91,16 +91,37 @@ describe('#1983 W2 — raster-dem source: same three properties, DEM props untou
     expect(warnings.filter((w) => /minzoom|maxzoom|tileSize/.test(w))).toEqual([])
   })
 
-  it('leaves the pre-existing raster-dem diagnostics exactly as they were', () => {
+  it('does not tell the author raster-dem rendering is unsupported — it shipped (#2520)', () => {
     const { code, warnings } = convert(demStyle({ tileSize: 512, maxzoom: 12 }))
     // #2003 landed separately since this test was written: encoding: terrarium is now
     // EMITTED (not warned) — that is the correct, updated diagnostic this tileSize/
-    // maxzoom emission must not disturb. The other raster-dem diagnostic (untouched by
-    // both #1983 and #2003) still holds exactly as before.
+    // maxzoom emission must not disturb.
     expect(code).toContain('encoding: terrarium')
     expect(warnings.some((w) => w.includes('encoding'))).toBe(false)
-    expect(warnings.some((w) => w.includes('rendering not yet supported'))).toBe(true)
-    expect(code).toContain('// NOTE: raster-dem rendering (hillshade / 3D terrain)')
+
+    // THE CORRECTION (#2520). Until now this test asserted the OPPOSITE of both lines
+    // below — it pinned a warning saying "rendering not yet supported (Batch 4 —
+    // hillshade + 3D terrain)" and the matching inline NOTE. Both outlived the gap:
+    // #777 Phase II renders raster-dem end to end on both backends (spec-coverage has
+    // `raster-dem` and `hillshade` at `supported`; HillshadeRenderer + four e2e render
+    // gates), and the emit site's OWN neighbouring comment already cited demUnpack() in
+    // hillshade-renderer.ts. The text reached the user IN THE CONVERTED OUTPUT, telling
+    // them to wait for a roadmap batch that had already landed.
+    //
+    // A test that has to be edited by anyone fixing the bug was guarding nothing; this
+    // asserts the property instead — same reasoning that retired
+    // `expect(CAT_PALETTE_SIZE).toBe(20)` in #2439.
+    expect(warnings.some((w) => /not yet supported|Batch 4/.test(w))).toBe(false)
+    expect(code).not.toContain('raster-dem rendering')
+
+    // And the gap that IS real keeps its warning, owned by the `terrain` block rather
+    // than by the source: 3D terrain vertex displacement. Asserted from a style that
+    // declares one, so removing the source-side noise cannot silently take it too.
+    const withTerrain = convert({
+      ...demStyle({ tileSize: 512, maxzoom: 12 }),
+      terrain: { source: 'terrain', exaggeration: 1.5 },
+    } as never)
+    expect(withTerrain.warnings.some((w) => /does not yet displace/.test(w))).toBe(true)
   })
 })
 
