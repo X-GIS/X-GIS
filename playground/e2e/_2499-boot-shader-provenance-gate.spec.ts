@@ -31,9 +31,10 @@
 // of a row: they churn with every new Material variant and would red this gate for reasons
 // that have nothing to do with provenance (they are still printed, for diagnosis). WebGL2 is
 // empty (#2459 measured zero runtime lowerings there and this arm keeps it so); WebGPU
-// carries the fail-before #2499 records. A count that drops WITHOUT the table shrinking
-// reds (the table would then claim an emit the boot no longer performs), and a new row or a
-// higher count reds — an eighth family cannot arrive un-baked in silence, which is the point.
+// carried the fail-before #2499 records and is empty since its step 1. A count that drops
+// WITHOUT the table shrinking reds (the table would then claim an emit the boot no longer
+// performs), and a new row or a higher count reds — an eighth family cannot arrive un-baked
+// in silence, which is the point.
 //
 // Anti-vacuity arms run first: the artifacts parsed into a non-trivial source set, the page
 // compiled at least one shader, and at least one compiled source IS baked — a hand-off that
@@ -87,20 +88,16 @@ const HOST_LABEL = /^rhi:/
 const OPEN_SET_LABEL = /^shader-./
 
 /** The fail-before, per backend. SHRINK-ONLY — see the header. Rows are `<lang> <entry
- *  points> ×<distinct programs>`, sorted. Every WebGPU row is a #2499 finding:
- *    ×1 polygon — the split-bind twin `emitPolygonSplitWgsl(null, pick)`
- *       (pipeline-factory.ts:1066, no key shape). Was ×2 until `buildShader(null)` started
- *       reading the baked `wgsl/polygon` key (polygon-shader-cache.ts);
- *    ×1 line — the split-bind twin `emitLineSplitWgsl` (line-material.ts:173, no key shape);
- *    ×1 oit-compose — `emitOitComposeWgsl(sampleCount, isMsaa)` (compose-pipelines.ts:28,
- *       built at boot, allowlisted "phase-B keying candidate"). */
+ *  points> ×<distinct programs>`, sorted. EMPTY on both backends since #2499 step 1: the
+ *  split-bind twins (`wgsl/polygon-split`, `wgsl/line-split`) and `wgsl/oit-compose/s<n>` are
+ *  `WgslOnlyFamily` keys in the boot artifact, and `buildShader(null)` reads `wgsl/polygon`.
+ *  The rows this table carried on the way down, for the record: `wgsl vs_main+…+fs_overdraw
+ *  ×2` (the legacy polygon base and its split twin), `wgsl vs_line+… ×1`, `wgsl
+ *  vs_full+fs_compose ×1`. A new row is a new un-baked family — decide its key shape in
+ *  ids.ts, do not add it here. */
 const RUNTIME_AT_BOOT: Readonly<Record<'webgpu' | 'webgl2', readonly string[]>> = {
   webgl2: [],
-  webgpu: [
-    'wgsl vs_full+fs_compose ×1',
-    'wgsl vs_line+fs_line+fs_line_pattern+fs_line_max ×1',
-    'wgsl vs_main+vs_main_ecef+vs_main_ecef_extruded+fs_fill+fs_fill_pattern+fs_oit_translucent+fs_fill_extrude+fs_stroke+fs_overdraw ×1',
-  ],
+  webgpu: [],
 }
 
 // Runs before any page script (addInitScript). Plain JS on purpose — it is evaluated in
