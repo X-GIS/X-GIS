@@ -940,6 +940,11 @@ export class SourceManager {
     live.source.detachBackend(prevBackend) // cached tiles survive — that is the whole point
     live.source.attachBackend(backend)
     this.vtBackends.set(sourceId, backend)
+    // #2439 — this path KEEPS the renderer, so the dense `categorical()` index
+    // it derived describes the OLD value set. Re-seed with the new features:
+    // the binder drops its memo and re-derives, so the ranks can never outlive
+    // the data they came from.
+    live.renderer.setSeededFeatures(reprojected.features)
     live.renderer.reseedTiles()
   }
 

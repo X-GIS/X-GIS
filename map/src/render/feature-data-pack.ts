@@ -52,6 +52,68 @@ export function buildCategoryMap(
   return map
 }
 
+/** Derive a deterministic value list for `categorical()` fields from a source's
+ *  COMPLETE seeded FeatureCollection — the dense-index half of #2439.
+ *
+ *  WHY THIS EXISTS AND WHERE IT DOES NOT APPLY. `stableCategoryId` is a 23-bit
+ *  hash, so the shader's `CAT_PALETTE[id % N]` collides on the BIRTHDAY bound,
+ *  not the pigeonhole one: at N=512 roughly 65 of `countries.geojson`'s 258
+ *  names would still share a colour. A rank in `[0, D)` collides never. The
+ *  rank needs the complete distinct set, and #723 needs it to be the same set
+ *  for every tile — which is exactly what a seeded collection is and what a
+ *  streamed MVT/PMTiles source can never be. Those sources pass nothing here
+ *  and keep the hash (plus the #2428 warning), which remains the only correct
+ *  answer where the distinct set is never final.
+ *
+ *  Sorted, so the assignment is a pure function of the VALUE SET — never of
+ *  feature order, tile arrival order, or anything else network-dependent
+ *  (#2439 rejected a first-seen-order registry for exactly that reason: it
+ *  repaints differently across two page loads and breaks hash-equality gates).
+ *
+ *  CALLED FROM THE ATTACH SITE (`map.ts`, the inline-GeoJSON virtual-PMTiles
+ *  branch) because that is the one place holding BOTH the complete collection
+ *  and the variant's field list — and it runs before the first tile is packed,
+ *  which matters: the packers read this per tile, so a list arriving later
+ *  would leave already-uploaded tiles on the old ids.
+ *
+ *  Fields that already carry a COMPILE-TIME order from a `match()` are skipped:
+ *  the shader's if-else arms are numbered by that list, so a data-derived one
+ *  would repaint every arm. Compile-time wins, here and at the read site. */
+export function deriveSeededCategoryOrder(
+  features: readonly { properties?: Record<string, unknown> | null }[],
+  fields: readonly string[],
+  compileTimeOrder: Readonly<Record<string, readonly string[]>> = {},
+  /** Diagnostic sink, injectable for the same reason
+   *  `warnCategoricalPaletteWrap` takes one: the latch is module-global, so a
+   *  test that asserted on the console would pass or fail by test ORDER. */
+  warnSink?: (msg: string) => void,
+): Record<string, readonly string[]> {
+  const out: Record<string, readonly string[]> = {}
+  for (const field of fields) {
+    const authored = compileTimeOrder[field]
+    if (authored && authored.length > 0) continue
+    const seen = new Set<string>()
+    for (const f of features) {
+      const v = f.properties?.[field]
+      if (typeof v === 'string') seen.add(v)
+    }
+    if (seen.size === 0) continue
+    // The #2428 wrap warning lives in `buildCategoryMap`, which this path
+    // BYPASSES — so without this line a seeded source silently lost the only
+    // diagnostic it had, and lost it exactly where the author is most likely
+    // to have too many categories (a whole FeatureCollection, not one tile).
+    // Caught by the render probe: the warning that fired before the dense
+    // index stopped firing after it, on the same scene.
+    //
+    // A dense rank wraps at N just as a hash does, so the message is true here
+    // too — and it is now the ONLY thing that wraps, which makes the count it
+    // reports exact rather than "at least".
+    warnCategoricalPaletteWrap(field, seen.size, warnSink)
+    out[field] = [...seen].sort()
+  }
+  return out
+}
+
 /** Pack one tile's worker-emitted `featureProps` into the flat `feat_data[fid *
  *  fieldCount + j]` layout the polygon variant shader indexes by the stride-28
  *  vertex `feature_id`.
@@ -77,6 +139,7 @@ export function packPerTileFeatureData(
   featureProps: ReadonlyMap<number, Record<string, unknown>> | undefined,
   fields: readonly string[],
   categoryOrder: Readonly<Record<string, readonly string[]>>,
+  seededOrder?: Readonly<Record<string, readonly string[]>>,
 ): { data: Float32Array; featureCount: number } | null {
   if (!featureProps || featureProps.size === 0) return null
   const fieldCount = fields.length
@@ -98,7 +161,12 @@ export function packPerTileFeatureData(
   // holding only `school` would encode school=0 and paint it in cemetery's arm).
   const catMaps = new Map<string, Map<string, number>>()
   for (const fieldName of fields) {
-    const order = categoryOrder[fieldName]
+    // Compile-time order FIRST, then the seeded one (#2439). Precedence, not
+    // a merge: a `match()` numbers the shader's if-else arms by ITS list, so a
+    // data-derived list must never displace it. Both take the identical branch
+    // below — a dense rank with unknowns appended past the end — because they
+    // are the same kind of object: an ordered value list whose index IS the id.
+    const order = categoryOrder[fieldName] ?? seededOrder?.[fieldName]
     const map = new Map<string, number>()
     if (order && order.length > 0) {
       order.forEach((v, i) => map.set(v, i))
@@ -114,6 +182,11 @@ export function packPerTileFeatureData(
       // #723 — categorical() palette id is a pure function of the value
       // (stableCategoryId), NOT the per-tile alphabetical rank, so the same
       // value gets the same palette slot in every tile / at every zoom.
+      // Reached when neither an authored `match()` list nor a SEEDED one
+      // exists — i.e. a streamed MVT/PMTiles source, whose distinct set is
+      // never final. The hash collides on the birthday bound (#2439) and the
+      // #2428 warning below is what tells the author; a dense rank here would
+      // be the pre-#723 subset-dependent bug, so this stays.
       const vals: string[] = []
       for (const props of featureProps.values()) {
         const v = props[fieldName]
