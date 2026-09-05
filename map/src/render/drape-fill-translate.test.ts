@@ -34,9 +34,14 @@ interface MockBuf {
 
 /** Mock RHI that keeps every buffer's latest bytes. The GLOBAL uniform block is
  *  the biggest non-pool buffer the drape writes; we find it by size. */
-function makeMockRhi(): { rhi: unknown; writes: { buf: MockBuf; bytes: Uint8Array }[] } {
+function makeMockRhi(): {
+  rhi: unknown
+  writes: { buf: MockBuf; bytes: Uint8Array }[]
+  demStubWrites: number[]
+} {
   let id = 0
   const writes: { buf: MockBuf; bytes: Uint8Array }[] = []
+  const demStubWrites: number[] = []
   const rhi = {
     backend: 'webgpu' as const,
     caps: { shaderLanguage: 'wgsl' },
@@ -46,6 +51,15 @@ function makeMockRhi(): { rhi: unknown; writes: { buf: MockBuf; bytes: Uint8Arra
     createBuffer: (_d: { size: number; usage: string }): MockBuf => ({ __id: ++id, __bytes: null }),
     createTexture: (d: { label?: string }) => ({ __tex: true, label: d.label ?? '' }),
     createView: () => ({ __view: true }),
+    // #2539 — RasterDraper initialises a 1x1 DEM stub on its first draw (the
+    // group-0 binding the shared `vs_tile` reads elevation from must be filled
+    // even with no terrain). A double that omits this is not a passing test, it
+    // is `TypeError: this.rhi.writeTexture is not a function` inside draw — the
+    // hazard is that the cast to RhiDevice hides it from tsc entirely, so the
+    // whole suite compiles green and dies at run time (CLAUDE.md §12).
+    writeTexture: (_t: unknown, data: BufferSource, ..._r: number[]) => {
+      demStubWrites.push((data as ArrayBufferView).byteLength)
+    },
     createBindGroup: () => ({ __bg: true }),
     // `data` is a BufferSource: the drape passes an ArrayBuffer on some paths
     // and a typed-array view on others. Handling only the view shape reads the
@@ -66,7 +80,7 @@ function makeMockRhi(): { rhi: unknown; writes: { buf: MockBuf; bytes: Uint8Arra
     destroyBuffer: () => {},
     destroyTexture: () => {},
   }
-  return { rhi, writes }
+  return { rhi, writes, demStubWrites }
 }
 
 const noopPass = {
@@ -105,7 +119,7 @@ const MVP = new Float32Array([
 
 /** Run one drape frame and return the mvp (first 16 floats) it wrote. */
 function mvpWrittenFor(translate: readonly [number, number] | undefined): Float32Array {
-  const { rhi, writes } = makeMockRhi()
+  const { rhi, writes, demStubWrites } = makeMockRhi()
   const drape = new VectorDrapeRenderer(
     rhi as unknown as ConstructorParameters<typeof VectorDrapeRenderer>[0],
     'rgba8unorm',
@@ -141,10 +155,22 @@ function mvpWrittenFor(translate: readonly [number, number] | undefined): Float3
   let global: { buf: MockBuf; bytes: Uint8Array } | null = null
   for (const w of writes) if (!global || w.buf.__id < global.buf.__id) global = w
   expect(global, 'the drape must have written a global uniform').not.toBeNull()
-  // Pin the size: RASTER_U is mvp(64) + 7 vec4s(112) = 176 B. If the block grows
+  // #2539 — the DEM stub is a GATE here, not a hole. A double that merely CARRIES
+  // `writeTexture` would let a future change stop initialising the stub and say
+  // nothing; asserting the call means the binding the shared `vs_tile` samples is
+  // proven filled on the path this test drives. Exactly one 4-byte write: the 1x1
+  // texture is created once per draper and reused for every draw.
+  expect(demStubWrites, 'the 1x1 DEM stub was initialised once, with its 4 bytes').toEqual([4])
+  // Pin the size: RASTER_U is mvp(64) + 8 vec4s(128) = 192 B. If the block grows
   // a field, this reds here rather than silently reading a shifted mvp.
+  //
+  // 176 -> 192 (#2539): `dem_unpack` was APPENDED for the terrain displacement, so
+  // the mvp this function reads is still at offset 0 and the read below is unchanged
+  // — but the tripwire is doing exactly its job by making that a thing someone
+  // checked rather than assumed. A field inserted BEFORE the mvp would shift it and
+  // this assertion is the only thing that would say so.
   expect(global!.bytes.length, 'RASTER_U global block size changed — re-check the mvp offset').toBe(
-    176,
+    192,
   )
   return new Float32Array(global!.bytes.buffer, global!.bytes.byteOffset, 16)
 }
