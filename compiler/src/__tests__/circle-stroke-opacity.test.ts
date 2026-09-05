@@ -72,4 +72,18 @@ describe('circle-stroke-opacity', () => {
     // No circle-stroke-opacity drop warning surfaces.
     expect(coverage.warnings.some((w) => w.includes('circle-stroke-opacity'))).toBe(false)
   })
+
+  // #2318: a constant circle-stroke-opacity paired with a zoom-
+  // interpolated circle-stroke-color was silently dropped — the fold
+  // only ran on the single-hex constant-colour branch, so the stroke
+  // rendered opaque at every zoom instead of the authored alpha.
+  it('zoom-interp stroke-color + constant stroke-opacity folds alpha into every stop (#2318)', () => {
+    const xgis = convertMapboxStyle(
+      buildStyle({
+        'circle-stroke-color': ['interpolate', ['linear'], ['zoom'], 5, '#000000', 10, '#ffffff'],
+        'circle-stroke-opacity': 0.5,
+      }),
+    )
+    expect(xgis).toContain('stroke-[interpolate(zoom, 5, #00000080, 10, #ffffff80)]')
+  })
 })

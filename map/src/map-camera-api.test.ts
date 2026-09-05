@@ -549,14 +549,17 @@ describe('XGISMap Mapbox-API camera setters', () => {
   })
 
   describe('fitBounds (iter 440)', () => {
-    it('centers on bbox midpoint', () => {
+    it('centers on bbox midpoint (Mercator-Y on the lat axis)', () => {
       map.fitBounds([
         [120, 30],
         [130, 40],
       ])
       const state = map.getCameraState()
       expect(state.center[0]).toBeCloseTo(125, 4)
-      expect(state.center[1]).toBeCloseTo(35, 4)
+      // #2293: lat centre is the Mercator-Y midpoint of [30, 40] (35.1534°),
+      // not the degree midpoint (35°) — the latter disagreed with the
+      // Mercator-Y-sized fit zoom and cropped the bbox's pole-ward edge.
+      expect(state.center[1]).toBeCloseTo(35.15339, 4)
     })
 
     it('applies optional bearing + pitch', () => {

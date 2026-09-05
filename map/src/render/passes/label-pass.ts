@@ -915,7 +915,10 @@ class LabelPass implements RenderPass {
         // their origin layer (`label_country_2`, `poi_r1`, …).
         const labelLayerName = show.layerName ?? show.sourceLayer ?? show.targetName ?? ''
         const z = host.camera.zoom
-        const elapsedMs = performance.now()
+        // #2324 — the frame clock (render-loop.ts), not performance.now():
+        // time-interpolated shapes must animate against the same clock the
+        // fade ledger above already reads, not one that starts at navigation.
+        const elapsedMs = host._elapsedMs
         // Per-frame label paint resolution flows through the unified
         // LabelShapes bundle (Plan Label L2). Same resolvers
         // (`resolveNumberShape` / `resolveColorShape`) the paint side

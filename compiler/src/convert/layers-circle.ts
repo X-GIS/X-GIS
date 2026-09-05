@@ -203,8 +203,17 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
         })
       : null
   if (strokeOpacityInterp !== null) utils.push(`stroke-opacity-[${strokeOpacityInterp}]`)
+  let strokeColorDataDriven = false
   if (!isOmittedValue(strokeColor)) {
-    const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => colorToXgis(val, w))
+    // #2318: fold the constant circle-stroke-opacity into every zoom-
+    // interp stroke-colour stop too — pre-fix only the single-hex
+    // constant-colour branch below applied it, so a constant stroke-
+    // opacity paired with a zoom-interpolated circle-stroke-color was
+    // silently dropped (stroke drawn opaque at every zoom).
+    const interp = interpolateZoomCall(strokeColor, warnings, (val, w) => {
+      const c = colorToXgis(val, w)
+      return c === null ? null : applyAlphaMultiplier(c, strokeOpacityConst)
+    })
     if (interp !== null) {
       utils.push(`stroke-[${interp}]`)
     } else {
@@ -227,7 +236,10 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
         }
       } else {
         const expr = exprToXgis(strokeColor, warnings)
-        if (expr !== null) utils.push(`stroke-[${expr}]`)
+        if (expr !== null) {
+          utils.push(`stroke-[${expr}]`)
+          strokeColorDataDriven = true
+        }
       }
     }
   }
@@ -433,14 +445,18 @@ export function convertCircleLayer(layer: MapboxLayer, warnings: string[]): stri
   for (const k of [
     'circle-translate-anchor',
     // circle-stroke-opacity: the constant form folds into stroke hex
-    // alpha and the zoom-interp form emits a `stroke-opacity-[…]`
-    // binding (both handled above). Only a non-interpolate data-driven
-    // form remains a gap — surface it so the user sees it. Check the
-    // unwrapped value shape: a scalar number OR a resolved zoom-interp
-    // (strokeOpacityInterp !== null) we handled; otherwise warn.
+    // alpha (constant colour, and #2318, zoom-interp colour) and the
+    // zoom-interp form emits a `stroke-opacity-[…]` binding (both
+    // handled above). Two shapes remain a gap — surface them so the
+    // user sees it: a non-interpolate data-driven opacity, or (#2318)
+    // a constant opacity paired with a data-driven stroke-color —
+    // there is no per-feature stroke-opacity lane to fold it into.
     ...(typeof strokeOpacityRaw === 'object' &&
     strokeOpacityRaw !== null &&
     strokeOpacityInterp === null
+      ? ['circle-stroke-opacity']
+      : []),
+    ...(strokeColorDataDriven && strokeOpacityConst !== null && strokeOpacityConst < 0.999
       ? ['circle-stroke-opacity']
       : []),
     'circle-sort-key',

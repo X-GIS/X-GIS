@@ -4,6 +4,7 @@
 // translate/frame uniform is refreshed) so the two never drift.
 
 import type { RhiBuffer, RhiDevice, UniformBlockOf } from '@xgis/engine'
+import { pickTargetsEnabled } from '@xgis/engine'
 import type { pointU as POINT_U } from '../shaders/dsl/point'
 import type { PointDraper } from './material/point-material'
 import { resolveNumberShape } from './paint-shape-resolve'
@@ -66,14 +67,23 @@ export function refreshTilePointUniformAndDraw(
     show.circlePitchAlignmentMap ?? false,
   )
   deps.rhi.writeBuffer(deps.uniformBuffer, 0, deps.frameBlock.buffer)
-  deps.pointDraper.draw(pass, {
-    uniform: deps.uniformBuffer,
-    feat: deps.featBuffer,
-    shape: deps.shapeBuf,
-    seg: deps.segBuf,
-    vertex: deps.vertexBuffer,
-    index: deps.indexBuffer,
-    indexCount: totalN * 6,
-    variant,
-  })
+  deps.pointDraper.draw(
+    pass,
+    {
+      uniform: deps.uniformBuffer,
+      feat: deps.featBuffer,
+      shape: deps.shapeBuf,
+      seg: deps.segBuf,
+      vertex: deps.vertexBuffer,
+      index: deps.indexBuffer,
+      indexCount: totalN * 6,
+      variant,
+    },
+    // #2319 — the tile-point draw lands INSIDE the opaque sub-pass, which carries the
+    // rg32uint pick attachment when this same predicate is true. Both must read the ONE
+    // authority or the pipeline's target count and the pass's attachment count disagree and
+    // WebGPU drops the whole sub-pass (basemap included) every frame. The dedicated points
+    // pass (PointRenderer.renderRhi) has ONE attachment and keeps the default `false`.
+    pickTargetsEnabled(deps.rhi.caps),
+  )
 }

@@ -563,6 +563,26 @@ export const inHandler: ExprHandler = (v, warnings, recurse) => {
     if (eqs.length === 0) return 'false'
     return eqs.join(' || ')
   }
+  // Expression-form discriminator — MapLibre's own `in` rule is
+  // `filter.length >= 3 && (typeof filter[1] !== 'string' ||
+  // Array.isArray(filter[2]))` (style-spec index.cjs:8060), tested on
+  // the RAW second element: `["in", "field", ["literal", "scalar"]]`
+  // is therefore the expression form (a substring test that matches
+  // nothing), NOT a legacy one-key filter — so no scalar peel here.
+  // Length is pinned to exactly 3 because MapLibre's `In.parse` accepts
+  // no other arity; a longer non-string-needle `in` is an error there
+  // and stays "not converted" (warned) below rather than guessing.
+  // This stops a non-literal or string haystack ("in", needle,
+  // ["get", …] / "str") from falling through to the legacy branch and
+  // rendering `filter: false`. `index_of` carries MapLibre's `In`
+  // runtime semantics for both string and array haystacks, except for a
+  // null needle against a string haystack (tracked in #2385).
+  if (v.length === 3 && (typeof field !== 'string' || Array.isArray(list))) {
+    const needle = typeof field === 'string' ? JSON.stringify(field) : recurse(field, warnings)
+    const haystack = recurse(list, warnings)
+    if (needle === null || haystack === null) return null
+    return `index_of(${needle}, ${haystack}) >= 0`
+  }
   if (typeof field === 'string') {
     // Same empty-list contract for the legacy form.
     if (v.length === 2) return 'false'

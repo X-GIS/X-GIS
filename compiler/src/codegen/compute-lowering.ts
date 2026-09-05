@@ -97,14 +97,20 @@ export function lowerMatchColorToMatch(expr: DataExpr): MatchEmitSpec | null {
   let defaultColorHex: string | null = null
 
   for (const arm of ast.matchBlock.arms) {
+    // #2316 — the compute kernel's ids are positions in a string-keyed category
+    // map, and `packFeatureData` fills that slot by looking the feature's value
+    // up as a STRING (compute-feature-packer.ts): a numeric value misses and
+    // takes the -1 default. Stringifying the label here (`2` → "2") cannot
+    // bridge that, it only hides the miss — so bail, and the whole block takes
+    // the inline-shader path, whose numeric-keyed cases ARE the values the
+    // per-tile packer writes (shader-gen.ts).
+    if (typeof arm.pattern === 'number') return null
     const hex = resolveColorHexFromAST(arm.value)
     if (!hex) continue
     if (arm.pattern === '_') {
       defaultColorHex = hex
     } else {
-      // The GPU category map is string-keyed; a numeric label stringifies to
-      // its old form (`2` → "2"), preserving pre-#1068 category assignment.
-      arms.push({ pattern: String(arm.pattern), colorHex: hex })
+      arms.push({ pattern: arm.pattern, colorHex: hex })
     }
   }
 

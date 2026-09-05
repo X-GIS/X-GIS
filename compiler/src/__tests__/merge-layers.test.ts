@@ -380,6 +380,62 @@ describe('mergeLayers — IR auto-merge of same-source-layer xgis layers', () =>
     expect(scene.renderNodes.length).toBe(2)
   })
 
+  // #2321: the default-arm absorption block re-implemented a subset of
+  // the mergeability predicates and skipped isMergeableNode / canExtendGroup,
+  // so a complementary `!=`-chain candidate that was hidden, at a different
+  // minzoom, or carried a label got folded into the compound's `_` arm
+  // anyway — silently discarding its own visible / minzoom / label.
+  it('does NOT absorb a `hidden` != default arm — compound keeps its OR filter', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse"
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 hidden }
+    `
+    const scene = compileToScene(source)
+    const names = scene.renderNodes.map((n) => n.name)
+    expect(names.some((n) => n.includes('+1default'))).toBe(false)
+    const compound = scene.renderNodes[0]
+    expect(compound.visible).not.toBe(false)
+    expect(compound.filter).not.toBeNull()
+  })
+
+  it('does NOT absorb a != default arm whose minzoom differs from the group', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse" minzoom: 12
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(2)
+    expect(scene.renderNodes[0].filter).not.toBeNull()
+    expect(scene.renderNodes[1].name).toBe('landuse_other')
+    expect(scene.renderNodes[1].minzoom).toBe(12)
+  })
+
+  it('does NOT absorb a labelled != default arm (label would be dropped)', () => {
+    const source = `
+      source pm { type: pmtiles url: "x.pmtiles" }
+      layer landuse_park { source: pm sourceLayer: "landuse" filter: .kind == "park"
+        | fill-green-500 }
+      layer landuse_grass { source: pm sourceLayer: "landuse" filter: .kind == "grass"
+        | fill-lime-500 }
+      layer landuse_other { source: pm sourceLayer: "landuse"
+        filter: .kind != "park" && .kind != "grass" | fill-gray-500 label-[.name] }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(2)
+    expect(scene.renderNodes[1].name).toBe('landuse_other')
+    expect(scene.renderNodes[1].label).toBeDefined()
+  })
+
   it('non-contiguous same-sourceLayer groups produce SEPARATE compounds', () => {
     // Two roads_* groups separated by a non-mergeable layer
     // (different sourceLayer in between). Each group should fold
@@ -525,5 +581,77 @@ describe('mergeLayers — preserves source literal TYPE in the OR-filter', () =>
     expect(evaluate(filterAst!, { rank: 2 })).toBe(true)
     expect(evaluate(filterAst!, { rank: '1' })).toBe(false)
     expect(evaluate(filterAst!, { rank: 3 })).toBe(false)
+  })
+})
+
+describe('mergeLayers — preserves source literal TYPE in the synthesized match arms', () => {
+  // #2312: numeric filter literals produced STRING match-arm patterns, so the
+  // type-strict evaluator (`key === arm.pattern`) fell through to the `_` arm
+  // and every member rendered with the first member's stroke colour / width.
+  it('numeric filter values dispatch per-feature stroke colour and width', () => {
+    const source = `
+      source s { type: geojson url: "x.geojson" }
+      layer country {
+        source: s filter: .admin_level == 2
+        | stroke-red-500 stroke-2
+      }
+      layer state {
+        source: s filter: .admin_level == 4
+        | stroke-blue-500 stroke-1
+      }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(1)
+    const node = scene.renderNodes[0]
+
+    // The pre-bucket OR-filter keeps the numeric features (already pinned
+    // above) — the mis-styling below is therefore silent, not a dropped layer.
+    expect(evaluate(node.filter?.ast as AST.Expr, { admin_level: 4 })).toBe(true)
+
+    // The worker evaluates these per feature (mvt-worker's
+    // extractFeatureColors / extractFeatureWidths). A numeric `admin_level`
+    // must resolve to its own member's stroke, not the `_ -> #00000000` /
+    // `_ -> 0` "no override" default. (Fail-before: '#00000000' and 0.)
+    const colorExpr = node.stroke.colorExpr?.ast as AST.Expr | undefined
+    expect(colorExpr).toBeDefined()
+    expect(evaluate(colorExpr!, { admin_level: 2 })).toBe('#ef4444ff')
+    expect(evaluate(colorExpr!, { admin_level: 4 })).toBe('#3b82f6ff')
+
+    expect(node.stroke.width.kind).toBe('data-driven')
+    const widthExpr = (node.stroke.width as { expr: { ast: AST.Expr } }).expr.ast
+    expect(evaluate(widthExpr, { admin_level: 2 })).toBe(2)
+    expect(evaluate(widthExpr, { admin_level: 4 })).toBe(1)
+
+    // The arm patterns carry the source literal's JS type.
+    const arms = (colorExpr as AST.FnCall).matchBlock!.arms.map((a) => a.pattern)
+    expect(arms).toEqual([2, 4, '_'])
+  })
+
+  it('string-typed numeric filter values keep string arm patterns (no reverse regression)', () => {
+    const source = `
+      source s { type: geojson url: "x.geojson" }
+      layer a {
+        source: s filter: .class == "1"
+        | stroke-red-500 stroke-2
+      }
+      layer b {
+        source: s filter: .class == "2"
+        | stroke-blue-500 stroke-1
+      }
+    `
+    const scene = compileToScene(source)
+    expect(scene.renderNodes.length).toBe(1)
+    const node = scene.renderNodes[0]
+
+    const colorExpr = node.stroke.colorExpr?.ast as AST.Expr | undefined
+    expect(colorExpr).toBeDefined()
+    expect(evaluate(colorExpr!, { class: '1' })).toBe('#ef4444ff')
+    expect(evaluate(colorExpr!, { class: '2' })).toBe('#3b82f6ff')
+    // A numeric prop must NOT match the string arm (mirrors the unmerged
+    // `.class == "1"` strict ===): it falls to the "no override" default.
+    expect(evaluate(colorExpr!, { class: 1 })).toBe('#00000000')
+
+    const arms = (colorExpr as AST.FnCall).matchBlock!.arms.map((a) => a.pattern)
+    expect(arms).toEqual(['1', '2', '_'])
   })
 })

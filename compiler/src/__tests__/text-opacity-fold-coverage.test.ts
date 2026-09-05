@@ -121,4 +121,31 @@ describe('text-opacity → label-color alpha fold (constant form)', () => {
     )
     expect(extractLabelColor(out)).toBe('label-color-#ffffff00')
   })
+
+  // #2318: a constant text-opacity paired with a zoom-interpolated or
+  // data-driven text-color was silently dropped — the fold only ran on
+  // the single-hex constant-colour branch, so labels rendered at alpha
+  // 1.0 at every zoom instead of the authored alpha.
+  it('zoom-interpolated text-color + constant text-opacity folds alpha into every stop (#2318)', () => {
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': ['interpolate', ['linear'], ['zoom'], 5, '#000', 10, '#fff'],
+        'text-opacity': 0.5,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
+    // extractLabelColor's regex stops at the first space, so match the
+    // full bracket form with toContain instead (mirror of the existing
+    // zoom-interp text-opacity test above).
+    expect(out).toContain('label-color-[interpolate(zoom, 5, #00000080, 10, #ffffff80)]')
+  })
+
+  it('data-driven text-color + constant text-opacity emits a label-opacity binding (#2318)', () => {
+    const out = convertMapboxStyle(
+      symbolWith({
+        'text-color': ['case', ['==', ['get', 'k'], 1], '#000000', '#ffffff'],
+        'text-opacity': 0.5,
+      }) as Parameters<typeof convertMapboxStyle>[0],
+    )
+    expect(out).toContain('label-opacity-[0.5]')
+  })
 })
