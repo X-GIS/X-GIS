@@ -110,7 +110,18 @@ const COMPUTE_FIXTURE_DEMOS = [
 test.describe('Plan P4 — broader fixture coverage with ?compute=1', () => {
   for (const id of COMPUTE_FIXTURE_DEMOS) {
     test(`${id} — compute=1 visual matches compute=0 baseline`, async ({ page }) => {
-      test.setTimeout(PER_TEST_TIMEOUT_MS * 2 + 10_000)
+      // TWO full boots and TWO drains, not one (#2541). `PER_TEST_TIMEOUT_MS` is the READY
+      // budget each `captureCanvas` gets; the drain that follows it is extra, and on the
+      // two-source fixtures it is the larger half. Measured solo in the SwiftShader
+      // container at 1280x720, ready + drain + screenshot per boot:
+      //   continent_match     4291 + 6247 + 228 ms, then 4051 + 6225 + 121 → 21.1 s
+      //   income_match        4633 + 5685 + 117 ms, then 4533 + 9074 + 101 → 24.1 s
+      //   continent_outlines  4452 + 8306 + 123 ms, then 4315 + 12537 + 105 → 29.8 s
+      // Every drain returns `clear`, never `timeout` — the ledger converges (995 of 996
+      // rAF ticks measured with every registered kind at zero). The old 50 s therefore
+      // fit only the lightest fixture solo, and a shard running workers in parallel failed
+      // the two heaviest deterministically. 90 s keeps a real hang loud with ~3x headroom.
+      test.setTimeout(PER_TEST_TIMEOUT_MS * 4 + 10_000)
 
       await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
       const baselinePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
