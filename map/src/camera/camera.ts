@@ -1027,6 +1027,12 @@ export class Camera {
     canvasHeight: number,
     dpr: number = effectiveDpr(),
   ): void {
+    // #2322 — scale screen pixels by the metres each is RENDERED at: effectiveMpp,
+    // the capped authority every renderer reads (WORLD_MERC / cssH for Mercator,
+    // 2R / cssH for ortho at whole-earth zooms), not the raw tile-pyramid mpp, which
+    // over-moved the inertia glide and the off-ground drag up to 6.6× below the cap.
+    // `canvasHeight` is DEVICE px (the controller passes canvas.height); `dpr` is the scale the canvas is CURRENTLY sized at (#2289).
+    const mpp = this.effectiveMpp(this.projType, canvasHeight, dpr)
     // Surface-degree pan for the sphere-family centre representation
     // (representsCenterAs==='lat-deg'): globe 7 AND the untilted discs 3/4/5.
     // Their screen scale is the projType's own plane (flat_rel), scale-true to
@@ -1035,10 +1041,6 @@ export class Camera {
     // disc fallback off the cursor (the anchored drag was already correct, #602).
     if (representsCenterAs(this.projType) === 'lat-deg') {
       const R = EARTH_R
-      // Capped screen scale (effectiveMpp), NOT the raw mpp — below the
-      // view-height cap the raw formula over-moves the centre relative to
-      // what 1 px covers on the rendered frame (#2322).
-      const mpp = this.effectiveMpp(this.projType, canvasHeight, dpr)
       const rb = (this.bearing * Math.PI) / 180
       const cb = Math.cos(rb),
         sb = Math.sin(rb)
@@ -1071,22 +1073,11 @@ export class Camera {
       this.clampCenterToBounds()
       return
     }
-    // mpp from the formula `WORLD_MERC / TILE_PX / 2^zoom` is meters per
-    // CSS pixel — the Mapbox / MapLibre tile-pyramid convention
-    // (TILE_PX = 512). A given numeric `zoom` produces the same m/px
-    // X-GIS and MapLibre, so hash URLs transfer between the two
-    // engines without visual drift. After the MVP
-    // DPR-invariance fix (ee1f394), 1 input CSS pixel of drag maps
-    // directly to `mpp` meters of world motion at any DPR. The prior
-    // `× dpr` factor was needed for the old DPR-dependent altitude
-    // semantic (1 CSS px = mpp × dpr m); leaving it in now would make
-    // the map pan DPR× too fast — symptom: the user-reported "pan
-    // feels DPR× more sensitive" on a DPR=3 phone.
-    // Use the CAPPED scale (effectiveMpp), not the raw formula above —
-    // below the view-height cap the raw mpp over-moves the centre relative
-    // to what 1 px covers on the rendered frame (#2322); above the cap the
-    // two are byte-identical.
-    const metersPerInputPixel = this.effectiveMpp(this.projType, canvasHeight, dpr)
+    // 1 input CSS pixel moves the world by `mpp` metres at any DPR — the MVP is
+    // DPR-invariant since ee1f394; a `× dpr` factor here made pan DPR× too
+    // sensitive on phones. Numeric `zoom` keeps the MapLibre m/px convention, so
+    // hash URLs transfer without drift.
+    const metersPerInputPixel = mpp
 
     // Rotate the screen delta by +bearing to get the map-space delta. This
     // MUST match the drag-anchor path (panToScreenAnchor, which inverts the
