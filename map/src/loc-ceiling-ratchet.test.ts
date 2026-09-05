@@ -330,6 +330,65 @@ const CEILINGS: Record<string, number> = {
   // file carries BOTH deltas and NEITHER side's number is right. Carrying either
   // across would leave the ceiling one change too low — red on main having been
   // green on both branches (§12).
+  // 5472->5481 (#2325): destroy() releases the FOURTH lazy fill Material,
+  // `_fillBakeMatRhi` -- #2286 named three and missed the globe vector-drape bake
+  // twin. The array reflows to one entry per line at printWidth 100.
+  // 5466→5469 (#2093 follow-up, measured post-prettier per §12): the drape LOD ceiling
+  // reads `max(currentZ, targetZ)` so a zoom-in readiness HOLD past the ceiling draws
+  // its held coarse tiles direct — one destructured field + a tightened comment.
+  // 5469→5471 (#2346, measured post-prettier): the windowed-bake dispatch is a
+  // texel-DENSITY decision, so its call site hands it `dpr` and the drawn
+  // `neededKeys` — two argument lines; the policy itself lives in
+  // render/drape-overzoom-dispatch.ts.
+  // 5471→5478 (#2346 AA band, measured post-prettier): the mid-render bake is
+  // driven from VectorDrapeRenderer, which has no viewport state, so the frame
+  // dpr is stashed here (`_bakeDpr`, +6 with its rationale) and handed to
+  // bakeTileStrokes (+1). The derivation lives in render/vector-drape-cache.ts.
+  // 5478→5501 (#2346 diagnostics, measured post-prettier): the windowed-bake
+  // switch is atomic, so its usual failure is to do NOTHING — twice this PR that
+  // was inferred from pixels instead of read. The per-slice diagnostic scratch
+  // (`_drapeOverzoomDiagBySlice` + `_sliceOverzoomDiag`) is what turned the
+  // third round into one measurement; the policy stays in
+  // render/drape-overzoom-dispatch.ts.
+  // 5501→5524 (design INC-3, measured post-prettier): the STROKE half of the drape
+  // decision is now its own derivation beside the fill half (`_bakeStrokesGated`,
+  // +14 with its rationale) instead of one line nested inside it, so a frame can
+  // drape its fills and still draw its roads direct. The predicate lives in
+  // geo/src/projections-table.ts (GLOBE_DIRECT_MIN_STROKE_Z).
+  // MEASURED 5539 with `wc -l` on the post-prettier merged tree. main reached 5481
+  // (#2249 +1, #2286 +5, #2325 +9) while this branch reached 5524 from the same 5466
+  // base, so the merged file carries BOTH sets of deltas and neither side's number is
+  // right (§12 — the same trap #2286/#2249 already paid for above).
+  // 5539→5541 (measured post-prettier): the merge also collided on the BACKEND-IDENTITY
+  // ratchet, INC-3's stroke gate having added a second `backend` test to a file main had
+  // also grown. The fix hoists what both halves ask — WebGPU, non-extruded, not disabled
+  // — into one `bakeAvailable`, which is net −0 lines of code (six conjuncts out, four
+  // in, two references back). The +2 is its two-line comment; the alternative was an
+  // unexplained hoist.
+  // 5481->5515 (#2309): the two prefetch throttles get a per-frame memo. Both are
+  // documented "every 10 / 6 FRAMES" but sat on a modulo inside render(), which runs
+  // once per ShowCommand -- 106x/frame on OFM Bright, so the modulo could not express
+  // a frame cadence in ANY form. The +34 is 3 fields plus the record of the two forms
+  // that both failed (`frameCount % 6` ~17.7 hits/frame, `currentFrameId % 6` 106 hits
+  // on every 6th) and of why the memo is keyed by `currentZ` -- the cheap-to-forget half
+  // that would otherwise be rediscovered the expensive way a third time.
+  // MEASURED 5575 post-prettier on this merged tree. THIRD collision on this key in
+  // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
+  // branch went to 5541 from 5539, so the file again carries both deltas and neither
+  // side's number is right (§12).
+  // 5575→5576 (#2094, measured post-prettier): the fill drape's WHEN moved OUT of
+  // this file's dependency — `drapesAtSelectionZ` came from @xgis/geo alongside
+  // `bakesVectorDrape`, `drapesAtChordBudget` comes from ./globe-drape-budget — so
+  // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
+  // is unchanged in length (one predicate call, one extra argument) and both comment
+  // blocks were trimmed back to their prior height to keep it at exactly one.
+  // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
+  // asking whether `createCommandEncoder` EXISTS and started asking the capability.
+  // The one-line optional-call guard becomes a two-line guard, and the three comment
+  // lines are the refuted premise written down where the next reader meets it — the
+  // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
+  // hands out a copy-scoped encoder), and a reader who believed it would delete the
+  // routing guard into a runtime throw. The routing site itself is net zero.
   // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
   // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
   // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
@@ -343,7 +402,11 @@ const CEILINGS: Record<string, number> = {
   // number is right — carrying either across would leave the ceiling one change too low
   // (green on both branches, red on main). Measured 5489 with `wc -l` on the post-prettier
   // merged tree.
-  'map/src/render/vector-tile-renderer.ts': 5489,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 5597 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5597,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -954,6 +1017,10 @@ const CEILINGS: Record<string, number> = {
   // dropped -- `renderer` (the MapRendererContent -> FrameRenderer -> PipelineFactory chain
   // that owns every fill Material) and the under-occluder, whose only destroy lived in
   // setBackgroundFill. Teardown code paying an ownership debt, not feature growth.
+  // 5432->5437 (#2306): `_backgroundColorFromStyle` provenance flag (field + doc) and its
+  // two clears in setBackgroundFill's null/non-null branches, so a style-set fill and a
+  // host-set fill (setBackgroundFill) can be told apart when a background-less re-run()
+  // resets the style-owned one. Pre-prettier measurement; parent session re-measures.
   // 5419→5427 (hunt 2026-09-02): `_releaseGpuResources` now drops the synthetic
   // earth-surface background's two owner refs (`_syntheticBackend`,
   // `underOccluder`) it was leaking across a re-run — 3 statements plus the
@@ -984,7 +1051,11 @@ const CEILINGS: Record<string, number> = {
   // `_backgroundColor` alike, and extracting 8 lines used once would add a file to
   // pay for a bug fix — a refactor smuggled inside a fix, which the #2249 note above
   // declines for the same reason. Measured with `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5468,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 5473 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/map.ts': 5473,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1253,6 +1324,16 @@ const CEILINGS: Record<string, number> = {
   // 2149→2145 (#2170): text-translate came out of the cached layout and its
   // key, replacing the fold-then-add with one grouped expression at each of the
   // two draw sites. Measured with `wc -l` on the post-prettier tree.
+  // 2145->2171 (#2440 text-optional): the `isTextOptional` module predicate and
+  // its docblock, plus its two consumer sites (the live-text set and the drop
+  // cascade). One function for a one-line read is deliberate — §12's
+  // single-producer rule: the two consumers must agree by construction, because
+  // suppressing the cascade alone leaves the surviving icon drawing while
+  // blocking nothing, and changing the set alone leaves it dropped with a box
+  // nobody sees. The docblock is the ONE home of that argument; render-node.ts,
+  // capabilities/symbol.ts and the spec-coverage note all point here rather than
+  // restate it (an earlier draft restated it four times and cost 33 lines).
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
   // 2149→2178 (#2313 — an unshapeable curved line label must still be counted).
   // The three early-outs of the line-shaping loop (no glyphs, degenerate
   // polyline, glyph walk rejected by run length / text-max-angle) `continue`d
@@ -1276,7 +1357,11 @@ const CEILINGS: Record<string, number> = {
   // it is the same field threaded through every existing carrier on the
   // point-to-collision path, mirroring how `lineId`/`anchorDistancePx` are
   // already threaded. MEASURED post-prettier.
-  'map/src/text/text-stage.ts': 2195,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 2217 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/text/text-stage.ts': 2217,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1472,7 +1557,14 @@ const CEILINGS: Record<string, number> = {
   // anywhere in the file, so `rebuild()` (map.setQuality) dropped the whole fill-Material
   // set undestroyed with the device alive. Adds ownedMaterials/dropMaterials/destroy -- one
   // authority shared by rebuild and teardown.
-  'map/src/render/pipeline-factory.ts': 1709,
+  // 1709->1736 (#2309): the two per-style maps get a write-through label index, so the
+  // fill draw path's dual-instance fallback is one lookup instead of a walk of all 160
+  // entries (measured 698 wasted iterations a frame). The +27 is 2 index fields, the 2
+  // setters that are now the ONLY write authority for the maps, and the clear. The
+  // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
+  // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
+  // under the 800 new-file cap.
+  'map/src/render/pipeline-factory.ts': 1736,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -1670,7 +1762,14 @@ const CEILINGS: Record<string, number> = {
   // #2273 raised 1478 -> 1492: the prefetch shield now ages per frame (a frame-id
   // record in resetCompileBudget + a guard in cancelStale). Six lines of logic;
   // the rest is the measured rationale. Nothing here is a separable unit.
-  'data/src/tile-catalog.ts': 1492,
+  // #2391 raised 1492 -> 1503: the detached-producer guard (audit F-8). ONE line of
+  // logic in acceptResult plus a two-statement reorder in attachBackend; the rest is
+  // the two rationales, and they are the load-bearing part — the obvious spelling of
+  // this guard silently drops the polar caps and the synthetic earth surface, because
+  // both emit from inside attach(). A first draft cost +17 and was trimmed to +11 by
+  // moving the full argument onto the issue. Not separable: the check belongs at the
+  // single sink chokepoint. MEASURED post-prettier.
+  'data/src/tile-catalog.ts': 1503,
   // 1173→1180 (#1046 F1): thread the required `rhi: RhiDevice` onto the FrameContext at
   // both build sites — the main-chain init literal and the twin label stage — so a seam
   // can reach `ctx.rhi.caps.*` (doc §3-F1). +7 = two assignments + their rationale comments;
@@ -2030,7 +2129,10 @@ const CEILINGS: Record<string, number> = {
   // 1009→1011 (#2042 INC-6): the two Mercator-anchor zero rows, same net.
   // 1011->1023 (#2286): MapRendererContent.destroy() -- the missing middle of the ownership
   // chain; forwards to the engine half.
-  'map/src/render/renderer.ts': 1023,
+  // 1023->1025 (#2325): MapRendererContent.destroy() now also releases the
+  // GraticuleRenderer its own comment had flagged as a known gap -- one call plus
+  // the comment line that replaces the gap note.
+  'map/src/render/renderer.ts': 1025,
   // Merge union (#1060 <- main): stacked growth — measured 1397.
   // 1397→1404 (#1196, merge union): destroy() stashes the pre-loss
   // WEBGL_lose_context handle on the canvas (stashGl2RestoreToken) —
@@ -2096,7 +2198,12 @@ const CEILINGS: Record<string, number> = {
   // live context. The three inline cleanups collapse into ONE `linkProgram`
   // authority (createPipeline's own body shrinks to three lines); the growth is
   // the helper. Failure-path cleanup paying an ownership debt, not feature growth.
-  'rhi-webgl2/src/rhi-webgl2.ts': 1546,
+  // 1546->1564 (#2349): a fail-loud guard for a per-target `writeMask` ES 3.00 cannot
+  // honour — `gl.colorMask` is one global, and the request was being dropped silently.
+  // 1564->1565 (#2474): the `outOfFramePasses: false` caps line — the WebGL2 half of
+  // the capability the globe drape's bake gate keys on. Exactly the shape of the
+  // 1521->1522 `renderBundles` entry above.
+  'rhi-webgl2/src/rhi-webgl2.ts': 1565,
   // 941→975 (#1371 atomic re-seed): `releaseSupersededTile` + `dropTile`, and the split of
   // `_releaseTileSlots` into a resource-release body the two share with eviction. Arena/pool
   // ownership is this class's whole reason to exist.
@@ -2113,11 +2220,19 @@ const CEILINGS: Record<string, number> = {
   // relocation loop this removes is provable from `compact()` leaving
   // bumpPtr === liveBytes, and that argument has to sit next to the code it
   // justifies. Lower this when the compaction/grow pair is extracted whole.
+  // 1000→996 (#2405): two hand-rolled retired-buffer arrays — each with its own
+  // push sites and its own drain loop stating one rule — became one shared
+  // RetireQueue. A consolidation that pays for its own comments, so the number
+  // comes DOWN rather than being held; RE-MEASURED post-prettier.
   // 1000→1004 (#2301, hunt 2026-09-02): `_releaseTileResources` carries the release
   // REASON (`keyRebound`) through to the hook — a parameter on the two release entry
   // points plus the note on `ReleaseTileHook` saying what a rebound key means.
   // Measured with `wc -l` on the post-prettier tree.
-  'map/src/render/gpu-tile-store.ts': 1004,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 1000 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/render/gpu-tile-store.ts': 1000,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
@@ -2175,7 +2290,10 @@ const CEILINGS: Record<string, number> = {
   // second edit as dead code — the `wantAdvance` false case was ALREADY
   // cleared by the pre-existing `} else {` on the same block — and it was
   // removed; the fix is the clamp alone, re-proven fail-before.)
-  'map/src/render/tile-selection-cache.ts': 1066,
+  // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
+  // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
+  // (currentZ trailing the camera) from the LOD the camera asks for.
+  'map/src/render/tile-selection-cache.ts': 1074,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -2255,6 +2373,10 @@ const CEILINGS: Record<string, number> = {
   // import, one call, and the two new struct fields the packer must write.
   // 1034->1037 (#2286): destroy() releases the draper whose only destroy lived in
   // rebuildForQuality(), so a quality toggle reached it and map teardown did not.
+  // 1037->1056 (#2384 F-4): setUrlTemplate cleared failedTiles but not tileCache, and the
+  // key is z/x/y with no url — so the old source's tiles answered for the new one, and
+  // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
+  // abort on a real URL change.
   // 1034→1086 (#2302): the flat non-Mercator selector took a `{name:'non-mercator',
   // forward: mercator.forward}` shim that `visibleTilesFrustum` silently ignored (it
   // only ever reads `.name`, never calls `.forward`) — so equirect/natural_earth raster
@@ -2269,7 +2391,11 @@ const CEILINGS: Record<string, number> = {
   // number is right — carrying either across would leave the ceiling one change too low
   // (green on both branches, red on main). Measured 1090 with `wc -l` on the post-prettier
   // merged tree.
-  'map/src/render/raster-renderer.ts': 1090,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 1109 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/render/raster-renderer.ts': 1109,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -2448,6 +2574,9 @@ const CEILINGS: Record<string, number> = {
   // 1386→1384: the two symbol anchor guards collapsed onto the shared decision,
   // so this file SHRANK. The ratchet is shrink-only, so the ceiling follows it
   // down rather than banking the slack.
+  // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
+  // `label-text-optional` utility; the non-constant form keeps a warning of its
+  // own. MEASURED post-prettier.
   // 1384→1400 (#2318): a constant text-opacity paired with a zoom-interpolated
   // text-color folded no alpha (label rendered opaque at every zoom), and the
   // data-driven text-color branch had no way to carry a constant text-opacity
@@ -2462,7 +2591,11 @@ const CEILINGS: Record<string, number> = {
   // arm plus a warning naming the property. +37 is that fold, the warning, the
   // review fold-in that gives a NEGATIVE folded stop the same diagnostic the
   // constant arm already had, and their why-comments (post-prettier, `wc -l`).
-  'compiler/src/convert/layers-symbol.ts': 1437,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 1449 with `wc -l` on the
+  // post-prettier merged tree.
+  'compiler/src/convert/layers-symbol.ts': 1449,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2477,13 +2610,20 @@ const CEILINGS: Record<string, number> = {
   // fallthrough, its 5-line why (an earlier arm would capture `label-sort-key-[-3]`,
   // the converter's spelling of a negative CONSTANT), and the knob return entry.
   // MEASURED post-prettier (`wc -l`).
+  // 952->963 (#2440): the `label-text-optional` utility branch, its local, and
+  // the knob pass-through — the same three touch points `label-icon-optional`
+  // has. MEASURED post-prettier.
   // 952→966 (#2320): the `label-max-width-[interpolate(zoom, …)]` arm — the
   // consumer half of the converter fold. Without it the folded utility hit the
   // X-GIS0005 fallthrough and LabelDef.maxWidth arrived undefined, which
   // text-stage reads as "no wrap at any zoom" (worse than the spec default the
   // fold replaced). +14 = the arm plus the why for seeding the single em value
   // from the last stop. MEASURED post-prettier (`wc -l`).
-  'compiler/src/ir/lower-label.ts': 966,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 977 with `wc -l` on the
+  // post-prettier merged tree.
+  'compiler/src/ir/lower-label.ts': 977,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2514,7 +2654,10 @@ const CEILINGS: Record<string, number> = {
   // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
-  'compiler/src/ir/render-node.ts': 1006,
+  // 1006->1013 (#2440): `LabelDef.textOptional` + the contract doc. The WHY
+  // lives once at text-stage.ts's `isTextOptional`; this doc states the field's
+  // contract and points there. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 1013,
   // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
   // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
   // so the symbol emitter reads it too, plus its docstring recording WHY a second
@@ -2548,7 +2691,25 @@ const CEILINGS: Record<string, number> = {
   // BUILTIN_FN_NAMES entry and the comment recording why the assertion is
   // load-bearing — `length`/`slice` accept strings) lands here rather than
   // in a second file.
-  'compiler/src/eval/evaluator-helpers.ts': 868,
+  // 868→872 (#2385): the `?? ''` removal in the index-of arm is net zero lines; the
+  // +4 is the comment recording WHY the coercion must stay bare (`''` is at index 0
+  // of every string) — the exact defect a future "harden the null case" edit would
+  // reintroduce. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'compiler/src/eval/evaluator-helpers.ts': 872,
+  // Baselined 805 (#2471, main merge) — a genuine unrelated-PR collision, the same
+  // shape as the #1602/#1603 one recorded above, and the §12 double-delta trap in its
+  // purest form: NEITHER SIDE BREACHED ALONE. Common ancestor 791; main's #2454
+  // (background-layer drop warnings) took it to 797; this branch's #2471 (Mapbox v3
+  // `imports` lowering) took it to 799. The two edits are in different regions, so git
+  // merged them with no conflict and the file took BOTH deltas — 805, red on main having
+  // been green on both branches. Extraction is already spent on both sides: #2454 put its
+  // logic in `background-layer-drop.ts` and #2471 put its in `style-imports.ts`, each
+  // leaving a one-line call site here; what remains is the converter's own body, and the
+  // only way under 800 now is deleting the comments that say WHY each call site sits
+  // where it does — degrading the record to absorb someone else's delta. MEASURED
+  // post-prettier on the MERGED tree (`wc -l`), set EXACTLY to the count, not picked
+  // between sides. Shrink-only from here.
+  'compiler/src/convert/mapbox-to-xgis.ts': 805,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).
@@ -2575,7 +2736,11 @@ const CEILINGS: Record<string, number> = {
   // rewritten (not just the formula swapped) to argue from this path's own economics —
   // 3 fixed attempts + a 5-minute exhaustion cost — rather than leave the prior AWS
   // unbounded-retry citation standing unexplained against a different formula.
-  'data/src/vector-tile-loader.ts': 835,
+  // #2391 lowered 835 -> 833: the header described `XGVTBinarySource` delegating to
+  // `TileCatalog.loadFromURL` — a class and a method that no longer exist anywhere
+  // (audit F-9; `.xgvt` gave way to PMTiles). Two lines of doc rot removed, so the
+  // ceiling comes down with them per this file's own shrink-only rule.
+  'data/src/vector-tile-loader.ts': 833,
 }
 
 describe('LOC ceiling ratchet: map/engine/geo/data/rhi* god-files shrink-only (#1003)', () => {

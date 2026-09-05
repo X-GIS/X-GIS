@@ -159,9 +159,11 @@ export const location = <T extends ShaderType>(
  *
  *  Exported from `@xgis/shader-dsl`.
  */
-export interface IoStruct<F extends Record<string, FieldSpec>> {
+export interface IoStruct<F extends Record<string, FieldSpec>, N extends string = string> {
   readonly decl: StructDecl
-  readonly type: ShaderType
+  /** The struct's `ShaderType`, carrying the NAME as a literal (#2456) so every value built
+   *  from this handle lands on the exact `struct:${N}` key {@link typeKey} produces. */
+  readonly type: { readonly kind: 'struct'; readonly name: N }
   /** Typed field access on a value of this struct — `VsOut.of(node).uv` emits the same
    *  member Expr as `member(node, 'uv', <its type>)`, so the field name + type are checked.
    *  The view's WRITE capability follows the BASE (#763 G2): a mutable base (`Var`) gives
@@ -170,34 +172,34 @@ export interface IoStruct<F extends Record<string, FieldSpec>> {
    *  NonNullable strips the `| undefined` a conditional-field spread
    *  (`...(cond ? { pick } : {})`) introduces, so optional output fields stay plain. */
   of(node: Node): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-    readonly $: ReadonlyNode
+    readonly $: ReadonlyNode<`struct:${N}`>
   }
   of(node: ReadonlyNode): {
     readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
   } & {
-    readonly $: ReadonlyNode
+    readonly $: ReadonlyNode<`struct:${N}`>
   }
   /** Declare a `var` of this struct and return its typed field proxy in one step —
    *  `const o = VsOut.var()` replaces the `const out = Var(VsOut.type); const o =
    *  VsOut.of(out)` stub pair. Assign fields via `o.uv.assign(…)`, return / forward the
    *  raw value via `o.$`. `name` pins the WGSL identifier (byte-stable emit). */
   var(name?: string): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-    readonly $: ReadonlyNode
+    readonly $: ReadonlyNode<`struct:${N}`>
   }
   /** Build a value of this struct in ONE expression — `LineOut(f0, f1, …)` — instead of a
    *  mutable `var out; out.f0 = …; return out`. Args are taken in field-declaration order, so a
    *  wrong/missing field is a TS error. Replaces the imperative field-by-field output build. */
   construct(values: {
     readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>['type']>>
-  }): Node
+  }): Node<`struct:${N}`>
 }
 
 /** Declare an IO struct (vertex/fragment in/out) from one field map; derive the
  *  StructDecl (with attrs), the struct type, and typed field access. */
-export function ioStruct<F extends Record<string, FieldSpec>>(
-  name: string,
+export function ioStruct<F extends Record<string, FieldSpec>, N extends string>(
+  name: N,
   fields: F,
-): IoStruct<F> {
+): IoStruct<F, N> {
   const decl: StructDecl = {
     name,
     fields: Object.entries(fields).map(([n, spec]) => ({
@@ -238,7 +240,7 @@ export function ioStruct<F extends Record<string, FieldSpec>>(
         // misparsed as a named-args bag ("has no field 'input'" at module load).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
       }) as { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>['type']>> } & {
-        readonly $: ReadonlyNode
+        readonly $: ReadonlyNode<`struct:${N}`>
       }
     },
     var(varName?: string) {
@@ -264,9 +266,10 @@ export function ioStruct<F extends Record<string, FieldSpec>>(
  *
  *  Exported from `@xgis/shader-dsl`.
  */
-export interface PlainStruct<F extends Record<string, ShaderType>> {
+export interface PlainStruct<F extends Record<string, ShaderType>, N extends string = string> {
   readonly decl: StructDecl
-  readonly type: ShaderType
+  /** The struct's `ShaderType`, carrying the NAME as a literal (#2456) — the IoStruct twin. */
+  readonly type: { readonly kind: 'struct'; readonly name: N }
   /** Typed field access for a struct value you only hold as a raw Node — e.g.
    *  `Seg.of(someNode).p0_h` (replaces the removed `node.field('p0_h', vec2fT)`).
    *  NB: storage-buffer reads don't need this — `segments.at(i)` is ALREADY the
@@ -274,10 +277,12 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
    *  Write capability follows the base (#763 G2): mutable base → `Node` fields,
    *  read-only base → `ReadonlyNode` fields.
    *  `.$` is the raw struct-value Node (forwardable — call factories unwrap it). */
-  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
-  of(
-    node: ReadonlyNode,
-  ): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+  of(node: Node): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
+    readonly $: ReadonlyNode<`struct:${N}`>
+  }
+  of(node: ReadonlyNode): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> } & {
+    readonly $: ReadonlyNode<`struct:${N}`>
+  }
   /** Positional field access — `Seg.get(node, 'p0_h')` is `node.field('p0_h', <type>)`,
    *  a wrong field name a TS error. Same as `.of(node).p0_h`; kept for call sites that
    *  read many fields off a shared shorthand (`const g = Seg.get`). A READ accessor —
@@ -285,20 +290,22 @@ export interface PlainStruct<F extends Record<string, ShaderType>> {
   get<K extends keyof F & string>(node: ReadonlyNode, field: K): ReadonlyNode<KeyOf<F[K]>>
   /** Declare a `var` of this struct and return its typed MUTABLE field proxy —
    *  the structDecl twin of IoStruct.var (#763 X10; declarator capability parity). */
-  var(name?: string): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+  var(name?: string): { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
+    readonly $: ReadonlyNode<`struct:${N}`>
+  }
   /** Build a value of this struct in ONE expression — field-keyed, declaration
    *  order (#763 X10; the ioStruct.construct twin). */
-  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> }): Node
+  construct(values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>> }): Node<`struct:${N}`>
 }
 
 /** Declare a plain (non-binding, non-IO) struct — a storage-buffer element type used in
  *  `array<T>`, or a nested struct — from one field map; derive the StructDecl, the struct
  *  type (`.type` replaces every `structT('Name')` string), and typed field access. The one
  *  struct kind the binding/IO helpers don't cover, so a layout has exactly ONE declaration. */
-export function structDecl<F extends Record<string, ShaderType>>(
-  name: string,
+export function structDecl<F extends Record<string, ShaderType>, N extends string>(
+  name: N,
   fields: F,
-): PlainStruct<F> {
+): PlainStruct<F, N> {
   const decl: StructDecl = {
     name,
     fields: Object.entries(fields).map(([n, type]) => ({ name: n, type })),
@@ -333,7 +340,9 @@ export function structDecl<F extends Record<string, ShaderType>>(
         },
         // `'$' in proxy` must be true for the call-factory unwrap (empty target).
         has: (_t, prop) => prop === '$' || (typeof prop === 'string' && prop in fields),
-      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & { readonly $: ReadonlyNode }
+      }) as { readonly [K in keyof F]: Node<KeyOf<F[K]>> } & {
+        readonly $: ReadonlyNode<`struct:${N}`>
+      }
     },
   }
 }

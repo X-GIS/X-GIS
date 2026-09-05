@@ -768,6 +768,7 @@ export class WebGl2Device implements RhiDevice {
       // createPipeline fail-louds on a WGSL-only desc (dual-source guard, #783).
       shaderLanguage: 'glsl-es300',
       renderBundles: false,
+      outOfFramePasses: false,
       // #1046 F4 Inc-E2 — the loop tail landed on the RHI (Inc-A..D + E1), so
       // this device hosts the unified chain's whole frame. The forced-WebGL2
       // twin this flag used to hold the door open for was deleted in Inc-F3a.
@@ -1362,6 +1363,23 @@ export class WebGl2Device implements RhiDevice {
         )
       }
     }
+    // The integer exemption above is a BLEND exemption. `gl.colorMask` is a single 4-bool
+    // global with no indexed form, and the pipeline derives it from target 0 alone, so an
+    // EXPLICIT `writeMask` on ANY later target — integer or not — is dropped with no
+    // diagnostic (#2349). Unreachable today: `presentablePassMrt` is false here, so the one
+    // WebGL2 two-target descriptor is `pickViaRhi`'s, whose single material leaves both
+    // masks at 0xf. That safety is a coincidence of two unrelated facts, neither asserted
+    // anywhere; this makes it hold by construction. Keyed on an EXPLICIT mask, not the
+    // per-format default, which is exactly what keeps that descriptor green.
+    const ct0 = desc.colorTargets[0]
+    const cwMask = ct0 ? (ct0.writeMask ?? (ct0.format === 'rg32uint' ? 0 : 0xf)) : 0
+    for (const t of desc.colorTargets.slice(1)) {
+      if (t.writeMask !== undefined && t.writeMask !== cwMask) {
+        throw new Error(
+          `webgl2: per-target writeMask divergence (target 0 resolves to 0x${cwMask.toString(16)}, a later target asks for 0x${t.writeMask.toString(16)}) — ES 3.00 has one global gl.colorMask (no OES_draw_buffers_indexed), so only target 0's mask can be honoured`,
+        )
+      }
+    }
     const gl = this.gl
     const program = linkProgram(gl, desc.vsCode, desc.fsCode)
     gl.useProgram(program)
@@ -1429,8 +1447,9 @@ export class WebGl2Device implements RhiDevice {
     // backends stay byte-parity; an empty colorTargets (stencil-only clip-mask pass) → 0.
     // GPUColorWrite bits: R=1 G=2 B=4 A=8 — so the normal rgba8 path (undefined → 0xf)
     // resolves to all-true, byte-identical to today's implicit all-channels-enabled.
-    const ct0 = desc.colorTargets[0]
-    const cwMask = ct0 ? (ct0.writeMask ?? (ct0.format === 'rg32uint' ? 0 : 0xf)) : 0
+    // `cwMask` is derived ONCE, above, where the divergence guard reads it — one authority
+    // for "which mask does this pipeline actually apply", rather than two copies of the
+    // per-format default that could drift apart.
     const colorWriteMask: [boolean, boolean, boolean, boolean] = [
       (cwMask & 1) !== 0,
       (cwMask & 2) !== 0,

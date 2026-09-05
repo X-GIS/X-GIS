@@ -83,6 +83,7 @@ const buildFsCompose = (sampleCount: number, accumTex: OitTex, revealageTex: Oit
   return fn(
     'fs_compose',
     { in: VsOut },
+    vec4fT,
     (p) => {
       // textureDimensions returns vec2<u32>; toF32 each component for the
       // uv → texel-coord multiply. WGSL doesn't auto-convert across

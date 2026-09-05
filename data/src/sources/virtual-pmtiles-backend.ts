@@ -230,6 +230,18 @@ export class VirtualPMTilesBackend implements TileSource {
           this.strokeWidthExprs,
           this.strokeColorExprs,
         )
+        // The compile is two awaits away from the `this.sink` read that authorised it,
+        // and #1371's `_reseedInPlace` detaches this backend mid-flight while the
+        // catalog stays live. `sink` is the captured closure from `attach`, so it
+        // writes into that live catalog regardless — seeding the key with THIS
+        // backend's superseded geometry, or with an empty placeholder that then makes
+        // `hasTileData` true and blocks the re-fetch. Re-read the live field at WRITE
+        // time, the same predicate `compileInline` already opens with. Identity, not
+        // just null: `makeSink` mints a fresh sink per `attachBackend`, so
+        // `this.sink !== sink` also catches detach-then-reattach, which a null check
+        // would wave through. `releaseLoading` still runs in the `finally` below, so
+        // `loadingTiles` does not wedge (#2359).
+        if (this.sink !== sink) return
         if (slices.length === 0) {
           sink.acceptResult(key, null)
         } else {

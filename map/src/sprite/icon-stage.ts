@@ -605,7 +605,7 @@ export class IconStage {
    *  (placement.ts placeCollisionBox) so later labels avoid it; X-GIS runs
    *  text + icon stages separately, so the label pass calls this BEFORE
    *  TextStage.prepare and seeds the boxes as collision obstacles.
-   *  Mirrors prepare()'s sprite + drawW/drawH/anchor math.
+   *  Mirrors prepare()'s sprite + drawW/drawH/anchor + icon-padding math.
    *  groupKey = pairKey so a paired icon never blocks its OWN text.
    *  Icons whose sprite isn't resolved yet are omitted (they don't draw,
    *  so they don't block). Only icons with collide=true act as obstacles
@@ -652,12 +652,13 @@ export class IconStage {
           : a === 'bottom' || a === 'bottom-left' || a === 'bottom-right'
             ? p.anchorY - drawH / 2
             : p.anchorY
+      const pad = p.padding * this.dpr
       out.push({
         bbox: {
-          minX: cx - drawW / 2,
-          minY: cy - drawH / 2,
-          maxX: cx + drawW / 2,
-          maxY: cy + drawH / 2,
+          minX: cx - drawW / 2 - pad,
+          minY: cy - drawH / 2 - pad,
+          maxX: cx + drawW / 2 + pad,
+          maxY: cy + drawH / 2 + pad,
         },
         groupKey: p.pairKey,
       })

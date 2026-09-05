@@ -15,6 +15,7 @@
 import type { RhiBindGroup, RhiRenderPass } from '@xgis/engine'
 import type { LineRenderer } from './line-renderer'
 import type { PatternSlot, LineGradientStop } from './line-pattern'
+import { bakeStrokeAaDpr } from './vector-drape-cache'
 
 /** The resolved, mpp-INDEPENDENT stroke style captured from the direct layer-slot write. Re-packed
  *  per baked tile with that tile's bake mpp (E/BAKE_PX). `dashSrc` stays in Mapbox width units and is
@@ -95,12 +96,16 @@ export function strokeBakeKey(active: boolean, s: BakeStrokeStyle): number {
  *  drape's raster frame uniform applies the layer opacity (like the fill). Dash lengths (width units)
  *  are scaled to metres with the bake mpp. `widthScale` (#1222) is the zoom-bucket magnification
  *  compensation — it multiplies the width AND the dash metres (dash is authored in width units, so
- *  the dash-per-width ratio survives the rebake). Returns the layer byte offset. */
+ *  the dash-per-width ratio survives the rebake). `aaDpr` (#2346) is the one screen-space knob the
+ *  bake must NOT neutralise: the fragment's AA half-band is `0.5/dpr` LAYER px, i.e. bake texels,
+ *  which the sphere then magnifies — see bakeStrokeAaDpr for the derivation and the measurement.
+ *  Returns the layer byte offset. */
 function writeBakeStrokeLayerSlot(
   lr: LineRenderer,
   s: BakeStrokeStyle,
   bakeMpp: number,
   widthScale: number,
+  aaDpr: number,
 ): number {
   const w = s.widthPx * widthScale
   const dash =
@@ -123,7 +128,7 @@ function writeBakeStrokeLayerSlot(
     s.offset,
     0, // viewport_height = 0 → skip the screen-space width clamp
     s.blur,
-    1, // dpr
+    aaDpr, // #2346 — dpr / widthScale: the AA band is in bake texels, which magnify
     0, // line-translate x (screen-space; N/A in the bake)
     0, // line-translate y
     s.roundLimit,
@@ -151,9 +156,19 @@ export function bakeTileStrokes(
   patternActive: boolean,
   /** #1222 zoom-bucket width compensation (2^(tileZ − camZoomBucketed)); 1 = bake-native. */
   widthScale = 1,
+  /** Device pixel ratio of the frame this bake will be sampled in (#2346). The
+   *  AA half-band is the one screen-space quantity the bake cannot neutralise;
+   *  `bakeStrokeAaDpr` turns it back into 0.5 DEVICE px on the sphere. */
+  dpr = 1,
 ): void {
   if (!tileBg) return
-  const layerOffset = writeBakeStrokeLayerSlot(lr, s, bakeMpp, widthScale)
+  const layerOffset = writeBakeStrokeLayerSlot(
+    lr,
+    s,
+    bakeMpp,
+    widthScale,
+    bakeStrokeAaDpr(dpr, widthScale),
+  )
   if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
     lr.drawSegmentsBake(
       pass,

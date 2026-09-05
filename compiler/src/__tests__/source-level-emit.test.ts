@@ -206,7 +206,11 @@ describe('#1983 W6 — regression guards', () => {
     // Warning COUNT for the other entries is unchanged: 8 before, 8 - 2 = 6 after.
     // #2166 then narrowed the text-pitch-alignment runtime-gap warning to its real
     // residual, which removed the 5 that fired on line-placed labels the runtime
-    // DOES ground-project: 6 - 5 = 1, the `text-optional` one.
-    expect(warnings).toHaveLength(1)
+    // DOES ground-project: 6 - 5 = 1, the `text-optional` one. #2440 DELIVERED
+    // that property (the airport layer's flag is now carried, not deferred), so
+    // the last one goes too: OFM Liberty converts with ZERO warnings. The count
+    // stays asserted rather than dropped — it is what would catch a new silent
+    // drop appearing in this fixture.
+    expect(warnings).toHaveLength(0)
   })
 })

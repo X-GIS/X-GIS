@@ -50,6 +50,7 @@ import {
   f32T,
   u32T,
   vec3uT,
+  voidT,
   vec4uT,
   type ModuleDecl,
 } from '../../shader-dsl/src/index'
@@ -92,6 +93,7 @@ function paintKernel(): ModuleDecl {
   const kernel = fn(
     'paint',
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const i = gid.x
       If(i.ge(uCount.node.x), () => {
@@ -120,6 +122,7 @@ function permutedPaintKernel(): ModuleDecl {
   const kernel = fn(
     'paint',
     { gid: builtin('global_invocation_id', vec3uT) },
+    voidT,
     ({ gid }) => {
       const i = gid.x
       If(i.ge(uCount.node.x), () => {

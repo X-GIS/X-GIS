@@ -42,6 +42,7 @@ import {
   evictToBudget,
   overBudget,
   abortLoadingTiles,
+  dropAllTiles,
   textureBytesOf,
   type LoadedTexture,
 } from './raster-cache-budget'
@@ -92,6 +93,10 @@ export class DemTileStore {
    *  `tileUrl` substitutes `2^z − 1 − y` for `{y}`. Undefined = `'xyz'`. It rides the
    *  template so a re-arm cannot leave a stale flip behind. */
   private scheme: TileRowScheme | undefined
+  /** The template the RESIDENT tiles were fetched from (#2384 F-4) — pairs with
+   *  `_cachedBytes`, which describes the same set. Distinct from `urlTemplate`,
+   *  which round-trips through '' on every rebuild; see the flush. */
+  private _cachedTemplate = ''
 
   constructor(rhi: RhiDevice, draperOf: () => TextureDropper | undefined) {
     this.rhi = rhi
@@ -105,6 +110,24 @@ export class DemTileStore {
     // about it — drop the backoff state rather than carry a stale "gave up" verdict
     // onto tiles the new source may well have.
     if (url !== this.urlTemplate) this.failedTiles.clearAll()
+    // #2384 F-4 — and drop the DATA for the same reason, which this arm did not: the
+    // key is `z/x/y` with no url in it, so the old DEM's resident tile answered for
+    // the new source, and a VISIBLE tile is exempt from eviction — so it never healed.
+    // In-flight loads are the second door: a request issued against the old url lands
+    // under the same key after the swap, so the flush must abort them too.
+    //
+    // Keyed on the template the RESIDENT TILES belong to, not on `urlTemplate`:
+    // `rebuildLayers()` resets every raster-family renderer with `setUrlTemplate('')`
+    // before re-arming the live one (map.ts:3485), so a plain `url !== this.urlTemplate`
+    // would drop every visible tile on each projection change or layer rebuild — correct
+    // pixels bought with a full re-download. Empty is that reset and never a source, so
+    // it flushes nothing; without that arm an `X -> '' -> Y` swap would launder into a
+    // no-op. The raster twin runs the identical guard over `dropAllTiles`.
+    if (url !== '' && url !== this._cachedTemplate) {
+      abortLoadingTiles(this.loadingTiles)
+      this._cachedBytes = dropAllTiles(this.tileCache, this.rhi, this.draperOf())
+      this._cachedTemplate = url
+    }
     this.urlTemplate = url
     this.scheme = scheme
   }

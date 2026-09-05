@@ -58,6 +58,10 @@ class SceneUpscalePass implements RenderPass {
     const { enc, screenView } = requireRhiFrame(ctx, 'scene-upscale')
     let entry = this._drapers.get(host)
     if (!entry || entry.format !== host.ctx.format || entry.sampleCount !== ctx.sampleCount) {
+      // Release before replacing (#2337) — same contract as `oit-pass.ts:68`. The draper
+      // owns a Material AND a sampler, and this pass is the one the adaptive ladder
+      // re-enters most: every notch that changes the scene scale can land here.
+      entry?.draper.destroy()
       entry = {
         draper: new SceneUpscaleDraper(host.ctx.rhi, host.ctx.format, ctx.sampleCount),
         format: host.ctx.format,

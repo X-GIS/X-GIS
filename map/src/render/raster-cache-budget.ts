@@ -167,6 +167,34 @@ export function destroyTileTexture(rhi: RhiDevice, texture: RhiTexture): void {
   rhi.destroyTexture(texture)
 }
 
+/** Drop EVERY cached tile — the source under it changed, so none of the data is
+ *  about this template any more (#2384 F-4).
+ *
+ *  Shared by the raster and hillshade `setUrlTemplate`s so the two cannot drift
+ *  the way `failedTiles` and `tileCache` already did: one cleared on a template
+ *  change, the other did not, and since the cache key is `z/x/y` with no URL in
+ *  it, the stale texture answered for the new source's tile. Visible tiles are
+ *  exempt from eviction by design, so what was on screen was exactly what could
+ *  never be reclaimed — it did not self-heal.
+ *
+ *  Releases through `destroyTileTexture` + the draper's `dropTexture`, the same
+ *  authority `evictToBudget` uses: a bare `cache.clear()` would strand every
+ *  GPU texture. Returns the new byte total (0), so the caller's accumulator
+ *  stays in step the way the evict path's return value does. */
+export function dropAllTiles<T extends EvictableTile>(
+  cache: Map<string, T>,
+  rhi: RhiDevice,
+  draper?: { dropTexture(t: RhiTexture): void },
+): number {
+  for (const tile of cache.values()) {
+    // Drop the draper's cached bind group BEFORE the texture is gone (evict parity).
+    destroyTileTexture(rhi, tile.texture)
+    draper?.dropTexture(tile.texture)
+  }
+  cache.clear()
+  return 0
+}
+
 /** Evict least-recently-used tiles until back under BOTH limits, returning the
  *  new byte total. Shared by both raster-family renderers — the policy was
  *  duplicated verbatim, which is the drift risk the budget constant above is

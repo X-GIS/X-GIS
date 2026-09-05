@@ -73,7 +73,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { emitGlslModule, emitModule, rawStmt, UnsupportedFeatureError } from '@xgis/shader-dsl'
-import { fn, module } from '@xgis/shader-dsl'
+import { fn, module, voidT } from '@xgis/shader-dsl'
 import {
   vec4fT,
   f32T,
@@ -312,7 +312,7 @@ describe('raw Stmt — paired per-target payloads (#1671)', () => {
   //        typecheck. A typed-but-unwired Builder method would be exactly the
   //        "diagnostic nothing can reach" pattern; this arm proves the wire. ──
   it('b.raw() inside a fluent fn() body pushes the paired raw Stmt', () => {
-    const h = fn('uses_b_raw', {}, (_p, b) => {
+    const h = fn('uses_b_raw', {}, voidT, (_p, b) => {
       b.raw({ wgsl: WGSL_PAYLOAD, glsl: GLSL_PAYLOAD })
     })
     const m = module({ funcs: [h] })

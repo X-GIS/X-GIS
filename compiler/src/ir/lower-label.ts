@@ -175,6 +175,7 @@ export function lowerLabelProps(
   /** Mapbox `icon-keep-upright` (#777 I-B) — flip a line-placed icon into the
    *  upright half-plane. Explicit-authoring only; undefined = today's default. */
   let labelIconKeepUpright: boolean | undefined
+  let labelTextOptional: boolean | undefined
   /** Mapbox `icon-text-fit` (#777 I-A) — stretch the icon quad to the paired
    *  text bbox. undefined = spec default `none` (native sprite size). */
   let labelIconTextFit: 'width' | 'height' | 'both' | undefined
@@ -495,6 +496,15 @@ export function lowerLabelProps(
       }
       if (name === 'label-icon-optional') {
         labelIconOptional = true
+        continue
+      }
+      // #2440 — `text-optional: true` only. Absent (and an explicit `false`,
+      // which the converter does not emit) is the spec default AND X-GIS's
+      // existing pair contract, so it stays a missing field: the def is
+      // byte-identical to the pre-#2440 output for every style that does not
+      // author the flag.
+      if (name === 'label-text-optional') {
+        labelTextOptional = true
         continue
       }
       if (name === 'label-icon-keep-upright') {
@@ -945,6 +955,7 @@ export function lowerLabelProps(
     labelIconOptional,
     labelIconPadding,
     labelIconKeepUpright,
+    labelTextOptional,
     labelIconTextFit,
     labelIconTextFitPadding,
     labelIconSizeZoomStops: labelIconSizeZoomStops.length > 0 ? labelIconSizeZoomStops : undefined,

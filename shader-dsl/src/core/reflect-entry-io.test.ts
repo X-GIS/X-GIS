@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fn, module, vec4, vec2, f32, u32T, vec4fT, vec2fT, f32T } from './ir/index.js'
+import { fn, module, vec4, vec2, f32, u32T, vec4fT, vec2fT, f32T, voidT } from './ir/index.js'
 import { ioStruct, location, builtin } from './sot.js'
 import { reflect, type EntryIoField } from './reflect.js'
 import { emitGlslModule } from './backends/glsl.js'
@@ -96,7 +96,7 @@ describe('#1905 — EntryInfo.io', () => {
   })
 
   it('reports NO outputs for a void return', () => {
-    const k = fn('cs', { gid: builtin('global_invocation_id', u32T) }, () => {}, {
+    const k = fn('cs', { gid: builtin('global_invocation_id', u32T) }, voidT, () => {}, {
       stage: 'compute',
       workgroupSize: 32,
     })

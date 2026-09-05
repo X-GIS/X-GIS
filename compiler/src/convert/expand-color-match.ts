@@ -24,6 +24,24 @@
 // Limited to `fill`-type layers in v1. `line` (`line-color` match)
 // and `fill-extrusion` (`fill-extrusion-color` match) can adopt the
 // same split with no further machinery.
+//
+// #2380 — that "no further machinery" is now cashed in for the PATTERN
+// properties rather than the colour ones. A `match()` over SPRITE NAMES is
+// structurally the same object as a match over colours: a finite map from a
+// feature field to a constant string. The runtime bakes one pattern per draw
+// (`show.fillPattern` is a single string, resolved to one UV bbox at
+// render-loop.ts:881), which is the same one-constant-per-draw limit that made
+// this splitter exist for colour. So the split applies verbatim, and each
+// sublayer carries a CONSTANT sprite name — the form already supported
+// end-to-end on both backends.
+//
+// This is deliberately NOT the per-feature-variant design: composing the bbox
+// into the fill variant would also need a per-feature REPEAT (sprite pixel
+// sizes differ, and repeat is recomputed per frame from camera zoom), and any
+// atlas-of-bboxes shape would hit `rhiVariantFillSupported`'s r32float fence
+// and fail to LINK on WebGL2. The split needs no shader, no variant, no new
+// binding, and no backend asymmetry. Its cost is the same bounded draw-call
+// fanout already accepted here for colour: one draw per unique sprite.
 
 import type { MapboxLayer } from './types'
 
@@ -40,11 +58,73 @@ type InFilter = [string, [string, string], [string, (string | number)[]]]
  *  features. Caller emits each sublayer through `convertLayer` as
  *  usual; the result is a slightly inflated layer count for a layer
  *  that needs per-feature colour. */
+/** What distinguishes one split from another. The BODY is already generic over
+ *  these — every arm below reads a constant string out of a `match` and groups
+ *  values by it — so the colour and pattern splits differ only here. */
+interface SplitSpec {
+  /** Mapbox layer `type` this split applies to. */
+  layerType: string
+  /** The paint property carrying the `match`. */
+  property: string
+  /** What the arm outputs are, for the bail warnings ("colour" / "sprite name"). */
+  outputNoun: string
+  /** Smallest distinct-output count worth splitting.
+   *
+   *  2 for colour: a 1-colour match is effectively a constant and lower.ts
+   *  handles it. 1 for pattern: with one explicit arm plus a DIFFERENT default
+   *  arm the layer still draws two different sprites, and bailing would send it
+   *  to the converter's non-constant decline instead — a visible loss, where
+   *  colour merely falls back to an equivalent constant. */
+  minDistinct: number
+}
+
+const COLOR_SPLIT: SplitSpec = {
+  layerType: 'fill',
+  property: 'fill-color',
+  outputNoun: 'colour',
+  minDistinct: 2,
+}
+
+/** #2380 — the three pattern properties, each on its own layer type. */
+const PATTERN_SPLITS: readonly SplitSpec[] = [
+  { layerType: 'fill', property: 'fill-pattern', outputNoun: 'sprite name', minDistinct: 1 },
+  { layerType: 'line', property: 'line-pattern', outputNoun: 'sprite name', minDistinct: 1 },
+  {
+    layerType: 'fill-extrusion',
+    property: 'fill-extrusion-pattern',
+    outputNoun: 'sprite name',
+    minDistinct: 1,
+  },
+]
+
 export function expandPerFeatureColorMatch(
   layer: MapboxLayer,
   warnings?: string[],
 ): MapboxLayer[] | null {
-  if (layer.type !== 'fill') return null
+  return expandPerFeatureMatch(layer, COLOR_SPLIT, warnings)
+}
+
+/** #2380 — split a `match()` over sprite names into one sublayer per unique
+ *  sprite, each with the CONSTANT form the runtime already supports. Returns
+ *  null when the layer carries no splittable pattern match, so the caller falls
+ *  through to its existing handling (including the non-constant decline). */
+export function expandPerFeaturePatternMatch(
+  layer: MapboxLayer,
+  warnings?: string[],
+): MapboxLayer[] | null {
+  for (const spec of PATTERN_SPLITS) {
+    const split = expandPerFeatureMatch(layer, spec, warnings)
+    if (split) return split
+  }
+  return null
+}
+
+function expandPerFeatureMatch(
+  layer: MapboxLayer,
+  spec: SplitSpec,
+  warnings?: string[],
+): MapboxLayer[] | null {
+  if (layer.type !== spec.layerType) return null
   // Defensive: layer.paint should be an object per spec. A non-object
   // form (string, array, etc. from malformed JSON) would otherwise let
   // `paint['fill-color']` index a char or undefined.
@@ -57,7 +137,7 @@ export function expandPerFeatureColorMatch(
     return null
   }
   const paint = (rawPaint ?? {}) as Record<string, unknown>
-  const fc = paint['fill-color']
+  const fc = paint[spec.property]
   if (!Array.isArray(fc) || fc[0] !== 'match') return null
 
   // Mapbox match shape: ['match', input, val1, out1, val2, out2, …, default]
@@ -81,7 +161,7 @@ export function expandPerFeatureColorMatch(
   // Need at least one (vals, out) pair and a default — i.e. 3 args.
   if (args.length < 3 || args.length % 2 === 0) {
     warnings?.push(
-      `Layer "${layer.id}" — fill-color match has ${args.length} args; expected odd count ≥ 3 (val1, out1, …, default). Per-feature colour expand bailed; the layer will render with a single fallback colour.`,
+      `Layer "${layer.id}" — ${spec.property} match has ${args.length} args; expected odd count ≥ 3 (val1, out1, …, default). Per-feature ${spec.outputNoun} expand bailed; the layer will render with a single fallback ${spec.outputNoun}.`,
     )
     return null
   }
@@ -106,7 +186,7 @@ export function expandPerFeatureColorMatch(
     // Surface so the author sees why an 8-country palette collapsed
     // to one colour.
     warnings?.push(
-      `Layer "${layer.id}" — fill-color match default arm is not a constant colour string; per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+      `Layer "${layer.id}" — ${spec.property} match default arm is not a constant ${spec.outputNoun} string; per-feature ${spec.outputNoun} expand bailed and the layer will render with a single fallback ${spec.outputNoun}.`,
     )
     return null
   }
@@ -142,7 +222,7 @@ export function expandPerFeatureColorMatch(
     }
     if (typeof out !== 'string') {
       warnings?.push(
-        `Layer "${layer.id}" — fill-color match arm output is not a constant colour string (got ${typeof out}); per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+        `Layer "${layer.id}" — ${spec.property} match arm output is not a constant ${spec.outputNoun} string (got ${typeof out}); per-feature ${spec.outputNoun} expand bailed and the layer will render with a single fallback ${spec.outputNoun}.`,
       )
       return null
     }
@@ -158,7 +238,7 @@ export function expandPerFeatureColorMatch(
         // filter can't represent it. Surface so author sees why the
         // palette expand bailed.
         warnings?.push(
-          `Layer "${layer.id}" — fill-color match contains a non-scalar key value (${typeof v}); per-feature colour expand bailed and the layer will render with a single fallback colour.`,
+          `Layer "${layer.id}" — ${spec.property} match contains a non-scalar key value (${typeof v}); per-feature ${spec.outputNoun} expand bailed and the layer will render with a single fallback ${spec.outputNoun}.`,
         )
         return null
       }
@@ -171,9 +251,8 @@ export function expandPerFeatureColorMatch(
       byColour.set(out, bucket)
     }
   }
-  // Must have ≥ 2 distinct colours; a 1-colour match is effectively
-  // a constant and lower.ts handles it fine.
-  if (byColour.size < 2) return null
+  // See SplitSpec.minDistinct for why this is 2 for colour and 1 for pattern.
+  if (byColour.size < spec.minDistinct) return null
 
   const baseFilter = layer.filter
   const out: MapboxLayer[] = []
@@ -184,7 +263,7 @@ export function expandPerFeatureColorMatch(
     const sub = cloneLayerWithOverrides(layer, {
       id: `${layer.id}__c${suffix++}`,
       filter,
-      paint: { ...paint, 'fill-color': colour },
+      paint: { ...paint, [spec.property]: colour },
     })
     out.push(sub)
   }
@@ -195,7 +274,7 @@ export function expandPerFeatureColorMatch(
   const defaultSub = cloneLayerWithOverrides(layer, {
     id: `${layer.id}__cd`,
     filter: defaultFilter,
-    paint: { ...paint, 'fill-color': defaultOut },
+    paint: { ...paint, [spec.property]: defaultOut },
   })
   out.push(defaultSub)
 

@@ -40,6 +40,7 @@
 import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
+import { froundF32 } from './passes/precision.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -390,6 +391,20 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   return NORMAL
 }
 
+/** How the CPU engines evaluate f32 arithmetic.
+ *
+ *  - `'f64'` (default) — the ALGEBRA oracle this package has always been: every value is a JS
+ *    double, so the result is the mathematically-intended one to 53 bits. It is the reference
+ *    an implementation is checked AGAINST, and changing it would change what "correct" means.
+ *  - `'f32'` — a correctly-rounding f32 machine over the same IR the GPU receives: every
+ *    f32-typed operation rounds to f32 after the fact (#2426), with ±Infinity on overflow.
+ *    Use it when the question is "does the TARGET compute this", so a parity gate can be an
+ *    ulp-scale comparison instead of a tolerance wide enough to hide a real error.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export type CpuPrecision = 'f64' | 'f32'
+
 /** The CPU (f64) tree-walk interpreter — a differential reference for the WGSL/GLSL
  *  GPU backends, re-walking the SAME IR node-by-node on every call (no code
  *  generation) and evaluating every op with `Math.*` in full f64, never `fround`.
@@ -410,13 +425,19 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
  *
  *  Exported from `@xgis/shader-dsl`.
  */
-export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
+export function compileModule(
+  m: ModuleDecl,
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision },
+): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
   validate(m)
   // Materialise auto-vars (plain `const x = …; assign(x, …)`) into real `var` bindings, exactly
   // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
   m = autoVars(m)
+  // …then, in f32 mode, round after every f32 operation. AFTER autoVars, so the `var` bindings
+  // it materialises have their initialisers rounded like any other.
+  if (opts?.precision === 'f32') m = froundF32(m)
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
     // #923 — an override reads as its default on the CPU mirror.

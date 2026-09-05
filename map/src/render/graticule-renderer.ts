@@ -120,8 +120,14 @@ export class GraticuleRenderer {
    *  10 ms / call on Bright zoom animations (createBuffer +
    *  writeBuffer + destroy) fired exactly on LOD-boundary frames,
    *  doubling the worst-frame hitch. With this cache, re-entry into
-   *  a previously-seen bucket is a pointer swap (~0 ms). */
-  private graticuleBufferCache = new WeakMap<object, { buf: GPUBuffer; count: number }>()
+   *  a previously-seen bucket is a pointer swap (~0 ms).
+   *
+   *  #2325 — a Map, not a WeakMap, so `destroy()` can ENUMERATE it. Retention is
+   *  unchanged in practice: the keys are graticule.ts's module-level bucket
+   *  objects, which that cache never evicts, so a weak key was never collectable
+   *  anyway — and a collected entry would have taken its GPUBuffer with it
+   *  undestroyed, which is the leak class, not the cure. */
+  private graticuleBufferCache = new Map<object, { buf: GPUBuffer; count: number }>()
 
   constructor(private readonly ctx: GPUContext) {}
 
@@ -158,11 +164,9 @@ export class GraticuleRenderer {
       return
     }
     // Don't destroy the previous buffer — it's still referenced by
-    // a cached entry for its own bucket. The WeakMap holds references
-    // alive while their bucket is reachable; when graticule.ts's
-    // bucket cache evicts (currently never), the GraticuleData object
-    // becomes unreachable and the WeakMap entry GCs along with the
-    // GPUBuffer.
+    // a cached entry for its own bucket. The cache holds every bucket's
+    // buffer for this renderer's whole life; `destroy()` is what releases
+    // them (#2325).
     const buf = this.ctx.device.createBuffer({
       size: grat.vertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -437,7 +441,8 @@ export class GraticuleRenderer {
   private graticuleRhiBuffer: RhiBuffer | null = null
   private graticuleRhiVertexCount = 0
   private lastGratZoomRhi = -1
-  private graticuleRhiBufferCache = new WeakMap<object, { buf: RhiBuffer; count: number }>()
+  /** Same Map-not-WeakMap reason as `graticuleBufferCache` (#2325). */
+  private graticuleRhiBufferCache = new Map<object, { buf: RhiBuffer; count: number }>()
   private _rhiRing: UniformRing | null = null
   private _rhiBindGroup: { buf: RhiBuffer; bg: RhiBindGroup } | null = null
   private _lineMatRhi: Material | null = null
@@ -513,6 +518,39 @@ export class GraticuleRenderer {
     ])
     this._rhiBindGroup = { buf, bg }
     return bg
+  }
+
+  /** Terminal teardown (#2325) — closes the gap `MapRendererContent.destroy()`
+   *  documented in its own body: this renderer owned a Material (the
+   *  `buildGraticuleLineMaterial` twin), a UniformRing and one geometry buffer
+   *  per zoom bucket it had ever drawn, and exposed nothing to release them, so
+   *  a map teardown dropped the whole set with the device still alive — the
+   *  `[XGIS LEAK] Material` class the #2266 detector reports.
+   *
+   *  Re-entrant by construction: every field it clears is rebuilt lazily by
+   *  `ensureLineMatRhi` / `ensureRhiRing` / `initGraticule*`, so the
+   *  `_teardownForReinit` path (which reuses the renderer object) keeps working.
+   *  `layouts` / bind groups are GC-owned with no destroy (see `Material`). */
+  destroy(): void {
+    this._lineMatRhi?.destroy()
+    this._lineMatRhi = null
+    this._rhiRing?.destroy()
+    this._rhiRing = null
+    this._rhiBindGroup = null
+    // Every bucket's geometry buffer, not just the one the last frame drew: the
+    // caches are the only reference to the others, and the LIVE handle is always a
+    // cache member too (initGraticule* set both from the same value), so walking
+    // the cache is the complete set and cannot double-free the live one.
+    for (const { buf } of this.graticuleBufferCache.values()) buf.destroy()
+    this.graticuleBufferCache.clear()
+    this.graticuleBuffer = null
+    this.graticuleVertexCount = 0
+    this.lastGratZoom = -1
+    for (const { buf } of this.graticuleRhiBufferCache.values()) this.ctx.rhi.destroyBuffer(buf)
+    this.graticuleRhiBufferCache.clear()
+    this.graticuleRhiBuffer = null
+    this.graticuleRhiVertexCount = 0
+    this.lastGratZoomRhi = -1
   }
 }
 

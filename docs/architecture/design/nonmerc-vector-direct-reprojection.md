@@ -56,10 +56,25 @@ false claims; the corrected plan supersedes the "Phased migration plan" section 
    T-junction. This is a change to the **shared compiler authority Mercator also consumes**
    (10 inbound call paths) → widest blast radius → verify Mercator stays **hash-identical up to
    added collinear vertices** (not just DC=0).
-4. **Cross-LOD T-junctions need a SKIRT, not endpoint-stitch (CONFIRMED).** The globe renders
-   mixed LOD every frame (parent-walk fallback, `vector-tile-renderer.ts:3116`). A z4 tile edge
-   and its two z5 sub-edges have DIFFERENT endpoints → endpoint-keying (§1a) cannot reconcile
-   them. Use the §1b skirt/apron (or an LOD-boundary snap) for cross-LOD.
+4. ~~**Cross-LOD T-junctions need a SKIRT, not endpoint-stitch (CONFIRMED).**~~ **REFUTED by
+   measurement (#2094, #2435).** The reasoning was that a z4 tile edge and its two z5 sub-edges
+   "have DIFFERENT endpoints" so endpoint-keying cannot reconcile them. A marked edge always
+   splits at its **linear MM midpoint**, and a parent tile edge's midpoint IS the shared endpoint
+   of its two children — the refinement is **self-similar across LODs**. Driving the real
+   authority (`compiler/src/tiler/subdivision-conformance.test.ts`, "cross-LOD boundary
+   conformance"): `parent-only = 0` at every level — the children never miss a vertex the parent
+   placed, which is the predicted failure — exactly conforming z3–z7, and bounded at **0.088 px**
+   through z0–z2, where only the depth cap separates the two sides. A differential thin-line scan
+   of real globe frames at z3.2 / z5.4 / z7.5 (drape arm as the control, since a texture over a
+   continuous sphere grid cannot crack) finds **zero connected crack runs** in every worst-ranked
+   tile. No skirt is required to lower the fill ceiling.
+   What the same measurement DID find is **#2435**: `MAX_TRI_DEGREES_FOR_PROJ` is an ABSOLUTE
+   angular gate while the native-zoom screen scale doubles per level, so a z8 tile edge (~1.4°)
+   is already under the gate and never splits while its two children still meet at the LOD
+   boundary — a hanging node interior to an unsplit edge, gap = that edge's own sagitta, peaking
+   at ~1 px exactly where the edge first falls under the gate. Real, geometric, and not visible
+   in a rendered frame at the cameras measured; the fix is a per-tile-level granularity, which
+   is correction #2's own "static per-tile-zoom angular granularity", not a skirt.
 5. **Only globe (projType 7) is verified.** The A/B forced the ECEF else-arm (`polygon.ts:416`).
    Disc {3,4,5} use the flat_rel arm (`polygon.ts:383`) with an untested rim clip on subdivided
    fills; oblique_merc(6) has `cullThreshold: null` + a **rotated antimeridian** the tiler's
@@ -459,11 +474,12 @@ above the direct path's flat-fill+sharp-line frames, so the crops, not the numbe
   (a known polar-cap concern), but DIFFERENTLY; the migration must give the direct path a
   proper pole fan (MapLibre's `subdivision` pole handling) so it is at least as good as the
   drape.
-- **Tile-edge T-junction cracks (Seams §1):** NOT conclusively verified — sub-pixel
-  hairline cracks are not detectable at whole-frame scale, and blindly targeting an exact
-  on-screen tile boundary for an ×8 crop was not done this session. **FLAGGED** (with pole
-  handling + the under-occluder-sphere dependency) as the open increment-1 checks before
-  flipping the default (see status below).
+- **Tile-edge T-junction cracks (Seams §1):** ~~NOT conclusively verified~~ — **CLOSED by
+  measurement (#2094).** The whole-frame scale was the problem, not the crack: a DIFFERENTIAL
+  thin-line scan against the drape arm (which cannot crack) detects a 1–3 px line of any colour
+  flanked by pixels resembling each other, so it needs no guess about where a tile boundary
+  lands on screen. Zero connected crack runs at z3.2 / z5.4 / z7.5 in every worst-ranked 4×4
+  tile, against 0.088 px predicted by the analytic cross-LOD table. See correction #4 above.
 
 ## Status of increment-1 (this session)
 

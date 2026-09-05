@@ -11,12 +11,13 @@
 // initialised by calling `emitOverdrawFsWgsl()`, so consumers
 // (background-renderer + every other debug pipeline) need no change.
 
-import { fn, module, vec4, Return, type ModuleDecl } from '@xgis/shader-dsl'
+import { fn, module, vec4, vec4fT, Return, type ModuleDecl } from '@xgis/shader-dsl'
 import { emitModule } from '@xgis/shader-dsl'
 
 const fsOverdraw = fn(
   'fs_overdraw',
   {},
+  vec4fT,
   (_p) => {
     Return(vec4(1, 0, 0, 0))
   },

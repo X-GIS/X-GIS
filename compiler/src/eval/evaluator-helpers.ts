@@ -347,7 +347,11 @@ export function callBuiltin(name: string, args: unknown[]): unknown {
       const haystack = args[1]
       const from = args.length >= 3 ? toNumber(args[2]) : 0
       if (typeof haystack === 'string') {
-        return haystack.indexOf(String(needle ?? ''), from)
+        // String(needle), NOT `String(needle ?? '')` — '' is found at index 0
+        // in every string. MapLibre coerces null to the literal "null" via a
+        // bare `haystack.indexOf(needle)`; match it (#2385, and its test file
+        // for which caller reaches here).
+        return haystack.indexOf(String(needle), from)
       }
       if (Array.isArray(haystack)) {
         return haystack.indexOf(needle, from)

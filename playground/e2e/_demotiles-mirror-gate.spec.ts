@@ -118,7 +118,25 @@ import { captureCanvasInPage } from './helpers/visual'
 // SwiftShader runner, and one 180s run timed out inside the screenshot settle
 // when it followed a full vitest pass — on CI's shared render-gate leg that
 // margin is the difference between a gate and a flake.
-test.describe.configure({ timeout: 300_000 })
+//
+// 600s, not 300s (#2403): the margin above was measured ALONE, and that is the
+// case the budget does not have to cover. Inside render-shard 1/6 — one worker,
+// 55 specs, 45.4 min — the same three arms cost 1.1 / >5.1 / 3.4 min: the
+// orthographic arm burned the whole 300s on the initial attempt AND both
+// retries, while its stereographic sibling passed with 96s to spare. The arm is
+// not slower than it was: measured ALONE on one container across three trees it
+// is 4.0 min at f1bf7e432 (the commit that wrote the note above), 3.8 on main
+// and 3.7 here — the OLDEST tree the slowest, so the 1.7–1.9 figure describes
+// that machine, not this arm, and no commit doubled anything.
+//
+// Which is why this raises the ceiling instead of relaxing an assertion: given
+// the time, the arm passes and its measurements are byte-identical across all
+// three trees (line total 8285 / 1170 components / largest 391). Nothing is
+// skipped and no tolerance moves. What makes the ceiling bind is co-tenancy —
+// `--shard=1/6` re-partitions whenever the spec list changes, so an unrelated
+// addition re-tenants this gate onto the heaviest shard. #2403 tracks making
+// the arm cheaper and pinning the partition, which are the durable fixes.
+test.describe.configure({ timeout: 600_000 })
 
 /** The camera the issue swept, and the only camera the mirror carries tiles for.
  *  It is also the window where `geolines-label` (minzoom 1) is live and

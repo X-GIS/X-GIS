@@ -47,6 +47,13 @@ export const DEMOS_FIXTURES: Record<string, Demo> = {
       'Label + host-image icon (label-icon-image-*) over the spriteUrl-less host-atlas path — push data + addImage from the host.',
     source: load('fixture-symbol-icon.xgis'),
   },
+  fixture_text_optional: {
+    name: 'Fixture: text-optional (icon survives its label)',
+    tag: 'fixture',
+    description:
+      'Two paired icon+label arms over blocker labels that make BOTH paired labels lose their collision (#2440): `pair_plain` drops its icon with the label (the spec default, text+icon as one symbol), `pair_optional` keeps it because `label-text-optional` removes the pairKey from the drop cascade AND from getActiveTextPairKeys, so the surviving icon seeds its own obstacle box instead of drawing as a phantom. Purpose-built because the property is a no-op wherever the label fits, and the shipped styles that author it (OFM airport) place that label cleanly at almost every camera — a gate on a real style would measure nothing. Push data + addImage from the host; no network.',
+    source: load('fixture-text-optional.xgis'),
+  },
   fixture_symbol_icon_textfit: {
     name: 'Fixture: symbol icon-text-fit (local sprite)',
     tag: 'fixture',

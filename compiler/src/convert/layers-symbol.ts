@@ -1057,10 +1057,22 @@ export function convertTextLayoutProperties(
   // default value so OFM `icon-optional: false` (the default,
   // authored explicitly on the 4 label_* layers per style) doesn't
   // regress the lossless metric.
+  // #2440 lowered the `true` case: it emits `label-text-optional` →
+  // LabelDef.textOptional → TextStage drops the pairKey from BOTH the drop
+  // cascade and the live-text set, so the rejected label's icon survives WITH
+  // its own obstacle box. Only `true` is emitted — absent / `false` is the spec
+  // default and already X-GIS's contract, so those styles stay byte-identical.
+  // A non-constant form has no per-feature channel and still warns.
   const textOptional = unwrapLiteralScalar(layout['text-optional'])
   if (textOptional === true) {
+    utils.push('label-text-optional')
+  } else if (
+    textOptional !== undefined &&
+    textOptional !== null &&
+    typeof textOptional !== 'boolean'
+  ) {
     warnings.push(
-      `Symbol layer "${layer.id}" — text-optional: true declared but X-GIS' symbol placement always pairs text + icon (deferred — needs split text/icon collision arbitration). The label may be dropped at zoom levels where MapLibre would render icon-only.`,
+      `Symbol layer "${layer.id}" — text-optional non-constant form not yet supported; the label and its icon stay paired (both drop together).`,
     )
   }
   // icon-optional: true — the icon may be hidden when it collides while

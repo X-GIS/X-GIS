@@ -98,11 +98,37 @@ export const DEFAULT_PASSES: readonly OptPass[] = [
  *  const cseOnly = optimize(MODULE, [cse])       // isolate a single pass to measure it
  *  ```
  */
-export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PASSES): ModuleDecl {
-  return passes.reduce((mod, pass) => pass(mod), m)
+export function optimize(
+  m: ModuleDecl,
+  passes: readonly OptPass[] = DEFAULT_PASSES,
+  onPass?: PassSink,
+): ModuleDecl {
+  if (onPass === undefined) return passes.reduce((mod, pass) => pass(mod), m)
+  return passes.reduce((mod, pass) => {
+    const t0 = nowMs()
+    const out = pass(mod)
+    onPass(pass.name, nowMs() - t0)
+    return out
+  }, m)
 }
 
-/** Structural equality over the IR, mirroring the `JSON.stringify(a) ===
+/** Called once per pass per fixpoint iteration when profiling (#2449). Absent on the
+ *  production path, which keeps the plain `reduce` above — a profiler must not be something
+ *  the shipped pipeline pays for. */
+export type PassSink = (pass: string, ms: number) => void
+
+/** `performance.now()` where it exists (node and every browser), else a monotonic-enough
+ *  fallback. Read through globalThis because the package declares no ambient lib types. */
+const nowMs = (): number => {
+  const perf = (globalThis as { performance?: { now(): number } }).performance
+  return perf ? perf.now() : Date.now()
+}
+
+/** Structural equality over the IR — the fixpoint's own convergence test, exported so
+ *  `profileEmit` can assert its instrumented optimizer produced the same module as the
+ *  production one (#2449). @internal
+ *
+ *  Mirrors the `JSON.stringify(a) ===
  *  JSON.stringify(b)` test it replaces — but SHORT-CIRCUITING at the first
  *  difference and allocating NOTHING. The IR is plain, acyclic, function-free
  *  data (the `fixpoint` invariant), so a lockstep walk is exact:
@@ -114,7 +140,7 @@ export function optimize(m: ModuleDecl, passes: readonly OptPass[] = DEFAULT_PAS
  *  Object key ORDER is not compared: the emitter reads IR fields by name, so a
  *  key-order-only difference can never reach emitted bytes — pinned by the
  *  emit-goldens + polygon-variant-diff byte gates. */
-function irEqual(a: unknown, b: unknown): boolean {
+export function irEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
   const aArr = Array.isArray(a)
@@ -161,10 +187,11 @@ function fnFixpoint(
   m: ModuleDecl,
   passes: readonly OptPass[],
   maxIters: number,
+  onPass?: PassSink,
 ): FuncDecl {
   let cur = fn
   for (let i = 0; i < maxIters; i++) {
-    const next = optimize({ ...m, funcs: [cur] }, passes).funcs[0]!
+    const next = optimize({ ...m, funcs: [cur] }, passes, onPass).funcs[0]!
     if (irEqual(next, cur)) return next
     cur = next
   }
@@ -211,9 +238,10 @@ export function fixpoint(
   m: ModuleDecl,
   passes: readonly OptPass[] = DEFAULT_PASSES,
   maxIters = 8,
+  onPass?: PassSink,
 ): ModuleDecl {
   for (const fn of m.funcs) assertUniqueLocalNames(fn)
-  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters)) }
+  return { ...m, funcs: m.funcs.map((fn) => fnFixpoint(fn, m, passes, maxIters, onPass)) }
 }
 
 // ── Named optimization levels (C-compiler -O0/-O1/-O2) ──

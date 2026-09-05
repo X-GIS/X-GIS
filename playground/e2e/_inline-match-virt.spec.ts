@@ -40,7 +40,11 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { captureCanvas, colorHistogram, type ColorBucket } from './helpers/visual'
-import { withValidationCapture, clearValidationErrors } from './helpers/validation'
+import {
+  withValidationCapture,
+  clearValidationErrors,
+  type ValidationCheckpoint,
+} from './helpers/validation'
 
 const ROSE_500: [number, number, number] = [244, 63, 94]
 const EMERALD_500: [number, number, number] = [16, 185, 129]
@@ -93,7 +97,12 @@ const FC = {
 async function loadAndPush(
   page: Page,
   extraQuery: string,
+  checkpoint: ValidationCheckpoint,
 ): Promise<{ rose: number; emerald: number }> {
+  // Drain the queue of the realm this navigation replaces (#2352). Without it
+  // only the LAST of the three routes below was ever validated — the default
+  // and ?legacy=1 arms fired their errors into realms that died unread.
+  await checkpoint()
   await page.setViewportSize({ width: 800, height: 600 })
   await page.goto(`/demo.html?id=fixture_inline_match&e2e=1${extraQuery}`, {
     waitUntil: 'domcontentloaded',
@@ -121,11 +130,11 @@ test.describe('#821 inline match() colour', () => {
     page,
   }) => {
     test.setTimeout(180_000)
-    await withValidationCapture(page, async () => {
+    await withValidationCapture(page, async (checkpoint) => {
       // DEFAULT boot, no flag. Before #1837 this was the blank this spec pinned as
       // "the residual legacy contract"; the route now defaults to virtual, so the
       // per-feature colour lands with no opt-in at all.
-      const dflt = await loadAndPush(page, '')
+      const dflt = await loadAndPush(page, '', checkpoint)
 
       console.log('[#821 default]', dflt)
       expect(dflt.rose, 'default boot must render the kind:a quad in rose (#1837)').toBeGreaterThan(
@@ -142,7 +151,7 @@ test.describe('#821 inline match() colour', () => {
       // other arms paint, wearing the same hues (it read { rose: 0.1860,
       // emerald: 0.1888 } while the property table was array-indexed, and 0 / 0
       // before #1940).
-      const legacy = await loadAndPush(page, '&legacy=1')
+      const legacy = await loadAndPush(page, '&legacy=1', checkpoint)
 
       console.log('[#821 legacy=1]', legacy)
       expect(
@@ -155,7 +164,7 @@ test.describe('#821 inline match() colour', () => {
       ).toBeGreaterThan(0.02)
 
       // Explicit opt-in: unchanged by #1837, still renders both hues.
-      const virt = await loadAndPush(page, '&virt_inline=1')
+      const virt = await loadAndPush(page, '&virt_inline=1', checkpoint)
 
       console.log('[#821 virt]', virt)
       expect(virt.rose, 'virt_inline must render the kind:a quad in rose').toBeGreaterThan(0.02)

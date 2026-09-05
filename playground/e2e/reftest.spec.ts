@@ -1,6 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 import { captureCanvas, pixelDiffRatio, sampleNonBackgroundPixels } from './helpers/visual'
-import { withValidationCapture, clearValidationErrors } from './helpers/validation'
+import {
+  withValidationCapture,
+  clearValidationErrors,
+  type ValidationCheckpoint,
+} from './helpers/validation'
 
 // ═══ X-GIS reftest pairs ═══
 //
@@ -25,7 +29,16 @@ import { withValidationCapture, clearValidationErrors } from './helpers/validati
 
 const TIMEOUT_MS = 15_000
 
-async function loadAndCapture(page: Page, id: string): Promise<Buffer> {
+async function loadAndCapture(
+  page: Page,
+  id: string,
+  checkpoint: ValidationCheckpoint,
+): Promise<Buffer> {
+  // Drain the queue of the realm this navigation is about to destroy (#2352).
+  // A no-op on the FIRST load — `getValidationErrors` reads `[]` while
+  // `__xgisMap` is absent — and the only thing that lets fixture A's
+  // validation errors reach the assertion at the end of `reftestPair`.
+  await checkpoint()
   await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
     () => (window as unknown as { __xgisReady?: boolean }).__xgisReady === true,
@@ -42,7 +55,9 @@ async function loadAndCapture(page: Page, id: string): Promise<Buffer> {
 /** Run a reftest pair: load A, capture, load B, capture, compare
  *  via pixel-diff ratio with small tolerance. Both loads also run
  *  inside validation capture so a pipeline error in either path
- *  surfaces. */
+ *  surfaces — each load checkpoints first, so fixture A's queue is
+ *  read before the navigation to B destroys the realm holding it
+ *  (#2352; without that only B was ever validated). */
 const PIXEL_TOLERANCE = 12 // ±12/255 per channel
 const MAX_DIFF_RATIO = 0.005 // ≤0.5% of pixels may differ
 
@@ -52,9 +67,9 @@ async function reftestPair(
   refB: string,
   description: string,
 ): Promise<void> {
-  await withValidationCapture(page, async () => {
-    const pngA = await loadAndCapture(page, refA)
-    const pngB = await loadAndCapture(page, refB)
+  await withValidationCapture(page, async (checkpoint) => {
+    const pngA = await loadAndCapture(page, refA, checkpoint)
+    const pngB = await loadAndCapture(page, refB, checkpoint)
     const ratio = await pixelDiffRatio(page, pngA, pngB, PIXEL_TOLERANCE)
     if (ratio > MAX_DIFF_RATIO) {
       const diffA = await sampleNonBackgroundPixels(page, pngA, { r: 6, g: 8, b: 12 }, 50, 400)

@@ -13,6 +13,12 @@
 // This is the headless-WebGL2 compile gate the glsl backend's W2 caveat called for.
 
 import { test, expect } from '@playwright/test'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { BAKED_GLSL_BOOT } from '../../map/src/shaders/baked/baked-glsl-boot.generated'
+import { BAKED_GLSL_HILLSHADE } from '../../map/src/shaders/baked/baked-glsl-hillshade.generated'
+import { BAKED_GLSL_LAZY } from '../../map/src/shaders/baked/baked-glsl-lazy.generated'
 // Relative import (NOT the `@xgis/shader-dsl` alias): Playwright transpiles specs in raw
 // Node, which does not resolve the workspace alias — the other compile gate
 // (_wgsl-compile-gate.spec.ts) imports runtime shaders the same relative way.
@@ -1022,5 +1028,108 @@ void main() {
     // output, so a driver that had rejected the postfix-size const-array declaration
     // could not resolve the identifier and could not produce a linked program.
     expect(result.linkOk, `const-array program failed to link:\n${result.linkLog}`).toBe(true)
+  })
+})
+
+// #2444 — the COMMITTED corpora, which nothing compiled until now. The tests above cover
+// map/'s production shaders; `emit-goldens.test.ts` proves the emitter still produces the
+// golden bytes but not that those bytes are a program ANGLE accepts, and `baked-sync.test.ts`
+// says the same about the baked store the map ships.
+test.describe('GLSL committed corpora', () => {
+  test('the committed GLSL goldens and baked artifacts compile on real WebGL2', async ({
+    page,
+  }) => {
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+    const here = dirname(fileURLToPath(import.meta.url))
+    const goldenDir = join(here, '../../shader-dsl/examples/__emit-goldens__')
+    const files = readdirSync(goldenDir).filter((f) => f.endsWith('.glsl'))
+
+    // The goldens come as `<name>.vertex.glsl` / `<name>.fragment.glsl`, so they LINK as
+    // pairs — which catches a varying mismatch a per-shader compile cannot see.
+    const stems = [...new Set(files.map((f) => f.replace(/\.(vertex|fragment)\.glsl$/, '')))].sort()
+    const pairs = stems
+      .filter((n) => files.includes(`${n}.vertex.glsl`) && files.includes(`${n}.fragment.glsl`))
+      .map((n) => ({
+        name: `golden/${n}`,
+        vertex: readFileSync(join(goldenDir, `${n}.vertex.glsl`), 'utf8'),
+        fragment: readFileSync(join(goldenDir, `${n}.fragment.glsl`), 'utf8'),
+      }))
+
+    // Baked GLSL is stored per STAGE (the registry id carries `/vertex/` or `/fragment/`),
+    // and which vertex pairs with which fragment is registry knowledge, so these are compiled
+    // individually. That still catches syntax and type errors, which is where emit bugs live.
+    const singles: Array<{ name: string; stage: 'vertex' | 'fragment'; src: string }> = []
+    for (const [group, art] of [
+      ['boot', BAKED_GLSL_BOOT],
+      ['hillshade', BAKED_GLSL_HILLSHADE],
+      ['lazy', BAKED_GLSL_LAZY],
+    ] as const) {
+      const stageOf = new Map<string, 'vertex' | 'fragment'>()
+      for (const [id, hash] of Object.entries(art.index))
+        if (!stageOf.has(hash)) stageOf.set(hash, id.includes('/vertex') ? 'vertex' : 'fragment')
+      for (const [hash, src] of Object.entries(art.contents))
+        singles.push({
+          name: `baked/${group}/${hash.slice(0, 8)}`,
+          stage: stageOf.get(hash) ?? 'fragment',
+          src,
+        })
+    }
+
+    // Floors, so a corpus that silently stopped being found fails HERE rather than vacuously.
+    expect(pairs.length, 'no golden GLSL pairs found').toBeGreaterThanOrEqual(30)
+    expect(singles.length, 'no baked GLSL sources found').toBeGreaterThanOrEqual(20)
+
+    const result = await page.evaluate(
+      ({ pairs, singles }) => {
+        const canvas = document.createElement('canvas')
+        const gl = canvas.getContext('webgl2')
+        if (!gl) return { fatal: 'no webgl2 context' as const }
+        const compile = (type: number, src: string): { ok: boolean; log: string } => {
+          const sh = gl.createShader(type)!
+          gl.shaderSource(sh, src)
+          gl.compileShader(sh)
+          return {
+            ok: gl.getShaderParameter(sh, gl.COMPILE_STATUS) as boolean,
+            log: gl.getShaderInfoLog(sh) ?? '',
+          }
+        }
+        const failures: string[] = []
+        for (const p of pairs) {
+          const vs = compile(gl.VERTEX_SHADER, p.vertex)
+          const fs = compile(gl.FRAGMENT_SHADER, p.fragment)
+          if (!vs.ok) failures.push(`${p.name} vertex: ${vs.log.slice(0, 200)}`)
+          if (!fs.ok) failures.push(`${p.name} fragment: ${fs.log.slice(0, 200)}`)
+          if (!vs.ok || !fs.ok) continue
+          const prog = gl.createProgram()!
+          const vsh = gl.createShader(gl.VERTEX_SHADER)!
+          gl.shaderSource(vsh, p.vertex)
+          gl.compileShader(vsh)
+          const fsh = gl.createShader(gl.FRAGMENT_SHADER)!
+          gl.shaderSource(fsh, p.fragment)
+          gl.compileShader(fsh)
+          gl.attachShader(prog, vsh)
+          gl.attachShader(prog, fsh)
+          gl.linkProgram(prog)
+          if (!(gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean))
+            failures.push(`${p.name} link: ${(gl.getProgramInfoLog(prog) ?? '').slice(0, 200)}`)
+        }
+        for (const s of singles) {
+          const r = compile(s.stage === 'vertex' ? gl.VERTEX_SHADER : gl.FRAGMENT_SHADER, s.src)
+          if (!r.ok) failures.push(`${s.name} (${s.stage}): ${r.log.slice(0, 200)}`)
+        }
+        return { failures, pairs: pairs.length, singles: singles.length }
+      },
+      { pairs, singles },
+    )
+
+    expect(result, 'WebGL2 unavailable').not.toHaveProperty('fatal')
+    if ('fatal' in result) return
+    console.log(
+      `[glsl-corpus] ${result.pairs} golden pairs linked + ${result.singles} baked sources compiled on ANGLE`,
+    )
+    expect(
+      result.failures,
+      `committed GLSL failed on real WebGL2:\n${result.failures.join('\n')}`,
+    ).toEqual([])
   })
 })

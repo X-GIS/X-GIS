@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 363 exports
+## `.` — 364 exports
 
 ```
 abs
@@ -74,6 +74,7 @@ Continue
 cos
 cosh
 CpuModule
+CpuPrecision
 CpuStruct
 CpuValue
 cross
@@ -378,7 +379,7 @@ when
 workgroupSizeOf
 ```
 
-## `./dev` — 33 exports
+## `./dev` — 37 exports
 
 ```
 assertCaps
@@ -392,6 +393,7 @@ DiagnoseOptions
 DiagnosticReport
 dslError
 emitModuleWithReflection
+EmitProfile
 emitSize
 EmitSize
 ErrorCode
@@ -409,10 +411,13 @@ OpCount
 optimize
 optimizerReport
 OptimizerReport
+PassTiming
+profileEmit
 requiredCaps
 setSourceTracing
 Severity
 SourceLoc
+StageTiming
 summarize
 ```
 
@@ -668,7 +673,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 413 definitions
+## Shapes — 418 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -701,7 +706,7 @@ src/core/backends/wgsl.ts#intLit  function  (v: number, scalar: "i32" | "u32") =
 src/core/backends/wgsl.ts#lowerWgsl  const  (m: ModuleDecl, level: OptLevel) => ModuleDecl
 src/core/backends/wgsl.ts#wgslBackend  const  Backend
 src/core/backends/wgsl.ts#wgslType  function  (t: ShaderType) => string
-src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
+src/core/cpu-codegen.ts#compileModuleJs  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/cpu-runtime.ts#CpuStruct  interface  CpuStruct
 src/core/cpu-runtime.ts#CpuValue  type  number | boolean | number[] | CpuStruct
 src/core/cpu-runtime.ts#ORACLE_BUILTIN_NAMES  const  ReadonlySet<string>
@@ -732,7 +737,7 @@ src/core/emit-prune.ts#pruneRedundantPrototypes  function  (src: string) => stri
 src/core/emit.ts#EmitOptions  interface  { fp64Flavor?: Fp64Flavor; parens?: ParenMode; plugins?: readonly EmitPlugin[] }
 src/core/emit.ts#EmitPlugin  interface  { identity?: string; name: string; transformIR?: (lowered: ModuleDecl) => ModuleDecl; transformText?: (code: string) => string }
 src/core/emit.ts#emitModuleWithReflection  function  (m: ModuleDecl, be: Backend) => { code: string; reflection: Reflection; }
-src/core/emit.ts#lowerForBackend  function  (m: ModuleDecl, be: Backend, level?: OptLevel, fp64Flavor?: Fp64Flavor) => ModuleDecl
+src/core/emit.ts#lowerForBackend  function  (m: ModuleDecl, be: Backend, level?: OptLevel, fp64Flavor?: Fp64Flavor, onStage?: StageSink) => ModuleDecl
 src/core/fp64/df64-lib.ts#FP64_GUARD_NAME  const  "_fp64"
 src/core/fp64/df64-lib.ts#Fp64GuardHandle  interface  { binding: BindingDecl; type: ShaderType }
 src/core/fp64/df64-lib.ts#fp64Guard  function  (at: { group: number; binding: number; }) => Fp64GuardHandle
@@ -757,7 +762,7 @@ src/core/ir/builder.ts#Continue  const  () => void
 src/core/ir/builder.ts#Discard  const  () => void
 src/core/ir/builder.ts#ExternFn  type  { (args: { readonly [K in keyof P]: number | ReadonlyNode<KeyOf<P[K]>>; }): Node<KeyOf<R>>; (...args: NodeLike[]): Node<KeyOf<R>>; }
 src/core/ir/builder.ts#ExternVarHandle  interface  { decl: ExternVarDecl; node: ReadonlyNode<K> }
-src/core/ir/builder.ts#FnHandle  type  FuncDecl & { (args: { readonly [K in keyof P]: number | ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>> | (P[K] extends StructParamHandle ? StructArg : never); }): Node<R>; (...args: (NodeLike | StructArg)[]): Node<R>; } & { readonly decl: FuncDecl; }
+src/core/ir/builder.ts#FnHandle  type  FuncDecl & { (args: { readonly [K in keyof P]: number | ReadonlyNode<KeyOf<ParamTypeOf<P[K]>>> | (P[K] extends StructParamHandle ? StructArg<string> : never); }): Node<R>; (...args: (NodeLike | StructArg<string>)[]): Node<R>; } & { readonly decl: FuncDecl; }
 src/core/ir/builder.ts#FnParamSpec  type  { [x: string]: ShaderType | ParamAttr | StructParamHandle; }
 src/core/ir/builder.ts#If  const  (cond: ReadonlyNode<"bool">, body: () => void | ReadonlyNode<string>) => IfChain
 src/core/ir/builder.ts#IfChain  class  { arms: { cond: Expr; body: Stmt[]; }[]; elif: (cond: ReadonlyNode<"bool">, body: (b: Builder) => void | ReadonlyNode<string>) => IfChain; else: (body: (b: Builder) => void | ReadonlyNode<string>) => void; parent: Builder; setElse: (body: Stmt[]) => void }
@@ -776,7 +781,7 @@ src/core/ir/builder.ts#condExpr  function  <K extends string>(arms: readonly (re
 src/core/ir/builder.ts#constExpr  function  (name: string, type: ShaderType, value: Node<string>) => ConstDecl
 src/core/ir/builder.ts#externFn  function  <P extends ParamSpec, R extends ShaderType>(name: string, params: P, ret: R) => ExternFn<P, R>
 src/core/ir/builder.ts#externVar  function  <T extends ShaderType>(name: string, type: T, opts?: { spelling?: { wgsl?: string; glsl?: string; }; stage?: "vertex" | "fragment" | "compute"; }) => ExternVarHandle<KeyOf<T>>
-src/core/ir/builder.ts#fn  function  { <P extends FnParamSpec, R extends string>(params: P, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBody<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; <P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; }
+src/core/ir/builder.ts#fn  function  { <P extends FnParamSpec, R extends string>(params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, R extends string>(name: string, params: P, body: FnBodyValue<P, R>, opts?: FnOpts): FnHandle<P, R>; <P extends FnParamSpec, T extends ShaderType>(params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; <P extends FnParamSpec, T extends ShaderType>(name: string, params: P, ret: T, body: FnBody<P, KeyOf<T>>, opts?: FnOpts): FnHandle<P, KeyOf<T>>; }
 src/core/ir/builder.ts#ifExpr  function  <K extends string>(cond: ReadonlyNode<"bool">, thenVal: () => ReadonlyNode<K>, elseVal: () => ReadonlyNode<K>) => Node<K>
 src/core/ir/builder.ts#module  function  (parts: ModuleParts) => ModuleDecl
 src/core/ir/builder.ts#overrideConst  function  <T extends ShaderType>(name: string, type: T, defaultValue: number | boolean) => OverrideHandle<KeyOf<T>>
@@ -790,10 +795,10 @@ src/core/ir/node.ts#Float64Key  type  "f64" | `vec${number}<f64>`
 src/core/ir/node.ts#FloatKey  type  "f32" | `vec${number}<f32>`
 src/core/ir/node.ts#IntKey  type  "i32" | "u32" | `vec${number}<i32>` | `vec${number}<u32>`
 src/core/ir/node.ts#NODE_BRAND  const  typeof NODE_BRAND
-src/core/ir/node.ts#Node  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; assign: (value: ArithArg<K>) => void; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: { <S extends string>(comps: S): Node<SwizzleKey<K, S>>; <R extends string>(comps: string): Node<R>; }; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
+src/core/ir/node.ts#Node  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; assign: (value: ArithArg<K>) => void; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
 src/core/ir/node.ts#NodeLike  type  number | ReadonlyNode<any>
 src/core/ir/node.ts#NonComposite  type  K extends `vec${string}` | `mat${string}` ? never : K
-src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: { <S extends string>(comps: S): Node<SwizzleKey<K, S>>; <R extends string>(comps: string): Node<R>; }; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
+src/core/ir/node.ts#ReadonlyNode  class  { __k?: K; a: Node<ElemKey<K>>; add: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; and: (o: ReadonlyNode<"bool">) => Node<"bool">; at: <T extends ShaderType>(idx: number | ReadonlyNode<ScalarKey>, elem: T) => Node<KeyOf<T>>; b: Node<ElemKey<K>>; bgr: Node<`vec3<${ElemKey<K>}>`>; bgra: Node<`vec4<${ElemKey<K>}>`>; bin: (bop: BinOp, o: NodeLike) => Node<string>; bitAnd: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitBin: (bop: BinOp, o: NodeLike) => Node<string>; bitOr: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; bitXor: (o: number | ReadonlyNode<K & ("i32" | "u32")>) => Node<K>; cmp: (cop: CmpOp, o: NodeLike) => Node<"bool">; comp: (field: "x" | "y" | "z" | "w") => Node<ElemKey<K>>; div: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; eq: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; expr: Expr; g: Node<ElemKey<K>>; ge: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; gt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; le: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; liftArg: (o: NodeLike) => ReadonlyNode<string>; logical: (lop: "&&" | "||", o: ReadonlyNode<"bool">) => Node<"bool">; lt: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; mod: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (o: ArithArg<K>): Node<K>; }; mul: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; ne: (this: ReadonlyNode<NonComposite<K>>, o: CmpArg<K>) => Node<"bool">; neg: () => Node<K>; or: (o: ReadonlyNode<"bool">) => Node<"bool">; r: Node<ElemKey<K>>; rgb: Node<`vec3<${ElemKey<K>}>`>; select: { (this: ReadonlyNode<"bool">, a: number, b: number): Node<"f32">; <R extends string>(this: ReadonlyNode<"bool">, a: number | ReadonlyNode<R>, b: number | ReadonlyNode<R>): Node<R>; }; shl: (o: number | ReadonlyNode<"u32">) => Node<K>; shr: (o: number | ReadonlyNode<"u32">) => Node<K>; sub: { <K2 extends `vec${number}<${K}>`>(this: ReadonlyNode<NonComposite<K>>, o: ReadonlyNode<K2>): Node<K2>; (this: ReadonlyNode<"f32">, o: ReadonlyNode<"f64">): Node<"f64">; (o: ArithArg<K>): Node<K>; }; swizzle: <S extends string>(comps: S) => Node<SwizzleKey<K, S>>; type: ShaderType; w: Node<ElemKey<K>>; x: Node<ElemKey<K>>; xy: Node<`vec2<${ElemKey<K>}>`>; xyz: Node<`vec3<${ElemKey<K>}>`>; y: Node<ElemKey<K>>; yzx: Node<`vec3<${ElemKey<K>}>`>; z: Node<ElemKey<K>>; zxy: Node<`vec3<${ElemKey<K>}>`>; zyx: Node<`vec3<${ElemKey<K>}>`> }
 src/core/ir/node.ts#SwizzleKey  type  StrLen<S, []> extends 1 ? ElemKey<K> : `vec${StrLen<S, []> & number}<${ElemKey<K>}>`
 src/core/ir/node.ts#TexelKey  type  K extends `${string}<${infer E}>` ? `vec4<${E}>` : never
 src/core/ir/node.ts#TextureLoad2dKey  type  "texture_multisampled_2d<f32>" | "texture_2d<f32>" | "texture_2d<u32>" | "texture_2d<i32>"
@@ -801,7 +806,7 @@ src/core/ir/node.ts#TextureLoadArrayKey  type  "texture_2d_array<f32>" | "textur
 src/core/ir/node.ts#abs  const  <K extends FloatKey | Float64Key | IntKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acos  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#acosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
-src/core/ir/node.ts#arrayLit  const  (elem: ShaderType, ...items: ReadonlyNode<string>[]) => Node<string>
+src/core/ir/node.ts#arrayLit  const  <E extends ShaderType, const I extends readonly ReadonlyNode[]>(elem: E, ...items: I) => Node<`array<${KeyOf<E>},${I["length"]}>`>
 src/core/ir/node.ts#asin  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#asinh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#atan  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
@@ -815,7 +820,7 @@ src/core/ir/node.ts#callFn  function  <T extends ShaderType>(name: string, ret: 
 src/core/ir/node.ts#ceil  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#clamp  const  <K extends FloatKey | IntKey>(x: ReadonlyNode<K>, lo: NoInfer<ArithArg<K>>, hi: NoInfer<ArithArg<K>>) => Node<K>
 src/core/ir/node.ts#constRef  function  <T extends ShaderType = { readonly kind: "scalar"; readonly scalar: "f32"; }>(name: string, type?: T) => ReadonlyNode<KeyOf<T>>
-src/core/ir/node.ts#construct  const  (type: ShaderType, args: NodeLike[]) => Node<string>
+src/core/ir/node.ts#construct  const  <T extends ShaderType>(type: T, args: NodeLike[]) => Node<KeyOf<T>>
 src/core/ir/node.ts#cos  const  <K extends FloatKey | Float64Key>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#cosh  const  <K extends FloatKey>(x: ReadonlyNode<K>) => Node<K>
 src/core/ir/node.ts#cross  const  (a: ReadonlyNode<"vec3<f32>">, b: ReadonlyNode<"vec3<f32>">) => Node<"vec3<f32>">
@@ -930,19 +935,19 @@ src/core/ir/nodes.ts#StructField  interface  { attr?: string; builtin?: string; 
 src/core/ir/nodes.ts#stageOf  const  (f: Pick<FuncDecl, "stage" | "attrs">) => "vertex" | "fragment" | "compute"
 src/core/ir/nodes.ts#workgroupSizeOf  const  (f: Pick<FuncDecl, "attrs" | "workgroupSize">) => number
 src/core/ir/types.ts#ElemKey  type  K extends `vec${number}<${infer E}>` ? E : K
-src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
+src/core/ir/types.ts#KeyOf  type  T extends { kind: "scalar"; scalar: infer S extends string; } ? S : T extends { kind: "f64"; } ? "f64" : T extends { kind: "vec64"; n: infer N extends number; } ? `vec${N}<f64>` : T extends { kind: "vec"; n: infer N extends number; elem: infer E extends string; } ? `vec${N}<${E}>` : T extends { kind: "mat"; n: infer N extends number; elem: infer E extends string; } ? `mat${N}x${N}<${E}>` : T extends { kind: "struct"; name: infer N extends string; } ? `struct:${N}` : T extends { kind: "array"; elem: infer E; size: infer S; } ? S extends number ? `array<${KeyOf<E>},${S}>` : `array<${KeyOf<E>}>` : T extends { kind: "void"; } ? "void" : T extends { kind: "texture"; dim: "2d-ms"; } ? "texture_multisampled_2d<f32>" : T extends { kind: "texture"; dim: "2d-array"; elem: infer E extends string; } ? `texture_2d_array<${E}>` : T extends { kind: "texture"; dim: "2d"; elem: infer E extends string; } ? `texture_2d<${E}>` : T extends { kind: "sampler"; } ? "sampler" : string
 src/core/ir/types.ts#Scalar  type  "f32" | "i32" | "u32" | "bool"
 src/core/ir/types.ts#ScalarKey  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
+src/core/ir/types.ts#ShaderType  type  { readonly kind: "scalar"; readonly scalar: Scalar; } | { readonly kind: "f64"; } | { readonly kind: "vec64"; readonly n: 2 | 3 | 4; } | { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; } | { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } | { readonly kind: "struct"; readonly name: string; } | { readonly kind: "array"; readonly elem: ShaderType; readonly size?: number; } | { readonly kind: "texture"; readonly dim: "2d" | "2d-array"; readonly elem: TextureElem; } | { readonly kind: "texture"; readonly dim: "2d-ms"; readonly elem: "f32"; } | { readonly kind: "sampler"; } | { readonly kind: "void"; }
 src/core/ir/types.ts#TextureElem  type  "f32" | "i32" | "u32"
-src/core/ir/types.ts#arrayT  const  (elem: ShaderType, size?: number) => ShaderType
+src/core/ir/types.ts#arrayT  const  <E extends ShaderType, S extends number | undefined = undefined>(elem: E, size?: S) => { readonly kind: "array"; readonly elem: E; readonly size: S; }
 src/core/ir/types.ts#boolT  const  { readonly kind: "scalar"; readonly scalar: "bool"; }
 src/core/ir/types.ts#f32T  const  { readonly kind: "scalar"; readonly scalar: "f32"; }
 src/core/ir/types.ts#f64T  const  { readonly kind: "f64"; }
 src/core/ir/types.ts#i32T  const  { readonly kind: "scalar"; readonly scalar: "i32"; }
 src/core/ir/types.ts#isF64  const  (t: ShaderType) => t is { readonly kind: "f64"; }
-src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; }
-src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "f64"; } & { elem: "f64"; }
+src/core/ir/types.ts#isMat  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; }
+src/core/ir/types.ts#isMat64  const  (t: ShaderType) => t is { readonly kind: "mat"; readonly n: 2 | 3 | 4; readonly elem: "f64" | "f32"; } & { elem: "f64"; }
 src/core/ir/types.ts#isScalar  const  (t: ShaderType) => t is { readonly kind: "scalar"; readonly scalar: Scalar; }
 src/core/ir/types.ts#isVec  const  (t: ShaderType) => t is { readonly kind: "vec"; readonly n: 2 | 3 | 4; readonly elem: "f32" | "i32" | "u32"; }
 src/core/ir/types.ts#isVec64  const  (t: ShaderType) => t is { readonly kind: "vec64"; readonly n: 2 | 3 | 4; }
@@ -951,7 +956,7 @@ src/core/ir/types.ts#mat3f64T  const  { readonly kind: "mat"; readonly n: 3; rea
 src/core/ir/types.ts#mat4f64T  const  { readonly kind: "mat"; readonly n: 4; readonly elem: "f64"; }
 src/core/ir/types.ts#mat4x4fT  const  { readonly kind: "mat"; readonly n: 4; readonly elem: "f32"; }
 src/core/ir/types.ts#samplerT  const  { readonly kind: "sampler"; }
-src/core/ir/types.ts#structT  const  (name: string) => ShaderType
+src/core/ir/types.ts#structT  const  <N extends string>(name: N) => { readonly kind: "struct"; readonly name: N; }
 src/core/ir/types.ts#texture2dArrayfT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "f32"; }
 src/core/ir/types.ts#texture2dArrayiT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "i32"; }
 src/core/ir/types.ts#texture2dArrayuT  const  { readonly kind: "texture"; readonly dim: "2d-array"; readonly elem: "u32"; }
@@ -974,14 +979,19 @@ src/core/ir/types.ts#vec4fT  const  { readonly kind: "vec"; readonly n: 4; reado
 src/core/ir/types.ts#vec4iT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "i32"; }
 src/core/ir/types.ts#vec4uT  const  { readonly kind: "vec"; readonly n: 4; readonly elem: "u32"; }
 src/core/ir/types.ts#voidT  const  { readonly kind: "void"; }
+src/core/measure.ts#EmitProfile  interface  { passes: readonly PassTiming[]; stages: readonly StageTiming[]; target: "wgsl" | "glsl-es300"; totalMs: number }
 src/core/measure.ts#EmitSize  interface  { chars: number; lines: number }
 src/core/measure.ts#OpCount  interface  { arith: number; calls: number; total: number }
 src/core/measure.ts#OptimizerReport  interface  { ops: { readonly o0: OpCount; readonly o2: OpCount; readonly savedCalls: number; readonly savedArith: number; }; size: { readonly o0: EmitSize; readonly o2: EmitSize; readonly savedChars: number; readonly savedLines: number; } }
+src/core/measure.ts#PassTiming  interface  { ms: number; pass: string; runs: number }
+src/core/measure.ts#StageTiming  interface  { ms: number; stage: string }
 src/core/measure.ts#countOps  function  (m: ModuleDecl) => OpCount
 src/core/measure.ts#emitSize  function  (code: string) => EmitSize
 src/core/measure.ts#optimizerReport  function  (m: ModuleDecl) => OptimizerReport
+src/core/measure.ts#profileEmit  function  (m: ModuleDecl, target?: "wgsl" | "glsl-es300") => EmitProfile
 src/core/oracle.ts#CpuModule  interface  { fns: Record<string, (...args: CpuValue[]) => CpuValue>; setBinding: (name: string, value: CpuValue) => void }
-src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; }) => CpuModule
+src/core/oracle.ts#CpuPrecision  type  "f64" | "f32"
+src/core/oracle.ts#compileModule  function  (m: ModuleDecl, opts?: { gpuStubs?: boolean; precision?: CpuPrecision; }) => CpuModule
 src/core/passes/compose.ts#ComposeOptions  interface  { allowUnswapped?: boolean }
 src/core/passes/compose.ts#composeModule  function  (m: ModuleDecl, swaps: Record<string, readonly Stmt[]>, opts?: ComposeOptions) => ModuleDecl
 src/core/passes/force-inline.ts#InlineDecision  interface  { callSites: number; fn: string; growth: number; inlined: boolean; ops: number; reason: "inlined" | "over-budget" | "not-inlinable" }
@@ -1003,8 +1013,8 @@ src/core/passes/opt/const-fold.ts#constFold  function  (m: ModuleDecl) => Module
 src/core/passes/opt/cse.ts#cse  function  (m: ModuleDecl) => ModuleDecl
 src/core/passes/opt/optimize.ts#DEFAULT_PASSES  const  readonly OptPass[]
 src/core/passes/opt/optimize.ts#OptLevel  type  "O0" | "O1" | "O2"
-src/core/passes/opt/optimize.ts#fixpoint  function  (m: ModuleDecl, passes?: readonly OptPass[], maxIters?: number) => ModuleDecl
-src/core/passes/opt/optimize.ts#optimize  function  (m: ModuleDecl, passes?: readonly OptPass[]) => ModuleDecl
+src/core/passes/opt/optimize.ts#fixpoint  function  (m: ModuleDecl, passes?: readonly OptPass[], maxIters?: number, onPass?: PassSink) => ModuleDecl
+src/core/passes/opt/optimize.ts#optimize  function  (m: ModuleDecl, passes?: readonly OptPass[], onPass?: PassSink) => ModuleDecl
 src/core/passes/rename-varrefs.ts#renameVarrefsInFunc  function  (f: FuncDecl, rename: (name: string) => string) => FuncDecl
 src/core/passes/rename-varrefs.ts#rewriteExprsInFunc  function  (f: FuncDecl, rewrite: (e: Expr) => Expr) => FuncDecl
 src/core/passes/required-caps.ts#assertCaps  function  (backend: Backend, m: ModuleDecl) => void
@@ -1045,8 +1055,8 @@ src/core/semantic-diff.ts#semanticDiff  function  { (a: ModuleDecl, b: ModuleDec
 src/core/sot.ts#ConstHandle  interface  { decl: ConstDecl; node: ReadonlyNode<KeyOf<T>> }
 src/core/sot.ts#FieldSpec  interface  { attr: string; builtin?: string; interpolate?: string; location?: number; type: T }
 src/core/sot.ts#HandleArray  interface  { count: number; element: H }
-src/core/sot.ts#IoStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; }) => Node<string>; decl: StructDecl; of: { (node: Node<string>): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<string>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<string>; }; }; type: ShaderType; var: (name?: string) => { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<string>; } }
-src/core/sot.ts#PlainStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; }) => Node<string>; decl: StructDecl; get: <K extends keyof F & string>(node: ReadonlyNode<string>, field: K) => ReadonlyNode<KeyOf<F[K]>>; of: { (node: Node<string>): { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<string>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<string>; }; }; type: ShaderType; var: (name?: string) => { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<string>; } }
+src/core/sot.ts#IoStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; }) => Node<`struct:${N}`>; decl: StructDecl; of: { (node: Node<string>): { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]-?: ReadonlyNode<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]-?: Node<KeyOf<NonNullable<F[K]>["type"]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
+src/core/sot.ts#PlainStruct  interface  { construct: (values: { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; }) => Node<`struct:${N}`>; decl: StructDecl; get: <K extends keyof F & string>(node: ReadonlyNode<string>, field: K) => ReadonlyNode<KeyOf<F[K]>>; of: { (node: Node<string>): { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; (node: ReadonlyNode<string>): { readonly [K in keyof F]: ReadonlyNode<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; }; }; type: { readonly kind: "struct"; readonly name: N; }; var: (name?: string) => { readonly [K in keyof F]: Node<KeyOf<F[K]>>; } & { readonly $: ReadonlyNode<`struct:${N}`>; } }
 src/core/sot.ts#Resource  interface  { binding: BindingDecl; node: Node<KeyOf<T>> }
 src/core/sot.ts#StorageBuffer  interface  { at: (i: number | ReadonlyNode<ScalarKey>) => A; binding: BindingDecl; elementDecl?: StructDecl; node: Node<string> }
 src/core/sot.ts#TypeArray  interface  { count: number; elemType: T }
@@ -1057,11 +1067,11 @@ src/core/sot.ts#builtin  const  <T extends ShaderType>(name: WgslBuiltinName, ty
 src/core/sot.ts#constDecl  function  <T extends ShaderType>(name: string, type: T, values: { readonly wgsl: number; readonly cpu: number; }) => ConstHandle<T>
 src/core/sot.ts#hostBlock  function  <F extends Record<string, UniformFieldSpec>>(typeName: string, at: { group: number; binding: number; as: string; }, fields: F, opts?: { glsl?: "std140-block" | "loose"; precision?: "highp" | "mediump" | "lowp"; }) => UniformStruct<F>
 src/core/sot.ts#hostUniform  function  <T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; }, opts?: { precision?: "highp" | "mediump" | "lowp"; }) => Resource<T>
-src/core/sot.ts#ioStruct  function  <F extends Record<string, FieldSpec>>(name: string, fields: F) => IoStruct<F>
+src/core/sot.ts#ioStruct  function  <F extends Record<string, FieldSpec>, N extends string>(name: N, fields: F) => IoStruct<F, N>
 src/core/sot.ts#location  const  <T extends ShaderType>(n: number, type: T, interpolate?: string) => FieldSpec<T>
 src/core/sot.ts#resource  function  <T extends ShaderType>(name: string, type: T, at: { group: number; binding: number; space?: AddressSpace; }) => Resource<T>
 src/core/sot.ts#storageBuffer  function  { <H extends StructHandle>(name: string, element: H, at: { group: number; binding: number; access: "read"; }): StorageBuffer<ReturnType<H["of"]>>; <H extends StructHandle>(name: string, element: H, at: { group: number; binding: number; access: "read_write"; }): StorageBuffer<MutableView<ReturnType<H["of"]>>>; <T extends ShaderType>(name: string, element: T, at: { group: number; binding: number; access: "read"; }): StorageBuffer<ReadonlyNode<KeyOf<T>>>; <T extends ShaderType>(name: string, element: T, at: { group: number; binding: number; access: "read_write"; }): StorageBuffer<Node<KeyOf<T>>>; }
-src/core/sot.ts#structDecl  function  <F extends Record<string, ShaderType>>(name: string, fields: F) => PlainStruct<F>
+src/core/sot.ts#structDecl  function  <F extends Record<string, ShaderType>, N extends string>(name: N, fields: F) => PlainStruct<F, N>
 src/core/sot.ts#uniformStruct  function  <F extends Record<string, UniformFieldSpec>>(typeName: string, at: { group: number; binding: number; as: string; }, fields: F) => UniformStruct<F>
 src/core/variant-family.ts#AxisValues  type  { readonly [K in keyof A]: A[K][number]; }
 src/core/variant-family.ts#GuardDefines  type  { readonly [K in keyof A]: string | Readonly<Record<string, string>>; }

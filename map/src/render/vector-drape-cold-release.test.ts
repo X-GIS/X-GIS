@@ -5,7 +5,7 @@
 // (vector-drape-cache.ts:19) — it TRIMS an over-full cache, it never DRAINS an
 // unused one. Before the #2093 LOD ceiling that was enough: on the globe the
 // drape ran at every camera, so the cache was always being re-sampled. Past
-// `GLOBE_DIRECT_MIN_SELECTION_Z` the direct arm renders every vector layer, so
+// `GLOBE_DRAPE_CHORD_BUDGET_PX` the direct arm renders every vector layer, so
 // nothing re-enters the cache and NOTHING in it can ever be sampled again — yet
 // it stays resident at its high-water mark, up to
 // `maxCachedEntriesFor(BAKE_BYTES)` = 384 desktop / 96 mobile 512²×4 textures

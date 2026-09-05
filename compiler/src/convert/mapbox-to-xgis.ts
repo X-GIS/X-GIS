@@ -35,7 +35,7 @@
 import type { MapboxStyle, MapboxLayer } from './types'
 import { convertSource, type ConvertSourceOptions } from './sources'
 import { convertLayer } from './layers'
-import { expandPerFeatureColorMatch } from './expand-color-match'
+import { expandPerFeatureColorMatch, expandPerFeaturePatternMatch } from './expand-color-match'
 import { sanitizeId } from './utils'
 import { validateSourceZoom, validateSourceIdCollisions } from './validate-sources'
 import {
@@ -45,7 +45,9 @@ import {
   validateLayerIdCollisions,
 } from './validate-layers'
 import { convertBackgroundLayer } from './convert-background-layer'
+import { reportDroppedBackgroundLayer } from './background-layer-drop'
 import { convertTerrain } from './terrain'
+import { emitStyleImports } from './style-imports'
 import { XGIS_LANGUAGE_MAJOR } from '../language-version'
 import { type Diagnostic, warningDiagnostic } from '../diagnostics/diagnostic'
 
@@ -220,6 +222,12 @@ export function convertMapboxStyle(
     lines.push('')
   }
 
+  // Mapbox v3 `imports` (#2471) — spliced HERE, ahead of the sources and layers
+  // below, because `resolveImportsAsync` places an import's statements at the
+  // import's own line: emit order is DRAW order, so the imported basemap lands
+  // under the root style's own layers.
+  emitStyleImports(style.imports, lines, warnings)
+
   // ── Top-level style fields without an X-GIS equivalent ─────────────
   // The Mapbox style spec defines several top-level fields beyond
   // `sources` / `layers` / `name`. The CONVERTER doesn't encode any
@@ -229,13 +237,14 @@ export function convertMapboxStyle(
   // Only fields that meaningfully change rendering AND have no host
   // hook today get warned:
   //
-  //   light / imports — Mapbox v3 additions, none implemented.
+  //   light — a Mapbox v3 addition, not implemented.
   //                (`terrain` moved out of this list in #2095 — the block is now
   //                parsed + emitted, with its own precise warning below instead of
   //                the generic one here. `fog` and `transition` moved out in #2166
   //                for the opposite reason: still unimplemented, but "ignored" is
   //                the wrong sentence for both — each has its own precise warning
-  //                below.)
+  //                below. `imports` moved out in #2471 for a third reason: it is
+  //                now IMPLEMENTED, lowered to xgis import statements above.)
   //
   // Centre / zoom / pitch / bearing / glyphs / sprite are deliberately
   // omitted — they're host-integration concerns (the playground's
@@ -288,9 +297,9 @@ export function convertMapboxStyle(
   // for both, in opposite directions: fog's block is two unrelated halves only
   // one of which is hopeless, and transition costs a converted style nothing at
   // rest. Each gets its own precise warning below.
+  // `imports` LEFT it in #2471 for a third reason: it now WORKS (see above).
   const gapFields = [
     'lights',
-    'imports',
     'models',
     // #2007 — three more root fields with the same "converter never
     // reads this" shape. `state` closes an asymmetry: the
@@ -686,7 +695,12 @@ export function convertMapboxStyle(
       warnings.push(`Layers array contains a non-object entry (${typeof layer}); skipped.`)
       continue
     }
-    if (layer.type === 'background') continue // handled above
+    if (layer.type === 'background') {
+      // #2333 — bgLayer is the FIRST background layer (bound above);
+      // any other background-type layer reaching here was dropped.
+      reportDroppedBackgroundLayer(layer, bgLayer, warnings, options?.coverage)
+      continue
+    }
     const before = warnings.length
     // Preprocess: a `fill-color: ["match", ["get", field], …]` with
     // many distinct constant colours (typical "one colour per country"
@@ -705,6 +719,14 @@ export function convertMapboxStyle(
       expanded = options?.bypassExpandColorMatch
         ? null
         : expandPerFeatureColorMatch(layer as MapboxLayer, warnings)
+      // #2380 — the PATTERN split is deliberately NOT gated by
+      // `bypassExpandColorMatch`. That flag exists to turn off the COLOUR
+      // fanout once the runtime compute path can evaluate a colour match
+      // GPU-side (see its docblock); no such runtime path exists or is planned
+      // for patterns, because `show.fillPattern` is one string resolved to one
+      // UV bbox per draw. Gating the two together would silently disable
+      // pattern support the day the colour flag flips.
+      expanded ??= expandPerFeaturePatternMatch(layer as MapboxLayer, warnings)
     } catch (e) {
       warnings.push(
         `Layer "${(layer as { id?: unknown }).id ?? '<unknown>'}" expand-color-match threw: ${(e as Error).message}`,

@@ -316,9 +316,11 @@ describe('non-identifier field name guard (regression)', () => {
     expect(parses(out)).toBe(true)
   })
 
-  // #2310: this used to assert the lossy `.name` fallback, which
-  // silently rendered the local-script name instead of the latin one.
-  it('text-field token "{name:latin}" becomes get("name:latin")', () => {
+  // #2310 — this used to assert the `.name` fallback, which silently rendered the
+  // local-script name instead of the requested latin variant. The converter now
+  // keeps the real key via `get("…")`, the same form the ["get","name:latin"]
+  // expression twin above already emits.
+  it('text-field token "{name:latin}" keeps its key as get("name:latin")', () => {
     const out = convertMapboxStyle({
       version: 8,
       sources: { x: { type: 'vector', url: 'a.pmtiles' } },

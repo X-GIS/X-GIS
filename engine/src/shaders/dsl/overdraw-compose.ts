@@ -27,6 +27,7 @@ import {
   f32T,
   u32T,
   vec2fT,
+  vec3fT,
   vec4fT,
   texture2dfT,
   If,
@@ -48,7 +49,7 @@ const accumTex = resource('accum_tex', texture2dfT, { group: 0, binding: 0 })
 // 4-stop piecewise (polynomial fit, no branching): dark navy → cyan →
 // yellow → red.
 
-const colormap = fn('colormap', { t: f32T }, (p) => {
+const colormap = fn('colormap', { t: f32T }, vec3fT, (p) => {
   const s = clamp(p.t, 0, 1)
   const r = clamp(s.mul(3).sub(0.5), 0, 1)
   const g = clamp(s.mul(2.5), 0, 1).mul(clamp(f32(2).sub(s.mul(2)), 0, 1))
@@ -86,6 +87,7 @@ const vsFull = fn(
 const fsCompose = fn(
   'fs_compose',
   { in: VsOut },
+  vec4fT,
   (p) => {
     const pin = p.in
     // textureDimensions returns vec2<u32>; toF32 each component for the

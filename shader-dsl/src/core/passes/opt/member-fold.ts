@@ -36,8 +36,13 @@
 // exactly this reported "0 sites" and read as a clean corpus.
 //
 // VALUE-SAFE by construction: no arithmetic is performed and no expression moves
-// across a statement that writes anything it reads (the binding is a `let`, and a
-// name that is ever an assignment target is excluded). It forwards ONE argument into
+// across a statement that writes anything it reads. TWO names have to be clean for
+// that, not one — the BINDING, so the aggregate the read resolves through is the one
+// that was built, and every ARGUMENT, because forwarding `c.x` out of
+// `let c = vec2(h, 0)` moves `h` PAST the statements between the binding and the read
+// (#2354: with only the binding checked, `let c = vec2(h,0); h = h + 10; … c.x` folded
+// to a bare `h` and read `h + 10`). A name that is ever an assignment target
+// disqualifies the binding on either side. It forwards ONE argument into
 // ONE use — never the aggregate — so the construct itself is not duplicated; when
 // every field has been forwarded the binding is dead and DCE removes it. A field read
 // twice forwards its argument twice, which `cse` / `gvn` (later in the same pipeline)
@@ -74,7 +79,7 @@
 import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js'
 import { typeKey } from '../../ir/types.js'
 import { mapStmt } from './ir-transform.js'
-import { bodyHasRaw, collectMutatedRoots, eachExpr } from './expr-utils.js'
+import { bodyHasRaw, collectMutatedRoots, eachExpr, refsLocal } from './expr-utils.js'
 
 /** Component index of a single-character vector field, or -1. Both spellings the
  *  targets accept — WGSL and GLSL ES 3.00 each allow `xyzw` and `rgba`. */
@@ -125,16 +130,29 @@ function pickField(
   return undefined
 }
 
-/** Collect every `let name = <construct>` (nested bodies included) whose name is
- *  never mutated. Function-wide, exactly as const-prop: binding names are unique
- *  per fn, so no block scoping is needed. */
+/** Collect every `let name = <construct>` (nested bodies included) that is safe to
+ *  resolve a later `.field` read through: neither the binding name NOR any name its
+ *  arguments read may ever be an assignment target. Function-wide, exactly as
+ *  const-prop: binding names are unique per fn, so no block scoping is needed.
+ *
+ *  Both halves are load-bearing. The binding check keeps the aggregate itself stable;
+ *  the ARGUMENT check is what makes the forward legal across the statements between the
+ *  binding and the read, which is the whole point of resolving through the `let`
+ *  (#2354). Conservative on purpose — a mutation anywhere in the function disqualifies
+ *  the binding, rather than trying to decide whether it lies between the two points. */
 function collectCtorLets(
   body: readonly Stmt[],
   mutated: ReadonlySet<string>,
   out: Map<string, Extract<Expr, { op: 'construct' }>>,
 ): void {
   for (const s of body) {
-    if (s.s === 'let' && s.expr.op === 'construct' && !mutated.has(s.name)) out.set(s.name, s.expr)
+    if (
+      s.s === 'let' &&
+      s.expr.op === 'construct' &&
+      !mutated.has(s.name) &&
+      !s.expr.args.some((a) => refsLocal(a, mutated))
+    )
+      out.set(s.name, s.expr)
     else if (s.s === 'if') {
       for (const a of s.arms) collectCtorLets(a.body, mutated, out)
       if (s.elseBody) collectCtorLets(s.elseBody, mutated, out)

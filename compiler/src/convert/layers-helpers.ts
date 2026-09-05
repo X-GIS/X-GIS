@@ -379,28 +379,10 @@ export function parseMapboxFontName(name: string): {
   }
 }
 
-function isIdentifierKey(name: string): boolean {
-  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)
-}
-
-/** One `{key}` token → the xgis expression that reads that property.
- *  Same split as exprToXgis['get']: an identifier-shaped key becomes a
- *  readable bare field access, anything else (Mapbox locale variants
- *  `name:latin`, `name:ko`, …) becomes the `get("…")` builtin, which
- *  the parser/evaluator already special-case for exactly these keys
- *  (expr-lookup.ts:40-50). */
-function tokenToXgisExpr(name: string): string {
-  return isIdentifierKey(name) ? `.${name}` : `get(${JSON.stringify(name)})`
-}
-
 /** Convert Mapbox `text-field` value → xgis expression string.
  *  Forms handled:
  *    - String literal `"Hello"` → quoted xgis string `"Hello"`
  *    - Single token `"{name}"` → field access `.name`
- *    - Any token whose key isn't identifier-shaped (`"{name:latin}"`,
- *      and multi-token strings containing one) → `concat(...)` over
- *      `get("name:latin")` operands, because the text-template parser
- *      would read the `:` as a format-spec separator and throw (#2310).
  *    - Multi-token `"{name} ({ref})"` → quoted xgis template literal.
  *      lower.ts:bindingToTextValue routes string-literal bindings
  *      through parseTextTemplate so each `{field}` interpolates per
@@ -418,6 +400,11 @@ function tokenToXgisExpr(name: string): string {
  *      lex colons; the coalesce fallback (next operand) takes over.
  *  Returns null if the value can't be converted (caller skips the
  *  whole label utility in that case). */
+/** `{key}` occurrences inside a Mapbox token string. Global: callers iterate it
+ *  with `matchAll`, which clones the regex per call, so `lastIndex` never leaks
+ *  between the key scan and the emit pass. */
+const TEXT_FIELD_TOKEN = /\{([^{}]+)\}/g
+
 export function textFieldToXgisExpr(field: unknown, warnings: string[]): string | null {
   // Numeric / boolean text-field values are stringified by the
   // runtime per Mapbox spec — emit them as the matching xgis literal
@@ -430,30 +417,48 @@ export function textFieldToXgisExpr(field: unknown, warnings: string[]): string 
   if (typeof field === 'string') {
     const tokenMatch = field.match(/^\{([^}]+)\}$/)
     if (tokenMatch) {
-      return tokenToXgisExpr(tokenMatch[1]!)
-    }
-    const tokens = [...field.matchAll(/\{([^}]+)\}/g)]
-    // Multi-token / mixed-literal string. Preserved as a quoted
-    // xgis string; lower.ts walks the template at parse time —
-    // UNLESS a token key is not identifier-shaped. The template
-    // parser reads a `:` at brace depth 1 as its format-spec
-    // separator, so the OpenMapTiles bilingual field
-    // `"{name:latin}\n{name:nonlatin}"` made parseFormatSpec throw
-    // out of lower() and the WHOLE style (every layer, not just this
-    // one) was lost (#2310). Such a string is emitted as an explicit
-    // `concat(...)` instead, whose `get("name:latin")` operands carry
-    // the colon inside a string literal where nothing reinterprets it.
-    if (tokens.some((t) => !isIdentifierKey(t[1]!))) {
-      const parts: string[] = []
-      let at = 0
-      for (const t of tokens) {
-        if (t.index > at) parts.push(JSON.stringify(field.slice(at, t.index)))
-        parts.push(tokenToXgisExpr(t[1]!))
-        at = t.index + t[0].length
+      const name = tokenMatch[1]!
+      // Same identifier-shape constraint as exprToXgis['get']: xgis
+      // FieldAccess can't carry colons or other special chars.
+      // Mapbox locale variants like `{name:latin}` map to a JSON-
+      // string key — leave as a quoted template that the resolver
+      // turns into a raw `.name` lookup at runtime (template parser
+      // accepts the raw key form).
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        // #2310 — was `.name`, which silently rendered the local-script name
+        // instead of the requested variant. `get("…")` carries the real key and
+        // is the same form the expression twin ["get","name:latin"] already
+        // emits (exprToXgis's getHandler), so it is proven to parse and lower.
+        return `get(${JSON.stringify(name)})`
       }
-      if (at < field.length) parts.push(JSON.stringify(field.slice(at)))
-      return `concat(${parts.join(', ')})`
+      return `.${name}`
     }
+    // Multi-token / mixed-literal string.
+    //
+    // #2310 — a quoted xgis template is only safe when every key is
+    // identifier-shaped. lower.ts hands the string to the template parser,
+    // which reads a `:` at depth 1 as a FORMAT-SPEC separator, so the canonical
+    // OpenMapTiles bilingual label "{name:latin}\n{name:nonlatin}" made
+    // parseFormatSpec throw `format spec: unknown type "l"` straight out of
+    // lower() — discarding the WHOLE scene, water and roads included, not just
+    // this symbol layer. Lower those to concat() instead, which is exactly the
+    // shape the ["concat", ["get","name:latin"], …] spelling already produces.
+    const tokenKeys = [...field.matchAll(TEXT_FIELD_TOKEN)].map((m) => m[1]!)
+    if (tokenKeys.some((k) => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k))) {
+      const parts: string[] = []
+      let last = 0
+      for (const m of field.matchAll(TEXT_FIELD_TOKEN)) {
+        const at = m.index!
+        if (at > last) parts.push(JSON.stringify(field.slice(last, at)))
+        const key = m[1]!
+        parts.push(/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ? `.${key}` : `get(${JSON.stringify(key)})`)
+        last = at + m[0]!.length
+      }
+      if (last < field.length) parts.push(JSON.stringify(field.slice(last)))
+      return parts.length === 1 ? parts[0]! : `concat(${parts.join(', ')})`
+    }
+    // Every key is identifier-shaped: keep the cheap quoted template that
+    // lower.ts walks at parse time.
     return JSON.stringify(field)
   }
   if (Array.isArray(field)) {

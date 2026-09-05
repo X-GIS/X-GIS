@@ -142,6 +142,22 @@ export {
 // Linux). Per-label font stacks coming from Mapbox styles get the
 // same fallback chain appended in composeFontKey. CJK_FALLBACK_CHAIN
 // now lives in text-stage-helpers.ts alongside composeFontKey.
+
+/** #2440 — does this pending symbol opt out of the text→icon drop cascade?
+ *
+ *  THE SINGLE PRODUCER, deliberately. Two consumers read it — the live-text set
+ *  (`getActiveTextPairKeys`, which decides whether the icon seeds an obstacle
+ *  box) and the cascade stamp in `prepare()` (which decides whether the icon
+ *  draws at all) — and they must agree by construction: a fix that suppressed
+ *  the stamp alone would leave the icon drawing while blocking nothing, and one
+ *  that only changed the set would leave the icon dropped with a box nobody
+ *  sees. Inlining the `p.def.textOptional === true` read at both sites is
+ *  exactly the drift §12 warns about (a witness applied at each consumer rather
+ *  than at the value's producer). */
+function isTextOptional(p: { def: LabelDef } | undefined): boolean {
+  return p?.def.textOptional === true
+}
+
 export class TextStage {
   readonly host: GlyphAtlasHost
   readonly gpu: GlyphAtlasGPU
@@ -758,11 +774,16 @@ export class TextStage {
    *  backed by a real text bbox; an icon-only / empty-text paired symbol is
    *  absent and keeps seeding its obstacle (preserving #609's separate-feature
    *  blocking). Must be queried before prepare() since reset() clears the
-   *  pending queues for the next frame. */
+   *  pending queues for the next frame.
+   *
+   *  #2440 — a `text-optional: true` symbol is EXCLUDED: it is exactly the case
+   *  the "either way" above does not cover. See `isTextOptional`. */
   getActiveTextPairKeys(): ReadonlySet<string> {
     const out = new Set<string>()
-    for (const p of this.pending) if (p.pairKey !== undefined) out.add(p.pairKey)
-    for (const p of this.pendingLine) if (p.pairKey !== undefined) out.add(p.pairKey)
+    for (const p of this.pending)
+      if (p.pairKey !== undefined && !isTextOptional(p)) out.add(p.pairKey)
+    for (const p of this.pendingLine)
+      if (p.pairKey !== undefined && !isTextOptional(p)) out.add(p.pairKey)
     return out
   }
 
@@ -855,6 +876,7 @@ export class TextStage {
     // #777 I-A — reset the per-frame paired-bbox stash before laying out this
     // frame's labels; refilled as each icon-paired label is shaped below.
     this._pairFitBox.clear()
+    this.droppedPairKeys.clear() // #2338: hoisted so the empty-frame return below clears too
     // #777 I-G — reset the per-frame inline-image quad stash (mirror above).
     this._inlineImagePlacements.length = 0
     // iter-285 — snapshot submitted count BEFORE collision pass.
@@ -2050,7 +2072,6 @@ export class TextStage {
     // IconStage collision) while text could be collision-rejected,
     // visible as "white shield boxes without road numbers" on
     // highway-shield-* layers.
-    this.droppedPairKeys.clear()
     // shaped[i] is built 1:1 from this.pending in iteration order
     // above (line ~941). The collision-input may reorder but each
     // ShapedLabel still references its source PendingLabel by index.
@@ -2102,7 +2123,12 @@ export class TextStage {
             })
           }
         }
-      } else if (pairKey !== undefined) {
+      } else if (pairKey !== undefined && !isTextOptional(this.pending[i])) {
+        // #2440 — `text-optional: true` opts out of the cascade: the label is
+        // still rejected (it does not draw), but its icon survives alone, which
+        // is MapLibre's behaviour for the property. The SAME predicate removed
+        // this pairKey from `getActiveTextPairKeys()` above, so the surviving
+        // icon seeds its own obstacle box rather than drawing as a phantom.
         this.droppedPairKeys.add(pairKey)
       }
     }
