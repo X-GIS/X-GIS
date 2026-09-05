@@ -22,14 +22,8 @@ export const BAKED_GLSL_LAZY: BakedArtifact = {
     projectionFingerprint: '292d53465dc3c9b4',
   },
   contents: {
-    c5490f59a6e6feeb:
-      '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D src;in vec2 uv;layout(location=0)out vec4 _ret;void main(){_ret=texture(src,uv);}\n',
     e164a15ca68f662e:
       '#version 300 es\nprecision highp float;precision highp int;out vec2 uv;void main(){uint idx=uint(gl_VertexID);vec2 _v0=vec2(-1.,-1.);if((idx==1u)){_v0=vec2(3.,-1.);}else if((idx==2u)){_v0=vec2(-1.,3.);}gl_Position=vec4(_v0,0.,1.);uv=vec2(((_v0.x+1.)*.5),((_v0.y+1.)*.5));}\n',
-    '491997beb26ee97c':
-      '#version 300 es\nprecision highp float;precision highp int;out vec2 uv;void main(){uint vi=uint(gl_VertexID);vec2 _av0=vec2(-1.,-1.);vec2 _av1=vec2(0.,0.);if((vi==1u)){_av0=vec2(3.,-1.);_av1=vec2(2.,0.);}if((vi==2u)){_av0=vec2(-1.,3.);_av1=vec2(0.,2.);}gl_Position=vec4(_av0,0.,1.);uv=_av1;}\n',
-    '4cb8916175593f17':
-      '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D src;layout(std140)uniform CompUniform{float opacity;vec3 _pad;}cu;in vec2 uv;layout(location=0)out vec4 _ret;void main(){vec4 _cse1=texture(src,uv);float _cse0=_cse1.w;_ret=vec4(((_cse1.rgb*_cse0)*cu.opacity),(_cse0*cu.opacity));}\n',
     '67843756f457d894':
       '#version 300 es\nprecision highp float;precision highp int;const float PI=3.1415927;const float EARTH_R=6378137.;const float EARTH_E2=.00669438;const float MERCATOR_LAT_LIMIT=85.05113;const float DEG2RAD=.01745329;in vec2 uv;flat in float weight;layout(location=0)out vec4 _ret;void main(){_ret=vec4((max((exp((((uv.x*uv.x)+(uv.y*uv.y))*-1.5))-.22313016),0.)*weight),0.,0.,1.);}\n',
     '1316e64cebe3eb66':
@@ -76,11 +70,7 @@ export const BAKED_GLSL_LAZY: BakedArtifact = {
     'glsl/heatmap-compose/vertex': 'e164a15ca68f662e',
     'glsl/icon-retained/fragment': '1316e64cebe3eb66',
     'glsl/icon-retained/vertex': '10d62f84ccb01f2e',
-    'glsl/line-composite/fragment': '4cb8916175593f17',
-    'glsl/line-composite/vertex': '491997beb26ee97c',
     'glsl/particle-retained/fragment': 'daf835e4fabd0af6',
     'glsl/particle-retained/vertex': 'a5f05f9087ecefa2',
-    'glsl/scene-upscale/fragment': 'c5490f59a6e6feeb',
-    'glsl/scene-upscale/vertex': '491997beb26ee97c',
   },
 }

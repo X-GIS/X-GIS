@@ -11,7 +11,8 @@ import type { RhiBuffer, RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/
 import { Material, executeItems } from '@xgis/engine'
 import { emitCompositeWgsl } from '../../shaders/dsl/line-composite'
 import { emitCompositeGlsl } from '../../shaders/dsl/line-glsl'
-import { wgslFor } from './wgsl-for'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
+import { glslFor, wgslFor } from './wgsl-for'
 
 /** Composite uniform ring slot size (matches LineRenderer.COMPOSITE_SLOT). */
 const COMPOSITE_SLOT = 256
@@ -42,13 +43,22 @@ export class LineCompositeDraper {
    *  'premult'. Entry names come from the DSL bindings (samp/src/CompUniform) so the webgl2
    *  by-name reflection wires them regardless of declaration order. */
   private mat(): Material {
-    const gl2 = this.rhi.backend === 'webgl2'
+    // #2499 — every source through the seam (the store first, one language per device);
+    // the raw backend-identity read and its two bare per-stage emits are gone with it.
     return (this._material ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, emitCompositeWgsl),
+      shader: wgslFor(this.rhi, emitCompositeWgsl, simpleWgslId('line-composite')),
       vsEntry: 'vs_full',
       fsEntry: 'fs_full',
-      vsCode: gl2 ? emitCompositeGlsl('vertex') : undefined,
-      fsCode: gl2 ? emitCompositeGlsl('fragment') : undefined,
+      vsCode: glslFor(
+        this.rhi,
+        () => emitCompositeGlsl('vertex'),
+        simpleGlslId('line-composite', 'vertex'),
+      ),
+      fsCode: glslFor(
+        this.rhi,
+        () => emitCompositeGlsl('fragment'),
+        simpleGlslId('line-composite', 'fragment'),
+      ),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

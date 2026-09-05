@@ -99,7 +99,10 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 31
+// 31→29 (#2499 step 3): scene-upscale-material.ts and line-composite-material.ts route their
+// GLSL halves through `glslFor` — the seam answers the language question — instead of a
+// `backend === 'webgl2'` read guarding two bare per-stage emits.
+const BASELINE = 29
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'

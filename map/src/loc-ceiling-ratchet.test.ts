@@ -459,7 +459,17 @@ const CEILINGS: Record<string, number> = {
   // number is right — carrying either across would leave the ceiling one change too low
   // (green on both branches, red on main). Measured 819 with `wc -l` on the post-prettier
   // merged tree.
-  'map/src/render/coverage-renderer.ts': 819,
+  // 815→819 (#2499 step 3): `setCoverage`'s vector-band branch arms `prefetchLazyShaders`
+  // — a coverage with a vector band IS the flow layer's registration, and it is the only
+  // seam that precedes the draw-path build of `FlowAdvectDraper`. Import + call + the
+  // two-line reason; the file sat exactly at its ceiling.
+  // MERGE RE-MEASURE (2026-09-05, #2499 chain <- main): the textbook §12 collision — main
+  // (#2319) and this branch (#2499) each raised this key to 819 from the same 815 base,
+  // and BOTH deltas are +4, so a carried-across 819 would be one full change too low and
+  // would red on main having been green on both sides. git surfaced it here only because
+  // the two comment blocks touch; the NUMBER would have merged silently. Measured 823 with
+  // `wc -l` on the post-prettier merged tree.
+  'map/src/render/coverage-renderer.ts': 823,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors

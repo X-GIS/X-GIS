@@ -72,6 +72,7 @@ import { emitHeatmapComposeGlsl, emitHeatmapComposeWgsl } from '../dsl/heatmap-c
 import { emitPolygonSplitWgsl } from '../dsl/polygon-split'
 import { emitLineSplitWgsl } from '../dsl/line-split'
 import { emitOitComposeWgsl } from '../dsl/oit-compose'
+import { emitExtrudeShellComposeWgsl } from '../dsl/extrude-shell-compose'
 // EVERY id below is spelled by the shared LEAF `ids.ts`, not here: the consume half
 // addresses baked sources by those exact strings and cannot import this file (it would
 // drag every dsl emitter above into the runtime bundle). One authority for the string,
@@ -92,6 +93,7 @@ import {
   POLYGON_VERTEX_ENTRIES,
   SIMPLE_FAMILIES,
   WGSL_ONLY_FAMILIES,
+  WGSL_ONLY_PLAIN_FAMILIES,
   hillshadeGlslId,
   hillshadeWgslId,
   lineGlslId,
@@ -105,12 +107,14 @@ import {
   simpleGlslId,
   simpleWgslId,
   wgslOnlyId,
+  wgslOnlyPlainId,
   type BakedFamily,
   type BakedGroup,
   type BakedStage,
   type PickedModuleFamily,
   type SimpleFamily,
   type WgslOnlyFamily,
+  type WgslOnlyPlainFamily,
 } from './ids'
 
 export type BakedLanguage = 'glsl' | 'wgsl'
@@ -351,6 +355,18 @@ function buildKeys(): BakedShaderKey[] {
         pick,
         emit: () => WGSL_ONLY_EMITTERS[family](pick),
       })
+
+  // The parameterless WGSL-only family (#2499 step 3): one key, the draper's own emit.
+  const WGSL_ONLY_PLAIN_EMITTERS: Readonly<Record<WgslOnlyPlainFamily, () => string>> = {
+    'extrude-shell-compose': emitExtrudeShellComposeWgsl,
+  }
+  for (const family of WGSL_ONLY_PLAIN_FAMILIES)
+    keys.push({
+      id: wgslOnlyPlainId(family),
+      language: 'wgsl',
+      family,
+      emit: WGSL_ONLY_PLAIN_EMITTERS[family],
+    })
 
   // oit-compose — one module per MSAA sample count. `isMsaa` is DERIVED from the count at the
   // call site (`compose-pipelines.ts`: `sampleCount > 1`) and derived the same way here, so the

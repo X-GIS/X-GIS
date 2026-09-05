@@ -313,8 +313,14 @@ describe('baked shaders — the boot group matches the eager-construction census
       'heatmap-blur': 'lazy',
       'heatmap-compose': 'lazy',
       'flow-advect': 'lazy',
-      'scene-upscale': 'lazy',
-      'line-composite': 'lazy',
+      // lazy -> boot in #2499 step 3: both drapers are built inside the draw path, so no
+      // prefetch seam can precede the build; ~1 KB per language each, against an 8.7 ms /
+      // 2 ms emit on the first use (see the ids.ts row).
+      'scene-upscale': 'boot',
+      'line-composite': 'boot',
+      // #2499 step 3: built inside OitPass.execute (draw path, no seam before it); ~300 B
+      // gzipped, WGSL-only.
+      'extrude-shell-compose': 'boot',
     })
   })
 
