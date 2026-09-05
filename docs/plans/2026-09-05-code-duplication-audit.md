@@ -91,12 +91,18 @@ consolidation move and where the helper lives; the dependency-direction ratchet
 Cross-workspace items not in the top 20 by lines but each a two-authorities defect:
 `compiler/src/ir/render-node-helpers.ts` ↔ `map/src/render/renderer-helpers.ts` ↔
 `map/src/feature-helpers.ts` (hex colour parsing — the `parseColor` comment itself calls it
-"the FOURTH copy of that gate"); `compiler/src/tiler/ecef-packing.ts` ↔
-`data/src/sources/polar-cap-ecef-pack.ts` (the u16 quantize loop); `data/src/earth-surface-fill.ts`
-↔ `map/src/render/under-occluder-renderer.ts`; `compiler/src/tiler/polygon-tiler.ts:87-167` ↔
-`compiler/src/tiler/vector-tiler.ts:1162-1221` (byte-duplicated by an explicit comment that
+"the FOURTH copy of that gate"); `data/src/earth-surface-fill.ts:78-92` ↔
+`map/src/render/under-occluder-renderer.ts:84-98`; `compiler/src/tiler/polygon-tiler.ts:73-153`
+↔ `compiler/src/tiler/vector-tiler.ts:1155-1217` (byte-duplicated by an explicit comment that
 says "fix both identically, do NOT refactor them together here (§3)" — the comment is the
 work item).
+
+One more is real but **invisible to the gate's lens**, so it is listed separately rather than
+as a queue row a `bun run dup:report` would reproduce: `compiler/src/tiler/ecef-packing.ts:264-295`
+↔ `data/src/sources/polar-cap-ecef-pack.ts:110-135` (the u16 quantize loop, two fragments,
+124 tokens at the larger). The two copies differ only in type annotations, so the JavaScript
+tokenizer the gate uses does not pair them; `bun run dup:report --type-insensitive` does. It
+is the concrete example of what the caveat below costs.
 
 ## Test-side duplication (reported, not gated)
 
