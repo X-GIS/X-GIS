@@ -146,29 +146,36 @@ async function loadAndDump(
   })
 }
 
-/** The single-world ceiling, DERIVED from the tile zoom the frame actually drew rather than
+/** The single-world ceiling, DERIVED from the tile zooms the frame actually drew rather than
  *  hard-coded.
  *
- *  One world at tile zoom z holds 2^z x 2^z tiles, so a single-world render can never draw
- *  more than 4^z of them — at any camera, any viewport. Exceeding it therefore PROVES a ±N
- *  copy was enumerated, which is the property this gate exists to assert.
+ *  One world at tile zoom z holds 2^z x 2^z tiles, so a single world can contribute at most
+ *  4^z tiles at that zoom — at any camera, any viewport — and a frame drawing several zooms
+ *  at most `Σ_z 4^z` in total. Exceeding that PROVES a ±N copy was enumerated, which is the
+ *  property this gate exists to assert.
  *
  *  Hard-coding 4 was correct at this camera and only at this camera: it was measured by
  *  severing `copyOrder` (data/src/tiles-sse.ts) and observing exactly 4. But nothing pinned
  *  the camera, so moving it could have raised the true single-world count above 4 and left
  *  this gate passing with copies DISABLED — silently vacuous, the exact failure class the
  *  gate was rewritten to escape. Deriving the bound removes that coupling: the assertion can
- *  now only fail loudly on drift, never pass quietly. */
+ *  now only fail loudly on drift, never pass quietly.
+ *
+ *  #2538 — the SUM is what makes the bound total. This threw on a mixed set as "ambiguous",
+ *  but the settle poll it trusts and the dump it measures are 1500 ms apart (see loadAndDump),
+ *  so z0 ancestors that returned inside that window reddened the gate on its own premise
+ *  rather than on its property — ~50% of runs at this camera, on main. Summing is not a
+ *  loosening: with the observed {0,1} split the bound is 1 + 4 = 5 against 6 drawn tiles, so
+ *  copies-disabled still fails loudly, and the gate now judges every frame it is handed. */
 function singleWorldMaxTiles(drawnByZoom: ReadonlyArray<readonly [number, number]>): number {
   const zooms = drawnByZoom.filter(([, n]) => n > 0).map(([z]) => z)
-  if (zooms.length !== 1) {
+  if (zooms.length === 0) {
     throw new Error(
-      `expected one tile zoom in the drawn set, got [${zooms.join(', ')}] — the single-world ` +
-        `ceiling is per-zoom, so a mixed set makes the bound ambiguous. Re-derive it before ` +
-        `trusting this gate at this camera.`,
+      'no tile zoom drew anything — the single-world ceiling is derived from the drawn set, ' +
+        'so an empty set has no bound. The caller must gate on tilesVisible > 0 first.',
     )
   }
-  return 4 ** zooms[0]!
+  return zooms.reduce((sum, z) => sum + 4 ** z, 0)
 }
 
 test('mercator demo: world copies enumerated (per-source tiles exceed one world)', async ({
