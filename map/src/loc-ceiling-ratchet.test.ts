@@ -1732,7 +1732,13 @@ const CEILINGS: Record<string, number> = {
   // 'render' usage — WebGPU's copyExternalImageToTexture demands RENDER_ATTACHMENT
   // and the un-mipped DEM never gets raster's mip-chain auto-widen; the chain gate
   // went red without it, and the why must live at the descriptor it constrains.
-  'map/src/render/hillshade-renderer.ts': 850,
+  // 850→857 (#2302): the flat-branch selector derivation LEFT this file for
+  // flat-tile-selector.ts (cull space == draw space — the inert 'non-mercator'
+  // shim culled equirect/natural_earth tiles in Mercator space while vs_tile
+  // drew them through the display projection: a blank poleward band). The +7 is
+  // call-site width only: the 4-line shim became an 8-argument call prettier
+  // breaks over 10 lines, plus one import and one comment. MEASURED post-prettier.
+  'map/src/render/hillshade-renderer.ts': 857,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2049,7 +2055,14 @@ const CEILINGS: Record<string, number> = {
   // generator itself was EXTRACTED to raster-grid-trig.ts rather than grown here
   // — this ratchet's own instruction — so the +5 is the irreducible wiring: one
   // import, one call, and the two new struct fields the packer must write.
-  'map/src/render/raster-renderer.ts': 1034,
+  // 1034→1038 (#2302): the flat-branch selector derivation LEFT this file for
+  // flat-tile-selector.ts (the inert 'non-mercator' shim culled equirect /
+  // natural_earth tiles in Mercator space while vs_tile drew them through the
+  // display projection — a blank poleward band, ~166 px per edge at 60°N). The
+  // +4 is call-site width only: a 6-line shim block became an 8-argument call
+  // prettier breaks over 10 lines, plus one import; the misleading two-line
+  // shim comment went with the shim. MEASURED post-prettier.
+  'map/src/render/raster-renderer.ts': 1038,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

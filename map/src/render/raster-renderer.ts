@@ -2,8 +2,9 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import type { Camera } from '../camera'
-import { visibleTilesFrustum, tileUrl, loadImageBitmap, type TileRowScheme } from '@xgis/data'
-import { mercator as mercatorProj, mercatorYToLat } from '@xgis/geo'
+import { tileUrl, loadImageBitmap, type TileRowScheme, type TileCoord } from '@xgis/data'
+import { mercatorYToLat } from '@xgis/geo'
+import { selectFlatTiles } from './flat-tile-selector'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
@@ -658,7 +659,7 @@ export class RasterRenderer {
     const centerLat = mercatorYToLat(camera.centerY)
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
-    let tiles: ReturnType<typeof visibleTilesFrustum>
+    let tiles: TileCoord[]
     if (routeToSphereSelector(projType, camera.globeMode)) {
       const globeTiles = globeVisibleTiles(
         centerLon,
@@ -681,13 +682,17 @@ export class RasterRenderer {
         tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
-      // Flat projections: pass projection name so the selector's world-copy
-      // gate (worldCopiesFor()) picks single-world for non-Mercator.
-      const selectorProj =
-        projType === 0
-          ? mercatorProj
-          : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
-      tiles = visibleTilesFrustum(camera, selectorProj, currentZ, canvasWidth, canvasHeight, 0, dpr)
+      // Flat projections: cull space == draw space (#2302) — see flat-tile-selector.ts.
+      tiles = selectFlatTiles(
+        camera,
+        projType,
+        projCenterLon,
+        projCenterLat,
+        currentZ,
+        canvasWidth,
+        canvasHeight,
+        dpr,
+      )
     }
     // Spatial clip (#1984). Applied to the SELECTION, so the drop reaches every consumer
     // below at once — the leaf request loop, the parent-fallback prefetch, the eviction
