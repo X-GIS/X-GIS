@@ -114,9 +114,10 @@ export const LAYOUT_SYMBOL: readonly CoverageEntry[] = [
   },
   {
     name: 'text-rotation-alignment',
-    status: 'supported',
-    note: 'Literal map / viewport / auto. Honoured at runtime.',
-    source: 'map.ts:2369',
+    status: 'partial',
+    impact: 'low',
+    note: "Literal map / viewport / auto honoured at runtime. #2224 added the pinned spec's FOURTH value, `viewport-glyph`: the converter used to reject it as an invalid enum, emit no utility, and leave the layer on the runtime's placement default — tangent-rotated AND ground-projected on a line layer, the opposite of MapLibre, which keeps `pitchWithMap` false for it. It now emits `label-rotation-alignment-viewport-glyph`, and `resolveRotationAlignment` puts it on the viewport side, so the label billboards. PARTIAL for the one residual MapLibre does and X-GIS does not: MapLibre keeps each GLYPH upright in the viewport while placing the label along the line; X-GIS billboards the whole label, so a `viewport-glyph` line label reads horizontally rather than glyph-by-glyph along the road.",
+    source: 'label-alignment.ts resolveRotationAlignment + tangentRotates',
   },
   {
     name: 'text-pitch-alignment',
