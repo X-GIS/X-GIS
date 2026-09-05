@@ -382,6 +382,11 @@ const CEILINGS: Record<string, number> = {
   // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
   // is unchanged in length (one predicate call, one extra argument) and both comment
   // blocks were trimmed back to their prior height to keep it at exactly one.
+  // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
+  // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
+  // widened markDrawn argument lists at both sites plus the comments naming what
+  // the encoding preserves; the pack itself and its arithmetic argument were
+  // EXTRACTED to draw-dedup-key.ts rather than parked here.
   // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
   // asking whether `createCommandEncoder` EXISTS and started asking the capability.
   // The one-line optional-call guard becomes a two-line guard, and the three comment
@@ -389,7 +394,13 @@ const CEILINGS: Record<string, number> = {
   // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
   // hands out a copy-scoped encoder), and a reader who believed it would delete the
   // routing guard into a runtime throw. The routing site itself is net zero.
-  'map/src/render/vector-tile-renderer.ts': 5580,
+  // MERGE UNION -> MEASURED: FIFTH collision on this key, and the second on this one
+  // branch. Three disjoint deltas now stack over the 5575 common base: #2094 (+1) and
+  // #2474 (+4) from main, #2309 (+8) here. Every side's number is stale by exactly the
+  // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
+  // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
+  // kept here only as a cross-check that nothing was dropped in the resolution.
+  'map/src/render/vector-tile-renderer.ts': 5588,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
