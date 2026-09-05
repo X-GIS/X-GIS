@@ -219,6 +219,12 @@ prints `level=info` / `hint:` / `warning:` lines to stdout — filter them befor
 `inbound` | `outbound` | `both` (NOT `in`/`out`). Install GLOBALLY, never into the repo —
 the binary is ~293 MB and must never be committed.
 
+**A graph NEGATIVE is the one answer to cross-check with grep.** It under-reported
+`seededCategoryOrder`'s callers (1 of 2) on code that was already committed — not the
+staleness below, just incompleteness. A "no callers" / "nothing references this" answer is
+exactly the kind the graph is being trusted for, so verify it before acting; a positive
+answer needs no such check.
+
 **The index can LAG your own edits.** Indexed projects do refresh in the background, but not
 instantly: `rangeLabel` returned 0 results for minutes after it was written and appeared only
 after an explicit re-index (step 2). Before trusting a "no callers" / "nothing references
@@ -436,6 +442,15 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   gates (projType branching, the layer-direction spine) sat vacuously green from the P3
   extraction until the runtime dissolution audited them. Any path-keyed gate needs a
   companion assertion that every key still resolves. → `#996`
+- A WARNING OUTLIVES THE GAP IT DESCRIBES, and no gate can see it. `sources.ts` told
+  authors `raster-dem` rendering was "not yet supported (Batch 4)" for as long as #777
+  had been rendering it on both backends, while spec-coverage carried the row at
+  `supported` — the drift gate matches row PRESENCE, not agreement between a row and a
+  warning. Twice now (#2489 the row, #2520 the warning). Guard it BEHAVIOURALLY: convert
+  a minimal style per `supported` row and read the warnings the author actually gets,
+  with the `unsupported` rows as the CONTROL — a detector that cannot see a deferral
+  reports zero, which reads as a clean corpus. Scanning converter SOURCE for deferral
+  phrases is the wrong shape here: source-type names are ordinary words. → `#2520`
 - A spec-coverage `supported` flip is a THREE-way sync: the spec-coverage row + the
   regenerated gap-matrix + a `RUNTIME_CAPABILITIES` row (the drift gate
   `spec-coverage-runtime-drift.test.ts` allows <3 orphans and WILL breach).
@@ -511,6 +526,20 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   Pin with `?adaptive=0` (applied at module load, before the first frame is sampled).
   `?scenescale=` is NOT a substitute: it pins the dpr half only and leaves the selector
   moving. → #2120
+- A DIFF-BASED GATE NEEDS A SAME-STATE CONTROL ARM, captured LAST, or its threshold is
+  a coin toss. `_terrain-displacement-gate`'s first draft settled arms with
+  `waitForTimeout` and the cut-check then reported DC 56.7% with the displacement
+  SEVERED — the scene was still converging between arms, so over half the frame differed
+  for reasons unrelated to the thing measured, and a `>0.1%` rung meant nothing. Settling
+  with `awaitMapIdle` took the floor to 0.000% against rungs of 41% and 78%. Capture an
+  extra arm in the REFERENCE state after all the others, assert that floor BEFORE
+  concluding anything from the rungs, and never settle a measured arm with a sleep (§5
+  says this; the cost of ignoring it is a gate that looks decisive and is not). → `#2539`
+- A pre-push SWEEP must grep the SHORTEST substring a test could assert, and the pre-push
+  GATE must be the whole CI shard, not hand-picked suites. Removing a converter note swept
+  for the long phrase, ran 7 chosen suites green, and CI then failed on
+  `toContain('Batch 4')` in an eighth file — a second test pinning the same bug. Two
+  round-trips for one edit. → `#2520`
 - CROSS-GATE AGREEMENT is cheap evidence and nobody was using it. Two gates toggling DISJOINT
   flags produced the SAME unexplained hash pair — one pair cannot be caused by two different
   flags, so it had to be the harness (it was boot order). After the fix the two gates agree
@@ -644,6 +673,20 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   converting anything; convert only a source that truly cannot be read as-is, server-side,
   only TO a standard. If you're writing a magic number, stop.
   → `2026-07-21-the-custom-format-trap.md`
+- A MODULE THAT REUSES ANOTHER'S VERTEX AUTHORITY OWES THAT AUTHORITY'S BINDINGS.
+  `hillshade.ts` reuses raster's `vs_tile` byte-for-byte; the moment that fn sampled a new
+  DEM texture, hillshade's own `bindings:` list made the WGSL fail to parse
+  (`unresolved value 'dem_tex'`). Two more from the same edit, both refused loudly by the
+  RHI rather than mis-bound: two textures in one group must BOTH carry `name` (WebGL2
+  pairs unnamed entries by ORDER — true for one texture, false for two), and a texture a
+  VERTEX stage reads needs `vertexVisible: true` or WebGPU rejects the pipeline. Reflection
+  derives stage visibility from usage, but the HOST's hand-written layout does not.
+  → `#2539`
+- A TEST DOUBLE cast `as unknown as` is invisible to tsc, so adding an UNCONDITIONAL
+  production call on a stubbed path compiles green and crashes only in CI
+  (`live.renderer.setSeededFeatures is not a function`). When you add a method a
+  hand-rolled stub must now carry, grep the stubs and give them the method as a `vi.fn()`
+  — then ASSERT the forwarding, so the stub is a gate rather than a hole. → `#2439`
 - A pipeline VARIANT is not portable between passes — copying a draper copies an assumption
   about the pass it draws into. `Material` synthesises a depth-stencil from a TRUTHY
   `depthCompare`, so `depthCompare: 'always'` (right in an opaque-pass draper) makes every
