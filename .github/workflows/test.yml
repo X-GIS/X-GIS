@@ -230,6 +230,8 @@ jobs:
               - 'tsconfig*.json'
               - 'vitest.config.ts'
               - 'vitest.setup.ts'
+              # The duplication gate's detection config (`lint` job runs `bun run dup`).
+              - '.jscpd.json'
               # ALL workflow files, not just this one. Measured (#1842): 5 of the 6 tracked
               # workflows matched no filter at all, so `scripts/workflow-validity.test.ts` —
               # the gate that exists because a workflow once shipped unparseable (#1693) — was
@@ -510,6 +512,15 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
       # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
       - run: bun run knip
+      # Duplication gate (scripts/dup-ratchet.ts): jscpd compares this PR's clone set
+      # against the tree of its merge base with main, and reds on a pair the base does
+      # not have (≥70 tokens / 5 lines, tests excluded). Nothing is stored, so main
+      # moving under an open PR cannot red it — the first design used a committed
+      # fingerprint baseline and CI refuted it within the hour (see the script header).
+      # The script fetches main itself (this checkout is shallow) and throws if it
+      # cannot, so a lost base is red, never green. ~4 s over 233k lines; needs no
+      # build. Policy: docs/adr/0013-duplication-ratchet-and-consolidation.md.
+      - run: bun run dup
 
   # PR-TITLE gate (#1842). The repo squash-merges, so the subject the changelog
   # renders each entry from is composed server-side by GitHub FROM THE PR TITLE —
