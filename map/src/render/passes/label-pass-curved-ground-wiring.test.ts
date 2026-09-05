@@ -29,6 +29,13 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+// #2224 — imported for REAL, from the specifier label-pass.ts itself uses. Every
+// other assertion in this file reads source TEXT, and source text cannot see a
+// barrel that does not re-export the symbol: assertion 2b was green while the
+// page failed to load with "does not provide an export named 'tangentRotates'".
+// A predicate the consumer cannot import is a second copy waiting to be written,
+// which is the whole thing this file guards.
+import { groundAlignsAtRuntime, tangentRotates } from '@xgis/compiler'
 
 const SRC = readFileSync(resolve(__dirname, 'label-pass.ts'), 'utf8').replace(/\r\n/g, '\n')
 const CURVED = readFileSync(resolve(__dirname, 'dispatch-curved-line-labels.ts'), 'utf8').replace(
@@ -108,6 +115,16 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
     // ground half. Any `!== 'viewport'` here is a second authority by definition.
     expect(SRC).not.toContain("!== 'viewport'")
     expect(SRC).toMatch(/import \{[^}]*\btangentRotates\b[^}]*\} from '@xgis\/compiler'/s)
+  })
+
+  it('2c. both predicates are REACHABLE from @xgis/compiler, not just spelled (#2224)', () => {
+    expect(typeof tangentRotates).toBe('function')
+    expect(typeof groundAlignsAtRuntime).toBe('function')
+    // And they answer the case that split them: a `viewport-glyph` line layer
+    // billboards, so neither the tangent nor the ground gate may claim it.
+    expect(tangentRotates('line', 'viewport-glyph')).toBe(false)
+    expect(groundAlignsAtRuntime('line', 'viewport-glyph', 'map')).toBe(false)
+    expect(tangentRotates('line', 'auto')).toBe(true)
   })
 
   it('3. records each RETAINED sample’s merc coordinate inside the projection loop', () => {
