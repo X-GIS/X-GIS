@@ -18,9 +18,9 @@ export const LAYER_TYPES: readonly CoverageEntry[] = [
   },
   {
     name: 'symbol (icon-only)',
-    status: 'partial',
+    status: 'supported',
     impact: 'medium',
-    note: 'Icon-only symbol layers (no text-field) route to the icon stage (#777 I1/I2, PR #965): constant `icon-image` → `label-icon-image-<name>`; data-driven `icon-image: ["match"|"coalesce"|["image", …]]` → per-feature `label-icon-image-[<expr>]` → IconStage.addIcon. Still partial: the icon LAYOUT tail (icon-text-fit / icon-padding / icon-keep-upright / icon-pitch-alignment) and text/icon halo are deferred to the Phase I remainder.',
+    note: 'Icon-only symbol layers (no text-field) route to the icon stage (#777 I1/I2, PR #965). Verified across every icon-image form: a constant sprite name, `match`, `coalesce`, `step` by zoom, and the `["image", \u2026]` wrapper all convert with zero warnings and reach `label-icon-image-<name>` / per-feature `label-icon-image-[<expr>]` -> IconStage.addIcon, as do the same layers carrying icon-size / -rotate / -anchor / -offset / -allow-overlap, and an explicitly EMPTY text-field. #2489 flipped this from `partial`: like every other row in this file it describes ROUTING, and the property-level gaps it used to enumerate belong to their own rows (`icon-pitch-alignment` is still `unsupported` there, and holding this row at partial for it counted the same gap twice). Four of the five reasons it gave had shipped, and the halo claim was wrong in both directions at once - text halo is supported, icon halo is `na`. An icon-only layer emits `label-[""]` plus default label tokens; that empty label is inert BY CONSTRUCTION, not by luck - addLabel early-returns on empty resolved text, and #609\'s obstacle path depends on exactly that (text-stage.ts: an empty-text paired symbol is absent from getActiveTextPairKeys and keeps seeding its obstacle).',
     source: 'layers-symbol.ts:252',
   },
   { name: 'fill-extrusion', status: 'supported', note: 'Extruded polygon with per-vertex z.' },
