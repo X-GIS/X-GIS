@@ -26,6 +26,9 @@
 // ORACLE: the canvas's own scale (canvasEffectiveDpr = width/clientWidth) is
 // the single geometric authority. A no-move pointermove is an exact no-op and
 // zoomAt keeps the point under the cursor, at ANY canvas scale.
+import { readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from './camera'
 import { PanZoomController } from './controller'
@@ -84,6 +87,34 @@ function makeMercatorCamera(zoom = 4): Camera {
 function ptr(pointerId: number, clientX: number, clientY: number): Record<string, unknown> {
   return { pointerId, clientX, clientY, button: 0, ctrlKey: false }
 }
+
+/** How far the world point under (CX, CY) moves during one `zoomAt`, in CSS px.
+ *  `dpr === undefined` takes `Camera.zoomAt`'s DEFAULT — the quality-policy dpr. */
+function anchorSlipCssPx(
+  CX: number,
+  CY: number,
+  W: number,
+  H: number,
+  dpr: number | undefined,
+): { x: number; y: number } {
+  const cam = makeMercatorCamera()
+  // Measure through the canvas's OWN scale in both arms: the oracle is where
+  // the pixel under the cursor lands, which the canvas geometry decides.
+  const dprReal = W / CSS_W
+  const before = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
+  const worldX0 = cam.centerX + before[0],
+    worldY0 = cam.centerY + before[1]
+  if (dpr === undefined) cam.zoomAt(1, CX, CY, W, H)
+  else cam.zoomAt(1, CX, CY, W, H, dpr)
+  const after = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
+  const mpp = 40075016.68557849 / 512 / Math.pow(2, cam.zoom)
+  return {
+    x: (cam.centerX + after[0] - worldX0) / mpp,
+    y: (cam.centerY + after[1] - worldY0) / mpp,
+  }
+}
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () => {
   const prevMaxDpr = QUALITY.maxDpr
@@ -155,5 +186,150 @@ describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () =
       Math.abs(worldY1 - worldY0) / mpp1,
       `zoomAt anchor slipped by ${(worldY1 - worldY0) / mpp1} CSS px in Y`,
     ).toBeLessThan(1)
+  })
+
+  // TEETH for the case above (CLAUDE.md §12: an assertion carries information
+  // only if it DISTINGUISHES the two states). The case above passes `dprReal`
+  // explicitly, so on its own it cannot tell a canvas-read dpr from the policy
+  // dpr — it would stay green if every caller went back to
+  // `min(devicePixelRatio, getMaxDpr())`. This is the same call in the
+  // 5-argument form, i.e. `Camera.zoomAt`'s DEFAULT `dpr = effectiveDpr()`:
+  // the point under the cursor runs away by ~1/8 of the viewport, which is
+  // exactly the defect the interaction-dpr fix exists to remove.
+  it('the DEFAULT dpr (the quality policy) anchors the wrong point — the two dprs are distinguishable', () => {
+    g.window = { devicePixelRatio: 2 }
+    updateQuality({ maxDpr: 2, interactionDpr: 1.5 })
+    const W = CSS_W * 1.5,
+      H = CSS_H * 1.5
+    const CX = 600,
+      CY = 450
+    const withCanvasDpr = anchorSlipCssPx(CX, CY, W, H, W / CSS_W)
+    const withPolicyDpr = anchorSlipCssPx(CX, CY, W, H, undefined)
+    expect(withCanvasDpr.x, `canvas-read dpr slipped ${withCanvasDpr.x} CSS px in X`).toBeLessThan(
+      1,
+    )
+    expect(
+      Math.hypot(withPolicyDpr.x, withPolicyDpr.y),
+      `the policy dpr must move the anchor far enough to be unmistakable, ` +
+        `got ${Math.hypot(withPolicyDpr.x, withPolicyDpr.y)} CSS px`,
+    ).toBeGreaterThan(50)
+  })
+
+  // The controller half of the same contract. The two cases above drive
+  // `Camera` directly, so they say nothing about whether the CONTROLLER hands
+  // it the canvas-read dpr; this one goes through a real double-tap
+  // (controller.ts pointerdown path) with the canvas at the interaction scale,
+  // so replacing `canvasEffectiveDpr(canvas)` there with the policy dpr reds it.
+  it('a double tap through the controller keeps the point under the finger at interactionDpr', () => {
+    g.window = { devicePixelRatio: 2 }
+    updateQuality({ maxDpr: 2, interactionDpr: 1.5 })
+    const cam = makeMercatorCamera()
+    const { canvas, fire } = makeStubCanvas(1.5) // already resized for the interaction
+    const dprReal = canvasEffectiveDpr(canvas)
+    expect(dprReal).toBe(1.5)
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, () => ({ projectionName: 'mercator' }))
+    try {
+      const CX = 600,
+        CY = 450
+      const W = canvas.width,
+        H = canvas.height
+      const before = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
+      const worldX0 = cam.centerX + before[0],
+        worldY0 = cam.centerY + before[1]
+      const zoom0 = cam.zoom
+      const tap = (id: number): Record<string, unknown> => ({
+        ...ptr(id, CX, CY),
+        pointerType: 'touch',
+      })
+      fire('pointerdown', tap(1))
+      fire('pointerup', tap(1))
+      fire('pointerdown', tap(2)) // within 300 ms and 30 px → double-tap zoom
+      expect(cam.zoom, 'the double tap must have zoomed').toBeGreaterThan(zoom0)
+      const after = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
+      const worldX1 = cam.centerX + after[0],
+        worldY1 = cam.centerY + after[1]
+      const mpp1 = 40075016.68557849 / 512 / Math.pow(2, cam.zoom)
+      expect(
+        Math.hypot(worldX1 - worldX0, worldY1 - worldY0) / mpp1,
+        `double-tap anchor slipped by ${Math.hypot(worldX1 - worldX0, worldY1 - worldY0) / mpp1} CSS px`,
+      ).toBeLessThan(1)
+    } finally {
+      ctrl.detach()
+    }
+  })
+
+  // The APPLICATION half. `Camera.zoomAt`'s `dpr` defaults to the policy dpr
+  // for the many callers that own no canvas (tests, headless camera math), so
+  // an app that DOES own one and omits the argument silently gets the defect
+  // the two cases above measure — which is what the site's three wheel
+  // handlers did. Keyed on a directory WALK, not a path list, so moving or
+  // adding a file cannot make it vacuously green (§12: a path-keyed gate dies
+  // silently when the files move).
+  it('no application caller of zoomAt / panToScreenAnchor omits the dpr argument', () => {
+    const roots = ['site/src', 'playground/src'].map((r) => join(REPO_ROOT, r))
+    const files: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name))
+          files.push(full)
+      }
+    }
+    for (const r of roots) walk(r)
+    expect(files.length, 'the walk must find application sources').toBeGreaterThan(10)
+
+    // (method, arity WITHOUT dpr) — a call with that many top-level arguments
+    // is taking the default.
+    const METHODS: Array<[string, number]> = [
+      ['zoomAt', 5],
+      ['panToScreenAnchor', 6],
+    ]
+    const offenders: string[] = []
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8')
+      for (const [method, bare] of METHODS) {
+        const needle = `.${method}(`
+        for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
+          let depth = 0,
+            j = i + needle.length - 1
+          for (; j < text.length; j++) {
+            if ('([{'.includes(text[j]!)) depth++
+            else if (')]}'.includes(text[j]!)) {
+              depth--
+              if (depth === 0) break
+            }
+          }
+          // Count NON-EMPTY top-level segments, not commas: prettier writes a
+          // trailing comma on every multi-line call, and counting commas read
+          // a 5-argument call as 6 — an instrument blind to exactly the calls
+          // it exists to find, which reported a clean corpus (§12).
+          const args = text.slice(i + needle.length, j)
+          let d = 0,
+            cur = ''
+          const segments: string[] = []
+          for (const ch of args) {
+            if ('([{'.includes(ch)) d++
+            else if (')]}'.includes(ch)) d--
+            if (ch === ',' && d === 0) {
+              segments.push(cur)
+              cur = ''
+            } else cur += ch
+          }
+          segments.push(cur)
+          const count = segments.filter((s) => s.trim() !== '').length
+          if (count <= bare) {
+            const line = text.slice(0, i).split('\n').length
+            offenders.push(`${file.slice(REPO_ROOT.length + 1)}:${line} .${method}(${count} args)`)
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      'these callers own a canvas and let `dpr` default to the quality policy — ' +
+        'pass the scale the canvas is sized at (`XGISMap.getCanvasDpr()`)',
+    ).toEqual([])
   })
 })

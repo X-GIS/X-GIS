@@ -1750,6 +1750,19 @@ export class XGISMap {
     return (this.ctx?.canvas ?? this.canvas) as HTMLCanvasElement
   }
 
+  /** The device-pixel scale the canvas is CURRENTLY sized at — what a host
+   *  must pass as `dpr` to `Camera.zoomAt` / `panToScreenAnchor` when it
+   *  drives them from its own gesture listeners (the site's wheel handlers do).
+   *  Delegates to `canvasEffectiveDpr`, the one geometric authority the render
+   *  loop, project/unproject and the controller already read: a host that
+   *  re-derives `min(devicePixelRatio, maxDpr)` instead disagrees with the
+   *  swapchain the moment it sits at `QUALITY.interactionDpr` or is clamped to
+   *  `maxTextureDimension2D`, and every anchored zoom then pulls the wrong
+   *  world point under the cursor. */
+  getCanvasDpr(): number {
+    return canvasEffectiveDpr(this.getCanvas())
+  }
+
   /** Mapbox-API parity: return the canvas's parent container element.
    *  Returns null if the canvas has no parent (e.g. detached mount).
    *  Mapbox GL JS hosts use this to position UI controls relative to

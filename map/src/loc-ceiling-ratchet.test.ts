@@ -1078,7 +1078,16 @@ const CEILINGS: Record<string, number> = {
   // guard holds (run()/runBinary() are the only assignment sites; the boot itself
   // reads QUALITY live, so the pre-boot value is still honoured). Measured with
   // `wc -l` on the post-prettier tree.
-  'map/src/map.ts': 5477,
+  // 5477->5490 (#2289 review follow-up): `getCanvasDpr()` — a host that drives
+  // `Camera.zoomAt` from its own gesture listeners (the site's three wheel
+  // handlers) had no way to ask what scale the canvas is sized at, so all three
+  // took the `dpr = effectiveDpr()` default and anchored the wrong world point
+  // whenever the swapchain sat below the policy dpr. One 2-line accessor
+  // delegating to `canvasEffectiveDpr` + the 9-line docblock naming the
+  // authority and what re-deriving it costs, which is the half that keeps the
+  // next host from writing `min(devicePixelRatio, maxDpr)` again. Measured with
+  // `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5490,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

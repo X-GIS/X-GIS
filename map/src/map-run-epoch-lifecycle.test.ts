@@ -550,8 +550,18 @@ describe('hunt 2026-09-02 — re-run() keeps a `background { fill }` alive', () 
     const occ1 = s.underOccluder
     const rhi1 = (s.ctx as { rhi: unknown }).rhi
     expect(occ1).not.toBeNull()
+    // The "not the run-#1 instance" assertion below cannot tell a real teardown
+    // from a LEAK: an implementation that only nulls `_syntheticBackend` also
+    // builds a second occluder, and the first one's buffers are never released
+    // through the RHI. Spy on the run-#1 instance so `_releaseGpuResources`'
+    // `underOccluder?.destroy()` is the only implementation that greens this.
+    const occ1Destroy = vi.spyOn(occ1 as unknown as { destroy(): void }, 'destroy')
 
     await map.run(src)
+    expect(
+      occ1Destroy,
+      "the run-#1 under-occluder must be destroyed, not left holding the dead device's buffers",
+    ).toHaveBeenCalledTimes(1)
     expect(stub.createdDevices).toHaveLength(2)
     expect(stub.createdDevices[0]!.destroyed).toBe(true)
     expect((s.ctx as { rhi: unknown }).rhi).not.toBe(rhi1) // run #2 owns a fresh device
