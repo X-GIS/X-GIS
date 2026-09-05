@@ -175,8 +175,8 @@ describe('globe fallback draws under a drape-active primary (#1076)', () => {
 describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6) exclusion)', () => {
   it('`_drapeGlobeFills` is derived from bakesVectorDrape, NOT routeToSphereSelector', () => {
     expect(
-      SOURCE.includes('bakesVectorDrape(projType, camera.globeMode)'),
-      'the `_drapeGlobeFills` gate must call `bakesVectorDrape(projType, camera.globeMode)` — ' +
+      SOURCE.includes('bakesVectorDrape(args.projType, args.camera.globeMode)'),
+      'the `_drapeGlobeFills` gate must call `bakesVectorDrape(args.projType, args.camera.globeMode)` — ' +
         'reverting it to `routeToSphereSelector` re-drapes oblique(6) and restores the ' +
         'native-z14 bake displayed at 2582–4926px (5.04–9.6× soft-fill magnification, non-healing).',
     ).toBe(true)
@@ -194,10 +194,10 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
     )
     expect(
       SOURCE.slice(dStart, dEnd).includes(
-        'drapesAtChordBudget(Math.max(currentZ, targetZ), camera.zoom)',
+        'drapesAtChordBudget(Math.max(ctx.currentZ, ctx.targetZ), args.camera.zoom)',
       ),
-      'the `_drapeGlobeFills` derivation must gate on `drapesAtChordBudget(Math.max(currentZ, ' +
-        'targetZ), camera.zoom)` (#2094) — dropping the gate restores the 512px bake at NATIVE ' +
+      'the `_drapeGlobeFills` derivation must gate on `drapesAtChordBudget(Math.max(ctx.currentZ, ' +
+        'ctx.targetZ), args.camera.zoom)` (#2094) — dropping the gate restores the 512px bake at NATIVE ' +
         'zoom, where its texel (and its whole AA feather) is wider than the chord sagitta the ' +
         'drape exists to remove; reading `currentZ` alone re-drapes every zoom-in readiness ' +
         'HOLD (the held coarse tiles came back as magnified bakes after #2086); and dropping ' +
@@ -215,7 +215,7 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
     // ~1 px sphere-grid resample back on every road at every zoom.
     expect(
       SOURCE.includes('this._bakeStrokesGated =') &&
-        SOURCE.includes('drapesStrokesAtSelectionZ(Math.max(currentZ, targetZ))'),
+        SOURCE.includes('drapesStrokesAtSelectionZ(Math.max(ctx.currentZ, ctx.targetZ))'),
       'the stroke half of the drape decision must be its own derivation gated on ' +
         '`drapesStrokesAtSelectionZ` (design INC-3 — the fill-only drape sub-gate).',
     ).toBe(true)
