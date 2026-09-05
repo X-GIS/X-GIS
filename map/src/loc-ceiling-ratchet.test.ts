@@ -382,6 +382,11 @@ const CEILINGS: Record<string, number> = {
   // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
   // is unchanged in length (one predicate call, one extra argument) and both comment
   // blocks were trimmed back to their prior height to keep it at exactly one.
+  // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
+  // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
+  // widened markDrawn argument lists at both sites plus the comments naming what
+  // the encoding preserves; the pack itself and its arithmetic argument were
+  // EXTRACTED to draw-dedup-key.ts rather than parked here.
   // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
   // asking whether `createCommandEncoder` EXISTS and started asking the capability.
   // The one-line optional-call guard becomes a two-line guard, and the three comment
@@ -389,7 +394,13 @@ const CEILINGS: Record<string, number> = {
   // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
   // hands out a copy-scoped encoder), and a reader who believed it would delete the
   // routing guard into a runtime throw. The routing site itself is net zero.
-  'map/src/render/vector-tile-renderer.ts': 5580,
+  // MERGE UNION -> MEASURED: FIFTH collision on this key, and the second on this one
+  // branch. Three disjoint deltas now stack over the 5575 common base: #2094 (+1) and
+  // #2474 (+4) from main, #2309 (+8) here. Every side's number is stale by exactly the
+  // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
+  // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
+  // kept here only as a cross-check that nothing was dropped in the resolution.
+  'map/src/render/vector-tile-renderer.ts': 5588,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1245,7 +1256,9 @@ const CEILINGS: Record<string, number> = {
   // capabilities/symbol.ts and the spec-coverage note all point here rather than
   // restate it (an earlier draft restated it four times and cost 33 lines).
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  'map/src/text/text-stage.ts': 2171,
+  // 2171→2172 (#2446): one argument — the label's inline-image anchors — threaded
+  // into wrapWithKnuthPlass so the whitespace trim stops at an image.
+  'map/src/text/text-stage.ts': 2172,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1444,7 +1457,11 @@ const CEILINGS: Record<string, number> = {
   // Nothing to extract — the rule reads `this.pitch` and writes this class's own
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
-  'map/src/camera/camera.ts': 1442,
+  // 1442→1441 (#2332): effectiveMpp's docblock rewritten to the builder it mirrors.
+  // MERGE UNION (#2507 <- main): main's -1 (#2332, above) and the branch's -1 (#2500:
+  // the disc zoomAt branch's viewport-fit clamp + latPreserve reset block became one
+  // dual write, _setDiscCenterLat) compose. MEASURED post-merge: 1440. A LOWERING.
+  'map/src/camera/camera.ts': 1440,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
@@ -1866,7 +1883,17 @@ const CEILINGS: Record<string, number> = {
   // this renderer's, not the store's), so this is not a same-file double delta: the
   // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
   // carried across or computed from either side's.
-  'map/src/render/hillshade-renderer.ts': 747,
+  // 747→754 (#2302, main merge): the flat-branch selector derivation LEFT this file
+  // for flat-tile-selector.ts (cull space == draw space — the inert 'non-mercator'
+  // shim culled equirect/natural_earth tiles in Mercator space while vs_tile drew
+  // them through the display projection: a blank poleward band). The +7 is
+  // call-site width only: the 4-line shim became an 8-argument call prettier
+  // breaks over 10 lines, plus one import and one comment. Same key raised on both
+  // sides (853→747 above on main, 850→857 on this branch), so the merged file
+  // carries both deltas and neither side's number is right (§12) — RE-MEASURED
+  // post-prettier (`wc -l`) on the merged tree.
+  // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/hillshade-renderer.ts': 753,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2129,7 +2156,9 @@ const CEILINGS: Record<string, number> = {
   // 1066→1074 (#2093 follow-up, measured post-prettier per §12): `Selection.targetZ`, the
   // camera's own `min(floor(zoom), maxLevel)`, so the renderer can tell a readiness HOLD
   // (currentZ trailing the camera) from the LOD the camera asks for.
-  'map/src/render/tile-selection-cache.ts': 1074,
+  // 1074->1073 (#2500): the open-coded sphere-family centre-lat branch became one
+  // frameCenterLatOf call (the frame token's authority). A LOWERING.
+  'map/src/render/tile-selection-cache.ts': 1073,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
@@ -2213,7 +2242,17 @@ const CEILINGS: Record<string, number> = {
   // key is z/x/y with no url — so the old source's tiles answered for the new one, and
   // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
   // abort on a real URL change.
-  'map/src/render/raster-renderer.ts': 1056,
+  // 1056→1061 (#2302, main merge): the flat-branch selector derivation LEFT this
+  // file for flat-tile-selector.ts (the inert 'non-mercator' shim culled equirect /
+  // natural_earth tiles in Mercator space while vs_tile drew them through the
+  // display projection — a blank poleward band, ~166 px per edge at 60°N). Call-site
+  // width only: a 6-line shim block became an 8-argument call prettier breaks over
+  // 10 lines, plus one import; the misleading two-line shim comment went with the
+  // shim. Same key raised on both sides (1034→1056 above on main, 1034→1038 on this
+  // branch), so the merged file carries both deltas and neither side's number is
+  // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/raster-renderer.ts': 1060,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

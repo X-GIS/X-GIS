@@ -150,4 +150,21 @@ describe('#777 I-G — fillPointGlyphOffsetsWithImages (multi-line + justify)', 
     expect(off[6]).toBe(26)
     expect(off[5]).toBe(30) // line-1 baseline Y carried onto its glyphs
   })
+
+  it('#2446 — a trimmed leading blank is parked on the pen origin; the image anchored after it still emits at lineX', () => {
+    // " ⟨img⟩CD": the wrapper emits {start: 1, end: 3, width: 20} (the
+    // blank at glyph 0 trimmed off the head) with the image at glyphIndex
+    // 1. Glyph 0 belongs to no line, so the pen never visits it — its
+    // offsets slot must still be WRITTEN (the renderer, the layout cache
+    // and a holdover copy all read every slot), on this line's origin.
+    const off = new Float32Array(6).fill(NaN)
+    const out: ShapedInlineImage[] = []
+    const lines = [{ start: 1, end: 3, width: 20 }]
+    const imgs: InlineImageSprite[] = [{ name: 'pat', glyphIndex: 1, advancePx: 16, heightPx: 16 }]
+    // totalAdvance = text(20) + image(16) = 36; right-justify → lineX = 36 - 36 = 0.
+    fillPointGlyphOffsetsWithImages(off, [10, 10, 10], lines, [7], 0, 0, 36, 'right', 16, imgs, out)
+    expect(Array.from(off)).toEqual([0, 7, 16, 7, 26, 7]) // parked blank at (lineX, lineY); C after the image
+    expect(out).toHaveLength(1)
+    expect(out[0]!.dx).toBe(0) // the image is the first thing on the line
+  })
 })

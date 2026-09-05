@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: fb601cb095b674680445949cc14c3c895d84782f
+  Generated from: 37285da82998a434fb292f4447adb13be3a89321
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since fb601cb095b6
+    bun scripts/emit-changelog.ts --path shader-dsl --since 37285da82998
 -->
 
 # Changelog — shader-dsl
@@ -40,6 +40,10 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 - **shader-dsl:** an empty dispatch is a steady state on the WebGL2 compute tier too (#2362) ([#2395](https://github.com/X-GIS/X-GIS/pull/2395)) `8aaa2fa`
 - **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
 - **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
+
+#### perf
+
+- **shader-dsl:** memoise keyOf on the Expr object — the optimizer's real hot path (#2465) ([#2492](https://github.com/X-GIS/X-GIS/pull/2492)) `80a3965`
 
 #### test
 

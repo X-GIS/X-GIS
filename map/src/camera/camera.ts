@@ -846,43 +846,42 @@ export class Camera {
     return this.getECEFFrameView(canvasWidth, canvasHeight, dpr)
   }
 
-  /** The world scale (metres per CSS pixel) the CURRENT flat MVP actually
-   *  renders at — the single authority every zoom-scaled SIZE consumer (line
-   *  width, point size, dash/pattern spacing) must read so on-screen sizes never
-   *  diverge from the view (#739).
+  /** The world scale (metres per CSS pixel) the CURRENT MVP actually renders
+   *  at — the single authority every zoom-scaled SIZE consumer (line width,
+   *  point size, dash/pattern spacing) must read so on-screen sizes never
+   *  diverge from the view (#739). Below z* = log2(canvasHeightCss·TILE_PX/cap)
+   *  the flat builders saturate their view height at a cap that FREEZES the
+   *  projection scale; a consumer scaling by the uncapped
+   *  `WORLD_MERC/TILE_PX/2^zoom` keeps changing while the view stays put.
    *
-   *  `buildRTCMatrix` saturates its view height at the per-projType cap
-   *  (`flatViewHeightCapM`) below z* = log2(canvasHeightCss·TILE_PX/cap), which
-   *  FREEZES the projection scale so the world frames the canvas and low-zoom
-   *  perspective stays sane (merc-z0-pitch-perspective / non-merc-z0-disc — the
-   *  "regime MapLibre operates in at low zoom"). A size consumer that scales the
-   *  world by the UNCAPPED `WORLD_MERC/TILE_PX/2^zoom` therefore keeps changing
-   *  while the view is frozen — the #739 line-width bug. This returns the capped
-   *  world scale `viewHeightMeters / canvasHeightCss`, identically
-   *  `min(rawMpp, cap/canvasHeightCss)`, so the `mpp × MVPscale` cancellation
-   *  that holds pixel width constant is restored across the whole zoom range.
-   *
-   *  `projType` is passed (not read from `this.projType`) and the flat/3D branch
-   *  MIRRORS `getViewForProjection` exactly, so the returned scale always matches
-   *  the matrix that call produced. Globe / ECEF (globeMode or projType 7) mirror
-   *  `buildECEFFrameView`'s cap instead: it saturates the TRUE-metre view height
-   *  at `min(WORLD_MERC·cosLat, 2·EARTH_R)`, which in the Mercator-mpp basis this
-   *  method returns is `min(rawMpp, capMerc/canvasHeightCss)` with
-   *  `capMerc = min(WORLD_MERC·cosLat, 2·EARTH_R)/cosLat` — byte-identical to
-   *  `rawMpp` above z* and frozen at the ECEF frame's on-screen scale below it
-   *  (#964p2, same divergence class as #739). `cosLat` uses
-   *  `mercatorYToLatRad(centerY)` to match the builder's `cam_lat` exactly.
-   *  `canvasHeight` is DEVICE px and `dpr` converts it to the CSS basis, matching
-   *  `buildRTCMatrix`'s `canvasHeight / dpr`. */
+   *  The arms mirror `getViewForProjection` ONE-TO-ONE, in its order, so the
+   *  value always matches the matrix that call produced (#2332):
+   *  - `globeMode` → `_globeFrame` → `globeAltitude` (geo/src/globe.ts): the
+   *    perspective globe is UNCAPPED at every zoom (#450) and its altitude is
+   *    `canvasHeightCss·rawMpp`, so the focus renders at `rawMpp` at every
+   *    latitude; the azimuthal-promoted disc (`globeOrtho`) keeps the flat cap
+   *    of its SOURCE projType, in the same basis.
+   *  - `isGlobeProj(projType)` without globeMode → `buildECEFFrameView`, which
+   *    saturates the TRUE-metre view height at `min(WORLD_MERC·cosLat, 2·EARTH_R)`;
+   *    in the Mercator basis returned here that is `capMerc/canvasHeightCss` with
+   *    `capMerc = min(WORLD_MERC·cosLat, 2·EARTH_R)/cosLat` (#964p2). `cosLat`
+   *    uses `mercatorYToLatRad(centerY)` to match the builder's `cam_lat`.
+   *  - otherwise `getFrameView` with `flatViewHeightCapM(projType)`.
+   *  `canvasHeight` is DEVICE px and `dpr` converts it to the CSS basis the
+   *  builders use (`canvasHeight / dpr`). */
   effectiveMpp(projType: number, canvasHeight: number, dpr: number = 1): number {
     const rawMpp = WORLD_MERC / TILE_PX / Math.pow(2, this.zoom)
-    if (this.globeMode || isGlobeProj(projType)) {
+    const cssH = canvasHeight / dpr
+    if (this.globeMode) {
+      if (!this.globeOrtho) return rawMpp
+      return Math.min(rawMpp, flatViewHeightCapM(this.azimuthalProjType, WORLD_MERC) / cssH)
+    }
+    if (isGlobeProj(projType)) {
       const cosLat = Math.cos(mercatorYToLatRad(this.centerY))
       const capMerc = Math.min(WORLD_MERC * cosLat, 2 * EARTH_R) / cosLat
-      return Math.min(rawMpp, capMerc / (canvasHeight / dpr))
+      return Math.min(rawMpp, capMerc / cssH)
     }
-    const cap = flatViewHeightCapM(projType, WORLD_MERC)
-    return Math.min(rawMpp, cap / (canvasHeight / dpr))
+    return Math.min(rawMpp, flatViewHeightCapM(projType, WORLD_MERC) / cssH)
   }
 
   // Mercator Y limit: ±85.051129° → WORLD_MERC/2 (≈ ±20037508.34m)
@@ -1171,7 +1170,9 @@ export class Camera {
         !!p && Math.hypot(p[0], p[1]) < disc.safeRho
 
       const lon0 = this.centerX / R
-      const lat0 = mercatorYToLatRad(this.centerY)
+      // centerLatDeg is the disc's rendered centre (frameCenterLatOf); the
+      // Mercator mirror sat at the equator after a whole-earth zoom (#2500).
+      const lat0 = this.centerLatDeg * (Math.PI / 180)
       const anchor = onDisc(before) ? disc.inv(before![0], before![1], lon0, lat0) : null
 
       this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom + delta))
@@ -1184,12 +1185,12 @@ export class Camera {
         // single-pass) — iterate like the flat non-merc arm below. STEP_LIM
         // clamps the TOTAL per-call rotation; LAT_LIM = Map's centerLat clamp.
         const STEP_LIM = 0.12 // rad ≈ 6.9° — invisibly large for real pinch
-        const LAT_LIM = (85.051129 * Math.PI) / 180
+        const LAT_LIM = (poleLimit(this.projType) * Math.PI) / 180 // the disc reaches the pole
         const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
         for (let iter = 0; iter < 6; iter++) {
           const q = this.unprojectToZ0(sxDev, syDev, canvasWidth, canvasHeight, dpr)
           const lonC = this.centerX / R,
-            latC = mercatorYToLatRad(this.centerY)
+            latC = this.centerLatDeg * (Math.PI / 180)
           const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
           if (!cur) break
           const dLon = anchor[0] - cur[0],
@@ -1203,26 +1204,16 @@ export class Camera {
           // Wrap longitude to (-π, π].
           newLon = ((((newLon + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
           this.centerX = newLon * R
-          this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
+          this._setDiscCenterLat(newLat * (180 / Math.PI))
           if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break // ≈6 mm ground: converged
         }
       }
-      const maxYO = this.maxCameraY(canvasHeight)
-      this.centerY = Math.max(-maxYO, Math.min(maxYO, this.centerY))
-      // For the disc/sphere family (projType 3/4/5) centerLatDeg is the
-      // pole-reaching authority — do NOT feed the Mercator-saturated centerY
-      // through _carryCenterLatThroughZoom here.  That helper derives the
-      // post-clamp Mercator lat (capped at ±85.051129) and applies its delta to
-      // centerLatDeg; when the centre is near a pole (e.g. lat=88°) the clamp
-      // pushes the Mercator lat down ~3°, which _carry then subtracts from the
-      // true centerLatDeg — drifting it ~4° equatorward per zoom step (bug #6).
-      // Instead: preserve the TRUE centre latitude through the zoom unchanged,
-      // exactly as the globe branch does (it returns before this block).
-      // centerY already carries the Mercator-bounded mirror written by the
-      // iteration loop above; we just keep centerLatDeg == _latPreserve
-      // (clamped to poleLimit so a bounds call cannot overshoot).
-      const plDisc = poleLimit(this.projType)
-      this.centerLatDeg = Math.max(-plDisc, Math.min(plDisc, _latPreserve))
+      // No Mercator viewport-fit clamp here: for the disc/sphere family
+      // centerLatDeg is the pole-reaching authority and a pure zoom must not
+      // move it (bug #6 — feeding the ±85.051129-saturated mirror back through
+      // _carryCenterLatThroughZoom drifted a lat-88 centre ~4° equatorward per
+      // step). The anchor loop above wrote both fields together; without an
+      // anchor neither moved. Mirrors the globe branch (returns before this).
       this.clampCenterToBounds()
       return
     }
@@ -1383,7 +1374,7 @@ export class Camera {
     const rel = this.unprojectToZ0(cursorX, cursorY, canvasWidth, canvasHeight, dpr)
     if (!rel || Math.hypot(rel[0], rel[1]) >= disc.safeRho) return null
     const lon0 = this.centerX / R
-    const lat0 = mercatorYToLatRad(this.centerY)
+    const lat0 = this.centerLatDeg * (Math.PI / 180) // the rendered disc centre (see zoomAt)
     const geo = disc.inv(rel[0], rel[1], lon0, lat0)
     return { lon: geo[0] * (180 / Math.PI), lat: geo[1] * (180 / Math.PI) }
   }
@@ -1415,14 +1406,14 @@ export class Camera {
     const anchorLon = lon * (Math.PI / 180)
     const anchorLat = lat * (Math.PI / 180)
     const lon0 = this.centerX / R
-    const lat0 = mercatorYToLatRad(this.centerY)
+    const lat0 = this.centerLatDeg * (Math.PI / 180) // the rendered disc centre (see zoomAt)
     const STEP_LIM = 0.12 // rad ≈ 6.9° — mirrors zoomAt disc loop
-    const LAT_LIM = (85.051129 * Math.PI) / 180
+    const LAT_LIM = (poleLimit(this.projType) * Math.PI) / 180
     const lim = (v: number) => Math.max(-STEP_LIM, Math.min(STEP_LIM, v))
     for (let iter = 0; iter < 6; iter++) {
       const q = this.unprojectToZ0(cursorX, cursorY, canvasWidth, canvasHeight, dpr)
       const lonC = this.centerX / R,
-        latC = mercatorYToLatRad(this.centerY)
+        latC = this.centerLatDeg * (Math.PI / 180)
       const cur = onDisc(q) ? disc.inv(q![0], q![1], lonC, latC) : null
       if (!cur) break
       const dLon = anchorLon - cur[0],
@@ -1433,10 +1424,17 @@ export class Camera {
       const newLat = Math.max(-LAT_LIM, Math.min(LAT_LIM, lat0 + lim(latC + dLat - lat0)))
       newLon = ((((newLon + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
       this.centerX = newLon * R
-      this.centerY = R * Math.log(Math.tan(Math.PI / 4 + newLat / 2))
+      this._setDiscCenterLat(newLat * (180 / Math.PI))
       if (Math.abs(dLon) < 1e-9 && Math.abs(dLat) < 1e-9) break
     }
-    this._syncCenterLatFromMercator()
     this.clampCenterToBounds()
+  }
+
+  /** Disc-family centre latitude (deg, inside poleLimit) + its ±85.051129°
+   *  Mercator mirror, written together (CameraController.setCenter's dual write). */
+  private _setDiscCenterLat(latDeg: number): void {
+    this.centerLatDeg = latDeg
+    const mercLat = Math.max(-85.051129, Math.min(85.051129, latDeg))
+    this.centerY = EARTH_R * Math.log(Math.tan(Math.PI / 4 + (mercLat * Math.PI) / 360))
   }
 }

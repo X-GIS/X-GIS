@@ -406,6 +406,19 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   not match the change you described. **Read `git status --porcelain` and stage by PATH**
   when the working tree holds anything you did not intend to ship; keep probe scripts,
   captures and logs in the session scratch dir, never under a package.
+- A UNIT read off a neighbouring transform is not the unit at your call site. `packDrawSubKey`
+  divided the world-copy offset by 360 000 because `_worldOffScratchKey` emits
+  `worldOffDeg * 1e3` — but that transform feeds the bundle-cache key, and both dedup call
+  sites pass the raw `worldOffDeg[]`, in degrees. `Math.round(360 / 360000)` is 0, so every
+  world copy folded onto one sub-key and the 2nd/3rd copies were skipped as duplicates; no
+  single-world scene can see it (0 divides to 0 under either step), so every local §5 gate
+  stayed green and CI's `_world-copies-projection-gate` caught it. The tests passed for the
+  same reason the code was wrong: the `copy()` helper was `wc * 360_000`, the premise written
+  a second time — and the packer's own docblock cited the producer's `wc * 360` one line above
+  the division. Trace a unit to the PRODUCER that feeds YOUR parameter (here: the
+  `renderTileKeys` argument, six calls, all `worldOffDeg`/`fallbackOffsets`), assert it at
+  runtime, and make at least one test stand on the LITERAL a real caller passes rather than on
+  a helper. → PR #2495
 
 **Gates / ratchets**
 
