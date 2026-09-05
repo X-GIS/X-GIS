@@ -936,7 +936,15 @@ const CEILINGS: Record<string, number> = {
   // pointer joins, so a multi-touch gesture cannot pass the click gate. Both are
   // in-place guards inside handlers this file owns — 31 lines of branch
   // conditions and their rationale, with nothing cohesive to extract.
-  'map/src/controller.ts': 1216,
+  // 1216->1224 (#2295 review follow-up): the handoff above asked the predicate
+  // about `e`, the pointerup of the finger that LEFT, so a touch finger still
+  // panned when a pen lifted beside it and a mouse drag was newly blocked when a
+  // touch pointer did. `activePointers` now stores each pointer's `pointerType`
+  // so the predicate can be asked about the one that REMAINS. The +8 is the map's
+  // widened entry type, the two set() sites, and the two comments naming which
+  // pointer is being asked about — the mistake was invisible precisely because
+  // nothing at either site said which one it was.
+  'map/src/controller.ts': 1224,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the

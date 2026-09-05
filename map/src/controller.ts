@@ -264,7 +264,10 @@ export class PanZoomController implements Controller {
     let lastY = 0
 
     // Touch state for pinch-to-zoom
-    const activePointers = new Map<number, { x: number; y: number }>()
+    // The entry carries `pointerType` because the 2->1 handoff below must ask the
+    // cooperativeGestures predicate about the pointer that REMAINS down, and a
+    // pointerup only carries the type of the one that left (#2295 follow-up).
+    const activePointers = new Map<number, { x: number; y: number; pointerType: string }>()
     let lastPinchDist = 0
 
     // RAF lifecycle: the inertia + smooth-zoom loops self-reschedule via
@@ -348,17 +351,17 @@ export class PanZoomController implements Controller {
      *  happened to create it. Mouse/pen and the default-off case return
      *  `undefined`, keeping pre-#1264 behaviour byte-identical. */
     const coopDeniesTouchDrag = (
-      e: PointerEvent,
+      pointerType: string,
     ): boolean | CooperativeGesturesOptions | undefined => {
       const coop = getState().cooperativeGestures
-      return e.pointerType === 'touch' && coop !== undefined && coop !== false ? coop : undefined
+      return pointerType === 'touch' && coop !== undefined && coop !== false ? coop : undefined
     }
 
     const onPointerDown = (e: PointerEvent) => {
       // #12: register pointer, capture it, and fire onPointerDown BEFORE any early-return
       // — every pointerdown then pairs a setPointerCapture + activePointers entry + one
       // onPointerDown call, keeping state and down/up counts symmetric (e.g. double-tap zoom).
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType })
       canvas.setPointerCapture(e.pointerId)
       events?.onPointerDown?.(e.clientX, e.clientY, e)
 
@@ -425,7 +428,7 @@ export class PanZoomController implements Controller {
           // the page for this drag (`touch-action:'pan-y'` when
           // cooperativeGestures is on) — this only stops the MAP itself from
           // also panning underneath that native scroll.
-          const coopBlocksTouch = coopDeniesTouchDrag(e)
+          const coopBlocksTouch = coopDeniesTouchDrag(e.pointerType)
 
           // Right-click or Ctrl+click → prepare rotate mode (activated on move)
           if (e.button === 2 || e.ctrlKey) {
@@ -594,7 +597,7 @@ export class PanZoomController implements Controller {
     let pinchAngleAccum = 0
 
     const onPointerMove = (e: PointerEvent) => {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType })
 
       // Hover dispatch — fires every move regardless of drag/rotate state.
       // Downstream rAF coalesces, so a fast drag still only spends one
@@ -928,11 +931,16 @@ export class PanZoomController implements Controller {
         // #2295: but only where a pointerdown would have armed that drag —
         // under `cooperativeGestures` a single TOUCH finger never pans, and
         // lifting out of a pinch is the normal END of every pinch.
-        isDragging = coopDeniesTouchDrag(e) === undefined
+        const remaining = activePointers.values().next().value!
+        // Ask about the pointer that REMAINS down, not about `e` — the pointerup of
+        // the finger that LEFT. Reading its type let a touch finger pan when a
+        // pen/mouse lifted beside it (#2295, unfixed for that sequence) and blocked
+        // a mouse drag when a touch pointer did (a new one). The helper's docblock
+        // already says the contract is a property of the single-pointer STATE.
+        isDragging = coopDeniesTouchDrag(remaining.pointerType) === undefined
         isRotating = false
         isRotatePending = false
         rotateActivated = false
-        const remaining = activePointers.values().next().value!
         lastX = remaining.x
         lastY = remaining.y
         lastMoveTime = performance.now()
