@@ -2282,7 +2282,18 @@ const CEILINGS: Record<string, number> = {
   // branch), so the merged file carries both deltas and neither side's number is
   // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
   // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
-  'map/src/render/raster-renderer.ts': 1060,
+  // 1060→1058 (#2560, LOWERED): `emitTileAt` stopped recomputing a tile row's
+  // latitude bounds and Mercator span per drawn tile per frame (two atan(sinh)
+  // + two log(tan); 325 ms of a 13.2 s raster session on the owner's profile).
+  // Both the math and its memo left for `raster-row-geom.ts` — extracted so a
+  // differential test can hold the math to the retired expression AND reach the
+  // cache, where the interesting way to be wrong lives (drop `y` from the inner
+  // key and a whole level takes row 0's bounds). Same reason `draw-dedup-key.ts`
+  // was pulled out in #2495. What remains here is one field and a destructure,
+  // against 13 lines of inline transcendentals removed — a net SHRINK, so the
+  // ceiling comes down rather than up. The new module is unlisted at 96 lines,
+  // far under NEW_FILE_CAP.
+  'map/src/render/raster-renderer.ts': 1058,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
