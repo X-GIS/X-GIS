@@ -12,7 +12,7 @@
 // tests hold the new encoding to injectivity over that triple, and pin the two
 // arithmetic premises the pack rests on.
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,9 +20,14 @@ import { packDrawSubKey } from './draw-dedup-key'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-/** A world-copy offset in `_worldOffScratchKey` units: `worldOffDeg * 1e3`,
- *  and a whole copy is 360 degrees. */
-const copy = (wc: number): number => wc * 360_000
+/** A world-copy offset in the unit the CALL SITES pass: degrees, one copy = 360
+ *  (raster-renderer.ts `west + wo * 360`). This helper is convenience for the
+ *  sweeps below, NOT the authority on the unit -- it first shipped as
+ *  `wc * 360_000` (the `_worldOffScratchKey` unit, which feeds the bundle-cache
+ *  key and never this packer), and every test built on it passed while the
+ *  packer folded all world copies onto one sub-key. The authority is the
+ *  'real caller' block below, which uses the literal. */
+const copy = (wc: number): number => wc * 360
 
 /** The (outer, inner) pair the stats map is keyed by, as the call sites build it. */
 const pair = (key: number, worldOff: number, visibleKey: number): string =>
@@ -110,9 +115,65 @@ describe('packDrawSubKey — injective over (worldOff, visibleKey) (#2309)', () 
     // practice — a whole world copy is 3.6e11, far past any one slice's key
     // spread — but the new encoding does not need that argument at all.)
     const a = { key: 1, wo: copy(1) }
-    const b = { key: 1 + 360_000 * 1_000_000, wo: 0 }
+    const b = { key: 1 + 360 * 1_000_000, wo: 0 }
     expect(a.key + a.wo * 1_000_000).toBe(b.key + b.wo * 1_000_000) // old: SAME key
     expect(pair(a.key, a.wo, -1)).not.toBe(pair(b.key, b.wo, -1)) // new: distinct
+  })
+})
+
+describe('the world-copy unit is the one the call sites pass -- degrees', () => {
+  // These three do not go through `copy()`. A helper can encode the same wrong
+  // premise as the code (it did), so the authority here is the literal value
+  // `renderTileKeys` hands the packer: `worldOffDeg?.[ki]`, where one world copy
+  // is exactly 360. Under the shipped-then-fixed `/ 360_000` step every row
+  // below is red: `Math.round(360 / 360000)` is 0, so +/-360 and 0 pack to the
+  // SAME sub-key and the second and third world copies of every tile are
+  // skipped as duplicates -- `_world-copies-projection-gate` read tilesVisible
+  // 4 where the render enumerates 12.
+  it('+/-360 and 0 -- the three copies a z1.5 viewport shows -- pack to three sub-keys', () => {
+    const subs = [-360, 0, 360].map((deg) => packDrawSubKey(deg, -1))
+    expect(new Set(subs).size).toBe(3)
+    // and the same with a visible key riding along
+    const withVisible = [-360, 0, 360].map((deg) => packDrawSubKey(deg, 4 * 1234567 + 2))
+    expect(new Set(withVisible).size).toBe(3)
+  })
+
+  it('agrees with the numeric branch it replaced on the real world-copy values', () => {
+    // The old `key + worldOff * 1e6` DID separate +/-360 (it never divided by a
+    // step, so it had no unit to get wrong). The new encoding must not be
+    // coarser than the one it replaced on the inputs production actually sends.
+    const key = 21
+    const old = (wo: number) => (wo === 0 ? key : key + wo * 1_000_000)
+    const oldDistinct = new Set([-360, 0, 360].map(old)).size
+    const newDistinct = new Set([-360, 0, 360].map((wo) => pair(key, wo, -1))).size
+    expect(oldDistinct).toBe(3)
+    expect(newDistinct).toBe(oldDistinct)
+  })
+
+  it('a value in the scratch-key unit (x1e3) is LOUD under invariants, not silently folded', () => {
+    // 360000 is what `_worldOffScratchKey` would hand over. Under the degree
+    // step it is copy index 1000, far past the +/-16 bias, so the invariant
+    // check names it. Had the packer stayed on the 360_000 step, this same
+    // input would have been a silent, valid copy index 1 -- and the real
+    // callers' 360 would have been the silent fold. The warning is the
+    // instrument that distinguishes the two units at runtime.
+    const g = globalThis as { __XGIS_INVARIANTS?: boolean }
+    const prev = g.__XGIS_INVARIANTS
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      g.__XGIS_INVARIANTS = true
+      packDrawSubKey(360_000, -1)
+      const messages = warn.mock.calls.map((c) => String(c[0]))
+      expect(messages.some((m) => /world-copy index 1000 exceeds/.test(m))).toBe(true)
+      // and the real unit is quiet
+      warn.mockClear()
+      packDrawSubKey(360, -1)
+      packDrawSubKey(-720, 7)
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      g.__XGIS_INVARIANTS = prev
+      warn.mockRestore()
+    }
   })
 })
 
