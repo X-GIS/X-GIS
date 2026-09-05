@@ -32,8 +32,24 @@
  *  gap the sprite/glyphs check reports), an inline `data` style object (the
  *  resolver reads by PATH, so there is nothing to fetch), and a malformed
  *  entry. `config` warns but still imports — dropping the basemap over a
- *  dropped option switch would be the original bug again. */
-export function emitStyleImports(raw: unknown, lines: string[], warnings: string[]): void {
+ *  dropped option switch would be the original bug again.
+ *
+ *  `layers` (the style's raw `layers` root) is read for one thing: a v3 `slot`
+ *  (#2476). A slot names a position INSIDE the imported stack — the Standard
+ *  style publishes `bottom` / `middle` / `top`, and a `middle` overlay sits
+ *  above the basemap's polygons but below its labels — which the single-block
+ *  emit above cannot express: the slotted layer draws above the whole import,
+ *  silently, the moment the import resolves. Until the interleave is designed
+ *  each slotted layer gets its own warning naming the slot. Only when an import
+ *  is actually emitted — without one there is nothing to position against and
+ *  the field is moot, which keeps the warning from being satisfied by a
+ *  converter that warns about everything. */
+export function emitStyleImports(
+  raw: unknown,
+  lines: string[],
+  warnings: string[],
+  layers?: unknown,
+): void {
   if (raw === undefined || raw === null) return
   if (!Array.isArray(raw)) {
     warnings.push(
@@ -110,5 +126,20 @@ export function emitStyleImports(raw: unknown, lines: string[], warnings: string
   if (importLines.length > 0) {
     lines.push(...importLines)
     lines.push('')
+    warnUnhonouredSlots(layers, warnings)
+  }
+}
+
+/** One warning per layer carrying a `slot` (#2476) — see `emitStyleImports`. */
+function warnUnhonouredSlots(layers: unknown, warnings: string[]): void {
+  if (!Array.isArray(layers)) return
+  for (const l of layers) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l)) continue
+    const slot = (l as { slot?: unknown }).slot
+    if (typeof slot !== 'string' || slot === '') continue
+    const id = (l as { id?: unknown }).id
+    warnings.push(
+      `Layer "${String(id ?? '<unknown>').slice(0, 60)}" — slot "${slot.slice(0, 40)}" is not honoured: the imported style is emitted as one block ahead of this style's layers, so the layer draws above the whole import instead of inside its "${slot.slice(0, 40)}" slot (#2476).`,
+    )
   }
 }

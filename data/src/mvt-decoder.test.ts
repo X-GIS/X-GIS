@@ -282,3 +282,84 @@ describe('decodeMvtTile (round-trip)', () => {
     expect(features.length).toBeGreaterThan(0)
   })
 })
+
+// #2511 — the POINT arm's antimeridian wrap copy. geojsonvt emits every feature
+// again shifted by ±360° into the tile's buffer; for a point that copy sits
+// beyond ±180 and the old clampPos pinned it ONTO the seam — a phantom marker
+// at exactly lon ±180 (rendered in every world copy, on Mercator, the discs and
+// the globe). The copy is dropped; a point within one quantisation unit of the
+// seam (a point ON the antimeridian) is still clamped, never lost.
+describe('decodeMvtTile — antimeridian wrap copy of a POINT (#2511)', () => {
+  const z = 0,
+    x = 0,
+    y = 0
+  it('drops the wrap copy: a point at lon 127 decodes to exactly ONE feature', () => {
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [127, 0] }, properties: {} },
+      ],
+    }
+    // A buffer wide enough (≥ 53° at the world tile) for geojsonvt to emit the
+    // −233° copy — the runtime tiler's root-tile buffer does (probe: lon 100 /
+    // 127 / 170 got a phantom, lon ≤ 60 did not).
+    const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(z, x, y)
+    // Fail-before premise: the tile really carries two point features.
+    expect(tile.features.length).toBe(2)
+    const buf = vtpbf.fromGeojsonVt({ pts: tile }, { extent: 8192 })
+    const features = decodeMvtTile(buf, z, x, y)
+    expect(features).toHaveLength(1)
+    const [lon] = (features[0].geometry as { coordinates: number[] }).coordinates
+    expect(Math.abs(lon - 127)).toBeLessThan(0.1)
+  })
+
+  it('keeps a point ON the antimeridian (both edge copies land at ±180, none dropped)', () => {
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [180, 10] }, properties: {} },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(z, x, y)
+    const buf = vtpbf.fromGeojsonVt({ pts: tile }, { extent: 8192 })
+    const features = decodeMvtTile(buf, z, x, y)
+    expect(features.length).toBeGreaterThan(0)
+    for (const f of features) {
+      const [lon, lat] = (f.geometry as { coordinates: number[] }).coordinates
+      expect(Math.abs(Math.abs(lon) - 180)).toBeLessThan(0.1)
+      expect(Math.abs(lat - 10)).toBeLessThan(0.1)
+    }
+  })
+
+  it('MultiPoint: the wrap copy is dropped member-wise, the in-world members survive', () => {
+    const orig = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: {
+            type: 'MultiPoint',
+            coordinates: [
+              [127, 0],
+              [10, 0],
+            ],
+          },
+          properties: {},
+        },
+      ],
+    }
+    const idx = geojsonVt(orig, { maxZoom: 0, indexMaxZoom: 0, buffer: 2048, extent: 8192 })
+    const tile = idx.getTile(z, x, y)
+    const buf = vtpbf.fromGeojsonVt({ pts: tile }, { extent: 8192 })
+    const features = decodeMvtTile(buf, z, x, y)
+    const lons = features.flatMap((f) =>
+      (f.geometry as { coordinates: number[][] }).coordinates.map((c) => c[0]!),
+    )
+    // Only in-world members: no ±180 phantom, no beyond-planet member.
+    for (const lon of lons) expect(Math.abs(lon)).toBeLessThan(179)
+    expect(lons.some((l) => Math.abs(l - 127) < 0.1)).toBe(true)
+    expect(lons.some((l) => Math.abs(l - 10) < 0.1)).toBe(true)
+  })
+})

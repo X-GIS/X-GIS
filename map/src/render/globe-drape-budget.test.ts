@@ -92,24 +92,29 @@ describe('#2094 globe drape budget — the gate is a pixel error, not a level', 
   })
 })
 
-describe('#2435 — the tiler rule this budget reads, and its z8 peak', () => {
-  it('stops shrinking where a tile edge falls under the absolute 2-degree gate', () => {
-    // The segment angle is the tiler's, not the renderer's: it halves per level
-    // while the edge is over the gate, then STOPS. That is why the direct path's
-    // native-zoom error peaks at z8 instead of falling monotonically, and it is
-    // what #2435 fixes with a per-tile-level granularity.
+describe('#2435 — the tiler rule this budget reads, and the peak it USED to have', () => {
+  it('splits z7-z9 too, so the native-zoom error no longer spikes at z8', () => {
+    // The segment angle is the tiler's, not the renderer's. It used to halve per level
+    // only while the edge was over an ABSOLUTE 2 deg gate and then STOP -- which is why
+    // the direct path's native-zoom error peaked at z8 (1.571 px) instead of falling.
+    // #2435 gave the gate a per-tile-level floor (`tileGateRad`), so z7/z8/z9 split
+    // where they did not before and the sawtooth flattens.
     const deg = (r: number) => (r * 180) / Math.PI
-    expect(deg(tileSegmentAngleRad(8))).toBeCloseTo(1.40625, 4)
-    expect(deg(tileSegmentAngleRad(9))).toBeCloseTo(0.703125, 4)
-    // z6 and z7 are SPLIT down to the same 1.40625 deg, so their error differs only
-    // by the camera scale — the sawtooth.
-    expect(deg(tileSegmentAngleRad(6))).toBeCloseTo(1.40625, 4)
-    expect(deg(tileSegmentAngleRad(7))).toBeCloseTo(1.40625, 4)
+    expect(deg(tileSegmentAngleRad(6))).toBeCloseTo(0.703125, 4)
+    expect(deg(tileSegmentAngleRad(7))).toBeCloseTo(0.703125, 4)
+    expect(deg(tileSegmentAngleRad(8))).toBeCloseTo(0.3515625, 4)
+    expect(deg(tileSegmentAngleRad(9))).toBeCloseTo(0.3515625, 4)
+    // z8 is no longer a local maximum -- the property the whole issue was about.
     const native = [6, 7, 8, 9, 10].map((z) => directChordErrorPx(z, z))
-    expect(native[2]).toBeGreaterThan(native[1]) // z8 worse than z7
-    expect(native[2]).toBeGreaterThan(native[3]) // and worse than z9
-    // The depth cap owns the other end: z0's 360 deg span cannot reach 2 deg in
-    // MAX_TRI_SUBDIVIDE_DEPTH bisections, so it stops at 360/32.
+    expect(native[2]).toBeLessThan(native[1]) // z8 now BETTER than z7
+    expect(native[2]).toBeLessThan(native[3]) // and better than z9
+    // The peak across every level is now the z10 edge the gate's FAST_SKIP clamp
+    // leaves whole, at a quarter of what z8 used to cost.
+    let worst = 0
+    for (let z = 0; z <= 22; z++) worst = Math.max(worst, directChordErrorPx(z, z))
+    expect(worst).toBeCloseTo(0.393, 2)
+    // The depth cap still owns the low end: z0's 360 deg span cannot reach the gate in
+    // MAX_TRI_SUBDIVIDE_DEPTH bisections, so it stops at 360/32 exactly as before.
     expect(deg(tileSegmentAngleRad(0))).toBeCloseTo(11.25, 6)
   })
 })

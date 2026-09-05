@@ -35,10 +35,19 @@ export interface DrawStatsSnapshot {
 
 export class FrameDrawStats {
   // Per-frame draw stats
+  /** #2309 — TWO-LEVEL and fully numeric: outer by tile key, inner by
+   *  `packDrawSubKey(worldOff, visibleKey)`. It was `Map<number | string, …>`
+   *  fed by a template literal on the fallback-clip path; measured on OFM
+   *  Bright z14.7, 99.2% of `markDrawn` calls keyed it with a string. Two
+   *  levels rather than one packed number because both `key` and `visibleKey`
+   *  are tile keys and their product overflows f64 — see draw-dedup-key.ts. */
   private renderedDraws = new Map<
-    number | string,
-    { polyCount: number; lineCount: number; vertexCount: number }
+    number,
+    Map<number, { polyCount: number; lineCount: number; vertexCount: number }>
   >()
+  /** Inner maps are retained across `resetRenderedDraws` and cleared in place —
+   *  the tile set is stable frame to frame, so this trades a bounded, reused
+   *  set of maps for the per-render allocation a fresh outer map would cost. */
   // DIAG: filled in by render() at the start of each show, read by
   // renderTileKeys when pushing per-tile drawIndexed entries into the
   // trace. Both fields are flag-gated and zero-cost when the trace
@@ -99,27 +108,34 @@ export class FrameDrawStats {
   /** Clear the render-scoped dedup map. Called at the start of each
    *  render() (per ShowCommand), NOT per frame. */
   resetRenderedDraws(): void {
-    this.renderedDraws.clear()
+    for (const inner of this.renderedDraws.values()) inner.clear()
   }
 
   /** Hot-loop dedup probe. Returns true when `key` has already been
    *  drawn this render() (skip-if-dup at the call site). Keeping this
    *  at the call site preserves the Korea fill-drop drawKey contract. */
-  hasDrawn(key: number | string): boolean {
-    return this.renderedDraws.has(key)
+  hasDrawn(key: number, sub: number): boolean {
+    const inner = this.renderedDraws.get(key)
+    return inner !== undefined && inner.has(sub)
   }
 
   /** Record one drawn tile: mark the dedup key AND fold the per-frame
    *  accumulator increments in the SAME order/arithmetic as the
    *  original inline block. */
   markDrawn(
-    key: number | string,
+    key: number,
+    sub: number,
     polyIndexCount: number,
     lineIndexCount: number,
     vertexCount: number,
     tz: number | undefined,
   ): void {
-    this.renderedDraws.set(key, {
+    let inner = this.renderedDraws.get(key)
+    if (inner === undefined) {
+      inner = new Map()
+      this.renderedDraws.set(key, inner)
+    }
+    inner.set(sub, {
       polyCount: polyIndexCount,
       lineCount: lineIndexCount,
       vertexCount,
