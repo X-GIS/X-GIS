@@ -382,6 +382,11 @@ const CEILINGS: Record<string, number> = {
   // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
   // is unchanged in length (one predicate call, one extra argument) and both comment
   // blocks were trimmed back to their prior height to keep it at exactly one.
+  // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
+  // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
+  // widened markDrawn argument lists at both sites plus the comments naming what
+  // the encoding preserves; the pack itself and its arithmetic argument were
+  // EXTRACTED to draw-dedup-key.ts rather than parked here.
   // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
   // asking whether `createCommandEncoder` EXISTS and started asking the capability.
   // The one-line optional-call guard becomes a two-line guard, and the three comment
@@ -389,7 +394,13 @@ const CEILINGS: Record<string, number> = {
   // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
   // hands out a copy-scoped encoder), and a reader who believed it would delete the
   // routing guard into a runtime throw. The routing site itself is net zero.
-  'map/src/render/vector-tile-renderer.ts': 5580,
+  // MERGE UNION -> MEASURED: FIFTH collision on this key, and the second on this one
+  // branch. Three disjoint deltas now stack over the 5575 common base: #2094 (+1) and
+  // #2474 (+4) from main, #2309 (+8) here. Every side's number is stale by exactly the
+  // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
+  // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
+  // kept here only as a cross-check that nothing was dropped in the resolution.
+  'map/src/render/vector-tile-renderer.ts': 5588,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1872,7 +1883,17 @@ const CEILINGS: Record<string, number> = {
   // this renderer's, not the store's), so this is not a same-file double delta: the
   // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
   // carried across or computed from either side's.
-  'map/src/render/hillshade-renderer.ts': 747,
+  // 747→754 (#2302, main merge): the flat-branch selector derivation LEFT this file
+  // for flat-tile-selector.ts (cull space == draw space — the inert 'non-mercator'
+  // shim culled equirect/natural_earth tiles in Mercator space while vs_tile drew
+  // them through the display projection: a blank poleward band). The +7 is
+  // call-site width only: the 4-line shim became an 8-argument call prettier
+  // breaks over 10 lines, plus one import and one comment. Same key raised on both
+  // sides (853→747 above on main, 850→857 on this branch), so the merged file
+  // carries both deltas and neither side's number is right (§12) — RE-MEASURED
+  // post-prettier (`wc -l`) on the merged tree.
+  // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/hillshade-renderer.ts': 753,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2221,7 +2242,17 @@ const CEILINGS: Record<string, number> = {
   // key is z/x/y with no url — so the old source's tiles answered for the new one, and
   // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
   // abort on a real URL change.
-  'map/src/render/raster-renderer.ts': 1056,
+  // 1056→1061 (#2302, main merge): the flat-branch selector derivation LEFT this
+  // file for flat-tile-selector.ts (the inert 'non-mercator' shim culled equirect /
+  // natural_earth tiles in Mercator space while vs_tile drew them through the
+  // display projection — a blank poleward band, ~166 px per edge at 60°N). Call-site
+  // width only: a 6-line shim block became an 8-argument call prettier breaks over
+  // 10 lines, plus one import; the misleading two-line shim comment went with the
+  // shim. Same key raised on both sides (1034→1056 above on main, 1034→1038 on this
+  // branch), so the merged file carries both deltas and neither side's number is
+  // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/raster-renderer.ts': 1060,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -2292,7 +2323,14 @@ const CEILINGS: Record<string, number> = {
   // another feature's row. +14 = signature + index loop + the contract comment;
   // irreducible, the table and the resolver must be decided in one place.
   // 1601→1603 (#2089): CompiledTile.tileOriginMerc on both compile returns.
-  'compiler/src/tiler/vector-tiler.ts': 1603,
+  // 1603->1616 (#2435, measured post-prettier): threading `tileZ` to the subdivision
+  // so its angular gate can be per-tile-level. Ten of the thirteen lines are prettier
+  // re-wrapping ONE call site — `tilePolygonPart(...)` crossed the print width at its
+  // ninth argument and became eleven lines. The other three are the parameter and its
+  // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
+  // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
+  // dependency the gate now genuinely has.
+  'compiler/src/tiler/vector-tiler.ts': 1616,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
@@ -2403,7 +2441,11 @@ const CEILINGS: Record<string, number> = {
   // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
   // `label-text-optional` utility; the non-constant form keeps a warning of its
   // own. MEASURED post-prettier.
-  'compiler/src/convert/layers-symbol.ts': 1396,
+  // 1396->1424 (#2331): four warn-and-drop else arms (icon-rotate, text-offset,
+  // text-translate, symbol-placement) where a non-constant form used to vanish
+  // with no diagnostic; each records WHY its form reaches the arm. MEASURED
+  // post-prettier (`git show HEAD:<file> | wc -l`).
+  'compiler/src/convert/layers-symbol.ts': 1424,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to

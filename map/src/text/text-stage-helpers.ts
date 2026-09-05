@@ -614,6 +614,14 @@ export function fillPointGlyphOffsetsWithImages(
   for (let li = 0; li < lines.length; li++) {
     const ln = lines[li]!
     const lastLine = li === lines.length - 1
+    // A sprite anchored ON `ln.end` sits before glyph `ln.end`. When the next
+    // line starts AT that glyph (a KP break) the sprite heads the next line;
+    // when the next line starts LATER — a gap that only a hard newline can
+    // open, because the wrapper's trim stops at an anchored blank (#2446) —
+    // that glyph is the `\n`, so the sprite precedes the newline and is this
+    // line's TRAILING image, exactly as MapLibre's section character is the
+    // last character of the line (#2496). The last line owns its end always.
+    const ownsEnd = lastLine || lines[li + 1]!.start > ln.end
     // #2144 — the plain-text point label now comes through here too, and it is
     // the hot one: skip the per-line `filter` allocation when there is nothing
     // to splice rather than handing every label an empty array per line.
@@ -623,7 +631,7 @@ export function fillPointGlyphOffsetsWithImages(
         : inlineSprites.filter(
             (s) =>
               s.glyphIndex >= ln.start &&
-              (s.glyphIndex < ln.end || (lastLine && s.glyphIndex === ln.end)),
+              (s.glyphIndex < ln.end || (ownsEnd && s.glyphIndex === ln.end)),
           )
     let lineImgAdv = 0
     for (const s of lineSprites) lineImgAdv += s.advancePx

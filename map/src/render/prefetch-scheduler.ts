@@ -25,11 +25,11 @@ import {
   type CameraSnapshot,
 } from '../tile-decision'
 import { visibleTilesFrustumSampled } from '@xgis/data'
-import { Camera } from '../camera'
-import { mercator as mercatorProj } from '@xgis/geo'
+import { Camera, frameCenterLatOf } from '../camera'
 import type { Projection } from '@xgis/geo'
 import { tileKey } from '@xgis/compiler'
-import { speculativeFetchAllowed } from '@xgis/shared'
+import { speculativeFetchAllowed, activeBody } from '@xgis/shared'
+import { flatSelectorProjection } from './flat-tile-selector'
 
 /** Inputs the scheduler reads from the surrounding render loop —
  *  decoupled so VTR's frame-tile cache shape is the only contract. */
@@ -155,12 +155,17 @@ export class PrefetchScheduler {
     futureCam.bearing = camera.bearing
     futureCam.maxZoom = camera.maxZoom
     const targetZ = Math.max(0, Math.min(Math.floor(future.zoom), source.maxLevel))
-    // Same selectorProj derivation as VTR.render — keeps the future-
-    // frustum walk consistent with the live one.
-    const selectorProj: Projection =
-      projType === 0
-        ? mercatorProj
-        : { name: 'non-mercator', forward: mercatorProj.forward, inverse: mercatorProj.inverse }
+    // The projection the GPU draws with (#2302): built at the LIVE camera's
+    // centre — the render loop's proj_params.y/z, read through the same frameCenterLatOf
+    // authority (#2315) — not the future camera's, so the sampled walk culls
+    // in the space vs_tile draws in. `visibleTilesFrustumSampled` is itself
+    // projection-aware (forward/inverse); it only ever lacked the real object.
+    const R = activeBody().sphereR
+    const selectorProj: Projection = flatSelectorProjection(
+      projType,
+      (camera.centerX / R) * (180 / Math.PI),
+      frameCenterLatOf(camera, projType),
+    )
     const futureTiles = visibleTilesFrustumSampled(
       futureCam,
       selectorProj,

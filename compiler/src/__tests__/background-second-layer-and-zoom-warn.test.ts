@@ -62,7 +62,9 @@ describe('background: second layer dropped + minzoom/maxzoom ignored (#2333)', (
     const style = {
       version: 8,
       sources: {},
-      layers: [{ id: 'bg', type: 'background', minzoom: 4, paint: { 'background-color': '#abcdef' } }],
+      layers: [
+        { id: 'bg', type: 'background', minzoom: 4, paint: { 'background-color': '#abcdef' } },
+      ],
     }
     const { code, coverage } = convert(style)
 
