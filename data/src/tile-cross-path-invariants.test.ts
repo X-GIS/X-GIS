@@ -105,49 +105,59 @@ function triangleMeshArea(
 
 describe('cross-path: compileGeoJSONToTiles(batch) ≡ compileSingleTile(on-demand)', () => {
   // Triangle is small + specific enough for a tight equality check.
-  it('produce the same vertex + index + outline buffer byte-for-byte at z=8', () => {
-    const gj = loadGeoJSON(TRIANGLE_PATH)
-    const parts = decomposeFeatures(gj.features)
-    const z = 8
-    // Pick a boundary tile that intersects the triangle's right edge.
-    const n = Math.pow(2, z)
-    const lon = 1.56,
-      lat = 27.4
-    const x = Math.floor(((lon + 180) / 360) * n)
-    const y = Math.floor(
-      ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2) * n,
-    )
+  // Run at TWO levels, and the reason is #2497. At z8 a tile edge is already under
+  // MAX_TRI_DEGREES_FOR_PROJ, so `subdivideChainMM` is a no-op and the two paths agree
+  // whether or not the on-demand path calls it — this rung was passing VACUOUSLY while
+  // `tilePolygonPart` skipped the outline densification entirely, and the sibling rung
+  // that does reach a firing level (z3) only compares "comparable counts", not bytes.
+  // z5 is a level where the gate FIRES, so the byte-for-byte claim is load-bearing
+  // there: reverting the `subdivideChainMM` call in polygon-tiler.ts reddens z5 while
+  // leaving z8 green, which is the whole point of running both.
+  for (const Z of [5, 8]) {
+    it(`produce the same vertex + index + outline buffer byte-for-byte at z=${Z}`, () => {
+      const gj = loadGeoJSON(TRIANGLE_PATH)
+      const parts = decomposeFeatures(gj.features)
+      const z = Z
+      // Pick a boundary tile that intersects the triangle's right edge.
+      const n = Math.pow(2, z)
+      const lon = 1.56,
+        lat = 27.4
+      const x = Math.floor(((lon + 180) / 360) * n)
+      const y = Math.floor(
+        ((1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2) * n,
+      )
 
-    const batchSet = compileGeoJSONToTiles(gj, { minZoom: z, maxZoom: z })
-    const zLevel = batchSet.levels.find((l) => l.zoom === z)
-    expect(zLevel, 'batch did not emit z=8 level').toBeDefined()
-    const batchTile = zLevel!.tiles.get(tileKey(z, x, y))
-    expect(batchTile, `batch did not emit tile ${x}/${y}`).toBeDefined()
+      const batchSet = compileGeoJSONToTiles(gj, { minZoom: z, maxZoom: z })
+      const zLevel = batchSet.levels.find((l) => l.zoom === z)
+      expect(zLevel, 'batch did not emit z=8 level').toBeDefined()
+      const batchTile = zLevel!.tiles.get(tileKey(z, x, y))
+      expect(batchTile, `batch did not emit tile ${x}/${y}`).toBeDefined()
 
-    const singleTile = compileSingleTile(parts, z, x, y, z)
-    expect(singleTile, 'single did not emit tile').not.toBeNull()
+      const singleTile = compileSingleTile(parts, z, x, y, z)
+      expect(singleTile, 'single did not emit tile').not.toBeNull()
 
-    // Vertex counts must agree.
-    expect(
-      singleTile!.vertices.length,
-      `polygon vertices: batch=${batchTile!.vertices.length} single=${singleTile!.vertices.length}`,
-    ).toBe(batchTile!.vertices.length)
-    expect(singleTile!.indices.length, 'polygon indices').toBe(batchTile!.indices.length)
-    expect(singleTile!.outlineVertices.length, 'outline vertices').toBe(
-      batchTile!.outlineVertices.length,
-    )
-    expect(singleTile!.outlineLineIndices.length, 'outline indices').toBe(
-      batchTile!.outlineLineIndices.length,
-    )
+      // Vertex counts must agree.
+      expect(
+        singleTile!.vertices.length,
+        `polygon vertices: batch=${batchTile!.vertices.length} single=${singleTile!.vertices.length}`,
+      ).toBe(batchTile!.vertices.length)
+      expect(singleTile!.indices.length, 'polygon indices').toBe(batchTile!.indices.length)
+      expect(singleTile!.outlineVertices.length, 'outline vertices').toBe(
+        batchTile!.outlineVertices.length,
+      )
+      expect(singleTile!.outlineLineIndices.length, 'outline indices').toBe(
+        batchTile!.outlineLineIndices.length,
+      )
 
-    // Area invariant: same triangle list must sum to the same area.
-    const areaBatch = triangleMeshArea(batchTile!.vertices, batchTile!.indices, batchTile!)
-    const areaSingle = triangleMeshArea(singleTile!.vertices, singleTile!.indices, singleTile!)
-    expect(
-      Math.abs(areaBatch - areaSingle),
-      `polygon area diverged: batch=${areaBatch.toFixed(2)} single=${areaSingle.toFixed(2)}`,
-    ).toBeLessThanOrEqual(1) // 1 m² tolerance in tile-local Mercator
-  })
+      // Area invariant: same triangle list must sum to the same area.
+      const areaBatch = triangleMeshArea(batchTile!.vertices, batchTile!.indices, batchTile!)
+      const areaSingle = triangleMeshArea(singleTile!.vertices, singleTile!.indices, singleTile!)
+      expect(
+        Math.abs(areaBatch - areaSingle),
+        `polygon area diverged: batch=${areaBatch.toFixed(2)} single=${areaSingle.toFixed(2)}`,
+      ).toBeLessThanOrEqual(1) // 1 m² tolerance in tile-local Mercator
+    })
+  }
 
   it('produce comparable vertex counts across real-data tiles at z=3', () => {
     // Broad sanity: for ~60 z=3 tiles emitted from countries.geojson,
