@@ -10,6 +10,8 @@ import type { ShowCommand } from './renderer-types'
 import type { ResolvedShow } from './resolved-show'
 import type { PointRenderer } from './point-renderer'
 import type { BindGroupRegistry } from './bind-group-registry'
+import type { Selection } from './tile-selection-cache'
+import type { Projection } from '@xgis/geo'
 
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).
@@ -158,4 +160,50 @@ export interface LayerSlot {
   readonly sliceLayer: string
   /** This slice's resident GPU tiles. */
   readonly layerCache: Map<number, GPUTile>
+}
+
+/** #2508 phase 2 output — everything a later phase reads about "which tiles":
+ *  the camera's view for this projection, the selector's inputs and the cached
+ *  selection (tile-selection-cache.ts `Selection`, whose field docs are the
+ *  authority for the fields mirrored here). */
+export interface TileSelection {
+  /** The camera's view for this projection (MVP + log-depth constant). */
+  readonly frame: ReturnType<Camera['getViewForProjection']>
+  /** `frame.matrix` — copied into the uniform mirror by the paint phase; the
+   *  camera overwrites the reference on its next call. */
+  readonly mvp: Float32Array
+  /** `resolvedShow.strokeWidth`, read early because the frustum margin needs it. */
+  readonly strokeWidthPx_h: number
+  /** Frustum margin (CSS px) covering stroke width, offset and anchor
+   *  alignment, so an offset stroke near the edge still selects its tile. */
+  readonly offsetMarginPx: number
+  /** The projection the tile selector works in: the display projection for
+   *  projTypes 1–6, Mercator otherwise. */
+  readonly selectorProj: Projection
+  /** `source.maxLevel` — the deepest level the source serves. */
+  readonly maxLevel: number
+  /** Deepest virtual sub-tile level the over-zoom selector may descend to. */
+  readonly maxSubTileZ: number
+  /** `Selection.tiles` — the visible tile list the classification walks. */
+  readonly tiles: Selection['tiles']
+  /** `Selection.neededKeys` — the tile keys the drawn zoom needs this frame … */
+  readonly neededKeys: number[]
+  /** … and the world-copy longitude offsets (degrees) each is drawn at. */
+  readonly worldOffDeg: number[]
+  /** `Selection.protectedAncestors` — selector-injected fallback-only
+   *  ancestors kept resident. */
+  readonly protectedAncestors: number[]
+  /** `Selection.parentAtMaxLevel` — over-zoom: the source-maxLevel parents
+   *  standing in for keys past maxLevel. */
+  readonly parentAtMaxLevel: number[]
+  /** `Selection.archiveAncestor` — per needed key, the nearest ancestor the
+   *  archive index holds. */
+  readonly archiveAncestor: number[]
+  /** `Selection.currentZ` — the drawn (held) integer zoom. */
+  readonly currentZ: number
+  /** `Selection.targetZ` — the camera's target LOD, ahead of `currentZ`
+   *  during a zoom-in readiness hold. */
+  readonly targetZ: number
+  /** `Selection.cameraIdle`. */
+  readonly cameraIdle: boolean
 }
