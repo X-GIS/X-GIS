@@ -22,6 +22,7 @@ import {
   packPerTileFeatureData,
   stableCategoryId,
 } from './feature-data-pack'
+import { FeatureDataBinder } from './feature-data-binder'
 import { CAT_PALETTE_SIZE } from '@xgis/compiler'
 
 const feat = (name: string) => ({ properties: { name } })
@@ -131,10 +132,11 @@ describe('#2439 — the seeded lists cannot outlive the data they came from', ()
   // values entered or left, and any genuinely new value was appended past the
   // end. Wrong colours, silently — the exact failure mode #723 exists for.
   //
-  // Testing it at the derive function is the honest altitude: the binder's job
-  // is only to drop its memo and call this again, and THAT is asserted by
-  // `feature-data-binder`'s own seeding path. What matters here is that the
-  // function is a pure function of the features it is handed.
+  // TWO altitudes, because one is not enough and the first draft of this file
+  // claimed otherwise. It said the binder's memo drop was "asserted by
+  // feature-data-binder's own seeding path" — no such test existed, so the
+  // sentence was doing the job of a gate while asserting nothing. The pure
+  // function is tested first; the binder's memo is tested right after it.
   it('re-deriving from replaced features yields the NEW ranks, not the old ones', () => {
     const first = deriveSeededCategoryOrder(['b', 'c'].map(feat), ['name'])
     const second = deriveSeededCategoryOrder(['a', 'b', 'c'].map(feat), ['name'])
@@ -143,6 +145,45 @@ describe('#2439 — the seeded lists cannot outlive the data they came from', ()
     // 'b' was rank 0 against the old set and is rank 1 against the new one, so a
     // cached list really would repaint every feature. The bug is not hypothetical.
     expect(first.name!.indexOf('b')).not.toBe(second.name!.indexOf('b'))
+  })
+})
+
+describe('#2439 — the binder is the memo, and the memo follows the data', () => {
+  it('the BINDER drops its memo on re-seed, so the lists follow the data', () => {
+    // The memo is what makes the lazy derivation cheap, and therefore also what
+    // could make it WRONG: a cached list that survives a data swap is exactly
+    // the stale-rank bug. `setSeededFeatures` must invalidate it.
+    //
+    // No GPU needed — `setSeededFeatures` / `seededCategoryOrder` touch only
+    // plain fields. The private `latestVariantFields` is injected because it is
+    // normally captured in `buildFeatureDataBuffer`, which does need a device;
+    // the field list is an INPUT to the derivation, not part of what is tested.
+    const binder = new FeatureDataBinder(null as unknown as GPUDevice)
+    ;(binder as unknown as { latestVariantFields: readonly string[] }).latestVariantFields = [
+      'name',
+    ]
+
+    binder.setSeededFeatures([feat('b'), feat('c')])
+    expect(binder.seededCategoryOrder()!.name).toEqual(['b', 'c'])
+
+    binder.setSeededFeatures([feat('a'), feat('b'), feat('c')])
+    // fail-before (memo kept): still ['b','c'], so 'b' stays rank 0 while the
+    // real rank is 1 — every feature repaints against a list that is one value short.
+    expect(binder.seededCategoryOrder()!.name).toEqual(['a', 'b', 'c'])
+
+    // And dropping the features drops the dense index entirely, back to the
+    // hashed fallback rather than to a half-stale list.
+    binder.setSeededFeatures(undefined)
+    expect(binder.seededCategoryOrder()).toBeUndefined()
+  })
+
+  it('no field list yet means no derivation — not an empty one', () => {
+    // `seededCategoryOrder()` is read per pack; before a variant is captured the
+    // honest answer is "unknown", not `{}`. An empty object would read as
+    // "this source has no categorical fields" and silently pin the hash.
+    const binder = new FeatureDataBinder(null as unknown as GPUDevice)
+    binder.setSeededFeatures([feat('a')])
+    expect(binder.seededCategoryOrder()).toBeUndefined()
   })
 })
 
