@@ -12,12 +12,19 @@
 // across the frame, so the longest horizontal run of BRIGHT (stroke-class)
 // pixels must stay far below the frame width. Pre-fix the streaks ran
 // edge-to-edge (run ≈ full width); post-fix the longest legitimate stroke run
-// is a coastline stretch well under 40%. Bright-only thresholding keeps the
-// gate honest about the remaining KNOWN residue — seam-crossing FILL
-// triangles still leave ~1px dark slivers (fill-color, far below the bright
-// threshold); that follow-up stays open on #1496.
+// is a coastline stretch well under 40%.
+//
+// The FILL half of #1496 is the second assertion at the bottom of this test.
+// The same cut also straddles fill triangles, which rasterise as 1–2 px
+// fill-coloured NEEDLES across the frame — invisible to the bright-only run
+// scan above (they are fill-colour, far under its threshold), so they need
+// their own thinness-qualified scan on a chrome-free capture. A fill vertex
+// cannot be degenerated the way a line segment can (it sees only itself), so
+// the discard is fragment-side: polygon-seam-needle.ts.
 
 import { test, expect } from '@playwright/test'
+import { PNG } from 'pngjs'
+import { captureMapFrame } from './helpers/visual'
 
 test('#1496 — no full-frame stroke streaks on oblique_mercator at the repro camera', async ({
   page,
@@ -112,4 +119,38 @@ test('#1496 — no full-frame stroke streaks on oblique_mercator at the repro ca
     m.maxRun,
     `longest horizontal bright run ${m.maxRun}px of ${m.width}px — a seam streak crosses the frame`,
   ).toBeLessThan(Math.floor(m.width * 0.4))
+
+  // #1496 (fill residue) — no NEEDLE rows: a seam-straddling fill triangle
+  // rasterises as a 1–2 px fill-coloured run across the frame. Chrome-free
+  // capture (capture-canvas), then scan for long fill-class runs whose rows
+  // ±2 px are not fill. Pre-fix: 11 such rows at this camera; post-fix: none.
+  const frame = await captureMapFrame(page)
+  const { width: fw, height: fh, data } = PNG.sync.read(frame)
+  const key = (p: number) => (data[p * 4] << 16) | (data[p * 4 + 1] << 8) | data[p * 4 + 2]
+  const hist = new Map<number, number>()
+  for (let p = 0; p < fw * fh; p++) hist.set(key(p), (hist.get(key(p)) ?? 0) + 1)
+  const bg = [...hist.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+  const lum = (p: number) => 0.299 * data[p * 4] + 0.587 * data[p * 4 + 1] + 0.114 * data[p * 4 + 2]
+  const isFill = (p: number) => key(p) !== bg && lum(p) <= 90
+  const needles: string[] = []
+  for (let y = 2; y < fh - 2; y++) {
+    let x = 0
+    while (x < fw) {
+      if (!isFill(y * fw + x)) {
+        x++
+        continue
+      }
+      let x1 = x
+      while (x1 < fw && isFill(y * fw + x1)) x1++
+      const len = x1 - x
+      if (len >= 120) {
+        let thin = 0
+        for (let xx = x; xx < x1; xx++)
+          if (!isFill((y - 2) * fw + xx) && !isFill((y + 2) * fw + xx)) thin++
+        if (thin / len >= 0.8) needles.push(`y=${y} x=${x}..${x1} (${len} px)`)
+      }
+      x = x1
+    }
+  }
+  expect(needles, `seam-straddling fill needles:\n${needles.join('\n')}`).toEqual([])
 })

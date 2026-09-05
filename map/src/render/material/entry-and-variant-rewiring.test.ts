@@ -40,8 +40,12 @@ import {
   pickedModuleWgslId,
   lineGlslId,
   lineWgslId,
+  oitComposeWgslId,
   polygonGlslIds,
   polygonWgslId,
+  wgslOnlyId,
+  OIT_SAMPLE_COUNTS,
+  WGSL_ONLY_FAMILIES,
 } from '../../shaders/baked/ids'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -145,11 +149,12 @@ describe('#1679 inc 6 — G1: the bake is read only where no variant is live', (
     ).toBeGreaterThanOrEqual(4)
     for (const line of seamLines)
       expect(
-        /line(Wgsl|Glsl)Id\(/.test(line),
+        /(line(Wgsl|Glsl)Id|wgslOnlyId)\(/.test(line),
         `line-material.ts passes a baked id DIRECTLY at the seam:\n    ${line.trim()}\n` +
-          `The line keys carry pick and entry tokens but NO variant token, so a ` +
-          `variant-carrying layer would be painted the variant-free stroke. Every id must ` +
-          `come from bakedLineIds(), which returns undefined while a variant is live.`,
+          `The line keys — the split twin's \`wgsl/line-split\` (#2499) included — carry pick ` +
+          `and entry tokens but NO variant token, so a variant-carrying layer would be painted ` +
+          `the variant-free stroke. Every id must come from bakedLineIds(), which returns ` +
+          `undefined while a variant is live.`,
       ).toBe(false)
     expect(
       src,
@@ -272,4 +277,29 @@ describe('#1679 inc 7 — line: every keyed stage resolves in the boot artifact'
             `that grew a stage without a row here falls through silently.`,
         ).toBe(true)
     })
+})
+
+describe('#2499 — the WGSL-only families: every keyed id resolves in the WGSL boot artifact', () => {
+  for (const family of WGSL_ONLY_FAMILIES)
+    for (const pick of [false, true])
+      it(`${family} (pick=${pick}) resolves`, () => {
+        expect(
+          WGSL_BOOT.has(wgslOnlyId(family, pick)),
+          `${wgslOnlyId(family, pick)} is absent from the committed WGSL boot artifact — the ` +
+            `split-bind call site asks for it on every WebGPU boot (pipeline-factory.ts / ` +
+            `line-material.ts) and the store answers 'absent'. Re-bake: bun run build, then ` +
+            `bun run bake:shaders.`,
+        ).toBe(true)
+      })
+  for (const n of OIT_SAMPLE_COUNTS)
+    it(`oit-compose (sampleCount=${n}) resolves`, () => {
+      expect(WGSL_BOOT.has(oitComposeWgslId(n)), oitComposeWgslId(n)).toBe(true)
+    })
+  it('no GLSL key exists for a WGSL-only family (a twin no call site reaches is dead payload)', () => {
+    for (const id of GLSL_BOOT)
+      expect(
+        /^glsl\/(polygon-split|line-split|oit-compose)\//.test(id),
+        `${id} — a GLSL key for a WebGPU-only family`,
+      ).toBe(false)
+  })
 })

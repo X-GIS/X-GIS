@@ -19,7 +19,7 @@ import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
 import { emitLineSplitWgsl } from '../../shaders/dsl/line-split'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
-import { lineGlslId, lineWgslId } from '../../shaders/baked/ids'
+import { lineGlslId, lineWgslId, wgslOnlyId } from '../../shaders/baked/ids'
 import { glslFor, readsWgsl, wgslFor } from './wgsl-for'
 
 /** The translucent-line offscreen ACCUM format — ONE authority for the
@@ -170,7 +170,13 @@ export class LineDraper {
     const cached = pick ? this._splitPickMaterial : this._splitMaterial
     if (cached) return cached
     const m = new Material(this.rhi, {
-      shader: emitLineSplitWgsl(this.variant, pick),
+      // #2499 — through the seam: the baked `wgsl/line-split/{pick,nopick}` for the null
+      // variant (guarded in `bakedLineIds`), the runtime emit for a composer variant.
+      shader: wgslFor(
+        this.rhi,
+        () => emitLineSplitWgsl(this.variant, pick),
+        this.bakedLineIds(pick)?.split,
+      ),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       format: this.format as 'bgra8unorm',
@@ -232,6 +238,8 @@ export class LineDraper {
       fragment: lineGlslId(pick, 'fragment'),
       pattern: lineGlslId(pick, 'fragment-pattern'),
       max: lineGlslId(pick, 'fragment-max'),
+      // #2499 — the split-bind twin's key (`WgslOnlyFamily`), under the same null guard.
+      split: wgslOnlyId('line-split', pick),
     }
   }
 
