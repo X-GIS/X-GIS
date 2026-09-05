@@ -347,6 +347,14 @@ export function convertIconProperties(
   const iconRotate = unwrapLiteralScalar(layout['icon-rotate'])
   if (typeof iconRotate === 'number' && iconRotate !== 0) {
     utils.push(`label-icon-rotate-${fmtSigned(iconRotate)}`)
+  } else if (typeof iconRotate !== 'number' && iconRotate !== undefined && iconRotate !== null) {
+    // #2331 — a data-driven / zoom-interpolated / legacy-stops icon-rotate
+    // used to fall out of this `if` with no diagnostic: the icon rendered
+    // unrotated and nothing said so. Warn + drop, the #1977 convertIconOffset
+    // shape; expression support stays a documented follow-up.
+    warnings.push(
+      `Symbol layer "${layer.id}" — icon-rotate non-constant form not yet supported — value dropped: ${JSON.stringify(layout['icon-rotate']).slice(0, 80)}`,
+    )
   }
 
   // icon-rotation-alignment "map" — icon rotates with the line
@@ -707,6 +715,12 @@ export function convertTextLayoutProperties(
   ) {
     if (offset[0] !== 0) utils.push(`label-offset-x-${fmtSigned(offset[0])}`)
     if (offset[1] !== 0) utils.push(`label-offset-y-${fmtSigned(offset[1])}`)
+  } else if (layout['text-offset'] !== undefined && layout['text-offset'] !== null) {
+    // #2331 — non-constant text-offset (interpolate / legacy stops / a
+    // malformed pair) silently became (0, 0). Warn + drop (#1977 shape).
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-offset non-constant form not yet supported — value dropped: ${JSON.stringify(layout['text-offset']).slice(0, 80)}`,
+    )
   }
   // text-translate (paint) → label-translate-{x,y}-N. Pixel-space
   // offset on top of em-unit text-offset; commonly used to nudge
@@ -723,6 +737,11 @@ export function convertTextLayoutProperties(
   ) {
     if (translate[0] !== 0) utils.push(`label-translate-x-${fmtSigned(translate[0])}`)
     if (translate[1] !== 0) utils.push(`label-translate-y-${fmtSigned(translate[1])}`)
+  } else if (paint['text-translate'] !== undefined && paint['text-translate'] !== null) {
+    // #2331 — same gap for the paint-side pixel nudge.
+    warnings.push(
+      `Symbol layer "${layer.id}" — text-translate non-constant form not yet supported — value dropped: ${JSON.stringify(paint['text-translate']).slice(0, 80)}`,
+    )
   }
   // text-translate-anchor: the v8 default is "map", NOT viewport, so an
   // ABSENT anchor anchors the offset in world space and the runtime
@@ -1248,6 +1267,15 @@ export function convertTextLayoutProperties(
     // 'line-center'. Only flag string values not in the enum.
     warnings.push(
       `Symbol layer "${layer.id}" — symbol-placement "${placement.slice(0, 40)}" is not a valid enum; expected 'point' | 'line' | 'line-center'.`,
+    )
+  } else if (placement !== undefined && placement !== null && typeof placement !== 'string') {
+    // #2331 — a legacy multi-stop `{stops: [[10,'point'],[12,'line']]}` (only
+    // SINGLE-stop functions fold to a constant, zoom-function-fold.ts) or an
+    // expression the step parser above did not recognise reaches here as an
+    // object/array; it used to match no arm and the label stayed point-placed
+    // with no diagnostic. Warn + drop.
+    warnings.push(
+      `Symbol layer "${layer.id}" — symbol-placement non-constant form not yet supported — value dropped (point placement used): ${JSON.stringify(layout['symbol-placement']).slice(0, 80)}`,
     )
   }
 

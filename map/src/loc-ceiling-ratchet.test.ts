@@ -2403,7 +2403,11 @@ const CEILINGS: Record<string, number> = {
   // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
   // `label-text-optional` utility; the non-constant form keeps a warning of its
   // own. MEASURED post-prettier.
-  'compiler/src/convert/layers-symbol.ts': 1396,
+  // 1396->1424 (#2331): four warn-and-drop else arms (icon-rotate, text-offset,
+  // text-translate, symbol-placement) where a non-constant form used to vanish
+  // with no diagnostic; each records WHY its form reaches the arm. MEASURED
+  // post-prettier (`git show HEAD:<file> | wc -l`).
+  'compiler/src/convert/layers-symbol.ts': 1424,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
