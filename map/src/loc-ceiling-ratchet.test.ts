@@ -400,7 +400,7 @@ const CEILINGS: Record<string, number> = {
   // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
   // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
   // kept here only as a cross-check that nothing was dropped in the resolution.
-  // 5588→5928 (#2508, the render() phase spine): `render()` turns into a spine of named
+  // 5588→5826 (#2508, the render() phase spine): `render()` turns into a spine of named
   // phases — six pure consumers of the frame state and five producers of it — each a
   // private method reading `args: RenderArgs` (vector-tile-renderer-types.ts) / `ctx: RenderFrameState`
   // (declared here, typed through the unwrap seam this file owns, so the raw-WebGPU and
@@ -408,7 +408,7 @@ const CEILINGS: Record<string, number> = {
   // interface and eleven doc + signature blocks, not logic; every body is the former render()
   // block with its free variables rebound (AST-rewritten, tsc-checked, frames byte-identical).
   // Re-measured on every increment.
-  'map/src/render/vector-tile-renderer.ts': 5928,
+  'map/src/render/vector-tile-renderer.ts': 5826,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

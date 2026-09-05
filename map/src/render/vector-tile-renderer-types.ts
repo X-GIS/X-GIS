@@ -217,3 +217,29 @@ export interface PaintSlots {
   /** `-1` means the single-line legacy path (see `renderTileKeys`). */
   readonly lineLayerOffsetGap: number
 }
+
+/** #2508 phase 4 output — what the per-tile decision walk collected. */
+export interface TileClassification {
+  /** True once a visible tile resolved through the in-archive path; the
+   *  primary draw is skipped otherwise (every key would `continue`). */
+  readonly anyInArchive: boolean
+  /** Memoised "is this key resident for this slice" probe, shared by the
+   *  classification and the prefetch walks. */
+  readonly sliceCached: (k: number) => boolean
+  /** Parents already pushed as fallbacks this render (scratch set). */
+  readonly parentKeysSet: Set<number>
+  /** Keys the classification found missing; the fetch phase requests them. */
+  readonly toLoad: number[]
+  /** `globalThis.__XGIS_INVARIANTS` snapshot for this call. */
+  readonly _inv: boolean | undefined
+  /** Fallback ancestors for the visible tiles missing their own resident
+   *  tile, index-parallel with `fallbackOffsets` / `fallbackVisibleKeys`.
+   *  NOT readonly: `drawFallback` re-sorts the three in place (deepest z
+   *  last) and the epilogue reads that order. */
+  fallbackKeys: number[]
+  /** World-copy offsets parallel to `fallbackKeys`. */
+  fallbackOffsets: number[]
+  /** The visible tile each fallback push fills for (its bounds become the
+   *  per-tile clip mask), parallel to `fallbackKeys`. */
+  fallbackVisibleKeys: number[]
+}

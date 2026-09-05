@@ -74,11 +74,7 @@ import {
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
-import {
-  TileSelectionCache,
-  sliceOutsideDataZoomRange,
-  type Selection,
-} from './tile-selection-cache'
+import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
@@ -116,6 +112,7 @@ import type {
   LayerSlot,
   TileSelection,
   PaintSlots,
+  TileClassification,
 } from './vector-tile-renderer-types'
 import type { DrawStatsSnapshot } from './frame-draw-stats'
 import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
@@ -222,79 +219,11 @@ export type UnwrappedRenderPass = Extract<
  *  `render()` local crossing a phase boundary; the set is MEASURED by the
  *  free-variable analysis of each extracted phase, not designed — a field is
  *  here because a later phase reads it. */
-export interface RenderFrameState {
-  /** The WebGPU pass encoder unwrapped from `args.rhiPass`. */
-  readonly pass: UnwrappedRenderPass
-  /** Slice identity (`computeSliceKey`): the source layer + filter hash the
-   *  worker emitted this layer's tiles under. */
-  readonly sliceLayer: string
-  /** This slice's resident GPU tiles. */
-  readonly layerCache: Map<number, GPUTile>
-  /** Selection output (tile-selection-cache.ts): the tile keys the drawn zoom
-   *  needs this frame … */
-  readonly neededKeys: number[]
-  /** … and the world-copy longitude offsets (degrees) each is drawn at. */
-  readonly worldOffDeg: number[]
-  /** Layer-slot uniform offsets the paint phase allocated; `-1` for the gap
-   *  offset means the single-line legacy path (see `renderTileKeys`). */
-  readonly lineLayerOffset: number
-  readonly lineLayerOffsetGap: number
-  /** True once a visible tile resolved through the in-archive path; the
-   *  primary draw is skipped otherwise (every key would `continue`). */
-  readonly anyInArchive: boolean
-  /** `globalThis.__XGIS_INVARIANTS` snapshot for this call. */
-  readonly _inv: boolean | undefined
-  /** Fallback ancestors for the visible tiles missing their own resident
-   *  tile, index-parallel with `fallbackOffsets` / `fallbackVisibleKeys`.
-   *  NOT readonly: `drawFallback` re-sorts the three in place (deepest z
-   *  last) and the epilogue reads that order. */
-  fallbackKeys: number[]
-  /** `Selection.protectedAncestors` — selector-injected fallback-only
-   *  ancestors kept resident. */
-  readonly protectedAncestors: number[]
-  /** World-copy offsets parallel to `fallbackKeys`. */
-  fallbackOffsets: number[]
-  /** The visible tile each fallback push fills for (its bounds become the
-   *  per-tile clip mask), parallel to `fallbackKeys`. */
-  fallbackVisibleKeys: number[]
-  /** The tile catalogue this renderer draws — the one `render()`'s no-data guard
-   *  proved present. Carried on the frame state rather than re-read as
-   *  `this.source` inside a phase: the guard's narrowing does not survive the move,
-   *  and a phase must not re-guard a case its caller already excluded. */
-  readonly source: TileCatalog
-  /** `Selection.parentAtMaxLevel` — over-zoom: the source-maxLevel parents
-   *  standing in for keys past maxLevel. */
-  readonly parentAtMaxLevel: number[]
-  /** `Selection.archiveAncestor` — per needed key, the nearest ancestor the
-   *  archive index holds. */
-  readonly archiveAncestor: number[]
-  /** Keys the classification found missing; the fetch phase requests them. */
-  readonly toLoad: number[]
-  /** Memoised "is this key resident for this slice" probe, shared by the
-   *  classification and the prefetch walks. */
-  readonly sliceCached: (k: number) => boolean
-  /** Parents already pushed as fallbacks this render (scratch set). */
-  readonly parentKeysSet: Set<number>
-  /** `Selection.currentZ` — the drawn (held) integer zoom. */
-  readonly currentZ: number
-  /** `Selection.targetZ` — the camera's target LOD, ahead of `currentZ`
-   *  during a zoom-in readiness hold. */
-  readonly targetZ: number
-  /** The camera's view for this projection (MVP + log-depth constant). */
-  readonly frame: ReturnType<Camera['getViewForProjection']>
-  /** Deepest virtual sub-tile level the over-zoom selector may descend to. */
-  readonly maxSubTileZ: number
-  /** Frustum margin (CSS px) covering stroke width, offset and anchor
-   *  alignment, so an offset stroke near the edge still selects its tile. */
-  readonly offsetMarginPx: number
-  /** The projection the tile selector works in: the display projection for
-   *  projTypes 1–6, Mercator otherwise. */
-  readonly selectorProj: Projection
-  /** `Selection.cameraIdle`. */
-  readonly cameraIdle: boolean
-  /** `Selection.tiles` — the visible tile list the classification walked. */
-  readonly tiles: Selection['tiles']
-}
+export type RenderFrameState = GuardedFrame &
+  LayerSlot &
+  TileSelection &
+  PaintSlots &
+  TileClassification
 
 export class VectorTileRenderer {
   /** Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
@@ -2841,15 +2770,273 @@ export class VectorTileRenderer {
     }
     const guard = this.guardAndUnwrapPass(args)
     if (!guard) return
-    const pass = guard.pass
-
     const slot = this.resolveLayerSlot(args, guard)
     if (!slot) return
-    const { sliceLayer, layerCache } = slot
     const sel = this.selectVisibleTiles(args, guard, slot)
     if (!sel) return
+
+    const paint = this.resolvePaintUniforms(args, sel)
+    const cls = this.classifyTiles(guard, slot, sel)
+    // #2508 — the frame state the phases below consume (RenderFrameState).
+    const ctx: RenderFrameState = { ...guard, ...slot, ...sel, ...paint, ...cls }
+
+    this.requestAndPrefetch(args, ctx)
+    this.resolveDrapeRouting(args, ctx)
+    this.drawPrimary(args, ctx)
+    this.drawFallback(args, ctx)
+    this.prefetchTiers(args, ctx)
+    this.trackStableSetAndPoints(args, ctx)
+  }
+
+  /** #2508 phase 0 — the frame guards, and the two things they PROVE. Routes an
+   *  immediate-execution device to its own arm (#1046), unwraps the chain's neutral
+   *  pass handle ONCE, and refuses a source with no data / no index. Returns `null`
+   *  when this call draws nothing — `render()` stops there — and otherwise the
+   *  unwrapped pass plus the source it just proved present, because the narrowing
+   *  that proof gives `this.source` does not survive the phase boundary. */
+  private guardAndUnwrapPass(args: RenderArgs): GuardedFrame | null {
+    // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
+    // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
+    if (this.rhi.caps.executionModel === 'immediate' && args.phase !== 'oit-fill') {
+      this._drawStats.recordMissedTiles(
+        renderImmediateArm(this, {
+          rhiPass: args.rhiPass,
+          camera: args.camera,
+          projType: args.projType,
+          projCenterLon: args.projCenterLon,
+          projCenterLat: args.projCenterLat,
+          canvasWidth: args.canvasWidth,
+          canvasHeight: args.canvasHeight,
+          dpr: args.dpr,
+          show: args.show,
+          resolvedShow: args.resolvedShow,
+          phase: args.phase,
+          translucentBucket: args.translucentBucket,
+          pointRenderer: args.pointRenderer,
+        }),
+      )
+      return null
+    }
+    // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
+    // tile plumbing is still gap-blocked native debt (drape/points take RHI).
+    const pass = unwrapWebGpuPass(args.rhiPass) as GPURenderPassEncoder
+    if (!this.source?.hasData()) return null
+    const index = this.source.getIndex()
+    if (!index) return null
+    return { pass, source: this.source }
+  }
+
+  /** #2508 phase 1 — resolve this layer's slot: the slice key the worker emitted
+   *  the tiles under and the resident-tile cache for it, plus the per-frame
+   *  bookkeeping that hangs off the slot (frame counter, draw-order trace, uniform
+   *  ring). Returns `null` for the variant-pipeline guard — a show whose bind-group
+   *  layout is not the base one and that has neither a feature group nor variant
+   *  fields draws nothing this call, and `render()` stops there. */
+  private resolveLayerSlot(args: RenderArgs, guard: GuardedFrame): LayerSlot | null {
+    // Sliced-source slot for this layer. PMTiles emits per-show slices when
+    // the source-attach config carries `showSlices` — the slice key combines
+    // `sourceLayer` with a stable hash of the layer's `filter:` AST so xgis
+    // layers sharing a source layer but differing in filter get DIFFERENT
+    // slices. Without filter / for legacy sources (XGVT-binary,
+    // GeoJSON-runtime, no-filter PMTiles), sliceKey collapses to plain
+    // `sourceLayer` ('' for single-layer sources) — back-compat. Inline
+    // GeoJSON shows lack explicit `sourceLayer`; the tilingPool emits MVT
+    // bytes with `_layer = sourceName`, so VTR looks up by `targetName` —
+    // without this fallback, filtered shows (filter_gdp) computed
+    // sliceLayer='__hash' vs the worker's 'countries__hash' and tiles
+    // dropped silently. show-source-maps.ts mirrors the fallback.
+    const effectiveSourceLayer = args.show.sourceLayer || args.show.targetName || ''
+    const sliceLayer = computeSliceKey(effectiveSourceLayer, args.show.filterExpr?.ast ?? null)
+    // DIAG: capture per-frame draw order so the cross-tile depth
+    // question ("is buildings actually drawn LAST?") is answered from
+    // runtime behaviour rather than architectural reading. The Map's
+    // beginFrame resets `__xgisDrawOrderTrace = []`; map.ts dumps it
+    // after the frame and clears the flag. Production paths stay
+    // silent unless the flag is set.
+    if (typeof window !== 'undefined') {
+      const trace = (
+        window as unknown as {
+          __xgisDrawOrderTrace?: Array<{
+            seq: number
+            slice: string
+            phase: string
+            extrude: string
+            tileKey?: number
+            isFill?: boolean
+          }>
+        }
+      ).__xgisDrawOrderTrace
+      if (trace) {
+        // Stash for the per-tile drawIndexed entries renderTileKeys
+        // is about to push.
+        this._drawStats.setTrace(sliceLayer, args.phase)
+      } else {
+        this._drawStats.setTrace(null, null)
+      }
+    }
+    // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
+    // become pure numeric Map.has/get — no composite-string alloc per
+    // tile. Use getOrCreate so the reference stays valid even if this
+    // is the first frame to upload a tile for this slice layer
+    // (otherwise mid-render compileTileOnDemand → uploadTile would
+    // create a fresh inner Map and our captured `undefined` would go
+    // stale). Empty inner Maps for unused layers cost only a Map
+    // allocation, no per-tile work.
+    const layerCache = this.getOrCreateLayerCache(sliceLayer)
+
+    // Variant-pipeline guard. Feature-buffer variants (match()/interpolate())
+    // need `featureBindGroupLayout`, but `tileBgFeature` is built lazily
+    // AFTER the async geojson worker compile resolves (map.ts:1082-1084);
+    // between registration and resolution only `tileBgDefault` exists, and
+    // drawing produced "Bind group layout ... does not match" validation
+    // errors (~5/frame on fixture_picking). Skip until a feature bg is
+    // ready — the layer pops in late, like any tile-load gap. Skip ONLY
+    // when none is available ANYWHERE: GeoJSON satisfies this with the
+    // source-level `this.tileBgFeature`; MVT/PMTiles with per-tile
+    // `cached.featureBindGroup`s built at upload. Returning unconditionally
+    // on `!this.tileBgFeature` was the OFM Bright school-fill bug — the MVT
+    // path leaves it null by design (empty PropertyTable), so the landuse
+    // `class` match variant never reached its tile loop; per-tile groups
+    // are tested inside the loop.
+    if (
+      args.bindGroupLayout !== this._bindGroups.baseLayout() &&
+      !this._bindGroups.featureGroup() &&
+      this._featureBinder.latestVariantFieldsLength() === 0
+    )
+      return null
+
+    this.frameCount++
+    // Pass the FRAME-level id (set by beginFrame from map's
+    // _frameCount, monotonic across render-loop ticks). The
+    // catalog short-circuits if the same id has already reset
+    // its budget this frame — without this, every ShowCommand
+    // sharing the source would reset the counters → each layer
+    // would get a fresh sub-tile budget → 4× more sub-tile clips
+    // per frame than intended → GPU buffer creation burst →
+    // Chrome STATUS_BREAKPOINT at over-zoom.
+    guard.source.resetCompileBudget(this.currentFrameId)
+    this._drawStats.resetRenderedDraws()
+    // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
+    // resets it to 0. Multiple render() calls within one frame
+    // (one per ShowCommand for sliced sources like PMTiles 4-layer)
+    // ACCUMULATE into the same counter so map.ts's
+    // hasPendingSourceWork sees the true frame total. Resetting
+    // here would have clobbered earlier layers' miss counts and
+    // falsely signaled "no work pending" when only the last
+    // layer happened to converge first.
+    this.ensureUniformRing()
+    return { sliceLayer, layerCache }
+  }
+
+  /** #2508 phase 2 — select the visible tiles: the camera's view for this
+   *  projection, the selector projection and frustum margins, then the cached
+   *  selection (hysteresis-held drawn zoom, world copies, over-zoom parents,
+   *  protected ancestors). Everything a later phase reads about "which tiles" is
+   *  fixed here. Returns `null` when the selection cache has nothing for this
+   *  layer (the source's data-zoom range excludes it) — `render()` stops there. */
+  private selectVisibleTiles(
+    args: RenderArgs,
+    guard: GuardedFrame,
+    slot: LayerSlot,
+  ): TileSelection | null {
+    // Promote pending uploads first — they're strictly older than anything
+    // this frame's tile walk will queue, so servicing them now keeps the
+    // "filling in" order correct (near-z-to-current first).
+    this.drainPendingUploads()
+
+    const maxLevel = guard.source.maxLevel
+    // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
+    // to match the camera's universal maxZoom, not the old maxLevel+6.
+    // (Still used downstream by the Tier-2 prefetch gate below; the
+    // selection method recomputes its own copy internally.)
+    const maxSubTileZ = 22
+
+    // Hoisted: visibleTilesFrustum inputs needed both by the selection
+    // collaborator (passed into selectForFrame) and by the Tier-2
+    // prefetch gate further down. Cheap pure derivations; safe to
+    // compute once up here.
+    const strokeOffsetPx_h = Math.abs(args.show.strokeOffset ?? 0)
+    // Stroke width — zoom × time already collapsed by the bucket
+    // scheduler. ResolvedShow is the SOLE per-frame source.
+    const strokeWidthPx_h = args.resolvedShow.strokeWidth
+    const alignDeltaPx_h =
+      args.show.strokeAlign === 'inset' || args.show.strokeAlign === 'outset'
+        ? strokeWidthPx_h / 2
+        : 0
+    const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
+    // Projection-aware tile selection: the flat selectors project tile
+    // corners through THIS projection's forward (relative to the projected
+    // centre), matching the GPU vertex path, so equirect / natural_earth
+    // select the right tiles at the poles + dateline (previously they used
+    // Mercator's forward and went blank at high latitude — user report
+    // project_projection_issues_2026_05_18 #4). Built with the same centre
+    // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
+    // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
+    // selectorProj is unused — fall back to mercatorProj (globe has no
+    // flat-projection entry in the registry).
+    const selectorProj: Projection =
+      args.projType >= 1 && args.projType <= 6
+        ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, args.projCenterLon, args.projCenterLat)
+        : mercatorProj
+
+    // Per-frame visible-tile selection + zoom-transition hysteresis +
+    // readiness gate. The selection collaborator owns the cross-frame
+    // hysteresis/readiness state + the per-frame tile memo + the
+    // selection scratch arrays; it touches ZERO GPU state. It returns
+    // null when this layer's currentZ falls below the slice minzoom
+    // (the per-MVT-layer cull that used to `return` inline here) —
+    // skip the render() for this ShowCommand in that case.
+    const sel = this._selection.selectForFrame(
+      args.camera,
+      args.projType,
+      args.projCenterLon,
+      args.projCenterLat,
+      args.canvasWidth,
+      args.canvasHeight,
+      args.dpr,
+      this.currentFrameId,
+      guard.source,
+      slot.sliceLayer,
+      offsetMarginPx,
+      maxLevel,
+      this._drawStats,
+    )
+    if (!sel) return null
     const {
+      tiles,
+      neededKeys,
+      protectedAncestors,
+      worldOffDeg,
+      parentAtMaxLevel,
+      archiveAncestor,
+      currentZ,
+      targetZ,
+      cameraIdle,
+    } = sel
+
+    if (currentZ !== this.lastZoom) this.lastZoom = currentZ
+    this.currentCameraZoom = args.camera.zoom
+
+    // Display-projection MVP: `getViewForProjection` returns the flat 2D
+    // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
+    // for 3D / globe (and, currently, every other projType). The polygon /
+    // line VS branches on `proj_params.x` to consume the matching matrix
+    // (flat → `project(abs)−cam` 2D-plane metres; 3D → ECEF-RTC). The
+    // returned `matrix` reference is overwritten by the next call from the
+    // same camera — copy into the uniform mirror immediately. Both paths
+    // return the same far-plane in non-globe mode, so `logDepthFc` matches.
+    const frame = args.camera.getViewForProjection(
+      args.projType,
+      args.canvasWidth,
+      args.canvasHeight,
+      args.dpr,
+    )
+    const mvp = frame.matrix
+    this.logDepthFc = frame.logDepthFc
+    return {
+      mvp,
       frame,
+      strokeWidthPx_h,
       tiles,
       neededKeys,
       maxLevel,
@@ -2863,320 +3050,7 @@ export class VectorTileRenderer {
       selectorProj,
       offsetMarginPx,
       protectedAncestors,
-    } = sel
-
-    const paint = this.resolvePaintUniforms(args, sel)
-    const { lineLayerOffset, lineLayerOffsetGap } = paint
-
-    // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
-    // already computed (and cached frame-wide) above. Per-tile loop
-    // and prefetch loop both read those arrays directly — no need
-    // for a per-render `closestExistingByI` mirror, since the
-    // sliceLayer-independent ancestor result is identical across
-    // every same-frame ShowCommand render.
-    const fallbackKeys: number[] = []
-    const fallbackOffsets: number[] = []
-    /** Parallel to `fallbackKeys`: the visible-tile key each fallback
-     *  push is FILLING FOR. When a parent z=11 ancestor renders as
-     *  fallback for a missing visible z=15 child, the per-tile clip
-     *  mask uniform must clip the parent's geometry to the visible
-     *  z=15 child's mercator bounds — otherwise the parent's data
-     *  spills over neighboring children (some primary-loaded with
-     *  their OWN buildings, causing cross-z depth fights). */
-    const fallbackVisibleKeys: number[] = []
-    const toLoad: number[] = []
-    // Memoize sliceCached lookups across the per-tile + prefetch loops
-    // within this render. Adjacent visible tiles share ancestors so
-    // without memo the same parent key gets queried per layer slot.
-    // hasEntryInIndex is no longer memoized at render scope — the
-    // frame cache populate runs the only memoized walk now (see
-    // archiveAncestor[] above), and the few remaining direct
-    // hasEntryInIndex calls in the per-tile loop hit case-6 paths
-    // that fire at most once per tile per render.
-    const sliceCachedMemo = this._scratchSliceCachedMemo
-    sliceCachedMemo.clear()
-    const sliceCached = (k: number): boolean => {
-      let v = sliceCachedMemo.get(k)
-      if (v === undefined) {
-        v = layerCache.has(k) || guard.source!.hasTileData(k, sliceLayer)
-        sliceCachedMemo.set(k, v)
-      }
-      return v
     }
-
-    // parentKeysSet is the prefetch queue. Hoisted ahead of the
-    // main per-tile loop so the over-zoom fast path can populate it
-    // for parents that need fetching, instead of duplicating the
-    // queue logic.
-    const parentKeysSet = this._scratchParentKeysSet
-    parentKeysSet.clear()
-    // Tracks whether ANY visible tile went through the in-archive
-    // (normal) path. When false, the prefetch loop + primary
-    // renderTileKeys are pure no-ops (every neededKey is over-zoom
-    // so gpuCache.get returns null for all of them) and we can
-    // skip them entirely.
-    let anyInArchive = false
-
-    // Per-tile decision tracker. Each visible tile resolves to one of:
-    //   'primary'         — layerCache hit, will draw
-    //   'parent-fallback' — cached ancestor pushed to fallbackKeys
-    //   'child-fallback'  — cached child (deck.gl best-available) pushed
-    //   'overzoom-parent' — over-zoom fast path pushed parent at maxLevel
-    //   'queued-no-fb'    — uploadTile queued, NO fallback (= BUG)
-    //   'drop-empty-slice'— sliced source layer has no features here
-    //   'drop-no-archive' — tile not in archive index, no ancestor either
-    //   'pending'         — fetch issued, no fallback found (cold area)
-    //
-    // Always populated (lightweight: array of constant-string refs).
-    // The invariant-throw at end of loop is gated on
-    // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
-    // (exposed via `getLastDecisionCounts()`) is always available.
-    // Scratch reuse + length reset; prior values are overwritten inside
-    // the loop below (decision always assigned per tile).
-    const _tileDecisions = this._scratchTileDecisions
-    _tileDecisions.length = tiles.length
-    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
-
-    // Per-frame slice memo: 81 shows in bright resolve to ~13 distinct
-    // slices, so without this we run classifyTile 81× per visible tile
-    // even though the inputs only vary by sliceLayer. See field decl.
-    let sliceMemo = this._frameClassifyMemo.get(sliceLayer)
-    if (!sliceMemo) {
-      sliceMemo = new Map()
-      this._frameClassifyMemo.set(sliceLayer, sliceMemo)
-    }
-
-    for (let i = 0; i < tiles.length; i++) {
-      const key = neededKeys[i]
-
-      // ── OVER-ZOOM FAST PATH ──
-      // For tiles past archive maxLevel, every layer renders the
-      // parent at maxLevel as camera-magnified fallback (no sub-tile
-      // gen — Mapbox-style). Skip the entire per-tile body: no
-      // gpuCache.has chain, no hasTileData chain, no parent-walk
-      // (we know the destination is exactly maxLevel ancestor), no
-      // compileTileOnDemand call. Just walk up by tileKeyParent and
-      // push the fallback. Profiled: dropped per-tile loop time on
-      // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
-      // Per-tile resolution via the pure `classifyTile` classifier
-      // (engine/tile-decision.ts). The classifier returns ONE explicit
-      // TileDecision; the side-effect application below pushes fallbackKeys,
-      // requests uploads, and bumps counters per the decision kind.
-      let decision: TileDecision | undefined = sliceMemo.get(key)
-      if (!decision) {
-        decision = classifyTile({
-          visible: tiles[i],
-          visibleKey: key,
-          maxLevel,
-          parentAtMaxLevel: parentAtMaxLevel[i],
-          archiveAncestor: archiveAncestor[i],
-          layerCache,
-          hasSliceInCatalog: sliceCached,
-          // Non-empty predicate: single-layer GeoJSON stores an empty
-          // placeholder (zero geometry) under the default '' slice for
-          // tiles with no features; hasTileData reports it as cached.
-          // Report it as NOT-cached here so the empty default slice
-          // classifies as drop-empty instead of queued-with-fallback.
-          hasNonEmptySliceInCatalog: (k) => {
-            if (layerCache.has(k)) return true
-            const d = guard.source!.getTileData(k, sliceLayer)
-            return (
-              !!d &&
-              (d.vertices.length > 0 ||
-                d.lineVertices.length > 0 ||
-                (d.pointVertices?.length ?? 0) > 0 ||
-                !!d.fullCover)
-            )
-          },
-          hasAnySliceInCatalog: (k) => guard.source!.hasTileData(k),
-          hasEntryInIndex: (k) => guard.source!.hasEntryInIndex(k),
-          // Consecutive fetch failures on record for the key — a `pending`
-          // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
-          // what lets the consumer below stop counting it as a missed tile.
-          failureCount: (k) => guard.source!.getTileFailureCount(k),
-          sliceLayer,
-          // Coherence: any peer slice for this tile still queued blocks
-          // primary in this layer too, so all consumers transition
-          // together. See UploadCoordinator.isHeld (cap-deferred held set).
-          hasOtherSliceHeld: this._uploads.isHeld(key),
-        })
-        sliceMemo.set(key, decision)
-      }
-      _tileDecisions[i] =
-        decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
-
-      if (decision.kind === 'overzoom-parent') {
-        fallbackKeys.push(decision.parentKey)
-        fallbackOffsets.push(worldOffDeg[i])
-        fallbackVisibleKeys.push(key)
-        if (decision.parentNeedsFetch) {
-          parentKeysSet.add(decision.parentKey)
-        } else if (decision.parentNeedsUpload) {
-          const data = guard.source.getTileData(decision.parentKey, sliceLayer)
-          perfMarkStart('vtr.upload')
-          if (data) this.doUploadTile(decision.parentKey, data, sliceLayer)
-          perfMarkEnd('vtr.upload')
-        }
-        continue
-      }
-
-      anyInArchive = true
-      if (decision.kind === 'primary') continue
-      if (decision.kind === 'drop-empty-slice') continue
-      if (decision.kind === 'drop-no-archive') {
-        const t = tiles[i]
-        const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
-        if (maxLevel > 0 && !this._drawStats.hasWarned(wKey)) {
-          this._drawStats.markWarned(wKey)
-          xlog.warn(
-            `[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${maxLevel}).`,
-          )
-        }
-        continue
-      }
-
-      // queued-with-fallback wraps an inner fallback decision. The
-      // outer kind triggers a uploadTile (queued behind the per-
-      // frame budget); the inner is the visual fill until the
-      // upload lands. Unwrap and process the inner uniformly.
-      let inner: TileDecision = decision
-      if (decision.kind === 'queued-with-fallback') {
-        this.uploadTile(key, guard.source.getTileData(key, sliceLayer)!, sliceLayer)
-        inner = decision.fallback
-      }
-
-      if (inner.kind === 'parent-fallback') {
-        if (inner.parentNeedsUpload) {
-          // Ancestor upload BYPASSES the per-frame budget. Fallback
-          // parents are the visual safety net for every visible
-          // tile currently uncached on GPU. Without the immediate
-          // upload, renderTileKeys finds no gpuCache entry and the
-          // tile draws as a black hole. (See _high-pitch-flicker
-          // regression case.)
-          perfMarkStart('vtr.upload')
-          this.doUploadTile(
-            inner.parentKey,
-            guard.source.getTileData(inner.parentKey, sliceLayer)!,
-            sliceLayer,
-          )
-          perfMarkEnd('vtr.upload')
-        }
-        fallbackKeys.push(inner.parentKey)
-        fallbackOffsets.push(worldOffDeg[i])
-        fallbackVisibleKeys.push(key)
-        // Advance the fetch frontier — without this push the parent
-        // fallback covers the area visually forever but the proper-z
-        // tile is never fetched, so the rendering stalls one z
-        // coarser than the source supports. catalog.requestTiles
-        // dedupes against `loadingTiles` so repeat pushes per frame
-        // collapse to one in-flight fetch.
-        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
-      } else if (inner.kind === 'child-fallback') {
-        for (const ck of inner.childrenNeedingUpload) {
-          const childData = guard.source.getTileData(ck, sliceLayer)
-          perfMarkStart('vtr.upload')
-          if (childData) this.doUploadTile(ck, childData, sliceLayer)
-          perfMarkEnd('vtr.upload')
-        }
-        for (const ck of inner.childKeys) {
-          fallbackKeys.push(ck)
-          fallbackOffsets.push(worldOffDeg[i])
-          fallbackVisibleKeys.push(key)
-        }
-        // Fetch-frontier push, mirror of the parent-fallback arm above
-        // (#2013): covered is not loaded — without this the stretched
-        // descendants satisfy every frame and the visible z is never
-        // requested. requestTiles dedupes against loadingTiles.
-        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
-      } else if (inner.kind === 'pending') {
-        if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
-        // a row. It is still pushed to toLoad above (the source owns retry
-        // timing), but it stops counting as a missed tile so the render loop
-        // can finally idle instead of hot-looping on totalMissed>0 forever.
-        // A key still INSIDE that budget deliberately keeps counting: this
-        // counter is the only VT keep-warm signal, and the retry runs only
-        // from a rendered frame, so suppressing it during the backoff would
-        // strand a transient failure until the next user interaction.
-        if (!inner.terminal) this._drawStats.recordMissedTile()
-      }
-    }
-
-    // ── Production invariant — visibility/fallback consistency check ──
-    // Fires if any visible tile reached the end of the per-tile loop
-    // with `queued-no-fb` (the white-flash bug class) or with no decision
-    // at all (un-tracked code path). Pending +
-    // intentional drops are allowed; primary / fallback resolutions
-    // are allowed. The bug pattern is: catalog has data, primary
-    // can't draw (queued upload), AND no per-tile fallback was
-    // pushed. Unlike the global fallbackKeys check, this is per-tile
-    // so a fallback pushed by a NEIGHBOURING tile (sharing the same
-    // ancestor) does NOT mask the bug here.
-    if (_inv) {
-      for (let i = 0; i < tiles.length; i++) {
-        const d = _tileDecisions[i]
-        if (d === 'queued-no-fb' || d === undefined) {
-          const t = tiles[i]
-          throw new Error(
-            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${sliceLayer}" ` +
-              `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile ` +
-              `without a primary draw or a per-tile fallback push. This is the bug ` +
-              `class fixed by commit 49d4801 (uploadTile queue + continue skipping ` +
-              `the parent-walk fallback).`,
-          )
-        }
-      }
-    }
-
-    // Always-on per-decision summary for inspector / console diagnosis.
-    // Reset to start fresh each render() call so consumers see THIS
-    // layer's distribution. Tilly with `getLastDecisionCounts()`.
-    this._drawStats.clearDecisionCounts()
-    for (let i = 0; i < tiles.length; i++) {
-      const d = _tileDecisions[i] ?? 'untracked'
-      this._drawStats.incDecisionCount(d)
-    }
-
-    // #2508 — the frame state the phases below consume (RenderFrameState).
-    const ctx: RenderFrameState = {
-      pass,
-      sliceLayer,
-      layerCache,
-      neededKeys,
-      worldOffDeg,
-      lineLayerOffset,
-      lineLayerOffsetGap,
-      anyInArchive,
-      protectedAncestors,
-      _inv,
-      parentKeysSet,
-      fallbackVisibleKeys,
-      sliceCached,
-      fallbackKeys,
-      toLoad,
-      fallbackOffsets,
-      archiveAncestor,
-      frame,
-      tiles,
-      source: guard.source,
-      cameraIdle,
-      targetZ,
-      selectorProj,
-      parentAtMaxLevel,
-      offsetMarginPx,
-      currentZ,
-      maxSubTileZ,
-    }
-
-    this.requestAndPrefetch(args, ctx)
-    this.resolveDrapeRouting(args, ctx)
-    this.drawPrimary(args, ctx)
-
-    this.drawFallback(args, ctx)
-
-    this.prefetchTiers(args, ctx)
-
-    this.trackStableSetAndPoints(args, ctx)
   }
 
   /** #2508 phase 3 — resolve the paint into uniforms: every zoom × time
@@ -3606,471 +3480,292 @@ export class VectorTileRenderer {
     return { lineLayerOffset, lineLayerOffsetGap }
   }
 
-  /** #2508 phase 2 — select the visible tiles: the camera's view for this
-   *  projection, the selector projection and frustum margins, then the cached
-   *  selection (hysteresis-held drawn zoom, world copies, over-zoom parents,
-   *  protected ancestors). Everything a later phase reads about "which tiles" is
-   *  fixed here. Returns `null` when the selection cache has nothing for this
-   *  layer (the source's data-zoom range excludes it) — `render()` stops there. */
-  private selectVisibleTiles(
-    args: RenderArgs,
+  /** #2508 phase 4 — classify every visible tile into exactly one decision
+   *  (direct, parent fallback, over-zoom parent, dropped, pending …), collecting
+   *  the fallback pushes, the keys to request and the per-decision counts the
+   *  inspector reads. The production invariant (`__XGIS_INVARIANTS`) runs here. */
+  private classifyTiles(
     guard: GuardedFrame,
     slot: LayerSlot,
-  ): TileSelection | null {
-    // Promote pending uploads first — they're strictly older than anything
-    // this frame's tile walk will queue, so servicing them now keeps the
-    // "filling in" order correct (near-z-to-current first).
-    this.drainPendingUploads()
-
-    const maxLevel = guard.source.maxLevel
-    // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
-    // to match the camera's universal maxZoom, not the old maxLevel+6.
-    // (Still used downstream by the Tier-2 prefetch gate below; the
-    // selection method recomputes its own copy internally.)
-    const maxSubTileZ = 22
-
-    // Hoisted: visibleTilesFrustum inputs needed both by the selection
-    // collaborator (passed into selectForFrame) and by the Tier-2
-    // prefetch gate further down. Cheap pure derivations; safe to
-    // compute once up here.
-    const strokeOffsetPx_h = Math.abs(args.show.strokeOffset ?? 0)
-    // Stroke width — zoom × time already collapsed by the bucket
-    // scheduler. ResolvedShow is the SOLE per-frame source.
-    const strokeWidthPx_h = args.resolvedShow.strokeWidth
-    const alignDeltaPx_h =
-      args.show.strokeAlign === 'inset' || args.show.strokeAlign === 'outset'
-        ? strokeWidthPx_h / 2
-        : 0
-    const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
-    // Projection-aware tile selection: the flat selectors project tile
-    // corners through THIS projection's forward (relative to the projected
-    // centre), matching the GPU vertex path, so equirect / natural_earth
-    // select the right tiles at the poles + dateline (previously they used
-    // Mercator's forward and went blank at high latitude — user report
-    // project_projection_issues_2026_05_18 #4). Built with the same centre
-    // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
-    // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
-    // selectorProj is unused — fall back to mercatorProj (globe has no
-    // flat-projection entry in the registry).
-    const selectorProj: Projection =
-      args.projType >= 1 && args.projType <= 6
-        ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, args.projCenterLon, args.projCenterLat)
-        : mercatorProj
-
-    // Per-frame visible-tile selection + zoom-transition hysteresis +
-    // readiness gate. The selection collaborator owns the cross-frame
-    // hysteresis/readiness state + the per-frame tile memo + the
-    // selection scratch arrays; it touches ZERO GPU state. It returns
-    // null when this layer's currentZ falls below the slice minzoom
-    // (the per-MVT-layer cull that used to `return` inline here) —
-    // skip the render() for this ShowCommand in that case.
-    const sel = this._selection.selectForFrame(
-      args.camera,
-      args.projType,
-      args.projCenterLon,
-      args.projCenterLat,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-      this.currentFrameId,
-      guard.source,
-      slot.sliceLayer,
-      offsetMarginPx,
-      maxLevel,
-      this._drawStats,
-    )
-    if (!sel) return null
-    const {
-      tiles,
-      neededKeys,
-      protectedAncestors,
-      worldOffDeg,
-      parentAtMaxLevel,
-      archiveAncestor,
-      currentZ,
-      targetZ,
-      cameraIdle,
-    } = sel
-
-    if (currentZ !== this.lastZoom) this.lastZoom = currentZ
-    this.currentCameraZoom = args.camera.zoom
-
-    // Display-projection MVP: `getViewForProjection` returns the flat 2D
-    // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
-    // for 3D / globe (and, currently, every other projType). The polygon /
-    // line VS branches on `proj_params.x` to consume the matching matrix
-    // (flat → `project(abs)−cam` 2D-plane metres; 3D → ECEF-RTC). The
-    // returned `matrix` reference is overwritten by the next call from the
-    // same camera — copy into the uniform mirror immediately. Both paths
-    // return the same far-plane in non-globe mode, so `logDepthFc` matches.
-    const frame = args.camera.getViewForProjection(
-      args.projType,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-    )
-    const mvp = frame.matrix
-    this.logDepthFc = frame.logDepthFc
-    return {
-      mvp,
-      frame,
-      strokeWidthPx_h,
-      tiles,
-      neededKeys,
-      maxLevel,
-      parentAtMaxLevel,
-      archiveAncestor,
-      worldOffDeg,
-      currentZ,
-      targetZ,
-      cameraIdle,
-      maxSubTileZ,
-      selectorProj,
-      offsetMarginPx,
-      protectedAncestors,
+    sel: TileSelection,
+  ): TileClassification {
+    // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
+    // already computed (and cached frame-wide) above. Per-tile loop
+    // and prefetch loop both read those arrays directly — no need
+    // for a per-render `closestExistingByI` mirror, since the
+    // sliceLayer-independent ancestor result is identical across
+    // every same-frame ShowCommand render.
+    const fallbackKeys: number[] = []
+    const fallbackOffsets: number[] = []
+    /** Parallel to `fallbackKeys`: the visible-tile key each fallback
+     *  push is FILLING FOR. When a parent z=11 ancestor renders as
+     *  fallback for a missing visible z=15 child, the per-tile clip
+     *  mask uniform must clip the parent's geometry to the visible
+     *  z=15 child's mercator bounds — otherwise the parent's data
+     *  spills over neighboring children (some primary-loaded with
+     *  their OWN buildings, causing cross-z depth fights). */
+    const fallbackVisibleKeys: number[] = []
+    const toLoad: number[] = []
+    // Memoize sliceCached lookups across the per-tile + prefetch loops
+    // within this render. Adjacent visible tiles share ancestors so
+    // without memo the same parent key gets queried per layer slot.
+    // hasEntryInIndex is no longer memoized at render scope — the
+    // frame cache populate runs the only memoized walk now (see
+    // archiveAncestor[] above), and the few remaining direct
+    // hasEntryInIndex calls in the per-tile loop hit case-6 paths
+    // that fire at most once per tile per render.
+    const sliceCachedMemo = this._scratchSliceCachedMemo
+    sliceCachedMemo.clear()
+    const sliceCached = (k: number): boolean => {
+      let v = sliceCachedMemo.get(k)
+      if (v === undefined) {
+        v = slot.layerCache.has(k) || guard.source!.hasTileData(k, slot.sliceLayer)
+        sliceCachedMemo.set(k, v)
+      }
+      return v
     }
-  }
 
-  /** #2508 phase 1 — resolve this layer's slot: the slice key the worker emitted
-   *  the tiles under and the resident-tile cache for it, plus the per-frame
-   *  bookkeeping that hangs off the slot (frame counter, draw-order trace, uniform
-   *  ring). Returns `null` for the variant-pipeline guard — a show whose bind-group
-   *  layout is not the base one and that has neither a feature group nor variant
-   *  fields draws nothing this call, and `render()` stops there. */
-  private resolveLayerSlot(args: RenderArgs, guard: GuardedFrame): LayerSlot | null {
-    // Sliced-source slot for this layer. PMTiles emits per-show slices when
-    // the source-attach config carries `showSlices` — the slice key combines
-    // `sourceLayer` with a stable hash of the layer's `filter:` AST so xgis
-    // layers sharing a source layer but differing in filter get DIFFERENT
-    // slices. Without filter / for legacy sources (XGVT-binary,
-    // GeoJSON-runtime, no-filter PMTiles), sliceKey collapses to plain
-    // `sourceLayer` ('' for single-layer sources) — back-compat. Inline
-    // GeoJSON shows lack explicit `sourceLayer`; the tilingPool emits MVT
-    // bytes with `_layer = sourceName`, so VTR looks up by `targetName` —
-    // without this fallback, filtered shows (filter_gdp) computed
-    // sliceLayer='__hash' vs the worker's 'countries__hash' and tiles
-    // dropped silently. show-source-maps.ts mirrors the fallback.
-    const effectiveSourceLayer = args.show.sourceLayer || args.show.targetName || ''
-    const sliceLayer = computeSliceKey(effectiveSourceLayer, args.show.filterExpr?.ast ?? null)
-    // DIAG: capture per-frame draw order so the cross-tile depth
-    // question ("is buildings actually drawn LAST?") is answered from
-    // runtime behaviour rather than architectural reading. The Map's
-    // beginFrame resets `__xgisDrawOrderTrace = []`; map.ts dumps it
-    // after the frame and clears the flag. Production paths stay
-    // silent unless the flag is set.
-    if (typeof window !== 'undefined') {
-      const trace = (
-        window as unknown as {
-          __xgisDrawOrderTrace?: Array<{
-            seq: number
-            slice: string
-            phase: string
-            extrude: string
-            tileKey?: number
-            isFill?: boolean
-          }>
+    // parentKeysSet is the prefetch queue. Hoisted ahead of the
+    // main per-tile loop so the over-zoom fast path can populate it
+    // for parents that need fetching, instead of duplicating the
+    // queue logic.
+    const parentKeysSet = this._scratchParentKeysSet
+    parentKeysSet.clear()
+    // Tracks whether ANY visible tile went through the in-archive
+    // (normal) path. When false, the prefetch loop + primary
+    // renderTileKeys are pure no-ops (every neededKey is over-zoom
+    // so gpuCache.get returns null for all of them) and we can
+    // skip them entirely.
+    let anyInArchive = false
+
+    // Per-tile decision tracker. Each visible tile resolves to one of:
+    //   'primary'         — layerCache hit, will draw
+    //   'parent-fallback' — cached ancestor pushed to fallbackKeys
+    //   'child-fallback'  — cached child (deck.gl best-available) pushed
+    //   'overzoom-parent' — over-zoom fast path pushed parent at maxLevel
+    //   'queued-no-fb'    — uploadTile queued, NO fallback (= BUG)
+    //   'drop-empty-slice'— sliced source layer has no features here
+    //   'drop-no-archive' — tile not in archive index, no ancestor either
+    //   'pending'         — fetch issued, no fallback found (cold area)
+    //
+    // Always populated (lightweight: array of constant-string refs).
+    // The invariant-throw at end of loop is gated on
+    // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
+    // (exposed via `getLastDecisionCounts()`) is always available.
+    // Scratch reuse + length reset; prior values are overwritten inside
+    // the loop below (decision always assigned per tile).
+    const _tileDecisions = this._scratchTileDecisions
+    _tileDecisions.length = sel.tiles.length
+    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
+
+    // Per-frame slice memo: 81 shows in bright resolve to ~13 distinct
+    // slices, so without this we run classifyTile 81× per visible tile
+    // even though the inputs only vary by sliceLayer. See field decl.
+    let sliceMemo = this._frameClassifyMemo.get(slot.sliceLayer)
+    if (!sliceMemo) {
+      sliceMemo = new Map()
+      this._frameClassifyMemo.set(slot.sliceLayer, sliceMemo)
+    }
+
+    for (let i = 0; i < sel.tiles.length; i++) {
+      const key = sel.neededKeys[i]
+
+      // ── OVER-ZOOM FAST PATH ──
+      // For tiles past archive maxLevel, every layer renders the
+      // parent at maxLevel as camera-magnified fallback (no sub-tile
+      // gen — Mapbox-style). Skip the entire per-tile body: no
+      // gpuCache.has chain, no hasTileData chain, no parent-walk
+      // (we know the destination is exactly maxLevel ancestor), no
+      // compileTileOnDemand call. Just walk up by tileKeyParent and
+      // push the fallback. Profiled: dropped per-tile loop time on
+      // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
+      // Per-tile resolution via the pure `classifyTile` classifier
+      // (engine/tile-decision.ts). The classifier returns ONE explicit
+      // TileDecision; the side-effect application below pushes fallbackKeys,
+      // requests uploads, and bumps counters per the decision kind.
+      let decision: TileDecision | undefined = sliceMemo.get(key)
+      if (!decision) {
+        decision = classifyTile({
+          visible: sel.tiles[i],
+          visibleKey: key,
+          maxLevel: sel.maxLevel,
+          parentAtMaxLevel: sel.parentAtMaxLevel[i],
+          archiveAncestor: sel.archiveAncestor[i],
+          layerCache: slot.layerCache,
+          hasSliceInCatalog: sliceCached,
+          // Non-empty predicate: single-layer GeoJSON stores an empty
+          // placeholder (zero geometry) under the default '' slice for
+          // tiles with no features; hasTileData reports it as cached.
+          // Report it as NOT-cached here so the empty default slice
+          // classifies as drop-empty instead of queued-with-fallback.
+          hasNonEmptySliceInCatalog: (k) => {
+            if (slot.layerCache.has(k)) return true
+            const d = guard.source!.getTileData(k, slot.sliceLayer)
+            return (
+              !!d &&
+              (d.vertices.length > 0 ||
+                d.lineVertices.length > 0 ||
+                (d.pointVertices?.length ?? 0) > 0 ||
+                !!d.fullCover)
+            )
+          },
+          hasAnySliceInCatalog: (k) => guard.source!.hasTileData(k),
+          hasEntryInIndex: (k) => guard.source!.hasEntryInIndex(k),
+          // Consecutive fetch failures on record for the key — a `pending`
+          // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
+          // what lets the consumer below stop counting it as a missed tile.
+          failureCount: (k) => guard.source!.getTileFailureCount(k),
+          sliceLayer: slot.sliceLayer,
+          // Coherence: any peer slice for this tile still queued blocks
+          // primary in this layer too, so all consumers transition
+          // together. See UploadCoordinator.isHeld (cap-deferred held set).
+          hasOtherSliceHeld: this._uploads.isHeld(key),
+        })
+        sliceMemo.set(key, decision)
+      }
+      _tileDecisions[i] =
+        decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
+
+      if (decision.kind === 'overzoom-parent') {
+        fallbackKeys.push(decision.parentKey)
+        fallbackOffsets.push(sel.worldOffDeg[i])
+        fallbackVisibleKeys.push(key)
+        if (decision.parentNeedsFetch) {
+          parentKeysSet.add(decision.parentKey)
+        } else if (decision.parentNeedsUpload) {
+          const data = guard.source.getTileData(decision.parentKey, slot.sliceLayer)
+          perfMarkStart('vtr.upload')
+          if (data) this.doUploadTile(decision.parentKey, data, slot.sliceLayer)
+          perfMarkEnd('vtr.upload')
         }
-      ).__xgisDrawOrderTrace
-      if (trace) {
-        // Stash for the per-tile drawIndexed entries renderTileKeys
-        // is about to push.
-        this._drawStats.setTrace(sliceLayer, args.phase)
-      } else {
-        this._drawStats.setTrace(null, null)
+        continue
+      }
+
+      anyInArchive = true
+      if (decision.kind === 'primary') continue
+      if (decision.kind === 'drop-empty-slice') continue
+      if (decision.kind === 'drop-no-archive') {
+        const t = sel.tiles[i]
+        const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
+        if (sel.maxLevel > 0 && !this._drawStats.hasWarned(wKey)) {
+          this._drawStats.markWarned(wKey)
+          xlog.warn(
+            `[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${sel.maxLevel}).`,
+          )
+        }
+        continue
+      }
+
+      // queued-with-fallback wraps an inner fallback decision. The
+      // outer kind triggers a uploadTile (queued behind the per-
+      // frame budget); the inner is the visual fill until the
+      // upload lands. Unwrap and process the inner uniformly.
+      let inner: TileDecision = decision
+      if (decision.kind === 'queued-with-fallback') {
+        this.uploadTile(key, guard.source.getTileData(key, slot.sliceLayer)!, slot.sliceLayer)
+        inner = decision.fallback
+      }
+
+      if (inner.kind === 'parent-fallback') {
+        if (inner.parentNeedsUpload) {
+          // Ancestor upload BYPASSES the per-frame budget. Fallback
+          // parents are the visual safety net for every visible
+          // tile currently uncached on GPU. Without the immediate
+          // upload, renderTileKeys finds no gpuCache entry and the
+          // tile draws as a black hole. (See _high-pitch-flicker
+          // regression case.)
+          perfMarkStart('vtr.upload')
+          this.doUploadTile(
+            inner.parentKey,
+            guard.source.getTileData(inner.parentKey, slot.sliceLayer)!,
+            slot.sliceLayer,
+          )
+          perfMarkEnd('vtr.upload')
+        }
+        fallbackKeys.push(inner.parentKey)
+        fallbackOffsets.push(sel.worldOffDeg[i])
+        fallbackVisibleKeys.push(key)
+        // Advance the fetch frontier — without this push the parent
+        // fallback covers the area visually forever but the proper-z
+        // tile is never fetched, so the rendering stalls one z
+        // coarser than the source supports. catalog.requestTiles
+        // dedupes against `loadingTiles` so repeat pushes per frame
+        // collapse to one in-flight fetch.
+        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
+      } else if (inner.kind === 'child-fallback') {
+        for (const ck of inner.childrenNeedingUpload) {
+          const childData = guard.source.getTileData(ck, slot.sliceLayer)
+          perfMarkStart('vtr.upload')
+          if (childData) this.doUploadTile(ck, childData, slot.sliceLayer)
+          perfMarkEnd('vtr.upload')
+        }
+        for (const ck of inner.childKeys) {
+          fallbackKeys.push(ck)
+          fallbackOffsets.push(sel.worldOffDeg[i])
+          fallbackVisibleKeys.push(key)
+        }
+        // Fetch-frontier push, mirror of the parent-fallback arm above
+        // (#2013): covered is not loaded — without this the stretched
+        // descendants satisfy every frame and the visible z is never
+        // requested. requestTiles dedupes against loadingTiles.
+        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
+      } else if (inner.kind === 'pending') {
+        if (inner.requestKey !== null) toLoad.push(inner.requestKey)
+        // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
+        // a row. It is still pushed to toLoad above (the source owns retry
+        // timing), but it stops counting as a missed tile so the render loop
+        // can finally idle instead of hot-looping on totalMissed>0 forever.
+        // A key still INSIDE that budget deliberately keeps counting: this
+        // counter is the only VT keep-warm signal, and the retry runs only
+        // from a rendered frame, so suppressing it during the backoff would
+        // strand a transient failure until the next user interaction.
+        if (!inner.terminal) this._drawStats.recordMissedTile()
       }
     }
-    // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
-    // become pure numeric Map.has/get — no composite-string alloc per
-    // tile. Use getOrCreate so the reference stays valid even if this
-    // is the first frame to upload a tile for this slice layer
-    // (otherwise mid-render compileTileOnDemand → uploadTile would
-    // create a fresh inner Map and our captured `undefined` would go
-    // stale). Empty inner Maps for unused layers cost only a Map
-    // allocation, no per-tile work.
-    const layerCache = this.getOrCreateLayerCache(sliceLayer)
 
-    // Variant-pipeline guard. Feature-buffer variants (match()/interpolate())
-    // need `featureBindGroupLayout`, but `tileBgFeature` is built lazily
-    // AFTER the async geojson worker compile resolves (map.ts:1082-1084);
-    // between registration and resolution only `tileBgDefault` exists, and
-    // drawing produced "Bind group layout ... does not match" validation
-    // errors (~5/frame on fixture_picking). Skip until a feature bg is
-    // ready — the layer pops in late, like any tile-load gap. Skip ONLY
-    // when none is available ANYWHERE: GeoJSON satisfies this with the
-    // source-level `this.tileBgFeature`; MVT/PMTiles with per-tile
-    // `cached.featureBindGroup`s built at upload. Returning unconditionally
-    // on `!this.tileBgFeature` was the OFM Bright school-fill bug — the MVT
-    // path leaves it null by design (empty PropertyTable), so the landuse
-    // `class` match variant never reached its tile loop; per-tile groups
-    // are tested inside the loop.
-    if (
-      args.bindGroupLayout !== this._bindGroups.baseLayout() &&
-      !this._bindGroups.featureGroup() &&
-      this._featureBinder.latestVariantFieldsLength() === 0
-    )
-      return null
-
-    this.frameCount++
-    // Pass the FRAME-level id (set by beginFrame from map's
-    // _frameCount, monotonic across render-loop ticks). The
-    // catalog short-circuits if the same id has already reset
-    // its budget this frame — without this, every ShowCommand
-    // sharing the source would reset the counters → each layer
-    // would get a fresh sub-tile budget → 4× more sub-tile clips
-    // per frame than intended → GPU buffer creation burst →
-    // Chrome STATUS_BREAKPOINT at over-zoom.
-    guard.source.resetCompileBudget(this.currentFrameId)
-    this._drawStats.resetRenderedDraws()
-    // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
-    // resets it to 0. Multiple render() calls within one frame
-    // (one per ShowCommand for sliced sources like PMTiles 4-layer)
-    // ACCUMULATE into the same counter so map.ts's
-    // hasPendingSourceWork sees the true frame total. Resetting
-    // here would have clobbered earlier layers' miss counts and
-    // falsely signaled "no work pending" when only the last
-    // layer happened to converge first.
-    this.ensureUniformRing()
-    return { sliceLayer, layerCache }
-  }
-
-  /** #2508 phase 0 — the frame guards, and the two things they PROVE. Routes an
-   *  immediate-execution device to its own arm (#1046), unwraps the chain's neutral
-   *  pass handle ONCE, and refuses a source with no data / no index. Returns `null`
-   *  when this call draws nothing — `render()` stops there — and otherwise the
-   *  unwrapped pass plus the source it just proved present, because the narrowing
-   *  that proof gives `this.source` does not survive the phase boundary. */
-  private guardAndUnwrapPass(args: RenderArgs): GuardedFrame | null {
-    // #1046 Inc-E2 — immediate arm (vtr-immediate-arm.ts): *Rhi entries on an
-    // immediate device; 'oit-fill' stays native (P6). MISSING → keep-warm gate.
-    if (this.rhi.caps.executionModel === 'immediate' && args.phase !== 'oit-fill') {
-      this._drawStats.recordMissedTiles(
-        renderImmediateArm(this, {
-          rhiPass: args.rhiPass,
-          camera: args.camera,
-          projType: args.projType,
-          projCenterLon: args.projCenterLon,
-          projCenterLat: args.projCenterLat,
-          canvasWidth: args.canvasWidth,
-          canvasHeight: args.canvasHeight,
-          dpr: args.dpr,
-          show: args.show,
-          resolvedShow: args.resolvedShow,
-          phase: args.phase,
-          translucentBucket: args.translucentBucket,
-          pointRenderer: args.pointRenderer,
-        }),
-      )
-      return null
-    }
-    // Inc-2d boundary: unwrap the chain's neutral handle ONCE — the internal
-    // tile plumbing is still gap-blocked native debt (drape/points take RHI).
-    const pass = unwrapWebGpuPass(args.rhiPass) as GPURenderPassEncoder
-    if (!this.source?.hasData()) return null
-    const index = this.source.getIndex()
-    if (!index) return null
-    return { pass, source: this.source }
-  }
-
-  /** #2508 phase 9 — prefetch tiers: the adjacent tiles (idle only, every 10th
-   *  frame — the memo is what makes that per frame rather than per slice,
-   *  #2309) and the zoom-direction next LOD while the camera is mid-zoom
-   *  (#2013 — deliberately not idle-gated). Consumes only. */
-  private prefetchTiers(args: RenderArgs, ctx: RenderFrameState): void {
-    // Prefetch adjacent + next zoom (every 10th frame, idle only).
-    // While the camera is actively moving the prefetched edge tiles
-    // are likely to be invalidated within ~100 ms of being fetched
-    // — wasted bandwidth + GPU upload pressure on mobile.
-    // #2309 — the memo is what makes "every 10th frame" true; a bare
-    // modulo fires per SLICE, not per frame (see _prefetchMemoFrame).
-    if (this._prefetchMemoFrame !== this.currentFrameId) {
-      this._prefetchMemoFrame = this.currentFrameId
-      this._adjacentPrefetchZooms.clear()
-      this._zoomPrefetchZooms.clear()
-    }
-    if (
-      ctx.cameraIdle &&
-      this.currentFrameId % 10 === 0 &&
-      !this._adjacentPrefetchZooms.has(ctx.currentZ)
-    ) {
-      this._adjacentPrefetchZooms.add(ctx.currentZ)
-      ctx.source.prefetchAdjacent(ctx.tiles, ctx.currentZ)
-    }
-
-    // Tier 2: zoom-direction prefetch.
-    //
-    // When the user is mid-zoom toward an integer boundary, request
-    // the *next* LOD's visible tiles in the background so they're
-    // GPU-resident by the time `currentZ` actually advances. Without
-    // this, the integer boundary still produces a brief
-    // missed-tile spike + parent-fallback period — visible as a
-    // detail "pop" on the user's screen even with floor-based
-    // currentZ + hysteresis (Tier 1).
-    //
-    // Triggers (only one fires per frame, never both — direction is
-    // mutually exclusive at any instant):
-    //   * Zoom-in:   camera.zoom > currentZ + 0.5 → prefetch z=cz+1
-    //   * Zoom-out:  camera.zoom < currentZ      → prefetch z=cz-1
-    //                (cz - 0.3 is the hysteresis switch threshold,
-    //                so once user crosses below cz, the prior LOD
-    //                is what they're heading toward)
-    //
-    // Throttled to every 6 frames (~100 ms) to keep the selector walk
-    // amortised — the prefetch doesn't need per-frame freshness because
-    // the camera typically moves slowly relative to the rAF cadence.
-    //
-    // #2013 — deliberately NOT gated on cameraIdle (unlike prefetchAdjacent
-    // above). The idle gate made this block unreachable in the exact case it
-    // exists for: during an ACTIVE zoom the camera moves every frame, so
-    // cameraIdle stayed false for the whole gesture and every integer
-    // boundary was crossed with zero next-LOD tiles in flight — the
-    // measured fallback fan-out + blank-tile window on zoom-out (osm_style
-    // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
-    // the camera is provably heading toward (same centre, next LOD), so the
-    // pan-invalidation rationale behind the adjacent-prefetch idle gate does
-    // not apply; cost is bounded by the 6-frame throttle, the isCached
-    // filter, and the fetch queue's own concurrency cap.
-    // #2309 — that throttle is the modulo AND the per-frame memo. The
-    // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
-    // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
-    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(ctx.currentZ)) {
-      this._zoomPrefetchZooms.add(ctx.currentZ)
-      // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
-      // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
-      // execution order/throttle is byte-identical to the prior inline block.
-      const prefetchKeys = computeZoomDirectionPrefetchKeys({
-        camera: args.camera,
-        cameraZoom: args.camera.zoom,
-        currentZ: ctx.currentZ,
-        maxSubTileZ: ctx.maxSubTileZ,
-        projType: args.projType,
-        globeMode: args.camera.globeMode,
-        centerX: args.camera.centerX,
-        centerY: args.camera.centerY,
-        pitch: args.camera.pitch ?? 0,
-        bearing: args.camera.bearing ?? 0,
-        canvasWidth: args.canvasWidth,
-        canvasHeight: args.canvasHeight,
-        dpr: args.dpr,
-        selectorProj: ctx.selectorProj,
-        offsetMarginPx: ctx.offsetMarginPx,
-        isCached: ctx.sliceCached,
-        // #1393/#2013 — probe the same far-field notch the drawing selection
-        // runs at, so the prefetch set matches the renderer's actual demand.
-        farTargetBoost: adaptiveFarLodBoost(),
-      })
-      if (prefetchKeys.length > 0) {
-        ctx.source.prefetchTiles(prefetchKeys)
+    // ── Production invariant — visibility/fallback consistency check ──
+    // Fires if any visible tile reached the end of the per-tile loop
+    // with `queued-no-fb` (the white-flash bug class) or with no decision
+    // at all (un-tracked code path). Pending +
+    // intentional drops are allowed; primary / fallback resolutions
+    // are allowed. The bug pattern is: catalog has data, primary
+    // can't draw (queued upload), AND no per-tile fallback was
+    // pushed. Unlike the global fallbackKeys check, this is per-tile
+    // so a fallback pushed by a NEIGHBOURING tile (sharing the same
+    // ancestor) does NOT mask the bug here.
+    if (_inv) {
+      for (let i = 0; i < sel.tiles.length; i++) {
+        const d = _tileDecisions[i]
+        if (d === 'queued-no-fb' || d === undefined) {
+          const t = sel.tiles[i]
+          throw new Error(
+            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${slot.sliceLayer}" ` +
+              `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile ` +
+              `without a primary draw or a per-tile fallback push. This is the bug ` +
+              `class fixed by commit 49d4801 (uploadTile queue + continue skipping ` +
+              `the parent-walk fallback).`,
+          )
+        }
       }
     }
-  }
 
-  /** #2508 phase 6 — decide the drape routing for this layer on the curved
-   *  projections: whether a bake is available at all (a capability, #2474),
-   *  whether the fills and — separately — the strokes drape or draw direct
-   *  (the #2094 pixel budget against the held / target LOD), and the globe
-   *  virtual overzoom dispatch past the source's maxLevel (#2024). Writes the
-   *  drape fields the draw phases read (`_drapeGlobeFills`, `_drapeStrokes`,
-   *  `_bakeStrokesGated`, `_bakeDpr`, `_drape`); reads no later state. */
-  private resolveDrapeRouting(args: RenderArgs, ctx: RenderFrameState): void {
-    // #599 I2 — globe/sphere vector great-circle drape. On a curved-surface route a
-    // flat fill triangle spanning a big arc projects as a CHORD under the sphere, so
-    // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
-    // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
-    // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
-    // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
-    // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
-    // THIS CAMERA, so anything a source can serve renders direct. Needs an out-of-frame
-    // pass + NON-extruded + CONSTANT fill; `__XGIS_DISABLE_VECTOR_DRAPE` draws direct.
-    this._bakeDpr = args.dpr
-    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS: the bake
-    // records an offscreen pass on an out-of-frame encoder — a CAPABILITY (#2474).
-    const bakeAvailable =
-      this.rhi.caps.outOfFramePasses &&
-      this.currentExtrudeMode === 'none' &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
-    // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
-    // half rather than inside it. Same escape hatches (the force flag holds the
-    // drape for A/B arms; the disable flag forces every direct draw), same
-    // bake availability and same held-vs-camera LOD reading.
-    this._bakeStrokesGated =
-      this._bakeStrokeActive &&
-      bakesVectorDrape(args.projType, args.camera.globeMode) &&
-      (drapesStrokesAtSelectionZ(Math.max(ctx.currentZ, ctx.targetZ)) ||
-        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
-          true) &&
-      bakeAvailable
-    this._drapeGlobeFills =
-      bakesVectorDrape(args.projType, args.camera.globeMode) &&
-      // #2094 — PIXEL BUDGET, not a LOD ceiling: the drape wins only where the direct
-      // arm's chord error exceeds the bake's own resample cost, i.e. where the camera
-      // has run past what the source can supply. Read off the drawn LOD OR the camera's
-      // (`targetZ`): in a zoom-in readiness hold currentZ trails the camera and the held
-      // tiles must draw direct (_globe-direct-hold-window-gate). FORCE holds the drape.
-      (drapesAtChordBudget(Math.max(ctx.currentZ, ctx.targetZ), args.camera.zoom) ||
-        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
-          true) &&
-      bakeAvailable &&
-      // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
-      // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
-      // buffer) fill or a sprite pattern — those keep the direct draw.
-      !args.show.shaderVariant?.needsFeatureBuffer &&
-      args.show.fillPatternUV == null
-    if (
-      this._drapeGlobeFills &&
-      args.phase !== 'strokes' &&
-      args.phase !== 'oit-fill' &&
-      // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
-      // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
-      // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
-      (!this._skipFillDraw || this._bakeStrokesGated)
-    ) {
-      this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
-      // #599 line-drape — a baked stroke is drawn by the sphere grid, so the direct
-      // ECEF-chord draw for this show is suppressed (see `drawStrokes` in renderTileKeys).
-      // Design INC-3: the stroke ceiling is its OWN number, so a frame can drape its
-      // fills and still draw its roads direct — see GLOBE_DIRECT_MIN_STROKE_Z.
-      this._drapeStrokes = this._bakeStrokesGated
-      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
-      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
-      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
-      const drapeOverzoom = computeDrapeOverzoom({
-        camera: args.camera,
-        projType: args.projType,
-        currentZ: ctx.currentZ,
-        cssWidth: args.canvasWidth / args.dpr,
-        cssHeight: args.canvasHeight / args.dpr,
-        dpr: args.dpr,
-        diag: this._sliceOverzoomDiag(ctx.sliceLayer),
-        source: ctx.source,
-        sliceLayer: ctx.sliceLayer,
-        neededKeys: ctx.neededKeys,
-        layerCache: this.getOrCreateLayerCache(ctx.sliceLayer),
-        uploadResident: (parentKey) =>
-          this.uploadTile(
-            parentKey,
-            ctx.source!.getTileData(parentKey, ctx.sliceLayer)!,
-            ctx.sliceLayer,
-          ),
-      })
-      this._drape.renderGlobeFills(
-        args.rhiPass,
-        ctx.frame,
-        args.projType,
-        args.projCenterLon,
-        args.projCenterLat,
-        args.camera,
-        this.currentOpacity ?? 1,
-        this.cachedFillColor as [number, number, number, number],
-        strokeBakeKey(this._bakeStrokesGated, this._bakeStroke),
-        args.camera.zoom,
-        ctx.sliceLayer,
-        ctx.neededKeys,
-        ctx.worldOffDeg,
-        this.getOrCreateLayerCache(ctx.sliceLayer),
-        this,
-        drapeOverzoom,
-        [this.currentFillTranslateNdcX, this.currentFillTranslateNdcY], // #2249
-      )
+    // Always-on per-decision summary for inspector / console diagnosis.
+    // Reset to start fresh each render() call so consumers see THIS
+    // layer's distribution. Tilly with `getLastDecisionCounts()`.
+    this._drawStats.clearDecisionCounts()
+    for (let i = 0; i < sel.tiles.length; i++) {
+      const d = _tileDecisions[i] ?? 'untracked'
+      this._drawStats.incDecisionCount(d)
+    }
+    return {
+      anyInArchive,
+      sliceCached,
+      parentKeysSet,
+      fallbackKeys,
+      toLoad,
+      _inv,
+      fallbackOffsets,
+      fallbackVisibleKeys,
     }
   }
 
@@ -4237,341 +3932,114 @@ export class VectorTileRenderer {
     // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
   }
 
-  /** #2508 phase 8 — draw the fallback ancestors (stencil test) across the
-   *  world copies for the visible tiles with no resident tile of their own.
-   *  A consumer with ONE frame-state write, stated here because the epilogue
-   *  depends on it: the three parallel fallback arrays are re-sorted into
-   *  `ctx` (smallest z first, deepest last, so the most detailed parent wins
-   *  the LEQUAL fragment competition) and the stable set is built from that
-   *  order. The drape flags are saved, cleared around the dispatch and
-   *  restored — the fallback draws direct even when the primary drapes
-   *  (#1076). */
-  private drawFallback(args: RenderArgs, ctx: RenderFrameState): void {
-    // Render fallback ancestors (stencil test) — with world offsets for wrapping
-    if (args.fillPipelineFallback && ctx.fallbackKeys.length > 0) {
-      // Sort ascending by z (smallest-z first → deepest-z last). Where
-      // multiple z-level parents overlap in screen space (z=11 parent
-      // covers area that z=14 parent also covers), the deepest z draws
-      // last and wins LEQUAL fragment competition. Without this the
-      // simpler-geometry parent could occlude the more-detailed one
-      // depending on fallbackKeys insertion order.
-      //
-      // Do NOT dedup by (key, offset): each push renders the SAME parent
-      // with a DIFFERENT per-tile visible clip mask (one push per visible
-      // tile it fills for), so dedup'ing would erase coverage of N-1
-      // visible tiles.
-      if (ctx.fallbackKeys.length > 1) {
-        const indexed: { k: number; o: number; vk: number; z: number }[] = []
-        for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-          const k = ctx.fallbackKeys[i]
-          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
-          let z = 0
-          while (Math.pow(4, z + 1) <= k) z++
-          indexed.push({ k, o: ctx.fallbackOffsets[i], vk: ctx.fallbackVisibleKeys[i], z })
-        }
-        indexed.sort((a, b) => a.z - b.z)
-        ctx.fallbackKeys = indexed.map((c) => c.k)
-        ctx.fallbackOffsets = indexed.map((c) => c.o)
-        ctx.fallbackVisibleKeys = indexed.map((c) => c.vk)
-      }
-      if (args.phase !== 'strokes') ctx.pass.setStencilReference(0)
-      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
-      // set, override the fallback fill colour to bright red. Lets the
-      // user visually confirm whether parent/child fallback is actually
-      // rendering during a "white flash" — if red is visible, the bug
-      // is downstream of fallback rendering (e.g., later layer covering
-      // it, alpha = 0, render order); if no red appears, the fallback
-      // path itself is dropping the tile.
-      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
-      let _origR = 0,
-        _origG = 0,
-        _origB = 0
-      if (_debugRed) {
-        // Save/override RGB only — alpha stays whatever the tile loop last
-        // wrote (the setter's fixed arity re-writes it with its current value).
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a0 = this.frameBlock.fieldOffset('fill_color') / 4
-        _origR = f32[a0]!
-        _origG = f32[a0 + 1]!
-        _origB = f32[a0 + 2]!
-        this.frameBlock.set.fill_color(1.0, 0.0, 0.0, f32[a0 + 3]!)
-      }
-      // Same layout-matched ground pickup as the primary path —
-      // base layout uses the renderer-level fallback ground; feature
-      // layout uses the variant's fallback ground override.
-      const fallbackGroundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
-        ? (args.fillPipelineGroundFallbackOverride ?? args.fillPipelineFallback ?? null)
-        : fallbackGroundIsBase
-          ? this._bindGroups.groundPipelineFallback()
-          : (args.fillPipelineGroundFallbackOverride ?? null)
-      // Fill-pattern fallback routing (mirror of the primary path above).
-      const fallbackPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternGroundPipelineFallback() !== null
-      const fallbackGroundChoice = fallbackPatternActive
-        ? this._bindGroups.patternGroundPipelineFallback()
-        : fallbackGroundForLayout
-      const fallbackFill =
-        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
-          ? fallbackGroundChoice
-          : args.fillPipelineFallback
-      // Fill-extrusion-pattern fallback path mirror.
-      const fallbackExtrudedPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternExtrudedPipelineFallback() !== null
-      const fallbackExtrudedPipeline =
-        args.fillPipelineExtrudedFallbackOverride ??
-        (fallbackExtrudedPatternActive
-          ? this._bindGroups.patternExtrudedPipelineFallback()
-          : this._bindGroups.extrudedPipelineFallback())
-      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
-      // to the fallbackKeys renderTileKeys invocation. Same gate + same
-      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
-      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
-      // part of the invalidation surface. Tiles + visibleKeys + offsets
-      // together fully describe the recorded draws.
-      // Mirror the primary path's all-loaded gate. Fallback keys are by
-      // construction picked from layerCache, but an entry could be evicted
-      // between selection and bundle encode (LRU under tight cap). Cheap
-      // guard avoids the same partial-set replay class of bug.
-      let fbAllLoaded = true
-      for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-        if (!ctx.layerCache.get(ctx.fallbackKeys[i]!)) {
-          fbAllLoaded = false
-          break
-        }
-      }
-      // #1190 — fallback path defaults ON with the primary (same key fix,
-      // same escape hatch; see the primary-site rationale).
-      const _fbBundleOff =
-        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
-      const fbShouldBundle =
-        !_fbBundleOff &&
-        this.rhi.caps.renderBundles &&
-        !isOverdrawActive(this.rhi.caps) &&
-        !args.translucentBucket &&
-        args.phase !== 'strokes' &&
-        args.phase !== 'oit-fill' &&
-        !_debugRed &&
-        fbAllLoaded
-      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
-      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
-      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
-      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
-      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
-      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
-      // encoded — and the direct arm both flow through here), restore in `finally` so
-      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
-      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
-      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
-      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
-      const _fbSavedDrapeStrokes = this._drapeStrokes
-      this._drapeGlobeFills = false
-      this._drapeStrokes = false
-      try {
-        if (fbShouldBundle) {
-          // Structural cache key (mirrors primary path; see
-          // _cache/structural-key.ts).
-          const fbPickOn = isPickEnabled()
-          const fbSamples = getSampleCount()
-          const fbEpochs: number[] = new Array(ctx.fallbackKeys.length)
-          for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-            fbEpochs[i] = ctx.layerCache.get(ctx.fallbackKeys[i]!)?.uploadEpoch ?? 0
-          }
-          const fbKeyState = {
-            sliceLayer: ctx.sliceLayer,
-            phase: args.phase,
-            // Fallback bundle has no `neededKeys` (the primary side),
-            // only fallback tile keys; populate both for uniform shape
-            // — the structural hash treats null + the array distinctly.
-            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-            neededKeys: ctx.fallbackKeys,
-            fallbackKeys: ctx.fallbackKeys.slice(),
-            fallbackVisibleKeys: ctx.fallbackVisibleKeys ? ctx.fallbackVisibleKeys.slice() : null,
-            epochs: fbEpochs,
-            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-            worldOffsets: this._worldOffScratchKey(ctx.fallbackOffsets),
-            bindGroupEpoch: this._bindGroups.epoch(),
-            pickOn: fbPickOn,
-            samples: fbSamples,
-            mainPipelineLabel: fallbackFill.label ?? null,
-            linePipelineLabel: args.linePipelineFallback?.label ?? null,
-            // #1190 — mirror of the primary site: the fallback walk's
-            // dynamic-offset base (it runs AFTER the primary walk, so
-            // its base also moves with the primary's alloc count) and
-            // the stroke draws' baked layer-slot offsets.
-            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
-            // walks pass visibleKeysForClip, which disqualifies ring-free
-            // by definition (their clip_bounds live in ring slots).
-            ringCursor: this._ringCursorForBundleKey(),
-            lineLayerOffset: ctx.lineLayerOffset,
-            lineLayerOffsetGap: ctx.lineLayerOffsetGap,
-            // #2093 — mirror of the primary site. The #1076 fallback dispatch
-            // PINS both false above; the key follows the field, not a literal.
-            drapeGlobeFills: this._drapeGlobeFills,
-            drapeStrokes: this._drapeStrokes,
-          } as const satisfies BundleKeyState
-          const fbCacheKey = `vt-fb:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(fbKeyState)}`
-          const fbDesc: BundleEncodeDescriptor = {
-            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
-            depthStencilFormat: 'depth24plus-stencil8',
-            sampleCount: fbSamples,
-            depthReadOnly: false,
-            stencilReadOnly: false,
-            label: fbCacheKey,
-          }
-          let fbWasMiss = false
-          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
-            fbWasMiss = true
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            this.renderTileKeys(
-              ctx.fallbackKeys,
-              encoder,
-              fallbackFill,
-              args.linePipelineFallback!,
-              args.projCenterLon,
-              args.projCenterLat,
-              ctx.fallbackOffsets,
-              ctx.lineLayerOffset,
-              ctx.lineLayerOffsetGap,
-              args.phase,
-              ctx.layerCache,
-              fallbackExtrudedPipeline,
-              args.bindGroupLayout,
-              args.translucentBucket,
-              ctx.fallbackVisibleKeys,
-              args.show.shaderVariant,
-              ctx.sliceLayer,
-            )
-          })
-          if (fbWasMiss) {
-            // #1190 — pin the encode walk's alloc count (mirror of primary).
-            this._bundleWalkAllocs.set(
-              fbBundle,
-              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
-            )
-          } else {
-            this._skipFillDrawForBundle = true
-            this._skipStrokeDrawForBundle = true
-            this.renderTileKeys(
-              ctx.fallbackKeys,
-              ctx.pass,
-              fallbackFill,
-              args.linePipelineFallback!,
-              args.projCenterLon,
-              args.projCenterLat,
-              ctx.fallbackOffsets,
-              ctx.lineLayerOffset,
-              ctx.lineLayerOffsetGap,
-              args.phase,
-              ctx.layerCache,
-              fallbackExtrudedPipeline,
-              args.bindGroupLayout,
-              args.translucentBucket,
-              ctx.fallbackVisibleKeys,
-              args.show.shaderVariant,
-              ctx.sliceLayer,
-            )
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            // #1190 invariant — mirror of the primary site; see there.
-            if (ctx._inv) {
-              const expected = this._bundleWalkAllocs.get(fbBundle)
-              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
-              if (expected !== undefined && got !== expected) {
-                throw new Error(
-                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
-                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
-                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
-                    `add the missing input to _cache/bundle-cache-key.ts.`,
-                )
-              }
-            }
-          }
-          ctx.pass.executeBundles([fbBundle])
-        } else {
-          this.renderTileKeys(
-            ctx.fallbackKeys,
-            ctx.pass,
-            fallbackFill,
-            args.linePipelineFallback!,
-            args.projCenterLon,
-            args.projCenterLat,
-            ctx.fallbackOffsets,
-            ctx.lineLayerOffset,
-            ctx.lineLayerOffsetGap,
-            args.phase,
-            ctx.layerCache,
-            fallbackExtrudedPipeline,
-            args.bindGroupLayout,
-            args.translucentBucket,
-            ctx.fallbackVisibleKeys,
-            args.show.shaderVariant,
+  /** #2508 phase 6 — decide the drape routing for this layer on the curved
+   *  projections: whether a bake is available at all (a capability, #2474),
+   *  whether the fills and — separately — the strokes drape or draw direct
+   *  (the #2094 pixel budget against the held / target LOD), and the globe
+   *  virtual overzoom dispatch past the source's maxLevel (#2024). Writes the
+   *  drape fields the draw phases read (`_drapeGlobeFills`, `_drapeStrokes`,
+   *  `_bakeStrokesGated`, `_bakeDpr`, `_drape`); reads no later state. */
+  private resolveDrapeRouting(args: RenderArgs, ctx: RenderFrameState): void {
+    // #599 I2 — globe/sphere vector great-circle drape. On a curved-surface route a
+    // flat fill triangle spanning a big arc projects as a CHORD under the sphere, so
+    // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
+    // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
+    // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
+    // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
+    // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
+    // THIS CAMERA, so anything a source can serve renders direct. Needs an out-of-frame
+    // pass + NON-extruded + CONSTANT fill; `__XGIS_DISABLE_VECTOR_DRAPE` draws direct.
+    this._bakeDpr = args.dpr
+    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS: the bake
+    // records an offscreen pass on an out-of-frame encoder — a CAPABILITY (#2474).
+    const bakeAvailable =
+      this.rhi.caps.outOfFramePasses &&
+      this.currentExtrudeMode === 'none' &&
+      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+    // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
+    // half rather than inside it. Same escape hatches (the force flag holds the
+    // drape for A/B arms; the disable flag forces every direct draw), same
+    // bake availability and same held-vs-camera LOD reading.
+    this._bakeStrokesGated =
+      this._bakeStrokeActive &&
+      bakesVectorDrape(args.projType, args.camera.globeMode) &&
+      (drapesStrokesAtSelectionZ(Math.max(ctx.currentZ, ctx.targetZ)) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
+      bakeAvailable
+    this._drapeGlobeFills =
+      bakesVectorDrape(args.projType, args.camera.globeMode) &&
+      // #2094 — PIXEL BUDGET, not a LOD ceiling: the drape wins only where the direct
+      // arm's chord error exceeds the bake's own resample cost, i.e. where the camera
+      // has run past what the source can supply. Read off the drawn LOD OR the camera's
+      // (`targetZ`): in a zoom-in readiness hold currentZ trails the camera and the held
+      // tiles must draw direct (_globe-direct-hold-window-gate). FORCE holds the drape.
+      (drapesAtChordBudget(Math.max(ctx.currentZ, ctx.targetZ), args.camera.zoom) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
+      bakeAvailable &&
+      // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
+      // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
+      // buffer) fill or a sprite pattern — those keep the direct draw.
+      !args.show.shaderVariant?.needsFeatureBuffer &&
+      args.show.fillPatternUV == null
+    if (
+      this._drapeGlobeFills &&
+      args.phase !== 'strokes' &&
+      args.phase !== 'oit-fill' &&
+      // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
+      // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
+      // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
+      (!this._skipFillDraw || this._bakeStrokesGated)
+    ) {
+      this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
+      // #599 line-drape — a baked stroke is drawn by the sphere grid, so the direct
+      // ECEF-chord draw for this show is suppressed (see `drawStrokes` in renderTileKeys).
+      // Design INC-3: the stroke ceiling is its OWN number, so a frame can drape its
+      // fills and still draw its roads direct — see GLOBE_DIRECT_MIN_STROKE_Z.
+      this._drapeStrokes = this._bakeStrokesGated
+      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
+      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
+      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
+      const drapeOverzoom = computeDrapeOverzoom({
+        camera: args.camera,
+        projType: args.projType,
+        currentZ: ctx.currentZ,
+        cssWidth: args.canvasWidth / args.dpr,
+        cssHeight: args.canvasHeight / args.dpr,
+        dpr: args.dpr,
+        diag: this._sliceOverzoomDiag(ctx.sliceLayer),
+        source: ctx.source,
+        sliceLayer: ctx.sliceLayer,
+        neededKeys: ctx.neededKeys,
+        layerCache: this.getOrCreateLayerCache(ctx.sliceLayer),
+        uploadResident: (parentKey) =>
+          this.uploadTile(
+            parentKey,
+            ctx.source!.getTileData(parentKey, ctx.sliceLayer)!,
             ctx.sliceLayer,
-          )
-        }
-      } finally {
-        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
-        this._drapeStrokes = _fbSavedDrapeStrokes
-      }
-      if (_debugRed) {
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a3 = this.frameBlock.fieldOffset('fill_color') / 4 + 3
-        this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
-      }
+          ),
+      })
+      this._drape.renderGlobeFills(
+        args.rhiPass,
+        ctx.frame,
+        args.projType,
+        args.projCenterLon,
+        args.projCenterLat,
+        args.camera,
+        this.currentOpacity ?? 1,
+        this.cachedFillColor as [number, number, number, number],
+        strokeBakeKey(this._bakeStrokesGated, this._bakeStroke),
+        args.camera.zoom,
+        ctx.sliceLayer,
+        ctx.neededKeys,
+        ctx.worldOffDeg,
+        this.getOrCreateLayerCache(ctx.sliceLayer),
+        this,
+        drapeOverzoom,
+        [this.currentFillTranslateNdcX, this.currentFillTranslateNdcY], // #2249
+      )
     }
-  }
-
-  /** #2508 phase 10 — epilogue. Records this layer's stable tile set (needed +
-   *  fallback + selector-protected ancestors: every key whose buffers a draw
-   *  recorded this frame still binds, so the deferred eviction cannot destroy
-   *  one before `queue.submit()`), then emits the tile-based points. Consumes
-   *  only. */
-  private trackStableSetAndPoints(args: RenderArgs, ctx: RenderFrameState): void {
-    // Track stable tile set for eviction protection and point rendering.
-    // IMPORTANT: include fallbackKeys too — those tiles' buffers are bound
-    // in bind groups used by the draw calls we just recorded. Evicting them
-    // now would destroy their buffers before `queue.submit()` runs, causing
-    // "Buffer used in submit while destroyed" validation errors.
-    if (ctx.fallbackKeys.length > 0 || ctx.protectedAncestors.length > 0) {
-      const merged = this._scratchMergedStableKeys
-      merged.clear()
-      for (const k of ctx.neededKeys) merged.add(k)
-      for (const k of ctx.fallbackKeys) merged.add(k)
-      // Selector-injected fallback-only ancestors (currently the
-      // high-pitch parent inject) — protected from eviction so they
-      // stay resident and the eviction-driven foreground ancestor-
-      // block regression doesn't reappear under the mobile cap.
-      for (const k of ctx.protectedAncestors) merged.add(k)
-      this.stableKeys = [...merged]
-    } else {
-      this.stableKeys = ctx.neededKeys
-    }
-
-    // GPU cache eviction is deferred to beginFrame() — see the comment there
-    // for why mid-frame eviction races the bucket scheduler's multi-render-
-    // per-frame pattern. Bounded by the per-frame upload budget meanwhile.
-
-    // Tile-based points via PointRenderer (if available); the single-
-    // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
-    this.emitTilePointsRhi(
-      args.rhiPass,
-      args.camera,
-      args.projType,
-      args.projCenterLon,
-      args.projCenterLat,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-      args.show,
-      args.pointRenderer,
-    )
   }
 
   /** #2508 phase 7 — draw the current-zoom tiles (stencil write) across the
@@ -4910,6 +4378,436 @@ export class VectorTileRenderer {
         )
       }
     }
+  }
+
+  /** #2508 phase 8 — draw the fallback ancestors (stencil test) across the
+   *  world copies for the visible tiles with no resident tile of their own.
+   *  A consumer with ONE frame-state write, stated here because the epilogue
+   *  depends on it: the three parallel fallback arrays are re-sorted into
+   *  `ctx` (smallest z first, deepest last, so the most detailed parent wins
+   *  the LEQUAL fragment competition) and the stable set is built from that
+   *  order. The drape flags are saved, cleared around the dispatch and
+   *  restored — the fallback draws direct even when the primary drapes
+   *  (#1076). */
+  private drawFallback(args: RenderArgs, ctx: RenderFrameState): void {
+    // Render fallback ancestors (stencil test) — with world offsets for wrapping
+    if (args.fillPipelineFallback && ctx.fallbackKeys.length > 0) {
+      // Sort ascending by z (smallest-z first → deepest-z last). Where
+      // multiple z-level parents overlap in screen space (z=11 parent
+      // covers area that z=14 parent also covers), the deepest z draws
+      // last and wins LEQUAL fragment competition. Without this the
+      // simpler-geometry parent could occlude the more-detailed one
+      // depending on fallbackKeys insertion order.
+      //
+      // Do NOT dedup by (key, offset): each push renders the SAME parent
+      // with a DIFFERENT per-tile visible clip mask (one push per visible
+      // tile it fills for), so dedup'ing would erase coverage of N-1
+      // visible tiles.
+      if (ctx.fallbackKeys.length > 1) {
+        const indexed: { k: number; o: number; vk: number; z: number }[] = []
+        for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+          const k = ctx.fallbackKeys[i]
+          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
+          let z = 0
+          while (Math.pow(4, z + 1) <= k) z++
+          indexed.push({ k, o: ctx.fallbackOffsets[i], vk: ctx.fallbackVisibleKeys[i], z })
+        }
+        indexed.sort((a, b) => a.z - b.z)
+        ctx.fallbackKeys = indexed.map((c) => c.k)
+        ctx.fallbackOffsets = indexed.map((c) => c.o)
+        ctx.fallbackVisibleKeys = indexed.map((c) => c.vk)
+      }
+      if (args.phase !== 'strokes') ctx.pass.setStencilReference(0)
+      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
+      // set, override the fallback fill colour to bright red. Lets the
+      // user visually confirm whether parent/child fallback is actually
+      // rendering during a "white flash" — if red is visible, the bug
+      // is downstream of fallback rendering (e.g., later layer covering
+      // it, alpha = 0, render order); if no red appears, the fallback
+      // path itself is dropping the tile.
+      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
+      let _origR = 0,
+        _origG = 0,
+        _origB = 0
+      if (_debugRed) {
+        // Save/override RGB only — alpha stays whatever the tile loop last
+        // wrote (the setter's fixed arity re-writes it with its current value).
+        const f32 = new Float32Array(this.frameBlock.buffer)
+        const a0 = this.frameBlock.fieldOffset('fill_color') / 4
+        _origR = f32[a0]!
+        _origG = f32[a0 + 1]!
+        _origB = f32[a0 + 2]!
+        this.frameBlock.set.fill_color(1.0, 0.0, 0.0, f32[a0 + 3]!)
+      }
+      // Same layout-matched ground pickup as the primary path —
+      // base layout uses the renderer-level fallback ground; feature
+      // layout uses the variant's fallback ground override.
+      const fallbackGroundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
+      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
+        ? (args.fillPipelineGroundFallbackOverride ?? args.fillPipelineFallback ?? null)
+        : fallbackGroundIsBase
+          ? this._bindGroups.groundPipelineFallback()
+          : (args.fillPipelineGroundFallbackOverride ?? null)
+      // Fill-pattern fallback routing (mirror of the primary path above).
+      const fallbackPatternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        fallbackGroundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternGroundPipelineFallback() !== null
+      const fallbackGroundChoice = fallbackPatternActive
+        ? this._bindGroups.patternGroundPipelineFallback()
+        : fallbackGroundForLayout
+      const fallbackFill =
+        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
+          ? fallbackGroundChoice
+          : args.fillPipelineFallback
+      // Fill-extrusion-pattern fallback path mirror.
+      const fallbackExtrudedPatternActive =
+        !isOverdrawActive(this.rhi.caps) &&
+        fallbackGroundIsBase &&
+        args.show.fillPatternUV != null &&
+        this._bindGroups.patternExtrudedPipelineFallback() !== null
+      const fallbackExtrudedPipeline =
+        args.fillPipelineExtrudedFallbackOverride ??
+        (fallbackExtrudedPatternActive
+          ? this._bindGroups.patternExtrudedPipelineFallback()
+          : this._bindGroups.extrudedPipelineFallback())
+      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
+      // to the fallbackKeys renderTileKeys invocation. Same gate + same
+      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
+      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
+      // part of the invalidation surface. Tiles + visibleKeys + offsets
+      // together fully describe the recorded draws.
+      // Mirror the primary path's all-loaded gate. Fallback keys are by
+      // construction picked from layerCache, but an entry could be evicted
+      // between selection and bundle encode (LRU under tight cap). Cheap
+      // guard avoids the same partial-set replay class of bug.
+      let fbAllLoaded = true
+      for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+        if (!ctx.layerCache.get(ctx.fallbackKeys[i]!)) {
+          fbAllLoaded = false
+          break
+        }
+      }
+      // #1190 — fallback path defaults ON with the primary (same key fix,
+      // same escape hatch; see the primary-site rationale).
+      const _fbBundleOff =
+        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
+      const fbShouldBundle =
+        !_fbBundleOff &&
+        this.rhi.caps.renderBundles &&
+        !isOverdrawActive(this.rhi.caps) &&
+        !args.translucentBucket &&
+        args.phase !== 'strokes' &&
+        args.phase !== 'oit-fill' &&
+        !_debugRed &&
+        fbAllLoaded
+      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
+      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
+      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
+      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
+      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
+      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
+      // encoded — and the direct arm both flow through here), restore in `finally` so
+      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
+      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
+      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
+      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
+      const _fbSavedDrapeStrokes = this._drapeStrokes
+      this._drapeGlobeFills = false
+      this._drapeStrokes = false
+      try {
+        if (fbShouldBundle) {
+          // Structural cache key (mirrors primary path; see
+          // _cache/structural-key.ts).
+          const fbPickOn = isPickEnabled()
+          const fbSamples = getSampleCount()
+          const fbEpochs: number[] = new Array(ctx.fallbackKeys.length)
+          for (let i = 0; i < ctx.fallbackKeys.length; i++) {
+            fbEpochs[i] = ctx.layerCache.get(ctx.fallbackKeys[i]!)?.uploadEpoch ?? 0
+          }
+          const fbKeyState = {
+            sliceLayer: ctx.sliceLayer,
+            phase: args.phase,
+            // Fallback bundle has no `neededKeys` (the primary side),
+            // only fallback tile keys; populate both for uniform shape
+            // — the structural hash treats null + the array distinctly.
+            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
+            neededKeys: ctx.fallbackKeys,
+            fallbackKeys: ctx.fallbackKeys.slice(),
+            fallbackVisibleKeys: ctx.fallbackVisibleKeys ? ctx.fallbackVisibleKeys.slice() : null,
+            epochs: fbEpochs,
+            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
+            worldOffsets: this._worldOffScratchKey(ctx.fallbackOffsets),
+            bindGroupEpoch: this._bindGroups.epoch(),
+            pickOn: fbPickOn,
+            samples: fbSamples,
+            mainPipelineLabel: fallbackFill.label ?? null,
+            linePipelineLabel: args.linePipelineFallback?.label ?? null,
+            // #1190 — mirror of the primary site: the fallback walk's
+            // dynamic-offset base (it runs AFTER the primary walk, so
+            // its base also moves with the primary's alloc count) and
+            // the stroke draws' baked layer-slot offsets.
+            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
+            // walks pass visibleKeysForClip, which disqualifies ring-free
+            // by definition (their clip_bounds live in ring slots).
+            ringCursor: this._ringCursorForBundleKey(),
+            lineLayerOffset: ctx.lineLayerOffset,
+            lineLayerOffsetGap: ctx.lineLayerOffsetGap,
+            // #2093 — mirror of the primary site. The #1076 fallback dispatch
+            // PINS both false above; the key follows the field, not a literal.
+            drapeGlobeFills: this._drapeGlobeFills,
+            drapeStrokes: this._drapeStrokes,
+          } as const satisfies BundleKeyState
+          const fbCacheKey = `vt-fb:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(fbKeyState)}`
+          const fbDesc: BundleEncodeDescriptor = {
+            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
+            depthStencilFormat: 'depth24plus-stencil8',
+            sampleCount: fbSamples,
+            depthReadOnly: false,
+            stencilReadOnly: false,
+            label: fbCacheKey,
+          }
+          let fbWasMiss = false
+          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
+            fbWasMiss = true
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+            this.renderTileKeys(
+              ctx.fallbackKeys,
+              encoder,
+              fallbackFill,
+              args.linePipelineFallback!,
+              args.projCenterLon,
+              args.projCenterLat,
+              ctx.fallbackOffsets,
+              ctx.lineLayerOffset,
+              ctx.lineLayerOffsetGap,
+              args.phase,
+              ctx.layerCache,
+              fallbackExtrudedPipeline,
+              args.bindGroupLayout,
+              args.translucentBucket,
+              ctx.fallbackVisibleKeys,
+              args.show.shaderVariant,
+              ctx.sliceLayer,
+            )
+          })
+          if (fbWasMiss) {
+            // #1190 — pin the encode walk's alloc count (mirror of primary).
+            this._bundleWalkAllocs.set(
+              fbBundle,
+              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
+            )
+          } else {
+            this._skipFillDrawForBundle = true
+            this._skipStrokeDrawForBundle = true
+            this.renderTileKeys(
+              ctx.fallbackKeys,
+              ctx.pass,
+              fallbackFill,
+              args.linePipelineFallback!,
+              args.projCenterLon,
+              args.projCenterLat,
+              ctx.fallbackOffsets,
+              ctx.lineLayerOffset,
+              ctx.lineLayerOffsetGap,
+              args.phase,
+              ctx.layerCache,
+              fallbackExtrudedPipeline,
+              args.bindGroupLayout,
+              args.translucentBucket,
+              ctx.fallbackVisibleKeys,
+              args.show.shaderVariant,
+              ctx.sliceLayer,
+            )
+            this._skipFillDrawForBundle = false
+            this._skipStrokeDrawForBundle = false
+            // #1190 invariant — mirror of the primary site; see there.
+            if (ctx._inv) {
+              const expected = this._bundleWalkAllocs.get(fbBundle)
+              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
+              if (expected !== undefined && got !== expected) {
+                throw new Error(
+                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
+                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
+                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
+                    `add the missing input to _cache/bundle-cache-key.ts.`,
+                )
+              }
+            }
+          }
+          ctx.pass.executeBundles([fbBundle])
+        } else {
+          this.renderTileKeys(
+            ctx.fallbackKeys,
+            ctx.pass,
+            fallbackFill,
+            args.linePipelineFallback!,
+            args.projCenterLon,
+            args.projCenterLat,
+            ctx.fallbackOffsets,
+            ctx.lineLayerOffset,
+            ctx.lineLayerOffsetGap,
+            args.phase,
+            ctx.layerCache,
+            fallbackExtrudedPipeline,
+            args.bindGroupLayout,
+            args.translucentBucket,
+            ctx.fallbackVisibleKeys,
+            args.show.shaderVariant,
+            ctx.sliceLayer,
+          )
+        }
+      } finally {
+        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
+        this._drapeStrokes = _fbSavedDrapeStrokes
+      }
+      if (_debugRed) {
+        const f32 = new Float32Array(this.frameBlock.buffer)
+        const a3 = this.frameBlock.fieldOffset('fill_color') / 4 + 3
+        this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
+      }
+    }
+  }
+
+  /** #2508 phase 9 — prefetch tiers: the adjacent tiles (idle only, every 10th
+   *  frame — the memo is what makes that per frame rather than per slice,
+   *  #2309) and the zoom-direction next LOD while the camera is mid-zoom
+   *  (#2013 — deliberately not idle-gated). Consumes only. */
+  private prefetchTiers(args: RenderArgs, ctx: RenderFrameState): void {
+    // Prefetch adjacent + next zoom (every 10th frame, idle only).
+    // While the camera is actively moving the prefetched edge tiles
+    // are likely to be invalidated within ~100 ms of being fetched
+    // — wasted bandwidth + GPU upload pressure on mobile.
+    // #2309 — the memo is what makes "every 10th frame" true; a bare
+    // modulo fires per SLICE, not per frame (see _prefetchMemoFrame).
+    if (this._prefetchMemoFrame !== this.currentFrameId) {
+      this._prefetchMemoFrame = this.currentFrameId
+      this._adjacentPrefetchZooms.clear()
+      this._zoomPrefetchZooms.clear()
+    }
+    if (
+      ctx.cameraIdle &&
+      this.currentFrameId % 10 === 0 &&
+      !this._adjacentPrefetchZooms.has(ctx.currentZ)
+    ) {
+      this._adjacentPrefetchZooms.add(ctx.currentZ)
+      ctx.source.prefetchAdjacent(ctx.tiles, ctx.currentZ)
+    }
+
+    // Tier 2: zoom-direction prefetch.
+    //
+    // When the user is mid-zoom toward an integer boundary, request
+    // the *next* LOD's visible tiles in the background so they're
+    // GPU-resident by the time `currentZ` actually advances. Without
+    // this, the integer boundary still produces a brief
+    // missed-tile spike + parent-fallback period — visible as a
+    // detail "pop" on the user's screen even with floor-based
+    // currentZ + hysteresis (Tier 1).
+    //
+    // Triggers (only one fires per frame, never both — direction is
+    // mutually exclusive at any instant):
+    //   * Zoom-in:   camera.zoom > currentZ + 0.5 → prefetch z=cz+1
+    //   * Zoom-out:  camera.zoom < currentZ      → prefetch z=cz-1
+    //                (cz - 0.3 is the hysteresis switch threshold,
+    //                so once user crosses below cz, the prior LOD
+    //                is what they're heading toward)
+    //
+    // Throttled to every 6 frames (~100 ms) to keep the selector walk
+    // amortised — the prefetch doesn't need per-frame freshness because
+    // the camera typically moves slowly relative to the rAF cadence.
+    //
+    // #2013 — deliberately NOT gated on cameraIdle (unlike prefetchAdjacent
+    // above). The idle gate made this block unreachable in the exact case it
+    // exists for: during an ACTIVE zoom the camera moves every frame, so
+    // cameraIdle stayed false for the whole gesture and every integer
+    // boundary was crossed with zero next-LOD tiles in flight — the
+    // measured fallback fan-out + blank-tile window on zoom-out (osm_style
+    // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
+    // the camera is provably heading toward (same centre, next LOD), so the
+    // pan-invalidation rationale behind the adjacent-prefetch idle gate does
+    // not apply; cost is bounded by the 6-frame throttle, the isCached
+    // filter, and the fetch queue's own concurrency cap.
+    // #2309 — that throttle is the modulo AND the per-frame memo. The
+    // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
+    // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
+    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(ctx.currentZ)) {
+      this._zoomPrefetchZooms.add(ctx.currentZ)
+      // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
+      // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
+      // execution order/throttle is byte-identical to the prior inline block.
+      const prefetchKeys = computeZoomDirectionPrefetchKeys({
+        camera: args.camera,
+        cameraZoom: args.camera.zoom,
+        currentZ: ctx.currentZ,
+        maxSubTileZ: ctx.maxSubTileZ,
+        projType: args.projType,
+        globeMode: args.camera.globeMode,
+        centerX: args.camera.centerX,
+        centerY: args.camera.centerY,
+        pitch: args.camera.pitch ?? 0,
+        bearing: args.camera.bearing ?? 0,
+        canvasWidth: args.canvasWidth,
+        canvasHeight: args.canvasHeight,
+        dpr: args.dpr,
+        selectorProj: ctx.selectorProj,
+        offsetMarginPx: ctx.offsetMarginPx,
+        isCached: ctx.sliceCached,
+        // #1393/#2013 — probe the same far-field notch the drawing selection
+        // runs at, so the prefetch set matches the renderer's actual demand.
+        farTargetBoost: adaptiveFarLodBoost(),
+      })
+      if (prefetchKeys.length > 0) {
+        ctx.source.prefetchTiles(prefetchKeys)
+      }
+    }
+  }
+
+  /** #2508 phase 10 — epilogue. Records this layer's stable tile set (needed +
+   *  fallback + selector-protected ancestors: every key whose buffers a draw
+   *  recorded this frame still binds, so the deferred eviction cannot destroy
+   *  one before `queue.submit()`), then emits the tile-based points. Consumes
+   *  only. */
+  private trackStableSetAndPoints(args: RenderArgs, ctx: RenderFrameState): void {
+    // Track stable tile set for eviction protection and point rendering.
+    // IMPORTANT: include fallbackKeys too — those tiles' buffers are bound
+    // in bind groups used by the draw calls we just recorded. Evicting them
+    // now would destroy their buffers before `queue.submit()` runs, causing
+    // "Buffer used in submit while destroyed" validation errors.
+    if (ctx.fallbackKeys.length > 0 || ctx.protectedAncestors.length > 0) {
+      const merged = this._scratchMergedStableKeys
+      merged.clear()
+      for (const k of ctx.neededKeys) merged.add(k)
+      for (const k of ctx.fallbackKeys) merged.add(k)
+      // Selector-injected fallback-only ancestors (currently the
+      // high-pitch parent inject) — protected from eviction so they
+      // stay resident and the eviction-driven foreground ancestor-
+      // block regression doesn't reappear under the mobile cap.
+      for (const k of ctx.protectedAncestors) merged.add(k)
+      this.stableKeys = [...merged]
+    } else {
+      this.stableKeys = ctx.neededKeys
+    }
+
+    // GPU cache eviction is deferred to beginFrame() — see the comment there
+    // for why mid-frame eviction races the bucket scheduler's multi-render-
+    // per-frame pattern. Bounded by the per-frame upload budget meanwhile.
+
+    // Tile-based points via PointRenderer (if available); the single-
+    // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
+    this.emitTilePointsRhi(
+      args.rhiPass,
+      args.camera,
+      args.projType,
+      args.projCenterLon,
+      args.projCenterLat,
+      args.canvasWidth,
+      args.canvasHeight,
+      args.dpr,
+      args.show,
+      args.pointRenderer,
+    )
   }
 
   /** #1632 — this renderer's tile-point cache namespace. `sliceLayer` alone
