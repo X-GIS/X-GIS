@@ -688,3 +688,43 @@ dateline-wired-gate` was rewritten in #1897 to remove a flake, flaked again the 
 
 **This is working if** a session never spends its second hour discovering something the
 previous session already knew, and never reports "verified" about a gate that did not run.
+
+## 14. Duplication — the ratchet and the consolidation rule
+
+The codebase grew feature-by-feature, and a mechanical survey (2026-09-05, jscpd) found the
+debt where that growth pattern leaves it: **sibling families** (retained packers / materials /
+DSL shaders / feat-layouts, source backends, paint converters) copied per primitive, and
+repetition inside god-files. Fitted code, not generic foundations. The rules that stop it
+compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle, LLVM
+`ADT/Support` + TableGen, rustc `tidy`, the rule of three) — full rationale in
+`docs/adr/0013-duplication-ratchet-and-consolidation.md`:
+
+- **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): a jscpd
+  fingerprint baseline (`.jscpd-baseline.json`) that can only shrink. A NEW clone (≥70 tokens /
+  5 lines, tests excluded) or a STALE entry is red. Never edit the baseline by hand:
+  `bun run dup:accept` re-records it, and refuses net growth without `--allow-growth` plus a
+  reason in the PR. Editing inside an existing copy moves its fingerprint (+1 −1) — that is
+  an accept, not growth.
+- **Before authoring a sibling** of an existing packer / material / backend / converter, run
+  `bun run dup:report` and read the cluster it will join. The third copy within a package,
+  or the SECOND copy across a package boundary, is the moment to extract — not "later".
+- **Where the helper lives:** the lowest package on the dependency spine that every user may
+  import (the dependency-direction ratchet decides): pure math / collections → `shared/`,
+  geodesy → `geo/`, IR walkers → `shader-dsl/src/core/ir`, a render-side family → a
+  table-driven base beside it. Never upward, never a new package for one helper.
+- **Consolidate = helper + rewrite EVERY copy in the same PR + a guard.** The baseline diff
+  showing only removals is the proof all copies went; where a copy is easy to reintroduce,
+  add a ratchet test or `no-restricted-syntax` rule naming the helper (the Coccinelle
+  pattern: the semantic patch stays in tree).
+- **A deliberate twin** is marked `// jscpd:ignore-start — <reason> (#issue)` …
+  `// jscpd:ignore-end`; the gate rejects a bare marker. A copy that avoids a dependency
+  edge across a boundary can be right (Go: "a little copying is better than a little
+  dependency") — say so in the marker.
+- Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
+  (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
+- **The detector is token-level and not perfect.** `.jscpd.json` routes `.ts/.tsx` through
+  jscpd's JavaScript tokenizer on purpose: the TypeScript one has a deterministic blind spot
+  (repro in the ADR), while the JS one flagged every planted whole-function copy above the
+  token floor (30 probes). Clones that differ only in type annotations, and renamed-
+  identifier clones, are invisible to the gate by design; `dup:report --type-insensitive`
+  is the wider triage lens.

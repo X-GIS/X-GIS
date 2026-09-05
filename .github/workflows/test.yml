@@ -230,6 +230,10 @@ jobs:
               - 'tsconfig*.json'
               - 'vitest.config.ts'
               - 'vitest.setup.ts'
+              # The duplication ratchet's inputs (`lint` job runs `bun run dup`): its
+              # detection config and the fingerprint baseline it compares against.
+              - '.jscpd.json'
+              - '.jscpd-baseline.json'
               # ALL workflow files, not just this one. Measured (#1842): 5 of the 6 tracked
               # workflows matched no filter at all, so `scripts/workflow-validity.test.ts` —
               # the gate that exists because a workflow once shipped unparseable (#1693) — was
@@ -510,6 +514,11 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
       # `knip` needs nothing: measured peak 1.33 GB, well inside the default.
       - run: bun run knip
+      # Duplication ratchet (scripts/dup-ratchet.ts): jscpd's fingerprint baseline,
+      # shrink-only — red on a NEW clone (≥70 tokens / 5 lines, tests excluded) or a
+      # STALE `.jscpd-baseline.json` entry. A Rust binary over 231k lines in ~0.5 s;
+      # needs no build. Policy: docs/adr/0013-duplication-ratchet-and-consolidation.md.
+      - run: bun run dup
 
   # PR-TITLE gate (#1842). The repo squash-merges, so the subject the changelog
   # renders each entry from is composed server-side by GitHub FROM THE PR TITLE —
