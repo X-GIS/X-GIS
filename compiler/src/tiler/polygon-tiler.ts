@@ -17,6 +17,7 @@ import {
   augmentChainWithArc,
   tessellateLineToArrays,
 } from './vector-tiler'
+import { subdivideChainMM } from './subdivide-conforming'
 import type { GeometryPart } from './vector-tiler-types'
 
 /** Per-tile clip rect in Mercator meters (west/south/east/north). */
@@ -145,7 +146,20 @@ export function tilePolygonPart(
         const isClosed = arc.length >= 3 && arc === ring
         const clean = dropConsecutiveDuplicates(arc)
         if (clean.length < 2) continue
-        const chain = augmentChainWithArc(clean, isClosed, { mmInput: true })
+        // Densify the outline to the FILL's angular gate so a long low-zoom edge
+        // curves on globe/non-Mercator instead of stroking a straight chord across
+        // the sphere (#585). Collinear midpoints keep fill/outline coincidence.
+        //
+        // This was MISSING here while `processZoomLevelShared` had it (#2497), and
+        // `compileSingleTile` is the RUNTIME path — GeoJSONRuntimeBackend, both
+        // PMTiles backends, the MVT worker — so every on-demand polygon tile drew a
+        // fill that curved and an outline that did not, at every level the gate
+        // reaches. The cross-path gate could not see it: its byte-for-byte rung ran
+        // only at z8, where a tile edge is already under MAX_TRI_DEGREES_FOR_PROJ and
+        // this call is a no-op, so the two paths agreed vacuously. That rung now also
+        // runs where the gate FIRES.
+        const densified = subdivideChainMM(clean)
+        const chain = augmentChainWithArc(densified, isClosed, { mmInput: true })
         if (chain.length >= 2) tessellateLineToArrays(chain, fid, scratch.olv, scratch.oli)
       }
     }

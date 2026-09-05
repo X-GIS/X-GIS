@@ -92,8 +92,18 @@ describe('iter-318 wrap (Knuth-Plass) edge cases', () => {
       const cps = Array.from({ length: n }, () => (rng() < 0.2 ? 32 : 65 + Math.floor(rng() * 26)))
       const adv = cps.map(() => 4 + rng() * 16)
       const lines = wrapForTesting(cps, adv, 40 + rng() * 100)
-      const covered = lines.reduce((acc, l) => acc + (l.end - l.start), 0)
-      expect(covered).toBe(n)
+      // #2446 — a line's `start` moves past leading whitespace, so the ranges
+      // may leave gaps. Every gap glyph must be a blank the trim removed (the
+      // wrapper may drop whitespace off a line head, never a letter), the
+      // ranges stay ordered without overlap, and the last one ends at n.
+      let cursor = 0
+      for (const l of lines) {
+        expect(l.start).toBeGreaterThanOrEqual(cursor)
+        for (let i = cursor; i < l.start; i++) expect(cps[i]).toBe(32)
+        expect(l.end).toBeGreaterThanOrEqual(l.start)
+        cursor = l.end
+      }
+      expect(cursor).toBe(n)
       for (const l of lines) {
         expect(Number.isFinite(l.width)).toBe(true)
         expect(l.width).toBeGreaterThanOrEqual(0)

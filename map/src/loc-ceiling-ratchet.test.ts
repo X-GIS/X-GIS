@@ -1245,7 +1245,9 @@ const CEILINGS: Record<string, number> = {
   // capabilities/symbol.ts and the spec-coverage note all point here rather than
   // restate it (an earlier draft restated it four times and cost 33 lines).
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  'map/src/text/text-stage.ts': 2171,
+  // 2171→2172 (#2446): one argument — the label's inline-image anchors — threaded
+  // into wrapWithKnuthPlass so the whitespace trim stops at an image.
+  'map/src/text/text-stage.ts': 2172,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1444,9 +1446,11 @@ const CEILINGS: Record<string, number> = {
   // Nothing to extract — the rule reads `this.pitch` and writes this class's own
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
-  // 1442->1441 (#2500): the disc zoomAt branch's viewport-fit clamp + latPreserve
-  // reset block became one dual write (_setDiscCenterLat). A LOWERING.
-  'map/src/camera/camera.ts': 1441,
+  // 1442→1441 (#2332): effectiveMpp's docblock rewritten to the builder it mirrors.
+  // MERGE UNION (#2507 <- main): main's -1 (#2332, above) and the branch's -1 (#2500:
+  // the disc zoomAt branch's viewport-fit clamp + latPreserve reset block became one
+  // dual write, _setDiscCenterLat) compose. MEASURED post-merge: 1440. A LOWERING.
+  'map/src/camera/camera.ts': 1440,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref

@@ -46,8 +46,15 @@ describe('polygon outline adjacency', () => {
     expect(tile).not.toBeNull()
     const oli = tile!.outlineLineIndices
     expect(oli.length).toBeGreaterThan(0)
-    // Closed quad → 4 actual segments around the perimeter.
-    expect(oli.length / 2).toBe(4)
+    // MORE than the quad's 4 corners-to-corners: each side spans 10 degrees, far over
+    // the subdivision gate, so the outline is densified (#585) — which is what makes a
+    // long edge curve on the globe instead of stroking a chord across it. `=== 4` was
+    // this test pinning the on-demand path's MISSING densification (#2497); the batch
+    // path always produced the densified count here. Left as an inequality rather than
+    // the measured 25 because the count is the CLIPPED ring's and carries no meaning of
+    // its own — the subject of this test is the self-loop check below, and this line is
+    // only here so a silent return to un-densified outlines cannot pass it.
+    expect(oli.length / 2).toBeGreaterThan(4)
     for (let i = 0; i < oli.length; i += 2) {
       expect(oli[i]).not.toBe(oli[i + 1])
     }

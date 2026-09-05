@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: fb601cb095b674680445949cc14c3c895d84782f
+  Generated from: c1af16b110c8ceed1f6e57a9fbb1d80b6e1f5245
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since fb601cb095b6
+    bun scripts/emit-changelog.ts --since c1af16b110c8
 -->
 
 # Changelog
@@ -48,6 +48,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **tiler:** the on-demand path skipped the outline densification its fill gets (#2497) ([#2505](https://github.com/X-GIS/X-GIS/pull/2505)) `c1af16b`
+- **compiler:** symbol (icon-only) is supported — the row, not the feature (#2489) ([#2493](https://github.com/X-GIS/X-GIS/pull/2493)) `b04ebd1`
 - **compiler:** token strings keep non-identifier keys instead of throwing out of lower() (#2310) ([#2480](https://github.com/X-GIS/X-GIS/pull/2480)) `c74cf6e`
 - **render:** the globe drape's gate is a PIXEL BUDGET, not a LOD ceiling (#2094) ([#2469](https://github.com/X-GIS/X-GIS/pull/2469)) `469ac8e`
 - **compiler:** warn on dropped background layers and ignored background zoom bounds (#2333) ([#2454](https://github.com/X-GIS/X-GIS/pull/2454)) `b32d941`
@@ -115,6 +117,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **shader-dsl:** memoise keyOf on the Expr object — the optimizer's real hot path (#2465) ([#2492](https://github.com/X-GIS/X-GIS/pull/2492)) `80a3965`
 - **map:** index the per-style fill fallback by label instead of walking the map (#2309) ([#2441](https://github.com/X-GIS/X-GIS/pull/2441)) `543d921`
 - **map:** make the in-render prefetch throttles per FRAME, not per ShowCommand (#2309) ([#2431](https://github.com/X-GIS/X-GIS/pull/2431)) `639baf2`
 - **render:** the split-bind frame stamp is a frame id, not a per-render counter (#2309) ([#2418](https://github.com/X-GIS/X-GIS/pull/2418)) `9d93bd9`
@@ -130,6 +133,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **map/render:** the frame-id comment claimed a short-circuit that does not exist (#2277) ([#2484](https://github.com/X-GIS/X-GIS/pull/2484)) `97f320e`
 - **claude:** a verdict is not finished at the first consumer — §12 ledger entry ([#2443](https://github.com/X-GIS/X-GIS/pull/2443)) `991f9b4`
 - **research:** data-ownership audit + 5-year ownership model ([#2243](https://github.com/X-GIS/X-GIS/pull/2243)) `1eb20ca`
 - **site:** add diagram-first blog post "The engine in seven pictures" ([#2210](https://github.com/X-GIS/X-GIS/pull/2210)) `67fc326`
