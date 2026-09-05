@@ -56,13 +56,18 @@ function centroids(png: Buffer): { fill: [number, number] | null; point: [number
   return { fill: c('fill'), point: c('point') }
 }
 
-async function frameAt(page: Page, zoom: number, forcegl2: boolean): Promise<Buffer> {
+async function frameAt(
+  page: Page,
+  zoom: number,
+  forcegl2: boolean,
+  proj: 'globe' | 'orthographic',
+): Promise<Buffer> {
   await page.addInitScript((src) => {
     sessionStorage.setItem('__xgisImportSource', src)
     sessionStorage.setItem('__xgisImportLabel', 'centre-split-gate')
   }, SRC)
   await page.goto(
-    `/demo.html?id=__import&e2e=1&proj=globe&adaptive=0${forcegl2 ? '&forcegl2=1' : ''}#${zoom}/${LAT}/${LON}/0/0`,
+    `/demo.html?id=__import&e2e=1&proj=${proj}&adaptive=0${forcegl2 ? '&forcegl2=1' : ''}#${zoom}/${LAT}/${LON}/0/0`,
     { waitUntil: 'domcontentloaded' },
   )
   await page.waitForFunction(
@@ -79,20 +84,28 @@ async function frameAt(page: Page, zoom: number, forcegl2: boolean): Promise<Buf
   return captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
 }
 
+// The untilted orthographic disc shares the lat-deg centre authority (and had
+// the same split: its zoom branch pinned the mirror too), so it rides the gate.
 for (const forcegl2 of [false, true]) {
   test.describe(forcegl2 ? 'webgl2' : 'webgpu', () => {
-    for (const zoom of [0, 0.5, 1]) {
-      test(`fill and point at the camera centre coincide — globe z${zoom} lat ${LAT}`, async ({
+    for (const [proj, zoom] of [
+      ['globe', 0],
+      ['globe', 0.5],
+      ['globe', 1],
+      ['orthographic', 0],
+      ['orthographic', 1],
+    ] as const) {
+      test(`fill and point at the camera centre coincide — ${proj} z${zoom} lat ${LAT}`, async ({
         page,
       }) => {
         test.setTimeout(180_000)
-        const { fill, point } = centroids(await frameAt(page, zoom, forcegl2))
+        const { fill, point } = centroids(await frameAt(page, zoom, forcegl2, proj))
         expect(fill, 'fill square not rendered').not.toBeNull()
         expect(point, 'point not rendered').not.toBeNull()
         const dx = fill![0] - point![0]
         const dy = fill![1] - point![1]
         console.log(
-          `[centre-split z${zoom} ${forcegl2 ? 'gl2' : 'gpu'}] fill=(${fill![0].toFixed(1)},${fill![1].toFixed(1)}) point=(${point![0].toFixed(1)},${point![1].toFixed(1)}) Δ=(${dx.toFixed(1)},${dy.toFixed(1)})`,
+          `[centre-split ${proj} z${zoom} ${forcegl2 ? 'gl2' : 'gpu'}] fill=(${fill![0].toFixed(1)},${fill![1].toFixed(1)}) point=(${point![0].toFixed(1)},${point![1].toFixed(1)}) Δ=(${dx.toFixed(1)},${dy.toFixed(1)})`,
         )
         // Pre-fix: Δy = −58 px at z0, −82 px at z0.5. The square's centroid
         // vs the point's: sub-pixel apart from the centroid of a foreshortened

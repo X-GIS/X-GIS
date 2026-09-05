@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { lonLatToECEF } from '@xgis/shared'
 import { mercatorYToLat, EARTH_R } from '@xgis/geo'
 import { frameCenterLatOf, ecefCenterOf } from './view-matrix'
+import { Camera } from './camera'
 import { computeTileCameraAnchor } from '../render/tile-camera-anchor'
 
 const GLOBE = 7
@@ -66,5 +67,39 @@ describe('frameCenterLatOf — one centre-latitude authority per frame', () => {
     const cam = lonLatToECEF(0, 89)
     const camZ = tile[2] - (a.ecefZH + a.ecefZL)
     expect(Math.abs(camZ - cam[2])).toBeLessThan(1)
+  })
+})
+
+// ── The untilted disc family (3/4/5) shares the lat-deg authority ────────────
+// After a whole-earth zoom the disc branch of zoomAt used to pin the Mercator
+// mirror centerY (viewport-fit) while preserving centerLatDeg, and the disc
+// drag/pinch anchor inverses read lat0 from centerY — so a drag anchor at the
+// screen centre of an ortho disc centred at lat 45 resolved to lat 0 (#2500).
+describe('disc family — drag anchor and zoom loop read the lat-deg authority', () => {
+  const W = 860,
+    H = 720
+  it('discDragAnchorAt(screen centre) is the true centre latitude after a whole-earth zoom', () => {
+    const cam = new Camera(20, 45, 1)
+    cam.projType = ORTHO
+    cam.globeMode = false
+    cam.zoomAt(-1, W / 2, H / 2, W, H) // → z0, disc branch
+    expect(cam.zoom).toBe(0)
+    expect(cam.centerLatDeg).toBeCloseTo(45, 6)
+    // The Mercator mirror follows the authority (not the equator).
+    expect(mercatorYToLat(cam.centerY)).toBeCloseTo(45, 6)
+    const a = cam.discDragAnchorAt(W / 2, H / 2, W, H, 1)
+    expect(a).not.toBeNull()
+    expect(a!.lat).toBeCloseTo(45, 3)
+    expect(a!.lon).toBeCloseTo(20, 3)
+  })
+
+  it('a pole-ward disc centre survives a centre zoom (bug #6) and keeps a saturated mirror', () => {
+    const cam = new Camera(0, 85, 2)
+    cam.projType = ORTHO
+    cam.globeMode = false
+    cam.centerLatDeg = 88 // the pole-ward authority (setCenter's dual clamp); mirror saturates
+    cam.zoomAt(1, W / 2, H / 2, W, H)
+    expect(cam.centerLatDeg).toBeGreaterThan(87)
+    expect(mercatorYToLat(cam.centerY)).toBeCloseTo(85.051129, 3)
   })
 })

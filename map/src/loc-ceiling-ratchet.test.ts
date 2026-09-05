@@ -1444,7 +1444,9 @@ const CEILINGS: Record<string, number> = {
   // Nothing to extract — the rule reads `this.pitch` and writes this class's own
   // fields, so it IS camera state; a separate file would re-create the split the
   // change exists to close. Most of the +23 is the moved rationale.
-  'map/src/camera/camera.ts': 1442,
+  // 1442->1441 (#2500): the disc zoomAt branch's viewport-fit clamp + latPreserve
+  // reset block became one dual write (_setDiscCenterLat). A LOWERING.
+  'map/src/camera/camera.ts': 1441,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
