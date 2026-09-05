@@ -30,7 +30,7 @@ import type { CoverageFilterFn } from '../../shaders/dsl/coverage-filter'
 /** Interleaved node vertex: [lon, lat, u, v] — 4 × f32. */
 export const COVERAGE_NODE_STRIDE = 16
 import { emitGlslStages } from '@xgis/shader-dsl'
-import { glslStagesFor, wgslFor } from './wgsl-for'
+import { LIVE, glslStagesFor, wgslFor } from './wgsl-for'
 import { QUANT_MAX, NODATA_CODE } from '@xgis/data'
 import { interpolateRamp, interpolateBandedRamp, RAMPS, BANDED_RAMPS } from '../../color-ramp'
 
@@ -253,10 +253,10 @@ export class CoverageDraper {
     // `emitGlslModule` calls, pinned for this family (filter-free row) by
     // `glsl-stage-entry-parity.test.ts`.
     this.desc = {
-      shader: wgslFor(rhi, () => emitCoverageWgsl(filter)),
+      shader: wgslFor(rhi, () => emitCoverageWgsl(filter), LIVE),
       vsEntry: 'vs_cov',
       fsEntry: 'fs_cov',
-      ...glslStagesFor(rhi, () => emitGlslStages(buildCoverageModule(filter))),
+      ...glslStagesFor(rhi, () => emitGlslStages(buildCoverageModule(filter)), LIVE),
       format: format as 'bgra8unorm',
       sampleCount,
       // group 0: uniform + value + valid + sampler + LUT + LUT sampler. Multi-same-
