@@ -149,6 +149,10 @@ export class RhiFillVariantPath {
     sliceLayer: string,
     tileKey: number,
     featureProps: ReadonlyMap<number, Record<string, unknown>> | undefined,
+    /** #2439 — VTR's seeded `categorical()` value lists. Passed rather than
+     *  read off `variant` because the variant is shared and cache-keyed across
+     *  six caches; this is per-SOURCE data, not part of the variant's identity. */
+    seededOrder?: Readonly<Record<string, readonly string[]>>,
   ): RhiBindGroup | null {
     if (!variant.needsFeatureBuffer) {
       // No feat_data in this variant's group — the uniform-only group is
@@ -162,6 +166,7 @@ export class RhiFillVariantPath {
       featureProps,
       variant.featureFields,
       variant.categoryOrder,
+      seededOrder,
     )
     if (!packed) return null
     // Reuse the tile's existing buffer across a ring grow — only the GROUP is stale

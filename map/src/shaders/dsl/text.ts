@@ -94,7 +94,12 @@ const fs = fn(
     const edge = f32(0.75)
     const soft = max(f32(2.52).div(max(U.field.font_size_px, 1)), f32(1).div(255))
     const fillA = smoothstep(edge.sub(soft), edge.add(soft), sdf)
-    const fillOnly = vec4(fill.rgb, fill.a.mul(fillA))
+    const fillW = fill.a.mul(fillA)
+    // #2502 — the material blends PREMULTIPLIED (text-material.ts `blend: 'premult'`,
+    // source factor ONE), so the fill-only branch must emit rgb·a like the halo
+    // branch below: straight `(fill.rgb, a)` adds the full colour outside the
+    // glyph, where a = 0, and a light label becomes a solid slot quad.
+    const fillOnly = vec4(fill.rgb.mul(fillW), fillW)
     // Halo behind fill: smoothstep at the inward-shifted halo edge, then the
     // (1 - fill_w) factor masks the region the fill already covers.
     const aaHalo = U.field.halo_blur.add(soft)
@@ -111,7 +116,6 @@ const fs = fn(
     // the SDF radius. No effect on normal/large text (there haloEdge >> aaHalo).
     const haloEdge = max(edge.sub(U.field.halo_width), aaHalo)
     const haloA = smoothstep(haloEdge.sub(aaHalo), haloEdge.add(aaHalo), sdf)
-    const fillW = fill.a.mul(fillA)
     const haloW = halo.a.mul(haloA).mul(f32(1).sub(fillW))
     const withHalo = vec4(fill.rgb.mul(fillW).add(halo.rgb.mul(haloW)), fillW.add(haloW))
     // single-exit: no halo (halo_width<=0) → fill only; else halo behind fill.

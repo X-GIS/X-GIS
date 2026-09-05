@@ -66,6 +66,7 @@ import {
   samplerT,
   Node,
   Builder,
+  Var,
   arrayT,
   type ReadonlyNode,
   type ModuleDecl,
@@ -93,6 +94,7 @@ import {
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import { PI, EARTH_R, MERCATOR_LAT_LIMIT, DEG2RAD } from './consts'
 import { mercCamRel } from './merc-cam-rel'
+import { emitSeamNeedleDiscard } from './polygon-seam-needle'
 
 // ── Struct declarations ──
 //
@@ -244,6 +246,11 @@ const VertexOutputIO = ioStruct('VertexOutput', {
   // the feature path samples its base colour in the fragment and replays the
   // SAME lighting against `shade_geom`. Zero on the non-extrude vertex entries.
   shade_geom: location(9, vec2fT),
+  // #1496 — the flat-arm projected x, twice: interpolated and `flat` (the
+  // provoking vertex's). A seam-straddling fill triangle spans ~2πR between them
+  // mid-needle; polygon-seam-needle.ts discards there. 0 / 0 off the flat arm.
+  seam_x: location(10, f32T),
+  seam_x_flat: location(11, f32T, 'flat'),
 })
 const VertexOutput = VertexOutputIO.decl
 // The typed field-proxy shape of a fragment-stage VertexOutput param (#740 R6) —
@@ -375,6 +382,8 @@ const emitPolygonProjectionLadder = (args: {
   absLat: ReadonlyNode<'f32'>
   ecefRtc: ReadonlyNode<'vec3<f32>'>
   clip: Node<'vec4<f32>'>
+  /** OUTPUT var: the flat non-Mercator arm's projected x (#1496 needle discard). */
+  seamX: Node<'f32'>
   extruded: boolean
   isTop?: ReadonlyNode<'f32'>
   wallHeight?: ReadonlyNode<'f32'>
@@ -396,6 +405,7 @@ const emitPolygonProjectionLadder = (args: {
     absLat,
     ecefRtc,
     clip,
+    seamX,
     extruded,
     isTop,
     wallHeight,
@@ -491,6 +501,7 @@ const emitPolygonProjectionLadder = (args: {
           .sub(clon)
         const relG = flat_rel(dLon, discLat ?? absLat, projParamsRel, tileRefLonRel)
         clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, 1)))
+        seamX.assign(relG.x)
         return
       }
       // Extruded / non-quantized VS entries lack local_merc — keep the old
@@ -502,6 +513,7 @@ const emitPolygonProjectionLadder = (args: {
         .div(deg2rad.mul(earthR))
       const relG = flat_rel(absLon, discLat ?? absLat, projParamsV, tileRefLon)
       clip.assign(transformMat4(mvp, vec4(relG.x, relG.y, zG, 1)))
+      seamX.assign(relG.x)
     })
     .else(() => {
       // 3D ECEF: recentre ecef_rtc (= vertex − tileEcefCenter) by
@@ -582,6 +594,7 @@ const vsMain = fn(
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
+    const seamX = Var(f32(0))
     // FLAT Mercator (proj_params.x < 0.5): rel = project(abs_lon, abs_lat) −
     // cam_merc, with cam_merc = tile_origin_merc + (cam_h + cam_l); z = 0
     // (flat fill has no height). FLAT non-Mercator (< 6.5): project_geom-style
@@ -595,6 +608,7 @@ const vsMain = fn(
       absLat: p.abs_lat,
       ecefRtc,
       clip,
+      seamX,
       extruded: false,
     })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
@@ -620,6 +634,8 @@ const vsMain = fn(
       world_z: f32(0),
       v_color: vec4(0, 0, 0, 0), // only the extrude path emits non-zero
       shade_geom: vec2(0, 0), // extrude-only; unused by fs_stroke / the line path
+      seam_x: seamX,
+      seam_x_flat: seamX,
     })
   },
   { stage: 'vertex' },
@@ -702,6 +718,7 @@ const vsMainEcef = fn(
     // so only the live branch's matrix is consumed.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
+    const seamX = Var(f32(0))
     // Same flat/3D ladder as vs_main (see emitPolygonProjectionLadder): flat
     // Mercator reproject + recentre / flat non-Mercator flat_rel / 3D ECEF-RTC
     // re-centred by (tileEcefCenter − cameraCenter). Only ecef_rtc is sourced
@@ -717,6 +734,7 @@ const vsMainEcef = fn(
       localMerc: vec2(p.abs_lon, p.abs_lat),
       ecefRtc,
       clip,
+      seamX,
       extruded: false,
     })
     // Mapbox fill-translate viewport-anchor — runtime pre-bakes
@@ -742,6 +760,8 @@ const vsMainEcef = fn(
       world_z: f32(0),
       v_color: vec4(0, 0, 0, 0), // per-feature variants override via composer
       shade_geom: vec2(0, 0), // extrude-only geometric lighting; flat fill is unlit
+      seam_x: seamX,
+      seam_x_flat: seamX,
     })
   },
   { stage: 'vertex' },
@@ -804,6 +824,7 @@ const vsMainEcefExtruded = fn(
     // pre-lifted ECEF-RTC.
     const projParamsV = U.field.proj_params
     const clip = vec4(0, 0, 0, 0)
+    const seamX = Var(f32(0))
     // Same flat/3D ladder as vs_main_ecef but extruded: the FLAT arms add a
     // `z_plane[_geom] = wall_height * is_top` plane-lift; the 3D (else) arm is
     // identical to the flat-fill path (pre-lifted ecef_rtc + cam_ecef_off
@@ -817,6 +838,7 @@ const vsMainEcefExtruded = fn(
       absLat: p.abs_lat,
       ecefRtc,
       clip,
+      seamX,
       extruded: true,
       isTop: p.is_top,
       wallHeight: p.wall_height,
@@ -929,6 +951,8 @@ const vsMainEcefExtruded = fn(
       world_z: p.wall_height.mul(p.is_top), // world-z carries wall_height for the wall-blend discriminator
       v_color: vec4(shadedRgb, opacity),
       shade_geom: vec2(dGeom, vgradFactor), // #1252 — geometric lighting for the data-driven fragment
+      seam_x: seamX,
+      seam_x_flat: seamX,
     })
   },
   { stage: 'vertex' },
@@ -941,6 +965,7 @@ const vsMainEcefExtruded = fn(
 //   1. polygon_cos_c_fragment hemisphere cull (sphere visibility).
 //   2. MERCATOR_LAT_LIMIT abs-lat clamp.
 //   3. clip_bounds parent-fallback mask (sentinel + bbox valid).
+//   4. #1496 seam-needle discard (polygon-seam-needle.ts) — flat non-Mercator only.
 // Inlined into each entry via this builder helper to keep the WGSL emit
 // shape byte-identical to POLYGON_SHADER_SOURCE.
 
@@ -954,6 +979,8 @@ const emitPolygonFragmentDiscards = (input: PolyFragIn): void => {
   If(abs(i.abs_lat).gt(MERCATOR_LAT_LIMIT.add(0.5)), () => {
     Discard()
   })
+  // #1496 — seam-straddling fill needles (flat non-Mercator arm only).
+  emitSeamNeedleDiscard(U.field.proj_params.x, i.seam_x, i.seam_x_flat)
   const clipBounds = U.field.clip_bounds
   const clipValid = clipBounds.x
     .gt(-1e29)

@@ -16,7 +16,13 @@
 // (label-node-local state, no longer a FrameContext field). The text-overlay
 // sub-pass originates through the RHI frame shell (#1046 F3b).
 
-import { evaluate, groundAlignsAtRuntime, makeEvalProps, resolveColor } from '@xgis/compiler'
+import {
+  evaluate,
+  groundAlignsAtRuntime,
+  makeEvalProps,
+  resolveColor,
+  tangentRotates,
+} from '@xgis/compiler'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../../__profile__/perf-marks'
 import { WORLD_MERC } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
@@ -1272,12 +1278,16 @@ class LabelPass implements RenderPass {
             // the zoom-dependent tile-unit bake — see its doc for the derivation.
             const spacingCssPx = effectiveDef.placement === 'line' ? (effectiveDef.spacing ?? 0) : 0
             const spacingPx = lineLabelSpacingPx(spacingCssPx, dpr, host.camera.zoom)
-            // Mapbox `text-rotation-alignment: viewport` for line
-            // placement keeps the label upright on screen instead of
-            // following the road tangent. 'auto' on line resolves to
-            // 'map' (= tangent), matching the historical behaviour.
-            const lineRotAlign = effectiveDef.rotationAlignment ?? 'auto'
-            const useTangentRotation = lineRotAlign !== 'viewport'
+            // Mapbox `text-rotation-alignment` on line placement: `viewport`
+            // and `viewport-glyph` (#2224) keep the label upright on screen
+            // instead of following the road tangent; `auto` resolves to `map`
+            // (= tangent), the historical behaviour. ONE predicate answers it
+            // for this gate AND for the ground gate below — spelling the test
+            // twice is what let the fourth enum value split them.
+            const useTangentRotation = tangentRotates(
+              effectiveDef.placement,
+              effectiveDef.rotationAlignment,
+            )
             // #2012 INC-4 — does this layer's curved branch lie in the ground
             // plane? ONE authority answers that now (#2166): groundAlignsAtRuntime
             // (compiler/src/ir/label-alignment.ts) carries the spec chain AND the

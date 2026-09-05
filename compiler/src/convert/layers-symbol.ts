@@ -1291,12 +1291,22 @@ export function convertTextLayoutProperties(
   // wrapped value — the label fell back to the runtime's auto-default
   // (viewport for point, map for line) even when the style explicitly
   // requested otherwise.
+  // #2224 — FOUR values, not three: the pinned style spec defines
+  // `viewport-glyph` alongside map / viewport / auto. Rejecting it as invalid
+  // emitted no utility at all, so the layer silently took the runtime's
+  // placement default (tangent + ground basis on a line layer) — the opposite
+  // of what MapLibre draws for it.
   const rotAlign = unwrapLiteralScalar(layout['text-rotation-alignment'])
-  if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
+  if (
+    rotAlign === 'map' ||
+    rotAlign === 'viewport' ||
+    rotAlign === 'viewport-glyph' ||
+    rotAlign === 'auto'
+  ) {
     utils.push(`label-rotation-alignment-${rotAlign}`)
   } else if (typeof rotAlign === 'string') {
     warnings.push(
-      `Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
+      `Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'viewport-glyph' | 'auto'.`,
     )
   }
   const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])

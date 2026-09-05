@@ -165,6 +165,12 @@ const COVERED_BY: Readonly<Record<string, string>> = {
   emitPolygonWgsl: 'polygon',
   emitPolygonGlsl: 'polygon',
   buildPolygonModule: 'polygon',
+  // #2499 — the WGSL-only families: no GLSL twin by construction (WgslOnlyFamily in ids.ts).
+  emitPolygonSplitWgsl: 'polygon-split',
+  buildPolygonSplitModule: 'polygon-split',
+  emitLineSplitWgsl: 'line-split',
+  buildLineSplitModule: 'line-split',
+  emitOitComposeWgsl: 'oit-compose',
   emitRasterWgsl: 'raster',
   buildRasterModule: 'raster',
   emitSceneUpscaleWgsl: 'scene-upscale',
@@ -227,10 +233,6 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
     'open set — wraps the compiled style predicate itself (dsl/coverage-filter.ts)',
 
   // ── Finite, but not a draper's UNCONDITIONAL build (what BAKED_SHADER_KEYS enumerates) ──
-  emitOitComposeWgsl:
-    'parameterised by (sampleCount, isMsaa) resolved from the live target at pipeline-build ' +
-    'time (render/compose-pipelines.ts), not a call-site constant — a phase-B (#1679) keying ' +
-    'candidate, not a phase-A omission',
   emitOverdrawFsWgsl:
     'debug-only fullscreen fragment pass (debug-flags.ts OVERDRAW_FS_SOURCE) — a ~20-line ' +
     'module with no projection graph spliced in, so it is not on the first-frame path the ' +
@@ -247,33 +249,17 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
   // `renderFillsRhi` skips every `cached.extruded` tile), so the shell pass never runs
   // and its compositor is never constructed. Authoring a twin to satisfy the row would
   // bake bytes for a shader no call site can reach INTO the artifact every map
-  // downloads, which is the cost the `boot`/`lazy` split exists to control. A WGSL-only
-  // key shape is a grammar change in ids.ts — the same phase-B (#1679) keying question
-  // `emitOitComposeWgsl` above is deferred on — not a phase-A omission.
+  // downloads, which is the cost the `boot`/`lazy` split exists to control. The WGSL-only
+  // key shape now exists (`WgslOnlyFamily`, #2499 — the split twins and oit-compose took
+  // it); what keeps THIS family out is the group: its compositor is built on the first
+  // translucent-extrusion frame (`oit-pass.ts`), so it is `lazy`, and a lazy family keyed
+  // before something prefetches its chunk resolves `absent` on every lookup — progress in a
+  // diff, zero when measured (#1679 inc 7). It joins the closed set with #2499 step 3,
+  // together with a prefetch seam.
   emitExtrudeShellComposeWgsl:
-    'no GLSL twin by construction (the extrude path does not exist on the GLSL backend), ' +
-    'and SimpleFamily — the only parameterless shape the closed set has — requires one; a ' +
-    'WGSL-only key shape is a phase-B (#1679) grammar question, not a phase-A omission',
-
-  // ── #2042 INC-4a: the split-mode polygon module — no consumer yet ──
-  // Derived from the legacy module by IR transform (polygon-split.ts); nothing
-  // builds a pipeline from it until INC-4b, so there is no first-frame path to
-  // shorten and no bake key to claim. When INC-4b lands the split pipeline
-  // family (WebGPU-only — no GLSL twin by scope), it inherits the same
-  // WGSL-only key-shape question as emitExtrudeShellComposeWgsl above; decide
-  // both together, do not bake speculatively now.
-  buildPolygonSplitModule:
-    '#2042 INC-4a/4b — consumed live by pipeline-factory behind __XGIS_SPLIT_BIND; ' +
-    'WGSL-only by scope, so baking waits on the WGSL-only key shape',
-  emitPolygonSplitWgsl:
-    '#2042 INC-4a/4b — consumed live by pipeline-factory behind __XGIS_SPLIT_BIND; ' +
-    'WGSL-only by scope (the split rebind is WebGPU-only), baking waits on the key shape',
-  buildLineSplitModule:
-    '#2042 INC-4c — consumed live by line-material behind the split layout; ' +
-    'WGSL-only by scope, same key-shape question as the polygon twins above',
-  emitLineSplitWgsl:
-    '#2042 INC-4c — consumed live by line-material behind the split layout; ' +
-    'WGSL-only by scope (the split rebind is WebGPU-only), baking waits on the key shape',
+    'no GLSL twin by construction (the extrude path does not exist on the GLSL backend); ' +
+    'the WGSL-only key shape exists since #2499, but the family is lazy and has no prefetch ' +
+    'seam yet — keyed now it would resolve absent on every lookup (#1679 inc 7); step 3 of #2499',
 }
 
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {

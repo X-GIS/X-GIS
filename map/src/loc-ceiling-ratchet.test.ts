@@ -400,7 +400,16 @@ const CEILINGS: Record<string, number> = {
   // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
   // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
   // kept here only as a cross-check that nothing was dropped in the resolution.
-  'map/src/render/vector-tile-renderer.ts': 5588,
+  // 5588->5596 (#2439, re-measured POST-MERGE — twice): the seeded `categorical()` value
+  // lists are OWNED BY `feature-data-binder.ts`, not by this file — what lands here is
+  // the 2-line forwarder to it plus one argument at the webgl2 packer call. The first
+  // draft did hold the state here (field + docblock + setter, +19) and was extracted
+  // precisely because this gate said so.
+  // SIXTH collision, same key, and the worst shape §12 names: #2309 (+8, main) and
+  // #2439 (+8, here) both wrote 5588 over the 5580 base — the SAME number from two
+  // different deltas, so the source merged with no conflict and this file conflicted
+  // only on the COMMENT. 5580 + 8 + 8 = 5596 = `wc -l` on the merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5596,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -984,7 +993,13 @@ const CEILINGS: Record<string, number> = {
   // two clears in setBackgroundFill's null/non-null branches, so a style-set fill and a
   // host-set fill (setBackgroundFill) can be told apart when a background-less re-run()
   // resets the style-owned one. Pre-prettier measurement; parent session re-measures.
-  'map/src/map.ts': 5437,
+  // 5437->5440 (#2439, measured post-prettier): three lines — a one-line
+  // `setSeededFeatures(filtered.features)` at the attach site plus its two-line why.
+  // An earlier draft derived the value lists HERE and cost 11 (call, rationale,
+  // import); moving the derivation into the binder, lazily, cut this to the wire AND
+  // fixed a staleness bug, so the smaller number is the better design rather than a
+  // trimmed comment. Ratcheting DOWN from the 5448 that draft measured.
+  'map/src/map.ts': 5440,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1122,7 +1137,13 @@ const CEILINGS: Record<string, number> = {
   // SAME flag — one authority, not a hand-copied predicate that could drift into meaning
   // two different things on one page. Net +8: the exported function + its doc, minus the
   // inline `useLegacy` expression and the comment lines it replaced.
-  'map/src/source-manager.ts': 1068,
+  // 1068->1073 (#2439, measured post-prettier): `_reseedInPlace` KEEPS the renderer
+  // by design, so the dense `categorical()` index derived from the previous data
+  // would rank the new data against the OLD value set — a wrong-colour bug, not a
+  // missed optimisation. One `setSeededFeatures(reprojected.features)` next to the
+  // existing `reseedTiles()`, plus the four lines saying why a reader must not drop
+  // it. Re-seeding drops the binder's memo, so the ranks cannot outlive their data.
+  'map/src/source-manager.ts': 1073,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -1373,12 +1394,21 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
-  // 1998→1990 (#2517): the lazy-IconStage gate's three "needs the sprite" reasons
+  // 1998->1990 (#2517): the lazy-IconStage gate's three "needs the sprite" reasons
   // (icon on a label show, fill/line pattern, inline `image(...)` in a label's
-  // text — the third is the fix) moved out to passes/sprite-atlas-need.ts as one
+  // text -- the third is the fix) moved out to passes/sprite-atlas-need.ts as one
   // predicate with a unit test per reason; the inline disjunction here became a
-  // call. The file SHRANK and the ceiling follows it down. MEASURED post-prettier.
-  'map/src/render/passes/label-pass.ts': 1990,
+  // call. The file SHRANK and the ceiling follows it down.
+  // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
+  // predicate instead of spelling `!== 'viewport'` a second time (the split the
+  // fourth enum value opened), which wraps the '@xgis/compiler' import to one
+  // name per line (+6) and the call to three lines, against the six-line why.
+  // 2000 (this merge): the two above landed from the SAME base 1998 and the file
+  // takes BOTH deltas (-8 then +10), so NEITHER side's number is right and the
+  // conflict text cannot be resolved by picking one -- CLAUDE.md §12's
+  // double-delta trap, which reds on main having been green on both branches.
+  // RE-MEASURED post-prettier on the merged file (`wc -l`): 2000.
+  'map/src/render/passes/label-pass.ts': 2000,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1453,7 +1483,7 @@ const CEILINGS: Record<string, number> = {
   // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
   // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
   // under the 800 new-file cap.
-  'map/src/render/pipeline-factory.ts': 1736,
+  'map/src/render/pipeline-factory.ts': 1734,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -1578,7 +1608,10 @@ const CEILINGS: Record<string, number> = {
   // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
   // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
   // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
-  'map/src/shaders/dsl/polygon.ts': 1567,
+  // 1567→1593 (#1496): the seam-needle discard's PLUMBING only — two varyings, the ladder's
+  // seamX output var, and 3×(Var + arg + two output fields). The decision and its rationale
+  // live in polygon-seam-needle.ts (new, < 800). MEASURED post-prettier.
+  'map/src/shaders/dsl/polygon.ts': 1593,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
@@ -2450,7 +2483,11 @@ const CEILINGS: Record<string, number> = {
   // text-translate, symbol-placement) where a non-constant form used to vanish
   // with no diagnostic; each records WHY its form reaches the arm. MEASURED
   // post-prettier (`git show HEAD:<file> | wc -l`).
-  'compiler/src/convert/layers-symbol.ts': 1424,
+  // 1424->1434 (#2224): `viewport-glyph` joins the text-rotation-alignment enum
+  // arm — the four-way condition prettier wraps to one value per line, plus the
+  // five-line why (rejecting a spec-valid value emitted NO utility, so the layer
+  // silently took the runtime's placement default). MEASURED post-prettier.
+  'compiler/src/convert/layers-symbol.ts': 1434,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2468,7 +2505,14 @@ const CEILINGS: Record<string, number> = {
   // 952->963 (#2440): the `label-text-optional` utility branch, its local, and
   // the knob pass-through — the same three touch points `label-icon-optional`
   // has. MEASURED post-prettier.
-  'compiler/src/ir/lower-label.ts': 963,
+  // 963->969 (#2224): the `label-rotation-alignment-viewport-glyph` parse arm
+  // plus the two-line note that the two viewport utilities are an exact-match
+  // pair, not a prefix pair. MEASURED post-prettier.
+  // 969->973 (#2224): the local's type derived from LabelDef instead of
+  // restating the enum, plus the 4-line why (the literal union was a second
+  // authority and rejected the value the converter had already accepted).
+  // MEASURED post-prettier.
+  'compiler/src/ir/lower-label.ts': 973,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2502,7 +2546,10 @@ const CEILINGS: Record<string, number> = {
   // 1006->1013 (#2440): `LabelDef.textOptional` + the contract doc. The WHY
   // lives once at text-stage.ts's `isTextOptional`; this doc states the field's
   // contract and points there. MEASURED post-prettier.
-  'compiler/src/ir/render-node.ts': 1013,
+  // 1013->1015 (#2224): LabelDef.rotationAlignment gains the fourth spec value
+  // in its type union, and its doc gains the two lines saying which side
+  // `viewport-glyph` resolves to. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 1015,
   // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
   // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
   // so the symbol emitter reads it too, plus its docstring recording WHY a second
