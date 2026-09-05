@@ -463,3 +463,71 @@ describe('#1976 — the single-stop fold respects the legacy function `type`', (
     expect(out).toContain('label-size-16')
   })
 })
+
+describe('#2329 — a MULTI-stop legacy {type: "interval"} zoom function lifts to a step, not a linear interpolate', () => {
+  // MapLibre's evaluateIntervalFunction (function/index.ts) holds the
+  // greatest stop <= the input — a right-continuous step, not a ramp.
+  // interpolateZoomStops used to ignore `type` entirely and always
+  // returned the linear/exponential shape, so `interval` silently
+  // interpolated between stops instead of holding the lower one.
+  it('10a. line-width interval function emits a step, not a linear interpolate', () => {
+    const { out } = convert(
+      lineLayer({
+        'line-width': {
+          type: 'interval',
+          stops: [
+            [10, 1],
+            [14, 4],
+          ],
+        },
+      }),
+    )
+    expect(out).not.toContain('interpolate(zoom, 10, 1, 14, 4)')
+    expect(out).toContain('stroke-[step(zoom, 1, 14, 4)]')
+  })
+
+  it('10b. a three-stop interval function emits every breakpoint in the step', () => {
+    const { out } = convert(
+      lineLayer({
+        'line-width': {
+          type: 'interval',
+          stops: [
+            [10, 1],
+            [14, 4],
+            [18, 8],
+          ],
+        },
+      }),
+    )
+    expect(out).toContain('stroke-[step(zoom, 1, 14, 4, 18, 8)]')
+  })
+
+  it('10c. an EXPONENTIAL multi-stop function is unaffected — still a linear interpolate', () => {
+    const { out } = convert(
+      lineLayer({
+        'line-width': {
+          type: 'exponential',
+          stops: [
+            [10, 1],
+            [14, 4],
+          ],
+        },
+      }),
+    )
+    expect(out).toContain('stroke-[interpolate(zoom, 10, 1, 14, 4)]')
+  })
+
+  it('10d. an untyped (default) multi-stop function is unaffected — still a linear interpolate', () => {
+    const { out } = convert(
+      lineLayer({
+        'line-width': {
+          stops: [
+            [10, 1],
+            [14, 4],
+          ],
+        },
+      }),
+    )
+    expect(out).toContain('stroke-[interpolate(zoom, 10, 1, 14, 4)]')
+  })
+})

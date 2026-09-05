@@ -203,14 +203,17 @@ describe('mapbox spec-coverage drift detector', () => {
       // Skip Mapbox internal accessor names we know are NOT meant for the
       // public table — `linear`, `exponential` are interpolate CURVE
       // types (their coverage lives under the parent `interpolate`
-      // entry). `zoom` is checked separately. Option-bag keys
-      // (`min-fraction-digits` / `max-fraction-digits` for number-format)
-      // live UNDER their parent expression entry and aren't standalone
-      // properties.
+      // entry); `interval` is the analogous legacy `{stops: […]}`
+      // zoom-function `type` discriminator (#2329 — it selects the
+      // step lift, coverage lives under the same parent). `zoom` is
+      // checked separately. Option-bag keys (`min-fraction-digits` /
+      // `max-fraction-digits` for number-format) live UNDER their
+      // parent expression entry and aren't standalone properties.
       if (
         [
           'linear',
           'exponential',
+          'interval',
           'cubic-bezier',
           'zoom',
           'min-fraction-digits',

@@ -439,6 +439,13 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 - A spec-coverage `supported` flip is a THREE-way sync: the spec-coverage row + the
   regenerated gap-matrix + a `RUNTIME_CAPABILITIES` row (the drift gate
   `spec-coverage-runtime-drift.test.ts` allows <3 orphans and WILL breach).
+- A PR with NO CI run at all — not a red one, none, across several pushes — is almost always
+  an UN-MERGEABLE PR, not a runner-pool problem: `pull_request` runs execute against
+  `refs/pull/N/merge`, and when the PR conflicts with its base GitHub cannot build that ref,
+  so it creates no run, no cancelled run and no status. #2330 sat like that for 34 hours across
+  ~8 pushes while it was misattributed twice (a saturated queue; a 403 on manual dispatch);
+  the first conflict-free push produced a run within seconds. Check `mergeable_state` before
+  blaming the runners; merge the base and the run appears on the next push.
 - Build the pre-merge checklist FROM `.github/workflows/test.yml`'s job matrix — a
   remembered checklist can always be missing a leg CI has; the written-down one cannot.
   → `2026-07-14-the-second-ratchet.md`

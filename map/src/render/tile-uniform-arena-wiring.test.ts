@@ -29,7 +29,9 @@ describe('VTR wires TileUniformArena at all six lifecycle points (#2042 INC-2)',
   })
 
   it('the store release hook frees the tile slots (every evict/drop/supersede path)', () => {
-    const hook = src.match(/_releaseTileHook = \(handleKey: string\): void => \{([\s\S]*?)\n {2}\}/)
+    const hook = src.match(
+      /_releaseTileHook = \(handleKey: string,[^)]*\): void => \{([\s\S]*?)\n {2}\}/,
+    )
     expect(hook, '_releaseTileHook arrow not found').toBeTruthy()
     expect(hook![1]).toContain('_tileUniforms.releaseTile(handleKey)')
   })

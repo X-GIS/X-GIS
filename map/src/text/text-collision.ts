@@ -103,6 +103,13 @@ export interface CollisionItem {
    *  symbol-spacing window of a higher-priority same-line label.
    *  Undefined → unused. */
   anchorDistancePx?: number
+  /** #2323 — this item's OWN same-line spacing window (physical px),
+   *  overriding `GreedyOptions.minLineSpacingPx` when set. Lets each
+   *  along-line run gate on its OWN authored symbol-spacing instead of one
+   *  frame-wide default shared by every layer. Undefined → the frame-wide
+   *  `minLineSpacingPx` option applies (byte-identical to before this field
+   *  existed). */
+  minLineSpacingPx?: number
   /** Collision group — MapLibre `collisionGroupID`. A blocker with
    *  the SAME groupKey never blocks this item, so a paired icon
    *  obstacle never collides with its own text label (they share the
@@ -313,9 +320,13 @@ export function greedyPlaceBboxes(
     const it = items[i]!
     // Same-line min-distance gate runs BEFORE bbox collision so a
     // crowded same-line label is rejected even if its bbox doesn't
-    // overlap any blocker. Saves a per-bbox scan when minLineSp > 0.
+    // overlap any blocker. Saves a per-bbox scan when the window is 0.
+    // #2323 — the item's OWN window (its run's authored symbol-spacing)
+    // takes priority over the frame-wide default, so a layer spaced below
+    // 250 px is gated on its own cadence instead of the default's.
+    const win = it.minLineSpacingPx ?? minLineSp
     if (
-      minLineSp > 0 &&
+      win > 0 &&
       it.lineId !== undefined &&
       it.anchorDistancePx !== undefined &&
       !it.allowOverlap
@@ -324,7 +335,7 @@ export function greedyPlaceBboxes(
       if (claimed) {
         let crowded = false
         for (const d of claimed) {
-          if (Math.abs(d - it.anchorDistancePx) < minLineSp) {
+          if (Math.abs(d - it.anchorDistancePx) < win) {
             crowded = true
             break
           }

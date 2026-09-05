@@ -36,7 +36,7 @@ import type {
   RhiRenderPass,
   RhiBuffer,
 } from '@xgis/engine'
-import { getSampleCount } from '@xgis/engine'
+import { getSampleCount, pickTargetsEnabled } from '@xgis/engine'
 import type { CoverageHandle } from '@xgis/data'
 import { cellUnitsToLonLat, coverageEdges, coverageMeshNodes } from '@xgis/data'
 import { CoverageDraper, COVERAGE_NODE_STRIDE } from './material/coverage-material'
@@ -654,6 +654,10 @@ export class CoverageRenderer {
         this.groupFor(s, flowView, draper),
         s.nodeBuf,
         this.ensureIndexBuf(),
+        // #2319 — the drape draws INSIDE the opaque sub-pass, which attaches its rg32uint pick
+        // MRT from this SAME predicate: a pipeline built from a different answer has the wrong
+        // target count and WebGPU drops the whole sub-pass, basemap included, every frame.
+        pickTargetsEnabled(this.rhi.caps),
       )
     }
   }
