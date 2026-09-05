@@ -29,3 +29,15 @@ docs/standards/s-111/111_Feature_Catalogue_2.0.0.xml
 # Generator-owned coverage report — the emitter is the single format authority
 # (a prettier reflow here just gets rewritten by the next full vitest run).
 compiler/src/__tests__/__coverage__/SUMMARY.md
+
+# Vendored upstream snapshot — the MapLibre demotiles mirror is kept byte-for-byte so the
+# committed style is the same bytes the live demo fetches (the #1495 repro fixture; the
+# premise is stated at playground/src/demos/fixtures.ts:409). Its .pbf glyph ranges are
+# already covered by **/*.pbf above; these two .json files were not.
+playground/public/vendor/
+
+# Generator-owned API reference — `bun run build` emits it (site/.gitignore excludes it from
+# the repo entirely), so prettier only ever meets it on a machine that has built. Formatting
+# it is waste that the next build overwrites, and leaving it in made `format:check` report
+# 395 red files after any local build — the noise this file exists to prevent.
+site/src/content/api/

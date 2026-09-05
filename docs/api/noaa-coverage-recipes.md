@@ -264,7 +264,7 @@ to `nowcoast.noaa.gov` directly. EPSG:3857 only, `GetMap` only — no `GetCapabi
 | A gridded HDF5 product (S-102/S-111) shared across many clients | **Recipe 1** (CORS-proxy the `.h5`, browser reads in place) |
 | A gridded HDF5 copy you mirror, want in-app live refresh        | **Recipe 2** (`setCoverageData` on a timer)                 |
 | A CORS-open JSON point/vector product                           | **Recipe 3** (fetch + `map.graphics`)                       |
-| A WMS-only raster service (nowCOAST) — no XYZ tile endpoint     | **Recipe 4** (the WMS→XYZ adapter, `@xgis/map`)              |
+| A WMS-only raster service (nowCOAST) — no XYZ tile endpoint     | **Recipe 4** (the WMS→XYZ adapter, `@xgis/map`)             |
 
 Track status: S-111 surface currents (this PR) exercises Recipes 1–3, and the
 `s111_live` demo runs Recipe 1 against the LIVE NOAA bucket end to end (the vite
