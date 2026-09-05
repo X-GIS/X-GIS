@@ -1883,7 +1883,17 @@ const CEILINGS: Record<string, number> = {
   // this renderer's, not the store's), so this is not a same-file double delta: the
   // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
   // carried across or computed from either side's.
-  'map/src/render/hillshade-renderer.ts': 747,
+  // 747→754 (#2302, main merge): the flat-branch selector derivation LEFT this file
+  // for flat-tile-selector.ts (cull space == draw space — the inert 'non-mercator'
+  // shim culled equirect/natural_earth tiles in Mercator space while vs_tile drew
+  // them through the display projection: a blank poleward band). The +7 is
+  // call-site width only: the 4-line shim became an 8-argument call prettier
+  // breaks over 10 lines, plus one import and one comment. Same key raised on both
+  // sides (853→747 above on main, 850→857 on this branch), so the merged file
+  // carries both deltas and neither side's number is right (§12) — RE-MEASURED
+  // post-prettier (`wc -l`) on the merged tree.
+  // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/hillshade-renderer.ts': 753,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2232,7 +2242,17 @@ const CEILINGS: Record<string, number> = {
   // key is z/x/y with no url — so the old source's tiles answered for the new one, and
   // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
   // abort on a real URL change.
-  'map/src/render/raster-renderer.ts': 1056,
+  // 1056→1061 (#2302, main merge): the flat-branch selector derivation LEFT this
+  // file for flat-tile-selector.ts (the inert 'non-mercator' shim culled equirect /
+  // natural_earth tiles in Mercator space while vs_tile drew them through the
+  // display projection — a blank poleward band, ~166 px per edge at 60°N). Call-site
+  // width only: a 6-line shim block became an 8-argument call prettier breaks over
+  // 10 lines, plus one import; the misleading two-line shim comment went with the
+  // shim. Same key raised on both sides (1034→1056 above on main, 1034→1038 on this
+  // branch), so the merged file carries both deltas and neither side's number is
+  // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  'map/src/render/raster-renderer.ts': 1060,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

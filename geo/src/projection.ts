@@ -246,16 +246,23 @@ export function azimuthalEquidistant(centerLon: number, centerLat: number): Proj
     forward(lon: number, lat: number): [number, number] {
       const lam = lon * DEG2RAD
       const phi = lat * DEG2RAD
-      const cosC = sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(lam - lam0)
-      const c = Math.acos(Math.max(-1, Math.min(1, cosC)))
-      if (c < 0.0001) return [0, 0]
-      const k = c / Math.sin(c)
-      const x = EARTH_RADIUS * k * Math.cos(phi) * Math.sin(lam - lam0)
-      const y =
-        EARTH_RADIUS *
-        k *
-        (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lam - lam0))
-      return [x, y]
+      const sinPhi = Math.sin(phi)
+      const cosPhi = Math.cos(phi)
+      const cosDl = Math.cos(lam - lam0)
+      const cosC = sinPhi0 * sinPhi + cosPhi0 * cosPhi * cosDl
+      // Tangent-plane components at the centre (the orthographic image); their
+      // magnitude IS sin c, built from small quantities that keep full relative
+      // precision at any distance (#2061). acos(cosC) cannot — cosC rounds to 1
+      // below the acos floor, and the old `c / sin c` collapsed every point
+      // inside 637 m (f64; 1.5 km in the shader's f32) onto the centre. Mirror
+      // of the DSL twin in map/src/shaders/dsl/projections.ts.
+      const xu = cosPhi * Math.sin(lam - lam0)
+      const yu = cosPhi0 * sinPhi - sinPhi0 * cosPhi * cosDl
+      const sinC = Math.sqrt(xu * xu + yu * yu)
+      const c = Math.atan2(sinC, cosC)
+      // k = c / sin c → 1 at the centre; the max() only removes the 0/0 there.
+      const k = c / Math.max(sinC, 1e-12)
+      return [EARTH_RADIUS * k * xu, EARTH_RADIUS * k * yu]
     },
 
     inverse(x: number, y: number): [number, number] {

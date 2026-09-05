@@ -39,12 +39,12 @@ import {
   vec4fT,
   radians,
   clamp,
+  max,
   log,
   tan,
   sin,
   cos,
   asin,
-  acos,
   atan,
   atan2,
   exp,
@@ -262,22 +262,22 @@ const proj_azimuthal_equidistant = fn(
           .mul(cos(phi))
           .mul(cos(lam.sub(l0))),
       )
-    const c = acos(clamp(cos_c, -1, 1))
-    ReturnIf(c.lt(0.0001), vec2(0, 0))
-    const k = c.div(sin(c))
-    const x = EARTH_R.mul(k)
-      .mul(cos(phi))
-      .mul(sin(lam.sub(l0)))
-    const y = EARTH_R.mul(k).mul(
-      cos(p0)
-        .mul(sin(phi))
-        .sub(
-          sin(p0)
-            .mul(cos(phi))
-            .mul(cos(lam.sub(l0))),
-        ),
-    )
-    return vec2(x, y)
+    // Tangent-plane components at the centre; |(xu, yu)| IS sin c, built from
+    // small quantities that keep their relative precision at any distance —
+    // acos(cos_c) lost it below the f32 acos floor (1.5 km) and collapsed the
+    // point onto the centre (#2061). k → 1 there; max() only removes the 0/0.
+    const xu = cos(phi).mul(sin(lam.sub(l0)))
+    const yu = cos(p0)
+      .mul(sin(phi))
+      .sub(
+        sin(p0)
+          .mul(cos(phi))
+          .mul(cos(lam.sub(l0))),
+      )
+    const sin_c = sqrt(xu.mul(xu).add(yu.mul(yu)))
+    const c = atan2(sin_c, cos_c)
+    const k = c.div(max(sin_c, f32(1e-12)))
+    return vec2(EARTH_R.mul(k).mul(xu), EARTH_R.mul(k).mul(yu))
   },
 )
 
