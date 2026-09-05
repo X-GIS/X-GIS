@@ -1573,7 +1573,10 @@ const CEILINGS: Record<string, number> = {
   // ratchet, so the freed 10 lines are given back rather than banked. The extraction is proven
   // byte-identical by polygon-variant-diff.test.ts's 8 un-minified snapshots, and that gate was
   // itself validated against a known positive (renaming the Let reds all 8). MEASURED.
-  'map/src/shaders/dsl/polygon.ts': 1567,
+  // 1567→1593 (#1496): the seam-needle discard's PLUMBING only — two varyings, the ladder's
+  // seamX output var, and 3×(Var + arg + two output fields). The decision and its rationale
+  // live in polygon-seam-needle.ts (new, < 800). MEASURED post-prettier.
+  'map/src/shaders/dsl/polygon.ts': 1593,
   // 1290→1314 (#1155 F3): cold-start burst tick budget — the `_coldStartBurst`
   // field + `_BURST_TICK_BUDGET` + `setColdStartBurst` + the burst-selected
   // budget in resetCompileBudget's backend tick loop.
