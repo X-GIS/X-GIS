@@ -226,7 +226,7 @@ export function convertMapboxStyle(
   // below, because `resolveImportsAsync` places an import's statements at the
   // import's own line: emit order is DRAW order, so the imported basemap lands
   // under the root style's own layers.
-  emitStyleImports(style.imports, lines, warnings)
+  emitStyleImports(style.imports, lines, warnings, style.layers)
 
   // ── Top-level style fields without an X-GIS equivalent ─────────────
   // The Mapbox style spec defines several top-level fields beyond
