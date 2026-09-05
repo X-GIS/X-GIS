@@ -10,7 +10,13 @@
 // and `WebGL2RenderingContext.prototype.shaderSource` BEFORE the page boots, lets
 // `demo.html?id=minimal` reach idle, and classifies every source it saw:
 //
-//   baked    — byte-equal to a source in one of the six committed artifacts
+//   baked    — byte-equal to a source in one of the six committed artifacts. BYTES CARRY NO
+//              PROVENANCE: the seam serves the same text on a hit and on a miss
+//              (`wgsl-for.ts`: `bakedSource(id) ?? shipSource(emit())`, and `baked-sync`
+//              pins artifact === shipSource(live emit)), so this bucket means "closed-set
+//              bytes", whether the store served them or a keyed miss re-emitted them. Whether
+//              the boot READ its bake is the store's own accounting, read through
+//              `window.__xgisBakedStore()` (install.ts): `misses === 0` and the served set.
 //   host     — an RHI-internal helper (`rhi:` label prefix; e.g. mip generation), not a DSL emit
 //   open     — a per-STYLE variant program (compiled under a `shader-<variant.key>` pipeline
 //              label): style-derived bytes the closed set is DEFINED to exclude (plan §7
@@ -33,9 +39,16 @@
 // compiled at least one shader, and at least one compiled source IS baked — a hand-off that
 // rewrote the text (a prefix, a re-minify) would otherwise read as "everything is runtime"
 // and the message would blame the wrong half.
+//
+// PROVENANCE MUST NOT MOVE A PIXEL. Each backend boots twice — baked, then `?nobake=1`
+// (`debug-flags.ts`, the seam switched off: every family runs its thunk) — and the two
+// frames must hash equal (§5's strongest rung; the `_1678` hillshade gate's shape, on both
+// backends). The `nobake` boot also proves the switch: the store must have served NOTHING
+// (`hits === 0`, nothing installed) — not "compiled zero baked programs", which the byte
+// identity above makes impossible to observe.
 
 import { test, expect, type Page } from '@playwright/test'
-import { awaitMapIdle } from './helpers/visual'
+import { awaitMapIdle, captureMapFrame, hashScreenshot } from './helpers/visual'
 // Relative deep imports (charter): Playwright transpiles specs in raw Node, where the
 // @xgis/* workspace alias does not resolve. The generated artifacts import only a type.
 import { BAKED_GLSL_BOOT } from '../../map/src/shaders/baked/baked-glsl-boot.generated'
@@ -75,9 +88,9 @@ const OPEN_SET_LABEL = /^shader-./
 
 /** The fail-before, per backend. SHRINK-ONLY — see the header. Rows are `<lang> <entry
  *  points> ×<distinct programs>`, sorted. Every WebGPU row is a #2499 finding:
- *    ×2 polygon — `buildShader(null)` (pipeline-factory.ts:703, the closed-set `wgsl/polygon`
- *       key is baked and nothing asks the store for it) and the split-bind twin
- *       `emitPolygonSplitWgsl(null, pick)` (pipeline-factory.ts:1066, no key shape);
+ *    ×1 polygon — the split-bind twin `emitPolygonSplitWgsl(null, pick)`
+ *       (pipeline-factory.ts:1066, no key shape). Was ×2 until `buildShader(null)` started
+ *       reading the baked `wgsl/polygon` key (polygon-shader-cache.ts);
  *    ×1 line — the split-bind twin `emitLineSplitWgsl` (line-material.ts:173, no key shape);
  *    ×1 oit-compose — `emitOitComposeWgsl(sampleCount, isMsaa)` (compose-pipelines.ts:28,
  *       built at boot, allowlisted "phase-B keying candidate"). */
@@ -86,7 +99,7 @@ const RUNTIME_AT_BOOT: Readonly<Record<'webgpu' | 'webgl2', readonly string[]>> 
   webgpu: [
     'wgsl vs_full+fs_compose ×1',
     'wgsl vs_line+fs_line+fs_line_pattern+fs_line_max ×1',
-    'wgsl vs_main+vs_main_ecef+vs_main_ecef_extruded+fs_fill+fs_fill_pattern+fs_oit_translucent+fs_fill_extrude+fs_stroke+fs_overdraw ×2',
+    'wgsl vs_main+vs_main_ecef+vs_main_ecef_extruded+fs_fill+fs_fill_pattern+fs_oit_translucent+fs_fill_extrude+fs_stroke+fs_overdraw ×1',
   ],
 }
 
@@ -181,11 +194,29 @@ function classify(seen: readonly Seen[]): Provenance {
   }
 }
 
+/** `window.__xgisBakedStore()` (map/src/shaders/baked/install.ts). */
+interface StoreReading {
+  ids: number
+  hits: number
+  misses: number
+  absent: number
+  closed: number
+  served: readonly string[]
+  emitted: readonly string[]
+}
+
+interface Boot {
+  seen: Seen[]
+  /** Hash of the settled, chrome-free map frame (captureMapFrame → hashScreenshot). */
+  hash: string
+  store: StoreReading
+}
+
 async function bootAndCollect(
   page: Page,
   url: string,
   backend: 'webgpu' | 'webgl2',
-): Promise<Seen[]> {
+): Promise<Boot> {
   await page.addInitScript(INIT)
   await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(
@@ -202,9 +233,53 @@ async function bootAndCollect(
   )
   // Assert the backend, so a silent fallback cannot green the other backend's arm.
   expect(marker, `window.__xgisActiveBackend for ${url}`).toBe(backend)
-  return await page.evaluate(
+  // Capture BEFORE reading the record: the frame is what the boot compiled shaders for, so
+  // anything a late pass compiles on the way to it is part of the boot's provenance.
+  const hash = await hashScreenshot(page, await captureMapFrame(page))
+  const seen = await page.evaluate(
     () => (window as unknown as { __xgisShaderProvenance?: Seen[] }).__xgisShaderProvenance ?? [],
   )
+  const store = await page.evaluate(() => {
+    const w = window as unknown as { __xgisBakedStore?: () => StoreReading }
+    return w.__xgisBakedStore?.() ?? null
+  })
+  expect(
+    store,
+    `${backend}: window.__xgisBakedStore is not published — install.ts did not run`,
+  ).not.toBeNull()
+  return { seen, hash, store: store! }
+}
+
+/** The two-boot arm: provenance pinned on the baked boot, then the bake switched off and the
+ *  frame required to be byte-identical. Returns nothing — every claim is an expect. */
+async function bakedVsLive(page: Page, url: string, backend: 'webgpu' | 'webgl2'): Promise<void> {
+  const baked = await bootAndCollect(page, url, backend)
+  assertProvenance(backend, baked.seen)
+  // The store's own word on whether the boot READ its bake (bytes cannot say — header).
+  expect(baked.store.hits, `${backend}: the bake served nothing on a baked boot`).toBeGreaterThan(0)
+  expect(
+    baked.store.misses,
+    `${backend}: a keyed call site asked for an id the installed artifact does not carry — ` +
+      `a bake drift (re-run bun run build, then bun run bake:shaders). Emitted: ` +
+      `${baked.store.emitted.join(', ')}`,
+  ).toBe(0)
+  if (backend === 'webgpu')
+    expect(
+      baked.store.served.some((id) => id.startsWith('wgsl/polygon/')),
+      `the WebGPU polygon base shader did not come from the store (served: ` +
+        `${baked.store.served.join(', ')}) — buildShader(null) stopped asking it (#2499)`,
+    ).toBe(true)
+
+  const live = await bootAndCollect(page, `${url}&nobake=1`, backend)
+  expect(live.store.ids, `${backend} ?nobake=1: an artifact was still installed`).toBe(0)
+  expect(live.store.hits, `${backend} ?nobake=1: the store still served a lookup`).toBe(0)
+  expect(classify(live.seen).seen, `${backend} ?nobake=1 compiled nothing`).toBeGreaterThan(0)
+  expect(
+    live.hash,
+    `${backend}: the ?nobake=1 frame differs from the baked frame — serving baked bytes ` +
+      `moved a pixel (or the scene is not deterministic on this rasterizer; check the same ` +
+      `URL twice before blaming the bake)`,
+  ).toBe(baked.hash)
 }
 
 function assertProvenance(backend: 'webgpu' | 'webgl2', seen: readonly Seen[]): void {
@@ -243,17 +318,15 @@ test.describe('#2499 — boot shader provenance (demo.html?id=minimal, ?adaptive
     expect(BAKED.size, 'distinct baked sources across the six artifacts').toBeGreaterThan(40)
   })
 
-  test('WebGL2: every shader compiled at boot is baked (#2459: zero runtime lowerings)', async ({
+  test('WebGL2: every shader compiled at boot is baked, and ?nobake=1 draws the same frame', async ({
     page,
   }) => {
-    const seen = await bootAndCollect(page, '/demo.html?id=minimal&adaptive=0&forcegl2=1', 'webgl2')
-    assertProvenance('webgl2', seen)
+    await bakedVsLive(page, '/demo.html?id=minimal&adaptive=0&forcegl2=1', 'webgl2')
   })
 
-  test('WebGPU: every shader compiled at boot is baked, minus the pinned fail-before rows', async ({
+  test('WebGPU: every shader compiled at boot is baked minus the pinned rows, and ?nobake=1 draws the same frame', async ({
     page,
   }) => {
-    const seen = await bootAndCollect(page, '/demo.html?id=minimal&adaptive=0', 'webgpu')
-    assertProvenance('webgpu', seen)
+    await bakedVsLive(page, '/demo.html?id=minimal&adaptive=0', 'webgpu')
   })
 })

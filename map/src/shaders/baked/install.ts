@@ -36,7 +36,7 @@
 import { xlog } from '@xgis/shared'
 import { bakedShadersDisabled } from '../../debug-flags'
 import { readsWgsl, type ShaderSourceDevice } from '../../render/material/wgsl-for'
-import { mergeBakedSources } from './store'
+import { bakedSeamEmitted, bakedSeamServed, bakedStoreStats, mergeBakedSources } from './store'
 import type { BakedArtifact } from './registry'
 
 /** One warn per process, mirroring `seed-hillshade.ts`'s latch: an unusable bake is a
@@ -56,6 +56,29 @@ export function _resetBakedInstallWarning(): void {
   warned = false
 }
 
+/** Publish a LIVE reader of the store's accounting as `window.__xgisBakedStore()` — the same
+ *  shape as `seed-hillshade.ts`'s `__xgisBakedShaderSeeds`, and for the same reader: an e2e
+ *  gate. The boot provenance gate (#2499) classifies the BYTES the driver receives, and bytes
+ *  carry no provenance — a hit and a miss serve the same text by the seam's own contract
+ *  (`wgsl-for.ts`: `bakedSource(id) ?? shipSource(emit())`), so only these counters can say
+ *  whether a boot READ its bake (`hits`, `served`) or paid the emit (`misses`, `emitted`).
+ *  A function, not a snapshot, so the gate reads the state at the moment it asks. Published
+ *  even when `?nobake=1` switches the seam off, so the gate can assert `hits === 0` there.
+ *  Process-scoped like the store itself; `map.destroy()` does not clear it (see
+ *  `destroy-raf-and-globals.test.ts` section 4 for the rule the two #1678 counters set). */
+function publishStoreReader(): void {
+  if (typeof window === 'undefined') return
+  // `Object.assign` rather than a `window as unknown as {…}` cast — map/src is under the
+  // forced-cast ratchet, and the assignment needs no type hole (see `publishSeedCount`).
+  Object.assign(window, {
+    __xgisBakedStore: () => ({
+      ...bakedStoreStats(),
+      served: bakedSeamServed(),
+      emitted: bakedSeamEmitted(),
+    }),
+  })
+}
+
 /** Import THIS DEVICE's boot-group artifact and merge it into the baked-source store.
  *  Returns how many ids the store now carries from it — 0 when the seam is switched off
  *  (`?nobake=1`) or the chunk could not be loaded.
@@ -65,6 +88,7 @@ export function _resetBakedInstallWarning(): void {
  *  closing it for the page's life. So a Moon boot still installs, and every lookup then
  *  reports `closed` — expected, counted apart from the `miss` that is a bug. */
 export async function installBakedShaders(rhi: ShaderSourceDevice): Promise<number> {
+  publishStoreReader()
   if (bakedShadersDisabled()) return 0
   try {
     const artifact: BakedArtifact = readsWgsl(rhi)
