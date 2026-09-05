@@ -40,6 +40,7 @@
 import type { Expr, Stmt, ModuleDecl, StructDecl } from './ir/index.js'
 import { validate } from './passes/validate.js'
 import { autoVars } from './passes/opt/index.js'
+import { froundF32 } from './passes/precision.js'
 import {
   type CpuValue,
   FIELD_IDX,
@@ -52,6 +53,7 @@ import {
   matMul,
   f32ToU32Sat,
   f32ToI32Sat,
+  numKindOf,
 } from './cpu-runtime.js'
 
 // Preserve the historical `@xgis/shader-dsl` oracle surface: the value-model
@@ -142,8 +144,9 @@ function evalExpr(e: Expr, env: Map<string, CpuValue>, ctx: Ctx): CpuValue {
           'shader-dsl/cpu: vec*mat (row-vector form) is not implemented — use mat*vec',
         )
       }
-      const i32Op = e.a.type.kind === 'scalar' && e.a.type.scalar === 'i32'
-      return applyBin(e.bop, av, bv, i32Op)
+      // The RESULT type's numeric kind drives WGSL integer semantics (wrap, truncating
+      // `/`, `x / 0 = x`, i32 arithmetic `>>`) in the shared scalarBin (#2274).
+      return applyBin(e.bop, av, bv, numKindOf(e.type))
     }
     case 'unop': {
       const a = evalExpr(e.a, env, ctx)
@@ -306,11 +309,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         break
       case 'assignOp': {
         const cur = evalExpr(s.target, env, ctx)
-        // #763 O6 — thread the i32 flag exactly as the binop path does
+        // #763 O6 — thread the numeric kind exactly as the binop path does
         // (oracle.ts binop case): `x >>= y` on an i32 target is an ARITHMETIC
-        // shift; the flag was applied to one of the two eval sites only.
-        const i32Op = s.target.type.kind === 'scalar' && s.target.type.scalar === 'i32'
-        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), i32Op), env, ctx)
+        // shift; the flag was once applied to one of the two eval sites only.
+        const kind = numKindOf(s.target.type)
+        setLValue(s.target, applyBin(s.bop, cur, evalExpr(s.expr, env, ctx), kind), env, ctx)
         break
       }
       case 'return':
@@ -355,8 +358,11 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
         const chosen = hit ? hit.body : s.defaultBody
         if (chosen) {
           const r = execBody(chosen, env, ctx)
-          if (r.kind === 'return' || r.kind === 'discard') return r
-          // 'break' inside a switch case terminates the case (already exits body)
+          // A `break` in a case body exits the SWITCH only (WGSL and GLSL alike), so it
+          // is consumed here. Everything else propagates to the statement that owns it —
+          // `return`, `discard`, and a `continue` aimed at an enclosing loop (#2275: it
+          // used to be dropped, so the loop body ran to completion on that iteration).
+          if (r.kind !== 'normal' && r.kind !== 'break') return r
         }
         break
       }
@@ -385,6 +391,20 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
   return NORMAL
 }
 
+/** How the CPU engines evaluate f32 arithmetic.
+ *
+ *  - `'f64'` (default) — the ALGEBRA oracle this package has always been: every value is a JS
+ *    double, so the result is the mathematically-intended one to 53 bits. It is the reference
+ *    an implementation is checked AGAINST, and changing it would change what "correct" means.
+ *  - `'f32'` — a correctly-rounding f32 machine over the same IR the GPU receives: every
+ *    f32-typed operation rounds to f32 after the fact (#2426), with ±Infinity on overflow.
+ *    Use it when the question is "does the TARGET compute this", so a parity gate can be an
+ *    ulp-scale comparison instead of a tolerance wide enough to hide a real error.
+ *
+ *  Exported from `@xgis/shader-dsl`.
+ */
+export type CpuPrecision = 'f64' | 'f32'
+
 /** The CPU (f64) tree-walk interpreter — a differential reference for the WGSL/GLSL
  *  GPU backends, re-walking the SAME IR node-by-node on every call (no code
  *  generation) and evaluating every op with `Math.*` in full f64, never `fround`.
@@ -405,13 +425,19 @@ function execBody(body: readonly Stmt[], env: Map<string, CpuValue>, ctx: Ctx): 
  *
  *  Exported from `@xgis/shader-dsl`.
  */
-export function compileModule(m: ModuleDecl, opts?: { gpuStubs?: boolean }): CpuModule {
+export function compileModule(
+  m: ModuleDecl,
+  opts?: { gpuStubs?: boolean; precision?: CpuPrecision },
+): CpuModule {
   // Same validation gate as the WGSL/GLSL writers — the oracle is the third
   // backend over the same IR, so it must reject a structurally-invalid module.
   validate(m)
   // Materialise auto-vars (plain `const x = …; assign(x, …)`) into real `var` bindings, exactly
   // as the WGSL backend does, so the CPU mirror evaluates the same assignable lvalues.
   m = autoVars(m)
+  // …then, in f32 mode, round after every f32 operation. AFTER autoVars, so the `var` bindings
+  // it materialises have their initialisers rounded like any other.
+  if (opts?.precision === 'f32') m = froundF32(m)
   const ctx: Ctx = {
     consts: new Map<string, CpuValue>(),
     // #923 — an override reads as its default on the CPU mirror.

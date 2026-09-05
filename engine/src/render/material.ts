@@ -11,6 +11,7 @@
 //   • pipeline variants — 1+ (e.g. an opaque/translucent pair differing only in depth).
 //   • per-item pooled uniform — optional (a per-item uniform slot; omit if unused).
 
+import { trackOwner, untrackOwner } from '@xgis/shared'
 import type {
   RhiDevice,
   RhiBindGroup,
@@ -168,6 +169,7 @@ export class Material {
     this.poolSlotSize = desc.pool?.slotSize ?? 0
     if (desc.globalUniformSize)
       this.globalUniform = rhi.createBuffer({ size: desc.globalUniformSize, usage: 'uniform' })
+    trackOwner(this, `Material ${desc.variants[0]?.label ?? '(unlabeled)'}`)
   }
 
   get hasPool(): boolean {
@@ -235,6 +237,7 @@ export class Material {
   destroy(): void {
     if (this._destroyed) return
     this._destroyed = true
+    untrackOwner(this)
     for (const p of this.pipelines) this.rhi.destroyPipeline(p)
     if (this.globalUniform) this.rhi.destroyBuffer(this.globalUniform)
     for (const b of this.poolBufs) this.rhi.destroyBuffer(b)

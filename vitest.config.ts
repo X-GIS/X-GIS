@@ -127,6 +127,9 @@ export const ISOLATED = [
   'data/src/source-resolve-error-report.test.ts',
   'data/src/sources/pmtiles-backend.test.ts',
   'data/src/sources/virtual-pmtiles-teardown.test.ts',
+  // (1) module mock — geojson-tiling-pool + mvt-worker-pool, so the worker compile arm
+  //     can be held open mid-flight (#2359).
+  'data/src/sources/virtual-pmtiles-worker-detach.test.ts',
   'data/src/tile-catalog-layout-version-eviction.test.ts',
   'data/src/tile-select-budget.test.ts',
   'data/src/vector-tile-loader-negcache-abort.test.ts',
@@ -156,6 +159,7 @@ export const ISOLATED = [
   'map/src/controller-dblclick-boxzoom.test.ts',
   'map/src/controller-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
+  'map/src/coverage-abort-spine.test.ts',
   'map/src/coverage-catalogue.test.ts',
   'map/src/coverage-residency-driver.test.ts',
   'map/src/coverage-source-refresh.test.ts',
@@ -224,6 +228,9 @@ export const ISOLATED = [
   'map/src/stats-byte-telemetry.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
+  // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
+  //     realm under test for the duration of each `evaluate` (#2352).
+  'playground/e2e/helpers/validation.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',
   'shared/src/safety.test.ts',

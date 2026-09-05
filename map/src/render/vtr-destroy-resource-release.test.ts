@@ -62,6 +62,47 @@ describe('VectorTileRenderer.destroy() releases owned GPU pools (#1153 P2 R1)', 
   })
 })
 
+// ═══ #2325 — destroy() must release the FOURTH lazy fill Material ═══════════
+//
+// #2286 gave this destroy() the lazy fill Materials it had never named, and wrote
+// "the three": `_fillMatRhi`, `_fillPickMatRhi`, `_fillPatternMatRhi`. There are
+// four — `_fillBakeMatRhi` (ensureFillBakeMaterialRhi, the #599 globe vector-drape
+// bake twin) was left out, so a `teardownSource` on the drape path still dropped a
+// Material with the device alive. Fail-before: the bake spy stays at 0 calls and
+// the slot keeps its reference.
+//
+// The slots are injected rather than driven through the lazy builders because each
+// builder needs a live shader emit + pipeline; what is under test is the RELEASE
+// set, and injection makes the missing member the ONLY thing that can fail.
+
+describe('#2325 VectorTileRenderer.destroy() releases every lazy fill Material', () => {
+  const LAZY_FILL_SLOTS = [
+    '_fillMatRhi',
+    '_fillPickMatRhi',
+    '_fillPatternMatRhi',
+    '_fillBakeMatRhi',
+  ] as const
+
+  it('destroys all four and clears their slots', async () => {
+    const ctx = await makeCtx()
+    const vtr = new VectorTileRenderer(ctx)
+    const anyVtr = vtr as unknown as Record<string, unknown>
+    const spies = new Map<string, ReturnType<typeof vi.fn>>()
+    for (const slot of LAZY_FILL_SLOTS) {
+      const destroy = vi.fn()
+      spies.set(slot, destroy)
+      anyVtr[slot] = { destroy }
+    }
+
+    vtr.destroy()
+
+    for (const slot of LAZY_FILL_SLOTS) {
+      expect(spies.get(slot), `${slot}.destroy()`).toHaveBeenCalledTimes(1)
+      expect(anyVtr[slot], `${slot} slot`).toBeNull()
+    }
+  })
+})
+
 // ═══ #1567 — the __xgisFillRhi globalThis slot must not outlive the map ═════
 //
 // The #717 dual-instance workaround mirrors the last fill state onto a

@@ -17,6 +17,9 @@
 // against TileCatalog's private setSlice.
 
 import { describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
 import { Camera } from '../camera'
 import { VectorTileRenderer } from './vector-tile-renderer'
@@ -334,5 +337,89 @@ describe('VectorTileRenderer.pumpPrefetch — pan-speculation walk throttle', ()
     // hold frame 0's values here.
     expect(prev.t).toBe(1064)
     expect(prev.cx).toBeCloseTo(startX + 2000, 6)
+  })
+})
+
+// ── The in-render prefetch throttles (#2309) ────────────────────────────────
+//
+// Two prefetch tiers live inside render() rather than in pumpPrefetch above,
+// because both need that ShowCommand's own selection output (`currentZ`,
+// `cameraIdle`, `tiles`) which the frame-scope pump does not have. That
+// placement is what broke their throttles: render() runs once per
+// ShowCommand — measured 106x/frame on OFM Bright — so a bare modulo
+// throttles per SLICE, not per frame.
+//
+// A source scan, not a unit test: render() needs a live GPU device and the
+// quantity under test is the SHAPE of the guard, which only the call site
+// can show. The measured cost of getting it wrong is on #2309 (14.4 ms of a
+// 16.7 ms budget, mid-zoom on OFM Bright).
+const VTR_SRC = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
+  'utf8',
+)
+
+/** The `if (...)` guard immediately enclosing `anchor` — from the last
+ *  method-body-level `if (` before it, through the anchor itself. */
+function guardFor(anchor: string): string {
+  const at = VTR_SRC.indexOf(anchor)
+  expect(at, `anchor not found: ${anchor}`).toBeGreaterThan(-1)
+  expect(VTR_SRC.indexOf(anchor, at + 1), `anchor is not unique: ${anchor}`).toBe(-1)
+  const open = VTR_SRC.lastIndexOf('\n    if (', at)
+  expect(open, `no enclosing guard for: ${anchor}`).toBeGreaterThan(-1)
+  return VTR_SRC.slice(open, at + anchor.length)
+}
+
+describe('VectorTileRenderer in-render prefetch — the throttle is per FRAME (#2309)', () => {
+  it('the frame memo is cleared on a currentFrameId change and empties BOTH tiers', () => {
+    // Without this clear the sets fill on the first frame and neither tier
+    // ever fires again — the failure mode that makes a memo worse than the
+    // bug it replaces.
+    const clear = guardFor('this._zoomPrefetchZooms.clear()')
+    expect(clear).toContain('this._prefetchMemoFrame !== this.currentFrameId')
+    expect(clear).toContain('this._prefetchMemoFrame = this.currentFrameId')
+    expect(clear).toContain('this._adjacentPrefetchZooms.clear()')
+    // The memo key is the frame id, never the per-render counter.
+    expect(clear).not.toContain('this.frameCount')
+  })
+
+  it('tier 1 (prefetchAdjacent) is memoised, not a bare modulo', () => {
+    const guard = guardFor('this.source.prefetchAdjacent(tiles, currentZ)')
+    expect(guard, 'tier-1 must consult the memo').toContain(
+      '!this._adjacentPrefetchZooms.has(currentZ)',
+    )
+    expect(guard, 'tier-1 must record the run, or the memo never throttles').toContain(
+      'this._adjacentPrefetchZooms.add(currentZ)',
+    )
+    expect(guard, 'the window is frames, so the modulo is on the frame id').toContain(
+      'this.currentFrameId % 10 === 0',
+    )
+    expect(guard, 'frameCount ticks per ShowCommand, not per frame').not.toContain(
+      'this.frameCount',
+    )
+  })
+
+  it('tier 2 (zoom-direction prefetch) is memoised, not a bare modulo', () => {
+    const guard = guardFor('this.source.prefetchTiles(prefetchKeys)')
+    expect(guard, 'tier-2 must consult the memo').toContain(
+      '!this._zoomPrefetchZooms.has(currentZ)',
+    )
+    expect(guard, 'tier-2 must record the run, or the memo never throttles').toContain(
+      'this._zoomPrefetchZooms.add(currentZ)',
+    )
+    expect(guard, 'the window is frames, so the modulo is on the frame id').toContain(
+      'this.currentFrameId % 6 === 0',
+    )
+    expect(guard, 'frameCount ticks per ShowCommand, not per frame').not.toContain(
+      'this.frameCount',
+    )
+  })
+
+  it('no cadence anywhere in the file is keyed on the per-render counter', () => {
+    // frameCount survives as an LRU recency stamp (`lastUsedFrame`), where only
+    // ordering matters. Any `frameCount % n` is a cadence, and cadences are
+    // frames. Non-vacuity: the counter itself must still exist, or this
+    // assertion is about nothing.
+    expect(VTR_SRC).toContain('private frameCount = 0')
+    expect([...VTR_SRC.matchAll(/this\.frameCount\s*%/g)].length).toBe(0)
   })
 })

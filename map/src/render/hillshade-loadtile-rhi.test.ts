@@ -12,7 +12,8 @@
 // data/src/tile-select-load-cleanup.test.ts held over `loadImageTexture` until the fork
 // was deleted.
 //
-// Reached via the (private) loadTileTexture on a HillshadeRenderer built over the
+// Reached via the (private) loadTileTexture on the renderer's DEM STORE (#2268 moved
+// residency + the fetch path there), on a HillshadeRenderer built over the
 // real WebGPU stub (installWebGPUStub + initGPU, the raster-loadtile-webgl2-cleanup
 // idiom); loadImageBitmap resolves through a stubbed global fetch + createImageBitmap
 // (the SSRF-integration-test pattern — a vi.mock('@xgis/data') binds too late under
@@ -68,8 +69,15 @@ function installFakeBitmap(width: number, height: number): { close: ReturnType<t
   return { close }
 }
 
-/** Swap the renderer's RHI for a fake so the #1153 P2 R4 failure contract is reachable
- *  (the stub device never throws). Only the three methods loadTileTexture touches. */
+/** Swap the RHI the DEM load actually uses for a fake, so the #1153 P2 R4 failure
+ *  contract is reachable (the stub device never throws). Only the three methods
+ *  loadTileTexture touches.
+ *
+ *  Reaches through `dem` (#2268): DEM residency and the fetch path moved to
+ *  `DemTileStore`, which holds its own `rhi`. Driving the store THROUGH a real
+ *  renderer rather than constructing a bare store is deliberate — it keeps this
+ *  test covering the production object graph, so it also fails if the renderer
+ *  ever stops wiring the store. */
 function useFakeRhi(
   hr: HillshadeRenderer,
   rhi: {
@@ -78,7 +86,7 @@ function useFakeRhi(
     destroyTexture: () => void
   },
 ): void {
-  ;(hr as unknown as { rhi: unknown }).rhi = rhi
+  ;(hr as unknown as { dem: { rhi: unknown } }).dem.rhi = rhi
 }
 
 const URL = 'https://example.com/dem.png' // public → passes the SSRF literal check
@@ -87,8 +95,10 @@ type Loaded = { texture: { native?: unknown; destroy?: unknown }; bytes: number 
 
 function loadTile(hr: HillshadeRenderer): Promise<Loaded> {
   return (
-    hr as unknown as { loadTileTexture: (u: string, s: AbortSignal) => Promise<Loaded> }
-  ).loadTileTexture(URL, new AbortController().signal)
+    hr as unknown as {
+      dem: { loadTileTexture: (u: string, s: AbortSignal) => Promise<Loaded> }
+    }
+  ).dem.loadTileTexture(URL, new AbortController().signal)
 }
 
 describe('HillshadeRenderer.loadTileTexture routes the default WebGPU backend through the RHI (#1623)', () => {

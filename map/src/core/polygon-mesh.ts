@@ -147,9 +147,14 @@ const EARTH_RADIUS_LOCAL = EARTH.sphereR // WGS84 semi-major axis; used ONLY for
  *  Wall outward normal: at each edge midpoint the lat/lon ENU basis is
  *  used to rotate `(north_component, -east_component, 0)` — a right-
  *  hand turn of the edge tangent in the local horizontal plane — into
- *  ECEF. Outer rings (CCW) and holes (CW) are handled identically
- *  because the ring orientation is normalised first (see `ccw` flag in
- *  `generateWallMeshExtruded`).
+ *  ECEF. The outer ring (ring 0) is walked so its OWN signed area reads
+ *  CCW and every hole ring is walked so its own signed area reads CW,
+ *  regardless of the winding each ring was actually delivered in (see
+ *  `walkForward` in Pass 2a). That keeps the building solid on the LEFT
+ *  of every walked edge, so the right-hand-turn normal points away from
+ *  the solid for BOTH the outer wall (away from the footprint) and each
+ *  hole wall (into the courtyard) — a hole ring walked the same way as
+ *  the outer ring would instead point its wall normals into the solid.
  *
  *  Heights / bases: per-feature `heights.get(fid)` and `bases.get(fid)`
  *  with **0 default** for missing entries. A feature with no height
@@ -368,13 +373,19 @@ export function generateWallMeshExtrudedECEF(
       const lastEdgeI = closed ? len - 1 : len
 
       // Determine ring winding so outward-facing walls have consistent
-      // front-face orientation (same as `generateWallMeshExtruded`).
+      // front-face orientation. The outer ring (r === 0) is walked CCW and
+      // every hole ring is walked CW — in EITHER case the building solid
+      // ends up on the LEFT of the walked edge, so the right-hand-turn
+      // normal below points away from the solid for both the outer wall
+      // and each hole wall (#2303). This is keyed on the ring's OWN signed
+      // area, not on an assumed input winding, so it is correct whichever
+      // winding a hole ring was actually delivered in.
       let signed2 = 0
       for (let i = 0; i < lastEdgeI; i++) {
         const j = (i + 1) % len
         signed2 += ring[i][0] * ring[j][1] - ring[j][0] * ring[i][1]
       }
-      const ccw = signed2 > 0
+      const walkForward = r === 0 ? signed2 > 0 : signed2 < 0
 
       for (let i = 0; i < lastEdgeI; i++) {
         const j = (i + 1) % len
@@ -383,8 +394,8 @@ export function generateWallMeshExtrudedECEF(
         // the clipped footprint (Pass 2b unchanged); hole edges follow the
         // same rule (the predicate is ring-agnostic).
         if (isBoundaryEdge && isBoundaryEdge(ring[i], ring[j])) continue
-        const aIdx = ccw ? i : j
-        const bIdx = ccw ? j : i
+        const aIdx = walkForward ? i : j
+        const bIdx = walkForward ? j : i
         const ax = ring[aIdx][0],
           ay = ring[aIdx][1]
         const bx = ring[bIdx][0],

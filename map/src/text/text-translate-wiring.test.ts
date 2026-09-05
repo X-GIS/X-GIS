@@ -8,9 +8,10 @@
 // test only proves the converter emits `label.translate` /
 // `label.translateAnchorMap` onto the ShowCommand. The RUNTIME consumer that
 // actually moves the rendered glyph anchor by that offset
-// (TextStage.prepare(), text-stage.ts:1001-1009:
-//   if (p.def.translate) { dx += txRaw * dpr; dy += tyRaw * dpr }
-// feeding drawX = anchorX + dx / drawY = anchorY + dy at text-stage.ts:1010-1011)
+// (TextStage.prepare() — since #2170 the translate is applied AT the draw
+// sites rather than folded into `dx`/`dy`:
+//   const drawX = p.anchorX + (dx + txRaw * dpr)
+//   const drawY = p.anchorY + (dy + tyRaw * dpr))
 // had no behavioral wiring test. A break there ships silently — the
 // heatmap-class "supported but the data path is dead" bug.
 //
@@ -27,9 +28,11 @@
 // is caught), plus a translate-absent control that pins dx = dy = 0 — the
 // assertions track the PROP, never a constant.
 //
-// Fail-before: zero the two translate adds in text-stage.ts
-//   `dx += txRaw * dpr`  →  `dx += 0`
-//   `dy += tyRaw * dpr`  →  `dy += 0`
+// Fail-before: zero the two translate terms at BOTH draw sites in
+// text-stage.ts (the cache-hit path and the miss path each carry one since
+// #2170)
+//   `(dx + txRaw * dpr)`  →  `(dx + 0)`
+//   `(dy + tyRaw * dpr)`  →  `(dy + 0)`
 // and the translated-case assertions go red while the control stays green —
 // the wiring that makes `text-translate` actually shift the label is gone,
 // caught before any render.
@@ -151,7 +154,7 @@ describe('text-translate runtime anchor-shift wiring (GPU-free)', () => {
   })
 
   it('translate [TX,TY] shifts the draw anchor by exactly [TX,TY] at dpr 1', () => {
-    // Zero the `dx += txRaw * dpr` / `dy += tyRaw * dpr` adds and BOTH fail.
+    // Zero the `txRaw * dpr` / `tyRaw * dpr` terms at the draw sites: BOTH fail.
     const { dx, dy } = deltaFor([TX, TY])
     expect(dx).toBeCloseTo(TX, 6)
     expect(dy).toBeCloseTo(TY, 6)

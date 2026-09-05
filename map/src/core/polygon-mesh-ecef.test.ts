@@ -519,3 +519,145 @@ describe('generateWallMeshExtrudedECEF — #1083 tile-boundary seam walls', () =
     expect(mesh.indices.length).toBe(30)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────
+// #2303 — hole-ring wall normals must point INTO the courtyard, not
+// into the building solid. Pass 2a walked EVERY ring (outer AND
+// holes) CCW in the (mx,my) plane, regardless of role. "CCW around a
+// ring's own enclosed area" reads as that ring's exterior — for the
+// outer ring that IS the building exterior (correct), but for a hole
+// ring the area it encloses IS the courtyard, so its right-hand-turn
+// normal pointed OUTWARD FROM the courtyard, i.e. INTO the solid:
+// inverted lambert shading, and back-face-culled entirely on the OIT
+// extruded pipeline (`cullMode: 'back'`, `frontFace: 'ccw'`).
+//
+// The fix walks the outer ring CCW and every hole ring CW, keyed on
+// the RING'S OWN signed area (not an assumed input winding) — so it
+// must hold for a hole ring delivered in EITHER winding.
+// ─────────────────────────────────────────────────────────────────
+describe('generateWallMeshExtrudedECEF — #2303 hole wall normal direction', () => {
+  // Outer 1000m×1000m CCW square centred at (mx, my) = (0, 0), i.e.
+  // (lon=0, lat=0) — ECEF-space distances match Mercator metres
+  // directly at this tiny extent, so the courtyard/footprint centre
+  // coincides exactly with `tileEcefCenterFromMerc(0, 0)`. SW → SE →
+  // NE → NW, the same CCW convention the other fixtures in this file
+  // use.
+  const outer: Array<[number, number]> = [
+    [-500, -500],
+    [500, -500],
+    [500, 500],
+    [-500, 500],
+    [-500, -500],
+  ]
+  // 200m×200m hole, concentric with the outer footprint, delivered CW
+  // — the tiler convention (`compiler/src/tiler/encoding.ts`).
+  const holeCW: Array<[number, number]> = [
+    [-100, -100],
+    [-100, 100],
+    [100, 100],
+    [100, -100],
+    [-100, -100],
+  ]
+  // Same hole, delivered CCW — an out-of-convention winding the fix
+  // must not assume against, since it keys on each ring's own signed
+  // area rather than a fixed input convention.
+  const holeCCW: Array<[number, number]> = [
+    [-100, -100],
+    [100, -100],
+    [100, 100],
+    [-100, 100],
+    [-100, -100],
+  ]
+  const heights = new Map<number, number>([[9, 30]])
+  const tileMx = 0
+  const tileMy = 0
+  const center = tileEcefCenterFromMerc(0, 0)
+
+  // Average ECEF of a wall's two BASE verts (a_bot, b_bot) as the edge
+  // midpoint. Walls are 4 verts in (a_bot, b_bot, a_top, b_top) order;
+  // the outer ring's 4 edges are walls 0..3, the (single) hole ring's
+  // 4 edges follow immediately as walls 4..7 (Pass 2a walks rings in
+  // `poly.rings` order, no tile-boundary suppression in this fixture).
+  const wallMidpointECEF = (mesh: MeshLike, w: number): [number, number, number] => {
+    const a = reconstructECEF(unpack(mesh, w * 4), center)
+    const b = reconstructECEF(unpack(mesh, w * 4 + 1), center)
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]
+  }
+  const wallNormal = (mesh: MeshLike, w: number): [number, number, number] => {
+    const v = unpack(mesh, w * 4)
+    return [v.fn_x, v.fn_y, v.fn_z]
+  }
+  const dot3 = (
+    a: readonly [number, number, number],
+    b: readonly [number, number, number],
+  ): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+  it('CONTROL: outer-ring wall normals point AWAY from the footprint centre', () => {
+    // Passes both before and after the fix — outer rings (r === 0)
+    // keep their pre-existing CCW walk. Establishes the fixture and
+    // helpers are sound, so the hole arms below are attributable to
+    // the hole-role bug rather than a broken test.
+    const polygons: RingPolygon[] = [{ featId: 9, rings: [outer, holeCW] }]
+    const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, center)
+    for (let w = 0; w < 4; w++) {
+      const mid = wallMidpointECEF(mesh, w)
+      const n = wallNormal(mesh, w)
+      const outward: [number, number, number] = [
+        mid[0] - center[0],
+        mid[1] - center[1],
+        mid[2] - center[2],
+      ]
+      const dot = dot3(n, outward)
+      expect(
+        dot,
+        `outer wall ${w}: mid=[${mid.join(', ')}] n=[${n.join(', ')}] dot=${dot}`,
+      ).toBeGreaterThan(0)
+    }
+  })
+
+  it('hole wall normals point TOWARD the courtyard centre when the hole is delivered CW (tiler convention)', () => {
+    // FAIL-BEFORE: pre-fix, every ring (outer and hole) is walked CCW,
+    // so the hole's right-hand-turn normal points away from the
+    // courtyard (into the solid) — this dot is negative pre-fix.
+    const polygons: RingPolygon[] = [{ featId: 9, rings: [outer, holeCW] }]
+    const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, center)
+    for (let w = 4; w < 8; w++) {
+      const mid = wallMidpointECEF(mesh, w)
+      const n = wallNormal(mesh, w)
+      const toCentre: [number, number, number] = [
+        center[0] - mid[0],
+        center[1] - mid[1],
+        center[2] - mid[2],
+      ]
+      const dot = dot3(n, toCentre)
+      expect(
+        dot,
+        `hole(CW) wall ${w}: mid=[${mid.join(', ')}] n=[${n.join(', ')}] dot=${dot}`,
+      ).toBeGreaterThan(0)
+    }
+  })
+
+  it('hole wall normals point TOWARD the courtyard centre when the hole is delivered CCW', () => {
+    // Same FAIL-BEFORE as the CW arm — the bug walked every ring CCW
+    // regardless of its delivered winding, so this arm fails the same
+    // way pre-fix even though the input winding differs. Proves the
+    // fix keys on the ring's OWN signed area, not an assumed
+    // convention.
+    const polygons: RingPolygon[] = [{ featId: 9, rings: [outer, holeCCW] }]
+    const mesh = generateWallMeshExtrudedECEF(polygons, heights, undefined, tileMx, tileMy, center)
+    for (let w = 4; w < 8; w++) {
+      const mid = wallMidpointECEF(mesh, w)
+      const n = wallNormal(mesh, w)
+      const toCentre: [number, number, number] = [
+        center[0] - mid[0],
+        center[1] - mid[1],
+        center[2] - mid[2],
+      ]
+      const dot = dot3(n, toCentre)
+      expect(
+        dot,
+        `hole(CCW) wall ${w}: mid=[${mid.join(', ')}] n=[${n.join(', ')}] dot=${dot}`,
+      ).toBeGreaterThan(0)
+    }
+  })
+})

@@ -373,6 +373,12 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   minutes that had never been launched (the log file did not exist). Use a bracket pattern
   (`[v]itest`), or better, do not poll at all — launch with `run_in_background` and read the
   harness's exit code. Same family as the poller entry under Verification.
+- The bracket trick does NOT save you from `pkill -f` — it only stops the pattern matching
+  ITSELF, not the calling shell whose command line still contains it. `pkill -f
+"[c]odebase-memory"` killed the very shell that issued it (exit 143/144), taking the
+  command after it with it. Never `pkill -f` a pattern you just typed: identify the PID first
+  (`ps -eo pid,etimes,comm` filtered on the COMMAND column, which never contains your
+  arguments) and kill by PID, or let the harness's `run_in_background` own the lifecycle.
 - `cd` PERSISTS across a compound command, so a relative path in a restore step resolves
   against the new directory — a `cd playground && … ; cp backup map/src/x.ts` silently writes
   to `playground/map/src/`, leaving the probe's edit live. Cost a reported "the fix does not
@@ -476,6 +482,14 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   `page.screenshot` over the canvas BOX is not chrome-free: `DEMO_CHROME_IDS`
   (`e2e/helpers/visual.ts`) exists because those elements overlap it. Use `captureMapFrame`.
   → #2120
+- Chrome can UN-HIDE itself after the hide. The log overlay rewrites its own inline `display`
+  on every console.warn, so a DEV warning landing between two captures (the #2266 owner-leak
+  detector under `__XGIS_INVARIANTS`) put the overlay back into the frame — 12962 px of
+  "⚠ Errors" text hashed as a recombine regression and bisected to the commit that added the
+  WARNING, not to any render change. `hideDemoChrome` now hides by a stylesheet `!important`
+  rule, which outranks any inline write; never hide chrome with an inline style, and when a
+  gate reddens on the commit that added a diagnostic, read the saved frame before the shader.
+  → #2284
 - A RENDER INPUT can be a function of WALL-CLOCK. The adaptive quality controller samples
   measured rendered-frame intervals and runs live wherever `?adaptive=0` / `?scenescale` is
   absent; measured on one scene at notch 0 → 3 → 4 with `adaptiveFarLodBoost` 1 → 4, and that
@@ -571,6 +585,23 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   reddened naming exactly the severed half. Bake after the cut AND after the restore, and
   assert `git status --porcelain map/src/shaders/baked/` is empty before believing either
   run. → #2117
+- A verdict about how code behaves is NOT finished at the first consumer, and the
+  refutation is usually already written in a DOCBLOCK one or two files away. Three verdicts
+  in one session — "the palette is the carrier for a per-feature pattern", "23 bits is the
+  collision space", "text-optional only needs the drop-cascade suppressed" — each died to
+  something the trace had not reached, and TWICE the answer sat in the docstring of the very
+  function being quoted: `feature-data-pack.ts:19-21` names `shader-gen.ts`'s `% <palette>`
+  (space 20, not 2^23 — collisions CERTAIN at 21, not 1% at 411); `text-stage.ts:743-753`
+  states the #609 premise `text-optional: true` falsifies (the surviving icon then seeds NO
+  obstacle box); `rhi-fill-variant.ts:29-31` names the r32float fence an atlas-of-bboxes
+  fails to LINK against on WebGL2. Before acting on "this IS the mechanism" or "this is
+  small": name the INVARIANT the verdict rests on and sweep what DEPENDS on it, not merely
+  what CALLS it — the third case was no caller at all, it was a separate optimisation
+  resting on the same premise. FILING is an action this gate precedes, not a draft of it:
+  the one case that skipped it cost an issue filed and closed not-planned. §6's graph is the
+  sweep tool (`trace_path`, direction `both`); it flapped all session here and the fallback
+  to grep went UNANNOUNCED, which §6.1 forbids for exactly this reason.
+  → `#2427` (filed on the refuted premise), `#2440`, `#2439`
 
 **Process**
 

@@ -91,8 +91,16 @@ interface CachePrivates {
   tileCache: Map<string, { bytes: number }>
   _cachedBytes: number
 }
-const privatesOf = (r: RasterRenderer | HillshadeRenderer): CachePrivates =>
-  r as unknown as CachePrivates
+/** Raster still keeps this state on the renderer; hillshade's moved to its
+ *  `DemTileStore` (#2268 / D5 INC-0). The asymmetry is real and deliberate, not
+ *  drift — the raster twin is not extracted yet — so this resolves whichever
+ *  object actually owns the insert path rather than assuming one shape. If the
+ *  raster half is extracted later, this branch collapses; until then, hiding the
+ *  difference here would be the thing that lets the two silently diverge. */
+const privatesOf = (r: RasterRenderer | HillshadeRenderer): CachePrivates => {
+  const store = (r as unknown as { dem?: CachePrivates }).dem
+  return store ?? (r as unknown as CachePrivates)
+}
 
 /** Admit `n` tiles of `dim`² through the renderer's real insert path. */
 function admit(r: CachePrivates, n: number, dim: number): MockTexture[] {

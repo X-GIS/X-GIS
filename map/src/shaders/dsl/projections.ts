@@ -597,7 +597,7 @@ function buildProjectionArtifacts(specs: ProjectionSpec[]) {
   // position (no whole-world jump) when the camera sits near ±180°. The GPU
   // per-vertex path keeps the offset to place adjacent world copies. These are
   // genuinely different functions, so they are authored separately.
-  const project_geom_cpu = fn(LLPR_PARAMS, ({ lon_deg, lat_deg, proj_params, ref_lon }) => {
+  const project_geom_cpu = fn(LLPR_PARAMS, vec2fT, ({ lon_deg, lat_deg, proj_params, ref_lon }) => {
     const t = proj_params.x
     const clon = proj_params.y
     const clat = proj_params.z

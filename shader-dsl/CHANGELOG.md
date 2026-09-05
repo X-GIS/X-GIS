@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: c66997122bf2916673633f310db42e483eda3119
+  Generated from: fb601cb095b674680445949cc14c3c895d84782f
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since c66997122bf2
+    bun scripts/emit-changelog.ts --path shader-dsl --since fb601cb095b6
 -->
 
 # Changelog — shader-dsl
@@ -20,6 +20,30 @@
 This repo ships no versioned releases and carries no git tags, so changes are grouped by month rather than by version. Each entry is one squash-merged commit on `main`; the short hash is the point in history it landed at.
 
 _Entries are the commits touching `shader-dsl/`; a listed commit may also touch other packages._
+
+### 2026-09
+
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** a fn body that returns nothing must name its return type (#2458) ([#2481](https://github.com/X-GIS/X-GIS/pull/2481)) `34efec1`
+- **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
+
+#### feat
+
+- **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
+- **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
+
+#### fix
+
+- **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
+- **shader-dsl:** memberFold must not forward a construct argument that is reassigned (#2354) ([#2398](https://github.com/X-GIS/X-GIS/pull/2398)) `0d74a94`
+- **shader-dsl:** an empty dispatch is a steady state on the WebGL2 compute tier too (#2362) ([#2395](https://github.com/X-GIS/X-GIS/pull/2395)) `8aaa2fa`
+- **shader-dsl:** fail closed on a duplicated local name, derive captureLoc's package filter, correct the README taxonomy ([#2347](https://github.com/X-GIS/X-GIS/pull/2347)) `553bbc5`
+- **shader-dsl:** CPU-tier WGSL integer semantics, switch/continue propagation, fail-closed literals — Wave 0 of the direction record ([#2270](https://github.com/X-GIS/X-GIS/pull/2270)) `6285c6a`
+
+#### test
+
+- **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`
 
 ### 2026-08
 

@@ -87,9 +87,10 @@ import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape, drapesAtSelectionZ } from '@xgis/geo'
+import { bakesVectorDrape, drapesStrokesAtSelectionZ } from '@xgis/geo'
+import { drapesAtChordBudget } from './globe-drape-budget'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import { computeDrapeOverzoom } from './drape-overzoom-dispatch'
+import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
@@ -328,6 +329,27 @@ export class VectorTileRenderer {
    *  grid) instead of drawing as ECEF chords; false off the globe (flat path
    *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
   private _drapeGlobeFills = false
+  /** #2346 — the frame's device pixel ratio, stashed for the mid-render bake.
+   *  `bakeTileToTexture` is driven from VectorDrapeRenderer (which has no
+   *  viewport state), and the baked stroke's AA band is the one screen-space
+   *  quantity that must survive the bake — see bakeStrokeAaDpr. */
+  private _bakeDpr = 1
+  /** #2346 / design INC-3 — `_bakeStrokeActive` AFTER the STROKE ceiling
+   *  (`drapesStrokesAtSelectionZ`). `_bakeStrokeActive` says the show HAS a
+   *  drape-worthy stroke; this says the drape should still be the one drawing it.
+   *  Read by `bakeTileToTexture` (which runs from VectorDrapeRenderer and cannot
+   *  see the selection zoom) and by the bake cache key, so a ceiling change
+   *  re-bakes instead of serving a texture with strokes burnt into it. */
+  private _bakeStrokesGated = false
+  /** #2346 — why the windowed-bake dispatch did what it did on the last frame.
+   *  The switch is atomic, so its usual failure is to do nothing at all; this is
+   *  the only place a gate or probe can read the cause. */
+  readonly _drapeOverzoomDiag: DrapeOverzoomDiag = {}
+  /** Per-slice copy of the above. One VectorTileRenderer serves every slice of a
+   *  source and each gets its own render() call, so the single-instance scratch
+   *  only ever holds the LAST one — which, measured, was a sparse layer whose
+   *  legitimate "no geometry here" reading was mistaken for the dense layers'. */
+  readonly _drapeOverzoomDiagBySlice = new Map<string, DrapeOverzoomDiag>()
   /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
   private _drape: VectorDrapeRenderer | null = null
   private cachedFillColor = [0, 0, 0, 0]
@@ -739,6 +761,24 @@ export class VectorTileRenderer {
    *  budget can short-circuit duplicate resets when one source feeds
    *  multiple layer ShowCommands within the same frame. */
   private currentFrameId = 0
+  /** #2309 — prefetch-throttle memo: the frame the two prefetch tiers last
+   *  ran in, and the `currentZ` values already served within it.
+   *
+   *  Both are documented "every 10 / 6 FRAMES", but `render()` runs once per
+   *  ShowCommand (106x/frame on OFM Bright), so NO modulo alone expresses a
+   *  frame cadence: `frameCount % 6` (per-render counter) fired ~17.7x a
+   *  frame, and `currentFrameId % 6` fires 106x on every 6th — same average,
+   *  worse pacing. Only a memo makes "at most once per window" true.
+   *
+   *  Keyed by `currentZ`, not the frame alone: the selector runs per slice
+   *  and a layer's `maxLevel` can hold its `currentZ` below the camera's —
+   *  genuinely different prefetch targets. The other per-slice input,
+   *  `isCached`, only SHRINKS the request set, and a not-yet-fetched tile is
+   *  uncached for EVERY slice, so one run per distinct `currentZ` requests
+   *  exactly the tiles 106 runs did. */
+  private _prefetchMemoFrame = -1
+  private readonly _adjacentPrefetchZooms = new Set<number>()
+  private readonly _zoomPrefetchZooms = new Set<number>()
 
   // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
   // A fills-only sibling of render() for the WebGL2 immediate arm
@@ -905,6 +945,19 @@ export class VectorTileRenderer {
    *  WebGL2 (the offscreen encoder is WebGPU-only; the WebGL2 drape is a later
    *  slice). `fill` is straight-alpha RGBA 0..1. The caller owns the returned
    *  texture's lifetime (`rhi.destroyTexture`). */
+  /** #2346 — the per-slice windowed-bake diagnostic scratch. Cleared in place so
+   *  a reader always sees the LAST frame's answer for that slice, never a stale
+   *  field from an earlier one. */
+  private _sliceOverzoomDiag(sliceLayer: string): DrapeOverzoomDiag {
+    let d = this._drapeOverzoomDiagBySlice.get(sliceLayer)
+    if (!d) {
+      d = {}
+      this._drapeOverzoomDiagBySlice.set(sliceLayer, d)
+    }
+    for (const k of Object.keys(d)) delete (d as Record<string, unknown>)[k]
+    return d
+  }
+
   bakeTileToTexture(
     sliceLayer: string,
     key: number,
@@ -918,8 +971,12 @@ export class VectorTileRenderer {
      *  the whole tile (byte-identical to the pre-#2024 bake). */
     window?: { ox: number; oy: number; extent: number },
   ): RhiTexture | null {
+    // An offscreen pass on an OUT-OF-FRAME encoder — the CAPABILITY, not the method's
+    // presence: a device answering false can still hand one over (#2474 — WebGL2's is
+    // copy-scoped and throws from `beginRenderPass`, so `?.` alone declines nothing).
+    if (!this.rhi.caps.outOfFramePasses) return null
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
-    if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
+    if (!enc) return null
     const cached = this.getOrCreateLayerCache(sliceLayer).get(key)
     if (!cached || cached.extruded) return null
     // #599 line-drape — a tile may carry a FILL, STROKES (polygon outlines / line features), or both.
@@ -927,7 +984,7 @@ export class VectorTileRenderer {
     // still bake (strokes only) so the line curves. Skip only when there is nothing to draw.
     const hasFill = cached.indexCount > 0
     const hasStroke =
-      this._bakeStrokeActive &&
+      this._bakeStrokesGated &&
       this.lineRenderer != null &&
       (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
     if (!hasFill && !hasStroke) return null
@@ -1083,6 +1140,7 @@ export class VectorTileRenderer {
         this._bakeStroke,
         this._linePatternActiveForShow,
         strokeWidthScale,
+        this._bakeDpr,
       )
     }
 
@@ -2366,6 +2424,20 @@ export class VectorTileRenderer {
     this._featureBinder.destroy()
     // #1592 — the RHI variant path owns its own Materials + per-tile feat_data
     // buffers; nothing else references them, so nothing else would reclaim them.
+    // #2286 — the LAZY fill Materials, which no teardown named: a mid-session
+    // `teardownSource` (a setSourceData replace, a feature-update rebuild, a
+    // polar-cap swap) dropped them with the DEVICE STILL ALIVE.
+    // #2325 — there are FOUR of them. #2286 wrote "the three" and missed
+    // `_fillBakeMatRhi` (ensureFillBakeMaterialRhi, the #599 globe vector-drape
+    // bake twin), so the one arm that rebuilds the drape kept leaking a Material.
+    for (const m of [
+      this._fillMatRhi,
+      this._fillPickMatRhi,
+      this._fillPatternMatRhi,
+      this._fillBakeMatRhi,
+    ])
+      m?.destroy()
+    this._fillMatRhi = this._fillPickMatRhi = this._fillPatternMatRhi = this._fillBakeMatRhi = null
     this._fillVariantsRhi?.destroy()
     this._fillVariantsRhi = null
 
@@ -2808,6 +2880,7 @@ export class VectorTileRenderer {
       parentAtMaxLevel,
       archiveAncestor,
       currentZ,
+      targetZ,
       cameraIdle,
     } = sel
 
@@ -2958,6 +3031,7 @@ export class VectorTileRenderer {
     // #599 line-drape — reset per render(); set at the drape seam / layer-slot block below.
     this._drapeStrokes = false
     this._bakeStrokeActive = false
+    this._bakeStrokesGated = false
 
     // Write uniforms through the typed block's fixed-arity setters (zero
     // per-call allocation — the hot-loop surface; #733 P2d).
@@ -3663,26 +3737,44 @@ export class VectorTileRenderer {
     // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
     // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
     // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
-    // at all pitches so it is EXCLUDED (renders direct). `drapesAtSelectionZ` adds the
-    // #2093 LOD CEILING: the trade reverses once the tiles are fine enough, so past
-    // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
-    // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
-    this._drapeGlobeFills =
+    // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
+    // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
+    // THIS CAMERA, so anything a source can serve renders direct. Needs an out-of-frame
+    // pass + NON-extruded + CONSTANT fill; `__XGIS_DISABLE_VECTOR_DRAPE` draws direct.
+    this._bakeDpr = dpr
+    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS: the bake
+    // records an offscreen pass on an out-of-frame encoder — a CAPABILITY (#2474).
+    const bakeAvailable =
+      this.rhi.caps.outOfFramePasses &&
+      this.currentExtrudeMode === 'none' &&
+      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+    // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
+    // half rather than inside it. Same escape hatches (the force flag holds the
+    // drape for A/B arms; the disable flag forces every direct draw), same
+    // bake availability and same held-vs-camera LOD reading.
+    this._bakeStrokesGated =
+      this._bakeStrokeActive &&
       bakesVectorDrape(projType, camera.globeMode) &&
-      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the 512px bake's blur
-      // exceeds the direct path's chord sagitta at every camera zoom;
-      // __XGIS_FORCE_VECTOR_DRAPE holds the drape for A/B and sever-arm gates.
-      (drapesAtSelectionZ(currentZ) ||
+      (drapesStrokesAtSelectionZ(Math.max(currentZ, targetZ)) ||
         (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
           true) &&
-      this.rhi.backend !== 'webgl2' &&
-      this.currentExtrudeMode === 'none' &&
+      bakeAvailable
+    this._drapeGlobeFills =
+      bakesVectorDrape(projType, camera.globeMode) &&
+      // #2094 — PIXEL BUDGET, not a LOD ceiling: the drape wins only where the direct
+      // arm's chord error exceeds the bake's own resample cost, i.e. where the camera
+      // has run past what the source can supply. Read off the drawn LOD OR the camera's
+      // (`targetZ`): in a zoom-in readiness hold currentZ trails the camera and the held
+      // tiles must draw direct (_globe-direct-hold-window-gate). FORCE holds the drape.
+      (drapesAtChordBudget(Math.max(currentZ, targetZ), camera.zoom) ||
+        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
+          true) &&
+      bakeAvailable &&
       // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
       // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
       // buffer) fill or a sprite pattern — those keep the direct draw.
       !show.shaderVariant?.needsFeatureBuffer &&
-      show.fillPatternUV == null &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
+      show.fillPatternUV == null
     if (
       this._drapeGlobeFills &&
       phase !== 'strokes' &&
@@ -3690,12 +3782,14 @@ export class VectorTileRenderer {
       // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
       // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
       // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
-      (!this._skipFillDraw || this._bakeStrokeActive)
+      (!this._skipFillDraw || this._bakeStrokesGated)
     ) {
       this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
-      // #599 line-drape — strokes were baked into the same tile texture, so suppress the direct
-      // ECEF-chord stroke draw for this show (see `drawStrokes` in renderTileKeys).
-      this._drapeStrokes = this._bakeStrokeActive
+      // #599 line-drape — a baked stroke is drawn by the sphere grid, so the direct
+      // ECEF-chord draw for this show is suppressed (see `drawStrokes` in renderTileKeys).
+      // Design INC-3: the stroke ceiling is its OWN number, so a frame can drape its
+      // fills and still draw its roads direct — see GLOBE_DIRECT_MIN_STROKE_Z.
+      this._drapeStrokes = this._bakeStrokesGated
       // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
       // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
       // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
@@ -3705,8 +3799,11 @@ export class VectorTileRenderer {
         currentZ,
         cssWidth: canvasWidth / dpr,
         cssHeight: canvasHeight / dpr,
+        dpr,
+        diag: this._sliceOverzoomDiag(sliceLayer),
         source: this.source,
         sliceLayer,
+        neededKeys,
         layerCache: this.getOrCreateLayerCache(sliceLayer),
         uploadResident: (parentKey) =>
           this.uploadTile(parentKey, this.source!.getTileData(parentKey, sliceLayer)!, sliceLayer),
@@ -3720,7 +3817,7 @@ export class VectorTileRenderer {
         camera,
         this.currentOpacity ?? 1,
         this.cachedFillColor as [number, number, number, number],
-        strokeBakeKey(this._bakeStrokeActive, this._bakeStroke),
+        strokeBakeKey(this._bakeStrokesGated, this._bakeStroke),
         camera.zoom,
         sliceLayer,
         neededKeys,
@@ -3728,6 +3825,7 @@ export class VectorTileRenderer {
         this.getOrCreateLayerCache(sliceLayer),
         this,
         drapeOverzoom,
+        [this.currentFillTranslateNdcX, this.currentFillTranslateNdcY], // #2249
       )
     }
 
@@ -4342,7 +4440,19 @@ export class VectorTileRenderer {
     // While the camera is actively moving the prefetched edge tiles
     // are likely to be invalidated within ~100 ms of being fetched
     // — wasted bandwidth + GPU upload pressure on mobile.
-    if (cameraIdle && this.frameCount % 10 === 0) {
+    // #2309 — the memo is what makes "every 10th frame" true; a bare
+    // modulo fires per SLICE, not per frame (see _prefetchMemoFrame).
+    if (this._prefetchMemoFrame !== this.currentFrameId) {
+      this._prefetchMemoFrame = this.currentFrameId
+      this._adjacentPrefetchZooms.clear()
+      this._zoomPrefetchZooms.clear()
+    }
+    if (
+      cameraIdle &&
+      this.currentFrameId % 10 === 0 &&
+      !this._adjacentPrefetchZooms.has(currentZ)
+    ) {
+      this._adjacentPrefetchZooms.add(currentZ)
       this.source.prefetchAdjacent(tiles, currentZ)
     }
 
@@ -4377,9 +4487,13 @@ export class VectorTileRenderer {
     // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
     // the camera is provably heading toward (same centre, next LOD), so the
     // pan-invalidation rationale behind the adjacent-prefetch idle gate does
-    // not apply; cost is bounded by the %6 throttle, the isCached filter,
-    // and the fetch queue's own concurrency cap.
-    if (this.frameCount % 6 === 0) {
+    // not apply; cost is bounded by the 6-frame throttle, the isCached
+    // filter, and the fetch queue's own concurrency cap.
+    // #2309 — that throttle is the modulo AND the per-frame memo. The
+    // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
+    // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
+    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(currentZ)) {
+      this._zoomPrefetchZooms.add(currentZ)
       // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
       // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
       // execution order/throttle is byte-identical to the prior inline block.
@@ -4845,9 +4959,9 @@ export class VectorTileRenderer {
             this.frameBlock.buffer,
             sliceLayer,
             this.currentPickId & 0xffff,
-            this.frameCount,
+            this.currentFrameId,
           )
-          this._splitBind!.syncFrame(this.frameBlock.buffer, this.frameCount)
+          this._splitBind!.syncFrame(this.frameBlock.buffer, this.currentFrameId)
           const bg = this._splitBind!.bindGroup()
           if (bg) {
             splitBind = { bg, tileOff, showOff }
@@ -5183,9 +5297,9 @@ export class VectorTileRenderer {
               this.frameBlock.buffer,
               sliceLayer,
               this.currentPickId & 0xffff,
-              this.frameCount,
+              this.currentFrameId,
             )
-            this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+            this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
             const bg = this._splitBind.bindGroup()
             if (bg) splitBind = { bg, tileOff, showOff }
           }
@@ -5404,9 +5518,9 @@ export class VectorTileRenderer {
           this.frameBlock.buffer,
           sliceLayer,
           this.currentPickId & 0xffff,
-          this.frameCount,
+          this.currentFrameId,
         )
-        this._splitBind.syncFrame(this.frameBlock.buffer, this.frameCount)
+        this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
         strokeSplitBg = this._splitBind.bindGroup()
       }
       // line-gap-width double-draw: when the second offset slot was

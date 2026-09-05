@@ -31,7 +31,15 @@ export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
 export function keyOf(e: Expr): string {
   switch (e.op) {
     case 'lit':
-      return `L:${typeof e.value}:${String(e.value)}`
+      // The TYPE is part of a literal's identity, and it is the ONE expr whose type nothing
+      // else in the key implies (a param / varref carries its own single type per function;
+      // an operator's type follows its operands). Keying on `typeof e.value` alone made
+      // `u32(-1.0)` and `u32(-1)` share a key — a conversion whose meaning depends on its
+      // ARGUMENT type: float→u32 saturates to 0, int→u32 reinterprets the bits as
+      // 4294967295. CSE then hoisted one and rewrote the other to it, in the emitted WGSL
+      // and GLSL alike. `-0` is spelled apart from `0` for the same reason: `x + -0.0` and
+      // `x + 0.0` differ when x is -0.0. Found by the #2406 generated-program differential.
+      return `L:${typeKey(e.type)}:${Object.is(e.value, -0) ? '-0' : String(e.value)}`
     case 'constref':
       return `C:${e.name}`
     case 'externref':

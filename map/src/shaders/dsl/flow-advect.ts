@@ -109,7 +109,9 @@ const vsFull = fn(
  *  large arguments, and this runs on both the WGSL and GLSL arms where those differ. */
 const hash = fn('flow_hash', { p: vec2fT, phase: f32T }, (a) => {
   const p3 = Let(fract(vec3(a.p.x, a.p.y, a.p.x.add(a.phase)).mul(f32(0.1031))))
-  // dot(p3, p3.yzx + 33.33), expanded — the DSL has no `dot` in this surface.
+  // dot(p3, p3.yzx + 33.33), expanded by hand. The DSL does have `dot` (line.ts and
+  // hillshade.ts import it); this stays expanded because rewriting it would move the
+  // baked bytes for no pixel — a byte-identical refactor is the only reason to touch it.
   const d = Let(
     p3.x
       .mul(p3.y.add(f32(33.33)))

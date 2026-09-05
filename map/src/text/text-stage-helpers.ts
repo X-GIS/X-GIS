@@ -206,8 +206,12 @@ export function layoutCacheKey(
   anchor: string,
   offsetX: number,
   offsetY: number,
-  translateX: number,
-  translateY: number,
+  // #2170 — `text-translate` is DELIBERATELY not a term. It is a rigid
+  // translation of the whole block applied after the layout, so nothing the
+  // entry stores depends on it (see the hoist at text-stage.ts's two drawX
+  // sites), and keying on it made the cache MISS on every bearing change for
+  // any map-anchored label — the cost that kept `text-translate-anchor`'s
+  // spec default (`map`) unimplemented. Adding it back re-creates that.
   padding: number,
   haloWidth: number,
   haloBlur: number,
@@ -231,8 +235,6 @@ export function layoutCacheKey(
   h = Math.imul(h ^ ((_ANCHOR_ORDINAL[anchor] ?? 15) + 1), 0x01000193)
   h = Math.imul(h ^ ((offsetX * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((offsetY * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((translateX * 10) | 0), 0x01000193)
-  h = Math.imul(h ^ ((translateY * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((padding * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloWidth * 10) | 0), 0x01000193)
   h = Math.imul(h ^ ((haloBlur * 10) | 0), 0x01000193)

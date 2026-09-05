@@ -180,7 +180,7 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     layerType: 'symbol',
     variant: 'constant',
     supported: true,
-    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and re-keys the layout cache. viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
+    note: 'map is the SPEC DEFAULT (not viewport) = world-space: TextStage.prepare rotates the [dx,dy] text-translate by camera.bearing (rotateLabelTranslate, mirror of the fill/line clip-space bake) and applies it at the two draw sites — #2170 keeps it OUT of the layout cache and its key, so a rotation re-shapes nothing. viewport = screen-space. An absent anchor now takes the spec default too — the converter reads the same translateAnchorIsMap decision the paint path does, instead of its own "map"-only copy. Pitch foreshortening not reproduced.',
   },
   {
     property: 'text-halo-blur',
@@ -262,6 +262,13 @@ export const symbolCapabilities: readonly RuntimeCapability[] = [
     variant: 'constant',
     supported: true,
     note: 'true → LabelDef.iconOptional: colliding icon may hide while paired text shows; default false reverse-arbitration deferred (Phase S Batch 4)',
+  },
+  {
+    property: 'text-optional',
+    layerType: 'symbol',
+    variant: 'constant',
+    supported: true,
+    note: 'true → LabelDef.textOptional (#2440): a collision-rejected label no longer stamps its pairKey into TextStage.droppedPairKeys, so the paired icon survives alone. The load-bearing half is that the pairKey also leaves getActiveTextPairKeys(), which is what makes IconStage.computeObstacles seed the surviving icon its OWN box — #609 skips a paired icon on the premise that it is either represented by its live text bbox or dropped with it, and this property falsifies the second branch. Seeding costs nothing when the text wins: PairedBadgeBoxes.union already grew that text bbox to the same rectangle. Absent / explicit false is the spec default AND the pre-existing pair contract, so those styles are byte-identical and unwarned. Non-constant form warns.',
   },
   {
     property: 'icon-padding',

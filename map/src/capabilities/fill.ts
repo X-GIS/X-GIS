@@ -61,7 +61,7 @@ export const fillCapabilities: readonly RuntimeCapability[] = [
     layerType: 'fill',
     variant: 'data-driven',
     supported: false,
-    note: 'Expression form of fill-pattern (per-feature sprite name) not threaded through IR',
+    note: `#2380 — still false, and deliberately: this row describes what the RUNTIME honours, and the runtime still bakes ONE pattern per draw (\`show.fillPattern\` is a single string resolved to one UV bbox at render-loop.ts:881). What changed is upstream — the converter splits a \`match()\` over sprite names into one sublayer per unique sprite (expand-color-match.ts), so the runtime never receives a data-driven pattern in the first place. Do NOT flip this to true on the strength of a match() style now rendering: the open-ended ["get"] form still reaches here and is still declined.`,
   },
   // Fill outline (lowers to stroke- utilities in xgis)
   { property: 'fill-outline-color', layerType: 'fill', variant: 'constant', supported: true },

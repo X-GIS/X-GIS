@@ -14,6 +14,29 @@ import { fileURLToPath } from 'node:url'
 // is the tile-drift floor and OFF↔ON is the drape effect (the reloc-DC0 drift-vs-drape disambiguation).
 // Headed WebGPU only (the bake is WebGPU-only). `coastline` = local ne_110m coastline (constant amber
 // `stroke-2`, no fill) — a line-ONLY layer, so this also exercises the indexCount===0 bake path.
+//
+// ── INC-3 RE-POINT (the lever moved; the subject did not) ───────────────────
+// Strokes no longer drape BY DEFAULT: `GLOBE_DIRECT_MIN_STROKE_Z = 0` sends every
+// globe stroke down the direct arm, because a baked stroke pays a sphere-grid
+// resample (~1 px on every road at every zoom) that a curve — unlike a fill — has
+// no crack risk to trade it against (geo/src/projections-table.ts derives both
+// ceilings). So `__XGIS_DISABLE_VECTOR_DRAPE` alone no longer moves this scene:
+// both arms drew the same direct strokes and the gate reddened on its own
+// distinguishing assertion ("curved line drape must differ from flat chord",
+// measured 0) — a subject retired out from under it, not a regression.
+//
+// The MECHANISM is still live and still shipping (it is what a fill's outline
+// takes below the fill ceiling, and what the whole sphere route took until this
+// increment), so the gate follows it rather than being deleted or relaxed: the ON
+// arm now sets `__XGIS_FORCE_VECTOR_DRAPE`, the escape hatch the stroke gate
+// carries for exactly this (`drapesStrokesAtSelectionZ(...) || FORCE === true`),
+// and the OFF arm keeps `__XGIS_DISABLE_VECTOR_DRAPE`. Same scene, same camera,
+// same two frames, same assertion — one flag name changed on the ON side.
+//
+// What the DEFAULT (direct) stroke owes is a different claim with a different
+// owner: the line curves because `subdivideChainMM` densifies it at the same
+// 2°/depth-5 rule the fill triangles get (compiler/src/tiler/subdivide-conforming
+// .ts), and its ECEF endpoint precision is `_line-ecef-lane-parity`'s (#2089).
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-vector-line-drape__')
@@ -22,6 +45,7 @@ type Win = Window & {
   __xgisReady?: boolean
   __xgisActiveBackend?: string
   __XGIS_DISABLE_VECTOR_DRAPE?: boolean
+  __XGIS_FORCE_VECTOR_DRAPE?: boolean
   __xgisMap?: {
     invalidate?: () => void
     getCamera?: () => { projType?: number; globeMode?: boolean; zoom?: number }
@@ -48,9 +72,13 @@ async function settle(page: import('@playwright/test').Page, ms: number): Promis
 }
 
 async function setDrape(page: import('@playwright/test').Page, on: boolean): Promise<void> {
-  await page.evaluate((disable) => {
-    ;(window as unknown as Win).__XGIS_DISABLE_VECTOR_DRAPE = disable
-  }, !on)
+  // ON = force the drape (strokes are direct by default since INC-3 — see the
+  // re-point note in the header); OFF = the existing disable hatch.
+  await page.evaluate((wantDrape) => {
+    const w = window as unknown as Win
+    w.__XGIS_DISABLE_VECTOR_DRAPE = !wantDrape
+    w.__XGIS_FORCE_VECTOR_DRAPE = wantDrape
+  }, on)
   // Two settle passes so the toggled path fully repaints before capture.
   await settle(page, 900)
   await settle(page, 700)

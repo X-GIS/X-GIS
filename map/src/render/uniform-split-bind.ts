@@ -170,7 +170,17 @@ export class UniformSplitBind {
   }
 
   /** Copy the frame-class lanes from the live legacy block ONCE per frame
-   *  and upload them (one 512-byte writeBuffer). */
+   *  and upload them (one 512-byte writeBuffer).
+   *
+   *  `frame` MUST be a frame id, not a per-call counter — the whole saving is
+   *  the stamp short-circuit on the next line. #2309: this was handed VTR's
+   *  `frameCount`, which increments in both `render()` bodies and therefore
+   *  once per ShowCommand, so the guard never fired inside a frame. Measured on
+   *  OFM Bright z14: 11.5 calls a frame across 11.5 DISTINCT stamps, and the
+   *  span bytes hashed to ONE value the whole time — ~10 span-copies and
+   *  ~10 writeBuffers a frame, all re-uploading bytes that had not changed.
+   *  Callers pass `currentFrameId` (set by `beginFrame`); the wiring gate in
+   *  tile-uniform-arena-wiring.test.ts pins it. */
   syncFrame(legacy: ArrayBuffer, frame: number): void {
     if (this.frameStamp === frame) return
     this.frameStamp = frame
@@ -191,7 +201,15 @@ export class UniformSplitBind {
   }
 
   /** Copy the show-class lanes into the (slice, show)'s persistent slot ONCE
-   *  per frame; returns the slot's byte offset (binding 10's dynamic offset). */
+   *  per frame; returns the slot's byte offset (binding 10's dynamic offset).
+   *
+   *  Same stamp contract as `syncFrame` — `frame` is a frame id (#2309). This
+   *  one carried no measured waste when it was fixed (each (slice, showIdx)
+   *  key is reached once a frame anyway), but its guard was defeated the same
+   *  way, and per-frame stamping is safe here by measurement, not by argument:
+   *  across the same run, the worst case for any one key inside one frame was
+   *  ONE distinct show-span byte image, so collapsing repeat calls can never
+   *  drop a second image the key needed. */
   syncShow(legacy: ArrayBuffer, sliceLayer: string, showIdx: number, frame: number): number {
     const arena = this.ensureShowArena()
     let inner = this.shows.get(sliceLayer)

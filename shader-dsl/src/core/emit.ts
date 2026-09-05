@@ -69,12 +69,17 @@ export function emitExpr(e: Expr, be: Backend, parens: ParenMode = 'full'): stri
         if (p === 0) return `(${r(x.a)} ${x.bop} ${r(x.b)})`
         return wrap(`${go(x.a, p)} ${x.bop} ${go(x.b, p + 1)}`, p)
       }
-      case 'unop':
+      case 'unop': {
         // `-` binds tighter than any binary operator, so the operand must be an
         // ATOM to lose its parens: `-(a*b)` is not `-a*b`, and `-(-a)` would
-        // spell `--a`, which is a decrement in GLSL.
-        if (full) return `(-${r(x.a)})`
-        return wrap(`-${go(x.a, PREC_ATOM)}`, PREC_UNARY)
+        // spell `--a`, which is a decrement in GLSL. The same `--` hazard hides in
+        // a NEGATIVE LITERAL operand — a leaf never wraps, so `-(lit -1.0)` printed
+        // `--1.0` (#2276) — hence any operand whose spelling already starts with
+        // `-` is parenthesized, in both modes and on both targets.
+        const inner = full ? r(x.a) : go(x.a, PREC_ATOM)
+        const operand = inner.startsWith('-') ? `(${inner})` : inner
+        return full ? `(-${operand})` : wrap(`-${operand}`, PREC_UNARY)
+      }
       case 'compare':
         return `(${r(x.a)} ${x.cop} ${r(x.b)})`
       case 'logical':
@@ -242,7 +247,12 @@ export function lowerForBackend(
   be: Backend,
   level?: OptLevel,
   fp64Flavor?: Fp64Flavor,
+  onStage?: StageSink,
 ): ModuleDecl {
+  // Profiling (#2449) times the stages HERE rather than in a parallel copy of this list,
+  // because a profiler that re-derives the pipeline measures whatever it drifted into. The
+  // production path passes no sink and takes the untimed branch below.
+  if (onStage !== undefined) return lowerTimed(m, be, level, fp64Flavor, onStage)
   // Validate the AUTHORED module before any lowering (the rules reason about the
   // pre-lower shape — e.g. matchExpr chains, placeholder swap sites).
   validate(m)
@@ -262,6 +272,45 @@ export function lowerForBackend(
     be,
   )
   return level === undefined ? be.optimize(pre) : optimizeAt(pre, level)
+}
+
+/** Called once per pre-emit stage when profiling (#2449). */
+export type StageSink = (stage: string, ms: number) => void
+
+/** `performance.now()` where it exists, else a coarser fallback — the package declares no
+ *  ambient lib types, so this reads through globalThis. */
+const nowMs = (): number => {
+  const perf = (globalThis as { performance?: { now(): number } }).performance
+  return perf ? perf.now() : Date.now()
+}
+
+/** `lowerForBackend`'s body with a stopwatch around each stage. It must stay step-for-step
+ *  identical to the branch above — `profileEmit` asserts the two produce `irEqual` modules,
+ *  so a stage added to one and not the other fails a test rather than silently mis-attributing
+ *  the time. */
+function lowerTimed(
+  m: ModuleDecl,
+  be: Backend,
+  level: OptLevel | undefined,
+  fp64Flavor: Fp64Flavor | undefined,
+  onStage: StageSink,
+): ModuleDecl {
+  const step = <T>(name: string, run: () => T): T => {
+    const t0 = nowMs()
+    const out = run()
+    onStage(name, nowMs() - t0)
+    return out
+  }
+  step('validate', () => validate(m))
+  step('assertCaps', () => assertCaps(be, m))
+  step('assertBuiltins', () => assertBuiltins(be, m))
+  const av = step('autoVars', () => autoVars(m))
+  const lm = step('lowerModule', () => lowerModule(av))
+  const f64 = step('fp64Lower', () =>
+    fp64Lower(lm, fp64Flavor ? { flavor: fp64Flavor } : undefined),
+  )
+  const pre = step('spellExterns', () => spellExterns(f64, be))
+  return step('optimize', () => (level === undefined ? be.optimize(pre) : optimizeAt(pre, level)))
 }
 
 /** Resolve each `externref` to the spelling THIS target's host uses (#1713).

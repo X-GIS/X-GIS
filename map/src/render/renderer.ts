@@ -295,6 +295,20 @@ export class MapRendererContent {
   rebuildForQuality(): void {
     this.engine.rebuildForQuality()
   }
+
+  /** Terminal teardown (#2286). Forwards to the engine half, which owns the
+   *  releasable GPU state (the factory's fill Materials + the uniform ring);
+   *  this content half holds bind groups, layer records and atlas VIEWS, all
+   *  GC-owned with no destroy of their own.
+   *
+   *  #2325 — plus `_graticule`, the gap the #2286 version of this comment left
+   *  open: GraticuleRenderer owns a Material, a UniformRing and its per-bucket
+   *  geometry buffers, and had no teardown API at all. It has one now, and this
+   *  is the only edge that reaches it. */
+  destroy(): void {
+    this.engine.destroy()
+    this._graticule.destroy()
+  }
   /** Lazy-build the `?debug=overdraw` final compose pipeline. */
   ensureOverdrawCompose(): GPURenderPipeline {
     return this.engine.ensureOverdrawCompose()

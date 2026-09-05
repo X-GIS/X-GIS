@@ -25,7 +25,6 @@ import {
   module,
   Let,
   If,
-  Return,
   Discard,
   sin,
   cos,
@@ -1058,7 +1057,7 @@ const buildFsFill = (pickEnabled: boolean) =>
       })
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out.$)
+      return out.$
     },
     { stage: 'fragment' },
   )
@@ -1094,7 +1093,7 @@ const buildFsFillPattern = (pickEnabled: boolean) =>
       out.color.a.assign(out.color.a.mul(rimA))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out.$)
+      return out.$
     },
     { stage: 'fragment' },
   )
@@ -1181,7 +1180,7 @@ const buildFsFillExtrude = (pickEnabled: boolean) =>
       out.color.assign(out.color.mul(rim))
       emitPickWrite(input, out, pickEnabled)
       emitLogDepthJitter(input, out)
-      Return(out.$)
+      return out.$
     },
     { stage: 'fragment' },
   )
@@ -1218,7 +1217,7 @@ const buildFsStroke = (pickEnabled: boolean) =>
       emitPickWrite(input, out, pickEnabled)
       // Stroke depth: bare log-depth, no per-feature jitter.
       out.depth.assign(compute_log_frag_depth({ view_w: i.view_w, fc: U.field.log_depth_fc }))
-      Return(out.$)
+      return out.$
     },
     { stage: 'fragment' },
   )

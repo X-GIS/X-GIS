@@ -63,6 +63,7 @@
 //   Callers don't need to pre-align their byte lengths.
 
 import type { RhiBuffer, RhiBufferDesc, RhiBufferUsage } from '@xgis/rhi'
+import { trackOwner, untrackOwner } from '@xgis/shared'
 
 /** Configuration for a new arena. */
 export interface GPUArenaOptions {
@@ -256,6 +257,7 @@ export class GPUArena {
     this.usage = opts.usage
     this.copySrc = opts.copySrc ?? false
     this.label = opts.label
+    trackOwner(this, `GPUArena ${opts.label ?? '(unlabeled)'}`)
   }
 
   /** Allocate `bytes` from the arena. Returns the byte offset into
@@ -360,6 +362,7 @@ export class GPUArena {
    *  map disposal. Calling alloc() after destroy is undefined
    *  behaviour (the GPUBuffer ref stays but is destroyed driver-side). */
   destroy(): void {
+    untrackOwner(this)
     this.device.destroyBuffer(this._rhiBuffer)
     this.bumpPtr = 0
     this.liveBytes = 0

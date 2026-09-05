@@ -218,8 +218,12 @@ describe('palette-texture — gradient eval math', () => {
       base: 2,
     }
     const v = evalColorGradientAt(g, 5)
-    // base=2 curve at t=0.5: (2^0.5 - 1) / (2 - 1) ≈ 0.414 — closer
-    // to the LOWER stop (red) than linear's 0.5.
+    // base=2 over a span of 10 zoom levels, at the midpoint t=0.5:
+    // (2^(0.5*10) - 1) / (2^10 - 1) ≈ 0.030 — closer to the LOWER stop
+    // (red) than linear's 0.5. Before #2335 this read ≈ 0.414, because
+    // curveFraction ignored the span and evaluated (2^0.5 - 1) / (2 - 1);
+    // the assertions below hold either way, which is why the old number
+    // survived here unnoticed.
     expect(v[0]).toBeGreaterThan(0.5) // r > linear midpoint
     expect(v[2]).toBeLessThan(0.5) // b < linear midpoint
   })
@@ -263,5 +267,112 @@ describe('palette-texture — gradient eval math', () => {
     const v = evalColorGradientAt(g, 7.5)
     expect(v[0]).toBeCloseTo(0.5)
     expect(v[2]).toBeCloseTo(0.5)
+  })
+})
+
+// #2335 — curveFraction applied the exponential curve to the normalised
+// fraction `t` as if the bracketing stop pair were always 1 zoom level
+// apart. Mapbox/MapLibre — and this repo's own runtime,
+// `interpolateZoom` in map/src/render/renderer-helpers.ts — apply the
+// curve to the RAW zoom delta, so any stop pair whose span isn't exactly
+// 1 disagreed with the runtime. These four tests are written against an
+// oracle re-derived from the runtime formula (not against numbers typed
+// by hand), so a wrong new formula that merely happens to fix the
+// witness would not pass all four.
+describe('palette-pack — #2335 curve fraction threads span', () => {
+  // Re-derivation of the runtime's span-threaded formula (the
+  // exponential branch of `interpolateZoom`,
+  // map/src/render/renderer-helpers.ts:110-118) — an independent
+  // implementation, not a call into the code under test, so it serves
+  // as the oracle these tests check against.
+  function oracleCurve(z0: number, z1: number, zoom: number, base: number): number {
+    const span = z1 - z0
+    if (span === 0) return 0
+    if (base === 1 || Math.abs(base - 1) < 1e-6) return (zoom - z0) / span
+    const denom = Math.pow(base, span) - 1
+    return denom === 0 ? 0 : (Math.pow(base, zoom - z0) - 1) / denom
+  }
+
+  it('WITNESS: span != 1 packed texel matches the runtime formula (fails pre-fix)', () => {
+    const g: ScalarGradient = {
+      stops: [
+        { zoom: 4, value: 0 },
+        { zoom: 8, value: 100 },
+      ],
+      base: 3,
+    }
+    const packed = packPalette(makePalette({ scalarGradients: [g] }))
+    // Interior texels only (skip the clamped endpoints) — indices chosen
+    // arbitrarily across the row, zoom re-derived from the SAME bake
+    // formula bakeScalarGradient uses (zMin + (i/(W-1)) * (zMax-zMin)).
+    for (const i of [64, 128, 192]) {
+      const zoom = 4 + (i / (GRADIENT_WIDTH - 1)) * 4
+      const expected = 0 + (100 - 0) * oracleCurve(4, 8, zoom, 3)
+      expect(packed.scalarGradientF32[i]).toBeCloseTo(expected, 5)
+      expect(evalScalarGradientAt(g, zoom)).toBeCloseTo(expected, 8)
+    }
+  })
+
+  it('CONTROL: span === 1 is bit-identical to the pre-fix (#2335) formula', () => {
+    // The formula this repo shipped before #2335 — kept here ONLY to prove
+    // the span-threaded replacement is a strict generalisation: at
+    // span === 1, `t * span === t` and `base^span === base^1 === base`
+    // hold exactly in IEEE-754, so the two formulas must agree bit for
+    // bit, not just approximately.
+    const preFixCurve = (t: number, base: number): number => (Math.pow(base, t) - 1) / (base - 1)
+    const g: ScalarGradient = {
+      stops: [
+        { zoom: 3, value: 0 },
+        { zoom: 4, value: 100 },
+      ],
+      base: 2.5,
+    }
+    for (const zoom of [3, 3.25, 3.5, 3.75, 4]) {
+      const t = zoom - 3 // span 1 → normalised t equals the raw delta
+      const expected = 0 + (100 - 0) * preFixCurve(t, 2.5)
+      expect(evalScalarGradientAt(g, zoom)).toBe(expected)
+    }
+  })
+
+  it('CONTROL: base === 1 stays linear regardless of span, never divides by zero', () => {
+    const g: ScalarGradient = {
+      stops: [
+        { zoom: 2, value: 10 },
+        { zoom: 9, value: 80 },
+      ],
+      base: 1,
+    }
+    for (const zoom of [2, 4, 6.5, 9]) {
+      const expectedLinear = 10 + (80 - 10) * ((zoom - 2) / 7)
+      const v = evalScalarGradientAt(g, zoom)
+      expect(Number.isFinite(v)).toBe(true)
+      expect(v).toBeCloseTo(expectedLinear, 10)
+    }
+  })
+
+  it('span === 0 (duplicate-zoom stops) resolves deterministically, no NaN in the atlas', () => {
+    // The bracket search in evalScalarGradientAt/evalColorGradientAt always
+    // resolves lo.zoom < hi.zoom strictly for any query that reaches the
+    // interpolated branch (a duplicate-zoom pair is always skipped past as
+    // a unit), so span === 0 never actually reaches curveFraction through
+    // the public API today — the guard in curveFraction is defense-in-depth,
+    // mirroring the belt-and-suspenders duplicate-stop guard the runtime's
+    // own interpolateZoom carries for the same reason. This pins the
+    // user-observable contract: a duplicate-zoom interior stop resolves to
+    // the LATER duplicate's value with no NaN anywhere in the baked row.
+    const g: ScalarGradient = {
+      stops: [
+        { zoom: 0, value: 0 },
+        { zoom: 5, value: 50 },
+        { zoom: 5, value: 999 },
+        { zoom: 10, value: 100 },
+      ],
+      base: 4,
+    }
+    expect(evalScalarGradientAt(g, 5)).toBe(999)
+    const packed = packPalette(makePalette({ scalarGradients: [g] }))
+    for (let i = 0; i < GRADIENT_WIDTH; i++) {
+      expect(Number.isFinite(packed.scalarGradientF32[i])).toBe(true)
+    }
   })
 })

@@ -42,9 +42,15 @@ const planeIdx = SRC.indexOf('const planeOk =')
 const emitIdx = SRC.indexOf('emitCurvedLineLabels(')
 const emitEnd = SRC.indexOf('perfMarkEnd(', emitIdx)
 
+// #2309 — the viewport branch: everything after the curved branch's emit (and
+// its `continue`). The cadence call lives HERE, not above the branch, so the
+// curved path cannot reach the value at all — see assertion 5.
+const viewportIdx = SRC.indexOf('placeLabelsAlongLine(', emitEnd)
+
 const projLoop = SRC.slice(projLoopIdx, planeIdx)
 const planeBlock = SRC.slice(planeIdx, emitIdx)
 const emitBlock = SRC.slice(emitIdx, emitEnd)
+const viewportBlock = SRC.slice(emitEnd, viewportIdx)
 
 describe('label-pass — the curved line site feeds the label plane (#2012 INC-4)', () => {
   it('slice anchors exist (fail loudly on refactor, not vacuously)', () => {
@@ -53,6 +59,7 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
     expect(planeIdx).toBeGreaterThan(projLoopIdx)
     expect(emitIdx).toBeGreaterThan(planeIdx)
     expect(emitEnd).toBeGreaterThan(emitIdx)
+    expect(viewportIdx).toBeGreaterThan(emitEnd)
   })
 
   it('1. builds the pitch-0 merc projector from the p0 matrix + the SAME flat args', () => {
@@ -119,9 +126,18 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
     // label-pass keeps ONE cadence call, for the viewport branch, which never
     // leaves the live screen.
     expect(SRC.match(/measureRunCadence\(/g)!.length).toBe(1)
-    expect(planeBlock).toMatch(
+    // #2309 — and that one call sits INSIDE the viewport branch, below the curved
+    // branch's `continue`. It used to sit above the branch, where the curved path
+    // paid for a value it stopped reading when INC-4 moved its cadence into
+    // `emitCurvedLineLabels`. Asserting the position this way is strictly stronger
+    // than the previous `planeBlock` containment: a call above the branch fails
+    // BOTH halves below, and the second half is what says the curved path cannot
+    // reach the value at all — the Q7 mistake, made unreachable rather than unused.
+    expect(viewportBlock).toMatch(
       /measureRunCadence\(\s*_pxScratch,\s*_pyScratch,\s*_pmScratch,\s*pn,\s*tileEntryM,\s*\)/,
     )
+    expect(planeBlock).not.toContain('measureRunCadence(')
+    expect(emitBlock).not.toContain('measureRunCadence(')
     // The raw prefix-sum must not be reachable from label-pass at all — one
     // authority for "where does the world lattice start".
     expect(SRC).not.toContain('mercOffsetToScreenOffset(')

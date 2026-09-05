@@ -13,7 +13,7 @@
 // Extracted rather than grown in place because point-renderer.ts sits at its LOC
 // ceiling — the same reason tile-point-pack-key.ts and tile-point-draw.ts were.
 
-import type { RhiBuffer, RhiDevice } from '@xgis/engine'
+import { RetireQueue, type RhiBuffer, type RhiDevice } from '@xgis/engine'
 import { type TilePointPackKey, tilePointPackKeyEqual } from './tile-point-pack-key'
 
 /** One show's packed tile-point buffers plus what they were packed FROM. */
@@ -30,15 +30,19 @@ export class TilePointCache {
   private readonly slots = new Map<string, TilePointCacheSlot>()
   /** Buffers retired because their slot was rebuilt or evicted. Destroyed at the
    *  START of the NEXT frame (`drainRetired`) so any in-flight queue.submit()
-   *  that bound them via the per-frame bind group completes first. Mirrors the
-   *  retiredUniformRings pattern in vector-tile-renderer.ts: the WebGPU spec
-   *  keeps the GPU-side memory alive after destroy() for already-submitted work,
-   *  but it's illegal to ENQUEUE new commands referencing a destroyed buffer.
-   *  With multi-source layered demos (4 VTRs each emitting tile points per
-   *  frame), the rapid destroy+recreate inside the flush hit "Buffer used in
+   *  that bound them via the per-frame bind group completes first: the WebGPU
+   *  spec keeps the GPU-side memory alive after destroy() for already-submitted
+   *  work, but it's illegal to ENQUEUE new commands referencing a destroyed
+   *  buffer. With multi-source layered demos (4 VTRs each emitting tile points
+   *  per frame), the rapid destroy+recreate inside the flush hit "Buffer used in
    *  submit while destroyed" validation errors when the prior frame's command
-   *  encoder still referenced the same bind group. */
-  private readonly retired: RhiBuffer[] = []
+   *  encoder still referenced the same bind group.
+   *
+   *  #2405 — the hand-rolled array this used to be said it "mirrors the
+   *  retiredUniformRings pattern"; it is now the shared `RetireQueue` that
+   *  pattern collapsed into, so the rule lives in one place rather than in each
+   *  owner's copy of the comment above. */
+  private readonly retired = new RetireQueue()
 
   get(showId: string): TilePointCacheSlot | undefined {
     return this.slots.get(showId)
@@ -74,13 +78,13 @@ export class TilePointCache {
    *  synchronous in JS) and the GPU keeps destroyed buffers' memory alive until
    *  that work completes. */
   drainRetired(rhi: RhiDevice): void {
-    if (this.retired.length === 0) return
-    for (const b of this.retired) rhi.destroyBuffer(b)
-    this.retired.length = 0
+    this.retired.drain(rhi)
   }
 
   private retire(slot: TilePointCacheSlot | undefined): void {
     if (!slot) return
-    this.retired.push(slot.buffer, slot.indexBuffer, slot.featBuffer)
+    this.retired.retireBuffer(slot.buffer)
+    this.retired.retireBuffer(slot.indexBuffer)
+    this.retired.retireBuffer(slot.featBuffer)
   }
 }

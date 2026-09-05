@@ -28,6 +28,7 @@ import {
   f32T,
   u32T,
   vec3uT,
+  voidT,
   vec4uT,
 } from '../../shader-dsl/src/index'
 
@@ -46,6 +47,7 @@ const dispatchU = resource('u_dispatch', vec4uT, { group: 0, binding: 2 })
 const kernel = fn(
   'scale_features',
   { gid: builtin('global_invocation_id', vec3uT) },
+  voidT,
   ({ gid }) => {
     const i = gid.x
     If(i.ge(dispatchU.node.x), () => {

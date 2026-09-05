@@ -15,9 +15,12 @@
 // SPHERE-SURFACE ROUTE ONLY — the caller (VectorTileRenderer) gates this behind
 // bakesVectorDrape ({3,4,5}∪globeMode; oblique(6) is EXCLUDED → renders direct),
 // so the flat / Mercator / oblique vector path stays byte-identical.
-// COARSE-ZOOM ONLY (#2093) — that same caller also gates on drapesAtSelectionZ, so
-// past the GLOBE_DIRECT_MIN_SELECTION_Z LOD ceiling the bake's blur would exceed the
-// chord sagitta it removes and the direct arm renders instead.
+// OVER-ZOOM ONLY (#2094) — that same caller also gates on drapesAtChordBudget, so a
+// tile the source can supply at the camera's own level renders DIRECT: the direct
+// arm's chord error is then under the bake's own resample cost. What is left for the
+// bake is the tile too coarse for its camera, where the mesh (cached per tile,
+// projection- and zoom-independent by design) has no detail to give and only the
+// #2024 windowed sub-tiles can supply it.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
 import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
@@ -63,7 +66,7 @@ const BAKE_BYTES = BAKE_PX * BAKE_PX * 4
  *  sampled freezes at its high-water mark — up to `maxCachedEntriesFor(BAKE_BYTES)`
  *  512² RGBA8 textures (384 desktop / 96 mobile, i.e. ~384 / ~96 MiB) held until
  *  `destroy()`. Before the LOD ceiling the globe drape never went permanently
- *  cold; past `GLOBE_DIRECT_MIN_SELECTION_Z` the direct arm renders every vector
+ *  cold; under `GLOBE_DRAPE_CHORD_BUDGET_PX` the direct arm renders every vector
  *  layer, so nothing re-enters the cache and none of it can ever be sampled again.
  *
  *  30 frames (~0.5 s at 60 fps) is the compromise: an ACTIVE drape only ever
@@ -161,6 +164,12 @@ export class VectorDrapeRenderer {
    *  each draw a distinct base — advanced by its tile count, reset per frame in
    *  beginFrame() — gives every slice its own pool buffers. */
   private _framePoolBase = 0
+  /** #2249 — scratch for the fill-translate-shifted MVP. `frame.matrix` is a
+   *  camera-OWNED preallocated buffer that the next `getViewForProjection`
+   *  overwrites (camera.ts), so the shifted copy must live here rather than
+   *  mutating the caller's. Allocated once; the drape draws once per slice
+   *  layer per frame. */
+  private readonly _mvpScratch = new Float32Array(16)
   /** Bake textures retired by eviction / re-bake, destroyed on the NEXT beginFrame
    *  — the post-submit safe window (mirrors gpu-tile-store's _retiredArenaBuffers).
    *  queue.submit() returning ≠ the GPU having drained the command buffer, so a
@@ -219,6 +228,16 @@ export class VectorDrapeRenderer {
      *  frame: parent and child cover are never mixed (double alpha cover would
      *  darken translucent fills). */
     overzoom?: DrapeOverzoomTile[],
+    /** #2249 — the show's `fill-translate`, already anchor-rotated, in NDC
+     *  units (the #2240 single producer `fillTranslateNdc`). The DIRECT fill
+     *  draw applies this in the polygon VS; the drape's sphere draw has no
+     *  such site — its tile textures are baked with the offset deliberately at
+     *  0 (the bake's ortho has clip.w === 1 over one tile, so a canvas-pixel
+     *  NDC offset is dimensionally wrong there and would seam between tiles).
+     *  So it is applied HERE instead, to the camera MVP, one stage earlier —
+     *  which is the same operation and needs no shader change. Default [0,0]
+     *  keeps every existing caller and every unauthored scene byte-identical. */
+    fillTranslateNdc: readonly [number, number] = [0, 0],
   ): void {
     this.calls++
     // Cache-invalidation key: quantized fill RGBA. A colour change re-bakes; a
@@ -363,9 +382,35 @@ export class VectorDrapeRenderer {
     }
 
     if (tiles.length > 0) {
+      // #2249 — fold `fill-translate` into the MVP. clip = M·v, so shifting
+      // clip.xy by t·clip.w is exactly adding t·(row 3) into rows 0/1 of M.
+      // Column-major (WGSL `mat4x4<f32>`): element (row r, col c) is m[c*4+r],
+      // so row 3 is m[3], m[7], m[11], m[15].
+      //
+      // The SIGN mirrors the polygon VS, which is the authority for what this
+      // property means on screen — `clip.x.add(fillTx·w)` but
+      // `clip.y.sub(fillTy·w)` (shaders/dsl/polygon.ts:607-608). Symmetric
+      // `+=` on both axes would put the y offset the wrong way and show up
+      // only on the globe, where nothing else draws this property.
+      const [ftx, fty] = fillTranslateNdc
+      let mvpFrame = frame
+      if (ftx !== 0 || fty !== 0) {
+        const m = this._mvpScratch
+        m.set(frame.matrix)
+        for (let c = 0; c < 4; c++) {
+          const w = m[c * 4 + 3]!
+          m[c * 4 + 0] = m[c * 4 + 0]! + ftx * w
+          m[c * 4 + 1] = m[c * 4 + 1]! - fty * w
+        }
+        mvpFrame = {
+          matrix: m,
+          logDepthFc: frame.logDepthFc,
+          ...(frame.eye ? { eye: frame.eye } : {}),
+        }
+      }
       writeRasterFrameUniform(
         this.global,
-        frame,
+        mvpFrame,
         projType,
         projCenterLon,
         projCenterLat,

@@ -37,6 +37,12 @@ import { emitHeatmapBlurWgsl } from '../../map/src/shaders/dsl/heatmap-blur'
 import { emitHeatmapComposeWgsl } from '../../map/src/shaders/dsl/heatmap-compose'
 import { configureProjections } from '../../map/src/shaders/dsl/projections'
 import { PROJECTIONS } from '../../geo/src/projections-table'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { BAKED_WGSL_BOOT } from '../../map/src/shaders/baked/baked-wgsl-boot.generated'
+import { BAKED_WGSL_HILLSHADE } from '../../map/src/shaders/baked/baked-wgsl-hillshade.generated'
+import { BAKED_WGSL_LAZY } from '../../map/src/shaders/baked/baked-wgsl-lazy.generated'
 
 // This spec EMITS projection-dependent shaders (polygon/point/line/raster via the DSL), so it
 // must inject the projection graph itself — do not rely on another render-gate spec having
@@ -129,6 +135,75 @@ test.describe('WGSL compile gate (every emitted variant compiles on a GPU)', () 
     expect(
       result.failures,
       `emitted WGSL variants failed to compile on the GPU:\n${result.failures.join('\n')}`,
+    ).toEqual([])
+  })
+
+  // #2444 — the COMMITTED corpora, which nothing compiled until now. `allVariants()` above
+  // enumerates map/'s production shaders; `emit-goldens.test.ts` proves the emitter still
+  // produces the golden bytes but not that those bytes are a program Tint accepts, and
+  // `baked-sync.test.ts` says the same about the baked store the map actually ships.
+  //
+  // This runs on real Tint deliberately. The offline validator D6.2 named
+  // (`naga-wasi-cli@0.1.0`) rejects `textureLoad(t, coords, i, 0u)` — a `u32` level argument,
+  // which WGSL permits and Tint accepts — so it reddens on `texture-array-lod.wgsl`, one of
+  // the very goldens below. A validator that fails correct code cannot be the authority.
+  test('the committed WGSL goldens and baked artifacts compile on a GPU', async ({ page }) => {
+    // A SECURE CONTEXT is required — `about:blank` has no `navigator.gpu` at all, so a spec
+    // that never navigates concludes the platform lacks WebGPU (CLAUDE.md §5).
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+    const here = dirname(fileURLToPath(import.meta.url))
+    const goldenDir = join(here, '../../shader-dsl/examples/__emit-goldens__')
+    const cases: Array<{ name: string; wgsl: string }> = readdirSync(goldenDir)
+      .filter((f) => f.endsWith('.wgsl'))
+      .sort()
+      .map((f) => ({ name: `golden/${f}`, wgsl: readFileSync(join(goldenDir, f), 'utf8') }))
+
+    // `contents` stores each DISTINCT source once, keyed by content hash, so this compiles
+    // every baked module without compiling any of them twice.
+    for (const [group, art] of [
+      ['boot', BAKED_WGSL_BOOT],
+      ['hillshade', BAKED_WGSL_HILLSHADE],
+      ['lazy', BAKED_WGSL_LAZY],
+    ] as const)
+      for (const [hash, code] of Object.entries(art.contents))
+        cases.push({ name: `baked/${group}/${hash.slice(0, 8)}`, wgsl: code })
+
+    // Floors, so a corpus that silently stopped being found fails HERE rather than passing
+    // vacuously: 36 goldens and 3 artifacts are what the tree carries today.
+    expect(cases.filter((c) => c.name.startsWith('golden/')).length).toBeGreaterThanOrEqual(36)
+    expect(cases.filter((c) => c.name.startsWith('baked/')).length).toBeGreaterThanOrEqual(10)
+
+    const result = await page.evaluate(async (variants: Array<{ name: string; wgsl: string }>) => {
+      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
+      if (!nav.gpu) return { fatal: 'no navigator.gpu' as const }
+      const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
+      if (!adapter) return { fatal: 'no adapter' as const }
+      const device = await adapter.requestDevice()
+      const failures: string[] = []
+      for (const v of variants) {
+        try {
+          const module = device.createShaderModule({ code: v.wgsl })
+          const info = await module.getCompilationInfo()
+          const errs = info.messages.filter((m) => m.type === 'error')
+          if (errs.length > 0)
+            failures.push(
+              `${v.name}: ${errs.map((e) => `L${e.lineNum}: ${e.message}`).join(' | ')}`,
+            )
+        } catch (e) {
+          failures.push(`${v.name}: threw ${(e as Error).message}`)
+        }
+      }
+      return { failures, count: variants.length }
+    }, cases)
+
+    expect(result, `GPU unavailable: ${'fatal' in result ? result.fatal : ''}`).not.toHaveProperty(
+      'fatal',
+    )
+    if ('fatal' in result) return
+    console.log(`[wgsl-corpus] ${result.count} committed WGSL sources compiled on Tint`)
+    expect(
+      result.failures,
+      `committed WGSL failed to compile on the GPU:\n${result.failures.join('\n')}`,
     ).toEqual([])
   })
 })

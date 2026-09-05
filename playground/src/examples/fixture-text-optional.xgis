@@ -1,0 +1,65 @@
+xgis 1
+
+/* #2440 — `text-optional: true` lets a rejected label's ICON survive.
+ *
+ * Purpose-built, and it has to be. The property is a NO-OP everywhere its
+ * label happens to fit, and the only shipped styles that author it (OFM
+ * bright / positron / liberty, one `airport` layer each) place that label
+ * cleanly at almost every camera. A render gate pointed at a real style would
+ * therefore measure nothing and call it a pass — the vacuity CLAUDE.md §5
+ * warns about, and the same reason `fixture-label-pitch-alignment` exists.
+ *
+ * Both ARMS in ONE frame, so a diff cannot be explained by a global change:
+ *
+ *   pair_plain     icon + label, no flag        -> label loses, ICON DROPS
+ *   pair_optional  icon + label + text-optional -> label loses, ICON SURVIVES
+ *
+ * A third layer supplies the BLOCKER labels that make both paired labels lose.
+ * It is a separate source so the spec controls each arm's geometry
+ * independently, and the arms sit far apart so the only collision in the scene
+ * is the one the blockers cause.
+ *
+ * EVERY LABEL IS OFFSET DOWN, ICONS ARE NOT, and that is load-bearing rather
+ * than cosmetic. A blocker drawn ON the anchor covers the 32-px icon quad
+ * completely, so the surviving icon contributes ZERO pixels and a before/after
+ * diff of the same scene comes back byte-identical — measured, not feared: the
+ * first version of this fixture did exactly that (DC 0.0 across all 16 tiles)
+ * while the engine counters correctly said one icon had survived. Pushing the
+ * TEXT down by 3.5em keeps the collision in the text band and leaves the icon
+ * band clear, so the property is visible in pixels as well as in counters.
+ *
+ * The blocker must actually WIN or the whole gate is vacuous: the driving spec
+ * asserts BOTH paired labels were rejected BEFORE asserting anything about the
+ * icons, so a frame where the collision never happened fails loudly instead of
+ * passing green.
+ *
+ * Zero network: geometry arrives via setSourceData and the icon via
+ * map.addImage('e2e-marker', ...) — the host-atlas recipe
+ * `_host-atlas-icon-gate` documents.
+ */
+
+source plain_pins { type: geojson }
+source optional_pins { type: geojson }
+source blocker_pins { type: geojson }
+
+layer pair_plain {
+  source: plain_pins
+  | label-[.name] label-color-#ffffff label-size-16
+    label-offset-y-[3.5]
+    label-icon-image-e2e-marker
+}
+
+layer pair_optional {
+  source: optional_pins
+  | label-[.name] label-color-#ffffff label-size-16
+    label-offset-y-[3.5]
+    label-icon-image-e2e-marker
+    label-text-optional
+}
+
+layer blockers {
+  source: blocker_pins
+  | label-[.name] label-color-#ff3b30 label-size-16
+    label-offset-y-[3.5]
+    label-halo-2 label-halo-color-#000000
+}
