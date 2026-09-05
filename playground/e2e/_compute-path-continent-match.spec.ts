@@ -70,7 +70,17 @@ test.describe('Plan P4 — continent_match with ?compute=1', () => {
   test('compute=1 visual matches compute=0 baseline (within pixel-diff tolerance)', async ({
     page,
   }) => {
-    test.setTimeout(PER_TEST_TIMEOUT_MS * 2 + 10_000)
+    // #2541 — TWO full boots and TWO drains, not one. `PER_TEST_TIMEOUT_MS` is
+    // the READY budget handed to each `captureCanvas`; `* 2 + 10_000` counts the
+    // two waits and none of the drain the body always pays after them. See the
+    // sibling budget below for the measurements.
+    //
+    // This arm is not the one that fails — `continent_match` is the only
+    // single-source fixture in the sweep and measures ~21.1 s solo, so 50 s
+    // already gave it ~2.4x. It is raised because it spells the SAME miscount,
+    // and leaving it would reopen #2541 at this line the day this fixture gains
+    // a second source.
+    test.setTimeout(PER_TEST_TIMEOUT_MS * 4 + 10_000)
 
     // compute=0 baseline.
     await page.goto(`/demo.html?id=continent_match`, { waitUntil: 'domcontentloaded' })
@@ -110,7 +120,26 @@ const COMPUTE_FIXTURE_DEMOS = [
 test.describe('Plan P4 — broader fixture coverage with ?compute=1', () => {
   for (const id of COMPUTE_FIXTURE_DEMOS) {
     test(`${id} — compute=1 visual matches compute=0 baseline`, async ({ page }) => {
-      test.setTimeout(PER_TEST_TIMEOUT_MS * 2 + 10_000)
+      // #2541 — the body performs two boots and two drains, so the old
+      // `PER_TEST_TIMEOUT_MS * 2 + 10_000` (50 s) budgeted the READY waits and
+      // nothing else. MEASURED solo in the SwiftShader container at this gate's
+      // viewport, ready + settle + screenshot, summed over both boots:
+      //
+      //   continent_match     ~21.1 s   (countries only — the arm that passed)
+      //   income_match        ~24.1 s   } both also load ne_110m_ocean.geojson,
+      //   continent_outlines  ~29.8 s   } and both failed, deterministically
+      //
+      // Every settle returned `clear`, never `timeout`: the ledger converges and
+      // nothing hangs (995 of 996 rAF ticks at zero across 20 s). The two heavy
+      // fixtures simply do not fit 50 s once a render shard runs workers in
+      // parallel, which is why this went red on main rather than on any one PR.
+      //
+      // 90 s gives the measured worst case ~3x while still failing a real hang
+      // loudly at ~4x. NOT the fix: a cheaper capture (the screenshot is
+      // 101-228 ms of a ~25 s test) or a narrowed settle scope (this test
+      // compares two FULL renders, so narrowing would turn a real convergence
+      // into a fixed wait — what #2370 exists to stop).
+      test.setTimeout(PER_TEST_TIMEOUT_MS * 4 + 10_000)
 
       await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
       const baselinePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
