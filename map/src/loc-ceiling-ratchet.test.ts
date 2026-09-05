@@ -1373,7 +1373,12 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
-  'map/src/render/passes/label-pass.ts': 1998,
+  // 1998→1990 (#2517): the lazy-IconStage gate's three "needs the sprite" reasons
+  // (icon on a label show, fill/line pattern, inline `image(...)` in a label's
+  // text — the third is the fix) moved out to passes/sprite-atlas-need.ts as one
+  // predicate with a unit test per reason; the inline disjunction here became a
+  // call. The file SHRANK and the ceiling follows it down. MEASURED post-prettier.
+  'map/src/render/passes/label-pass.ts': 1990,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —

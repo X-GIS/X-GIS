@@ -43,6 +43,7 @@ import type { MotionHoldoverCtx } from '../../text/holdover-reproject'
 import { TextStage } from '../../text/text-stage'
 import type { TextStageOptions } from '../../text/text-stage-types'
 import { IconStage } from '../../sprite/icon-stage'
+import { spriteAtlasNeeded } from './sprite-atlas-need'
 import { resolveText } from '../../text/text-resolver'
 import { hexToRgba, featureAnchor } from '../../feature-helpers'
 import { resolveIconRotateRad } from './icon-keep-upright-rotate'
@@ -359,24 +360,15 @@ class LabelPass implements RenderPass {
       }
       const stage = host.textStage
       // Lazy IconStage — only built when the style has a `sprite`
-      // URL AND at least one currently-active label show declares
-      // an `iconImage` (const form) OR `iconImageExpr` (per-
-      // feature, OFM POI layers). Both gates avoid the network
-      // fetch on styles that don't need icons.
+      // URL AND the scene draws from it: an icon on an active label
+      // show, a fill / line pattern, or an inline `image(...)` in a
+      // label's text (#2517). The three reasons are one predicate in
+      // sprite-atlas-need.ts; the gate avoids the network fetch on
+      // styles that need none of them.
       if (
         host.iconStage === null &&
         host.spriteUrl !== null &&
-        (labelShows.some(
-          (s) =>
-            s.label?.iconImage !== undefined ||
-            (s.label as { iconImageExpr?: unknown } | undefined)?.iconImageExpr !== undefined,
-        ) ||
-          // iter-177 / iter-178 — fill-pattern + line-pattern
-          // Stage 1 also need the sprite atlas loaded, even
-          // when no icon dispatch label show exists (Liberty
-          // `landcover_wetland` + `road_area_pattern` only
-          // declare `fill-pattern`, no icon layers).
-          host.showCommands.some((s) => s.fillPattern || s.linePattern))
+        spriteAtlasNeeded(labelShows, host.showCommands)
       ) {
         host.iconStage = new IconStage(
           host.ctx.device,
