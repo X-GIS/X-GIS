@@ -40,6 +40,7 @@ import {
   u32,
   vec2fT,
   vec3uT,
+  voidT,
   vec4,
   vec2,
   vec4fT,
@@ -123,6 +124,7 @@ const outB = storageBuffer('outp', vec2fT, { group: 0, binding: 0, access: 'read
 const computeKernel = fn(
   'k_main',
   { gid: builtin('global_invocation_id', vec3uT) },
+  voidT,
   ({ gid }) => {
     const i = gid.x
     If(i.ge(u32(N)), () => {
@@ -222,6 +224,7 @@ const trigOut = storageBuffer('outp', vec2fT, { group: 0, binding: 0, access: 'r
 const trigKernel = fn(
   'k_trig',
   { gid: builtin('global_invocation_id', vec3uT) },
+  voidT,
   ({ gid }) => {
     const i = gid.x
     If(i.ge(u32(NT)), () => {

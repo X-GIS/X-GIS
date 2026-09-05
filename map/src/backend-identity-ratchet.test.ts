@@ -81,6 +81,14 @@
 // (the WebGPU raw-device `loadImageTexture` arm, the raster family's last one — #1579
 // closed raster's own copy) is gone; both backends load through the RHI unconditionally.
 //
+// 32->31 (#2474): the globe fill drape's `bakeAvailable` asked for the device's NAME
+// because no cap expressed what the bake needs — an offscreen pass on an OUT-OF-FRAME
+// encoder. `RhiCaps.outOfFramePasses` is that cap, and the read is gone. Recorded with
+// it, because the count alone cannot show this: the site was born WITH its feature
+// (#1022), so it sat inside every baseline this program ever set and no growth check
+// could reach it. The `zero identity reads in the drape's routing` test below is the
+// presence assertion that closes that hole for this subsystem.
+//
 // Applies the #996 lesson (a source-scan gate whose matcher silently matches nothing is
 // vacuously green): two guards below prove the regex still matches AND the walk still
 // reaches the real tree, so `count <= BASELINE` can never pass by scanning an empty set.
@@ -91,7 +99,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
-const BASELINE = 32
+const BASELINE = 31
 
 // `.backend` identity comparison, either direction, against either backend literal.
 const PATTERN = 'backend\\s*(===|!==)\\s*[\'"](webgl2|webgpu)[\'"]'
@@ -144,5 +152,72 @@ describe('backend-identity ratchet: map/src `backend ===/!==` shrink-only (#1046
       `map/src holds ${total} backend-identity comparisons (> baseline ${BASELINE}). ` +
         `Replace with rhi.caps.* (doc §2) or lower the baseline when a phase ports sites.\n${breakdown}`,
     ).toBeLessThanOrEqual(BASELINE)
+  })
+})
+
+// ═══ #2474 — a PRESENCE gate, because the count ratchet above cannot be one ═══
+//
+// The ratchet is a shrink-only high-water mark: it forbids GROWTH. A site that lands
+// in the SAME commit as its feature is therefore inside every baseline the program
+// ever sets, and no growth check can reach it — which is exactly how the globe fill
+// drape kept `bakeAvailable` on the device's NAME from #1022 until #2474, through a
+// program (#1046 F1) whose stated close-out was "ratchet baseline {} for identity
+// reads". The symptom took two years of zooms to surface: WebGL2 never baked, so the
+// two backends had been drawing the globe differently the whole time, and it only
+// became visible when #2093 improved the arm only one of them was on.
+//
+// So this subsystem asserts PRESENCE — zero, here, always — rather than a count.
+// Scoped deliberately: it is not a repo-wide ban (the remaining sites retire on their
+// own increments), it is the one subsystem that has already paid for the lesson.
+
+/** The drape's own files. Backend-neutral by construction — the dependency was only
+ *  ever at the encoder seam — so zero is the honest assertion, not an aspiration. */
+const DRAPE_FILES = [
+  join('render', 'vector-drape-renderer.ts'),
+  join('render', 'vector-drape-cache.ts'),
+  join('render', 'vector-drape-stroke.ts'),
+  join('render', 'drape-overzoom-dispatch.ts'),
+  join('render', 'globe-drape-budget.ts'),
+] as const
+
+/** The `bakeAvailable` initializer, as source text: from its declaration through the
+ *  last conjunct (the first line not ending in `&&`). Throws rather than returning
+ *  empty if the declaration is renamed — a scan gate that silently matches nothing is
+ *  vacuously green (#996), and this one has exactly one thing to find. */
+function drapeRoutingExpr(src: string): string {
+  const i = src.indexOf('const bakeAvailable =')
+  if (i < 0) throw new Error('`const bakeAvailable =` not found — the drape routing site moved')
+  const lines = src.slice(i).split('\n')
+  const out = [lines[0]]
+  for (let k = 1; k < lines.length; k++) {
+    out.push(lines[k])
+    if (!lines[k].trimEnd().endsWith('&&')) break
+  }
+  return out.join('\n')
+}
+
+describe("#2474 presence gate: the globe drape's routing reads a CAPABILITY", () => {
+  it('`bakeAvailable` asks caps.outOfFramePasses and names no backend', () => {
+    const vtr = readFileSync(join(MAP_SRC, 'render', 'vector-tile-renderer.ts'), 'utf8')
+    const expr = drapeRoutingExpr(vtr)
+    // CAUSE before EFFECT (§12): the cap must be what is read...
+    expect(expr, `the drape's routing site no longer reads the capability:\n${expr}`).toContain(
+      'caps.outOfFramePasses',
+    )
+    // ...and no identity comparison may come back to stand beside it.
+    expect(
+      expr.match(makeRe()),
+      `the drape's routing site reads backend identity again:\n${expr}`,
+    ).toBeNull()
+  })
+
+  it('the drape subsystem itself holds none (allowlist keys all resolve — #996)', () => {
+    for (const rel of DRAPE_FILES) {
+      const abs = join(MAP_SRC, rel)
+      // A path-keyed allowlist dies silently when the files move; assert each key
+      // still names a file before believing the zero it reports.
+      expect(statSync(abs).isFile(), `${rel} moved — this allowlist is path-keyed`).toBe(true)
+      expect(countIn(abs), `${rel} now reads backend identity`).toBe(0)
+    }
   })
 })

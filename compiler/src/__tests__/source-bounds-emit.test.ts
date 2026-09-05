@@ -262,7 +262,7 @@ describe('#1984 W6 — regression guards', () => {
     // #1983 left liberty at 6; this issue must not move it. #2166 narrowed the
     // text-pitch-alignment runtime-gap warning to its real residual and removed
     // the 5 that fired on line-placed labels the runtime DOES ground-project,
-    // leaving only the `text-optional` one.
-    expect(warnings).toHaveLength(1)
+    // leaving only the `text-optional` one — which #2440 then delivered. Zero.
+    expect(warnings).toHaveLength(0)
   })
 })

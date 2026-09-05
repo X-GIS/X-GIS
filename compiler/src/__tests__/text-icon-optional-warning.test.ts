@@ -1,22 +1,25 @@
-// Pin iter 519 text-optional / icon-optional warning gate.
-// Mapbox spec defaults for both = false. X-GIS' symbol placement
-// always pairs text + icon today (deferred — split collision
-// arbitration would let either survive alone). The author asking
-// for `text-optional: true` or `icon-optional: true` is asking for
-// a behavior X-GIS doesn't deliver; the value-blind absence is
-// invisible at the default.
+// Pin the text-optional / icon-optional gate (iter 519, updated #2440).
 //
-// OFM authors `text-optional: true` on the `airport` symbol layer
-// (all 3 OFM styles, single layer per style) and `icon-optional:
-// false` on 4 label_* layers per style. Under this gate the airport
-// flips converted → lossy (1 layer per style), the label_* layers
-// stay converted (default value match).
+// Mapbox spec defaults for both = false, which is X-GIS's own pair contract
+// (text and icon place or drop together), so the default must stay silent AND
+// field-free — the value-blind absence is invisible at the default.
+//
+// BOTH `true` cases are now IMPLEMENTED and neither warns: `icon-optional` in
+// Phase S Batch 4, `text-optional` in #2440. The file kept its shape through
+// both transitions because what it really pins is "only a form we cannot carry
+// warns" — the arms below therefore assert the UTILITY is emitted rather than
+// merely that no warning fired, which is what distinguishes "implemented" from
+// "silently dropped".
+//
+// OFM authors `text-optional: true` on the `airport` symbol layer (all 3 OFM
+// styles, one layer per style) and `icon-optional: false` on 4 label_* layers
+// per style. Under this gate all of them are now `converted`, none lossy.
 
 import { describe, it, expect } from 'vitest'
 import { convertMapboxStyle } from '../index'
 
-function compile(layout: Record<string, unknown>): string[] {
-  const style = {
+function styleOf(layout: Record<string, unknown>) {
+  return {
     version: 8,
     sources: { v: { type: 'vector' as const, url: 'x.pmtiles' } },
     layers: [
@@ -29,11 +32,19 @@ function compile(layout: Record<string, unknown>): string[] {
       },
     ],
   }
+}
+
+function compile(layout: Record<string, unknown>): string[] {
   const warnings: string[] = []
-  convertMapboxStyle(style as never, {
+  convertMapboxStyle(styleOf(layout) as never, {
     coverage: { sources: [], layers: [], warnings },
   })
   return warnings
+}
+
+/** The emitted xgis source — what separates "implemented" from "dropped". */
+function emit(layout: Record<string, unknown>): string {
+  return convertMapboxStyle(styleOf(layout) as never)
 }
 
 describe('text-optional / icon-optional warning gate — iter 519', () => {
@@ -48,17 +59,34 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
       expect(warnings.filter((w) => w.includes('text-optional'))).toEqual([])
     })
 
-    it('true (OFM airport shape) → warning explaining missing arbitration', () => {
-      const warnings = compile({ 'text-optional': true })
-      const hits = warnings.filter((w) => w.includes('text-optional'))
-      expect(hits.length).toBe(1)
-      expect(hits[0]).toContain('text-optional: true')
-      expect(hits[0]).toContain('symbol placement always pairs')
+    it('true (OFM airport shape) → no warning; carried as label-text-optional (#2440)', () => {
+      // Was: a warning saying "symbol placement always pairs text + icon
+      // (deferred)". #2440 delivered it, so the warning is gone AND the utility
+      // is present — asserting only the first would pass on a silent drop.
+      expect(compile({ 'text-optional': true }).filter((w) => w.includes('text-optional'))).toEqual(
+        [],
+      )
+      expect(emit({ 'text-optional': true })).toContain('label-text-optional')
     })
 
-    it('v8 literal-wrap ["literal", true] → warning fires (unwrap honoured)', () => {
-      const warnings = compile({ 'text-optional': ['literal', true] })
-      expect(warnings.filter((w) => w.includes('text-optional')).length).toBe(1)
+    it('v8 literal-wrap ["literal", true] → utility emitted (unwrap honoured)', () => {
+      // The unwrap is what this arm has always tested; only the observable
+      // moved, from "a warning fires" to "the utility is emitted".
+      expect(emit({ 'text-optional': ['literal', true] })).toContain('label-text-optional')
+      expect(
+        compile({ 'text-optional': ['literal', true] }).filter((w) => w.includes('text-optional')),
+      ).toEqual([])
+    })
+
+    it('a non-constant form is the one that still warns, and carries nothing', () => {
+      // The gate's surviving job: a form with no per-feature channel must be
+      // loud. Without this arm the two above are satisfied by a converter that
+      // stopped warning about text-optional entirely.
+      const layout = { 'text-optional': ['step', ['zoom'], false, 14, true] }
+      expect(emit(layout)).not.toContain('label-text-optional')
+      const hits = compile(layout).filter((w) => w.includes('text-optional'))
+      expect(hits.length).toBe(1)
+      expect(hits[0]).toContain('non-constant')
     })
   })
 
@@ -78,10 +106,15 @@ describe('text-optional / icon-optional warning gate — iter 519', () => {
     })
   })
 
-  it('both true → exactly one warning (text-optional only; icon-optional implemented)', () => {
-    const warnings = compile({ 'text-optional': true, 'icon-optional': true })
-    const hits = warnings.filter((w) => /optional/.test(w))
-    expect(hits.length).toBe(1)
-    expect(hits[0]).toContain('text-optional: true')
+  it('both true → NO optional warning; both utilities emitted (#2440 closed the pair)', () => {
+    // Was: exactly one warning, text-optional's. Both are implemented now, so
+    // the assertion is that both are CARRIED — the shape that would catch one
+    // of the two regressing to a silent drop.
+    expect(
+      compile({ 'text-optional': true, 'icon-optional': true }).filter((w) => /optional/.test(w)),
+    ).toEqual([])
+    const src = emit({ 'text-optional': true, 'icon-optional': true })
+    expect(src).toContain('label-text-optional')
+    expect(src).toContain('label-icon-optional')
   })
 })

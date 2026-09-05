@@ -617,6 +617,15 @@ type FnBody<P extends FnParamSpec, R extends string> = (
   p: ParamNodes<P>,
   b: Builder,
 ) => ReadonlyNode<R> | StructArg<R> | void
+// #2458 — the body shape the RET-INFERRING overloads accept. A body that returns nothing at
+// the TS level cannot tell tsc what it returns: `inferReturnType` walks the recorded
+// statements and finds `f32` for a guard-style body, but TS sees `void` and falls back to
+// `R = string`, which puts every call site outside the phantom-key checker. Such a body must
+// name its return type (or `voidT`) through the explicit-`ret` overloads.
+type FnBodyValue<P extends FnParamSpec, R extends string> = (
+  p: ParamNodes<P>,
+  b: Builder,
+) => ReadonlyNode<R> | StructArg<R>
 
 /** Infer a fn's WGSL return type from its body — the type of the value it returns. Used when the author
  *  omits the explicit return-type token. Walks into nested if/for/switch for a body that returns only via
@@ -681,17 +690,25 @@ const fnAutoState = ((globalThis as Record<symbol, unknown>)[
  *  assembly (#763 H9 — the name-once form); keep an EXPLICIT name only where the fn is
  *  referenced by string outside its own handle (externFn / callFn / placeholder-swap lookups)
  *  and no record names it.
+ *
+ *  The return-type token `ret` is OPTIONAL only when the body RETURNS a value TypeScript can
+ *  see — `(p) => expr`, or a struct field proxy. A body that returns nothing at the TS level
+ *  MUST pass `ret` (#2458): a guard-style body sends its value out through an ambient
+ *  `Return()` inside a nested closure, which `inferReturnType` finds at runtime but tsc
+ *  cannot, so without the token the handle would collapse to `FnHandle<P, string>` and put
+ *  every one of its call sites outside the phantom-key checker. A genuinely void fn (a
+ *  compute entry, a statement-only mutator) passes `voidT` and lands on `'void'`.
  *  Returns an FnHandle — call it directly (`foo(a, b)`), list it in a module (`funcs: [foo]`),
  *  or take `foo.decl`. */
 export function fn<P extends FnParamSpec, R extends string>(
   params: P,
-  body: FnBody<P, R>,
+  body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>
 export function fn<P extends FnParamSpec, R extends string>(
   name: string,
   params: P,
-  body: FnBody<P, R>,
+  body: FnBodyValue<P, R>,
   opts?: FnOpts,
 ): FnHandle<P, R>
 export function fn<P extends FnParamSpec, T extends ShaderType>(

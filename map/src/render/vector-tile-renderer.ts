@@ -971,8 +971,12 @@ export class VectorTileRenderer {
      *  the whole tile (byte-identical to the pre-#2024 bake). */
     window?: { ox: number; oy: number; extent: number },
   ): RhiTexture | null {
+    // An offscreen pass on an OUT-OF-FRAME encoder — the CAPABILITY, not the method's
+    // presence: a device answering false can still hand one over (#2474 — WebGL2's is
+    // copy-scoped and throws from `beginRenderPass`, so `?.` alone declines nothing).
+    if (!this.rhi.caps.outOfFramePasses) return null
     const enc = this.rhi.createCommandEncoder?.('vtr-bake')
-    if (!enc) return null // WebGL2 fail-closed (no offscreen encoder) — later slice
+    if (!enc) return null
     const cached = this.getOrCreateLayerCache(sliceLayer).get(key)
     if (!cached || cached.extruded) return null
     // #599 line-drape — a tile may carry a FILL, STROKES (polygon outlines / line features), or both.
@@ -3735,19 +3739,19 @@ export class VectorTileRenderer {
     // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
     // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
     // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
-    // THIS CAMERA, so anything a source can serve renders direct. WebGPU + NON-extruded
-    // + CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
+    // THIS CAMERA, so anything a source can serve renders direct. Needs an out-of-frame
+    // pass + NON-extruded + CONSTANT fill; `__XGIS_DISABLE_VECTOR_DRAPE` draws direct.
     this._bakeDpr = dpr
-    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS. Both halves
-    // of the drape decision need exactly this, so it is read once (#1046 ratchet).
+    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS: the bake
+    // records an offscreen pass on an out-of-frame encoder — a CAPABILITY (#2474).
     const bakeAvailable =
-      this.rhi.backend !== 'webgl2' &&
+      this.rhi.caps.outOfFramePasses &&
       this.currentExtrudeMode === 'none' &&
       (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
     // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
     // half rather than inside it. Same escape hatches (the force flag holds the
     // drape for A/B arms; the disable flag forces every direct draw), same
-    // WebGPU-only and same held-vs-camera LOD reading.
+    // bake availability and same held-vs-camera LOD reading.
     this._bakeStrokesGated =
       this._bakeStrokeActive &&
       bakesVectorDrape(projType, camera.globeMode) &&

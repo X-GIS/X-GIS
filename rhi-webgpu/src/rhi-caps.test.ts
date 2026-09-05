@@ -31,6 +31,9 @@ const CAPS_FIELDS = [
   // #1190 — recorded render bundles (WebGPU true / WebGL2 false); consumer:
   // VectorTileRenderer's shouldBundle gates.
   'renderBundles',
+  // #2474 — a render pass may be recorded on an out-of-frame encoder (WebGPU true /
+  // WebGL2 false); consumer: VectorTileRenderer's `bakeAvailable` (globe fill drape).
+  'outOfFramePasses',
 ] as const
 
 function fakeGpuDevice(features: string[] | null): GPUDevice {
@@ -79,6 +82,8 @@ describe('RhiCaps — WebGpuDevice native truths (#1046 F1)', () => {
     // #1190 — GPURenderBundleEncoder exists here; the VT retained-command
     // path may engage.
     expect(caps.renderBundles).toBe(true)
+    // #2474 — an encoder from createCommandEncoder originates passes here.
+    expect(caps.outOfFramePasses).toBe(true)
   })
 
   it('timestampQuery tracks the adapter feature the device was created with', () => {
@@ -113,6 +118,9 @@ describe('RhiCaps — WebGl2Device truths + float-blend detection (#1046 F1)', (
     expect(caps.shaderLanguage).toBe('glsl-es300')
     // #1190 — no bundle equivalent on WebGL2; the VT bundle gate must stay off.
     expect(caps.renderBundles).toBe(false)
+    // #2474 — the copy-scoped encoder declines beginRenderPass; passes originate only
+    // through the frame encoder. Pinned against that behaviour below, not just asserted.
+    expect(caps.outOfFramePasses).toBe(false)
   })
 
   it('floatBlendTargets = EXT_color_buffer_float && EXT_float_blend (both required)', () => {
@@ -132,6 +140,25 @@ describe('RhiCaps — cross-backend shape (#1046 F1)', () => {
     const webgl2: RhiCaps = new WebGl2Device(fakeGl([])).caps
     expect(webgpu.compute).toBe('native')
     expect(webgl2.compute).toBe('fragment-emulated')
+  })
+
+  it('outOfFramePasses agrees with what the encoder actually DOES (#2474)', () => {
+    // A cap nothing can falsify is decoration. This one claims something the device
+    // can be ASKED, so the claim and the behaviour are pinned together: they must not
+    // drift, because the globe drape's bake gate routes on the cap and THEN records a
+    // pass on that encoder — a cap that outran the device would throw mid-frame.
+    const gl2 = new WebGl2Device(fakeGl([]))
+    expect(gl2.caps.outOfFramePasses).toBe(false)
+    expect(() => gl2.createCommandEncoder().beginRenderPass({ colorAttachments: [] })).toThrow(
+      /beginRenderPass not supported on the copy-scoped utility encoder/,
+    )
+    // ...and the METHOD's presence is not that answer — it exists on both devices.
+    // Reading `createCommandEncoder?.()` as the fail-close is the premise #2474 records
+    // as refuted: it stopped being one the day this backend implemented the method.
+    expect(typeof gl2.createCommandEncoder).toBe('function')
+    const gpu = new WebGpuDevice(fakeGpuDevice([]))
+    expect(typeof gpu.createCommandEncoder).toBe('function')
+    expect(gpu.caps.outOfFramePasses).toBe(true)
   })
 
   it('the pick pair is COHERENT: no continuous pick MRT ⇒ synchronous on-demand readback', () => {
