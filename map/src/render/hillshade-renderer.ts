@@ -22,7 +22,7 @@ import type { RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { HillshadeDraper, type HillshadeTile } from './material/hillshade-material'
 import { shaderEmitPending } from '../shaders/emit/shader-emit-pool'
 import { routeToSphereSelector, enumerateWorldCopies } from '@xgis/geo'
-import { isPickEnabled, getSampleCount } from '@xgis/engine'
+import { getSampleCount } from '@xgis/engine'
 import { globeVisibleTiles } from '@xgis/data'
 import { uniformBlock, type UniformBlockOf } from '@xgis/engine'
 import {
@@ -727,7 +727,7 @@ export class HillshadeRenderer {
       B.buffer,
       HB.buffer,
       tilesArr,
-      isPickEnabled(),
+      false, // #2314 — the pass opens ONE colour attachment (see the parity gate)
       // The method is a per-LAYER constant, so it selects a SPECIALISED pipeline
       // rather than branching per fragment (see buildHillshadeModule).
       hillshadeMethodFlag(this._params.method),
