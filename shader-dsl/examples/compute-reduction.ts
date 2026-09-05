@@ -18,6 +18,7 @@ import {
   f32T,
   vec3uT,
   vec4uT,
+  voidT,
   If,
   Return,
   storageBuffer,
@@ -37,6 +38,7 @@ const params = resource('params', vec4uT, { group: 0, binding: 2 })
 const reduceKernel = fn(
   'reduce_windows',
   { gid: builtin('global_invocation_id', vec3uT) },
+  voidT,
   ({ gid }) => {
     const idx = gid.x
     If(idx.ge(params.node.x), () => {

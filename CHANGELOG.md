@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 543d921a46bba27bfcbda2d7c627d787bb9d6aa5
+  Generated from: 34efec1e069c7d3c63ed56cb14f813a422974dc0
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 543d921a46bb
+    bun scripts/emit-changelog.ts --since 34efec1e069c
 -->
 
 # Changelog
@@ -21,8 +21,14 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 ### 2026-09
 
+#### ⚠ BREAKING CHANGES
+
+- **shader-dsl:** **BREAKING** a fn body that returns nothing must name its return type (#2458) ([#2481](https://github.com/X-GIS/X-GIS/pull/2481)) `34efec1`
+- **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
+
 #### feat
 
+- **compiler:** lower Mapbox v3 `imports` to xgis import statements (#2471) ([#2475](https://github.com/X-GIS/X-GIS/pull/2475)) `a2a40b0`
 - **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
 - **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
 - **map:** say so when a categorical() field outgrows the auto palette ([#2433](https://github.com/X-GIS/X-GIS/pull/2433)) `9dd57df`
@@ -41,6 +47,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler:** token strings keep non-identifier keys instead of throwing out of lower() (#2310) ([#2480](https://github.com/X-GIS/X-GIS/pull/2480)) `c74cf6e`
+- **render:** the globe drape's gate is a PIXEL BUDGET, not a LOD ceiling (#2094) ([#2469](https://github.com/X-GIS/X-GIS/pull/2469)) `469ac8e`
+- **compiler:** warn on dropped background layers and ignored background zoom bounds (#2333) ([#2454](https://github.com/X-GIS/X-GIS/pull/2454)) `b32d941`
 - **map/controller:** fire onPointerDown before the double-tap early return (#2304) ([#2453](https://github.com/X-GIS/X-GIS/pull/2453)) `3c3f0cf`
 - **pipeline:** avg over a group with no numeric cell is NaN, not 0 (#2409) ([#2461](https://github.com/X-GIS/X-GIS/pull/2461)) `08ed4ec`
 - **sprite:** inflate icon-stage obstacle bbox by icon-padding (#2339) ([#2450](https://github.com/X-GIS/X-GIS/pull/2450)) `2c0459b`
@@ -126,6 +135,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** awaitPendingWorkClear reports whether it converged or timed out (#2370) ([#2466](https://github.com/X-GIS/X-GIS/pull/2466)) `0ab7208`
+- **e2e:** the world-copies gate settles on its own precondition and reports the timeout (#2478) ([#2479](https://github.com/X-GIS/X-GIS/pull/2479)) `3da305a`
+- **e2e:** pin the z-fight oracle's denominator before trusting its ratio (#2399) ([#2473](https://github.com/X-GIS/X-GIS/pull/2473)) `d9d751f`
 - **scripts:** assert emit-changelog's --since range relationally, not by a fixed count (#2462) ([#2464](https://github.com/X-GIS/X-GIS/pull/2464)) `f35f970`
 - **render:** compile the committed WGSL and GLSL corpora on real Tint and ANGLE (#2444) ([#2448](https://github.com/X-GIS/X-GIS/pull/2448)) `b40839a`
 - **shader-dsl:** generated-program differentials, and the CSE literal-key miscompile they found ([#2416](https://github.com/X-GIS/X-GIS/pull/2416)) `a7d0074`

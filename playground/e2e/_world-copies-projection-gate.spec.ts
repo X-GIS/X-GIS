@@ -65,22 +65,66 @@ async function loadAndDump(
   await page.waitForFunction(() => (window as unknown as Win).__xgisReady === true, null, {
     timeout: 30_000,
   })
-  // Settle on the tile pipeline going quiet, not on the clock.
-  await page
+  // #2478 — settle on the PRECONDITION this gate asserts, and say which arm ended the
+  // wait.
+  //
+  // This used to poll `catalogLoading + uploadQueued === 0` and then swallow its own
+  // timeout with `.catch(() => {})`, which made a 30 s give-up and a real convergence
+  // indistinguishable to everything downstream. That is why the `got [0, 1]` throw from
+  // `singleWorldMaxTiles` below arrives with no way to tell whether the frame was
+  // unsettled or the settle simply gave up (render-shard 6/6, run 33726397689 — three
+  // attempts, same throw). An unattributable red is the expensive part, so the wait now
+  // reports.
+  //
+  // The old predicate was also a proxy rather than the asserted quantity: `uploadQueued`
+  // is `UploadCoordinator.queueSize()` (upload-coordinator.ts:418-420), QUEUED ONLY,
+  // excluding in-flight and cap-deferred uploads that `pendingCount()` (:414-416) counts.
+  // What this gate needs is narrower than either — ONE tile zoom per drawing source,
+  // exactly what `singleWorldMaxTiles` demands — so wait on that directly.
+  //
+  // MEASURED on this fixture and camera (physical_map #1.5/0/100/0/0, 1280x720, headless
+  // SwiftShader, 2 Hz): the single-zoom state holds from 1.1 s, the same sample the old
+  // proxy cleared on, and stays for 120 consecutive samples. So this costs nothing here.
+  // It is NOT claimed to fix the CI red: that does not reproduce off-CI, so no local run
+  // can establish it. It makes the next occurrence name its own cause.
+  const settled = await page
     .waitForFunction(
       () => {
-        const m = (window as unknown as Win).__xgisMap
-        if (!m?.getTileLoadDiagnostic) return true
+        // `any`: inspectPipeline()'s DECLARED frame type is { tilesVisible, missedTiles }
+        // and carries no `drawnByZoom`, though the runtime object does — the same reason
+        // the evaluate at the bottom of this function reaches the map through `any`.
+
+        const m = (window as unknown as { __xgisMap?: any }).__xgisMap
+        if (!m?.inspectPipeline) return true
         m.invalidate?.()
-        const d = m.getTileLoadDiagnostic()
-        let n = 0
-        for (const k in d) n += d[k]!.catalogLoading + d[k]!.uploadQueued
-        return n === 0
+        // NOTE the `.frame` nesting: `SourceStat` above is this file's FLATTENED dto, built
+        // by the evaluate below. The raw inspectPipeline() source keeps these under `frame`.
+        type RawSource = {
+          frame?: { tilesVisible?: number; drawnByZoom?: ReadonlyArray<readonly [number, number]> }
+        }
+        const drawing = ((m.inspectPipeline()?.sources ?? []) as RawSource[]).filter(
+          (s) => (s.frame?.tilesVisible ?? 0) > 0,
+        )
+        if (drawing.length === 0) return false
+        return drawing.every(
+          (s) => (s.frame?.drawnByZoom ?? []).filter(([, n]) => n > 0).length === 1,
+        )
       },
       null,
       { timeout: 30_000 },
     )
-    .catch(() => {})
+    .then(() => true)
+    .catch(() => false)
+  if (!settled) {
+    console.log(
+      `[world-copies] settle TIMED OUT after 30s on ${demo} — the drawn set never reduced to ` +
+        `one tile zoom per source. Any assertion below is measuring an unsettled frame.`,
+    )
+  }
+  // The 1500 ms tail stays. It looks like dead weight and may not be: removing an
+  // apparently-unread `page.screenshot` from `_filter-gdp-z-fighting` cut that oracle's
+  // sample from 86 rows to 24 because the call was load-bearing settle (#2460). Same trap
+  // shape, so it goes only with a before/after measurement of its own.
   await page.waitForTimeout(1500)
   await page.evaluate(
     () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),

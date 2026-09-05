@@ -143,6 +143,7 @@ export const winding_line = fn(
 const sdf_shape = fn(
   'sdf_shape',
   { uv_in: vec2fT, shape_id: u32T },
+  f32T,
   ({ uv_in, shape_id }) => {
     const uv = vec2(uv_in.x, uv_in.y.neg())
     const s = shapesB.at(shape_id)

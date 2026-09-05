@@ -9,7 +9,7 @@
 //
 // ── #2093 RE-POINT (source + zoom only; the coast is the same coast) ────────
 // This gate used to drive countries.geojson (runtime maxLevel 14) at z15.3.
-// #2093 added a selection-zoom LOD CEILING: at/above GLOBE_DIRECT_MIN_SELECTION_Z
+// #2093 added a selection-zoom LOD ceiling (#2094 replaced it with a pixel budget):
 // the sphere route renders DIRECT, and `currentZ` is maxLevel-clamped — so a
 // maxLevel-14 source at z15.3 sits at currentZ 14, well above the ceiling, and
 // the drape (with it this whole windowed-overzoom mechanism) no longer runs at
@@ -71,12 +71,8 @@
 // this spec proves the wiring end-to-end on the real GPU path.
 
 import { test, expect, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { captureMapFrame } from './helpers/visual'
-
-const HERE = dirname(fileURLToPath(import.meta.url))
+import { expectDrape } from './helpers/drape-budget'
 
 const STYLE = [
   'xgis 1',
@@ -97,24 +93,6 @@ const STYLE = [
  *  "WHY 10.3" note in the header. */
 const CENTER = { lon: 20.07, lat: 32.17 }
 const ZOOM = 10.3
-
-/** Selection zooms at/above this render DIRECT, and the drape this gate exists
- *  to measure never runs. READ FROM THE ENGINE SOURCE, never mirrored: a spec
- *  that hard-codes the ceiling is a second authority for it, and the two drift
- *  silently the day the constant moves (CLAUDE.md §12). The engine module cannot
- *  be imported here — raw-Node spec transpilation does not resolve its
- *  `@xgis/shared` import — so the literal is parsed out of the file instead, and
- *  a parse failure is loud.
- *
- *  Called from the test BODY, never at module scope: a module-scope read that
- *  throws aborts collection for every spec in the suite (#1638). */
-function readGlobeDirectMinSelectionZ(): number {
-  const src = readFileSync(join(HERE, '../../geo/src/projections-table.ts'), 'utf8')
-  const m = /export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)/.exec(src)
-  if (!m)
-    throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from geo/src/projections-table.ts')
-  return Number(m[1])
-}
 
 /** Convergence budget. The mirror is 22 tiny local pbf tiles, but the `dark`
  *  demo still compiles its own 14.6 MB countries.geojson at boot before the
@@ -263,19 +241,23 @@ test('#2024 — globe fill drape stays native-sharp past the source maxLevel', a
   // maxLevel, not the camera zoom. If the mirror ever advertises a deeper max,
   // this camera moves to the direct arm and every assertion below becomes a
   // statement about a path that is not running (#996).
-  const GLOBE_DIRECT_MIN_SELECTION_Z = readGlobeDirectMinSelectionZ()
-  const aboveCeiling = names.filter((k) => state[k].maxLevel >= GLOBE_DIRECT_MIN_SELECTION_Z)
+  // #2094 — the gate is a PIXEL BUDGET now, not a LOD ceiling: a source keeps the
+  // drape when the camera has run so far past what it can supply that the direct
+  // arm's chord error exceeds the bake's own resample cost. This camera on the
+  // maxzoom-2 mirror is ~31 px of chord error, an order of magnitude past the
+  // budget, so the premise holds far more comfortably than it did against a level.
+  const servable = names.filter((k) => !expectDrape(state[k].maxLevel, ZOOM))
   expect(
-    aboveCeiling.map((k) => `${k}{maxLevel:${state[k].maxLevel}}`),
-    `these sources sit at or above the #2093 LOD ceiling (${GLOBE_DIRECT_MIN_SELECTION_Z}), so ` +
-      `they render DIRECT and the drape this gate measures does not run for them. The mirror is ` +
-      `supposed to advertise maxzoom 2 (/vendor/demotiles-mirror/tiles/tiles.json).`,
+    servable.map((k) => `${k}{maxLevel:${state[k].maxLevel}}`),
+    `these sources can be SERVED at z${ZOOM} inside the #2094 drape budget, so they render ` +
+      `DIRECT and the drape this gate measures does not run for them. The mirror is supposed ` +
+      `to advertise maxzoom 2 (/vendor/demotiles-mirror/tiles/tiles.json).`,
   ).toEqual([])
   const draping = names.filter((k) => state[k].drapeGlobeFills)
   expect(
     draping,
-    `no source reports _drapeGlobeFills at z${ZOOM} — with every maxLevel below the ceiling the ` +
-      `sphere route must bake→drape here. sources: ` +
+    `no source reports _drapeGlobeFills at z${ZOOM} — with every source unservable at this ` +
+      `camera the sphere route must bake→drape here. sources: ` +
       names.map((k) => `${k}{maxLevel:${state[k].maxLevel}}`).join(' '),
   ).not.toEqual([])
 

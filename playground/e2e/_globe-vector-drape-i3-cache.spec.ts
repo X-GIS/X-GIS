@@ -25,6 +25,7 @@ type Win = Window & {
   __xgisReady?: boolean
   __xgisActiveBackend?: string
   __XGIS_DISABLE_VECTOR_DRAPE?: boolean
+  __XGIS_FORCE_VECTOR_DRAPE?: boolean
   __xgisMap?: {
     invalidate?: () => void
     getCamera?: () => { projType?: number; globeMode?: boolean; zoom?: number }
@@ -84,9 +85,17 @@ test('#599 I3 — globe drape baked-fill cache stays bounded + leak-free across 
   await page.waitForFunction(() => (window as unknown as Win).__xgisReady === true, {
     timeout: 30_000,
   })
-  // Drape defaults ON; be explicit so a stray global from a prior nav can't disable it.
+  // #2094 — the drape no longer defaults ON at this camera: its gate is a PIXEL
+  // BUDGET, and a source that can serve z2 is ~0.1 px of direct chord error, so
+  // nothing would bake and this cache gate would measure an empty cache. The
+  // subject (the baked-fill cache stays bounded and leak-free across pan/zoom) is
+  // about the cache, not about which camera reaches it, so the gate FORCES the
+  // drape — the escape hatch `_drapeGlobeFills` carries — and keeps the disable
+  // flag off so a stray global from a prior nav cannot silence it.
   await page.evaluate(() => {
-    ;(window as unknown as Win).__XGIS_DISABLE_VECTOR_DRAPE = false
+    const w = window as unknown as Win
+    w.__XGIS_DISABLE_VECTOR_DRAPE = false
+    w.__XGIS_FORCE_VECTOR_DRAPE = true
   })
 
   const cam = await page.evaluate(() => {

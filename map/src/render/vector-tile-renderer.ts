@@ -88,7 +88,8 @@ import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
 import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
 import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape, drapesAtSelectionZ, drapesStrokesAtSelectionZ } from '@xgis/geo'
+import { bakesVectorDrape, drapesStrokesAtSelectionZ } from '@xgis/geo'
+import { drapesAtChordBudget } from './globe-drape-budget'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
@@ -3741,10 +3742,10 @@ export class VectorTileRenderer {
     // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
     // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
     // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
-    // at all pitches so it is EXCLUDED (renders direct). `drapesAtSelectionZ` adds the
-    // #2093 LOD CEILING: the trade reverses once the tiles are fine enough, so past
-    // GLOBE_DIRECT_MIN_SELECTION_Z the direct arm takes over. WebGPU + NON-extruded +
-    // CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
+    // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
+    // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
+    // THIS CAMERA, so anything a source can serve renders direct. WebGPU + NON-extruded
+    // + CONSTANT fill only; `__XGIS_DISABLE_VECTOR_DRAPE` forces the direct chord draw.
     this._bakeDpr = dpr
     // Whether a bake is AVAILABLE at all, as opposed to whether it WINS. Both halves
     // of the drape decision need exactly this, so it is read once (#1046 ratchet).
@@ -3765,12 +3766,12 @@ export class VectorTileRenderer {
       bakeAvailable
     this._drapeGlobeFills =
       bakesVectorDrape(projType, camera.globeMode) &&
-      // #2093 — LOD ceiling: past GLOBE_DIRECT_MIN_SELECTION_Z the direct arm's chord
-      // error is inside the reference-engine budget and the bake's blur is not. Read off the drawn
-      // LOD OR the camera's (`targetZ`): inside a zoom-in readiness hold currentZ trails
-      // the camera, and held tiles past the ceiling must draw direct, not as magnified
-      // bakes (_globe-direct-hold-window-gate). __XGIS_FORCE_VECTOR_DRAPE holds the drape.
-      (drapesAtSelectionZ(Math.max(currentZ, targetZ)) ||
+      // #2094 — PIXEL BUDGET, not a LOD ceiling: the drape wins only where the direct
+      // arm's chord error exceeds the bake's own resample cost, i.e. where the camera
+      // has run past what the source can supply. Read off the drawn LOD OR the camera's
+      // (`targetZ`): in a zoom-in readiness hold currentZ trails the camera and the held
+      // tiles must draw direct (_globe-direct-hold-window-gate). FORCE holds the drape.
+      (drapesAtChordBudget(Math.max(currentZ, targetZ), camera.zoom) ||
         (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
           true) &&
       bakeAvailable &&

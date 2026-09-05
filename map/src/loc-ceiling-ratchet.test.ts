@@ -376,12 +376,23 @@ const CEILINGS: Record<string, number> = {
   // two days: main went 5481 -> 5515 (#2309's per-frame prefetch memo) while this
   // branch went to 5541 from 5539, so the file again carries both deltas and neither
   // side's number is right (§12).
+  // 5575→5576 (#2094, measured post-prettier): the fill drape's WHEN moved OUT of
+  // this file's dependency — `drapesAtSelectionZ` came from @xgis/geo alongside
+  // `bakesVectorDrape`, `drapesAtChordBudget` comes from ./globe-drape-budget — so
+  // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
+  // is unchanged in length (one predicate call, one extra argument) and both comment
+  // blocks were trimmed back to their prior height to keep it at exactly one.
   // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
   // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
   // widened markDrawn argument lists at both sites plus the comments naming what
   // the encoding preserves; the pack itself and its arithmetic argument were
   // EXTRACTED to draw-dedup-key.ts rather than parked here.
-  'map/src/render/vector-tile-renderer.ts': 5583,
+  // MERGE UNION -> 5584 (MEASURED, not summed): FOURTH collision on this key. Main's
+  // #2094 (+1) and this branch's #2309 (+8) both start from 5575 and touch disjoint
+  // regions, so the merged file carries BOTH deltas and neither side's number is right
+  // (§12). 5575 + 1 + 8 = 5584 and `wc -l` on the merged tree agrees — the agreement
+  // is a cross-check, the measurement is the authority.
+  'map/src/render/vector-tile-renderer.ts': 5584,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -1227,7 +1238,17 @@ const CEILINGS: Record<string, number> = {
   // 2149→2145 (#2170): text-translate came out of the cached layout and its
   // key, replacing the fold-then-add with one grouped expression at each of the
   // two draw sites. Measured with `wc -l` on the post-prettier tree.
-  'map/src/text/text-stage.ts': 2145,
+  // 2145->2171 (#2440 text-optional): the `isTextOptional` module predicate and
+  // its docblock, plus its two consumer sites (the live-text set and the drop
+  // cascade). One function for a one-line read is deliberate — §12's
+  // single-producer rule: the two consumers must agree by construction, because
+  // suppressing the cascade alone leaves the surviving icon drawing while
+  // blocking nothing, and changing the set alone leaves it dropped with a box
+  // nobody sees. The docblock is the ONE home of that argument; render-node.ts,
+  // capabilities/symbol.ts and the spec-coverage note all point here rather than
+  // restate it (an earlier draft restated it four times and cost 33 lines).
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'map/src/text/text-stage.ts': 2171,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -2371,7 +2392,10 @@ const CEILINGS: Record<string, number> = {
   // 1386→1384: the two symbol anchor guards collapsed onto the shared decision,
   // so this file SHRANK. The ratchet is shrink-only, so the ceiling follows it
   // down rather than banking the slack.
-  'compiler/src/convert/layers-symbol.ts': 1384,
+  // 1384->1396 (#2440): `text-optional: true` stops warning and emits the
+  // `label-text-optional` utility; the non-constant form keeps a warning of its
+  // own. MEASURED post-prettier.
+  'compiler/src/convert/layers-symbol.ts': 1396,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2386,7 +2410,10 @@ const CEILINGS: Record<string, number> = {
   // fallthrough, its 5-line why (an earlier arm would capture `label-sort-key-[-3]`,
   // the converter's spelling of a negative CONSTANT), and the knob return entry.
   // MEASURED post-prettier (`wc -l`).
-  'compiler/src/ir/lower-label.ts': 952,
+  // 952->963 (#2440): the `label-text-optional` utility branch, its local, and
+  // the knob pass-through — the same three touch points `label-icon-optional`
+  // has. MEASURED post-prettier.
+  'compiler/src/ir/lower-label.ts': 963,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2417,7 +2444,10 @@ const CEILINGS: Record<string, number> = {
   // a conflict marker cannot warn about, and only the ratchet catches. MEASURED post-merge
   // (`wc -l`): 1001. Verified it is genuine growth, not a duplicated block: no interface,
   // type, const or function name occurs twice in the file.
-  'compiler/src/ir/render-node.ts': 1006,
+  // 1006->1013 (#2440): `LabelDef.textOptional` + the contract doc. The WHY
+  // lives once at text-stage.ts's `isTextOptional`; this doc states the field's
+  // contract and points there. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 1013,
   // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
   // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
   // so the symbol emitter reads it too, plus its docstring recording WHY a second
@@ -2450,6 +2480,20 @@ const CEILINGS: Record<string, number> = {
   // of every string) — the exact defect a future "harden the null case" edit would
   // reintroduce. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
   'compiler/src/eval/evaluator-helpers.ts': 872,
+  // Baselined 805 (#2471, main merge) — a genuine unrelated-PR collision, the same
+  // shape as the #1602/#1603 one recorded above, and the §12 double-delta trap in its
+  // purest form: NEITHER SIDE BREACHED ALONE. Common ancestor 791; main's #2454
+  // (background-layer drop warnings) took it to 797; this branch's #2471 (Mapbox v3
+  // `imports` lowering) took it to 799. The two edits are in different regions, so git
+  // merged them with no conflict and the file took BOTH deltas — 805, red on main having
+  // been green on both branches. Extraction is already spent on both sides: #2454 put its
+  // logic in `background-layer-drop.ts` and #2471 put its in `style-imports.ts`, each
+  // leaving a one-line call site here; what remains is the converter's own body, and the
+  // only way under 800 now is deleting the comments that say WHY each call site sits
+  // where it does — degrading the record to absorb someone else's delta. MEASURED
+  // post-prettier on the MERGED tree (`wc -l`), set EXACTLY to the count, not picked
+  // between sides. Shrink-only from here.
+  'compiler/src/convert/mapbox-to-xgis.ts': 805,
   'blueprint/src/editor.ts': 1448,
   // 800→805 (#1304): `LoadCommand.refresh?: number` field + doc comment, and its
   // pass-through line in `emitCommands()`'s `loads` map (mirrors `maxzoom`/`minzoom`).

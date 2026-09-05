@@ -1,4 +1,4 @@
-// ═══ #2093 follow-up — the LOD ceiling must hold through the zoom-in READINESS HOLD ═══
+// ═══ #2093 follow-up — the drape gate must hold through the zoom-in READINESS HOLD ═══
 //
 // Owner report after #2086 merged: "zooming in, the baked tiles are still visible".
 //
@@ -6,22 +6,25 @@
 // (tile-selection-cache.ts, READINESS_TIMEOUT_MS = 5 s) holds the OLD LOD until every
 // visible tile at the next LOD is cached, so the drawn tiles trail the camera by one —
 // up to four — LODs for as long as the network takes. #2086 keyed the drape/direct
-// decision on that HELD `currentZ`, so a camera that has crossed the ceiling with
-// `currentZ` still one level under it kept DRAPING: 512px bakes of the held tiles,
-// magnified 2^(HOLD_ZOOM−HELD_LOD) ≈ 3× (× dpr) — the "baked tiles" the report names,
-// for the whole hold window, on every zoom-in that starts below the ceiling. (First
-// measured at 8.3 → 9.6 against the original ceiling of 9; the cameras follow the
-// ceiling, now 6, and stay one level under it.) The camera's own LOD
-// (`min(floor(zoom), maxLevel)`) is the quantity the ceiling was derived on; the hold
-// is a tile-residency fact, not a rendering-quality one.
+// decision on that HELD `currentZ`, so a camera whose own LOD would render direct kept
+// DRAPING: 512px bakes of the held tiles, magnified for the whole hold window, on
+// every zoom-in. The camera's own LOD (`min(floor(zoom), maxLevel)`) is the quantity
+// the budget is priced on; the hold is a tile-residency fact, not a rendering-quality
+// one.
 //
-// This gate reproduces the hold DETERMINISTICALLY: the step-LOD (z9) tile requests are
+// #2094 RE-POINT. The gate the hold feeds is now a PIXEL BUDGET
+// (map/src/render/globe-drape-budget.ts), not a LOD ceiling, so a step is only a
+// witness where the two readings PRICE differently. See HOLD_ZOOM below: z5 → z6
+// prices identically (the tiler subdivides both to 1.40625 deg) and would have made
+// this gate vacuous; z8 → z9 differs 4x, which is the original report pair.
+//
+// This gate reproduces the hold DETERMINISTICALLY: the step-LOD tile requests are
 // stalled at the Playwright route layer (the offline proxy still serves everything
 // else), the camera moves START_ZOOM → HOLD_ZOOM, and the frame is captured while
 // `_hysteresisZ` is provably still HELD_LOD with `_czPendingAdvance` set (holding) —
 // re-verified after the shot, which is what makes the PNG a held frame.
 //
-//   CAUSE  — during the hold the ceiling-reaching source reports
+//   CAUSE  — during the hold a source the camera can be SERVED by reports
 //            `_drapeGlobeFills === false`: the direct arm owns the held frame.
 //   EFFECT — the held frame differs from the SAME held frame under
 //            `__XGIS_FORCE_VECTOR_DRAPE` (the sever arm, a fresh page so the step
@@ -31,16 +34,16 @@
 //            closer to the advanced frame is the one rendering them the same way.
 //
 // WHY NOT A SHARPNESS METRIC. This gate first asserted that the direct held frame
-// scored higher on the mean of the top 1 % of |∇luminance|. It does not, and the
+// scored higher on the mean of the top 1 % of |grad luminance|. It does not, and the
 // frames say why: at a coarse held LOD the drape's magnified bake draws each road
 // as a DARK 3-px band on a light ground, and the luminance jump across that band's
 // edge is bigger than the jump across the thin, faint, correctly-thin road the
 // direct arm draws. The metric ranks CONTRAST, not sharpness, so it scored the
-// blurry arm higher (251.60 direct vs 256.88 drape at 5.3 → 6.6, while a
-// full-resolution read of the same two frames shows the drape's roads smeared into
-// bands and the direct arm's at Positron's own width). It is kept as a LOGGED
+// blurry arm higher (251.60 direct vs 256.88 drape at the first camera pair, while
+// a full-resolution read of the same two frames shows the drape's roads smeared
+// into bands and the direct arm's at Positron's own width). It is kept as a LOGGED
 // diagnostic, never an assertion — a metric that inverts on the case the gate
-// exists for is a broken ruler (CLAUDE.md §12).
+// exists for is a broken ruler (CLAUDE.md sec 12).
 //
 // Capture note (capture-canvas skill). The held frame is captured WITHOUT
 // captureMapFrame's quiesce: the hold IS a pending-load state — that is the thing
@@ -50,9 +53,9 @@
 // nothing inside the window), the clip is #map's box (captureCanvas's own 'clip'
 // strategy), and the hold is re-asserted AFTER the shot so a capture that outlived
 // the hold fails loud instead of measuring the wrong frame. The advanced frame (stall
-// released, LOD 9 resident) goes through captureMapFrame normally and is captured
-// twice — the noise floor of the harness is a property of the capture, not of the
-// frame, so it is measured where there is no clock to race.
+// released, the step LOD resident) goes through captureMapFrame normally and is
+// captured twice — the noise floor of the harness is a property of the capture, not
+// of the frame, so it is measured where there is no clock to race.
 //
 // Artifacts: __globe-direct-hold-window__/ (gitignored).
 
@@ -62,6 +65,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { captureMapFrame, hideDemoChrome, pixelDiffRatio } from './helpers/visual'
 import { installOfflineProxy } from './helpers/offline-proxy'
+import { expectDrape, minServableMaxLevel, readChordBudgetPx } from './helpers/drape-budget'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const OUT = join(HERE, '__globe-direct-hold-window__')
@@ -70,16 +74,26 @@ const NET_CACHE = join(HERE, '__net-cache__')
 const DEMO_ID = 'openfreemap_positron'
 /** The #2093 report centre (Seoul west). */
 const CENTER = '37.54704/126.81412'
-/** Below the ceiling AND below the Tier-2 zoom-in prefetch trigger
+/** Inside the drape budget AND below the Tier-2 zoom-in prefetch trigger
  *  (`camera.zoom > currentZ + 0.5` would pre-cache the step LOD and defeat the
- *  hold). currentZ 5 — the drape zone (the ceiling is 6, GLOBE_DIRECT_MIN_SELECTION_Z). */
-const START_ZOOM = 5.3
-/** floor → 6 = the ceiling. The gate steps 5 → 6 and waits on the z6 set. */
-const HOLD_ZOOM = 6.6
-const HELD_LOD = 5
-const STEP_LOD = 6
+ *  hold). currentZ 8 — the last level the tiler leaves UNSPLIT, so a held reading
+ *  here is 4x the error of the camera's own (#2094). */
+const START_ZOOM = 8.3
+/** floor → 9. The gate steps 8 → 9 and waits on the z9 set.
+ *
+ *  #2094 RE-POINT. Under a LOD ceiling any step across it was a witness. Under a
+ *  PIXEL BUDGET the two readings must price differently, and z5 → z6 does not:
+ *  the tiler subdivides both down to the SAME 1.40625° segment, so a held z5 and a
+ *  target z6 carry identical chord error and the gate could not tell a currentZ-only
+ *  gate from the fixed one. z8 is the last level the tiler leaves UNSPLIT and z9 is
+ *  split once, so the error differs 4× across that step: held-z8-at-z9.6 is 4.76 px
+ *  (past the budget → drape) while z9-at-z9.6 is 1.19 px (direct). That is the
+ *  original #2093 report pair, restored for the reason it was chosen. */
+const HOLD_ZOOM = 9.6
+const HELD_LOD = 8
+const STEP_LOD = 9
 /** OFM planet tiles: https://tiles.openfreemap.org/planet/<snapshot>/{z}/{x}/{y}.pbf */
-const STEP_TILE_RE = /\/planet\/[^/]+\/6\/\d+\/\d+\.pbf(\?.*)?$/
+const STEP_TILE_RE = /\/planet\/[^/]+\/9\/\d+\/\d+\.pbf(\?.*)?$/
 
 /** Sever discriminator: the held direct frame vs the held drape frame must differ
  *  by more than this multiple of the measured same-frame capture noise, and by at
@@ -126,16 +140,6 @@ interface StateDump {
   dpr: number
   cameraZoom: number
   sources: Record<string, SourceState>
-}
-
-/** The engine's ceiling, read from the source it is declared in — the gate must
- *  scope its cause assertion to sources that can REACH the ceiling (the synthetic
- *  earth surface / polar caps are maxLevel 0 and legitimately keep draping). */
-function readGlobeDirectMinSelectionZ(): number {
-  const src = readFileSync(join(HERE, '..', '..', 'geo', 'src', 'projections-table.ts'), 'utf8')
-  const m = /^export const GLOBE_DIRECT_MIN_SELECTION_Z = (\d+)$/m.exec(src)
-  if (!m) throw new Error('could not read GLOBE_DIRECT_MIN_SELECTION_Z from projections-table.ts')
-  return Number(m[1])
 }
 
 function demoUrl(zoom: number): string {
@@ -234,8 +238,12 @@ async function installStepTileStall(
   }
 }
 
-function ceilingSources(dump: StateDump, ceiling: number): [string, SourceState][] {
-  return Object.entries(dump.sources).filter(([, s]) => s.maxLevel >= ceiling)
+/** The sources the camera can be SERVED by at HOLD_ZOOM — the only ones whose
+ *  drape state says anything about the #2094 budget. A maxLevel-0 synthetic source
+ *  legitimately keeps the drape at every camera, so judging it here would accuse
+ *  the gate's own subject of failing. */
+function servableSources(dump: StateDump): [string, SourceState][] {
+  return Object.entries(dump.sources).filter(([, s]) => !expectDrape(s.maxLevel, HOLD_ZOOM))
 }
 
 /** Load at START_ZOOM, settle, hide chrome, move to HOLD_ZOOM under the stall, wait
@@ -275,7 +283,7 @@ async function captureHeldFrame(
   if (!box) throw new Error('#map has no bounding box')
 
   await page.evaluate(
-    ({ z, ceiling }) => {
+    ({ z, minMaxLevel }) => {
       const w = window as unknown as Win
       w.__holdT0 = performance.now()
       w.__xgisMap!.camera.zoom = z
@@ -292,7 +300,7 @@ async function captureHeldFrame(
           mapFrames: m?._frameCount,
         }
         for (const [name, e] of m?.vtSources ?? []) {
-          if (e.source.maxLevel < ceiling) continue
+          if (e.source.maxLevel < minMaxLevel) continue
           const sel = e.renderer['_selection'] as
             { _hysteresisZ?: number; _czPendingAdvance?: unknown } | undefined
           row[name] = {
@@ -308,10 +316,10 @@ async function captureHeldFrame(
       }, 50)
       w.__holdTimelineStop = () => clearInterval(id)
     },
-    { z: HOLD_ZOOM, ceiling: readGlobeDirectMinSelectionZ() },
+    { z: HOLD_ZOOM, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
   )
   // The gate is provably holding: a frame has evaluated it under the new camera
-  // (`_czPendingAdvance` set), and every ceiling-reaching source still draws HELD_LOD.
+  // (`_czPendingAdvance` set), and every SERVABLE source still draws HELD_LOD.
   // The SAME page task then PAUSES the render loop (`running = false`; the queued rAF
   // tick early-returns), so no later frame can replace the held one before the shot —
   // on SwiftShader a frame here takes ~7 s, longer than the 5 s readiness timeout, so
@@ -320,13 +328,13 @@ async function captureHeldFrame(
   // resumed by captureAdvancedFrame (or never, if the test fails here).
   try {
     await page.waitForFunction(
-      ({ heldLod, z, ceiling }) => {
+      ({ heldLod, z, minMaxLevel }) => {
         const w = window as unknown as Win
         const m = w.__xgisMap
         if (!m?.vtSources || Math.abs(m.camera.zoom - z) > 1e-9) return false
         let any = false
         for (const [, e] of m.vtSources) {
-          if (e.source.maxLevel < ceiling) continue
+          if (e.source.maxLevel < minMaxLevel) continue
           any = true
           const sel = e.renderer['_selection'] as
             { _hysteresisZ?: number; _czPendingAdvance?: unknown } | undefined
@@ -342,7 +350,7 @@ async function captureHeldFrame(
         if (any) m.running = false
         return any
       },
-      { heldLod: HELD_LOD, z: HOLD_ZOOM, ceiling: readGlobeDirectMinSelectionZ() },
+      { heldLod: HELD_LOD, z: HOLD_ZOOM, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
       { timeout: 180_000, polling: 50 },
     )
   } catch (err) {
@@ -357,17 +365,17 @@ async function captureHeldFrame(
   }
   const png = await page.screenshot({ clip: box, animations: 'disabled' })
   // Elapsed since the gate's own timer started (the first held frame), for the record.
-  const holdElapsedMs = await page.evaluate((ceiling) => {
+  const holdElapsedMs = await page.evaluate((minMaxLevel) => {
     const w = window as unknown as Win
     let since = w.__holdT0 ?? 0
     for (const [, e] of w.__xgisMap?.vtSources ?? []) {
-      if (e.source.maxLevel < ceiling) continue
+      if (e.source.maxLevel < minMaxLevel) continue
       const sel = e.renderer['_selection'] as
         { _czPendingAdvance?: { since: number } | null } | undefined
       if (sel?._czPendingAdvance) since = sel._czPendingAdvance.since
     }
     return performance.now() - since
-  }, readGlobeDirectMinSelectionZ())
+  }, minServableMaxLevel(HOLD_ZOOM))
   const state = await dumpState(page)
   const timeline = await page.evaluate(() => {
     const w = window as unknown as Win
@@ -394,21 +402,21 @@ async function captureAdvancedFrame(
     m._scheduleFrame?.()
   })
   await page.waitForFunction(
-    ({ stepLod, ceiling }) => {
+    ({ stepLod, minMaxLevel }) => {
       const w = window as unknown as Win
       const m = w.__xgisMap
       if (!m?.vtSources) return false
       let pending = 0
       for (const [, e] of m.vtSources) {
         pending += e.source.getPendingLoadCount?.() ?? 0
-        if (e.source.maxLevel < ceiling) continue
+        if (e.source.maxLevel < minMaxLevel) continue
         const sel = e.renderer['_selection'] as { _hysteresisZ?: number } | undefined
         if (sel?._hysteresisZ !== stepLod) return false
       }
       if (pending > 0) m.invalidate?.()
       return pending === 0
     },
-    { stepLod: STEP_LOD, ceiling: readGlobeDirectMinSelectionZ() },
+    { stepLod: STEP_LOD, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
     { timeout: 180_000, polling: 100 },
   )
   const png = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
@@ -419,7 +427,7 @@ async function captureAdvancedFrame(
   return { png, png2, state }
 }
 
-test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hold', () => {
+test.describe('#2094 — the drape budget holds through the zoom-in readiness hold', () => {
   // Serial: the sever arm compares against the direct arm's held frame on disk.
   test.describe.configure({ mode: 'serial', timeout: 900_000 })
   test.use({ viewport: { width: 1024, height: 720 } })
@@ -433,7 +441,6 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
   }) => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
-    const ceiling = readGlobeDirectMinSelectionZ()
 
     const held = await captureHeldFrame(page, 'direct')
     const adv = await captureAdvancedFrame(page, 'direct', held.stall)
@@ -443,7 +450,7 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
     const sharpHeld = await edgeSharpness(page, held.png)
     const sharpAdvanced = await edgeSharpness(page, adv.png)
     const report = {
-      ceiling,
+      budgetPx: readChordBudgetPx(),
       holdElapsedMs: held.holdElapsedMs,
       stalledStepRequests: held.stall.stalledCount(),
       noiseFloor,
@@ -468,7 +475,7 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
       held.state.backend,
       'the drape is WebGPU-only; a WebGL2 fallback greens this vacuously',
     ).toBe('webgpu')
-    const heldSources = ceilingSources(held.state, ceiling)
+    const heldSources = servableSources(held.state)
     expect(heldSources.length, 'no source reaches the ceiling — nothing to gate').toBeGreaterThan(0)
     // The hold itself, re-verified after the shot: the frame in the PNG is a held one.
     for (const [name, s] of heldSources) {
@@ -492,13 +499,14 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
       expect(
         s.drapeGlobeFills,
         `${name}: the held frame is still DRAPED at camera z${HOLD_ZOOM} (currentZ ${s.hysteresisZ}) — ` +
-          `the ceiling is being read off the held LOD, not the camera's, so every zoom-in that ` +
-          `starts below z${ceiling} shows 2^(zoom−${HELD_LOD})×-magnified bakes until the step tiles land`,
+          `the drape budget is being priced on the held LOD, not the camera's, so every ` +
+          `zoom-in through this band shows 2^(zoom−${HELD_LOD})×-magnified bakes until the ` +
+          `step tiles land`,
       ).toBe(false)
       expect(s.drapeStrokes, `${name}: strokes still baked during the hold`).toBe(false)
     }
     // After the advance the frame is direct at LOD 9 — the #2086 state.
-    for (const [name, s] of ceilingSources(adv.state, ceiling)) {
+    for (const [name, s] of servableSources(adv.state)) {
       expect(s.hysteresisZ, `${name}: did not advance to ${STEP_LOD} after the release`).toBe(
         STEP_LOD,
       )
@@ -511,7 +519,6 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
   }) => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message.slice(0, 300)))
-    const ceiling = readGlobeDirectMinSelectionZ()
     await page.addInitScript(() => {
       ;(globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE = true
     })
@@ -556,7 +563,7 @@ test.describe('#2093 — the LOD ceiling holds through the zoom-in readiness hol
     )
 
     expect(errors, `pageerrors: ${errors.join(' | ')}`).toEqual([])
-    const heldSources = ceilingSources(held.state, ceiling)
+    const heldSources = servableSources(held.state)
     expect(heldSources.length).toBeGreaterThan(0)
     for (const [name, s] of heldSources) {
       expect(s.hysteresisZ, `${name}: not holding`).toBe(HELD_LOD)

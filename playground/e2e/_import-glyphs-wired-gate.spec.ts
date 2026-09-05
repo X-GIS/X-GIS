@@ -85,7 +85,14 @@ test("the imported style's glyphs URL reaches the runtime AND its PBF range is f
   //     timing out rather than by converging. `glyph`, the only kind this spec
   //     depends on, clears in under 20 s. Scoping the wait to it turns a fixed
   //     budget-length wait into a real convergence.
-  await awaitPendingWorkClear(page, 60_000, ['glyph'])
+  // #2370 — and PIN that it converged. The comment above claims this scoped
+  // wait is a real convergence rather than a budget-length sleep; before
+  // `awaitPendingWorkClear` reported its arm, that claim was unfalsifiable from
+  // here, which is exactly how the unscoped version passed for a convergence
+  // for as long as it did. Asserting 'clear' makes the difference observable:
+  // widen the scope back to every kind and this reds with 'timeout'.
+  const settleArm = await awaitPendingWorkClear(page, 60_000, ['glyph'])
+  expect(settleArm, 'the glyph-scoped settle must CONVERGE, not time out').toBe('clear')
 
   // 1. The wire itself: the URL the converter collected reached the map.
   //    Fail-before: null.
