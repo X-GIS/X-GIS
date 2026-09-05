@@ -25,6 +25,12 @@ class StubVectorTileRenderer {
   setOITPipeline(): void {}
   setLineRenderer(): void {}
   setSource(): void {}
+  // `_reseedInPlace` seeds the binder's categorical value lists here before it
+  // re-requests the tiles (#2439, main). A double that omits it turns every
+  // re-seed in this file into a TypeError inside setSourceData — which is how
+  // this merge surfaced it, and why the method stays even though no case here
+  // asserts on it (the ordering is pinned by source-manager-variant-catalog-patch).
+  setSeededFeatures = vi.fn()
   reseedTiles(): void {}
   getBounds(): null {
     return null
