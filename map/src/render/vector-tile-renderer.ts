@@ -34,6 +34,7 @@ import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
 import { xlog, activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
+import { packDrawSubKey } from './draw-dedup-key'
 import { TileUniformArena } from './tile-uniform-arena'
 import { UniformSplitBind } from './uniform-split-bind'
 import { markStart as perfMarkStart, markEnd as perfMarkEnd } from '../__profile__/perf-marks'
@@ -1347,9 +1348,10 @@ export class VectorTileRenderer {
       const key = neededKeys[ki]!
       const worldOff = worldOffDeg?.[ki] ?? 0
       // World-copy composite dedup key (mirrors renderTileKeys) — dedup on the
-      // bare key would blank the wrapped copies.
-      const drawKey = worldOff === 0 ? key : key + worldOff * 1000000
-      if (this._drawStats.hasDrawn(drawKey)) continue
+      // bare key would blank the wrapped copies. #2309: the composite is now the
+      // numeric sub-key, so the stats map never goes polymorphic.
+      const drawSub = packDrawSubKey(worldOff, -1)
+      if (this._drawStats.hasDrawn(key, drawSub)) continue
       const cached = layerCache.get(key)
       if (!cached || cached.indexCount === 0 || cached.extruded) continue
       cached.lastUsedFrame = this.frameCount
@@ -1452,7 +1454,14 @@ export class VectorTileRenderer {
           indexed: true,
         },
       ])
-      this._drawStats.markDrawn(drawKey, cached.indexCount, 0, cached.indexCount, cached.tileZoom)
+      this._drawStats.markDrawn(
+        key,
+        drawSub,
+        cached.indexCount,
+        0,
+        cached.indexCount,
+        cached.tileZoom,
+      )
     }
     // Missing tiles (not yet compiled/uploaded) — the caller keeps the frame
     // loop hot until this reaches 0, because upload completion alone never
@@ -4950,13 +4959,11 @@ export class VectorTileRenderer {
       // skipped (Korea fill-drop bug, 2026-05-10): only the first
       // dispatch's clip_bounds rect actually let any fragment through.
       const visibleKey = visibleKeysForClip?.[ki] ?? -1
-      const drawKey: number | string =
-        visibleKey >= 0
-          ? `${key}:${worldOff}:${visibleKey}`
-          : worldOff === 0
-            ? key
-            : key + worldOff * 1000000
-      if (this._drawStats.hasDrawn(drawKey)) continue
+      // #2309 — one numeric sub-key instead of a template literal. The triple
+      // (key, worldOff, visibleKey) is preserved exactly; only its encoding
+      // changed (draw-dedup-key.ts carries the arithmetic argument).
+      const drawSub = packDrawSubKey(worldOff, visibleKey)
+      if (this._drawStats.hasDrawn(key, drawSub)) continue
       const cached = layerCache.get(key)
       if (!cached) continue
 
@@ -5496,7 +5503,8 @@ export class VectorTileRenderer {
       // reflects the FRAME total for sliced sources rather than the last
       // layer's stats). Same arithmetic/order as the prior inline block.
       this._drawStats.markDrawn(
-        drawKey,
+        key,
+        drawSub,
         cached.indexCount,
         cached.lineIndexCount,
         vc,

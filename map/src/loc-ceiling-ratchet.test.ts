@@ -382,6 +382,11 @@ const CEILINGS: Record<string, number> = {
   // the +1 is a second IMPORT STATEMENT, not a line of logic. The gate body itself
   // is unchanged in length (one predicate call, one extra argument) and both comment
   // blocks were trimmed back to their prior height to keep it at exactly one.
+  // 5575->5583 (#2309): the two draw-dedup call sites swap a template literal /
+  // `number | string` union for a numeric (tileKey, subKey) pair. The +8 is the
+  // widened markDrawn argument lists at both sites plus the comments naming what
+  // the encoding preserves; the pack itself and its arithmetic argument were
+  // EXTRACTED to draw-dedup-key.ts rather than parked here.
   // 5576->5580 (#2474, measured post-prettier): `bakeTileToTexture`'s fence stopped
   // asking whether `createCommandEncoder` EXISTS and started asking the capability.
   // The one-line optional-call guard becomes a two-line guard, and the three comment
@@ -389,6 +394,12 @@ const CEILINGS: Record<string, number> = {
   // old one-line `// WebGL2 fail-closed (no offscreen encoder)` was false (WebGL2
   // hands out a copy-scoped encoder), and a reader who believed it would delete the
   // routing guard into a runtime throw. The routing site itself is net zero.
+  // MERGE UNION -> MEASURED: FIFTH collision on this key, and the second on this one
+  // branch. Three disjoint deltas now stack over the 5575 common base: #2094 (+1) and
+  // #2474 (+4) from main, #2309 (+8) here. Every side's number is stale by exactly the
+  // other sides' deltas, and git reports no conflict for the ARITHMETIC — only for the
+  // line (§12). The ceiling below is `wc -l` on the merged tree, not a sum; the sum is
+  // kept here only as a cross-check that nothing was dropped in the resolution.
   // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
   // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
   // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
@@ -406,7 +417,11 @@ const CEILINGS: Record<string, number> = {
   // raised this key from a common base, so the merged file carries BOTH deltas and
   // neither side's number is right (§12). Measured 5597 with `wc -l` on the
   // post-prettier merged tree.
-  'map/src/render/vector-tile-renderer.ts': 5597,
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, FOURTH merge): main's #2309
+  // (+8, the numeric draw-dedup sub-key) and this branch's #2292/#2301 stack over the
+  // common base, so neither side's number is right (§12). Measured 5605 with `wc -l` on
+  // the post-prettier merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5605,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2050,20 +2065,26 @@ const CEILINGS: Record<string, number> = {
   // this renderer's, not the store's), so this is not a same-file double delta: the
   // number below is RE-MEASURED post-prettier (`wc -l`) on the merged tree, never
   // carried across or computed from either side's.
-  // 850→855 (#2314): the draw took the bare `isPickEnabled()` and selected a
-  // 2-target (rg32uint) pipeline for a pass that opens ONE colour attachment —
-  // a per-frame WebGPU validation error whenever picking and a DEM layer are both
-  // on. The call site is now a literal `false`; the +5 is the comment recording
-  // why, at the argument it constrains, so the flag cannot drift back.
-  // 855→862 (#2302): the flat non-Mercator branch's `visibleTilesFrustum` call (with the
-  // same inert `{name:'non-mercator', forward: mercator.forward}` shim raster-renderer.ts
-  // carried) is replaced by a call to raster-renderer.ts's new single-authority
-  // `selectFlatProjTiles` — the shim never reached `visibleTilesFrustum`'s culling math
-  // (it only reads `.name`), so this renderer's equirect/natural_earth tile selection
-  // culled in Mercator space too, disagreeing with vs_tile's real draw position at
-  // latitude. Net +7: one new import, the call-site swap, and the removal of the now-
-  // orphaned `mercatorProj` import. MEASURED post-prettier.
-  'map/src/render/hillshade-renderer.ts': 862,
+  // 747→754 (#2302, main merge): the flat-branch selector derivation LEFT this file
+  // for flat-tile-selector.ts (cull space == draw space — the inert 'non-mercator'
+  // shim culled equirect/natural_earth tiles in Mercator space while vs_tile drew
+  // them through the display projection: a blank poleward band). The +7 is
+  // call-site width only: the 4-line shim became an 8-argument call prettier
+  // breaks over 10 lines, plus one import and one comment. Same key raised on both
+  // sides (853→747 above on main, 850→857 on this branch), so the merged file
+  // carries both deltas and neither side's number is right (§12) — RE-MEASURED
+  // post-prettier (`wc -l`) on the merged tree.
+  // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  // 753→758 (#2314, main <- issue-hunt branch, fourth merge): the draw took the bare
+  // `isPickEnabled()` and selected a 2-target (rg32uint) pipeline for a pass that opens
+  // ONE colour attachment — a per-frame WebGPU validation error whenever picking and a
+  // DEM layer are both on. The call site is now a literal `false`; the +5 is the comment
+  // recording why, at the argument it constrains, so the flag cannot drift back. This
+  // branch's own #2302 fix (`selectFlatProjTiles` in raster-renderer.ts) was SUPERSEDED
+  // by main's flat-tile-selector.ts on this merge and removed as its orphan, so #2314 is
+  // the only delta this branch still carries here. RE-MEASURED post-prettier (`wc -l`)
+  // on the merged tree.
+  'map/src/render/hillshade-renderer.ts': 758,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2420,25 +2441,23 @@ const CEILINGS: Record<string, number> = {
   // key is z/x/y with no url — so the old source's tiles answered for the new one, and
   // visible tiles are eviction-exempt so it never self-healed. The growth is the drop +
   // abort on a real URL change.
-  // 1034→1086 (#2302): the flat non-Mercator selector took a `{name:'non-mercator',
-  // forward: mercator.forward}` shim that `visibleTilesFrustum` silently ignored (it
-  // only ever reads `.name`, never calls `.forward`) — so equirect/natural_earth raster
-  // selection culled in plain-Mercator space while `vs_tile` drew the same tiles through
-  // the real display projection, blanking a poleward band. `selectFlatProjTiles` is the
-  // new single-authority replacement (projection-aware `visibleTilesSSE`, mirroring the
-  // vector path) — SHARED with HillshadeRenderer, so the +52 here buys BOTH renderers a
-  // fix instead of growing each inline by half as much and drifting again. MEASURED
-  // post-prettier.
-  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
-  // key from a common base, so the merged file carries BOTH deltas and neither side's
-  // number is right — carrying either across would leave the ceiling one change too low
-  // (green on both branches, red on main). Measured 1090 with `wc -l` on the post-prettier
-  // merged tree.
-  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
-  // raised this key from a common base, so the merged file carries BOTH deltas and
-  // neither side's number is right (§12). Measured 1109 with `wc -l` on the
-  // post-prettier merged tree.
-  'map/src/render/raster-renderer.ts': 1109,
+  // 1056→1061 (#2302, main merge): the flat-branch selector derivation LEFT this
+  // file for flat-tile-selector.ts (the inert 'non-mercator' shim culled equirect /
+  // natural_earth tiles in Mercator space while vs_tile drew them through the
+  // display projection — a blank poleward band, ~166 px per edge at 60°N). Call-site
+  // width only: a 6-line shim block became an 8-argument call prettier breaks over
+  // 10 lines, plus one import; the misleading two-line shim comment went with the
+  // shim. Same key raised on both sides (1034→1056 above on main, 1034→1038 on this
+  // branch), so the merged file carries both deltas and neither side's number is
+  // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  // FOURTH merge (2026-09-05, main <- issue-hunt branch): this branch's own #2302 fix
+  // (`selectFlatProjTiles`, +52 here, shared with HillshadeRenderer) was SUPERSEDED by
+  // main's flat-tile-selector.ts and removed together with its `@xgis/map` re-export and
+  // its parity test (main's `raster-non-merc-selection-parity.test.ts` carries the
+  // stronger FIX/TEETH/CONTROL witness). The file is main's byte-for-byte again;
+  // RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  'map/src/render/raster-renderer.ts': 1060,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

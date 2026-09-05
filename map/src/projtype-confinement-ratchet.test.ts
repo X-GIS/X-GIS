@@ -86,16 +86,19 @@ const BASELINE: Record<string, number> = {
   // use ECEF), and isFlat/isCylindrical are broader (true for 0/1/2), so there is no
   // membership accessor that preserves this exactly — genuinely still-blocked.
   'map/src/render/camera-anchor-dsfun.ts': 1,
-  // hillshade-renderer.ts is DELIBERATELY ABSENT (was 1 under #777 Phase II, whose
-  // last entry was the flat-Mercator tile selector's `projType === 0`). #2302 routed
-  // that selector through the projection-aware path RasterRenderer and
-  // HillshadeRenderer now share, so the comparison is gone and this shrink-only
-  // ratchet locks the win by dropping the entry. Re-adding a projType comparison to
-  // that file reds this test, which is the point.
-  'map/src/render/prefetch-scheduler.ts': 1,
-  // raster-renderer keeps the flat-Mercator tile selector `=== 0` + the one in
-  // rasterFrameCamAnchor (the shared cam-anchor authority now lives here).
-  'map/src/render/raster-renderer.ts': 2,
+  // #777 Phase II — HillshadeRenderer held two Mercator-specific `projType === 0`
+  // splits (the 2D-centre cam anchor + the flat-Mercator tile selector). The
+  // non-Mercator raster-jitter fix deduped the cam-anchor split into the shared
+  // rasterFrameCamAnchor() authority (RasterRenderer + HillshadeRenderer drive the
+  // same vs_tile, so the anchor must be single-authority), leaving ONLY the tile
+  // selector `=== 0` (2 → 1). #2302 then moved the flat tile selector of BOTH
+  // twins and the prefetch walk into render/flat-tile-selector.ts, which branches on
+  // the projection object the table returns rather than on projType — so the
+  // hillshade and prefetch-scheduler entries are gone (routed; locked at 0).
+  // raster-renderer keeps only the `=== 0` in rasterFrameCamAnchor (the shared
+  // cam-anchor authority lives here): Mercator-SPECIFIC, and isFlat/isCylindrical
+  // are broader (0/1/2), so no membership accessor preserves it.
+  'map/src/render/raster-renderer.ts': 1,
 }
 
 describe('projType-confinement ratchet: dispatch via the membership table (#996)', () => {

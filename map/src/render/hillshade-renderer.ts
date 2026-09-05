@@ -13,7 +13,8 @@
 
 import type { GPUContext } from '@xgis/rhi-webgpu'
 import { frameCenterLatOf, type Camera } from '../camera'
-import { visibleTilesFrustum, type TileRowScheme } from '@xgis/data'
+import type { TileRowScheme, TileCoord } from '@xgis/data'
+import { selectFlatTiles } from './flat-tile-selector'
 import { type EvictableTile } from './raster-cache-budget'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
@@ -40,7 +41,6 @@ import {
   rasterCoverZoom,
   needsNorthPoleCap,
   needsSouthPoleCap,
-  selectFlatProjTiles,
 } from './raster-renderer'
 
 const DEG2RAD = Math.PI / 180
@@ -477,7 +477,7 @@ export class HillshadeRenderer {
     const centerLat = frameCenterLatOf(camera, projType) // #2315/#2500 — sphere family reads centerLatDeg
     const cssW = canvasWidth / dpr
     const cssH = canvasHeight / dpr
-    let tiles: ReturnType<typeof visibleTilesFrustum>
+    let tiles: TileCoord[]
     if (routeToSphereSelector(projType, camera.globeMode)) {
       const globeTiles = globeVisibleTiles(
         centerLon,
@@ -498,8 +498,8 @@ export class HillshadeRenderer {
         tiles = globeTiles.map((t) => ({ z: t.z, x: t.x, y: t.y, ox: t.ox }))
       }
     } else {
-      // Flat projections (#2302): single-authority selector shared with RasterRenderer.
-      tiles = selectFlatProjTiles(
+      // Flat projections: cull space == draw space (#2302) — mirror of the raster twin.
+      tiles = selectFlatTiles(
         camera,
         projType,
         projCenterLon,
