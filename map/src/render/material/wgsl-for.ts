@@ -90,10 +90,19 @@ export function shipSource(src: string): string {
   return minifyShaderText(src, { numbers: 'f32' })
 }
 
+/** The WGSL seam for code that is WebGPU-only BY CONSTRUCTION — a `GPUDevice` in hand, a
+ *  bind-group layout that exists nowhere else — so the device question `wgslFor` asks first
+ *  has already been answered by the caller's existence. Same contract otherwise: the store,
+ *  then `shipSource(emit)`, so a hit and a miss serve the same text. `id` is REQUIRED here —
+ *  the open set (a composer variant) does not come through this door (#2499). */
+export function bakedWgsl(emit: () => string, id: string): string {
+  return bakedSource(id) ?? shipSource(emit())
+}
+
 export function wgslFor(rhi: ShaderSourceDevice, emit: () => string, id?: string): string {
   if (!readsWgsl(rhi)) return ''
   if (id === undefined) return shipSource(emit())
-  return bakedSource(id) ?? shipSource(emit())
+  return bakedWgsl(emit, id)
 }
 
 /** The mirror: a `vsCode`/`fsCode` half, emitted only on a device that reads GLSL.

@@ -291,6 +291,13 @@ describe('baked shaders — the boot group matches the eager-construction census
       text: 'boot',
       raster: 'boot',
       'under-occluder': 'boot',
+      // #2499 — the split-bind twins (#2042; INC-7 made the split bind default ON) and the OIT
+      // compose pipeline are built by `PipelineFactory.build()` on every WebGPU boot; measured
+      // at the driver by the boot provenance gate (28 KB + 44 KB + 1.2 KB of WGSL emitted
+      // before frame one). WGSL-only families: no GLSL boot key exists for them.
+      'polygon-split': 'boot',
+      'line-split': 'boot',
+      'oit-compose': 'boot',
       // boot -> lazy in #1888, with the evidence this pin asks for: `GraphicsManager`
       // stopped constructing these five in `attachDevice` and now builds each on first use
       // (`*DraperOf()`), so the two arms above re-derive them as lazy from the manager's own

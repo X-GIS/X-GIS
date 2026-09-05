@@ -50,6 +50,7 @@ import {
   HILLSHADE_METHOD_FLAGS,
   LINE_GLSL_STAGES,
   LINE_GLSL_STAGE_ARGS,
+  OIT_SAMPLE_COUNTS,
   PICKED_MODULE_FAMILIES,
   PICK_STATES,
   POLYGON_FRAGMENT_ENTRIES,
@@ -58,10 +59,12 @@ import {
   POLY_PATTERN,
   POLY_STROKE,
   SIMPLE_FAMILIES,
+  WGSL_ONLY_FAMILIES,
   hillshadeGlslId,
   hillshadeWgslId,
   lineGlslId,
   lineWgslId,
+  oitComposeWgslId,
   pickedModuleGlslId,
   pickedModuleWgslId,
   polygonGlslFragmentId,
@@ -70,6 +73,7 @@ import {
   polygonWgslId,
   simpleGlslId,
   simpleWgslId,
+  wgslOnlyId,
 } from './ids'
 
 // The polygon byte pin below emits, so the same two host seams `baked-sync.test.ts`
@@ -129,6 +133,11 @@ function enumerateGrammar(): Produced[] {
     for (const stage of BAKED_STAGES)
       add(simpleGlslId(family, stage), `simpleGlslId('${family}', '${stage}')`)
   }
+
+  for (const family of WGSL_ONLY_FAMILIES)
+    for (const pick of PICK_STATES)
+      add(wgslOnlyId(family, pick), `wgslOnlyId('${family}', ${pick})`)
+  for (const n of OIT_SAMPLE_COUNTS) add(oitComposeWgslId(n), `oitComposeWgslId(${n})`)
 
   return out
 }
@@ -227,6 +236,11 @@ describe('baked ids — (b) injectivity: distinct arguments, distinct id', () =>
     expect(hillshadeWgslId(3, false)).not.toBe(hillshadeWgslId(3, true))
     expect(pickedModuleWgslId('raster', false)).not.toBe(pickedModuleWgslId('raster', true))
     expect(polygonGlslFragmentId(false, 'fs_fill')).not.toBe(polygonGlslFragmentId(true, 'fs_fill'))
+    expect(wgslOnlyId('line-split', false)).not.toBe(wgslOnlyId('line-split', true))
+  })
+
+  it('the SAMPLE-COUNT token separates oit-compose’s three MSAA unrolls', () => {
+    expect(new Set(OIT_SAMPLE_COUNTS.map(oitComposeWgslId)).size).toBe(OIT_SAMPLE_COUNTS.length)
   })
 })
 
@@ -256,6 +270,9 @@ describe('baked ids — (c) token hygiene: nothing is interpolated from undefine
     )
     expect(polygonGlslFragmentId(false, 'fs_stroke')).toBe('glsl/polygon/nopick/fragment/fs_stroke')
     expect(lineGlslId(true, 'fragment-pattern')).toBe('glsl/line/pick/fragment/fs_line_pattern')
+    // The WGSL-only shapes (#2499): pick only, and the sample-count token only.
+    expect(wgslOnlyId('polygon-split', true)).toBe('wgsl/polygon-split/pick')
+    expect(oitComposeWgslId(4)).toBe('wgsl/oit-compose/s4')
   })
 })
 

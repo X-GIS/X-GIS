@@ -11,10 +11,10 @@ import { isPickEnabled } from '@xgis/engine'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
-import { polygonWgslId } from '../shaders/baked/ids'
-import { bakedSource } from '../shaders/baked/store'
+import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
+import { polygonWgslId, wgslOnlyId } from '../shaders/baked/ids'
 import { bodyEpochValue } from '../body-epoch'
-import { shipSource } from './material/wgsl-for'
+import { bakedWgsl } from './material/wgsl-for'
 import type { ShaderVariantInfo } from './renderer-types'
 
 /** Bridge a renderer-side ShaderVariantInfo to the polygon COMPOSER's variant shape
@@ -101,8 +101,34 @@ export function buildShader(variant?: ShaderVariantInfo | null): string {
   // A composer variant is the OPEN set (style-derived bytes) and stays a raw runtime emit.
   const wgsl =
     composed === null
-      ? (bakedSource(polygonWgslId(pick)) ?? shipSource(emitPolygonWgsl(null, pick)))
+      ? bakedWgsl(() => emitPolygonWgsl(null, pick), polygonWgslId(pick))
       : emitPolygonWgsl(composed, pick)
   _buildShaderWgslCache.set(cacheKey, wgsl)
+  return wgsl
+}
+
+const _buildSplitWgslCache = new Map<string, string>()
+
+/** The split-bind twin of `buildShader` (#2042 INC-4b/4c; #2499): the same choke point, the
+ *  same memo key, the same store-first contract for the null variant — `wgsl/polygon-split/
+ *  {pick,nopick}` is a `WgslOnlyFamily` key, baked and installed at every WebGPU boot. Both
+ *  of pipeline-factory's split call sites come through here, so the eligibility probe (which
+ *  emits a variant's split module only to read its `@group(0)` bindings) and the material
+ *  build that follows it share ONE emit instead of paying it twice — the one repeat #2459
+ *  counted at boot. `pick` is passed rather than read, so the call site's one value drives
+ *  the id and the emit alike. */
+export function buildSplitShader(
+  variant: ShaderVariantInfo | null | undefined,
+  pick: boolean,
+): string {
+  const cacheKey = `${variant?.key ?? '__base__'}::${pick ? 1 : 0}::b${bodyEpochValue()}`
+  const hit = _buildSplitWgslCache.get(cacheKey)
+  if (hit !== undefined) return hit
+  const composed = toComposerVariant(variant)
+  const wgsl =
+    composed === null
+      ? bakedWgsl(() => emitPolygonSplitWgsl(null, pick), wgslOnlyId('polygon-split', pick))
+      : emitPolygonSplitWgsl(composed, pick)
+  _buildSplitWgslCache.set(cacheKey, wgsl)
   return wgsl
 }

@@ -47,8 +47,7 @@ import { toVertexBufferLayout } from '@xgis/rhi-webgpu'
 import { LINE_FORMAT } from './line-vertex-format'
 import { isOverdrawActive } from '../debug-flags'
 import type { ShaderVariantInfo, CachedPipeline } from './renderer-types'
-import { buildShader, toComposerVariant } from './polygon-shader-cache'
-import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
+import { buildShader, buildSplitShader } from './polygon-shader-cache'
 import { buildOverdrawComposePipeline, buildOitComposePipeline } from './compose-pipelines'
 import {
   buildFlatFillMaterials,
@@ -236,7 +235,6 @@ export class PipelineFactory {
       return null
     }
     const pickEnabled = isPickEnabled()
-    const cv = toComposerVariant(info.variant)
     // Eligibility is decided on the EMITTED interface, not the IR decl list:
     // the module statically declares sprite_atlas/samp (bindings 5/6) which
     // the emit prunes when unused — exactly how the default split twins fit
@@ -246,7 +244,7 @@ export class PipelineFactory {
     // rewriter throws), stays on the legacy bind.
     let wgsl: string | null = null
     try {
-      wgsl = emitPolygonSplitWgsl(cv, pickEnabled)
+      wgsl = buildSplitShader(info.variant, pickEnabled)
       for (const m of wgsl.matchAll(/@group\(0\)\s*@binding\((\d+)\)/g)) {
         const b = Number(m[1])
         if (b !== 7 && b !== 10 && b !== 11) {
@@ -1063,7 +1061,7 @@ export class PipelineFactory {
       })
       this._fillSplitMaterials = buildFlatFillMaterials({
         rhi: this.ctx.rhi,
-        shader: emitPolygonSplitWgsl(null, pickEnabled),
+        shader: buildSplitShader(null, pickEnabled),
         format,
         sampleCount: getSampleCount(),
         bindGroupLayout: this._fillSplitLayout,

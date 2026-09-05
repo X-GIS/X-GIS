@@ -1448,7 +1448,7 @@ const CEILINGS: Record<string, number> = {
   // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
   // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
   // under the 800 new-file cap.
-  'map/src/render/pipeline-factory.ts': 1736,
+  'map/src/render/pipeline-factory.ts': 1734,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
