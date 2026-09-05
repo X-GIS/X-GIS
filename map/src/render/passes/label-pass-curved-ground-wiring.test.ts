@@ -94,6 +94,22 @@ describe('label-pass — the curved line site feeds the label plane (#2012 INC-4
     expect(SRC).toMatch(/import \{[^}]*\bgroundAlignsAtRuntime\b[^}]*\} from '@xgis\/compiler'/s)
   })
 
+  it('2b. the TANGENT gate reads the same predicate, so the two cannot split (#2224)', () => {
+    // The sibling of assertion 2, and the defect that earned it: the tangent gate
+    // spelled `lineRotAlign !== 'viewport'` right here while groundAlignsAtRuntime
+    // spelled its own copy inside the shared module. Three values made the two
+    // agree by coincidence; the spec's FOURTH (`viewport-glyph`) split them — this
+    // site read it as tangent-rotated, the ground gate as ground-aligned, and
+    // MapLibre billboards it. One predicate now answers both.
+    expect(SRC).toMatch(
+      /const useTangentRotation = tangentRotates\(\s*effectiveDef\.placement,\s*effectiveDef\.rotationAlignment,\s*\)/,
+    )
+    // The local re-read must be GONE — the same rule assertion 2 imposes on the
+    // ground half. Any `!== 'viewport'` here is a second authority by definition.
+    expect(SRC).not.toContain("!== 'viewport'")
+    expect(SRC).toMatch(/import \{[^}]*\btangentRotates\b[^}]*\} from '@xgis\/compiler'/s)
+  })
+
   it('3. records each RETAINED sample’s merc coordinate inside the projection loop', () => {
     // Must be in the retain branch, beside the screen/arc writes: `_pmScratch` is
     // an arc LENGTH and the retained run can start mid-polyline, so nothing

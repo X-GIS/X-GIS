@@ -529,6 +529,12 @@ export function lowerLabelProps(
         labelRotationAlignment = 'viewport'
         continue
       }
+      // #2224 — checked AFTER the plain `viewport` arm above only because the
+      // match is exact; the two are distinct utilities, not a prefix pair.
+      if (name === 'label-rotation-alignment-viewport-glyph') {
+        labelRotationAlignment = 'viewport-glyph'
+        continue
+      }
       if (name === 'label-rotation-alignment-auto') {
         labelRotationAlignment = 'auto'
         continue

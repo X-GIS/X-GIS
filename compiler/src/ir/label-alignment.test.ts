@@ -13,6 +13,7 @@ import {
   resolveRotationAlignment,
   resolvePitchAlignment,
   groundAlignsAtRuntime,
+  tangentRotates,
 } from './label-alignment'
 
 const PLACEMENTS = ['point', 'line', 'line-center', undefined] as const
@@ -167,5 +168,74 @@ describe('#2166 — groundAlignsAtRuntime', () => {
     // aliased resolvePitchAlignment would read 0 here and the warning would go
     // silent on cases the runtime really does billboard.
     expect(strictly).toBeGreaterThan(0)
+  })
+})
+
+// ═══ #2224 — the FOURTH enum value ═══
+//
+// `viewport-glyph` is spec-valid (the pinned @maplibre/maplibre-gl-style-spec
+// lists map | viewport | viewport-glyph | auto). MapLibre's `recalculate`
+// rewrites only `auto`, so the value reaches its `pitchWithMap` test spelled
+// `=== 'map'` and is FALSE there: the label billboards. Before this suite it
+// fell through every arm here to the placement default — `map` on a line layer
+// — which is the opposite, and the two gates that spelled `!== 'viewport'`
+// each disagreed with it independently.
+
+describe('#2224 — viewport-glyph resolves to the viewport side', () => {
+  it('resolveRotationAlignment maps it to viewport at every placement', () => {
+    for (const p of PLACEMENTS) {
+      expect(resolveRotationAlignment(p, 'viewport-glyph')).toBe('viewport')
+    }
+  })
+
+  it('the pitch chain inherits it — auto pitch on a viewport-glyph line layer is viewport', () => {
+    for (const pitch of ['auto', undefined, null]) {
+      expect(resolvePitchAlignment('line', 'viewport-glyph', pitch)).toBe('viewport')
+      expect(resolvePitchAlignment('line-center', 'viewport-glyph', pitch)).toBe('viewport')
+      expect(resolvePitchAlignment('point', 'viewport-glyph', pitch)).toBe('viewport')
+    }
+    // An EXPLICIT pitch map still wins the chain — the rotation knob only
+    // supplies the `auto` fallback.
+    expect(resolvePitchAlignment('line', 'viewport-glyph', 'map')).toBe('map')
+  })
+
+  it('a viewport-glyph line layer does NOT ground-align, at any pitch knob', () => {
+    for (const pitch of ['map', 'auto', undefined]) {
+      expect(groundAlignsAtRuntime('line', 'viewport-glyph', pitch)).toBe(false)
+    }
+  })
+
+  it('an UNKNOWN value still falls to the placement default (not silently viewport)', () => {
+    // The guard that keeps this from being "anything not `map` is viewport":
+    // a typo must behave as `auto` did, which the converter warns about
+    // separately.
+    expect(resolveRotationAlignment('line', 'viewport-glyphs')).toBe('map')
+    expect(groundAlignsAtRuntime('line', 'viewport-glyphs', 'map')).toBe(true)
+  })
+})
+
+describe('#2224 — tangentRotates is the one predicate both gates read', () => {
+  it('agrees with resolveRotationAlignment === map over the whole cube', () => {
+    for (const p of [...PLACEMENTS, 'LINE', 42]) {
+      for (const rot of [...KNOBS, 'viewport-glyph', 'nonsense', null]) {
+        expect(tangentRotates(p, rot)).toBe(resolveRotationAlignment(p, rot) === 'map')
+      }
+    }
+  })
+
+  it('a line layer follows the tangent by default and billboards on either viewport value', () => {
+    expect(tangentRotates('line', undefined)).toBe(true)
+    expect(tangentRotates('line', 'auto')).toBe(true)
+    expect(tangentRotates('line', 'map')).toBe(true)
+    expect(tangentRotates('line', 'viewport')).toBe(false)
+    expect(tangentRotates('line', 'viewport-glyph')).toBe(false)
+  })
+
+  it('the ground gate is exactly this predicate on the line cell', () => {
+    // The #2224 defect in one assertion: the two gates must never disagree
+    // about a line layer whose pitch chain resolves to map.
+    for (const rot of [...KNOBS, 'viewport-glyph']) {
+      expect(groundAlignsAtRuntime('line', rot, 'map')).toBe(tangentRotates('line', rot))
+    }
   })
 })

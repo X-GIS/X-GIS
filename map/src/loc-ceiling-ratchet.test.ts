@@ -1373,7 +1373,13 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
-  'map/src/render/passes/label-pass.ts': 1998,
+  // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
+  // predicate instead of spelling `!== 'viewport'` a second time (the split the
+  // fourth enum value opened), which wraps the '@xgis/compiler' import to one
+  // name per line (+6) and the call to three lines, against the six-line why.
+  // RE-MEASURE after any merge with a branch that also moves this key — #2536
+  // lowers it to 1990 from the same base, and the file takes BOTH deltas.
+  'map/src/render/passes/label-pass.ts': 2008,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -2445,7 +2451,11 @@ const CEILINGS: Record<string, number> = {
   // text-translate, symbol-placement) where a non-constant form used to vanish
   // with no diagnostic; each records WHY its form reaches the arm. MEASURED
   // post-prettier (`git show HEAD:<file> | wc -l`).
-  'compiler/src/convert/layers-symbol.ts': 1424,
+  // 1424->1434 (#2224): `viewport-glyph` joins the text-rotation-alignment enum
+  // arm — the four-way condition prettier wraps to one value per line, plus the
+  // five-line why (rejecting a spec-valid value emitted NO utility, so the layer
+  // silently took the runtime's placement default). MEASURED post-prettier.
+  'compiler/src/convert/layers-symbol.ts': 1434,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2463,7 +2473,10 @@ const CEILINGS: Record<string, number> = {
   // 952->963 (#2440): the `label-text-optional` utility branch, its local, and
   // the knob pass-through — the same three touch points `label-icon-optional`
   // has. MEASURED post-prettier.
-  'compiler/src/ir/lower-label.ts': 963,
+  // 963->969 (#2224): the `label-rotation-alignment-viewport-glyph` parse arm
+  // plus the two-line note that the two viewport utilities are an exact-match
+  // pair, not a prefix pair. MEASURED post-prettier.
+  'compiler/src/ir/lower-label.ts': 969,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2497,7 +2510,10 @@ const CEILINGS: Record<string, number> = {
   // 1006->1013 (#2440): `LabelDef.textOptional` + the contract doc. The WHY
   // lives once at text-stage.ts's `isTextOptional`; this doc states the field's
   // contract and points there. MEASURED post-prettier.
-  'compiler/src/ir/render-node.ts': 1013,
+  // 1013->1015 (#2224): LabelDef.rotationAlignment gains the fourth spec value
+  // in its type union, and its doc gains the two lines saying which side
+  // `viewport-glyph` resolves to. MEASURED post-prettier.
+  'compiler/src/ir/render-node.ts': 1015,
   // 912→932 (#2170 symbol half): the `*-translate-anchor` spec-default DECISION
   // extracted out of addTranslateAnchor into the exported `translateAnchorIsMap`
   // so the symbol emitter reads it too, plus its docstring recording WHY a second
