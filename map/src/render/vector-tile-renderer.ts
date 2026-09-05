@@ -74,7 +74,11 @@ import {
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
-import { TileSelectionCache, sliceOutsideDataZoomRange } from './tile-selection-cache'
+import {
+  TileSelectionCache,
+  sliceOutsideDataZoomRange,
+  type Selection,
+} from './tile-selection-cache'
 import { FeatureDataBinder } from './feature-data-binder'
 import { GpuTileStore } from './gpu-tile-store'
 import { BindGroupRegistry } from './bind-group-registry'
@@ -260,6 +264,18 @@ export interface RenderFrameState {
   readonly targetZ: number
   /** The camera's view for this projection (MVP + log-depth constant). */
   readonly frame: ReturnType<Camera['getViewForProjection']>
+  /** Deepest virtual sub-tile level the over-zoom selector may descend to. */
+  readonly maxSubTileZ: number
+  /** Frustum margin (CSS px) covering stroke width, offset and anchor
+   *  alignment, so an offset stroke near the edge still selects its tile. */
+  readonly offsetMarginPx: number
+  /** The projection the tile selector works in: the display projection for
+   *  projTypes 1–6, Mercator otherwise. */
+  readonly selectorProj: Projection
+  /** `Selection.cameraIdle`. */
+  readonly cameraIdle: boolean
+  /** `Selection.tiles` — the visible tile list the classification walked. */
+  readonly tiles: Selection['tiles']
 }
 
 export class VectorTileRenderer {
@@ -3711,10 +3727,15 @@ export class VectorTileRenderer {
       fallbackOffsets,
       archiveAncestor,
       frame,
+      tiles,
       source: this.source,
+      cameraIdle,
       targetZ,
+      selectorProj,
       parentAtMaxLevel,
+      offsetMarginPx,
       currentZ,
+      maxSubTileZ,
     }
 
     this.requestAndPrefetch(args, ctx)
@@ -3723,6 +3744,16 @@ export class VectorTileRenderer {
 
     this.drawFallback(args, ctx)
 
+    this.prefetchTiers(args, ctx)
+
+    this.trackStableSetAndPoints(args, ctx)
+  }
+
+  /** #2508 phase 9 — prefetch tiers: the adjacent tiles (idle only, every 10th
+   *  frame — the memo is what makes that per frame rather than per slice,
+   *  #2309) and the zoom-direction next LOD while the camera is mid-zoom
+   *  (#2013 — deliberately not idle-gated). Consumes only. */
+  private prefetchTiers(args: RenderArgs, ctx: RenderFrameState): void {
     // Prefetch adjacent + next zoom (every 10th frame, idle only).
     // While the camera is actively moving the prefetched edge tiles
     // are likely to be invalidated within ~100 ms of being fetched
@@ -3735,12 +3766,12 @@ export class VectorTileRenderer {
       this._zoomPrefetchZooms.clear()
     }
     if (
-      cameraIdle &&
+      ctx.cameraIdle &&
       this.currentFrameId % 10 === 0 &&
-      !this._adjacentPrefetchZooms.has(currentZ)
+      !this._adjacentPrefetchZooms.has(ctx.currentZ)
     ) {
-      this._adjacentPrefetchZooms.add(currentZ)
-      this.source.prefetchAdjacent(tiles, currentZ)
+      this._adjacentPrefetchZooms.add(ctx.currentZ)
+      ctx.source.prefetchAdjacent(ctx.tiles, ctx.currentZ)
     }
 
     // Tier 2: zoom-direction prefetch.
@@ -3779,38 +3810,36 @@ export class VectorTileRenderer {
     // #2309 — that throttle is the modulo AND the per-frame memo. The
     // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
     // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
-    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(currentZ)) {
-      this._zoomPrefetchZooms.add(currentZ)
+    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(ctx.currentZ)) {
+      this._zoomPrefetchZooms.add(ctx.currentZ)
       // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
       // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
       // execution order/throttle is byte-identical to the prior inline block.
       const prefetchKeys = computeZoomDirectionPrefetchKeys({
-        camera,
-        cameraZoom: camera.zoom,
-        currentZ,
-        maxSubTileZ,
-        projType,
-        globeMode: camera.globeMode,
-        centerX: camera.centerX,
-        centerY: camera.centerY,
-        pitch: camera.pitch ?? 0,
-        bearing: camera.bearing ?? 0,
-        canvasWidth,
-        canvasHeight,
-        dpr,
-        selectorProj,
-        offsetMarginPx,
-        isCached: sliceCached,
+        camera: args.camera,
+        cameraZoom: args.camera.zoom,
+        currentZ: ctx.currentZ,
+        maxSubTileZ: ctx.maxSubTileZ,
+        projType: args.projType,
+        globeMode: args.camera.globeMode,
+        centerX: args.camera.centerX,
+        centerY: args.camera.centerY,
+        pitch: args.camera.pitch ?? 0,
+        bearing: args.camera.bearing ?? 0,
+        canvasWidth: args.canvasWidth,
+        canvasHeight: args.canvasHeight,
+        dpr: args.dpr,
+        selectorProj: ctx.selectorProj,
+        offsetMarginPx: ctx.offsetMarginPx,
+        isCached: ctx.sliceCached,
         // #1393/#2013 — probe the same far-field notch the drawing selection
         // runs at, so the prefetch set matches the renderer's actual demand.
         farTargetBoost: adaptiveFarLodBoost(),
       })
       if (prefetchKeys.length > 0) {
-        this.source.prefetchTiles(prefetchKeys)
+        ctx.source.prefetchTiles(prefetchKeys)
       }
     }
-
-    this.trackStableSetAndPoints(args, ctx)
   }
 
   /** #2508 phase 6 — decide the drape routing for this layer on the curved
