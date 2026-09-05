@@ -27,8 +27,39 @@ export function intElemOf(t: ShaderType): 'i32' | 'u32' | undefined {
 export const wrapInt = (v: number, elem: 'i32' | 'u32'): number =>
   elem === 'u32' ? v >>> 0 : v | 0
 
+/** Memo for {@link keyOf}, keyed on the Expr OBJECT (#2465).
+ *
+ *  Sound because the IR is immutable: every field of every `Expr` arm is `readonly`
+ *  (`ir/nodes.ts`), and a pass that rewrites builds a NEW node rather than editing one — so
+ *  one object's key can never change. A `WeakMap`, so the entries die with the nodes a pass
+ *  discards; nothing here retains IR.
+ *
+ *  Verified rather than argued: a temporary build that recomputed the key on EVERY call and
+ *  threw on any disagreement with the memo ran the full suite — 1352 files / 12,405 tests —
+ *  with zero disagreements. Should a pass ever start mutating a node in place, that is the
+ *  premise to re-establish before trusting this.
+ *
+ *  Module-scope state is deliberate and dual-instance-safe (unlike the #763 D2 counter): two
+ *  copies of this module would each keep their own memo and compute identical keys, since
+ *  the memo caches a pure function of its key.
+ *
+ *  WHY it is worth having: `keyOf` is called per EXPRESSION NODE by four passes and re-run
+ *  every fixpoint iteration — 254,232 calls in one `line` emit, against 776 `collectLocals`
+ *  and 8,256 `collectMutatedRoots` calls in the same emit. Interleaved A/B/A/B on one machine,
+ *  each figure the median of 3 emits: optimize 230.7 / 242.2 ms -> 182.3 / 153.5, gvn
+ *  58.7 / 60.8 -> 40.7 / 38.1. Emitted bytes unchanged (goldens + `bake:shaders`). */
+const keyMemo = new WeakMap<Expr, string>()
+
 /** A deterministic structural key — two structurally-equal exprs share a key. */
 export function keyOf(e: Expr): string {
+  const memo = keyMemo.get(e)
+  if (memo !== undefined) return memo
+  const k = keyOfUncached(e)
+  keyMemo.set(e, k)
+  return k
+}
+
+function keyOfUncached(e: Expr): string {
   switch (e.op) {
     case 'lit':
       // The TYPE is part of a literal's identity, and it is the ONE expr whose type nothing
