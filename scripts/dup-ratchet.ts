@@ -4,6 +4,8 @@
 //   bun run dup                    CI gate: red on a clone this branch adds over main
 //   bun run dup:report [--tests] [--top N] [--min-tokens K] [--type-insensitive]
 //                                  the ranked work queue: clone clusters by size × spread
+//   bun run dup:report --shape     the Type-2 lens: clones whose identifiers differ, which
+//                                  the token gate cannot see (report only — see below)
 //
 // WHAT IT ASSERTS, and why it is a SET DIFFERENCE and not a number. A percentage hides a
 // 200-line paste behind a 2000-line feature landing in the same PR (CLAUDE.md §5: gate on
@@ -53,7 +55,15 @@
 // consolidation, how an intentional twin is marked) is docs/adr/0013-*.md.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -339,6 +349,118 @@ export function scan(opts: ScanOptions): { clones: Clone[]; stats: ScanStats; re
   return { ...parsed, reportPath }
 }
 
+// ── The SHAPE lens (Type-2) ──────────────────────────────────────────────────
+//
+// The gate compares TOKEN streams, so a copy whose identifiers were renamed is invisible
+// to it — and in this repo that is the majority of the duplication, because the sibling
+// families differ in exactly the names that say which primitive they serve. Measured
+// 2026-09-05 at 6c2fdfd, both passes summed per pair so the units match: 279 token pairs /
+// 3673 lines, against 241 FURTHER pairs / 3831 lines that only appear once identifiers are
+// erased — so the gate sees ~49% of the duplicated lines. A further 86 shape pairs EXTEND
+// a pair the gate already flags rather than adding one; they are the same finding, larger,
+// and are counted separately for exactly that reason. See `shapeOnlyClones`.
+//
+// Method: re-emit every file with TypeScript's own scanner, replacing each identifier with
+// `_` and each string/number literal with a constant, blanking comment TEXT but keeping its
+// newlines so a hit still maps to the original line. Run the same detector on that tree and
+// subtract everything the token pass already reports.
+//
+// REPORT ONLY, never a gate. Two noise classes dominate the raw output and both are
+// legitimate code: a uniform list matching ITSELF shifted by one entry (a 270-row colour
+// table where every row shapes to `_: "S",`), and data tables generally. They are filtered
+// below by construction — self-overlap, and a distinct-line ratio floor — but the filters
+// are heuristics, and gating on a heuristic that calls a colour table "duplication" is how
+// a gate gets bypassed (ADR-0013 alternative 8 is the same lesson, already paid for).
+
+/** Distinct non-blank lines / total, over a fragment. A hand-written function scores high;
+ *  a data table scores near zero because every row shapes to the same text. */
+function lineDiversity(text: string, start: number, end: number): number {
+  const rows = text
+    .split('\n')
+    .slice(start - 1, end)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return rows.length === 0 ? 1 : new Set(rows).size / rows.length
+}
+
+/** True when a clone is a region matching itself a few entries along — a list, not a copy. */
+const selfOverlapping = (c: Clone): boolean =>
+  c.a.file === c.b.file && c.a.start <= c.b.end && c.b.start <= c.a.end
+
+/** Write a structure-only mirror of `roots` into a fresh temp tree; returns its path. */
+function writeShapeTree(root: string, roots: readonly string[]): string {
+  const ts = createRequire(import.meta.url)('typescript') as typeof import('typescript')
+  const out = mkdtempSync(join(tmpdir(), 'jscpd-shape-'))
+  for (const r of roots)
+    for (const [rel, src] of walkSources(root, r)) {
+      if (!/\.tsx?$/.test(rel) || TEST_IGNORE.some((g) => rel.endsWith(g.replace('**/*', ''))))
+        continue
+      const sc = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, src)
+      let shaped = ''
+      for (;;) {
+        const k = sc.scan()
+        if (k === ts.SyntaxKind.EndOfFileToken) break
+        const t = sc.getTokenText()
+        if (k === ts.SyntaxKind.Identifier || k === ts.SyntaxKind.PrivateIdentifier) shaped += '_'
+        else if (
+          k === ts.SyntaxKind.StringLiteral ||
+          k === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+        )
+          shaped += '"S"'
+        else if (k === ts.SyntaxKind.NumericLiteral || k === ts.SyntaxKind.BigIntLiteral)
+          shaped += '0'
+        else if (
+          k === ts.SyntaxKind.SingleLineCommentTrivia ||
+          k === ts.SyntaxKind.MultiLineCommentTrivia
+        )
+          shaped += t.replace(/[^\n]/g, ' ') // keep the line count, drop the words
+        else shaped += t
+      }
+      const dst = join(out, rel)
+      mkdirSync(dirname(dst), { recursive: true })
+      writeFileSync(dst, shaped)
+    }
+  return out
+}
+
+/** Clones that appear only once identifiers are erased, with the two noise classes removed.
+ *
+ *  The subtraction is by RANGE OVERLAP, not by equal start line, and the difference is not
+ *  cosmetic: erasing identifiers changes the token stream, so jscpd re-anchors a match a few
+ *  lines either way and the SAME finding comes back with a different start. Keying on the
+ *  start let 54 clones / 1276 lines — a quarter of the reported total — through as
+ *  "invisible to the gate" when the gate had already flagged that very file pair. Measured
+ *  2026-09-05 against both raw reports; the honest shape-only figure is ~240 / ~3830. */
+export function shapeOnlyClones(
+  shaped: readonly Clone[],
+  token: readonly Clone[],
+  readShaped: (file: string) => string,
+  minDiversity = 0.5,
+): Clone[] {
+  const byPair = new Map<string, Array<readonly [number, number, number, number]>>()
+  for (const t of token) {
+    const k = `${t.a.file}|${t.b.file}`
+    const at = byPair.get(k)
+    const span = [t.a.start, t.a.end, t.b.start, t.b.end] as const
+    if (at === undefined) byPair.set(k, [span])
+    else at.push(span)
+  }
+  const alreadyGated = (c: Clone): boolean =>
+    (byPair.get(`${c.a.file}|${c.b.file}`) ?? []).some(
+      ([as, ae, bs, be]) => c.a.start <= ae && as <= c.a.end && c.b.start <= be && bs <= c.b.end,
+    )
+
+  return shaped.filter((c) => {
+    if (alreadyGated(c)) return false
+    if (selfOverlapping(c)) return false
+    const d = Math.min(
+      lineDiversity(readShaped(c.a.file), c.a.start, c.a.end),
+      lineDiversity(readShaped(c.b.file), c.b.start, c.b.end),
+    )
+    return d >= minDiversity
+  })
+}
+
 /** The commit this branch is measured against.
  *
  *  MERGE BASE with `origin/main` where the history is there; `origin/main` itself where it
@@ -400,9 +522,11 @@ function assertRoots(root: string, roots: readonly string[]): void {
 }
 
 function summary(stats: ScanStats, extra = ''): string {
+  // NaN percentage = a filtered subset (the shape lens); a ratio over it would be a lie.
+  const pct = Number.isFinite(stats.percentage) ? ` (${stats.percentage.toFixed(2)}%)` : ''
   return (
-    `jscpd: ${stats.clones} clones, ${stats.duplicatedLines} duplicated lines ` +
-    `(${stats.percentage.toFixed(2)}%) across ${stats.files} files / ${stats.lines} lines${extra}`
+    `jscpd: ${stats.clones} clones, ${stats.duplicatedLines} duplicated lines${pct} ` +
+    `across ${stats.files} files / ${stats.lines} lines${extra}`
   )
 }
 
@@ -441,28 +565,84 @@ function check(root: string): number {
   return red ? 1 : 0
 }
 
-/** `bun run dup:report [--tests] [--top N] [--min-tokens K] [--type-insensitive]` — the
- *  work queue. */
+/** `bun run dup:report [--tests] [--shape] [--top N] [--min-tokens K] [--type-insensitive]`
+ *  — the work queue. */
 function report(
   root: string,
-  opts: { tests: boolean; top: number; minTokens?: number; typeInsensitive: boolean },
+  opts: {
+    tests: boolean
+    top: number
+    minTokens?: number
+    typeInsensitive: boolean
+    shape: boolean
+  },
 ): number {
   const roots = opts.tests ? [...SCAN_ROOTS, ...TEST_ROOTS] : SCAN_ROOTS
   assertRoots(root, roots)
-  const { clones, stats, reportPath } = scan({
+  const ignore = opts.tests ? IGNORE : [...IGNORE, ...TEST_IGNORE]
+  let { clones, stats, reportPath } = scan({
     root,
     roots,
-    ignore: opts.tests ? IGNORE : [...IGNORE, ...TEST_IGNORE],
+    ignore,
     minTokens: opts.minTokens,
     typeInsensitive: opts.typeInsensitive,
   })
-  console.log(
-    summary(
-      stats,
-      (opts.tests ? ' (tests included' : ' (tests excluded') +
-        (opts.typeInsensitive ? '; TypeScript tokenizer lens)' : ')'),
-    ),
-  )
+  let lens =
+    (opts.tests ? ' (tests included' : ' (tests excluded') +
+    (opts.typeInsensitive ? '; TypeScript tokenizer lens)' : ')')
+
+  if (opts.shape) {
+    // Structure-only mirror, minus everything the token pass above already reports.
+    const shapeRoot = writeShapeTree(root, roots)
+    const shaped = scan({ root: shapeRoot, roots: ['.'], ignore, minTokens: opts.minTokens })
+    const cache = new Map<string, string>()
+    const readShaped = (f: string): string => {
+      let t = cache.get(f)
+      if (t === undefined) {
+        t = readFileSync(join(shapeRoot, f), 'utf8')
+        cache.set(f, t)
+      }
+      return t
+    }
+    const only = shapeOnlyClones(shaped.clones, clones, readShaped)
+    // Compare the two passes in the SAME unit. `stats.duplicatedLines` is jscpd's own
+    // figure, which de-duplicates overlapping fragments; the filtered subsets below can only
+    // be summed per pair. Printing one against the other made the gate look worse than it is
+    // (3380 vs 3824 → "40%", where the same accounting on both sides says ~49%) — the units
+    // lesson in CLAUDE.md §12, met in the instrument built to apply it.
+    const pairLines = (cs: readonly Clone[]): number => cs.reduce((n, c) => n + c.lines, 0)
+    // What the shape pass found that is NOT new: the same file-pair regions the gate already
+    // flags, re-found LARGER. That is the evidence for "consolidate against the cluster, not
+    // the corner the gate shows you" — but it is not duplication the gate misses.
+    const extends_ = shapeOnlyClones(shaped.clones, [], readShaped).length - only.length
+    console.log(
+      `jscpd: ${shaped.stats.clones} shape pairs → ${only.length} SHAPE-ONLY ` +
+        `(${pairLines(only)} lines), ${extends_} extending a pair the gate already has, ` +
+        `${shaped.stats.clones - only.length - extends_} filtered as self-overlaps / data tables.`,
+    )
+    console.log(
+      `  the gate's own pass, summed the same way: ${clones.length} pairs / ` +
+        `${pairLines(clones)} lines — so it sees ` +
+        `${Math.round((pairLines(clones) / (pairLines(clones) + pairLines(only))) * 100)}% ` +
+        `of the duplicated lines.\n` +
+        '  SHAPE-ONLY clones differ only in identifiers — invisible to `bun run dup`, and NOT\n' +
+        '  gated: a uniform data table is a legitimate false positive, which is why this is a lens.',
+    )
+    clones = only
+    // Report the FILTERED set, never the shape pass's raw totals — those count the data
+    // tables this lens exists to discard, and a percentage over them reads as a finding.
+    stats = {
+      files: shaped.stats.files,
+      lines: shaped.stats.lines,
+      clones: only.length,
+      duplicatedLines: only.reduce((n, c) => n + c.lines, 0),
+      percentage: Number.NaN,
+    }
+    reportPath = shaped.reportPath
+    lens = ' (shape lens — identifiers erased; report only)'
+  }
+
+  console.log(summary(stats, lens))
   const top = opts.top
 
   const byClass = new Map<CloneClass, Clone[]>()
@@ -526,6 +706,7 @@ if (import.meta.main) {
       top: Number(flag('--top') ?? 30),
       minTokens: mt === undefined ? undefined : Number(mt),
       typeInsensitive: argv.includes('--type-insensitive'),
+      shape: argv.includes('--shape'),
     })
   } else {
     code = check(REPO_ROOT)

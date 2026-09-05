@@ -11,6 +11,7 @@ bun run dup                       # the gate: clones this branch adds over its m
 bun run dup:report --top 40       # ranked clusters, source only — the debt number lives here
 bun run dup:report --tests        # include *.test.ts / *.spec.ts
 bun run dup:report --type-insensitive   # jscpd's TypeScript tokenizer lens (see caveat)
+bun run dup:shape --top 25        # the Type-2 lens: identifiers erased (report only)
 ```
 
 Detector: jscpd 5.1.2, `.jscpd.json` = 70 tokens / 5 lines / `mild` (comments and blank
@@ -103,6 +104,129 @@ as a queue row a `bun run dup:report` would reproduce: `compiler/src/tiler/ecef-
 tokenizer the gate uses does not pair them; `bun run dup:report --type-insensitive` does. It
 is the concrete example of what the caveat below costs.
 
+## The shape lens — Type-2 duplication (`bun run dup:shape`, report only)
+
+Everything above is what a TOKEN detector sees: fragments that match once whitespace and
+comments are dropped. The sibling families in this repo differ in exactly the identifiers
+that say which primitive they serve, so much of them is invisible to it. `dup:shape` mirrors
+the tree with every identifier rewritten to `_`, every string to `"S"` and every number to
+`0` (TypeScript's own scanner; comments blanked to spaces, so the line numbers below point at
+the real files), runs the same `.jscpd.json` over the mirror, and subtracts the pairs the
+token pass already covers.
+
+At `6c2fdfd` the 802 raw shape pairs decompose — and the decomposition, not the raw number,
+is the result (re-run the command for the current figure; nothing pins it):
+
+| bucket                                                       | pairs   | lines    |
+| ------------------------------------------------------------ | ------- | -------- |
+| self-overlaps and uniform data tables (filtered — noise)     | 475     | —        |
+| extends a pair the gate already flags (same finding, bigger) | 86      | —        |
+| **SHAPE-ONLY — duplication the gate cannot see**             | **241** | **3831** |
+| the token pass itself, summed the same way                   | 279     | 3673     |
+
+**The gate sees about half the duplicated lines (49%).** Not gated, and it should not be: a
+uniform data table, a switch over an enum and a bind-group entry list all shape alike without
+being duplication a rewrite could remove (ADR-0013 alternative 9).
+
+Two accounting traps produced wrong numbers here first, and both are recorded in ADR-0013
+because both looked like findings: subtracting by equal START LINE instead of range overlap
+(erasing identifiers re-anchors a match, so 54 pairs / 1276 lines came back as "invisible" on
+file pairs the gate already flagged — inflating shape-only to 294 / 5100), and comparing
+jscpd's de-duplicated line stat against a sum of pair lines (3380 vs 3824 → "40%", where one
+unit on both sides says 49%). Any figure quoted from this lens should say which accounting it
+uses; the mirror's own file/line totals are NOT comparable to the token pass's (`.ts/.tsx`
+only, and `mild` skips lines a blanked comment made blank), so no percentage-of-tree is
+quoted for it.
+
+**Instrument check (CLAUDE.md §12 — validate against a known positive before believing a
+number).** The pair this document already listed as invisible to the gate,
+`compiler/src/tiler/ecef-packing.ts:173-215` ↔ `data/src/sources/polar-cap-ecef-pack.ts:38-68`
+(43 lines), is found by the shape lens independently — six identical `FILL_*_FLOAT` constants
+whose only difference is `field(…)` vs `vertexField(…)`. It survives the corrected
+subtraction, and it is absent from `dup:report`. The lens was not tuned to find it.
+
+### What only this lens sees — the shape-only clusters
+
+| #   | cluster (lines · copies · files)                                                              | what is duplicated                                                                                                                                                                          | relation to the token queue                                       |
+| --- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| S1  | `map/src/shaders/dsl/*` — 273 · 24 · 10                                                       | one DSL body shape across coverage-ramp, under-occluder, extrude-shell-compose, flow-advect, text, hillshade, line, raster, polygon, point                                                  | rows 3 and 5 are two corners of it; the family is 10 files, not 3 |
+| S2  | retained DSL fragment tails — 114 · 8 · 5                                                     | arrow-advected, icon-retained, arrow-retained, particle-retained, point                                                                                                                     | rows 2 / 6 / 15, wider                                            |
+| S3  | `map/src/render/material/*` — 83 · 10 · 6                                                     | arrow-retained-advected, arrow-retained, icon-retained, heatmap, coverage, point                                                                                                            | row 19, wider (see the note below on the whole-file copies)       |
+| S4  | `heatmap-material.ts`, `icon-material.ts`, `text-material.ts` — 77 · 8 · 3                    | the non-retained material tail                                                                                                                                                              | new                                                               |
+| S5  | retained DSL — 73 · 11 · 4                                                                    | arrow / particle / circle / icon-retained                                                                                                                                                   | rows 2 / 6 / 15                                                   |
+| S6  | `compiler/src/ir/render-node-helpers.ts` — 67 · 11 · 1                                        | eleven copies of one shape inside a single file                                                                                                                                             | new — intra-file; a local table or helper                         |
+| S7  | `flow-advect.ts`, `heatmap-blur.ts`, `heatmap-compose.ts` — 60 · 3 · 3                        | the compose-shader body                                                                                                                                                                     | row 3, wider                                                      |
+| S8  | `map/src/controller.ts:442-498, 917-954` — 57 · 4 · 1                                         | the drag-anchor capture — dpr clamp, `getBoundingClientRect`, screen-space conversion, then the globe / promotes-to-globe / mercator branch — written at drag-start and again at pointer-up | new                                                               |
+| S9  | `data/src/sources/*` ↔ `workers/mvt-worker.ts` — 54 · 3 · 3 and 47 · 2 · 2                    | more of the main-thread/worker twin and the backend boilerplate                                                                                                                             | rows 4 and 14, wider                                              |
+| S10 | `circle-retained.ts:55-108` ↔ `particle-retained.ts:75-130` — 54 · 2 · 2, **470 tokens**      | the largest single shape-only fragment in the tree                                                                                                                                          | row 2's family, at its true size                                  |
+| S11 | `retained-arrow-packer.ts:91-143` ↔ `retained-icon-packer.ts:94-125` — 53 · 2 · 2             | the per-feature packing loop                                                                                                                                                                | row 10                                                            |
+| S12 | `compiler/src/ir/lower-bindings-{fill,line}.ts` — 52 · 4 · 2                                  | binding-lowering per primitive                                                                                                                                                              | new — a sibling family the token pass never linked                |
+| S13 | `render/{line,point}-vertex-format.ts`, `sprite/icon-vertex-format.ts` — 50 · 4 · 3           | vertex-format declarations, one file per primitive                                                                                                                                          | new — a table-driven format module (the TableGen move, ADR-0003)  |
+| S14 | `shader-dsl/src/core/passes/opt/{const-prop,copy-prop,member-fold}.ts` — 46 · 4 · 3           | the optimizer-pass skeleton                                                                                                                                                                 | rows 1 / 8 / 18 are the walker; this is the pass shape around it  |
+| S15 | `compiler/src/tiler/ecef-packing.ts` ↔ `data/src/sources/polar-cap-ecef-pack.ts` — 43 · 2 · 2 | the `FILL_*_FLOAT` layout constants, cross-package                                                                                                                                          | invisible to the gate — the known-positive check above            |
+| S16 | `compiler/src/tiler/ecef-packing.ts` ↔ `map/src/render/tile-camera-anchor.ts` — 20 · 4 · 2    | the WGS84 geodetic→ECEF kernel, hand-written                                                                                                                                                | small, cross-workspace — **and worth following, see below**       |
+
+Cross-workspace under the shape lens: compiler↔data, compiler↔map, map↔rhi-webgl2,
+map↔pipeline, engine↔map, geo↔map, compiler↔shader-dsl.
+
+### What the gate UNDER-measures — the "extends" bucket, and why it is not counted above
+
+86 shape pairs re-find a pair the gate already flags, larger. The clearest is the retained
+draper family: `map/src/render/material/circle-retained-material.ts:12-82` and
+`particle-retained-material.ts:14-87` are each a structural copy of
+`arrow-retained-material.ts:13-89` covering the whole file below its header — three ~85-line
+drapers, one shape, each copy saying "Mirrors RetainedArrowDraper" in its own comment. Queue
+row 19 sees 31 scattered lines of that; the shape lens re-finds 77 in one fragment.
+
+Those lines are deliberately NOT in the 3831 above — the gate is not blind to that pair, it
+under-measures it, and conflating the two overstates the blind spot. The practical
+consequence is the same either way and it is the reason to read this lens before
+consolidating: **scope a consolidation from the cluster, not from the corner the gate shows
+you.**
+
+### S16 followed up — the small row that named a drifted invariant
+
+S16 is 20 lines and was worth following anyway. `shared/src/ecef.ts` already exports
+`lonLatToECEF` and its header states the invariant: "this module is the single cross-package
+source of truth for ECEF / WGS84 math … the 'mirrors ecef.ts' hand-copies the tiler used to
+carry **are real imports now**." Grepping the kernel the shape lens paired
+(`Math.sqrt(1 - E2 * …)`) finds it hand-written in four source files, not two:
+
+| site                                    | binds `a` / `e²` from                                                                                                        |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `map/src/render/raster-grid-trig.ts:50` | `activeBody()` — both                                                                                                        |
+| `data/src/line-segment-build.ts`        | `WGS84` (documented choice — its header says mixing frames would compute the anchor on one body and the geometry on another) |
+| `compiler/src/tiler/ecef-packing.ts`    | `WGS84` + `EARTH.sphereR` for the separate DSFUN Mercator radius (documented)                                                |
+| `map/src/render/tile-camera-anchor.ts`  | `activeBody().sphereR` at :116 but `EARTH.e2` at :137                                                                        |
+
+The arithmetic agrees everywhere; what diverges is which body's constants each one binds — so
+this is not "delete three copies and call the helper". `lonLatToECEF` returns a fresh array
+and a per-vertex packing loop is a legitimate reason to inline it, and two of the four
+document their frame choice. The finding is narrower, and it is **#2564**: the header's stated
+invariant is no longer true, and `tile-camera-anchor.ts:116/137` takes its radius from the
+active body and its eccentricity from Earth in the same expression — four lines below a
+comment stating that the term "must equal `lonLatToECEF(cam)`". It does, on Earth and only on
+Earth; on `MOON` the two disagree by 2.1 km horizontally and 6.2 km in z at 45° latitude. No
+gate here can see it, because every gate runs on the default body.
+
+### What NO lens here sees — Type-4
+
+A helper re-invented under another name with a different shape is not detected by anything in
+this repo, deliberately (ADR-0013 alternative 10 / decision 5: an instrument that cannot be
+validated reports zero, and a zero reads as clean). The substitute signal is co-change — files
+edited together across history with no import edge between them. Measured over 4224 commits
+(the container's clone was shallow at 71 commits and reported ZERO coupled pairs until
+`git fetch --unshallow`; that zero was the blind instrument, not a finding): 42 coupled pairs,
+22 of them without an import edge. The archetype:
+
+- `shader-dsl/src/core/backends/glsl.ts` ↔ `wgsl.ts` — changed together in 67% of the commits
+  touching either, 16 commits, no import edge. One specification emitted twice.
+- `rhi-webgl2/src/*` ↔ `rhi-webgpu/src/*` — the same pattern across the backend pair.
+
+Neither is a clone in any detector's sense; both are subsystem-owner decisions (a shared
+emitter skeleton, or a recorded deliberate twin). They are tracked on #2561, not as queue rows
+— a `jscpd:ignore` marker does not apply to code no detector flags.
+
 ## Test-side duplication (reported, not gated)
 
 At 70 / 5 with tests: 783 clusters, 231 with ≥3 copies. The two largest clusters in the
@@ -158,3 +282,14 @@ Every step: EVERY copy in the cluster goes in the same PR — the gate only sees
 branch adds, so a half-done consolidation is green; the proof is `bun run dup:report`
 showing the cluster gone. A guard (ratchet test or an ESLint restriction naming the new
 helper) lands with the helper.
+
+**Scope each step from `bun run dup:shape`, not from the row.** The rows above are token
+clusters, and for every family in this queue the token pass names a corner of it: row 19 is 3
+files and 31 scattered lines of a retained-draper family the shape lens re-finds as whole-file
+copies; rows 3 and 5 are two corners of S1's 10 files. Consolidating to the row's extent
+leaves survivors, which the gate cannot tell you about — exactly the half-done consolidation
+ADR-0013 decision 4 step 3 forbids. Concretely: step 2 starts at the retained drapers scoped
+from S3 + the extends bucket (two ~85-line whole-file copies, self-documented as copies — the
+cheapest real win in the tree), and these become new independent items — **S6**
+(render-node-helpers, intra-file), **S12** (`lower-bindings-*`), **S13** (vertex formats),
+**S14** (optimizer-pass skeleton) — with **S15** joining row 17 as cross-workspace work.
