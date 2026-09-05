@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c1af16b110c8ceed1f6e57a9fbb1d80b6e1f5245
+  Generated from: 37285da82998a434fb292f4447adb13be3a89321
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c1af16b110c8
+    bun scripts/emit-changelog.ts --since 37285da82998
 -->
 
 # Changelog
@@ -48,6 +48,11 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **projections:** flat non-Mercator tile selection (#2302) and the azimuthal_equidistant centre collapse (#2061) ([#2498](https://github.com/X-GIS/X-GIS/pull/2498)) `37285da`
+- **data:** drop the antimeridian wrap copy of a point instead of clamping it onto the seam ([#2521](https://github.com/X-GIS/X-GIS/pull/2521)) `67af14c`
+- **map:** one centre-latitude authority per frame + limb-cull label boxes on every side ([#2507](https://github.com/X-GIS/X-GIS/pull/2507)) `c654d51`
+- **map/camera:** effectiveMpp mirrors the globe builder that actually runs — the perspective globe is uncapped (#2332) ([#2509](https://github.com/X-GIS/X-GIS/pull/2509)) `6e34251`
+- **map/text:** trim a line's LEADING whitespace by moving `start` with the width (#2446) ([#2503](https://github.com/X-GIS/X-GIS/pull/2503)) `d89eb10`
 - **tiler:** the on-demand path skipped the outline densification its fill gets (#2497) ([#2505](https://github.com/X-GIS/X-GIS/pull/2505)) `c1af16b`
 - **compiler:** symbol (icon-only) is supported — the row, not the feature (#2489) ([#2493](https://github.com/X-GIS/X-GIS/pull/2493)) `b04ebd1`
 - **compiler:** token strings keep non-identifier keys instead of throwing out of lower() (#2310) ([#2480](https://github.com/X-GIS/X-GIS/pull/2480)) `c74cf6e`
@@ -117,6 +122,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- **map:** make the draw dedup key numeric on both levels (#2309) ([#2495](https://github.com/X-GIS/X-GIS/pull/2495)) `dbefd76`
+- **render:** the WebGPU polygon base shader reads its bake, and a boot provenance gate names what still does not (#2499) ([#2506](https://github.com/X-GIS/X-GIS/pull/2506)) `9465b58`
 - **shader-dsl:** memoise keyOf on the Expr object — the optimizer's real hot path (#2465) ([#2492](https://github.com/X-GIS/X-GIS/pull/2492)) `80a3965`
 - **map:** index the per-style fill fallback by label instead of walking the map (#2309) ([#2441](https://github.com/X-GIS/X-GIS/pull/2441)) `543d921`
 - **map:** make the in-render prefetch throttles per FRAME, not per ShowCommand (#2309) ([#2431](https://github.com/X-GIS/X-GIS/pull/2431)) `639baf2`
