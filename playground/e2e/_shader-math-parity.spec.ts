@@ -23,7 +23,7 @@
 // centre 0,0) keeps every projection finite, avoiding the back-hemisphere
 // cull divergence that projection-wgsl-consistency.test.ts pins separately.
 
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 // Relative deep import (charter): Playwright transpiles specs in raw Node — the @xgis/* workspace alias does not resolve here, so specs import package SOURCES relatively (see _glsl-compile-gate.spec.ts).
 import { WGSL_PROJECTION_CONSTS, WGSL_PROJECTION_FNS } from '../../map/src/shaders/projection'
 // NOT the `@xgis/map` BARREL: the barrel pulls the data package, whose geodesic /
@@ -87,6 +87,99 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `
 
+/** Execute the real WGSL `project()` on the GPU over `grid` for each of
+ *  `projTypes`. Returns, per projType, the flat [x0,y0,x1,y1,...] f32 output
+ *  (or `{ error }` on adapter failure / shader compile error, with the
+ *  message). Shared by the front-hemisphere parity test and the #2061
+ *  near-centre ladder below. */
+async function runProjectKernel(
+  page: Page,
+  args: { grid: Array<[number, number]>; clon: number; clat: number; projTypes: number[] },
+): Promise<{ out: Record<number, number[]>; errors: string[] } | { error: string }> {
+  return await page.evaluate(
+    async (args: {
+      wgsl: string
+      grid: Array<[number, number]>
+      clon: number
+      clat: number
+      projTypes: number[]
+    }) => {
+      const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
+      if (!nav.gpu) return { error: 'no navigator.gpu' as const }
+      const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
+      if (!adapter) return { error: 'no adapter' as const }
+      const device = await adapter.requestDevice()
+      const errors: string[] = []
+      device.addEventListener('uncapturederror', (e) => {
+        errors.push((e as GPUUncapturedErrorEvent).error.message)
+      })
+
+      const module = device.createShaderModule({ code: args.wgsl })
+      const info = await module.getCompilationInfo()
+      const fatals = info.messages.filter((m) => m.type === 'error')
+      if (fatals.length > 0) {
+        return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
+      }
+      const pipeline = device.createComputePipeline({
+        layout: 'auto',
+        compute: { module, entryPoint: 'main' },
+      })
+
+      const n = args.grid.length
+      // Input buffer: 2 f32 per point (lon, lat).
+      const inData = new Float32Array(n * 2)
+      for (let i = 0; i < n; i++) {
+        inData[i * 2] = args.grid[i][0]
+        inData[i * 2 + 1] = args.grid[i][1]
+      }
+      const inBuf = device.createBuffer({
+        size: inData.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+      device.queue.writeBuffer(inBuf, 0, inData)
+
+      const outBuf = device.createBuffer({
+        size: n * 2 * 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+      })
+      const readBuf = device.createBuffer({
+        size: n * 2 * 4,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      })
+      const ppBuf = device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      })
+
+      const out: Record<number, number[]> = {}
+      for (const projType of args.projTypes) {
+        device.queue.writeBuffer(ppBuf, 0, new Float32Array([projType, args.clon, args.clat, 0]))
+        const bind = device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [
+            { binding: 0, resource: { buffer: inBuf } },
+            { binding: 1, resource: { buffer: outBuf } },
+            { binding: 2, resource: { buffer: ppBuf } },
+          ],
+        })
+        const enc = device.createCommandEncoder()
+        const pass = enc.beginComputePass()
+        pass.setPipeline(pipeline)
+        pass.setBindGroup(0, bind)
+        pass.dispatchWorkgroups(Math.ceil(n / 64))
+        pass.end()
+        enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 2 * 4)
+        device.queue.submit([enc.finish()])
+        await readBuf.mapAsync(GPUMapMode.READ)
+        out[projType] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
+        readBuf.unmap()
+      }
+      return { out, errors }
+    },
+    { wgsl: COMPUTE_WGSL, ...args },
+  )
+}
+
 test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
   test('WGSL project() matches projectWgsl() for projType 0–6', async ({ page }) => {
     test.setTimeout(60_000)
@@ -94,85 +187,13 @@ test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
     // demo works; `minimal` is the lightest and is the webServer warmup URL.
     await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
 
-    // Run the real WGSL string on the GPU for all 7 projTypes. Returns,
-    // per projType, the flat [x0,y0,x1,y1,...] output array (or null on
-    // adapter failure / shader compile error, with the message).
-    const gpu = await page.evaluate(
-      async (args: { wgsl: string; grid: Array<[number, number]>; clon: number; clat: number }) => {
-        const nav = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }
-        if (!nav.gpu) return { error: 'no navigator.gpu' as const }
-        const adapter = await (nav.gpu.requestAdapter() as Promise<GPUAdapter | null>)
-        if (!adapter) return { error: 'no adapter' as const }
-        const device = await adapter.requestDevice()
-        const errors: string[] = []
-        device.addEventListener('uncapturederror', (e) => {
-          errors.push((e as GPUUncapturedErrorEvent).error.message)
-        })
-
-        const module = device.createShaderModule({ code: args.wgsl })
-        const info = await module.getCompilationInfo()
-        const fatals = info.messages.filter((m) => m.type === 'error')
-        if (fatals.length > 0) {
-          return { error: 'compile: ' + fatals.map((m) => `${m.lineNum}:${m.message}`).join(' | ') }
-        }
-        const pipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: { module, entryPoint: 'main' },
-        })
-
-        const n = args.grid.length
-        // Input buffer: 2 f32 per point (lon, lat).
-        const inData = new Float32Array(n * 2)
-        for (let i = 0; i < n; i++) {
-          inData[i * 2] = args.grid[i][0]
-          inData[i * 2 + 1] = args.grid[i][1]
-        }
-        const inBuf = device.createBuffer({
-          size: inData.byteLength,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        })
-        device.queue.writeBuffer(inBuf, 0, inData)
-
-        const outBuf = device.createBuffer({
-          size: n * 2 * 4,
-          usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        })
-        const readBuf = device.createBuffer({
-          size: n * 2 * 4,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        })
-        const ppBuf = device.createBuffer({
-          size: 16,
-          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        })
-
-        const out: Record<number, number[]> = {}
-        for (let projType = 0; projType <= 6; projType++) {
-          device.queue.writeBuffer(ppBuf, 0, new Float32Array([projType, args.clon, args.clat, 0]))
-          const bind = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-              { binding: 0, resource: { buffer: inBuf } },
-              { binding: 1, resource: { buffer: outBuf } },
-              { binding: 2, resource: { buffer: ppBuf } },
-            ],
-          })
-          const enc = device.createCommandEncoder()
-          const pass = enc.beginComputePass()
-          pass.setPipeline(pipeline)
-          pass.setBindGroup(0, bind)
-          pass.dispatchWorkgroups(Math.ceil(n / 64))
-          pass.end()
-          enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * 2 * 4)
-          device.queue.submit([enc.finish()])
-          await readBuf.mapAsync(GPUMapMode.READ)
-          out[projType] = Array.from(new Float32Array(readBuf.getMappedRange().slice(0)))
-          readBuf.unmap()
-        }
-        return { out, errors }
-      },
-      { wgsl: COMPUTE_WGSL, grid: GRID, clon: CLON, clat: CLAT },
-    )
+    // Run the real WGSL string on the GPU for all 7 projTypes.
+    const gpu = await runProjectKernel(page, {
+      grid: GRID,
+      clon: CLON,
+      clat: CLAT,
+      projTypes: [0, 1, 2, 3, 4, 5, 6],
+    })
 
     expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
       'error',
@@ -216,6 +237,89 @@ test.describe('shader-math parity (executed WGSL vs TS mirror)', () => {
     expect(
       failures,
       `executed WGSL project() drifted from the TS mirror beyond tolerance (${SOFTWARE_GPU ? 'software' : 'hardware'} GPU):\n${failures.slice(0, 20).join('\n')}`,
+    ).toEqual([])
+  })
+
+  // #2061 — the azimuthal_equidistant arm near its centre, EXECUTED. The old
+  // `acos(cos_c)` form lost the distance once cos_c rounded to 1: 1.5 km out on
+  // hardware f32, and far wider on SwiftShader, whose cos() is only ~3e-4
+  // relative (1 − cos Δλ vanishes below Δλ ≈ 1.4°). The front-hemisphere grid
+  // above cannot see it: its nearest sample is 15° out and the software floor
+  // is 3 km. Two assertions on purpose — the radius must strictly GROW along
+  // the ladder (a collapse flattens the inner rungs to 0; this half is
+  // precision-independent), and each rung must match the f64 mirror on the
+  // same f32-rounded inputs to a RELATIVE tolerance: near the centre the
+  // software transcendentals' error cancels to first order between sin φ and
+  // sin φ₀, leaving a fraction of the offset, not an absolute floor.
+  test('azimuthal_equidistant near-centre ladder (#2061): executed WGSL keeps the radius', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
+    await page.goto('/demo.html?id=minimal', { waitUntil: 'domcontentloaded' })
+    const LADDER_DEG = [1e-4, 3e-4, 1e-3, 3e-3, 0.01, 0.03, 0.1, 0.3, 1, 3]
+    // Three directions per rung: along the parallel, along the meridian, diagonal.
+    const DIRS: Array<[number, number]> = [
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]
+    const f = Math.fround
+    const failures: string[] = []
+    const lines: string[] = []
+    for (const [clon, clat] of [
+      [0, 0],
+      [127, 37.5],
+    ] as Array<[number, number]>) {
+      const grid: Array<[number, number]> = []
+      for (const d of LADDER_DEG)
+        for (const [ex, ey] of DIRS) grid.push([f(clon + ex * d), f(clat + ey * d)])
+      const gpu = await runProjectKernel(page, {
+        grid,
+        clon: f(clon),
+        clat: f(clat),
+        projTypes: [4],
+      })
+      expect(gpu, `GPU compute failed: ${'error' in gpu ? gpu.error : ''}`).not.toHaveProperty(
+        'error',
+      )
+      if ('error' in gpu) return
+      expect(gpu.errors, `uncaptured GPU errors: ${gpu.errors.join(' | ')}`).toEqual([])
+      const out = gpu.out[4]
+      for (let dir = 0; dir < DIRS.length; dir++) {
+        let inner = 0
+        for (let i = 0; i < LADDER_DEG.length; i++) {
+          const gi = i * DIRS.length + dir
+          const [lon, lat] = grid[gi]
+          const gx = out[gi * 2],
+            gy = out[gi * 2 + 1]
+          const [mx, my] = projectWgsl(4, lon, lat, f(clon), f(clat))
+          const rg = Math.hypot(gx, gy),
+            rm = Math.hypot(mx, my)
+          const err = Math.hypot(gx - mx, gy - my)
+          const where = `centre (${clon},${clat}) dir ${DIRS[dir].join(',')} ${LADDER_DEG[i]}°`
+          lines.push(
+            `${where}: gpu r=${rg.toFixed(2)} mirror r=${rm.toFixed(2)} Δ=${err.toFixed(2)} m`,
+          )
+          if (!(rg > inner))
+            failures.push(
+              `${where}: radius did not grow (${inner.toFixed(2)} → ${rg.toFixed(2)} m)`,
+            )
+          // Floors are the f32 INPUT quantum, not the formula: radians(127.0001°) −
+          // radians(127°) is a 2.4e-7 rad (1.5 m) step in f32. Measured on
+          // SwiftShader 2026-09-05: ≤ 1.3 m inside 1 km, ≤ 1.5e-3 relative beyond
+          // (its small-angle sin), so 5e-3 is ~3× headroom; a collapse is Δ = r.
+          const tol = SOFTWARE_GPU ? Math.max(2, rm * 5e-3) : Math.max(3, rm * 2e-4)
+          if (err > tol) failures.push(`${where}: Δ ${err.toFixed(2)} m > tol ${tol.toFixed(2)} m`)
+          inner = rg
+        }
+      }
+    }
+    console.log(
+      `[#2061 ladder, ${SOFTWARE_GPU ? 'software' : 'hardware'} GPU]\n${lines.join('\n')}`,
+    )
+    expect(
+      failures,
+      `executed azimuthal_equidistant collapsed or drifted near its centre:\n${failures.join('\n')}`,
     ).toEqual([])
   })
 

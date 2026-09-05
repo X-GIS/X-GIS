@@ -681,3 +681,43 @@ describe('CPU/GPU projection consistency — Globe (true 3D, projType 7)', () =>
     expect(projGlobeWgsl(0, 45)[2]).toBeCloseTo(N * (1 - E2) * s, 0)
   })
 })
+
+// #2061 — the azimuthal_equidistant twins near the centre: neither may collapse,
+// and they must still agree to 1 mm. The mirror executes the DSL that becomes
+// the shader, so this pins the GPU formula to the CPU canonical exactly where
+// the old acos form lost the distance (637 m in f64, 1.5 km in the shader's f32).
+describe('CPU/GPU projection consistency — azimuthal_equidistant near the centre (#2061)', () => {
+  const CENTRES: Array<[number, number]> = [
+    [0, 0],
+    [127, 37.5],
+    [-100, 60],
+  ]
+  const OFFSETS_DEG = [1e-6, 1e-5, 1e-4, 1e-3, 0.01, 0.1, 1]
+
+  it('agrees to 1 mm and never returns the centre for an off-centre point', () => {
+    for (const [clon, clat] of CENTRES) {
+      const cpu = azimuthalEquidistant(clon, clat)
+      for (const d of OFFSETS_DEG) {
+        for (const [dx, dy] of [
+          [d, 0],
+          [0, d],
+          [d, d],
+          [-d, d],
+        ]) {
+          const lon = clon + dx
+          const lat = clat + dy
+          const [ax, ay] = cpu.forward(lon, lat)
+          const [bx, by] = projAzimuthalEquidistantWgsl(lon, lat, clon, clat)
+          const where = `centre (${clon},${clat}) offset (${dx},${dy})°`
+          // 1e-6° along a parallel at 60° is 0.056 m — still not the centre.
+          expect(Math.hypot(ax, ay), `${where}: CPU collapsed to the centre`).toBeGreaterThan(0.01)
+          expect(Math.hypot(bx, by), `${where}: mirror collapsed to the centre`).toBeGreaterThan(
+            0.01,
+          )
+          expect(Math.abs(ax - bx), `${where}: x`).toBeLessThan(1e-3)
+          expect(Math.abs(ay - by), `${where}: y`).toBeLessThan(1e-3)
+        }
+      }
+    }
+  })
+})

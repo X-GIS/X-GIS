@@ -1,4 +1,4 @@
-// baseline: f4a767d6efd3168b08aaee4951cddde7aa37a810
+// baseline: 9f81ddebfb5820c1c43d55f3bc372300faf05ae4
 // fixture: syn-match10
 // variant.key: syn-match10
 // pick: false
@@ -141,20 +141,19 @@ fn proj_orthographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f
 }
 
 fn proj_azimuthal_equidistant(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
-  let _cse7 = radians(clat);
-  let _cse2 = sin(_cse7);
-  let _cse8 = radians(lat_deg);
-  let _cse3 = sin(_cse8);
-  let _cse4 = cos(_cse7);
-  let _cse5 = cos(_cse8);
-  let _cse9 = (radians(lon_deg) - radians(clon));
-  let _cse6 = cos(_cse9);
-  let _cse1 = acos(clamp(((_cse2 * _cse3) + ((_cse4 * _cse5) * _cse6)), -1.0, 1.0));
-  if ((_cse1 < 0.0001)) {
-    return vec2<f32>(0.0, 0.0);
-  }
-  let _cse0 = (EARTH_R * (_cse1 / sin(_cse1)));
-  return vec2<f32>(((_cse0 * _cse5) * sin(_cse9)), (_cse0 * ((_cse4 * _cse3) - ((_cse2 * _cse5) * _cse6))));
+  let _cse9 = radians(lat_deg);
+  let _cse4 = cos(_cse9);
+  let _cse10 = (radians(lon_deg) - radians(clon));
+  let _cse2 = (_cse4 * sin(_cse10));
+  let _cse11 = radians(clat);
+  let _cse5 = cos(_cse11);
+  let _cse6 = sin(_cse9);
+  let _cse7 = sin(_cse11);
+  let _cse8 = cos(_cse10);
+  let _cse3 = ((_cse5 * _cse6) - ((_cse7 * _cse4) * _cse8));
+  let _cse1 = sqrt(((_cse2 * _cse2) + (_cse3 * _cse3)));
+  let _cse0 = (EARTH_R * (atan2(_cse1, ((_cse7 * _cse6) + ((_cse5 * _cse4) * _cse8))) / max(_cse1, 1e-12)));
+  return vec2<f32>((_cse0 * _cse2), (_cse0 * _cse3));
 }
 
 fn proj_stereographic(lon_deg: f32, lat_deg: f32, clon: f32, clat: f32) -> vec2<f32> {
