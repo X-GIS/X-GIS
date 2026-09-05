@@ -77,17 +77,28 @@ const pickTag = (pick: boolean | undefined): string | undefined =>
 const methodTag = (methodFlag: HillshadeMethodFlag | undefined): string | undefined =>
   methodFlag === undefined ? undefined : `m${methodFlag}`
 
+/** The oit-compose sample-count token, or none for every other family. */
+const sampleTag = (sampleCount: number | undefined): string | undefined =>
+  sampleCount === undefined ? undefined : `s${sampleCount}`
+
 /** The optional axes of one id. Absent means "this family has no such dimension", which
  *  the token helpers turn into no token at all. */
 interface IdAxes {
   readonly methodFlag?: HillshadeMethodFlag
   readonly pick?: boolean
   readonly entry?: string
+  readonly sampleCount?: number
 }
 
-/** `wgsl/<family>[/m<flag>][/pick|nopick]` — the ONE place the WGSL shape is spelled. */
+/** `wgsl/<family>[/m<flag>][/pick|nopick][/s<n>]` — the ONE place the WGSL shape is spelled. */
 const wgslId = (family: BakedFamily, axes: IdAxes = {}): string =>
-  joinId('wgsl', family, methodTag(axes.methodFlag), pickTag(axes.pick))
+  joinId(
+    'wgsl',
+    family,
+    methodTag(axes.methodFlag),
+    pickTag(axes.pick),
+    sampleTag(axes.sampleCount),
+  )
 
 /** `glsl/<family>[/m<flag>][/pick|nopick]/<stage>[/<entry>]` — likewise for GLSL. */
 const glslId = (family: BakedFamily, stage: BakedStage, axes: IdAxes = {}): string =>
@@ -136,9 +147,35 @@ export const SIMPLE_FAMILIES: readonly SimpleFamily[] = [
 export type PickedModuleFamily = 'raster' | 'under-occluder'
 export const PICKED_MODULE_FAMILIES: readonly PickedModuleFamily[] = ['raster', 'under-occluder']
 
-/** Every family the closed set addresses. The three below the two groups above carry
- *  their own axes: hillshade a method flag, polygon and line a stage entry. */
-export type BakedFamily = SimpleFamily | PickedModuleFamily | 'hillshade' | 'polygon' | 'line'
+/** One WGSL module, pick-parameterised, and NO GLSL twin BY CONSTRUCTION: the split-bind
+ *  rebind (#2042) exists only where WebGPU's three-range bind-group layouts do, and
+ *  `PipelineFactory.build()` early-returns on WebGL2 before either module is reached.
+ *  `SimpleFamily` cannot carry them — `buildKeys` pushes two GLSL stage keys per simple
+ *  family, and a twin no call site can reach would be baked bytes every WebGL2 boot
+ *  downloads for nothing — which is why they sat in `registry-emitter-coverage`'s
+ *  ALLOWLIST until #2499 gave the grammar this shape. */
+export type WgslOnlyFamily = 'polygon-split' | 'line-split'
+export const WGSL_ONLY_FAMILIES: readonly WgslOnlyFamily[] = ['polygon-split', 'line-split']
+
+/** The OIT compose pass: one fullscreen WGSL module per MSAA sample count and no GLSL twin
+ *  (WebGPU-only, like the split twins), built at every WebGPU boot (`PipelineFactory.build()`).
+ *  The domain restates `QUALITY.msaa` (engine `gpu/quality.ts`, `1 | 2 | 4`) because this
+ *  file imports nothing; the registry bakes exactly these, so any other count spells an id
+ *  the artifact never carries — a MISS, which the store counts as the bug it is. */
+export type OitSampleCount = 1 | 2 | 4
+export const OIT_SAMPLE_COUNTS: readonly OitSampleCount[] = [1, 2, 4]
+
+/** Every family the closed set addresses. The four named below the groups above carry
+ *  their own axes: hillshade a method flag, polygon and line a stage entry, oit-compose an
+ *  MSAA sample count. */
+export type BakedFamily =
+  | SimpleFamily
+  | PickedModuleFamily
+  | WgslOnlyFamily
+  | 'hillshade'
+  | 'polygon'
+  | 'line'
+  | 'oit-compose'
 
 // ── Download groups: which committed artifact FILE a family's keys land in ──
 
@@ -203,6 +240,16 @@ export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
   // style that declares a background fill or pattern — near-universal, but style-driven and
   // globe-only. AMBIGUOUS → boot.
   'under-occluder': 'boot',
+  // The split-bind twins (#2042; INC-7 made the split bind DEFAULT ON). `PipelineFactory.
+  // build()` constructs the polygon twin's materials unconditionally at scene construction
+  // (`__XGIS_SPLIT_BIND !== false`), and every solid opaque/pick stroke builds the line twin at
+  // its first draw once VTR hands the split layout down — so every WebGPU map reaches both on
+  // frame one, measured at the driver by the boot provenance gate (#2499). WebGPU-only: the
+  // GLSL boot artifact carries no key for them (`WgslOnlyFamily`).
+  'polygon-split': 'boot',
+  'line-split': 'boot',
+  // Built in the same `build()` at every WebGPU boot — one module per MSAA sample count.
+  'oit-compose': 'boot',
 
   // ── lazy ──
   // The five `map.graphics.*` retained families. Their drapers used to be constructed
@@ -378,6 +425,17 @@ export const pickedModuleGlslId = (
   pick: boolean,
   stage: BakedStage,
 ): string => glslId(family, stage, { pick })
+
+// ── the WGSL-only families ──
+
+export const wgslOnlyId = (family: WgslOnlyFamily, pick: boolean): string =>
+  wgslId(family, { pick })
+
+/** `wgsl/oit-compose/s<n>`. Takes a plain `number` so the call site can hand over what
+ *  `getSampleCount()` returns; a count outside `OIT_SAMPLE_COUNTS` spells an id the registry
+ *  never bakes — a MISS at the store, counted as the bug it is, never a wrong program. */
+export const oitComposeWgslId = (sampleCount: number): string =>
+  wgslId('oit-compose', { sampleCount })
 
 // ── the parameterless families ──
 
