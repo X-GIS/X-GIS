@@ -614,6 +614,17 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   the one case that skipped it cost an issue filed and closed not-planned. §6's graph is the
   sweep tool (`trace_path`, direction `both`); it flapped all session here and the fallback
   to grep went UNANNOUNCED, which §6.1 forbids for exactly this reason.
+- A CI-FAILURE WAKE CAN NAME A COMMIT THAT IS NO LONGER HEAD. `test.yml`'s concurrency
+  cancels a PR's in-flight run on the next push, and the two AGGREGATING jobs —
+  `test-result` and `render-gate` — conclude `failure` when the jobs they `needs` were
+  CANCELLED. So every push to an active PR manufactures two red check_run events against
+  the OLD sha, indistinguishable in the wake envelope from a real regression. Cost two
+  rounds of investigation in one session before the pattern was named. READ `head_sha`
+  AGAINST THE PR'S CURRENT HEAD FIRST (`pull_request_read` `get_check_runs` lists only the
+  current head's checks — a failure absent from that list is a superseded run, not a
+  regression), and prefer to push EARLY in a run's life: superseding at minute 5 costs
+  nothing, at minute 55 it costs the render shards. The sibling of the poller entry above,
+  from the reader's side rather than the pusher's.
   → `#2427` (filed on the refuted premise), `#2440`, `#2439`
 
 **Process**
