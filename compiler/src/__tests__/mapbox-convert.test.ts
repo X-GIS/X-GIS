@@ -545,7 +545,7 @@ describe('Mapbox → xgis converter', () => {
       expect(inlineGeoJSON.has('my-points')).toBe(false)
     })
 
-    it('emits raster-dem source registration with Batch 4 note', () => {
+    it('emits raster-dem source registration with no stale "unsupported" note (#2520)', () => {
       const out = convertMapboxStyle({
         version: 8,
         sources: {
@@ -554,7 +554,13 @@ describe('Mapbox → xgis converter', () => {
         layers: [],
       })
       expect(out).toContain('type: raster-dem')
-      expect(out).toContain('Batch 4')
+      // Until #2520 this asserted `toContain('Batch 4')` — it PINNED an inline NOTE
+      // telling the author raster-dem rendering was a future roadmap batch. That
+      // shipped in #777 (hillshade, both backends), so the note was false and this
+      // test guarded nothing: anyone fixing the bug had to edit it. Same correction
+      // as source-level-emit.test.ts, which caught the WARNING half; this is the
+      // second pin, missed by a sweep whose pattern was one substring too narrow.
+      expect(out).not.toMatch(/Batch 4|not yet supported/)
       expect(parses(out)).toBe(true)
     })
 
