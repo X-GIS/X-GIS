@@ -25,6 +25,13 @@
 // spec separator `:` is recognised only at brace depth 0, so a
 // colon nested inside braces is part of the expression, not the
 // spec.
+//
+// The separator scan also tracks string literals and ternaries
+// (#2551): a `"..."` region is opaque, and a `?` at the top brace
+// depth opens a ternary whose next `:` is its arm separator, not
+// the spec separator — so `{.name ?? "n/a: none"}` and
+// `{.pop > 1000 ? "big" : "sml":>8}` split where the expression
+// grammar says they do.
 
 import type { FormatSpec } from '../ir/render-node'
 import { parseFormatSpec } from './spec-parser'
@@ -85,17 +92,48 @@ export function parseTextTemplate(input: string): TemplatePart[] {
       let depth = 1
       let j = i + 1
       let colonAt = -1
+      let inString = false // inside a `"..."` expression string literal
+      let ternaryDepth = 0 // `?`s still waiting for their `:` arm
       while (j < n && depth > 0) {
         const cj = input[j]!
         if (cj === '\\' && j + 1 < n) {
           j += 2
           continue
         }
+        // String / ternary state is only needed while looking for the
+        // separator: once found, the rest is spec text where `"` and
+        // `?` are ordinary characters (`"` is a legal fill char).
+        if (colonAt === -1) {
+          if (inString) {
+            if (cj === '"') inString = false
+            j += 1
+            continue
+          }
+          if (cj === '"') {
+            inString = true
+            j += 1
+            continue
+          }
+          if (cj === '?' && depth === 1) {
+            // `??` is the nullish operator (lexer.ts:108), not two
+            // ternary openers — counting it as one would eat the
+            // separator of `{.name ?? .alt:.2f}`.
+            if (input[j + 1] === '?') j += 2
+            else {
+              ternaryDepth += 1
+              j += 1
+            }
+            continue
+          }
+        }
         if (cj === '{') depth += 1
         else if (cj === '}') {
           depth -= 1
           if (depth === 0) break
-        } else if (cj === ':' && depth === 1 && colonAt === -1) colonAt = j
+        } else if (cj === ':' && depth === 1 && colonAt === -1) {
+          if (ternaryDepth > 0) ternaryDepth -= 1
+          else colonAt = j
+        }
         j += 1
       }
       if (depth !== 0) {

@@ -160,6 +160,57 @@ describe('label utility → IR TextValue', () => {
     })
   })
 
+  describe('ternary / string-literal expressions inside a template (#2551)', () => {
+    it('label-["{.name ?? \\"n/a: none\\"}"] — the `:` inside the string stays in the expression', () => {
+      const label = getLabel(`
+        source vt { type: vector, url: "x.pmtiles" }
+        layer x {
+          source: vt
+          | label-["{.name ?? \\"n/a: none\\"}"]
+        }
+      `)
+      // Bare interp, so it collapses to the legacy expr shape.
+      expect(label.text.kind).toBe('expr')
+      if (label.text.kind === 'expr') {
+        expect(label.text.expr.ast.kind).toBe('BinaryExpr')
+      }
+    })
+
+    it('label-["{.pop > 1000 ? \\"big\\" : \\"sml\\"}"] — the ternary `:` is not a spec separator', () => {
+      const label = getLabel(`
+        source vt { type: vector, url: "x.pmtiles" }
+        layer x {
+          source: vt
+          | label-["{.pop > 1000 ? \\"big\\" : \\"sml\\"}"]
+        }
+      `)
+      expect(label.text.kind).toBe('expr')
+      if (label.text.kind === 'expr') {
+        expect(label.text.expr.ast.kind).toBe('ConditionalExpr')
+      }
+    })
+
+    it('a ternary AND a trailing format spec lower together', () => {
+      const label = getLabel(`
+        source vt { type: vector, url: "x.pmtiles" }
+        layer x {
+          source: vt
+          | label-["pop {.pop > 1000 ? \\"big\\" : \\"sml\\":>8}"]
+        }
+      `)
+      expect(label.text.kind).toBe('template')
+      if (label.text.kind === 'template') {
+        expect(label.text.parts[0]).toEqual({ kind: 'literal', value: 'pop ' })
+        const interp = label.text.parts[1]!
+        expect(interp.kind).toBe('interp')
+        if (interp.kind === 'interp') {
+          expect(interp.expr.ast.kind).toBe('ConditionalExpr')
+          expect(interp.spec).toEqual({ align: '>', width: 8 })
+        }
+      }
+    })
+  })
+
   describe('size default', () => {
     it('label without explicit size defaults to 12', () => {
       const label = getLabel(`

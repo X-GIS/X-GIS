@@ -181,4 +181,48 @@ describe('parseTextTemplate', () => {
       expect(() => parseTextTemplate('{x:.f}')).toThrow(/precision digits/)
     })
   })
+
+  describe('string literals and ternaries in the expression (#2551)', () => {
+    it('a `:` inside a string literal is not the spec separator', () => {
+      expect(parseTextTemplate('{.name ?? "n/a: none"}')).toEqual([
+        { kind: 'interp', text: '.name ?? "n/a: none"' },
+      ])
+    })
+
+    it('a ternary `:` separates the arms, not expr from spec', () => {
+      expect(parseTextTemplate('{.pop > 1000 ? "big" : "sml"}')).toEqual([
+        { kind: 'interp', text: '.pop > 1000 ? "big" : "sml"' },
+      ])
+    })
+
+    it('a ternary AND a real trailing spec both survive', () => {
+      // The fix must not simply stop looking for specs: the `:` after
+      // the ternary's second arm is outside it and IS the separator.
+      expect(parseTextTemplate('{.pop > 1000 ? "big" : "sml":>8}')).toEqual([
+        { kind: 'interp', text: '.pop > 1000 ? "big" : "sml"', spec: { align: '>', width: 8 } },
+      ])
+    })
+
+    it('nested ternaries consume one `:` each', () => {
+      expect(parseTextTemplate('{.a ? .b : .c ? .d : .e}')).toEqual([
+        { kind: 'interp', text: '.a ? .b : .c ? .d : .e' },
+      ])
+    })
+
+    it('`??` is the nullish operator, not two ternary openers', () => {
+      // Counting each `?` of `??` as a ternary opener would swallow
+      // the separator below and lose the spec.
+      expect(parseTextTemplate('{.name ?? .alt:.2f}')).toEqual([
+        { kind: 'interp', text: '.name ?? .alt', spec: { precision: 2, type: 'f' } },
+      ])
+    })
+
+    it('a quote used as a spec fill char still parses', () => {
+      // Everything after the separator is spec text, where `"` is a
+      // legal fill char — string tracking must not reach into it.
+      expect(parseTextTemplate('{x:"^8}')).toEqual([
+        { kind: 'interp', text: 'x', spec: { fill: '"', align: '^', width: 8 } },
+      ])
+    })
+  })
 })
