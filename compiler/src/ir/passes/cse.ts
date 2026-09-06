@@ -35,10 +35,10 @@
 //   - Shader-gen integration: replace the hand-rolled `matchArmsKey`
 //     with a hash drawn from the CSEReport.
 
-import type { Scene, ColorValue, DataExpr, ConditionalBranch } from '../render-node'
-import type { PropertyShape } from '../property-types'
+import type { Scene } from '../render-node'
 import type { Expr } from '../../parser/ast'
 import { canonicalExpr } from '../cse-hash'
+import { forEachExprChild, forEachSceneExpr } from '../walk-expr'
 
 /** One entry per unique canonical-string seen during the walk. */
 export interface CSEEntry {
@@ -78,94 +78,10 @@ export function analyzeCSE(scene: Scene): CSEReport {
       buckets.set(key, arr)
     }
     arr.push(e)
-    visitChildren(e)
+    forEachExprChild(e, visit)
   }
 
-  function visitChildren(e: Expr): void {
-    switch (e.kind) {
-      case 'FieldAccess':
-        if (e.object) visit(e.object)
-        return
-      case 'FnCall':
-        visit(e.callee)
-        for (const a of e.args) visit(a)
-        if (e.matchBlock) for (const arm of e.matchBlock.arms) visit(arm.value)
-        return
-      case 'BinaryExpr':
-        visit(e.left)
-        visit(e.right)
-        return
-      case 'UnaryExpr':
-        visit(e.operand)
-        return
-      case 'ConditionalExpr':
-        visit(e.condition)
-        visit(e.thenExpr)
-        visit(e.elseExpr)
-        return
-      case 'ArrayLiteral':
-        for (const el of e.elements) visit(el)
-        return
-      case 'ArrayAccess':
-        visit(e.array)
-        visit(e.index)
-        return
-      case 'MatchBlock':
-        for (const arm of e.arms) visit(arm.value)
-        return
-      // Leaf kinds: NumberLiteral, StringLiteral, ColorLiteral,
-      // BoolLiteral, Identifier — no children to visit.
-      default:
-        return
-    }
-  }
-
-  function visitDataExpr(e: DataExpr | null | undefined): void {
-    if (!e) return
-    visit(e.ast as Expr)
-  }
-
-  function visitColorValue(v: ColorValue): void {
-    switch (v.kind) {
-      case 'none':
-      case 'constant':
-      case 'zoom-interpolated':
-      case 'time-interpolated':
-        return
-      case 'data-driven':
-        visitDataExpr(v.expr)
-        return
-      case 'conditional':
-        for (const br of v.branches as ConditionalBranch<ColorValue>[]) {
-          visitColorValue(br.value)
-        }
-        visitColorValue(v.fallback)
-        return
-    }
-  }
-
-  function visitPropertyShape<T>(shape: PropertyShape<T>): void {
-    if (shape.kind === 'data-driven') visitDataExpr(shape.expr)
-  }
-
-  for (const node of scene.renderNodes) {
-    visitColorValue(node.fill)
-    visitColorValue(node.stroke.color)
-    visitDataExpr((node.stroke as { colorExpr?: DataExpr }).colorExpr)
-    visitPropertyShape(node.stroke.width)
-    visitPropertyShape(node.opacity)
-    // SizeValue is a separate union (different kind names than
-    // PropertyShape) but the data-driven variant carries a DataExpr.
-    if (node.size.kind === 'data-driven') visitDataExpr(node.size.expr)
-    visitDataExpr(node.filter)
-    visitDataExpr(node.geometry)
-    if (node.extrude?.kind === 'feature') {
-      visitDataExpr((node.extrude as { expr?: DataExpr }).expr)
-    }
-    if (node.extrudeBase?.kind === 'feature') {
-      visitDataExpr((node.extrudeBase as { expr?: DataExpr }).expr)
-    }
-  }
+  forEachSceneExpr(scene, visit)
 
   const entries: CSEEntry[] = []
   for (const [key, occurrences] of buckets) {
