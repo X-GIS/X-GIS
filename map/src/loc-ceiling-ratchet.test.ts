@@ -1114,7 +1114,11 @@ const CEILINGS: Record<string, number> = {
   // `wc -l` on the post-prettier tree.
   // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
   // the common base, so neither number is right (§12) — 5493 is `wc -l` on the merged tree.
-  'map/src/map.ts': 5493,
+  // 5493→5555 (#2539): the terrain FACADE — setTerrain/getTerrain + the private
+  // applyTerrain re-applied at both renderer-install sites. It is a public-API
+  // addition on the map shell, which is where a facade belongs; the 373-call-site
+  // question of hiding the renderer FIELDS is #2578 and must extract, not accumulate.
+  'map/src/map.ts': 5555,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

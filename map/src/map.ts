@@ -175,6 +175,7 @@ import type {
   XGISMapOptions,
   FontTypographyMap,
   RawDataset,
+  TerrainOptions,
 } from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
@@ -184,6 +185,7 @@ export type {
   XGISFontResource,
   XGISMapOptions,
   FontTypographyMap,
+  TerrainOptions,
 } from './map-types'
 // Custom source-loader contract (docs/architecture/source-loader-seam.md) — public
 // so a host can author a loader for `XGISMapOptions.sources`.
@@ -1067,6 +1069,64 @@ export class XGISMap {
     applyAtmosphere(this, atmosphere)
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
+  }
+
+  /** The terrain intent, owned by the MAP rather than by the renderer that
+   *  executes it — see `setTerrain` for why that distinction is the whole point. */
+  private _terrain: TerrainOptions | null = null
+
+  /** D5 (#2539) — the top-level `terrain` block, as a runtime facade over the
+   *  hillshade renderer's displacement lever. Mapbox/MapLibre shape: an options
+   *  object turns terrain ON, `null` turns it off, `getTerrain()` answers what is
+   *  in force. Mirrors `setLight` / `setAtmosphere`, the other top-level blocks.
+   *
+   *  WHY A FACADE AND NOT THE RAW LEVER. `map.hillshadeRenderer.setTerrainExaggeration()`
+   *  works and will keep working, but it makes a caller know two things they should
+   *  not have to: that 3D displacement is owned by the HILLSHADE renderer at all,
+   *  and that `runScene()` / `runBinary()` install a FRESH renderer whose field
+   *  starts at 0 — so a value set before the map boots is silently dropped. That
+   *  second one is a real footgun, and it is what this method removes: the intent
+   *  lives in `_terrain`, and `applyTerrain()` re-pushes it at every renderer
+   *  install, so `setTerrain` works before OR after `run()` resolves.
+   *
+   *  A DEM must still come from the style (a `raster-dem` source with a `hillshade`
+   *  layer). With none armed this is inert rather than an error — a tile no DEM
+   *  covers carries `dem_sub.w = 0` and is not displaced.
+   *
+   *  Terrain applies to the globe and to Mercator only; the other flat projections
+   *  are non-conformal, so no single vertical factor is right for both axes and the
+   *  ground stays flat there by decision (#2539). */
+  setTerrain(terrain: TerrainOptions | null): void {
+    if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
+    if (terrain === null) {
+      this._terrain = null
+    } else {
+      const exaggeration = terrain.exaggeration ?? 1
+      if (!Number.isFinite(exaggeration) || exaggeration < 0) {
+        xlog.warn(
+          `[X-GIS] setTerrain: exaggeration must be a finite number >= 0, got ${String(terrain.exaggeration)} — ignored`,
+        )
+        return
+      }
+      this._terrain = { exaggeration }
+    }
+    this.applyTerrain()
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
+  /** @see setTerrain — the terrain in force, or `null` when there is none. Returns a
+   *  copy, so a caller mutating the result cannot reach into the map's state. */
+  getTerrain(): TerrainOptions | null {
+    return this._terrain === null ? null : { ...this._terrain }
+  }
+
+  /** Push `_terrain` at the CURRENT hillshade renderer. Called by `setTerrain` and by
+   *  every site that installs a renderer set — the renderer's own field initialises to
+   *  0, so without this a terrain set before `run()` would be dropped on boot.
+   *  `map-terrain-api.test.ts` asserts that no install site is missing the call. */
+  private applyTerrain(): void {
+    this.hillshadeRenderer?.setTerrainExaggeration(this._terrain?.exaggeration ?? 0)
   }
 
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
@@ -3130,6 +3190,7 @@ export class XGISMap {
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
     this.coverageRenderer = rendererSet.coverageRenderer
     // A dropped region takes its arrows with it — including the LRU evictions the renderer
     // makes on its own, which nothing else observes (#1419).
@@ -4235,6 +4296,7 @@ export class XGISMap {
     this.rasterRenderer = rendererSet.rasterRenderer
     this.applyEffectiveRasterFadeDuration()
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
     this.coverageRenderer = rendererSet.coverageRenderer
     // A dropped region takes its arrows with it — including the LRU evictions the renderer
     // makes on its own, which nothing else observes (#1419).
