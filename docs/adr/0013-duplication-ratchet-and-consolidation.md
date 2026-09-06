@@ -327,12 +327,19 @@ queue is being worked from the token corner rather than from the cluster.
   copies of those files is reported as ADDING the pair, in files its diff never touches.
   PR #2593 (a `shader-dsl/` change, zero files under `map/`) went red on exactly that, with
   a pair that demonstrably already exists on main.
-  **The remedy is to merge main into the branch and re-run**, which restores the
-  apples-to-apples comparison; it is not to mark the pair with `jscpd:ignore`, which would
-  record a false reason and blind the gate to a future real paste in those files. The
-  failure mode Alternative 8 was rejected for — main moving under an open PR reddens it —
-  is therefore _reduced_, not eliminated: it now costs one merge commit rather than a
-  re-record commit per burst, and it fires on far fewer commits, but it still fires.
+  **Root cause, and it was this gate's own code rather than jscpd's:** `resolveBaseRef` fell
+  back to the STRING `origin/main` when `git merge-base` failed, and under
+  `actions/checkout`'s default shallow clone it always failed. CI therefore compared the
+  branch against main's TIP — a commit the branch has not merged — instead of their common
+  ancestor. Same tree, same 272 clones, different base, opposite verdict: green locally
+  against the merge base, six "new" clones in CI against the tip.
+  **Fixed** by deleting that fallback (it now deepens the fetch once and THROWS rather than
+  guessing a base) and by checking the `lint` job out with `fetch-depth: 0`, which makes the
+  merge base exact. A gate that loses its base must be loud, never quietly wrong — the rule
+  Decision 2 already states for a missing `origin/main`, which this fallback quietly broke.
+  If the symptom is ever seen again the remedy is to merge main into the branch and re-run;
+  it is never to mark the pair `jscpd:ignore`, which would record a false reason and blind
+  the gate to a future real paste in those files.
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
 - (+) The gate's blind spot is MEASURED rather than assumed: `dup:shape` puts a number on
   what the token pass cannot see (3831 lines against 3673), so "the gate is green" is never
