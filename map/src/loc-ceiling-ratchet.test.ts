@@ -1549,19 +1549,30 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
+  // 1998->1990 (#2517): the lazy-IconStage gate's three "needs the sprite" reasons
+  // (icon on a label show, fill/line pattern, inline `image(...)` in a label's
+  // text -- the third is the fix) moved out to passes/sprite-atlas-need.ts as one
+  // predicate with a unit test per reason; the inline disjunction here became a
+  // call. The file SHRANK and the ceiling follows it down.
   // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
   // predicate instead of spelling `!== 'viewport'` a second time (the split the
   // fourth enum value opened), which wraps the '@xgis/compiler' import to one
   // name per line (+6) and the call to three lines, against the six-line why.
-  // RE-MEASURE after any merge with a branch that also moves this key — #2536
-  // lowers it to 1990 from the same base, and the file takes BOTH deltas.
-  // 1998→2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
+  // 1998->2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
   // `host._elapsedMs` (the frame clock the fade ledger above it already reads)
-  // instead of `performance.now()` — one line plus the 2-line reason. MEASURED
-  // post-prettier (`wc -l`).
-  // MERGE RE-MEASURE (ninth main merge): both sides raised this key; 2011 is `wc -l`
-  // on the post-prettier merged tree (§12 — never carry either side's number across).
-  'map/src/render/passes/label-pass.ts': 2011,
+  // instead of `performance.now()` — one line plus the 2-line reason.
+  // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
+  // predicate instead of spelling `!== 'viewport'` a second time.
+  // 1998->1990 (#2517): the lazy-IconStage gate's three "needs the sprite"
+  // reasons moved out to passes/sprite-atlas-need.ts as one predicate; the file
+  // SHRANK.
+  // 2003 (this merge): THREE branches moved this one key from the same base
+  // 1998 — +3, +10 and -8 — and the file takes all three. main carried 2011
+  // (the first two); this branch carries the -8. No side's number is right and
+  // no arithmetic on the conflict text is trusted: RE-MEASURED post-prettier on
+  // the merged file (`wc -l`) = 2003. CLAUDE.md §12's double-delta trap, one
+  // delta worse.
+  'map/src/render/passes/label-pass.ts': 2003,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
