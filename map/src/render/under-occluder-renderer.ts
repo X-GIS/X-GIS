@@ -24,7 +24,7 @@ import {
   Material,
   executeItems,
   uniformBlock,
-  isPickEnabled,
+  pickTargetsEnabled,
   type UniformBlockOf,
 } from '@xgis/engine'
 // The opaque pass hands a neutral RhiRenderPass (#1046 F3b Inc-2d) — the
@@ -224,7 +224,10 @@ export class UnderOccluderRenderer {
       globe_eye: [ge[0], ge[1], ge[2], ge[3]],
       color: this.color,
     })
-    const pick = isPickEnabled()
+    // #2571 — the PASS's attachment-count authority, not the bare `isPickEnabled()`:
+    // the two diverge on WebGL2 (`presentablePassMrt: false`), where a 2-target
+    // pipeline in a 1-attachment pass silently forces blending off pipeline-wide.
+    const pick = pickTargetsEnabled(this.rhi.caps)
     const material = pick ? this.pickMat() : this.material
     material.writeGlobal(this.block.buffer)
     executeItems(material, rhiPass, [

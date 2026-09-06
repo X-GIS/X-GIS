@@ -108,17 +108,30 @@ export const MARS_IAU2000: Body = makeBody('mars-iau2000', 3396190, 1 / 169.8)
 // duplication in a mixed resolver (the same reason configureProjections does).
 // It DEFAULTS to EARTH, so an unconfigured process renders Earth with zero
 // setup — the byte-identical guarantee.
-type BodyModuleState = { active: Body }
+//
+// The slot holds `null` for "nobody configured a body", NOT the EARTH object —
+// and `configureBody(EARTH)` puts it BACK to null, because EARTH is the default,
+// not a configuration. Storing the object would pin ONE module instance's
+// singleton into a slot every instance reads: whenever this file is evaluated
+// twice in one process — exactly the duplication the paragraph above exists to
+// survive — the second instance's `activeBody()` returns the FIRST instance's
+// EARTH, structurally equal and never `===`. Resolving the default locally keeps
+// `activeBody() === EARTH` true per instance, so a mere import can no longer
+// publish one instance's identity to the whole process (#2567; body.test.ts
+// reproduces it on demand with a `?query` re-import).
+// configureProjections' slot is `null`-until-configured for the same reason.
+type BodyModuleState = { active: Body | null }
 const _state: BodyModuleState = ((
   globalThis as unknown as { __XGIS_BODY__?: BodyModuleState }
-).__XGIS_BODY__ ??= { active: EARTH })
+).__XGIS_BODY__ ??= { active: null })
 
-/** Set the process-global active body. Construction seam for a non-Earth map. */
+/** Set the process-global active body. Construction seam for a non-Earth map.
+ *  Passing {@link EARTH} restores the unconfigured default (see above). */
 export function configureBody(body: Body): void {
-  _state.active = body
+  _state.active = body === EARTH ? null : body
 }
 
 /** The process-global active body. Defaults to {@link EARTH}. */
 export function activeBody(): Body {
-  return _state.active
+  return _state.active ?? EARTH
 }

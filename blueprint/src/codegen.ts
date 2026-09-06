@@ -52,20 +52,27 @@ function pipeLines(raw: string | undefined): string[] {
     .filter((l) => l.length > 0)
 }
 
-/** A name the grammar accepts as a bare identifier. `type:` is the one source
- *  field whose QUOTING is load-bearing: a name that is not identifier-shaped
- *  (a custom registry key like `x-kr-admin`, and the hyphenated built-in
- *  `raster-dem`) re-parses as a subtraction expression when emitted bare, and
- *  lowers as the `geojson` default — silently, taking the custom options bag
- *  with it (#2549; compiler/src/ir/lower.ts:147-152). Identifier-shaped names
- *  stay bare, which is how the language is normally written. */
-const BARE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/
-
 function emitSource(n: BPNode): string {
   const d = n.data
   const lines: string[] = [`source ${nameOf(n, 'source')} {`]
+  // Quoting is load-bearing here (#2549). A type whose name is IDENTIFIER-SHAPED
+  // is emitted bare (`type: geojson`); anything else must be a QUOTED STRING
+  // (`type: "x-kr-admin"`), because the identifier grammar has no hyphen, so the
+  // bare form tokenises as the expression `x - kr - admin` — which lower.ts
+  // reads as neither an Identifier nor a StringLiteral, leaving its `geojson`
+  // default standing (now loudly, via X-GIS0030).
+  //
+  // The test is the GRAMMAR's, NOT `SOURCE_TYPES` membership: `raster-dem` is a
+  // BUILT-IN that is also not identifier-shaped — the only such member — so a
+  // membership test emits it bare and it lowers as `geojson`. Measured on the
+  // membership predicate: `type: raster-dem` → lowered type "geojson", diagnostic
+  // `X-GIS0030 … got a BinaryExpr`, while the quoted control lowers to
+  // "raster-dem". `SOURCE_TYPES` stays the authority for which types EXIST; it is
+  // not the authority for how a name is SPELLED. Pinned by
+  // blueprint/src/__tests__/source-type-roundtrip.test.ts.
   const type = d.type?.trim() || 'geojson'
-  lines.push(`  type: ${BARE_NAME.test(type) ? type : JSON.stringify(type)}`)
+  const identifierShaped = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(type)
+  lines.push(`  type: ${identifierShaped ? type : JSON.stringify(type)}`)
   if (d.url?.trim()) lines.push(`  url: ${JSON.stringify(d.url.trim())}`)
   const layers = (d.layers || '')
     .split(',')
@@ -74,12 +81,10 @@ function emitSource(n: BPNode): string {
   if (layers.length === 1) lines.push(`  layers: ${JSON.stringify(layers[0])}`)
   else if (layers.length > 1)
     lines.push(`  layers: [${layers.map((l) => JSON.stringify(l)).join(', ')}]`)
-  // Properties the node has no dedicated field for, carried verbatim by
-  // import.ts so they survive the round trip (#2549).
-  for (const p of (d.props || '').split('\n')) {
-    const t = p.trim()
-    if (t) lines.push(`  ${t}`)
-  }
+  // Properties the Source node has no editor field for — a custom type's
+  // `SourceDef.options` bag (`region: "kr"`), `crs:`, `refresh:` … — carried
+  // VERBATIM by the importer so a round trip cannot drop them (#2549).
+  for (const p of pipeLines(d.props)) lines.push(`  ${p}`)
   lines.push('}')
   return lines.join('\n')
 }

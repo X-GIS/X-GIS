@@ -156,20 +156,21 @@ function lowerSource(
       if (prop.value.kind === 'Identifier') type = prop.value.name
       else if (prop.value.kind === 'StringLiteral') type = prop.value.value
       else {
-        // Anything else is a `type:` the grammar cannot mean — a hyphenated name
-        // written bare lands here as the BinaryExpr `x - kr - admin`. Keeping the
-        // `geojson` default silently is what let a blueprint round trip turn a
-        // custom source into a geojson one, options and all, with no trace (#2549).
+        // Anything else used to leave the `geojson` initialiser standing with NO
+        // report, so the source silently changed meaning (#2549). The motivating
+        // shape is an UNQUOTED hyphenated registry key, which the note above
+        // explains parses as the expression `x - kr - admin`.
         diagnostics.push({
           severity: 'error',
           code: SOURCE_TYPE_NOT_A_NAME,
           span: { line: stmt.line, col: 1 },
           message:
-            `Source "${stmt.name}" declares a \`type:\` that is neither a bare name ` +
-            `nor a quoted string, so it lowers as \`geojson\`.`,
+            `Source "${stmt.name}" (line ${stmt.line}): 'type' must be a built-in ` +
+            `name (\`type: geojson\`) or a quoted custom registry key ` +
+            `(\`type: "x-kr-admin"\`); got a ${prop.value.kind}.`,
           help:
-            `A type whose name is not an identifier — a custom registry key, or the ` +
-            `built-in \`raster-dem\` — must be QUOTED: \`type: "raster-dem"\`.`,
+            `A hyphenated custom type must be QUOTED — bare \`x-kr-admin\` parses as ` +
+            `the expression \`x - kr - admin\`, and the source falls back to geojson.`,
         })
       }
       // `hdf5` / `h5` are format-named aliases of the coverage family (the mirror of

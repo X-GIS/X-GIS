@@ -72,11 +72,10 @@
 //                               wired under MODIFIER_HANDLERS today
 //   X-GIS0029  warn   lower     `fill:` / `stroke:` value resolves to    (ir/lower.ts — #2544)
 //                               no colour — previously a silent drop
-//   X-GIS0030  error  lower     Source `type:` is neither a bare name    (ir/lower.ts — #2549)
-//                               nor a quoted string — a hyphenated name
-//                               written bare tokenises as a subtraction
-//                               expression, and used to leave the
-//                               `geojson` default standing silently
+//   X-GIS0030  error  lower     `source { type: … }` is neither a bare   (ir/lower.ts — #2549)
+//                               built-in name nor a quoted custom
+//                               registry key — previously a silent
+//                               fallback to `geojson`
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -178,11 +177,13 @@ export const UNHANDLED_MODIFIER = 'X-GIS0028'
  *  layer just doesn't paint". Warn, not error: an unknown colour is an
  *  authoring typo, not a reason to refuse to compile the scene. */
 export const UNRESOLVED_COLOR = 'X-GIS0029'
-/** A source's `type:` is neither an Identifier nor a StringLiteral (#2549).
- *  Built-in types are bare identifiers; a hyphenated name — a custom registry
- *  key, or the built-in `raster-dem` — must be QUOTED or it tokenises as a
- *  subtraction expression. Previously a silent fall-back to the `geojson`
- *  default that took the source's whole options bag with it. */
+/** A `source`'s `type:` value that the grammar cannot read as a NAME (#2549) —
+ *  neither a bare identifier (`type: geojson`) nor a quoted string
+ *  (`type: "x-kr-admin"`). The motivating case is an unquoted hyphenated
+ *  registry key: the identifier grammar has no hyphen, so `type: x-kr-admin`
+ *  parses as the expression `x - kr - admin`, and lowering used to leave its
+ *  `geojson` initialiser standing with no report — the source silently changed
+ *  meaning, options and all. */
 export const SOURCE_TYPE_NOT_A_NAME = 'X-GIS0030'
 
 /** A 1-based, document-relative source span. `line`/`col` are always

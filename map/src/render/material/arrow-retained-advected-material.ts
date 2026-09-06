@@ -33,19 +33,19 @@
 // this stage at all.
 
 import type {
+  Material,
   RhiBindGroup,
   RhiBuffer,
   RhiDevice,
   RhiRenderPass,
   RhiTextureView,
 } from '@xgis/engine'
-import { Material, executeItems, type DrawItem } from '@xgis/engine'
+import { executeItems, type DrawItem } from '@xgis/engine'
 import {
   emitArrowRetainedAdvectedWgsl,
   emitArrowRetainedAdvectedGlslStages,
 } from '../../shaders/dsl/arrow-advected'
-import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
-import { glslStagesFor, wgslFor } from './wgsl-for'
+import { batchBindGroup, retainedOverlayMaterial } from './retained-overlay-material'
 
 /** Group-1 entries, exported so a test can assert them against the EMITTED shader rather than
  *  against a second copy of the list (the same discipline ARROW_ADVECT_BINDINGS follows). */
@@ -75,24 +75,21 @@ export class RetainedArrowAdvectedDraper {
     // #1473 residue — the GLSL half was guarded, by this draper's OWN backend-IDENTITY read
     // (`rhi.backend` against the webgl2 literal), and the WGSL half was not guarded at all:
     // a WebGL2 device paid to emit and lower a module it never reads. Both halves go through
-    // `wgsl-for.ts` now, which asks `caps.shaderLanguage` rather than the backend's identity
-    // (one fewer identity read — backend-identity-ratchet.test.ts), and the GLSL pair shares
-    // ONE lowering, where the per-stage twin pruned + re-lowered the module for each stage.
+    // `wgsl-for.ts` now (via `retainedOverlayMaterial`, which asks `caps.shaderLanguage`
+    // rather than the backend's identity — one fewer identity read,
+    // backend-identity-ratchet.test.ts), and the GLSL pair shares ONE lowering, where the
+    // per-stage twin pruned + re-lowered the module for each stage.
     // `emitArrowRetainedAdvectedGlslStages` is pinned byte-identical to it.
-    this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitArrowRetainedAdvectedWgsl, simpleWgslId('arrow-retained-advected')),
-      ...glslStagesFor(rhi, emitArrowRetainedAdvectedGlslStages, {
-        vertex: simpleGlslId('arrow-retained-advected', 'vertex'),
-        fragment: simpleGlslId('arrow-retained-advected', 'fragment'),
-      }),
+    //
+    // The SHARED half stops at the descriptor: `fsEntry` is the plain retained arrow's, and
+    // both methods below are this draper's own.
+    this.material = retainedOverlayMaterial(rhi, format, sampleCount, uniformSlotSize, {
+      family: 'arrow-retained-advected',
+      wgsl: emitArrowRetainedAdvectedWgsl,
+      glslStages: emitArrowRetainedAdvectedGlslStages,
       vsEntry: 'vs_arrow_retained_advected',
       fsEntry: 'fs_arrow_retained',
-      format: format as 'bgra8unorm',
-      sampleCount,
-      groups: [[{ binding: 0, kind: 'uniform', name: 'Uniforms' }], [...ARROW_ADVECTED_BINDINGS]],
-      colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
-      variants: [{ label: 'arrow-retained-advected-pipeline-rhi' }],
-      pool: { group: 0, slotSize: uniformSlotSize },
+      group1: ARROW_ADVECTED_BINDINGS,
     })
   }
 
@@ -110,7 +107,7 @@ export class RetainedArrowAdvectedDraper {
     flowValid: RhiTextureView,
     view: RhiBuffer,
   ): RhiBindGroup {
-    return this.material.rhi.createBindGroup(this.material.layout(1), [
+    return batchBindGroup(this.material, [
       { binding: 1, resource: { buffer: band } },
       { binding: 2, resource: { view: flowU } },
       { binding: 3, resource: { view: flowV } },

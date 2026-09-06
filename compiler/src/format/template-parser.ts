@@ -26,12 +26,11 @@
 // colon nested inside braces is part of the expression, not the
 // spec.
 //
-// The separator scan also tracks string literals and ternaries
-// (#2551): a `"..."` region is opaque, and a `?` at the top brace
-// depth opens a ternary whose next `:` is its arm separator, not
-// the spec separator — so `{.name ?? "n/a: none"}` and
-// `{.pop > 1000 ? "big" : "sml":>8}` split where the expression
-// grammar says they do.
+// #2551: brace depth alone is not enough — the expression grammar
+// owns colons of its own. A `:` inside a `"…"` string literal
+// belongs to the string, and the `:` of a ternary `? :` belongs to
+// the ternary. The separator is therefore the first depth-0 colon
+// that neither a string nor an open ternary has claimed.
 
 import type { FormatSpec } from '../ir/render-node'
 import { parseFormatSpec } from './spec-parser'
@@ -92,47 +91,44 @@ export function parseTextTemplate(input: string): TemplatePart[] {
       let depth = 1
       let j = i + 1
       let colonAt = -1
-      let inString = false // inside a `"..."` expression string literal
-      let ternaryDepth = 0 // `?`s still waiting for their `:` arm
+      // Expression-grammar state, live only until the separator is
+      // found — after it the remainder is a format SPEC, whose fill
+      // char may legally be a quote (`{x:"^10}` = fill '"', align
+      // '^', width 10), so the string machine must not run there.
+      let inString = false // inside a `"…"` string literal
+      let openTernaries = 0 // `?` seen, still owing its `:`
       while (j < n && depth > 0) {
         const cj = input[j]!
         if (cj === '\\' && j + 1 < n) {
           j += 2
           continue
         }
-        // String / ternary state is only needed while looking for the
-        // separator: once found, the rest is spec text where `"` and
-        // `?` are ordinary characters (`"` is a legal fill char).
-        if (colonAt === -1) {
-          if (inString) {
-            if (cj === '"') inString = false
-            j += 1
-            continue
-          }
-          if (cj === '"') {
-            inString = true
-            j += 1
-            continue
-          }
-          if (cj === '?' && depth === 1) {
-            // `??` is the nullish operator (lexer.ts:108), not two
-            // ternary openers — counting it as one would eat the
-            // separator of `{.name ?? .alt:.2f}`.
-            if (input[j + 1] === '?') j += 2
-            else {
-              ternaryDepth += 1
-              j += 1
-            }
-            continue
-          }
+        if (inString) {
+          if (cj === '"') inString = false
+          j += 1
+          continue
         }
         if (cj === '{') depth += 1
         else if (cj === '}') {
           depth -= 1
           if (depth === 0) break
-        } else if (cj === ':' && depth === 1 && colonAt === -1) {
-          if (ternaryDepth > 0) ternaryDepth -= 1
-          else colonAt = j
+        } else if (colonAt === -1) {
+          if (cj === '"') inString = true
+          else if (cj === '?' && depth === 1) {
+            // `??` (QuestionQuestion) is one token, not a ternary —
+            // it owes no colon. lexer.ts:107-111.
+            if (input[j + 1] === '?') {
+              j += 2
+              continue
+            }
+            openTernaries += 1
+          } else if (cj === ':' && depth === 1) {
+            // `expr ? then : else` — parseExpr recurses into `then`,
+            // so ternaries nest and each `?` claims exactly one `:`
+            // (parser-expressions.ts:24-29).
+            if (openTernaries > 0) openTernaries -= 1
+            else colonAt = j
+          }
         }
         j += 1
       }

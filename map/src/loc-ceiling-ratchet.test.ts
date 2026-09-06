@@ -2791,22 +2791,14 @@ const CEILINGS: Record<string, number> = {
   // `diagnostics` sink. Same shape and same rationale as the X-GIS0028 raise
   // above: the gate must sit where the resolve verdict is known, and that is
   // this switch. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  // 1552->1574 (#2549): `lowerSource` no longer accepts a `type:` that lowered
-  // to neither an Identifier nor a StringLiteral. A hyphenated name written bare
-  // (`type: x-kr-admin`, and the built-in `raster-dem`) parses as a subtraction
-  // expression, which used to leave the `geojson` default standing with the source's
-  // whole options bag silently dropped. The delta is the rejection arm plus the
-  // X-GIS0030 push that names the source, and the docblock recording why the test is
-  // the GRAMMAR's identifier shape rather than SOURCE_TYPES membership (a membership
-  // test still breaks `raster-dem`). Not extract-able: this is the one place a source
-  // block becomes a SourceDef.
-  // MERGE (#2544 landed on main as #2587 while this branch carried its own): both
-  // sides raised this key from 1527, so NEITHER number is right and neither was
-  // carried across. main's `warnUnresolvedColor` arms are the ones kept (this
-  // branch's `applyColor` closure was removed as the orphan that resolution left),
-  // and the ceiling is RE-MEASURED on the merged bytes post-prettier
-  // (`git show HEAD:compiler/src/ir/lower.ts | wc -l`), set EXACTLY to the count.
-  'compiler/src/ir/lower.ts': 1574,
+  // 1552→1575 (#2549, tenth main merge): the THIRD double-delta on this key today.
+  // #2544 raised it to 1552 on main while this branch raised it for the
+  // `source { type: … }` gate from the same base; git merged the two ceiling
+  // edits without a conflict and silently kept 1552, which is one whole change
+  // too low — CI reddened on `1549 > ceiling 1527` before the merge and would
+  // have reddened again after it. No arithmetic on the two numbers: RE-MEASURED
+  // with `wc -l` on the conflict-resolved post-prettier tree (§12).
+  'compiler/src/ir/lower.ts': 1575,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

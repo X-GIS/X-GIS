@@ -160,23 +160,15 @@ describe('label utility → IR TextValue', () => {
     })
   })
 
-  describe('ternary / string-literal expressions inside a template (#2551)', () => {
-    it('label-["{.name ?? \\"n/a: none\\"}"] — the `:` inside the string stays in the expression', () => {
-      const label = getLabel(`
-        source vt { type: vector, url: "x.pmtiles" }
-        layer x {
-          source: vt
-          | label-["{.name ?? \\"n/a: none\\"}"]
-        }
-      `)
-      // Bare interp, so it collapses to the legacy expr shape.
-      expect(label.text.kind).toBe('expr')
-      if (label.text.kind === 'expr') {
-        expect(label.text.expr.ast.kind).toBe('BinaryExpr')
-      }
-    })
+  describe('expression colons inside an interp (#2551)', () => {
+    // The `? :` and `??` operators are in the expression grammar
+    // (parser-expressions.ts:24-29, :44) but used to be unusable
+    // inside a template, because the template scanner claimed the
+    // first depth-0 `:` for the format spec. These assert the WHOLE
+    // expression reaches the xgis parser — a truncated prefix would
+    // either throw or lower to a different AST shape.
 
-    it('label-["{.pop > 1000 ? \\"big\\" : \\"sml\\"}"] — the ternary `:` is not a spec separator', () => {
+    it('label-["{.pop > 1000 ? "big" : "sml"}"] lowers the whole ternary', () => {
       const label = getLabel(`
         source vt { type: vector, url: "x.pmtiles" }
         layer x {
@@ -190,18 +182,38 @@ describe('label utility → IR TextValue', () => {
       }
     })
 
-    it('a ternary AND a trailing format spec lower together', () => {
+    it('label-["{.name ?? "n/a: none"}"] keeps the colon inside the string', () => {
       const label = getLabel(`
         source vt { type: vector, url: "x.pmtiles" }
         layer x {
           source: vt
-          | label-["pop {.pop > 1000 ? \\"big\\" : \\"sml\\":>8}"]
+          | label-["{.name ?? \\"n/a: none\\"}"]
+        }
+      `)
+      expect(label.text.kind).toBe('expr')
+      if (label.text.kind === 'expr') {
+        const ast = label.text.expr.ast
+        expect(ast.kind).toBe('BinaryExpr')
+        if (ast.kind === 'BinaryExpr') {
+          expect(ast.op).toBe('??')
+          // The colon survived INSIDE the fallback string — the
+          // whole point of #2551.
+          expect(ast.right).toEqual({ kind: 'StringLiteral', value: 'n/a: none' })
+        }
+      }
+    })
+
+    it('a ternary AND a format spec — both are recovered', () => {
+      const label = getLabel(`
+        source vt { type: vector, url: "x.pmtiles" }
+        layer x {
+          source: vt
+          | label-["{.pop > 1000 ? \\"big\\" : \\"sml\\":>8}"]
         }
       `)
       expect(label.text.kind).toBe('template')
       if (label.text.kind === 'template') {
-        expect(label.text.parts[0]).toEqual({ kind: 'literal', value: 'pop ' })
-        const interp = label.text.parts[1]!
+        const interp = label.text.parts[0]!
         expect(interp.kind).toBe('interp')
         if (interp.kind === 'interp') {
           expect(interp.expr.ast.kind).toBe('ConditionalExpr')

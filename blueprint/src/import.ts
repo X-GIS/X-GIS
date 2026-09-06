@@ -118,27 +118,31 @@ function prop(lines: string[], key: string): string | undefined {
   return undefined
 }
 
+/** Body lines the caller's own fields did NOT claim, kept VERBATIM so a round
+ *  trip cannot silently drop them (#2549) — a custom source type's
+ *  `SourceDef.options` bag (`region: "kr"`), plus `crs:` / `refresh:` / the
+ *  tile-metadata props the Source node has no editor field for.
+ *
+ *  Deliberately narrow: only a `key: <string | number | array>` that is
+ *  COMPLETE on one line. A block-valued prop (`data: { …` spans lines, and
+ *  `bodyLines` has already split them) would otherwise be re-emitted as an
+ *  unbalanced brace, turning a lossy round trip into an unparseable one. Those
+ *  stay dropped exactly as they were before. */
+function otherProps(lines: string[], claimed: readonly string[]): string {
+  const ONE_LINE_PROP = /^([A-Za-z_][\w-]*)\s*:\s*("[^"]*"|-?\d+(?:\.\d+)?[a-z]*|\[[^[\]]*\])$/
+  return lines
+    .map((l) => l.match(ONE_LINE_PROP))
+    .filter((m): m is RegExpMatchArray => m !== null && !claimed.includes(m[1]))
+    .map((m) => m[0])
+    .join('\n')
+}
+
 function pipeText(lines: string[]): string {
   return lines
     .filter((l) => l.startsWith('|'))
     .map((l) => l.replace(/^\|\s*/, '').trim())
     .filter(Boolean)
     .join('\n')
-}
-
-/** Source-block lines the source node has no dedicated field for — `crs:`,
- *  `refresh:`, and the custom-loader options bag a registry `type:` carries
- *  (the compiler's `SourceDef.options`). Kept VERBATIM so they round-trip
- *  instead of being dropped silently (#2549), the same policy as the utility
- *  pipe text. A value spanning several lines (an inline `data: {…}` object)
- *  cannot be recovered line-wise, so the carry is skipped wholesale rather
- *  than re-emitted as half an object literal. */
-function extraSourceProps(lines: string[]): string {
-  const rest = lines.filter((l) => !/^(?:type|url|layers)\s*:/.test(l) && !l.startsWith('//'))
-  const oneLiner = (l: string) =>
-    /^[A-Za-z_][\w-]*\s*:/.test(l) &&
-    (l.match(/[{[]/g)?.length ?? 0) === (l.match(/[}\]]/g)?.length ?? 0)
-  return rest.every(oneLiner) ? rest.join('\n') : ''
 }
 
 function mk(type: NodeType, data: Record<string, string>): BPNode {
@@ -186,7 +190,10 @@ export function xgisToGraph(src: string): BPGraph {
           .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
           .filter(Boolean)
           .join(', '),
-        props: extraSourceProps(lines),
+        // Everything the three fields above did not claim. No editor field —
+        // a pure round-trip carrier, like the source:/style: fallbacks below
+        // (#688/#691) — re-emitted verbatim by codegen's emitSource (#2549).
+        props: otherProps(lines, ['type', 'url', 'layers']),
       })
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)
