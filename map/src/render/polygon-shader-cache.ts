@@ -11,7 +11,11 @@ import { isPickEnabled } from '@xgis/engine'
 import { Node } from '@xgis/shader-dsl'
 import type { Stmt } from '@xgis/shader-dsl'
 import { emitPolygonWgsl } from '../shaders/dsl/polygon'
-import { emitPolygonSplitWgsl } from '../shaders/dsl/polygon-split'
+import {
+  buildPolygonSplitModule,
+  emitPolygonSplitWgsl,
+  fitsSplitLayout,
+} from '../shaders/dsl/polygon-split'
 import { polygonWgslId, wgslOnlyId } from '../shaders/baked/ids'
 import { bodyEpochValue } from '../body-epoch'
 import { bakedWgsl } from './material/wgsl-for'
@@ -112,11 +116,11 @@ const _buildSplitWgslCache = new Map<string, string>()
 /** The split-bind twin of `buildShader` (#2042 INC-4b/4c; #2499): the same choke point, the
  *  same memo key, the same store-first contract for the null variant — `wgsl/polygon-split/
  *  {pick,nopick}` is a `WgslOnlyFamily` key, baked and installed at every WebGPU boot. Both
- *  of pipeline-factory's split call sites come through here, so the eligibility probe (which
- *  emits a variant's split module only to read its `@group(0)` bindings) and the material
- *  build that follows it share ONE emit instead of paying it twice — the one repeat #2459
- *  counted at boot. `pick` is passed rather than read, so the call site's one value drives
- *  the id and the emit alike. */
+ *  of pipeline-factory's split call sites come through here, so the memo is shared. Since
+ *  #2572 the eligibility probe no longer emits at all (`splitShaderFits` decides from the
+ *  IR), so a per-style split emit happens exactly once, for a style that will use it —
+ *  the repeat #2459 counted at boot is gone rather than merely memoized. `pick` is passed
+ *  rather than read, so the call site's one value drives the id and the emit alike. */
 export function buildSplitShader(
   variant: ShaderVariantInfo | null | undefined,
   pick: boolean,
@@ -131,4 +135,32 @@ export function buildSplitShader(
       : emitPolygonSplitWgsl(composed, pick)
   _buildSplitWgslCache.set(cacheKey, wgsl)
   return wgsl
+}
+
+/** #2572 — may this variant's split twin draw through the split group-0 bind group?
+ *  Decided from the IR, on `entryNames` (the pair `buildFlatFillMaterials` builds the
+ *  twin with), WITHOUT emitting.
+ *
+ *  What it replaces regexed `@group(0) @binding(N)` out of the EMITTED split module and
+ *  required ⊆ {7,10,11}. That condition was never satisfiable: one module carries all
+ *  nine polygon entry points and its text is their UNION, so `fs_fill_pattern`'s sprite
+ *  atlas (bindings 5/6) is in every polygon module — the base one included, whose fill
+ *  entries sample neither. What makes the base twin fit a three-entry layout is the
+ *  DRIVER: WebGPU validates statically-USED resources, and a binding no reachable
+ *  function of the pipeline's own entries touches is dropped. The text cannot see that,
+ *  because it is per-MODULE and the pruning is per-ENTRY-PAIR (#2572 measured every row
+ *  false, so no styled fill had ever taken the split path). `fitsSplitLayout` runs that
+ *  same reachability walk over the IR.
+ *
+ *  Cheaper too, though that is the lesser reason: the derivation is ~1.2 ms against the
+ *  emit's ~30 ms, and the emit now happens ONCE, on an ELIGIBLE style's first use —
+ *  which is what INC-4d's docblock always said it wanted. `pick` reaches no group-0
+ *  binding the fill pair does not already reach (`split-bind-eligibility.test.ts` pins
+ *  both values to the same verdict), so the caller's one value stays the only input. */
+export function splitShaderFits(
+  variant: ShaderVariantInfo | null | undefined,
+  pick: boolean,
+  entryNames: readonly string[],
+): boolean {
+  return fitsSplitLayout(buildPolygonSplitModule(toComposerVariant(variant), pick), entryNames)
 }

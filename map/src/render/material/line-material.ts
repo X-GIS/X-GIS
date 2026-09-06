@@ -17,10 +17,17 @@ import type {
 import { wrapWebGpuBindGroupLayout } from '@xgis/rhi-webgpu'
 import { Material, executeItems } from '@xgis/engine'
 import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
-import { emitLineSplitWgsl } from '../../shaders/dsl/line-split'
+import { buildLineSplitModule, emitLineSplitWgsl } from '../../shaders/dsl/line-split'
+import { fitsSplitLayout } from '../../shaders/dsl/polygon-split'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { lineGlslId, lineWgslId, wgslOnlyId } from '../../shaders/baked/ids'
 import { LIVE, glslFor, readsWgsl, wgslFor } from './wgsl-for'
+
+/** The entry pair the SPLIT stroke Material is built with (`splitMat`). #2572's
+ *  eligibility check asks what these two reach, so the pair is named once — the
+ *  legacy / max / bake Materials below choose their own fragment entry and are not
+ *  what the split layout has to fit. */
+const LINE_SPLIT_ENTRY_POINTS = ['vs_line', 'fs_line'] as const
 
 /** The translucent-line offscreen ACCUM format — ONE authority for the
  *  offscreen texture (line-renderer.ensureOffscreenRhi) and the max-blend
@@ -136,31 +143,28 @@ export class LineDraper {
   }
 
   /** #2042 INC-4d — can this draper's variant draw through the split bind?
-   *  See `_splitOk`. Null-variant drapers are always eligible (the shipped
-   *  INC-4c pair); variant drapers verify their EMITTED interface once —
-   *  the module statically declares the pattern sprite bindings (5/6) which
-   *  the emit prunes when unused, so the check reads the emitted WGSL's
-   *  group(0) set (must be ⊆ {7, 10, 11}), and a derivation that reads
-   *  outside the Frame/Show/Tile partition throws → ineligible. */
+   *  See `_splitOk`. Asked of the IR: do the stroke entry points REACH any
+   *  group-0 binding beyond the three split blocks? A derivation that reads
+   *  outside the Frame/Show/Tile partition throws in the rewriter, and a
+   *  `needsFeatureBuffer` variant throws out of `buildLineModule` (line.ts,
+   *  #1605 Phase 1b) — both are ineligible, so the build stays inside the try.
+   *
+   *  #2572 — this used to regex the emitted module's `@group(0)` set, which is
+   *  the UNION of all four line entry points; `fs_line_pattern` samples the
+   *  sprite atlas, so bindings 5/6 are in every line module's text and no
+   *  variant draper could ever qualify. The null variant escaped only because
+   *  it short-circuited to `true` ahead of the check — an assumption that the
+   *  base module fits the layout rather than a measurement. It is measured now,
+   *  on the same footing as every variant. */
   splitEligible(): boolean {
     if (this._splitOk === undefined) {
-      if (this.variant === null) {
-        this._splitOk = true
-      } else {
-        try {
-          const wgsl = emitLineSplitWgsl(this.variant, false)
-          let ok = true
-          for (const m of wgsl.matchAll(/@group\(0\)\s*@binding\((\d+)\)/g)) {
-            const b = Number(m[1])
-            if (b !== 7 && b !== 10 && b !== 11) {
-              ok = false
-              break
-            }
-          }
-          this._splitOk = ok
-        } catch {
-          this._splitOk = false
-        }
+      try {
+        this._splitOk = fitsSplitLayout(
+          buildLineSplitModule(this.variant, false),
+          LINE_SPLIT_ENTRY_POINTS,
+        )
+      } catch {
+        this._splitOk = false
       }
     }
     return this._splitOk
@@ -177,8 +181,8 @@ export class LineDraper {
         () => emitLineSplitWgsl(this.variant, pick),
         this.bakedLineIds(pick)?.split ?? LIVE,
       ),
-      vsEntry: 'vs_line',
-      fsEntry: 'fs_line',
+      vsEntry: LINE_SPLIT_ENTRY_POINTS[0],
+      fsEntry: LINE_SPLIT_ENTRY_POINTS[1],
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

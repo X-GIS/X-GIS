@@ -23,7 +23,7 @@
 // #2024 windowed sub-tiles can supply it.
 
 import type { RhiDevice, RhiTexture, RhiRenderPass } from '@xgis/engine'
-import { uniformBlock, isPickEnabled, type UniformBlockOf } from '@xgis/engine'
+import { uniformBlock, pickTargetsEnabled, type UniformBlockOf } from '@xgis/engine'
 import { EARTH, lonLatToECEF } from '@xgis/shared'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { planBakeEvictions, drapeZoomBucket, drapeStrokeWidthScale } from './vector-drape-cache'
@@ -440,7 +440,17 @@ export class VectorDrapeRenderer {
           contrast: 0,
         },
       )
-      this.draper.draw(pass, this.global.buffer, tiles, false, isPickEnabled(), this._framePoolBase)
+      // #2571 — the `pick` argument reads the PASS's attachment-count authority, not
+      // the bare `isPickEnabled()`: they diverge on WebGL2, where a 2-target pipeline
+      // in a 1-attachment pass silently forces blending off pipeline-wide.
+      this.draper.draw(
+        pass,
+        this.global.buffer,
+        tiles,
+        false,
+        pickTargetsEnabled(this.rhi.caps),
+        this._framePoolBase,
+      )
       // Advance so the NEXT slice-layer's draw() this frame gets fresh pool slots
       // (its draws share this one per-frame submit; see _framePoolBase). #1142
       this._framePoolBase += tiles.length
