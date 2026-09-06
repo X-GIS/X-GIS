@@ -31,14 +31,9 @@
 // the fallback region (count 0), so every assertion below fails on it.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { renderPathSource } from './render-path-source'
 
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const SOURCE = renderPathSource()
 
 // The fallback DISPATCH region: from the fallback gate (`fillPipelineFallback &&
 // fallbackKeys.length > 0`) to the end of the method that holds it. Both dispatch
@@ -187,7 +182,12 @@ describe('the drape gate feeds bakesVectorDrape into _drapeGlobeFills (oblique(6
     // the `if (` that consumes it), so the term cannot be satisfied by a mention
     // somewhere else in the file.
     const dStart = SOURCE.indexOf('this._drapeGlobeFills =\n')
-    const dEnd = SOURCE.indexOf('if (\n      this._drapeGlobeFills &&', dStart)
+    // #2537 — the region bound was written against the derivation's indentation
+    // inside the class body; the phase module sits two levels shallower, so match
+    // the consuming `if` on its TERMS rather than on its whitespace. The bound
+    // still exists, so the chord-budget term below cannot be satisfied elsewhere.
+    const dEndMatch = /if\s*\(\s*this\._drapeGlobeFills\s*&&/.exec(SOURCE.slice(dStart))
+    const dEnd = dEndMatch === null ? -1 : dStart + dEndMatch.index
     expect(dStart, 'the `_drapeGlobeFills` derivation was not found').toBeGreaterThan(-1)
     expect(dEnd, 'the consuming `if (this._drapeGlobeFills && …)` was not found').toBeGreaterThan(
       dStart,

@@ -27,13 +27,11 @@
 //      arm's constant reds with a message naming it.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { fillTranslateNdc } from './fill-translate-ndc'
 import type { ResolvedShow } from './resolved-show'
 import type { ShowCommand } from './renderer-types'
 import type { Camera } from '../camera'
+import { renderPathSource } from './render-path-source'
 
 const W = 1000
 const H = 500
@@ -89,8 +87,10 @@ describe('fillTranslateNdc — CSS px → NDC-per-pixel (#2240)', () => {
 
 // ─── The SOURCE gate: every packer reads the producer ────────────────────────
 
-const VTR_PATH = join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts')
-const VTR_SRC = readFileSync(VTR_PATH, 'utf8')
+// #2537 — the packers this gate pins now live across the class AND its phase
+// modules; `renderPathSource()` is that whole path, the scope this assertion was
+// written against.
+const VTR_SRC = renderPathSource()
 
 /** Body of `name`, from its signature up to `until`'s. */
 function body(name: string, until: string): string {
