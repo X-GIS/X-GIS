@@ -408,12 +408,10 @@ class LabelPass implements RenderPass {
           // #797 P0 render gate: the host-atlas region upload is byte-verified on
           // real GPU (playground/e2e/_host-sprite-atlas-parity.spec.ts) and this
           // IconStage path is byte-identical to the URL icon path (same
-          // IconRenderer, whose draw is witnessed by the CI-registered
-          // _icons-gl2-gate — severing IconDraper.draw takes its magenta-pixel
-          // count to 0, #2223). A full-frame end-to-end
-          // capture through this branch is a future belt-and-suspenders (it needs
-          // a host-only .xgis with an icon-image layer — no raw .xgis authors one
-          // today), compositionally covered by those two gates.
+          // IconRenderer, whose draw the CI-registered _icons-gl2-gate witnesses:
+          // sever IconDraper.draw and its pixel count goes to 0, #2223). A full-
+          // frame capture here is future belt-and-suspenders (it needs a host-only
+          // .xgis with an icon-image layer, none authored today) — those two cover it.
           host.iconStage = IconStage.forHostAtlas(
             host.ctx.device,
             host.ctx.rhi,
