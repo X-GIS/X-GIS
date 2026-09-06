@@ -4,7 +4,7 @@
 // language is normally written: imports, sources, symbols, presets,
 // background, then layers in Map draw order.
 
-import { XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
+import { SOURCE_TYPES, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
 import type { BPGraph, BPNode } from './types'
 
 function byId(g: BPGraph): Map<string, BPNode> {
@@ -55,7 +55,17 @@ function pipeLines(raw: string | undefined): string[] {
 function emitSource(n: BPNode): string {
   const d = n.data
   const lines: string[] = [`source ${nameOf(n, 'source')} {`]
-  lines.push(`  type: ${d.type?.trim() || 'geojson'}`)
+  // Quoting is load-bearing here (#2549). A BUILT-IN type is a bare identifier
+  // (`type: geojson`); a CUSTOM registry type must be a QUOTED STRING
+  // (`type: "x-kr-admin"`) because the identifier grammar has no hyphen, so the
+  // bare form tokenises as the expression `x - kr - admin` — which lower.ts
+  // reads as neither an Identifier nor a StringLiteral and silently keeps its
+  // `geojson` default. SOURCE_TYPES (@xgis/compiler) is the single authority
+  // for which spelling a type gets.
+  const type = d.type?.trim() || 'geojson'
+  lines.push(
+    `  type: ${(SOURCE_TYPES as readonly string[]).includes(type) ? type : JSON.stringify(type)}`,
+  )
   if (d.url?.trim()) lines.push(`  url: ${JSON.stringify(d.url.trim())}`)
   const layers = (d.layers || '')
     .split(',')
@@ -64,6 +74,10 @@ function emitSource(n: BPNode): string {
   if (layers.length === 1) lines.push(`  layers: ${JSON.stringify(layers[0])}`)
   else if (layers.length > 1)
     lines.push(`  layers: [${layers.map((l) => JSON.stringify(l)).join(', ')}]`)
+  // Properties the Source node has no editor field for — a custom type's
+  // `SourceDef.options` bag (`region: "kr"`), `crs:`, `refresh:` … — carried
+  // VERBATIM by the importer so a round trip cannot drop them (#2549).
+  for (const p of pipeLines(d.props)) lines.push(`  ${p}`)
   lines.push('}')
   return lines.join('\n')
 }

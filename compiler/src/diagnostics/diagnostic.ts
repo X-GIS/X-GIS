@@ -70,6 +70,15 @@
 //   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
 //                               no lowering handler — only `fill-*` is
 //                               wired under MODIFIER_HANDLERS today
+//   X-GIS0030  error  lower     `source { type: … }` is neither a bare   (ir/lower.ts — #2549)
+//                               built-in name nor a quoted custom key.
+//                               NOTE 0029 is taken by #2544 (PR #2587),
+//                               branched from the same base: both took
+//                               'the next free code' and neither could
+//                               see the other. Numbered 0030 here.
+//                               built-in name nor a quoted custom
+//                               registry key — previously a silent
+//                               fallback to `geojson`
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -163,6 +172,14 @@ export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
  *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
  *  turns the drop into a diagnostic. */
 export const UNHANDLED_MODIFIER = 'X-GIS0028'
+/** A `source`'s `type:` value that the grammar cannot read as a NAME (#2549) —
+ *  neither a bare identifier (`type: geojson`) nor a quoted string
+ *  (`type: "x-kr-admin"`). The motivating case is an unquoted hyphenated
+ *  registry key: the identifier grammar has no hyphen, so `type: x-kr-admin`
+ *  parses as the expression `x - kr - admin`, and lowering used to leave its
+ *  `geojson` initialiser standing with no report — the source silently changed
+ *  meaning, options and all. */
+export const SOURCE_TYPE_NOT_A_NAME = 'X-GIS0030'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
