@@ -2598,7 +2598,15 @@ const CEILINGS: Record<string, number> = {
   // clip/fill correctly through the existing path" claim that hid the bug. Not
   // extract-able without splitting the part-decomposition step away from the part
   // types it builds, which is the one place that decides what a GeometryPart is.
-  'compiler/src/tiler/vector-tiler.ts': 1652,
+  // 1652→1700 (#2553): +48 for the clip-provenance narrowing of
+  // `extractNonSyntheticArcs` — the `clipperInserted` parameter and its
+  // docblock, the `isOnMercWorldRect` scope guard that keeps the antimeridian
+  // seam stripped, and the per-call-site provenance Set. What it buys: a real
+  // polygon edge lying ALONG a tile side (a box on lon 0 or the equator) keeps
+  // its outline stroke instead of being mistaken for the clipper's own closing
+  // edge. Not extract-able: the classifier and the outline call site it feeds
+  // are the same single authority this file already houses.
+  'compiler/src/tiler/vector-tiler.ts': 1700,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
