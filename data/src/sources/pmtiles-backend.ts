@@ -462,14 +462,15 @@ export class PMTilesBackend implements TileSource {
     }
   }
 
-  /** Stage 2: drain up to maxOps queued tiles per frame. Catalog
-   *  calls this from resetCompileBudget. Each tile dispatches to the
-   *  worker pool — main thread does ~zero compile work, just queues
-   *  the postMessage and awaits the worker's Transferable response.
-   *  When the worker resolves, sink.acceptResult fires (still on
-   *  main, async). The maxOps budget here governs how many fresh
-   *  worker dispatches we kick off per frame; in-flight workers
-   *  continue regardless. */
+  /** Stage 2: drain up to maxOps queued tiles per CALL. Catalog
+   *  calls this from resetCompileBudget, which runs once per
+   *  ShowCommand rather than once per frame (#2277). Each tile
+   *  dispatches to the worker pool — main thread does ~zero compile
+   *  work, just queues the postMessage and awaits the worker's
+   *  Transferable response. When the worker resolves,
+   *  sink.acceptResult fires (still on main, async). The maxOps
+   *  budget governs how many fresh worker dispatches we kick off
+   *  per call; in-flight workers continue regardless. */
   tick(maxOps: number): void {
     if (!this.sink || this.pendingMvt.length === 0) return
     const sink = this.sink

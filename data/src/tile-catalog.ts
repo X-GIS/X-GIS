@@ -555,9 +555,9 @@ export class TileCatalog {
     this.budget.reset()
     // Drain backend deferred-compile queues (PMTiles raw bytes →
     // compileSingleTile). Backends that compile inline don't
-    // implement tick. _PMTILES_TICK_BUDGET picks how many tiles are
-    // compiled per frame — 4 keeps the worst case under ~16 ms on a
-    // dense world basemap tile, fitting one 60 fps frame.
+    // implement tick. _TICK_BUDGET caps tiles per CALL, and this
+    // method runs once per ShowCommand — so the per-frame ceiling is
+    // that times the shows sharing the source (#2277).
     // #1155 F3 — cold-start burst raises the per-frame dispatch budget to 16
     // (from 2) so the first-viewport cascade isn't paced out; steady state
     // (flag off) passes _TICK_BUDGET exactly as before.
