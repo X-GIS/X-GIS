@@ -268,4 +268,76 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
     ])
     expect(folded).toEqual(unwrapped)
   })
+
+  // ── The ±180 / ±360 exemption inside `unwrapLonBranch` ──
+  //
+  // `geometry-sphere.ts` rounds a Δlon to the nearest whole-world branch EXCEPT
+  // at the two exact boundaries (`mag <= 180 || mag === 360`). Two longitudes
+  // normalized into (−180, 180] are strictly less than a whole world apart
+  // unless they are −180 and 180 themselves, so neither boundary can be a fold,
+  // and rounding either one destroys real geometry.
+  //
+  // These arms live HERE, on the line path, because that is the only place the
+  // exemption still runs: `subdivideLine` is `unwrapLonBranch`'s sole production
+  // caller since #2550's per-ring unwrap was reverted (a ring bounds an AREA and
+  // is read at face value — RFC 7946 §3.1.9 puts the split burden on the
+  // producer, so a wide ring edge is a wide box, not a fold). The arm that used
+  // to stand for the exemption — `(f)` in ../wrap-polygon-antimeridian.test.ts —
+  // goes through `tiledPolygon`, which no longer reaches this code at all.
+  //
+  // LINES are the other side of that settled asymmetry: they take the SHORT way
+  // round, which is what arm (e) below controls for and what
+  // ../parallel-arc-fidelity.test.ts pins at the densifier.
+  //
+  // End to end through `decomposeFeatures` → `compileSingleTile` rather than
+  // against `subdivideLine`'s array, because the quantity the exemption protects
+  // is the part's lon extent that the per-tile clip reads — the same observables
+  // arms (a)/(b) above use, so one harness covers both.
+  describe('an exact half- or whole-world line edge is NOT read as a fold', () => {
+    it('(c) mag === 360: a −180 → 180 line sweeps the whole world, it does not collapse', () => {
+      // FAIL-BEFORE (exemption deleted): Δlon = +360 rounds to one whole world,
+      // so the second vertex is rewritten to −180. The line becomes a zero-width
+      // point — partLonRanges [[-180, -180]], columns [0], and `subdivideLine`
+      // returns 2 vertices instead of 65 because the span is now 0.
+      const world = tiledSeamCrossing([
+        [-180, 0],
+        [180, 0],
+      ])
+      expect(world.partLonRanges, 'the full-world sweep collapsed to a point').toEqual([
+        [-180, 180],
+      ])
+      expect(world.columns, 'a full-world line must reach every z2 column').toEqual([0, 1, 2, 3])
+    })
+
+    it('(d) mag === 180: a 0 → 180 line stays in the eastern hemisphere', () => {
+      // FAIL-BEFORE (exemption deleted): Δlon = +180 is exactly half a world and
+      // `Math.round(0.5)` is 1, so the endpoint is rewritten to −180 and the
+      // whole hemisphere edge flips west — partLonRanges [[-180, 0]],
+      // columns [0, 1].
+      const eastern = tiledSeamCrossing([
+        [0, 0],
+        [180, 0],
+      ])
+      expect(eastern.partLonRanges, 'the hemisphere edge flipped onto the other half').toEqual([
+        [0, 180],
+      ])
+      expect(eastern.columns, 'an eastern-hemisphere line must tile x2 and x3').toEqual([2, 3])
+    })
+
+    it('(e) CONTROL: a genuine fold is still unwrapped, so (c) and (d) are not vacuous', () => {
+      // The exemption exempts the two boundaries and nothing else. Deleting
+      // `unwrapLonBranch` outright would green (c) and (d) — this arm is what
+      // says the unwrap is still there: 170 → −170 is a real 20° fold and must
+      // come out as 170 → 190 with its −360 world copy, exactly as (a) asserts.
+      const folded = tiledSeamCrossing([
+        [170, 0],
+        [-170, 0],
+      ])
+      expect(folded.partLonRanges, 'a genuine fold stopped being unwrapped').toEqual([
+        [170, 190],
+        [-190, -170],
+      ])
+      expect(folded.columns).toEqual([0, 3])
+    })
+  })
 })

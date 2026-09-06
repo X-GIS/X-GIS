@@ -159,12 +159,18 @@ describe('#2550 antimeridian Polygon (past-seam and folded authorings)', () => {
     expect(Math.min(...wide.counts)).toBeGreaterThan(0)
   })
 
-  it('(f) an exact half- and whole-world edge is NOT read as a fold', () => {
-    // The two deltas a fold can never produce: two longitudes normalized into
-    // (−180, 180] are strictly less than a whole world apart unless they are
-    // −180 and 180 themselves. Rounding either to the nearer branch destroys
-    // real geometry — the z=0 world rectangle would collapse to zero width and
-    // an eastern-hemisphere box would jump to the west.
+  it('(f) a half- and a whole-world ring tile across every column they span', () => {
+    // (g) one step further: the two widest rings a producer can write inside
+    // (−180, 180] are read at face value like any other, so each covers exactly
+    // the columns its own extent covers.
+    //
+    // This arm does NOT pin the ±180/±360 exemption in `unwrapLonBranch`
+    // (geometry-sphere.ts), though it was written to. `tiledPolygon` goes
+    // through `makePolygonPart`, and the per-ring unwrap #2550 added there was
+    // reverted for the literal reading (c)/(g) assert — so this path no longer
+    // reaches that code, and the exemption could be deleted with these
+    // assertions still green. The exemption is pinned on the line path, where it
+    // actually runs, by geojsonvt/wrap-line-antimeridian.test.ts arms (c)-(e).
     const eastHemisphere = tiledPolygon([box(0, 180)])
     expect(eastHemisphere.columns).toEqual([2, 3])
 
