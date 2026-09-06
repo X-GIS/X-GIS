@@ -18,5 +18,8 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["**/*.ts"]
+  // `../dev` too (#2535): the Vite dev plugins have no tsconfig of their own —
+  // playground/tsconfig.json includes only src/ — and this project is the one
+  // `tsc --noEmit` pass CI runs over the playground's non-src TypeScript.
+  "include": ["**/*.ts", "../dev/**/*.ts"]
 }

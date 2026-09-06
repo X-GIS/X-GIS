@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { fileURLToPath, URL } from 'node:url'
 import { openDataBridge } from './dev/opendata-bridge'
+import { bakeShadersOnEdit } from './dev/bake-shaders-on-edit'
 
 export default defineConfig({
   // Pages-deploy serves the playground under /X-GIS/play/ so the
@@ -18,7 +19,11 @@ export default defineConfig({
   // bucket passthrough plus the synthesised S-111/S-102 catalogues — so the live real-data
   // demos stream in dev past the buckets' missing CORS; the hosted site rewrites the same
   // prefix to a CORS-open Worker (loader.ts).
-  plugins: [basicSsl(), openDataBridge()],
+  // bakeShadersOnEdit re-derives the six committed shader artifacts when a file they depend
+  // on changes (#2535) — with bake-by-default the page draws the COMMITTED bake, so without
+  // it a shader edit is invisible until `bun run build && bun run bake:shaders`. Serve only;
+  // off under CI and XGIS_BAKE_HMR=0 (the Playwright webServer).
+  plugins: [basicSsl(), openDataBridge(), bakeShadersOnEdit()],
   // Dev/test resolve @xgis/map to SOURCE, not the published dist.
   // ship-P0 packaging set the package `main`/`exports` to ./dist/index.js for
   // external npm consumers; without this alias the playground (and every e2e
