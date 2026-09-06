@@ -22,7 +22,12 @@ import {
   type PresetCall,
 } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
-import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER, UNRESOLVED_COLOR } from '../diagnostics/diagnostic'
+import {
+  UNKNOWN_UTILITY,
+  UNHANDLED_MODIFIER,
+  UNRESOLVED_COLOR,
+  SOURCE_TYPE_NOT_A_NAME,
+} from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -150,6 +155,24 @@ function lowerSource(
       // `x-kr-admin` would otherwise tokenise as the expression `x - kr - admin`).
       if (prop.value.kind === 'Identifier') type = prop.value.name
       else if (prop.value.kind === 'StringLiteral') type = prop.value.value
+      else {
+        // Anything else used to leave the `geojson` initialiser standing with NO
+        // report, so the source silently changed meaning (#2549). The motivating
+        // shape is an UNQUOTED hyphenated registry key, which the note above
+        // explains parses as the expression `x - kr - admin`.
+        diagnostics.push({
+          severity: 'error',
+          code: SOURCE_TYPE_NOT_A_NAME,
+          span: { line: stmt.line, col: 1 },
+          message:
+            `Source "${stmt.name}" (line ${stmt.line}): 'type' must be a built-in ` +
+            `name (\`type: geojson\`) or a quoted custom registry key ` +
+            `(\`type: "x-kr-admin"\`); got a ${prop.value.kind}.`,
+          help:
+            `A hyphenated custom type must be QUOTED — bare \`x-kr-admin\` parses as ` +
+            `the expression \`x - kr - admin\`, and the source falls back to geojson.`,
+        })
+      }
       // `hdf5` / `h5` are format-named aliases of the coverage family (the mirror of
       // `pmtiles`/`tilejson` under `vector`) — canonicalise to the role name HERE, the
       // single chokepoint, so the IR + dead-layer-elim + runtime only ever see
