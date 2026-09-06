@@ -46,6 +46,103 @@ const ECEF_EARTH_R = EARTH.sphereR
 const ECEF_DEG2RAD = Math.PI / 180
 const ECEF_LAT_LIMIT = 85.051129
 
+/** Boundary-coincidence tolerance in Mercator metres — the same default the
+ *  compiler predicate carries (`BOUNDARY_EPS_MM`, vector-tiler.ts). */
+const PARENT_EDGE_EPS_MM = 1.0
+
+/** "Is this parent-ring edge SYNTHETIC?" — a closing edge Sutherland-Hodgman
+ *  laid along the parent tile rect when the parent itself was clipped, which
+ *  must not stroke in an over-zoom sub-tile (#347, the "vertical line through
+ *  Russia").
+ *
+ *  Geometry alone cannot answer it. A REAL polygon edge running ALONG the
+ *  parent rect — a box on lon 0, a border on the equator, any feature whose
+ *  side sits on a graticule line the tile grid also uses — is at distance 0
+ *  from the rect axis exactly like the closing edge, so the purely geometric
+ *  predicate drops it and the sub-tile silently loses that side of the
+ *  outline. That is #2553, fixed in the COMPILER tiler by threading the
+ *  clipper's own inserted-vertex set into `extractNonSyntheticArcs`.
+ *
+ *  That identity Set cannot reach here: `parent.polygons` is `RingPolygon`
+ *  (`{ rings: number[][][]; featId: number }`, compiler/src/tiler/encoding.ts:167)
+ *  — plain numbers, and every producer either decodes it from the binary tile
+ *  archive or structured-clones it out of a worker, both of which destroy the
+ *  object identity the Set is keyed on.
+ *
+ *  It does not have to. The parent tile ALREADY carries the resolved verdict:
+ *  its `outlineVertices` / `outlineLineIndices` were built by the compiler
+ *  WITH provenance, so a real rect-coincident edge is stroked there and a
+ *  synthetic closing edge is not. This reads that answer back instead of
+ *  re-deriving it — including the compiler's antimeridian exemption
+ *  (`isOnMercWorldRect`), which is already baked into what the parent stroked.
+ *
+ *  With no outline buffers on the parent the geometric verdict stands alone —
+ *  the same provenance-less arm the compiler keeps. */
+function makeSyntheticParentEdgePredicate(
+  parent: TileData,
+  mxW: number,
+  myS: number,
+  mxE: number,
+  myN: number,
+): (a: number[], b: number[]) => boolean {
+  const geometric = makeSameBoundarySidePredicateMerc(mxW, myS, mxE, myN)
+  const olv = parent.outlineVertices
+  const oli = parent.outlineLineIndices
+  if (!olv || !oli || oli.length === 0) return geometric
+
+  // Spans of each rect side the parent's own outline strokes, as [lo, hi] of
+  // the side's free axis (y for west/east, x for south/north) in ABSOLUTE
+  // Mercator metres. Outline vertices are DSFUN stride-10 local to the parent
+  // origin, which IS (mxW, myS).
+  const eps = PARENT_EDGE_EPS_MM
+  const sides: [number, number][][] = [[], [], [], []]
+  const vx = (vi: number): number =>
+    mxW + olv[vi * DSFUN_LINE_STRIDE]! + olv[vi * DSFUN_LINE_STRIDE + 2]!
+  const vy = (vi: number): number =>
+    myS + olv[vi * DSFUN_LINE_STRIDE + 1]! + olv[vi * DSFUN_LINE_STRIDE + 3]!
+  for (let i = 0; i + 1 < oli.length; i += 2) {
+    const ax = vx(oli[i]!),
+      ay = vy(oli[i]!),
+      bx = vx(oli[i + 1]!),
+      by = vy(oli[i + 1]!)
+    if (Math.abs(ax - mxW) < eps && Math.abs(bx - mxW) < eps)
+      sides[0]!.push([Math.min(ay, by), Math.max(ay, by)])
+    if (Math.abs(ax - mxE) < eps && Math.abs(bx - mxE) < eps)
+      sides[1]!.push([Math.min(ay, by), Math.max(ay, by)])
+    if (Math.abs(ay - myS) < eps && Math.abs(by - myS) < eps)
+      sides[2]!.push([Math.min(ax, bx), Math.max(ax, bx)])
+    if (Math.abs(ay - myN) < eps && Math.abs(by - myN) < eps)
+      sides[3]!.push([Math.min(ax, bx), Math.max(ax, bx)])
+  }
+
+  /** Does the parent's own outline stroke the MIDDLE of [lo, hi] on `side`?
+   *  Midpoint rather than endpoint equality: the compiler densifies an
+   *  outline chain (`subdivideChainMM`), so the stroked run arrives split
+   *  into sub-segments whose endpoints are not the ring edge's. */
+  const stroked = (side: number, lo: number, hi: number): boolean => {
+    const mid = (lo + hi) / 2
+    for (const run of sides[side]!) if (mid >= run[0] - eps && mid <= run[1] + eps) return true
+    return false
+  }
+
+  return (a, b) => {
+    if (!geometric(a, b)) return false
+    const yLo = Math.min(a[1]!, b[1]!),
+      yHi = Math.max(a[1]!, b[1]!)
+    const xLo = Math.min(a[0]!, b[0]!),
+      xHi = Math.max(a[0]!, b[0]!)
+    if (Math.abs(a[0]! - mxW) < eps && Math.abs(b[0]! - mxW) < eps && stroked(0, yLo, yHi))
+      return false
+    if (Math.abs(a[0]! - mxE) < eps && Math.abs(b[0]! - mxE) < eps && stroked(1, yLo, yHi))
+      return false
+    if (Math.abs(a[1]! - myS) < eps && Math.abs(b[1]! - myS) < eps && stroked(2, xLo, xHi))
+      return false
+    if (Math.abs(a[1]! - myN) < eps && Math.abs(b[1]! - myN) < eps && stroked(3, xLo, xHi))
+      return false
+    return true
+  }
+}
+
 export class SubTileGenerator {
   /** iter-247 (Plan AAA B.2) — scratch fields. Pre-iter-247 every
    *  `generate()` call allocated 4 fresh `number[]` (outV/outI/outLV/
@@ -422,7 +519,12 @@ export class SubTileGenerator {
     // anchored at (0,0) never matches the absolute ring X (millions of m)
     // except at lon=-180, leaving the filter dead and the synthetic
     // axis-aligned frame edges visible as outline strokes.
-    const isSameParentBoundarySide = makeSameBoundarySidePredicateMerc(
+    //
+    // The predicate is NARROWED by the parent's own outline so a REAL edge
+    // lying on the parent rect keeps its stroke — see
+    // `makeSyntheticParentEdgePredicate` (#2553's runtime half).
+    const isSyntheticParentEdge = makeSyntheticParentEdgePredicate(
+      parent,
       parentMx,
       parentMy,
       parentMxE,
@@ -438,7 +540,7 @@ export class SubTileGenerator {
       for (const poly of parent.polygons) {
         for (const ring of poly.rings) {
           if (ring.length < 3) continue
-          const interiorArcs = extractNonSyntheticArcs(ring, isSameParentBoundarySide)
+          const interiorArcs = extractNonSyntheticArcs(ring, isSyntheticParentEdge)
           for (const arc of interiorArcs) {
             if (arc.length < 2) continue
             // `arc` is in ABSOLUTE Mercator metres (parent.polygons rings
@@ -462,7 +564,7 @@ export class SubTileGenerator {
             if (
               Math.abs(last[0] - arcRing[0][0]) < 1e-6 &&
               Math.abs(last[1] - arcRing[0][1]) < 1e-6 &&
-              isSameParentBoundarySide(prev, last)
+              isSyntheticParentEdge(prev, last)
             ) {
               chain = arcRing.slice(0, -1)
               if (chain.length < 2) continue
