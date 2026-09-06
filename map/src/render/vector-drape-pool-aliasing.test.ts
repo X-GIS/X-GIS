@@ -56,6 +56,13 @@ function makeMockRhi() {
     createBuffer: (_d: { size: number; usage: string }): MockBuf => ({ __id: ++id, __bytes: null }),
     createTexture: (d: { label?: string }) => ({ __tex: true, label: d.label ?? '' }),
     createView: () => ({ __view: true }),
+    // #2539 — RasterDraper initialises a 1x1 DEM stub on its first draw (the
+    // group-0 binding the shared `vs_tile` reads elevation from must be filled
+    // even with no terrain). A double that omits this is not a passing test, it
+    // is `TypeError: this.rhi.writeTexture is not a function` inside draw — the
+    // hazard is that the cast to RhiDevice hides it from tsc entirely, so the
+    // whole suite compiles green and dies at run time (CLAUDE.md §12).
+    writeTexture: () => {},
     // resource: { buffer } for pool + global; { view }/sampler for texture — we
     // only need the buffer back so the pass can read the bound pool slot.
     createBindGroup: (_layout: unknown, entries: { resource?: { buffer?: MockBuf } }[]) => ({

@@ -20,6 +20,7 @@ import type { RhiDevice, RhiBindGroup, RhiTexture, RhiTextureView, RhiBuffer } f
 import { wrapWebGpuTextureView } from '@xgis/rhi-webgpu'
 import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { rasterGridVertexCount } from '../../shaders/dsl/raster'
+import { DEM_VERTEX_BIND_ENTRIES } from './raster-material'
 import { rasterTileBytes, rasterUniformBytes } from '../raster-uniform-slots'
 import { hillshadeUniformBytes } from '../hillshade-uniform-slots'
 import type { RasterTile } from './raster-material'
@@ -111,9 +112,21 @@ export class HillshadeDraper {
         // (the uniformStruct first arg): 'Uniforms' (shared vertex) + 'HillshadeUniforms'.
         [
           { binding: 0, kind: 'uniform', name: 'Uniforms' },
-          { binding: 1, kind: 'texture' },
+          { binding: 1, kind: 'texture', name: 'tex' },
           { binding: 2, kind: 'sampler' },
           { binding: HS_GLOBAL_BINDING, kind: 'uniform', name: 'HillshadeUniforms' },
+          // D5 INC-3 (#2539) — the SAME DEM, bound a second time for the VERTEX
+          // stage. Binding 1 is the fragment's (Sobel over the packed texels); the pair
+          // below is the shared `vs_tile`'s, whose slot must mean "the DEM" in every
+          // module that uses that vertex — for a RASTER draw binding 1 is imagery, so
+          // the vertex cannot read elevation from it. One texture, two bindings, and no
+          // branch in the shared authority.
+          //
+          // Spread from raster-material rather than repeated: the entries are one fact
+          // about `vs_tile`, and two copies is exactly the drift this file's own
+          // `name`-on-every-uniform note exists to prevent. See there for why
+          // `vertexVisible` is required rather than decorative.
+          ...DEM_VERTEX_BIND_ENTRIES,
         ],
         // The per-tile pool block MUST be named too: once ANY block in the
         // program is bound by name (group 0 above), the unnamed by-declaration-
@@ -172,6 +185,11 @@ export class HillshadeDraper {
         { binding: 1, resource: { view: this.viewOf(texture) } },
         { binding: 2, resource: this.nearestSampler },
         { binding: HS_GLOBAL_BINDING, resource: { buffer: hsBuf } },
+        // #2539 — the vertex stage's view of the same DEM, same NEAREST sampler
+        // (a bilinear blend of packed DEM bytes decodes to garbage in the vertex
+        // stage exactly as it does in the fragment).
+        { binding: 4, resource: { view: this.viewOf(texture) } },
+        { binding: 5, resource: this.nearestSampler },
       ])
       m.set(key, bg)
     }

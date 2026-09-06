@@ -84,7 +84,7 @@ const loF = (v: number): number => Math.fround(v - Math.fround(v))
  *  half (slots: mvp 0, proj 16, raster_params 20, color0 24, color1 28,
  *  cam_ecef_center[hi] 32, cam_ecef_center_l[lo] 36, eye 40). */
 function mainReferenceBytes(f: Fixture): Uint8Array {
-  const uf = new Float32Array(44)
+  const uf = new Float32Array(48)
   uf.set(MVP, 0)
   uf[16] = f.projType
   uf[17] = f.lon
@@ -108,7 +108,7 @@ function mainReferenceBytes(f: Fixture): Uint8Array {
  *  DSFUN cam_ecef_center_l split the shared packer now writes, so the sole
  *  semantic delta vs packBlock stays the dead raster_params.w lane. */
 function checkerReferenceBytes(f: Fixture): Uint8Array {
-  const uf = new Float32Array(44)
+  const uf = new Float32Array(48)
   uf.set(MVP, 0)
   uf.set([f.projType, f.lon, f.lat, f.logDepthFc], 16)
   uf.set([COLORS.opacity, 0, 0, 8], 20)
@@ -130,7 +130,7 @@ function packBlock(f: Fixture): Uint8Array {
     f.camAnchor,
     COLORS,
   )
-  expect(block.byteLength).toBe(176)
+  expect(block.byteLength).toBe(192)
   return new Uint8Array(block.buffer)
 }
 

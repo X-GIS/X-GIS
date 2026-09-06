@@ -1124,7 +1124,17 @@ const CEILINGS: Record<string, number> = {
   // `wc -l` on the post-prettier tree.
   // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
   // the common base, so neither number is right (§12) — 5493 is `wc -l` on the merged tree.
-  'map/src/map.ts': 5493,
+  // 5493→5555 (#2539): the terrain FACADE — setTerrain/getTerrain + the private
+  // applyTerrain re-applied at both renderer-install sites. It is a public-API
+  // addition on the map shell, which is where a facade belongs; the 373-call-site
+  // question of hiding the renderer FIELDS is #2578 and must extract, not accumulate.
+  // 5493→5547 (#2539): the terrain FACADE (setTerrain/getTerrain + applyTerrain), and the
+  // EXTRACTION the duplication ratchet forced out of it — runScene and runBinary carried a
+  // byte-identical 19-line renderer install, and adding one line to both tipped it past the
+  // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
+  // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
+  // renderer FIELDS is #2578 and must extract, not accumulate.
+  'map/src/map.ts': 5547,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -2151,16 +2161,24 @@ const CEILINGS: Record<string, number> = {
   // carries both deltas and neither side's number is right (§12) — RE-MEASURED
   // post-prettier (`wc -l`) on the merged tree.
   // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
-  // 753→758 (#2314, main <- issue-hunt branch, fourth merge): the draw took the bare
-  // `isPickEnabled()` and selected a 2-target (rg32uint) pipeline for a pass that opens
-  // ONE colour attachment — a per-frame WebGPU validation error whenever picking and a
-  // DEM layer are both on. The call site is now a literal `false`; the +5 is the comment
-  // recording why, at the argument it constrains, so the flag cannot drift back. This
-  // branch's own #2302 fix (`selectFlatProjTiles` in raster-renderer.ts) was SUPERSEDED
-  // by main's flat-tile-selector.ts on this merge and removed as its orphan, so #2314 is
-  // the only delta this branch still carries here. RE-MEASURED post-prettier (`wc -l`)
-  // on the merged tree.
-  'map/src/render/hillshade-renderer.ts': 758,
+  // 753->746 (#2525, D5 INC-1): the `findCachedParent` closure became a delegate to
+  // `DemTileStore.resolve`; the explanation moved to the store's method.
+  // 746 -> 804 (#2539, D5 INC-3): the terrain half — the exaggeration field, its setter,
+  // the read-back accessor a gate needs, the DEM unpack threaded into the frame uniform,
+  // and the per-tile sub-rect. Each is a value this file is the only place to source.
+  // MERGE UNION -> MEASURED (804): the §12 same-file double-delta, SEVENTH time. main's
+  // #2314 took the same key 753 -> 758 (the draw passed a bare `isPickEnabled()` and
+  // selected a 2-target pipeline for a ONE-attachment pass — a per-frame WebGPU
+  // validation error whenever picking and a DEM layer were both on; the call site is a
+  // literal `false` now, and this branch's merge kept it). Both sides edited THIS file
+  // from the same 753 base, so neither number survives and the arithmetic (753 - 7 + 58
+  // + 5 = 809) is only a cross-check: the ceiling below is `wc -l` on the merged tree.
+  // 804→813: the terrain entry point documented on the PUBLIC setter instead of the
+  // private field. The old note named a `?terrain=` URL parameter that has never
+  // existed anywhere in the tree (#2520's shape); a reader asking "can I set terrain
+  // from JS?" now gets the answer at the method they would call. Measured on the
+  // POST-prettier tree, not the working copy.
+  'map/src/render/hillshade-renderer.ts': 813,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2550,7 +2568,25 @@ const CEILINGS: Record<string, number> = {
   // and it deleted a second 96-token one outright), but the duplication ratchet
   // fingerprints a clone's token stream, so a shortened clone reads as a newly added
   // one — gate defect #2570. The marker and these 4 lines go when #2570 lands.
-  'map/src/render/raster-renderer.ts': 1062,
+  // 1060 -> 1072 (#2539, D5 INC-3): two optional parameters on the SHARED uniform
+  // writers — `demUnpack` on the frame writer, `demSub` on the per-tile writer — plus
+  // the docblocks stating what "all-zero = no terrain" means at each. They live here
+  // because `writeRasterFrameUniform` / `writeRasterTileUniform` are the single
+  // authority both the raster and the hillshade renderers pack through.
+  // MERGE UNION -> MEASURED (1072): main's issue-hunt merge REMOVED its own #2302
+  // `selectFlatProjTiles` (+52), superseded by flat-tile-selector.ts, taking this key
+  // back to 1060 — a SHRINK on one side and a +12 on the other, over the same base.
+  // Neither number survives; the value below is `wc -l` on the merged tree.
+  // MERGE UNION (SEVENTH collision on this key, 2026-09-06): main reached 1062 and this
+  // branch 1072 from the same 1060 base — a #2560 extraction + a #2570 jscpd marker on
+  // one side, D5 INC-3's two optional uniform-writer parameters on the other. Stacked
+  // non-overlapping edits SUM and git merged them with NO conflict in the source file,
+  // so NEITHER number survives; the value below is `wc -l` on the MERGED, post-prettier
+  // tree (§12 — never carry a ceiling across a merge): MEASURED 1074, which is neither
+  // side's number. The arithmetic 1062 + 12 happens to agree, but it was read off the
+  // ratchet's own failure message, not computed — a carried number is how this key
+  // reached main too low once already.
+  'map/src/render/raster-renderer.ts': 1074,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
