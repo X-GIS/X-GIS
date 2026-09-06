@@ -94,15 +94,28 @@ const collided = new Set<string>()
  *  value.
  *
  *  Latched for the reason `warnCategoricalPaletteWrap` is: the caller runs once
- *  per TILE per field. The set it sees is the set that was PACKED, so a per-tile
- *  caller reports the collisions inside one tile; the source-level packer sees
- *  the whole table. Both are honest about what they saw, and the first to find a
- *  collision is the one that speaks. */
+ *  per TILE per field, and the set it sees is the set that was PACKED — not the
+ *  field's whole distinct set. On the ONLY path that reaches the hash branch in
+ *  production, that distinction is the whole story: a streamed MVT/PMTiles source
+ *  leaves the source-level PropertyTable empty by design, so
+ *  `FeatureDataBinder.buildFeatureDataBuffer` returns early
+ *  (`feature-data-binder.ts:338-343`) and the whole-table reader never runs. The
+ *  producer is `packPerTileFeatureData`, whose `vals` are one tile's values
+ *  (`feature-data-pack.ts:205-209`). So the message says `in this pack` rather
+ *  than claiming a field-wide ratio, and states that the field-wide count can be
+ *  higher — the latch means the first pack to find a collision is the only one
+ *  that ever speaks, so an unqualified number here would be a figure nothing can
+ *  later correct. */
 export function warnCategoricalSlotCollisions(
   fieldName: string,
   ids: ReadonlyMap<string, number>,
   sink: (msg: string) => void = xlog.warn,
 ): void {
+  // Latch checked BEFORE the scan, not after: once a field has reported, this
+  // function can never emit again, so the bucketing below would be built and
+  // thrown away on every later tile of that field. Output-identical — the latch
+  // only ever suppresses.
+  if (collided.has(fieldName)) return
   const bySlot = new Map<number, string[]>()
   for (const [value, id] of ids) {
     const slot = id % CAT_PALETTE_SIZE
@@ -117,7 +130,6 @@ export function warnCategoricalSlotCollisions(
     .filter(([, values]) => values.length > 1)
     .sort((a, b) => a[0] - b[0])
   if (collisions.length === 0) return
-  if (collided.has(fieldName)) return
   collided.add(fieldName)
 
   const shared = collisions.reduce((n, [, values]) => n + values.length, 0)
@@ -125,10 +137,12 @@ export function warnCategoricalSlotCollisions(
     .slice(0, 3)
     .map(([slot, values]) => `${[...values].sort().join(' + ')} → slot ${slot}`)
     .join('; ')
+  const more = collisions.length - 3
   sink(
-    `[X-GIS] categorical("${fieldName}") — ${shared} of ${ids.size} distinct values share a ` +
-      `palette slot with another value, so they render in the SAME colour: ${named}` +
-      `${collisions.length > 3 ? `; and ${collisions.length - 3} more slots` : ''}. The id is a ` +
+    `[X-GIS] categorical("${fieldName}") — ${shared} of the ${ids.size} distinct values in this ` +
+      `pack share a palette slot with another value, so they render in the SAME colour: ${named}` +
+      `${more > 0 ? `; and ${more} more slot${more === 1 ? '' : 's'}` : ''}. A streamed source packs ` +
+      `per TILE, so the field-wide count is at least this and usually higher. The id is a ` +
       `hash landed with \`% ${CAT_PALETTE_SIZE}\`, so collisions follow the birthday bound — even ` +
       `odds at about 27 distinct values, not at ${CAT_PALETTE_SIZE}. Use \`match(${fieldName}, …)\` ` +
       `with explicit colours for the categories that must be told apart, or seed the source from a ` +
