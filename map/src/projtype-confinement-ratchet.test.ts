@@ -78,7 +78,12 @@ const BASELINE: Record<string, number> = {
   'data/src/tiles-sse.ts': 3,
   'map/src/camera/camera.ts': 6,
   'map/src/camera/unproject.ts': 4,
-  'map/src/controller.ts': 6,
+  // #2534 audit S8 — the two pointerdown paths (fresh press + the survivor after a
+  // multi-touch lift) each held an IDENTICAL `projType === 1 || === 2 || === 6`
+  // planar-anchor split; captureDragAnchor() made them one call site, so the same
+  // three comparisons are now written once (6 -> 3). Still Mercator/planar-SPECIFIC
+  // (each arm unprojects differently), so no membership accessor preserves it yet.
+  'map/src/controller.ts': 3,
   // #1006: point-renderer + heatmap-renderer each held an identical `projType === 0`
   // camera-anchor split inline; both were deduped into cameraAnchorDsfun() (single
   // authority), so the two entries collapse to ONE here (net 2 → 1 comparisons).

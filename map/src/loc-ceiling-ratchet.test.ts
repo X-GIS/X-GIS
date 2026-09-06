@@ -988,7 +988,9 @@ const CEILINGS: Record<string, number> = {
   // widened entry type, the two set() sites, and the two comments naming which
   // pointer is being asked about — the mistake was invisible precisely because
   // nothing at either site said which one it was.
-  'map/src/controller.ts': 1224,
+  // 1224→1185: #2534 folded the drag-anchor capture (written at drag start and again
+  // when a pinch drops to one finger) into one `captureDragAnchor`. LOWERED per shrink-only.
+  'map/src/controller.ts': 1185,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
