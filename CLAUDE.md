@@ -825,6 +825,17 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   it too. Extract, and the invariant gets stronger — "exactly one installer, and every boot
   path goes through it" catches what "every copy has the line" cannot. Diff the two blocks
   first: if they differ only in comments, the extraction is exact. → PR #2558
+- **A SQUASH-MERGE RETROACTIVELY INVALIDATES THE MERGE BASE of the pre-squash branch tip**,
+  and a stale CI run on that tip then reds the dup gate with the BASE's own clones. `bun run
+dup` compares against the merge base with `origin/main`; a branch that merged main carries
+  that merge commit as its tip, but the squash lands a NEW commit on main which is not that
+  tip's ancestor — so the merge base falls back to something older, predating main's own
+  clones, and they read as "added by this branch". Seen once (#2558 → PR #2599's branch),
+  reporting two `vector-tile-renderer.ts` pairs that came from main's #2560 extraction, on a
+  tree that measured GREEN locally minutes earlier and whose content was already on a green
+  main. The mirror of the known "measure dup AFTER committing the main merge" rule. Check
+  `bun run dup` on CURRENT MAIN before believing such a failure — if main is green, nothing
+  is broken and the run is stale.
 - Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
   (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
 - **The gate is TOKEN-level, and that is about HALF of what is there.** Measured 2026-09-05,
