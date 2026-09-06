@@ -455,7 +455,14 @@ const CEILINGS: Record<string, number> = {
   // the #991 ratchets. The members the moved bodies touch became `@internal`, which the
   // publish pass strips (#2601), so the published `.d.ts` narrows by 87 name slots.
   // Measured with `wc -l` on the post-prettier tree.
-  'map/src/render/vector-tile-renderer.ts': 3886,
+  // 3886→3395 (#2508 step 3): `renderTileKeys()`'s three blocks — the per-tile
+  // uniform pack, the per-tile fill draw, the deferred stroke pass — moved to
+  // `render/tile-draw/`. The method goes 798→251 body lines, and the largest
+  // member left in the file is `renderFillsRhi` at 297: the first time since
+  // #2508 opened that nothing here is over ~350 lines. Second consecutive DOWN.
+  // (3395→3391: TWO_PI_R_EARTH moved to vector-tile-renderer-helpers.ts so the
+  // pack module reads it without a VALUE import cycle back into the class.)
+  'map/src/render/vector-tile-renderer.ts': 3391,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

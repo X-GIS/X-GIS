@@ -120,7 +120,12 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     const second = src.indexOf('_tileUniforms.offsetOf(', first + 1)
     expect(second, 'pack-path residency lookup not found').toBeGreaterThan(first)
     // Walk-skip site: gated on the per-call qualification + a completed seed pack.
-    expect(src.slice(Math.max(0, first - 700), first)).toContain('splitWalkSkip && packedOnce')
+    // #2508 step 3 moved the latch onto the per-call `packOut` record (the pack
+    // step writes it, the loop reads it); the RECEIVER's spelling changed, the
+    // qualification this pins did not.
+    expect(src.slice(Math.max(0, first - 700), first)).toContain(
+      'splitWalkSkip && packOut.packedOnce',
+    )
     // Pack-path resolve: unclipped + a real slice identity.
     const before = src.slice(Math.max(0, second - 700), second)
     expect(before).toContain('visibleKey < 0')
