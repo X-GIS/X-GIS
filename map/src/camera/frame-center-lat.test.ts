@@ -82,7 +82,7 @@ describe('disc family — drag anchor and zoom loop read the lat-deg authority',
     const cam = new Camera(20, 45, 1)
     cam.projType = ORTHO
     cam.globeMode = false
-    cam.zoomAt(-1, W / 2, H / 2, W, H) // → z0, disc branch
+    cam.zoomAt(-1, W / 2, H / 2, W, H, 1) // → z0, disc branch
     expect(cam.zoom).toBe(0)
     expect(cam.centerLatDeg).toBeCloseTo(45, 6)
     // The Mercator mirror follows the authority (not the equator).
@@ -98,7 +98,7 @@ describe('disc family — drag anchor and zoom loop read the lat-deg authority',
     cam.projType = ORTHO
     cam.globeMode = false
     cam.centerLatDeg = 88 // the pole-ward authority (setCenter's dual clamp); mirror saturates
-    cam.zoomAt(1, W / 2, H / 2, W, H)
+    cam.zoomAt(1, W / 2, H / 2, W, H, 1)
     expect(cam.centerLatDeg).toBeGreaterThan(87)
     expect(mercatorYToLat(cam.centerY)).toBeCloseTo(85.051129, 3)
   })
