@@ -7,12 +7,32 @@
 //   bun run dup:report --shape     the Type-2 lens: clones whose identifiers differ, which
 //                                  the token gate cannot see (report only — see below)
 //
-// WHAT IT ASSERTS, and why it is a SET DIFFERENCE and not a number. A percentage hides a
+// WHAT IT ASSERTS, and why it is DIRECTIONAL and not a number. A percentage hides a
 // 200-line paste behind a 2000-line feature landing in the same PR (CLAUDE.md §5: gate on
-// direction, never on an absolute %). So the gate compares the branch's clone set against
-// the clone set of the commit it is measured from, and fails on any pair that is new. The
-// ratchet property falls out by construction: main can never GAIN a clone, because no PR
-// may add one — no committed number to keep in sync, and no escape hatch.
+// direction, never on an absolute %). So the gate measures, per unordered FILE PAIR, how
+// many duplicated tokens the branch has and how many its base had, and fails on a pair that
+// GREW. The ratchet property falls out by construction: main can never gain duplication
+// between two files, because no PR may add any — no committed number to keep in sync, and
+// no escape hatch.
+//
+// WHY THE PAIR TOKEN TOTAL AND NOT jscpd's PER-CLONE `isNew` ALONE (#2570). `isNew` keys on
+// the token-stream fingerprint of a clone PAIR, so a clone whose extent SHRINKS has a stream
+// the base's set does not contain and is reported new — the gate then reds on the branch that
+// REMOVED the duplication. Measured on #2560: five clones / 588 tokens between
+// `raster-renderer.ts` and `hillshade-renderer.ts` became four / 412, and the gate called it
+// a regression. Line-interval containment cannot fix it — the two sides sit in DIFFERENT
+// revisions of the same file, so `590-602 ⊃ 590-599` on one side and `854-866 ⊅ 858-867` on
+// the other, from one edit. The pair total has no such problem: it is a quantity, comparable
+// across revisions, and it moves in the direction the gate actually cares about. `isNew`
+// still narrows WHICH clone of a grown pair is named, so the message stays specific.
+//
+// WHAT THIS DELIBERATELY DOES NOT CATCH, stated because a blind spot nobody wrote down reads
+// as clean (CLAUDE.md §14, Type-4): a NEW clone region between two files that ALREADY
+// duplicate each other, in a branch that simultaneously removes at least as many duplicated
+// tokens between those same two files. Net duplication between the pair went down, which is
+// not the direction ADR-0013 blocks. The rule-of-three case it is built for is unaffected: a
+// third copy always lands in some file, and every pair that file forms is a pair the base has
+// zero tokens for — a new pair is growth from 0, so it reds.
 //
 // WHY NOT A COMMITTED FINGERPRINT BASELINE (the first design, reverted 2026-09-05 after CI
 // refuted it). jscpd can write its fingerprint set to a file that the gate diffs, which
@@ -27,12 +47,12 @@
 // keeps test duplication out of the gate, applied to the gate itself). `--baseline-from-ref`
 // removes the class: nothing is stored, so nothing can go stale.
 //
-// THE BASE IS THE MERGE BASE WITH `origin/main`, falling back to `origin/main` itself where
-// history is shallow — which is the exact answer under CI, whose checkout IS this PR merged
-// into main, so "new vs main" is precisely "added by this PR". `resolveBaseRef` fetches
-// `main` when the ref is absent and THROWS when it cannot be resolved: a gate that loses its
-// base must be red, never quietly green (CLAUDE.md §12, the poller that read a missing key
-// as an empty result).
+// THE BASE IS THE MERGE BASE WITH `origin/main` — always, with no fallback: main's tip is a
+// commit the branch has not merged, and comparing against it reported untouched files as
+// newly duplicated (#2597). `resolveBaseRef` fetches `main` when the ref is absent, deepens
+// once when the checkout is too shallow for a merge base, and THROWS when neither works: a
+// gate that loses its base must be red, never quietly green (CLAUDE.md §12, the poller that
+// read a missing key as an empty result).
 //
 // WHY .jscpd.json ROUTES .ts/.tsx THROUGH THE *JAVASCRIPT* TOKENIZER. jscpd 5's TypeScript
 // tokenizer (Rust engine, three weeks old at 5.1.2) strips type annotations — which finds
@@ -61,6 +81,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -349,6 +370,65 @@ export function scan(opts: ScanOptions): { clones: Clone[]; stats: ScanStats; re
   return { ...parsed, reportPath }
 }
 
+/** Materialise `ref`'s tree and scan it with the SAME configuration as the head scan, so
+ *  the two clone sets are comparable. Only the scan roots the ref actually has are asked
+ *  for — a root this branch adds does not exist there, and `git archive` errors on it. */
+export function scanRef(
+  root: string,
+  ref: string,
+  roots: readonly string[],
+  ignore: readonly string[],
+): Clone[] {
+  const present = roots.filter((r) => {
+    try {
+      execFileSync('git', ['cat-file', '-e', `${ref}:${r}`], { cwd: root, stdio: 'ignore' })
+      return true
+    } catch {
+      return false
+    }
+  })
+  if (present.length === 0) return []
+  // realpath, because `parseReport` relativises jscpd's ABSOLUTE paths against this root:
+  // where the temp dir is reached through a symlink the two spellings differ, `relative()`
+  // escapes with `..`, and every pair key misses — which silently empties the base set and
+  // restores the very behaviour this function exists to replace. Asserted below as well.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jscpd-base-')))
+  const tar = execFileSync('git', ['archive', '--format=tar', ref, '--', ...present], {
+    cwd: root,
+    maxBuffer: 1 << 30,
+  })
+  execFileSync('tar', ['-x', '-C', dir], { input: tar, maxBuffer: 1 << 30 })
+  const clones = scan({ root: dir, roots: present, ignore }).clones
+  const escaped = clones.find((c) => c.a.file.startsWith('..') || c.a.file.startsWith('/'))
+  if (escaped) {
+    throw new Error(
+      `dup: the base scan's paths did not relativise (${escaped.a.file}) — the comparison\n` +
+        '  would be empty and every clone would look new. Report this with the path above.',
+    )
+  }
+  return clones
+}
+
+/** Unordered — jscpd may report a pair in either order, and (a,b) is one relationship. */
+export const pairKey = (c: Clone): string => [c.a.file, c.b.file].sort().join('\u0000')
+
+/** Duplicated tokens per unordered file pair. The gate's directional quantity: it is
+ *  comparable across revisions, which a line interval is not (see the header, #2570). */
+export function tokensByPair(clones: readonly Clone[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const c of clones) m.set(pairKey(c), (m.get(pairKey(c)) ?? 0) + c.tokens)
+  return m
+}
+
+/** The clones the branch is accountable for: those jscpd flags as absent from the base AND
+ *  whose file pair carries more duplicated tokens here than it did on the base. A pair the
+ *  base does not have at all counts from 0, so a genuinely new copy still reds. */
+export function addedClones(head: readonly Clone[], base: readonly Clone[]): Clone[] {
+  const before = tokensByPair(base)
+  const after = tokensByPair(head)
+  return head.filter((c) => c.isNew && (after.get(pairKey(c)) ?? 0) > (before.get(pairKey(c)) ?? 0))
+}
+
 // ── The SHAPE lens (Type-2) ──────────────────────────────────────────────────
 //
 // The gate compares TOKEN streams, so a copy whose identifiers were renamed is invisible
@@ -564,15 +644,34 @@ function check(root: string): number {
     ignore: [...IGNORE, ...TEST_IGNORE],
     baseRef,
   })
-  const fresh = clones.filter((c) => c.isNew)
+  // jscpd's `isNew` alone reds a branch that SHRANK a clone (#2570), so it is only the
+  // first filter. The verdict is the pair's token total, which needs the base's clone set —
+  // a second scan, taken LAZILY: a run with nothing flagged is already green and pays
+  // nothing for the disambiguation.
+  const flagged = clones.filter((c) => c.isNew)
+  const baseClones = flagged.length
+    ? scanRef(root, baseRef, SCAN_ROOTS, [...IGNORE, ...TEST_IGNORE])
+    : []
+  const fresh = addedClones(clones, baseClones)
+  const before = tokensByPair(baseClones)
+  const after = tokensByPair(clones)
   const bare = bareMarkers(SCAN_ROOTS.flatMap((r) => [...walkSources(root, r)]))
   console.log(summary(stats, `; base ${baseRef.slice(0, 12)}`))
+  if (flagged.length && !fresh.length) {
+    console.log(
+      `✓ ${flagged.length} clone(s) re-fingerprinted (shifted or shortened), no file pair grew`,
+    )
+  }
 
   let red = false
   if (fresh.length) {
     red = true
     console.error(`\n✗ ${fresh.length} clone(s) this branch adds over its base:`)
-    for (const c of fresh) console.error(`  ${formatClone(c)}`)
+    for (const c of fresh) {
+      const k = pairKey(c)
+      console.error(`  ${formatClone(c)}`)
+      console.error(`      pair total: ${before.get(k) ?? 0} → ${after.get(k) ?? 0} tokens`)
+    }
     console.error(
       `\n  A new copy — including a THIRD copy of a pair the base already has — is the moment\n` +
         `  to extract the shared helper (${POLICY}). If the twin is\n` +
