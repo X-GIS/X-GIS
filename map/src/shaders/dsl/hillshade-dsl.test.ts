@@ -65,13 +65,20 @@ describe('Phase-II hillshade shader — DSL emission', () => {
     }
   })
 
-  it('fragment DEM-decodes via the hs_elevation helper (unpack dot, ×255)', () => {
+  it('fragment DEM-decodes via hs_elevation → dem_decode, the #2532 authority (unpack dot, ×255)', () => {
+    // The wrapper owns the SAMPLE; the formula lives in dem-elevation.ts and is
+    // emitted callee-first, so the two halves are pinned separately.
     expect(noPick).toContain('fn hs_elevation(uv: vec2<f32>) -> f32')
-    const fs = noPick.slice(noPick.indexOf('fn hs_elevation'))
+    const hs = noPick.slice(noPick.indexOf('fn hs_elevation'))
+    expect(hs.slice(0, hs.indexOf('\n}\n'))).toContain(
+      'dem_decode(textureSample(tex, tex_sampler, uv).rgb, hs.hs_unpack)',
+    )
     // decode = dot(texel.rgb * 255, unpack.rgb) - unpack.w
-    expect(fs).toContain('textureSample(tex, tex_sampler')
-    expect(fs).toContain('255')
-    expect(fs).toContain('hs.hs_unpack')
+    expect(noPick).toContain('fn dem_decode(texel: vec3<f32>, unpack: vec4<f32>) -> f32')
+    const dd = noPick.slice(noPick.indexOf('fn dem_decode'))
+    expect(dd.slice(0, dd.indexOf('\n}\n'))).toContain(
+      'dot((texel * 255.0), unpack.rgb) - unpack.w',
+    )
   })
 
   it('fragment reuses the raster per-fragment hemisphere cull (#595)', () => {

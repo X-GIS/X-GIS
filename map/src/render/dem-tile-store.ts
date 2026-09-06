@@ -52,6 +52,21 @@ import { FailedTileLedger, InflightLedger } from './tile-retry'
  *  store adds no fields of its own (see the header on `firstShownMs`). */
 export type CachedDemTile = EvictableTile
 
+/** What `DemTileStore.resolve` hands back — D5 INC-1 (#2525). */
+export interface DemResolved {
+  /** The RESIDENT tile's coordinate (the exact one, or an ancestor). */
+  z: number
+  x: number
+  y: number
+  /** 0 = exact; k = the returned tile is k levels above the requested one. */
+  levelsUp: number
+  entry: CachedDemTile
+  /** The REQUESTED tile's region inside the returned texture: the child covers
+   *  `[u0, u0 + scale) x [v0, v0 + scale)`, `scale = 2^-levelsUp`. Identity at
+   *  levelsUp 0. In XYZ tile space — see `resolve`. */
+  sub: { scale: number; u0: number; v0: number }
+}
+
 /** The tile coordinate `tileUrl` substitutes into the template. */
 interface TileCoord {
   z: number
@@ -152,6 +167,47 @@ export class DemTileStore {
 
   get(key: string): CachedDemTile | undefined {
     return this.tileCache.get(key)
+  }
+
+  /** Best resident tile at or above (z, x, y) — D5 INC-1 (#2525).
+   *
+   *  The exact tile when resident (`levelsUp` 0), else the nearest resident
+   *  ancestor within `maxLevelsUp`. `sub` maps the REQUESTED tile onto the RETURNED
+   *  texture, so a caller can sample a parent at the child's region without
+   *  knowing how far up it had to go.
+   *
+   *  This was `HillshadeRenderer.render()`'s `findCachedParent` closure. It is
+   *  promoted because INC-2's elevation sampler and INC-3's displacement need the
+   *  same answer per vertex and cannot call a closure inside another object's draw
+   *  loop. The draw loop keeps its behaviour as a pure move by passing a bound
+   *  (it walked at most 4 levels); a sampler passes the default — a z14 vertex over
+   *  a DEM resident only at z10 must still resolve, which a bound of 4 refuses.
+   *
+   *  `sub` is in XYZ tile space. A `tms` row scheme flips `{y}` inside `tileUrl`
+   *  (the FETCH), never in the cache key, so the texture's own row orientation is
+   *  the sampler's to apply on top of this — recorded here so it is not
+   *  rediscovered downstream as a "flipped terrain" bug.
+   *
+   *  Read-only over what `request` already admitted: it never requests, and it
+   *  reads no texels (CPU-side elevation is INC-2's decision, not this one's). */
+  resolve(z: number, x: number, y: number, maxLevelsUp = Infinity): DemResolved | undefined {
+    if (z < 0) return undefined
+    const limit = Math.min(maxLevelsUp, z)
+    for (let k = 0; k <= limit; k++) {
+      const entry = this.tileCache.get(`${z - k}/${x >> k}/${y >> k}`)
+      if (!entry) continue
+      const scale = 1 / (1 << k)
+      const mask = (1 << k) - 1
+      return {
+        z: z - k,
+        x: x >> k,
+        y: y >> k,
+        levelsUp: k,
+        entry,
+        sub: { scale, u0: (x & mask) * scale, v0: (y & mask) * scale },
+      }
+    }
+    return undefined
   }
 
   hasPendingLoads(): boolean {

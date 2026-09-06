@@ -336,6 +336,13 @@ export const galleryCategories: Category[] = [
         noThumb: true,
       },
       {
+        id: 'terrain-3d',
+        runId: 'terrain_3d',
+        title: '3D terrain',
+        body: 'The same live terrain tiles, but the elevation MOVES the ground: sampled per vertex and displaced along the ellipsoid normal, so ridges have silhouettes instead of painted shadows.',
+        noThumb: true,
+      },
+      {
         id: 'globe-extrusion',
         runId: 'globe_extrusion',
         title: '3D globe extrusion',
