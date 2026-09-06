@@ -2694,7 +2694,13 @@ const CEILINGS: Record<string, number> = {
   // set EXACTLY to the count — headroom is re-justified per phase, never banked.
   // MERGE: main and this branch each raised this ceiling from a shared base;
   // neither side's number is right. MEASURED post-merge (`wc -l`): 1527.
-  'compiler/src/ir/lower.ts': 1527,
+  // 1527→1552 (#2544): the `fill:` / `stroke:` arms stop dropping an
+  // unresolvable colour in silence — each gains an `else` and the two share
+  // `warnUnresolvedColor` (X-GIS0029), and `applyStyleProperties` takes the
+  // `diagnostics` sink. Same shape and same rationale as the X-GIS0028 raise
+  // above: the gate must sit where the resolve verdict is known, and that is
+  // this switch. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  'compiler/src/ir/lower.ts': 1552,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

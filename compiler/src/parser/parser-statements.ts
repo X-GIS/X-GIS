@@ -524,29 +524,19 @@ export class StatementParser extends ExpressionParser {
     let depth = 1
     while (depth > 0 && !this.isEnd()) {
       const t = this.current()
-      if (t.type === TokenType.LParen) {
-        depth++
-        raw += '('
-        this.advance()
-        continue
-      }
-      if (t.type === TokenType.RParen) {
-        depth--
-        raw += ')'
-        this.advance()
-        if (depth === 0) break
-        continue
-      }
-      // Re-insert a separator (lexer drops whitespace) so space-separated CSS
-      // colour fns like `oklab(0.5 -0.05 0.1)` don't collapse to `0.5-0.050.1`
-      // (→ parseCssColorFn <3 parts → null). Skip after `(`, before a comma,
-      // and after `-` (keep a negative channel glued: `-0.05`).
-      const last = raw[raw.length - 1]
-      if (last !== '(' && last !== '-' && t.type !== TokenType.Comma) {
-        raw += ' '
-      }
+      // Replay the source's own whitespace. The lexer drops whitespace but
+      // records, per token, whether any separated it from its predecessor
+      // (`Token.spaceBefore`), so the rebuild reproduces what was WRITTEN
+      // rather than guessing. The guess it replaces ("a space before every
+      // token except after `(`/`-` or before a comma") glued a space into
+      // `50%`, `120deg` and `.6` — each of which is its own token — so
+      // `hsl(120, 50%, 50%)` captured as `hsl(120, 50 %, 50 %)`,
+      // resolveColor returned null, and the fill vanished (#2544).
+      if (t.spaceBefore) raw += ' '
       raw += t.value
       this.advance()
+      if (t.type === TokenType.LParen) depth++
+      else if (t.type === TokenType.RParen && --depth === 0) break
     }
     return raw
   }
