@@ -175,6 +175,7 @@ import type {
   XGISMapOptions,
   FontTypographyMap,
   RawDataset,
+  TerrainOptions,
 } from './map-types'
 // Re-export the public type surface so existing `import { ... } from
 // './engine/map'` paths keep resolving after the extraction.
@@ -184,6 +185,7 @@ export type {
   XGISFontResource,
   XGISMapOptions,
   FontTypographyMap,
+  TerrainOptions,
 } from './map-types'
 // Custom source-loader contract (docs/architecture/source-loader-seam.md) — public
 // so a host can author a loader for `XGISMapOptions.sources`.
@@ -1074,6 +1076,99 @@ export class XGISMap {
     applyAtmosphere(this, atmosphere)
     this._dirty.tag(DirtyDomain.STYLE)
     this.invalidate()
+  }
+
+  /** The terrain intent, owned by the MAP rather than by the renderer that
+   *  executes it — see `setTerrain` for why that distinction is the whole point. */
+  private _terrain: TerrainOptions | null = null
+
+  /** D5 (#2539) — the top-level `terrain` block, as a runtime facade over the
+   *  hillshade renderer's displacement lever. Mapbox/MapLibre shape: an options
+   *  object turns terrain ON, `null` turns it off, `getTerrain()` answers what is
+   *  in force. Mirrors `setLight` / `setAtmosphere`, the other top-level blocks.
+   *
+   *  WHY A FACADE AND NOT THE RAW LEVER. `map.hillshadeRenderer.setTerrainExaggeration()`
+   *  works and will keep working, but it makes a caller know two things they should
+   *  not have to: that 3D displacement is owned by the HILLSHADE renderer at all,
+   *  and that `runScene()` / `runBinary()` install a FRESH renderer whose field
+   *  starts at 0 — so a value set before the map boots is silently dropped. That
+   *  second one is a real footgun, and it is what this method removes: the intent
+   *  lives in `_terrain`, and `applyTerrain()` re-pushes it at every renderer
+   *  install, so `setTerrain` works before OR after `run()` resolves.
+   *
+   *  A DEM must still come from the style (a `raster-dem` source with a `hillshade`
+   *  layer). With none armed this is inert rather than an error — a tile no DEM
+   *  covers carries `dem_sub.w = 0` and is not displaced.
+   *
+   *  Terrain applies to the globe and to Mercator only; the other flat projections
+   *  are non-conformal, so no single vertical factor is right for both axes and the
+   *  ground stays flat there by decision (#2539). */
+  setTerrain(terrain: TerrainOptions | null): void {
+    if (this._destroyed) return // #1569 — inert after destroy(), like invalidate()
+    if (terrain === null) {
+      this._terrain = null
+    } else {
+      const exaggeration = terrain.exaggeration ?? 1
+      if (!Number.isFinite(exaggeration) || exaggeration < 0) {
+        xlog.warn(
+          `[X-GIS] setTerrain: exaggeration must be a finite number >= 0, got ${String(terrain.exaggeration)} — ignored`,
+        )
+        return
+      }
+      this._terrain = { exaggeration }
+    }
+    this.applyTerrain()
+    this._dirty.tag(DirtyDomain.STYLE)
+    this.invalidate()
+  }
+
+  /** @see setTerrain — the terrain in force, or `null` when there is none. Returns a
+   *  copy, so a caller mutating the result cannot reach into the map's state. */
+  getTerrain(): TerrainOptions | null {
+    return this._terrain === null ? null : { ...this._terrain }
+  }
+
+  /** Push `_terrain` at the CURRENT hillshade renderer. Called by `setTerrain` and by
+   *  every site that installs a renderer set — the renderer's own field initialises to
+   *  0, so without this a terrain set before `run()` would be dropped on boot.
+   *  `map-terrain-api.test.ts` asserts that no install site is missing the call. */
+  private applyTerrain(): void {
+    this.hillshadeRenderer?.setTerrainExaggeration(this._terrain?.exaggeration ?? 0)
+  }
+
+  /** THE ONE PLACE a renderer set is installed on the map. Extracted because the two
+   *  call sites (`runScene`, `runBinary`) had drifted into a byte-identical 19-line copy
+   *  that the duplication ratchet flagged the moment #2539 added a line to both
+   *  (docs/adr/0013). Being ONE authority is also what makes the terrain re-apply below
+   *  impossible to forget: a third boot path inherits it by construction rather than by
+   *  someone remembering, which is exactly the bug `map-terrain-api.test.ts` gates. */
+  private installRendererSet(rendererSet: SceneRendererSet): void {
+    this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
+    this.rasterRenderer = rendererSet.rasterRenderer
+    this.applyEffectiveRasterFadeDuration()
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
+    this.coverageRenderer = rendererSet.coverageRenderer
+    // #2515 — the fresh set is live from here, so setQuality() may act on it again. Cleared
+    // INSIDE this method, not at its two call sites: that is the whole point of the
+    // extraction, and a third caller inherits the invariant by construction.
+    this._reinitializing = false
+    // A dropped region takes its arrows with it — including the LRU evictions the renderer
+    // makes on its own, which nothing else observes (#1419).
+    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
+    this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
+    this.gpuTimer = rendererSet.gpuTimer
+    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
+    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
+    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
+    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
+    this.shapeRegistry = rendererSet.shapeRegistry
+    this.heatmapRenderer = rendererSet.heatmapRenderer
+    this.lineRenderer = rendererSet.lineRenderer
   }
 
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
@@ -3137,7 +3232,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: commands.symbols,
     })
-    this._adoptRendererSet(rendererSet)
+    this.installRendererSet(rendererSet)
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
@@ -4222,7 +4317,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: undefined,
     })
-    this._adoptRendererSet(rendererSet)
+    this.installRendererSet(rendererSet)
 
     for (const load of commands.loads) {
       const url =
@@ -5126,40 +5221,6 @@ export class XGISMap {
    *  removal — those DOM hooks are reused by the re-run. After this
    *  returns, run()/runBinary() rebuild ctx + renderers + stages clean.
    *  No-op when nothing was ever loaded (`?.` covers a null ctx). */
-  /** Adopt a freshly built renderer set — the SINGLE producer of "the renderers
-   *  are live". `run()` and `runBinary()` both build their set with
-   *  `buildSceneRenderers` and then adopted it with an identical hand-copied
-   *  sequence; that copy is why `_reinitializing` had two places to be cleared
-   *  and could be forgotten in a third (#2515). Clearing the latch HERE makes
-   *  the invariant true by construction for every caller, present and future
-   *  (CLAUDE.md §12 — apply the witness at the single producer). */
-  private _adoptRendererSet(rendererSet: SceneRendererSet): void {
-    this.renderer = rendererSet.renderer
-    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
-    this.rasterRenderer = rendererSet.rasterRenderer
-    this.applyEffectiveRasterFadeDuration()
-    this.hillshadeRenderer = rendererSet.hillshadeRenderer
-    this.coverageRenderer = rendererSet.coverageRenderer
-    // #2515 — the fresh renderer set is live from here; setQuality() etc. can
-    // safely act on renderer/rasterRenderer/hillshadeRenderer again.
-    this._reinitializing = false
-    // A dropped region takes its arrows with it — including the LRU evictions the renderer
-    // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
-    this.flowRenderer = rendererSet.flowRenderer
-    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
-    // handle on it to bind — and to upload each batch's origins the moment it is added.
-    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
-    this.gpuTimer = rendererSet.gpuTimer
-    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
-    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
-    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
-    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
-    this.shapeRegistry = rendererSet.shapeRegistry
-    this.heatmapRenderer = rendererSet.heatmapRenderer
-    this.lineRenderer = rendererSet.lineRenderer
-  }
-
   private _teardownForReinit(): void {
     // #2515 — set before `_releaseGpuResources()` destroys renderer/rasterRenderer/
     // hillshadeRenderer without nulling them, so setQuality() cannot mistake their
