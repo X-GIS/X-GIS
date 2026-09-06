@@ -88,9 +88,12 @@ import {
   rasterTileU,
   rasterTex,
   rasterTexSampler,
+  rasterDemTex,
+  rasterDemSampler,
 } from './raster'
 import { needs_backface_cull, PROJECTION_CONSTS, getGpuProjectionFuncs } from './projections'
 import { ECEF_CONSTS } from './ecef'
+import { demDecode } from './dem-elevation'
 import { compute_log_frag_depth } from './log-depth'
 import { PI } from './consts'
 
@@ -148,6 +151,8 @@ const U = rasterU
 const Tile = rasterTileU
 const tex = rasterTex
 const texSampler = rasterTexSampler
+const demTex = rasterDemTex
+const demSampler = rasterDemSampler
 
 const hillshadeFragmentOutput = (pickEnabled: boolean) =>
   ioStruct('HillshadeFragmentOutput', {
@@ -156,14 +161,20 @@ const hillshadeFragmentOutput = (pickEnabled: boolean) =>
     depth: builtin('frag_depth', f32T),
   })
 
-// DEM elevation decode (design §2). textureSample returns normalised [0,1] →
-// ×255 before the unpack dot (mirror MapLibre's texture()*255). Reusable fn,
-// called 8× (the 3×3 Sobel stencil, centre excluded). Sampled NEAREST — the
-// renderer binds a nearest sampler so the packed RGB is never bilinear-blended.
-const hsElevation = fn('hs_elevation', { uv: vec2fT }, ({ uv }) => {
-  const t = textureSample(tex.node, texSampler.node, uv).rgb.mul(255)
-  return dot(t, HS.field.hs_unpack.rgb).sub(HS.field.hs_unpack.w)
-})
+// DEM elevation decode — the SAMPLING wrapper. The formula itself is
+// `dem_decode` (dem-elevation.ts, D5 INC-2 #2532): one authority, parity-gated
+// in a compute pass against the f64 oracle, which a fn closing over a
+// textureSample could never be. Called 8× (the 3×3 Sobel stencil, centre
+// excluded). Sampled NEAREST — the renderer binds a nearest sampler so the packed
+// RGB is never bilinear-blended. Same ops in the same order as before the split,
+// so the hillshade gates hold this at the hash rung; `dem_decode` is collected
+// transitively by module(), like apply_log_depth below.
+const hsElevation = fn('hs_elevation', { uv: vec2fT }, ({ uv }) =>
+  demDecode({
+    texel: textureSample(tex.node, texSampler.node, uv).rgb,
+    unpack: HS.field.hs_unpack,
+  }),
+)
 
 // Sobel derivative scale (design §3 step 2), completed PER TILE.
 //
@@ -450,7 +461,18 @@ export const buildHillshadeModule = (pickEnabled: boolean, methodFlag = -1): Mod
       VsOut.decl,
       hillshadeFragmentOutput(pickEnabled).decl,
     ],
-    bindings: [U.binding, tex.binding, texSampler.binding, HS.binding, Tile.binding],
+    // #2539 — the DEM pair the SHARED `rasterVsTile` reads to displace. A module that
+    // reuses a vertex authority owes that authority's bindings: without these the WGSL
+    // parses to `unresolved value 'dem_tex'` and the hillshade pass never compiles.
+    bindings: [
+      U.binding,
+      tex.binding,
+      texSampler.binding,
+      demTex.binding,
+      demSampler.binding,
+      HS.binding,
+      Tile.binding,
+    ],
     funcs: [
       ...getGpuProjectionFuncs(),
       rasterVsTile,
