@@ -2634,7 +2634,17 @@ const CEILINGS: Record<string, number> = {
   // (data/src/sub-tile-generator.test.ts). A ring bounds an AREA and is read at
   // face value; RFC 7946 3.1.9 puts the split burden on the producer. Lowered to
   // the measured figure rather than banked as headroom.
-  'compiler/src/tiler/vector-tiler.ts': 1688,
+  // 1688->1703 (#2553 follow-up): +15 for the all-edges-on-rect guard in
+  // `extractNonSyntheticArcs` and the docblock recording why it is GEOMETRIC.
+  // #2553 narrowed the synthetic test with clip provenance, which over-fired on
+  // a ring the clip collapsed onto ONE rect side: a box whose east side lies
+  // exactly on this tile's west edge keeps its own source corners, so
+  // `rescuesEdge` called them real and the outline strokes a line down the tile
+  // border for a feature with no area in the tile. The guard is the invariant
+  // the narrowing was missing (provenance may only narrow a ring that HAS
+  // interior here), and it cannot be an area test: `intersect` snaps a cut
+  // vertex to the tile grid, so a collapsed ring's shoelace is not zero.
+  'compiler/src/tiler/vector-tiler.ts': 1703,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

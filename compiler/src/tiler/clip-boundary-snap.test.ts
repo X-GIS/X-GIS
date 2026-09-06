@@ -294,4 +294,47 @@ describe('#2553 a real polygon edge lying along a tile side keeps its stroke', (
     ])
     expect(strokeSegments(clipped)).toBe(0)
   })
+
+  it('a box that only TOUCHES the tile from outside strokes nothing (fail-before: 1)', () => {
+    // The MIXED-provenance case the three arms above do not reach: they all
+    // clip to `inserted.size === 0` (wholly inside) or to a ring whose whole
+    // boundary run is clipper-made. Here one boundary-coincident edge has ONE
+    // clip-made endpoint and ONE source endpoint, which is the shape a real
+    // coastline produces when it runs along a tile side and the clipper
+    // truncates it. The box spans lon [-20, 0] x lat [1, 21]: entirely WEST of
+    // this tile, with its east side exactly on the tile's west edge, so it has
+    // zero area here and must contribute no stroke.
+    //
+    // Pre-guard this stroked 1 segment: `rescuesEdge` correctly reports the two
+    // SOURCE vertices as real (they are the box's own corners), so the
+    // collinear run was not synthetic and a line was drawn down the tile
+    // border for a feature with no area in the tile. The old purely geometric
+    // predicate returned 0 here, so the provenance narrowing regressed it —
+    // which is why the guard is on AREA, not on provenance.
+    const { clipped, inserted } = clipZ1(mmBox(t1West - 20, 1, t1West, 20))
+    expect(clipped.length).toBe(1)
+    // The fixture really is MIXED — if this ever becomes all-source or
+    // all-clipper the arm below stops testing what it says it tests.
+    const ring = clipped[0]!
+    const made = ring.filter((v) => inserted.has(v)).length
+    expect(made).toBeGreaterThan(0)
+    expect(made).toBeLessThan(ring.length)
+    expect(strokeSegments(clipped, inserted)).toBe(0)
+  })
+
+  it('the same touch from the SOUTH also strokes nothing (fail-before: 1)', () => {
+    // Same defect on the perpendicular axis, so the guard cannot be satisfied
+    // by an axis-specific special case.
+    const { clipped, inserted } = clipZ1(mmBox(1, t1LatS - 20, 20, t1LatS))
+    expect(strokeSegments(clipped, inserted)).toBe(0)
+  })
+
+  it('non-vacuous: a box with real area here still strokes, touching side included', () => {
+    // The control the two arms above need: the guard must not silence a
+    // polygon that genuinely covers part of this tile. Same west-side-on-lon-0
+    // placement as the #2553 arm, so a guard keyed on "any vertex on the rect"
+    // instead of on AREA would red here.
+    const { clipped, inserted } = clipZ1(mmBox(t1West, 1, 20, 20))
+    expect(strokeSegments(clipped, inserted)).toBe(4)
+  })
 })

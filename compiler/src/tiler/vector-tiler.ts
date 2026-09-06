@@ -769,11 +769,26 @@ export function extractNonSyntheticArcs(
   const rescuesEdge = (v: number[]): boolean =>
     clipperInserted !== undefined && !clipperInserted.has(v) && !isOnMercWorldRect(v)
   const edgeSynthetic: boolean[] = new Array(n)
+  let onRectEdges = 0
   for (let i = 0; i < n; i++) {
     const a = ring[i],
       b = ring[(i + 1) % n]
-    edgeSynthetic[i] = isSameBoundarySide(a, b) && !rescuesEdge(a) && !rescuesEdge(b)
+    const onRect = isSameBoundarySide(a, b)
+    if (onRect) onRectEdges++
+    edgeSynthetic[i] = onRect && !rescuesEdge(a) && !rescuesEdge(b)
   }
+  // EVERY edge on the rect: the ring has no interior in this tile, so it has no
+  // outline here either — the polygon merely TOUCHES the rect from outside (a
+  // box whose east side lies exactly on this tile's west edge clips to a
+  // collapsed run along that edge). Provenance must not rescue this one, and
+  // left to itself it does: the touching side's corners ARE the source ring's
+  // own vertices, so `rescuesEdge` rightly calls them real and the sliver
+  // strokes a line down the tile border for a feature that covers none of it.
+  // The narrowing is only ever meaningful for a ring that HAS interior here,
+  // which is exactly what this test says. Geometric, not area-based: `intersect`
+  // snaps a cut vertex's perpendicular coordinate to the tile grid, so a
+  // collapsed ring's shoelace is small but NOT zero.
+  if (onRectEdges === n) return []
 
   // All edges real → original polygon is fully inside the tile.
   // Return the whole CLOSED ring (downstream treats closed=true so
