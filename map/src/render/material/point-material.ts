@@ -9,7 +9,7 @@ import type { MaterialDesc, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/en
 import { Material, executeItems } from '@xgis/engine'
 import { emitPointWgsl, emitPointGlslStages, type PointVariantSpec } from '../../shaders/dsl/point'
 import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
-import { wgslFor, glslStagesFor } from './wgsl-for'
+import { LIVE, wgslFor, glslStagesFor } from './wgsl-for'
 
 type VertexBuffers = ReadonlyArray<{
   stride: number
@@ -97,8 +97,12 @@ export class PointDraper {
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
     // samplers via the default storage lowering; on WebGPU these are ignored.
     this.desc = {
-      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant), bakedPointIds?.wgsl),
-      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant), bakedPointIds?.glsl),
+      shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant), bakedPointIds?.wgsl ?? LIVE),
+      // ONE line, thunk inline: entry-and-variant-rewiring's G1 arm reads the seam LINE for its
+      // `bakedPointIds` carrier, and shader-seam-doors counts an emit as seamed only inside the
+      // seam call's own parentheses — a hoisted thunk would fail the second, a wrapped call the first.
+      // prettier-ignore
+      ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant), bakedPointIds?.glsl ?? LIVE),
       vsEntry: 'vs_point',
       fsEntry: 'fs_point',
       format: format as 'bgra8unorm',

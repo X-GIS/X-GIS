@@ -459,7 +459,17 @@ const CEILINGS: Record<string, number> = {
   // number is right — carrying either across would leave the ceiling one change too low
   // (green on both branches, red on main). Measured 819 with `wc -l` on the post-prettier
   // merged tree.
-  'map/src/render/coverage-renderer.ts': 819,
+  // 815→819 (#2499 step 3): `setCoverage`'s vector-band branch arms `prefetchLazyShaders`
+  // — a coverage with a vector band IS the flow layer's registration, and it is the only
+  // seam that precedes the draw-path build of `FlowAdvectDraper`. Import + call + the
+  // two-line reason; the file sat exactly at its ceiling.
+  // MERGE RE-MEASURE (2026-09-05, #2499 chain <- main): the textbook §12 collision — main
+  // (#2319) and this branch (#2499) each raised this key to 819 from the same 815 base,
+  // and BOTH deltas are +4, so a carried-across 819 would be one full change too low and
+  // would red on main having been green on both sides. git surfaced it here only because
+  // the two comment blocks touch; the NUMBER would have merged silently. Measured 823 with
+  // `wc -l` on the post-prettier merged tree.
+  'map/src/render/coverage-renderer.ts': 823,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -1559,19 +1569,30 @@ const CEILINGS: Record<string, number> = {
   // the SAME frame, so nothing is owed in text-stage.ts), the early-out term, and
   // the evaluate arm with the non-numeric fallback note. The groundAlignsAtRuntime
   // repoint above it is net zero. MEASURED post-prettier (`wc -l`).
+  // 1998->1990 (#2517): the lazy-IconStage gate's three "needs the sprite" reasons
+  // (icon on a label show, fill/line pattern, inline `image(...)` in a label's
+  // text -- the third is the fix) moved out to passes/sprite-atlas-need.ts as one
+  // predicate with a unit test per reason; the inline disjunction here became a
+  // call. The file SHRANK and the ceiling follows it down.
   // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
   // predicate instead of spelling `!== 'viewport'` a second time (the split the
   // fourth enum value opened), which wraps the '@xgis/compiler' import to one
   // name per line (+6) and the call to three lines, against the six-line why.
-  // RE-MEASURE after any merge with a branch that also moves this key — #2536
-  // lowers it to 1990 from the same base, and the file takes BOTH deltas.
-  // 1998→2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
+  // 1998->2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
   // `host._elapsedMs` (the frame clock the fade ledger above it already reads)
-  // instead of `performance.now()` — one line plus the 2-line reason. MEASURED
-  // post-prettier (`wc -l`).
-  // MERGE RE-MEASURE (ninth main merge): both sides raised this key; 2011 is `wc -l`
-  // on the post-prettier merged tree (§12 — never carry either side's number across).
-  'map/src/render/passes/label-pass.ts': 2011,
+  // instead of `performance.now()` — one line plus the 2-line reason.
+  // 1998->2008 (#2224): the tangent gate reads the SHARED `tangentRotates`
+  // predicate instead of spelling `!== 'viewport'` a second time.
+  // 1998->1990 (#2517): the lazy-IconStage gate's three "needs the sprite"
+  // reasons moved out to passes/sprite-atlas-need.ts as one predicate; the file
+  // SHRANK.
+  // 2003 (this merge): THREE branches moved this one key from the same base
+  // 1998 — +3, +10 and -8 — and the file takes all three. main carried 2011
+  // (the first two); this branch carries the -8. No side's number is right and
+  // no arithmetic on the conflict text is trusted: RE-MEASURED post-prettier on
+  // the merged file (`wc -l`) = 2003. CLAUDE.md §12's double-delta trap, one
+  // delta worse.
+  'map/src/render/passes/label-pass.ts': 2003,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1758,7 +1779,7 @@ const CEILINGS: Record<string, number> = {
   // BOTH histories above start from 1651 and BOTH add 22 — #2042 INC-6 and #2117 each
   // reached 1673 independently, which is exactly the merge where taking either side's
   // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
-  'map/src/shaders/dsl/line.ts': 1695,
+  'map/src/shaders/dsl/line.ts': 1696,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -2524,6 +2545,29 @@ const CEILINGS: Record<string, number> = {
   // branch), so the merged file carries both deltas and neither side's number is
   // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
   // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  // FOURTH merge (2026-09-05, main <- issue-hunt branch): this branch's own #2302 fix
+  // (`selectFlatProjTiles`, +52 here, shared with HillshadeRenderer) was SUPERSEDED by
+  // main's flat-tile-selector.ts and removed together with its `@xgis/map` re-export and
+  // its parity test (main's `raster-non-merc-selection-parity.test.ts` carries the
+  // stronger FIX/TEETH/CONTROL witness). The file is main's byte-for-byte again;
+  // RE-MEASURED post-prettier (`wc -l`) on the merged tree.
+  // 1060→1058 (#2560, LOWERED): `emitTileAt` stopped recomputing a tile row's
+  // latitude bounds and Mercator span per drawn tile per frame (two atan(sinh)
+  // + two log(tan); 325 ms of a 13.2 s raster session on the owner's profile).
+  // Both the math and its memo left for `raster-row-geom.ts` — extracted so a
+  // differential test can hold the math to the retired expression AND reach the
+  // cache, where the interesting way to be wrong lives (drop `y` from the inner
+  // key and a whole level takes row 0's bounds). Same reason `draw-dedup-key.ts`
+  // was pulled out in #2495. What remains here is one field and a destructure,
+  // against 13 lines of inline transcendentals removed — a net SHRINK.
+  // MERGE UNION (SIXTH collision on this key): main's side nets to 0 against the
+  // 1060 both sides share, this side is -2, so the merged file should read 1058
+  // — but the number below is `wc -l` on the MERGED tree, not that arithmetic.
+  // 1058→1062: +4 for a `jscpd:ignore` marker over the raster/hillshade `emitTileAt`
+  // preamble. The extraction above SHRANK that pre-existing clone (194→114 tokens,
+  // and it deleted a second 96-token one outright), but the duplication ratchet
+  // fingerprints a clone's token stream, so a shortened clone reads as a newly added
+  // one — gate defect #2570. The marker and these 4 lines go when #2570 lands.
   // 1060 -> 1072 (#2539, D5 INC-3): two optional parameters on the SHARED uniform
   // writers — `demUnpack` on the frame writer, `demSub` on the per-tile writer — plus
   // the docblocks stating what "all-zero = no terrain" means at each. They live here
@@ -2533,7 +2577,16 @@ const CEILINGS: Record<string, number> = {
   // `selectFlatProjTiles` (+52), superseded by flat-tile-selector.ts, taking this key
   // back to 1060 — a SHRINK on one side and a +12 on the other, over the same base.
   // Neither number survives; the value below is `wc -l` on the merged tree.
-  'map/src/render/raster-renderer.ts': 1072,
+  // MERGE UNION (SEVENTH collision on this key, 2026-09-06): main reached 1062 and this
+  // branch 1072 from the same 1060 base — a #2560 extraction + a #2570 jscpd marker on
+  // one side, D5 INC-3's two optional uniform-writer parameters on the other. Stacked
+  // non-overlapping edits SUM and git merged them with NO conflict in the source file,
+  // so NEITHER number survives; the value below is `wc -l` on the MERGED, post-prettier
+  // tree (§12 — never carry a ceiling across a merge): MEASURED 1074, which is neither
+  // side's number. The arithmetic 1062 + 12 happens to agree, but it was read off the
+  // ratchet's own failure message, not computed — a carried number is how this key
+  // reached main too low once already.
+  'map/src/render/raster-renderer.ts': 1074,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

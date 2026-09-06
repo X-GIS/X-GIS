@@ -125,7 +125,7 @@ describe('centerLatDeg sync contract', () => {
       cam.projType = 7
       cam.globeMode = true
       // pan() globe-drag branch is pure math (no GPU/canvas) — drag a bit.
-      cam.pan(0, 60, 1280, 720)
+      cam.pan(0, 60, 1280, 720, 1)
       // Post-S12 centerLatDeg is AUTHORITATIVE (the drag writes it directly);
       // for a sub-85.05 drag it still agrees with the Mercator-mirror centerY to
       // the forward+inverse round-trip floor (~1e-9), no longer byte-exact.
@@ -141,7 +141,7 @@ describe('centerLatDeg sync contract', () => {
       ctrl.setCenter(0, 84) // start just below the old Mercator wall
       // Drag northward hard — enough to push the centre well past 85.05. Before
       // S12 this saturated at 85.051129; now it rolls to the pole limit (90).
-      cam.pan(0, 400, 1280, 720)
+      cam.pan(0, 400, 1280, 720, 1)
       expect(cam.centerLatDeg).toBeGreaterThan(MERC_LIMIT) // crossed the old wall
       expect(cam.centerLatDeg).toBeCloseTo(90, 3) // clamped to poleLimit(7)=90
       // centerY stays Mercator-bounded so the 2D / tile readers keep working.
@@ -151,7 +151,7 @@ describe('centerLatDeg sync contract', () => {
     it('flat pan keeps centerLatDeg === mercatorYToLat(centerY)', () => {
       const cam = new Camera(0, 30, 3)
       cam.projType = 0
-      cam.pan(40, -25, 1280, 720)
+      cam.pan(40, -25, 1280, 720, 1)
       expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
     })
   })
@@ -197,7 +197,7 @@ describe('centerLatDeg sync contract', () => {
       // Sanity: the invariant holds before the zoom.
       expect(cam.centerLatDeg).toBeCloseTo(mercatorYToLat(cam.centerY), 10)
 
-      cam.zoomAt(0.5, W / 2, H / 2, W, H)
+      cam.zoomAt(0.5, W / 2, H / 2, W, H, 1)
 
       // For a cylindrical projection latPreserve === mercLatPreserve, so the
       // carry helper collapses to centerLatDeg = mercatorYToLat(centerY) —
@@ -253,7 +253,7 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
 
     // Drag northward hard. Pre-fix clampCenterToBounds reset centerLatDeg
     // to mercatorYToLat(saturated centerY) = 85.051129 on every step.
-    cam.pan(0, 400, 1280, 720)
+    cam.pan(0, 400, 1280, 720, 1)
 
     // The drag rolls toward the pole; the 88° bound caps it at 88, NOT at
     // the Mercator 85.05 wall. FAIL-BEFORE asserts the cross past 85.05.
@@ -274,7 +274,7 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
       [-20, -80],
       [20, 80],
     ])
-    cam.pan(0, 600, 1280, 720)
+    cam.pan(0, 600, 1280, 720, 1)
     expect(cam.centerLatDeg).toBeLessThanOrEqual(80 + 1e-6)
     expect(cam.centerLatDeg).toBeCloseTo(80, 2)
   })
@@ -294,7 +294,7 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
     // keeps centerLatDeg === mercatorYToLat(centerY). The sphere-only fix
     // must leave this byte-exact identity intact (and never relax the
     // cylindrical centre past the Mercator wall).
-    cam.pan(0, 4000, 1280, 720)
+    cam.pan(0, 4000, 1280, 720, 1)
 
     // Byte-exact cylindrical sync invariant preserved (the fix branches on
     // representsCenterAs and never reaches the lat-deg clamp here).
@@ -319,7 +319,7 @@ describe('BUG P4 — sphere-family maxBounds preserves pole reach', () => {
       [-20, -80],
       [20, 80],
     ])
-    cam.pan(0, 8000, 1280, 720)
+    cam.pan(0, 8000, 1280, 720, 1)
     expect(mercatorYToLat(cam.centerY)).toBeCloseTo(80, 3)
     expect(cam.centerLatDeg).toBe(mercatorYToLat(cam.centerY))
   })

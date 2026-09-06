@@ -801,9 +801,33 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   dependency") — say so in the marker.
 - Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
   (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
+- **The gate is TOKEN-level, and that is about HALF of what is there.** Measured 2026-09-05,
+  both passes summed per pair so the units match: 279 token pairs / 3673 lines, against **241
+  further pairs / 3831 lines that appear only once identifiers are erased** — because the
+  sibling families differ in exactly the names that say which primitive they serve. A further
+  86 pairs EXTEND a pair the gate already flags (the retained drapers: 31 scattered lines
+  gated, 77 in one fragment under the lens); those are counted separately, because "the gate
+  under-measures this" is a different claim from "the gate is blind to this". `bun run
+dup:shape` is the lens (structure-only mirror via the TypeScript scanner, minus what the
+  token pass covers — **by range overlap, not by equal start line** — minus two noise classes:
+  a list matching itself shifted, and uniform data tables). **Report only, never a gate** — a
+  colour table is a legitimate false positive, and gating on a heuristic that calls it
+  duplication is ADR-0013 alternative 8 all over again. Read it before consolidating a family:
+  scope the work from the cluster, not from the corner the gate shows you.
+- **What NOTHING here catches: Type-4** — a helper re-invented under a different name with a
+  different shape. No detector in this repo finds it, and none is proposed: a detector that
+  reports zero reads as "clean", which is worse than a documented blind spot (#2561). The
+  levers are the report plus review, and the co-change signal — but that signal needs a
+  MEDIATOR check before it means anything, and needs an import resolver that handles `.js`
+  specifiers. Both bit here: `glsl.ts ↔ wgsl.ts` was published as the archetype "with no
+  import edge" when `glsl.ts:70` has imported `./wgsl.js` since the backend's first commit —
+  missed because `shader-dsl` is the ONLY package writing `.js` specifiers (883 of them;
+  every other package: 0), so a resolver that does not rewrite `.js`→`.ts` is blind in
+  exactly the package that produced the headline. And the pairs co-change with the file that
+  MEDIATES them (RHI adapters: 8 of 8 also touch `rhi/src/rhi.ts`), which reads as
+  implementations moving with their interface — the signature of a HEALTHY abstraction, not
+  a missing one. Lockstep alone is not evidence. → #2561
 - **The detector is token-level and not perfect.** `.jscpd.json` routes `.ts/.tsx` through
   jscpd's JavaScript tokenizer on purpose: the TypeScript one has a deterministic blind spot
   (repro in the ADR), while the JS one flagged every planted whole-function copy above the
-  token floor (30 probes). Clones that differ only in type annotations, and renamed-
-  identifier clones, are invisible to the gate by design; `dup:report --type-insensitive`
-  is the wider triage lens.
+  token floor (30 probes). `dup:report --type-insensitive` is the annotation-insensitive lens.

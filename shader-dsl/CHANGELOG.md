@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: a3d63bb20c1da82096e80f7d88a2e6b326cf3890
+  Generated from: 6c2fdfd9a12e1138a67cf2cc06e67e793cc6accc
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since a3d63bb20c1d
+    bun scripts/emit-changelog.ts --path shader-dsl --since 6c2fdfd9a12e
 -->
 
 # Changelog — shader-dsl
@@ -35,6 +35,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **map+compiler:** issue-hunt 2026-09-02 — 31 verified defects across three packages, three new real-GPU gates ([#2330](https://github.com/X-GIS/X-GIS/pull/2330)) `fdd304f`
 - **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
 - **shader-dsl:** memberFold must not forward a construct argument that is reassigned (#2354) ([#2398](https://github.com/X-GIS/X-GIS/pull/2398)) `0d74a94`
 - **shader-dsl:** an empty dispatch is a steady state on the WebGL2 compute tier too (#2362) ([#2395](https://github.com/X-GIS/X-GIS/pull/2395)) `8aaa2fa`

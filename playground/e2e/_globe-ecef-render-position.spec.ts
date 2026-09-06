@@ -303,9 +303,7 @@ test('globe(7) EXTRUDED mesh lands at its true screen position (cam_ecef_off rec
         const info = await mod.getCompilationInfo()
         const errs = info.messages.filter((mm: { type: string }) => mm.type === 'error')
         if (errs.length)
-          throw new Error(
-            'compile: ' + errs.map((mm: { message: string }) => mm.message).join('|'),
-          )
+          throw new Error('compile: ' + errs.map((mm: { message: string }) => mm.message).join('|'))
         const pipe = device.createRenderPipeline({
           layout: 'auto',
           vertex: {

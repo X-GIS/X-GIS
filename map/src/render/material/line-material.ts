@@ -20,7 +20,7 @@ import { emitLineWgsl, type LineVariantSpec } from '../../shaders/dsl/line'
 import { emitLineSplitWgsl } from '../../shaders/dsl/line-split'
 import { emitLineGlsl } from '../../shaders/dsl/line-glsl'
 import { lineGlslId, lineWgslId, wgslOnlyId } from '../../shaders/baked/ids'
-import { glslFor, readsWgsl, wgslFor } from './wgsl-for'
+import { LIVE, glslFor, readsWgsl, wgslFor } from './wgsl-for'
 
 /** The translucent-line offscreen ACCUM format — ONE authority for the
  *  offscreen texture (line-renderer.ensureOffscreenRhi) and the max-blend
@@ -175,7 +175,7 @@ export class LineDraper {
       shader: wgslFor(
         this.rhi,
         () => emitLineSplitWgsl(this.variant, pick),
-        this.bakedLineIds(pick)?.split,
+        this.bakedLineIds(pick)?.split ?? LIVE,
       ),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
@@ -253,7 +253,7 @@ export class LineDraper {
     const gl2 = !readsWgsl(this.rhi)
     const baked = this.bakedLineIds(pick)
     return new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick), baked?.wgsl),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, pick), baked?.wgsl ?? LIVE),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',
       // #1605 Phase 3 — the WebGL2 twin composes the SAME variant as the WGSL
@@ -261,11 +261,15 @@ export class LineDraper {
       // render the default stroke on WebGL2 for a variant-carrying layer: no
       // crash, no failing pipeline, just the wrong colour — which is exactly
       // why the renderer-level gate alone was not the whole fix.
-      vsCode: glslFor(this.rhi, () => emitLineGlsl(this.variant, pick, 'vertex'), baked?.vertex),
+      vsCode: glslFor(
+        this.rhi,
+        () => emitLineGlsl(this.variant, pick, 'vertex'),
+        baked?.vertex ?? LIVE,
+      ),
       fsCode: glslFor(
         this.rhi,
         () => emitLineGlsl(this.variant, pick, 'fragment'),
-        baked?.fragment,
+        baked?.fragment ?? LIVE,
       ),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
@@ -293,7 +297,7 @@ export class LineDraper {
           fsCode: glslFor(
             this.rhi,
             () => emitLineGlsl(this.variant, pick, 'fragment-pattern'),
-            baked?.pattern,
+            baked?.pattern ?? LIVE,
           ),
           label: pick ? 'line-pipeline-pattern-pick-rhi' : 'line-pipeline-pattern-rhi',
         },
@@ -308,14 +312,18 @@ export class LineDraper {
     const gl2 = !readsWgsl(this.rhi)
     const baked = this.bakedLineIds(false)
     return (this._maxMaterial ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false), baked?.wgsl),
+      shader: wgslFor(this.rhi, () => emitLineWgsl(this.variant, false), baked?.wgsl ?? LIVE),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line_max',
-      vsCode: glslFor(this.rhi, () => emitLineGlsl(this.variant, false, 'vertex'), baked?.vertex),
+      vsCode: glslFor(
+        this.rhi,
+        () => emitLineGlsl(this.variant, false, 'vertex'),
+        baked?.vertex ?? LIVE,
+      ),
       fsCode: glslFor(
         this.rhi,
         () => emitLineGlsl(this.variant, false, 'fragment-max'),
-        baked?.max,
+        baked?.max ?? LIVE,
       ),
       // The offscreen ACCUM format, not the canvas format: this pipeline draws
       // ONLY into the translucent offscreen (LINE_OFFSCREEN_FORMAT is the one
@@ -351,7 +359,7 @@ export class LineDraper {
       shader: wgslFor(
         this.rhi,
         () => emitLineWgsl(this.variant, false),
-        this.bakedLineIds(false)?.wgsl,
+        this.bakedLineIds(false)?.wgsl ?? LIVE,
       ),
       vsEntry: 'vs_line',
       fsEntry: 'fs_line',

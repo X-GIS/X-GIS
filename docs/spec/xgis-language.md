@@ -135,11 +135,12 @@ source lbl { label: "Seoul \"downtown\"\nzone" }
 ## 1.5 Colors
 
 ```
-COLOR  = "#" HEXDIG{3} | "#" HEXDIG{6} | "#" HEXDIG{8}
+COLOR  = "#" HEXDIG{3} | "#" HEXDIG{4} | "#" HEXDIG{6} | "#" HEXDIG{8}
 HEXDIG = DIGIT | "a"…"f" | "A"…"F"
 ```
 
-`#RGB`, `#RRGGBB`, or `#RRGGBBAA`. The lexer consumes the maximal hex run after `#`
+`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA` (the 4-digit form is the CSS Color
+Module 4 shorthand, #2543). The lexer consumes the maximal hex run after `#`
 and rejects any other length as a hard error (**"Invalid color literal"**) — so
 `#ff` and `#12345` do not lex (`lexer.ts` `readColor`).
 
@@ -475,7 +476,7 @@ a `match(...)`/`categorical(...)`/`gradient(...)` call (with an optional trailin
 `match-block`, §3.13). A trailing unit after `]` is absorbed (`size-[expr]km`). The
 parser records `modifier`, `name`, `binding`, `bindingUnit` verbatim and does **not**
 validate the name against the vocabulary — see §3.11. A modifier item still needs a
-*lowering* handler for its utility half, and today only `fill-*` has one
+_lowering_ handler for its utility half, and today only `fill-*` has one
 (`MODIFIER_HANDLERS` in `compiler/src/ir/lower-bindings-registry.ts`) — any other
 utility under a modifier (`hover:opacity-100`) is `X-GIS0028`, not a silent no-op.
 

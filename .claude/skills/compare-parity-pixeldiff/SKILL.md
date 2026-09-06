@@ -19,8 +19,8 @@ dependencies, pure Python 3) at least twice:
    A fix that claims a visual effect must show `DC > 0`; a refactor that
    claims none must show `DC = 0` (then climb to the hash rung below).
 2. **D0 / D1 — vs MapLibre (or the reference renderer).** Proves the
-   DIRECTION: `D0` = reference↔X-GIS *before*, `D1` = reference↔X-GIS
-   *after*. The fix is only "toward parity" when `D1 < D0`.
+   DIRECTION: `D0` = reference↔X-GIS _before_, `D1` = reference↔X-GIS
+   _after_. The fix is only "toward parity" when `D1 < D0`.
 
 ```bash
 python3 .claude/skills/compare-parity-pixeldiff/compare-diff.py \
@@ -35,7 +35,7 @@ python3 .claude/skills/compare-parity-pixeldiff/compare-diff.py \
 
 - Gate on **`DC > 0` and `D1 < D0`** — NEVER on an absolute percentage.
   The reference↔X-GIS absolute diff is noisy (AA, glyph engines, gamma);
-  its *movement* is the signal.
+  its _movement_ is the signal.
 - Render-gate ladder (§12): **directional diff → threshold `DC = 0` →
   hash equality** (`md5sum` on captures from a deterministic harness:
   fixed camera, pumped convergence, software rasterizer). Measure the
@@ -52,12 +52,12 @@ python3 .claude/skills/compare-parity-pixeldiff/compare-diff.py \
 Signed encoding: **red = first argument brighter, blue = second argument
 brighter**, black = equal (amplified ×4 for visibility).
 
-| pattern | meaning |
-| --- | --- |
-| paired red/blue parallel edges | positional shift |
-| red (or blue) on BOTH sides of a stroke | width change |
-| solid filled blocks | fill / colour change |
-| diff confined to text | glyph engine difference |
+| pattern                                 | meaning                 |
+| --------------------------------------- | ----------------------- |
+| paired red/blue parallel edges          | positional shift        |
+| red (or blue) on BOTH sides of a stroke | width change            |
+| solid filled blocks                     | fill / colour change    |
+| diff confined to text                   | glyph engine difference |
 
 ## Failure modes this skill exists to kill
 

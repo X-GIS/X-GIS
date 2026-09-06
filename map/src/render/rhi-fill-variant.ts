@@ -40,7 +40,7 @@ import type { RhiBindGroup, RhiBindLayoutEntry, RhiBuffer, RhiDevice } from '@xg
 import type { Material } from '@xgis/engine'
 import { emitPolygonWgsl, emitPolygonGlslStages } from '../shaders/dsl/polygon'
 import { buildFlatFillMaterials, type FillMaterialInputs } from './material/polygon-fill-material'
-import { wgslFor, glslStagesFor } from './material/wgsl-for'
+import { LIVE, glslStagesFor, wgslFor } from './material/wgsl-for'
 import { toComposerVariant } from './polygon-shader-cache'
 import { packPerTileFeatureData } from './feature-data-pack'
 import { polygonUniformBytes } from './polygon-uniform-slots'
@@ -121,8 +121,8 @@ export class RhiFillVariantPath {
     const composed = toComposerVariant(v)
     const mat = buildFlatFillMaterials({
       rhi: this.rhi,
-      shader: wgslFor(this.rhi, () => emitPolygonWgsl(composed, false)),
-      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(composed, false)),
+      shader: wgslFor(this.rhi, () => emitPolygonWgsl(composed, false), LIVE),
+      ...glslStagesFor(this.rhi, () => emitPolygonGlslStages(composed, false), LIVE),
       format: this.format,
       sampleCount: 1,
       rhiGroups: groupsFor(v.needsFeatureBuffer),

@@ -60,6 +60,7 @@ import {
   POLY_STROKE,
   SIMPLE_FAMILIES,
   WGSL_ONLY_FAMILIES,
+  WGSL_ONLY_PLAIN_FAMILIES,
   hillshadeGlslId,
   hillshadeWgslId,
   lineGlslId,
@@ -74,6 +75,7 @@ import {
   simpleGlslId,
   simpleWgslId,
   wgslOnlyId,
+  wgslOnlyPlainId,
 } from './ids'
 
 // The polygon byte pin below emits, so the same two host seams `baked-sync.test.ts`
@@ -138,6 +140,8 @@ function enumerateGrammar(): Produced[] {
     for (const pick of PICK_STATES)
       add(wgslOnlyId(family, pick), `wgslOnlyId('${family}', ${pick})`)
   for (const n of OIT_SAMPLE_COUNTS) add(oitComposeWgslId(n), `oitComposeWgslId(${n})`)
+  for (const family of WGSL_ONLY_PLAIN_FAMILIES)
+    add(wgslOnlyPlainId(family), `wgslOnlyPlainId('${family}')`)
 
   return out
 }
@@ -273,6 +277,7 @@ describe('baked ids — (c) token hygiene: nothing is interpolated from undefine
     // The WGSL-only shapes (#2499): pick only, and the sample-count token only.
     expect(wgslOnlyId('polygon-split', true)).toBe('wgsl/polygon-split/pick')
     expect(oitComposeWgslId(4)).toBe('wgsl/oit-compose/s4')
+    expect(wgslOnlyPlainId('extrude-shell-compose')).toBe('wgsl/extrude-shell-compose')
   })
 })
 

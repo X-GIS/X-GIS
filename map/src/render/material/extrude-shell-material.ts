@@ -23,6 +23,7 @@
 import type { RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitExtrudeShellComposeWgsl } from '../../shaders/dsl/extrude-shell-compose'
+import { wgslOnlyPlainId } from '../../shaders/baked/ids'
 import { wgslFor } from './wgsl-for'
 
 /** Pooled uniform slot size — one `alpha` f32 padded to the minimum uniform
@@ -57,7 +58,11 @@ export class ExtrudeShellComposeDraper {
    *  another's value. 'premult' because `fs_shell` emits premultiplied rgb. */
   private mat(): Material {
     return (this._material ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, emitExtrudeShellComposeWgsl),
+      shader: wgslFor(
+        this.rhi,
+        emitExtrudeShellComposeWgsl,
+        wgslOnlyPlainId('extrude-shell-compose'),
+      ),
       vsEntry: 'vs_shell',
       fsEntry: 'fs_shell',
       format: this.format as 'bgra8unorm',

@@ -47,6 +47,7 @@
     "knip": "knip",
     "dup": "bun scripts/dup-ratchet.ts",
     "dup:report": "bun scripts/dup-ratchet.ts --report",
+    "dup:shape": "bun scripts/dup-ratchet.ts --report --shape",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"

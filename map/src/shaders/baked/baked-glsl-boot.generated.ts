@@ -22,6 +22,12 @@ export const BAKED_GLSL_BOOT: BakedArtifact = {
     projectionFingerprint: '292d53465dc3c9b4',
   },
   contents: {
+    c5490f59a6e6feeb:
+      '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D src;in vec2 uv;layout(location=0)out vec4 _ret;void main(){_ret=texture(src,uv);}\n',
+    '491997beb26ee97c':
+      '#version 300 es\nprecision highp float;precision highp int;out vec2 uv;void main(){uint vi=uint(gl_VertexID);vec2 _av0=vec2(-1.,-1.);vec2 _av1=vec2(0.,0.);if((vi==1u)){_av0=vec2(3.,-1.);_av1=vec2(2.,0.);}if((vi==2u)){_av0=vec2(-1.,3.);_av1=vec2(0.,2.);}gl_Position=vec4(_av0,0.,1.);uv=_av1;}\n',
+    '4cb8916175593f17':
+      '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D src;layout(std140)uniform CompUniform{float opacity;vec3 _pad;}cu;in vec2 uv;layout(location=0)out vec4 _ret;void main(){vec4 _cse1=texture(src,uv);float _cse0=_cse1.w;_ret=vec4(((_cse1.rgb*_cse0)*cu.opacity),(_cse0*cu.opacity));}\n',
     '6a7749c87037b66a':
       '#version 300 es\nprecision highp float;precision highp int;uniform sampler2D atlas_tex;in vec2 uv;in float opacity;in vec3 tint;flat in float sdf;layout(location=0)out vec4 _ret;void main(){vec4 _cse1=texture(atlas_tex,uv);float _cse0=_cse1.w;float _v0=max(fwidth(_cse0),1e-4);_ret=((sdf>.5)?vec4(tint,(smoothstep((.5-_v0),(.5+_v0),_cse0)*opacity)):vec4(_cse1.rgb,(_cse0*opacity)));}\n',
     cd7b26b76340abd9:
@@ -78,6 +84,8 @@ export const BAKED_GLSL_BOOT: BakedArtifact = {
   index: {
     'glsl/icon/fragment': '6a7749c87037b66a',
     'glsl/icon/vertex': 'f343b87b107bd06d',
+    'glsl/line-composite/fragment': '4cb8916175593f17',
+    'glsl/line-composite/vertex': '491997beb26ee97c',
     'glsl/line/nopick/fragment/fs_line': '4d9a71b5839ebba3',
     'glsl/line/nopick/fragment/fs_line_max': 'ad2953c833b414b2',
     'glsl/line/nopick/fragment/fs_line_pattern': '9a042dea9029b300',
@@ -102,6 +110,8 @@ export const BAKED_GLSL_BOOT: BakedArtifact = {
     'glsl/raster/nopick/vertex': '8a4e55caabd67c80',
     'glsl/raster/pick/fragment': '3738835e1c30078c',
     'glsl/raster/pick/vertex': '8a4e55caabd67c80',
+    'glsl/scene-upscale/fragment': 'c5490f59a6e6feeb',
+    'glsl/scene-upscale/vertex': '491997beb26ee97c',
     'glsl/text/fragment': '8e7246c080c08eae',
     'glsl/text/vertex': 'cd7b26b76340abd9',
     'glsl/under-occluder/nopick/fragment': 'ee95eb6094307f3e',
