@@ -29,13 +29,13 @@ entry `r1c2` is exactly the file `tile-r1c2.png`.
 
 ## Reading semantics (on a signed red/blue diff image)
 
-| pattern | verdict |
-| --- | --- |
-| paired red/blue parallel edges | positional shift (measure the offset) |
+| pattern                                 | verdict                                                                             |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| paired red/blue parallel edges          | positional shift (measure the offset)                                               |
 | red (or blue) on BOTH sides of a stroke | width change — MEASURE pixel width before calling it one; the eyeball lies on width |
-| solid filled blocks | fill / colour change |
-| diff confined to glyphs | glyph engine difference |
-| thin connected single-colour runs | seam artifact — check structure, not just counts |
+| solid filled blocks                     | fill / colour change                                                                |
+| diff confined to glyphs                 | glyph engine difference                                                             |
+| thin connected single-colour runs       | seam artifact — check structure, not just counts                                    |
 
 ## Rules
 
