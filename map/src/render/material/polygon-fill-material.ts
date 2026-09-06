@@ -151,6 +151,13 @@ const toMatVB = (l: GPUVertexBufferLayout) => ({
   })),
 })
 
+/** The entry pair EVERY flat/ground fill Material is built with — both Materials below
+ *  spread the one `base`, and so do their split twins. #2572's eligibility check asks
+ *  what these two entry points reach, so the pair is named here once rather than
+ *  restated at the check: a future flat/ground split into different entries would
+ *  otherwise silently widen what that check has to cover. */
+export const FILL_ENTRY_POINTS = ['vs_main_ecef', 'fs_fill'] as const
+
 /** Build the flat + ground fill Material twins for one shader (default or per-style). Pickable: the
  *  pick target writeMask is 0xf (the polygon fragment writes the feature id). */
 export function buildFlatFillMaterials(inp: FillMaterialInputs): {
@@ -171,8 +178,8 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
     shader: inp.shader,
     vsCode: inp.vsCode,
     fsCode: inp.fsCode,
-    vsEntry: 'vs_main_ecef',
-    fsEntry: 'fs_fill',
+    vsEntry: FILL_ENTRY_POINTS[0],
+    fsEntry: FILL_ENTRY_POINTS[1],
     format: fmt,
     sampleCount: inp.sampleCount,
     groups,
@@ -718,6 +725,7 @@ export function recordFillDraw(
       if (splitBind && eff.split && !bindZBuffer) {
         let sMat: Material | null = null
         let sVariant = variant
+        let perStyle = false
         if (mat === eff.flat) sMat = eff.split.flat
         else if (mat === eff.ground) sMat = eff.split.ground
         else if (!extrudeSolid) {
@@ -725,6 +733,7 @@ export function recordFillDraw(
           if (t) {
             sMat = t.mat
             sVariant = t.variant
+            perStyle = true
           }
         }
         if (sMat) {
@@ -736,8 +745,20 @@ export function recordFillDraw(
               dynamicOffsets: [[splitBind.tileOff, splitBind.showOff]],
             },
           ])
-          const gs = globalThis as { __xgisVtrSplitDraws?: number }
+          // #2572 — TWO counters, because one cannot attribute. The total counts
+          // the default flat/ground twins as well, so a scene with any
+          // variant-less fill drives it above zero no matter what the per-style
+          // resolver answers — which is how `_split-perstyle-parity-gate`'s
+          // vacuity guard stayed green through the whole period the per-style
+          // twin was unreachable. The second counter is the per-style branch
+          // alone, so that gate can assert the mechanism it is named for.
+          const gs = globalThis as {
+            __xgisVtrSplitDraws?: number
+            __xgisVtrSplitPerStyleDraws?: number
+          }
           gs.__xgisVtrSplitDraws = (gs.__xgisVtrSplitDraws ?? 0) + draws
+          if (perStyle)
+            gs.__xgisVtrSplitPerStyleDraws = (gs.__xgisVtrSplitPerStyleDraws ?? 0) + draws
           g.__xgisVtrFillRhiDraws = (g.__xgisVtrFillRhiDraws ?? 0) + draws
           return
         }

@@ -52,6 +52,9 @@
 
 import { describe, it, expect } from 'vitest'
 import { FrameRenderer } from '@xgis/map'
+import { frameBlockU } from '../shaders/dsl/frame-block'
+import { showBlockU } from '../shaders/dsl/show-block'
+import { tileBlockU } from '../shaders/dsl/tile-block'
 
 interface MinimalEntry {
   binding: number
@@ -134,5 +137,20 @@ describe('bind-group layout drift invariant (iter-204A)', () => {
     // bind-group sites untouched.
     const legacy = new Set(FrameRenderer.getFeatureLayoutEntries().map((e) => e.binding))
     for (const e of entries) expect(legacy.has(e.binding), `binding ${e.binding}`).toBe(false)
+  })
+
+  it('#2572 — the three split BLOCKS are what that layout carries, derived not restated', () => {
+    // `fitsSplitLayout` (polygon-split.ts) allows exactly the blocks the split rewrite
+    // creates, and both split modules are built from these same three handles. That is
+    // only a correct eligibility test while the blocks and the GPU layout are the same
+    // triple — so pin them to each other here, rather than writing 7/10/11 a fourth time
+    // inside the check. A renumber on either side reds one assertion, not zero.
+    const blocks = [frameBlockU, showBlockU, tileBlockU]
+      .map((u) => u.binding.binding)
+      .sort((a, b) => a - b)
+    expect(blocks).toEqual(
+      [...FrameRenderer.SPLIT_FILL_LAYOUT_ENTRIES.map((e) => e.binding)].sort((a, b) => a - b),
+    )
+    expect([frameBlockU, showBlockU, tileBlockU].every((u) => u.binding.group === 0)).toBe(true)
   })
 })

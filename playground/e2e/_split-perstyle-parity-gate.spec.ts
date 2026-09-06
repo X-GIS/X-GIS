@@ -12,11 +12,22 @@
 // colours, no filters, so every layer is its own per-style show).
 //
 // Vacuity guards (the #996 lesson):
-//   • the ON arm must report `__xgisVtrSplitDraws > 0` — per-style twins
-//     count through the same executed-mechanism counter — AND
-//     `__xgisVtrWalkSkips > 0` — the INC-5 pack bypass must now ENGAGE for
-//     this class (it measured 0 here before INC-4d, which is the finding
-//     this increment answers); the OFF arm must report 0 for both.
+//   • the ON arm must report `__xgisVtrSplitPerStyleDraws > 0` — the PER-STYLE
+//     branch of recordFillDraw alone — plus `__xgisVtrSplitDraws > 0` and
+//     `__xgisVtrWalkSkips > 0` (the INC-5 pack bypass must ENGAGE for this
+//     class); the OFF arm must report 0 for all three.
+//
+//     #2572 — the per-style counter is why those other two are no longer the
+//     guard. Both are satisfied by the DEFAULT flat/ground twins: the total
+//     counts `mat === eff.flat` draws (polygon-fill-material.ts), and
+//     `_walkRingFree`'s `splitFillsCapable` is an OR over the four default
+//     pipelines and the per-style twin (vector-tile-renderer.ts:2131-2137). So
+//     any variant-less fill in the scene drives both above zero whatever the
+//     per-style resolver answers — which is exactly what happened: the resolver
+//     decided eligibility by regexing the emitted module (the union of all nine
+//     entry points, so `fs_fill_pattern`'s sprite bindings disqualified every
+//     variant), returned null for every styled fill this gate draws, and this
+//     gate stayed GREEN throughout. A composite counter cannot attribute.
 //   • No skew arm: these variants INLINE their colours as module consts, so
 //     the ShowBlock colour lanes the skew hook inverts are never read — the
 //     read-proof for the lanes this class DOES consume (mvp/proj from
@@ -212,11 +223,19 @@ function pixelDiff(a: Buffer, b: Buffer): { count: number; highCount: number; ma
   return { count, highCount, maxDelta }
 }
 
-const mechCounts = (page: Page): Promise<{ fills: number; skips: number }> =>
-  page.evaluate(() => ({
-    fills: (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0,
-    skips: (globalThis as { __xgisVtrWalkSkips?: number }).__xgisVtrWalkSkips ?? 0,
-  }))
+const mechCounts = (page: Page): Promise<{ fills: number; perStyle: number; skips: number }> =>
+  page.evaluate(() => {
+    const g = globalThis as {
+      __xgisVtrSplitDraws?: number
+      __xgisVtrSplitPerStyleDraws?: number
+      __xgisVtrWalkSkips?: number
+    }
+    return {
+      fills: g.__xgisVtrSplitDraws ?? 0,
+      perStyle: g.__xgisVtrSplitPerStyleDraws ?? 0,
+      skips: g.__xgisVtrWalkSkips ?? 0,
+    }
+  })
 
 test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk-skip provably engage', async ({
   browser,
@@ -247,12 +266,18 @@ test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk
     expect(arm.errors, `arm ${name} page errors:\n${arm.errors.join('\n')}`).toEqual([])
   }
   expect(
-    legacyCounts.fills + legacyCounts.skips,
+    legacyCounts.fills + legacyCounts.perStyle + legacyCounts.skips,
     'legacy arm recorded split draws / walk-skips — the flag gate leaks',
   ).toBe(0)
   expect(
+    splitCounts.perStyle,
+    'split arm recorded ZERO PER-STYLE split fill draws — perStyleSplitTwin resolved null for ' +
+      'every styled fill in this scene, so this gate is measuring the DEFAULT twins and the A/B ' +
+      'below says nothing about INC-4d (#2572)',
+  ).toBeGreaterThan(0)
+  expect(
     splitCounts.fills,
-    'split arm recorded ZERO split FILL draws — the per-style twin never engaged; the A/B below is vacuous',
+    'split arm recorded ZERO split FILL draws — the split path never engaged at all',
   ).toBeGreaterThan(0)
   expect(
     splitCounts.skips,
