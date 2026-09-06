@@ -116,3 +116,26 @@ export function lookupKeyword(word: string): TokenType {
 export function lookupUnit(word: string): TokenType | null {
   return UNITS[word] ?? null
 }
+
+/** Can `name` be emitted as a BARE identifier, or must an emitter QUOTE it?
+ *
+ *  Two conditions, and the second is the one that is easy to miss. The name
+ *  must match the identifier character class — that much is obvious from the
+ *  grammar, and it is why the hyphenated `raster-dem` has to be quoted
+ *  (`type: raster-dem` re-parses as the expression `raster - dem`). But it
+ *  must ALSO not be a keyword: `readIdentifier` ends with `lookupKeyword`, so
+ *  an identifier-shaped keyword never reaches the parser as an Identifier.
+ *
+ *  Measured on all 14 keywords, every one of which is identifier-shaped:
+ *  twelve (`source`, `layer`, `input`, `fn`, …) make the parser THROW
+ *  (`Unexpected token: source (Source)`) and kill the whole file, and
+ *  `true` / `false` lower to the `geojson` default with the source's options
+ *  silently dropped — the exact loss #2549 exists to prevent. Control:
+ *  `custom_name` round-trips.
+ *
+ *  This is the SINGLE AUTHORITY for that rule, shared by every `type:`
+ *  emitter (blueprint's codegen and the Mapbox converter), so the two cannot
+ *  drift apart — and it is derived from `KEYWORDS` rather than restating it. */
+export function isBareIdentifierSafe(name: string): boolean {
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) && lookupKeyword(name) === TokenType.Identifier
+}

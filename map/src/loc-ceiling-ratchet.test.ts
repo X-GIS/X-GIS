@@ -2687,7 +2687,54 @@ const CEILINGS: Record<string, number> = {
   // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
   // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
   // dependency the gate now genuinely has.
-  'compiler/src/tiler/vector-tiler.ts': 1616,
+  // 1616->1652 (#2550, measured post-prettier): antimeridian handling for polygons.
+  // The 36 lines buy `unwrapRingsToOneBranch` (11 lines of code, putting every ring
+  // of one polygon on a single 360-degree branch and each hole onto its shell's) plus
+  // the type dispatch that lets the existing world-copy emit serve polygons as well as
+  // lines — and the docblocks recording WHY, including the deletion of the "polygons
+  // clip/fill correctly through the existing path" claim that hid the bug. Not
+  // extract-able without splitting the part-decomposition step away from the part
+  // types it builds, which is the one place that decides what a GeometryPart is.
+  // 1652→1700 (#2553): +48 for the clip-provenance narrowing of
+  // `extractNonSyntheticArcs` — the `clipperInserted` parameter and its
+  // docblock, the `isOnMercWorldRect` scope guard that keeps the antimeridian
+  // seam stripped, and the per-call-site provenance Set. What it buys: a real
+  // polygon edge lying ALONG a tile side (a box on lon 0 or the equator) keeps
+  // its outline stroke instead of being mistaken for the clipper's own closing
+  // edge. Not extract-able: the classifier and the outline call site it feeds
+  // are the same single authority this file already houses.
+  // 1700->1688 (#2550): DOWN, not slack. `unwrapRingsToOneBranch` and its call in
+  // `makePolygonPart` are deleted — they read any >180 deg ring edge as a fold and
+  // rewrote it, which reinterpreted the z=0 world parent [-170..170] as a 20 deg
+  // seam crosser and collapsed its mid-world children
+  // (data/src/sub-tile-generator.test.ts). A ring bounds an AREA and is read at
+  // face value; RFC 7946 3.1.9 puts the split burden on the producer. Lowered to
+  // the measured figure rather than banked as headroom.
+  // 1688->1703 (#2553 follow-up): +15 for the all-edges-on-rect guard in
+  // `extractNonSyntheticArcs` and the docblock recording why it is GEOMETRIC.
+  // #2553 narrowed the synthetic test with clip provenance, which over-fired on
+  // a ring the clip collapsed onto ONE rect side: a box whose east side lies
+  // exactly on this tile's west edge keeps its own source corners, so
+  // `rescuesEdge` called them real and the outline strokes a line down the tile
+  // border for a feature with no area in the tile. The guard is the invariant
+  // the narrowing was missing (provenance may only narrow a ring that HAS
+  // interior here), and it cannot be an area test: `intersect` snaps a cut
+  // vertex to the tile grid, so a collapsed ring's shoelace is not zero.
+  // 1703->1708 (#2553 nit): +5 recording that BOUNDARY_EPS_MM is the DEFAULT of
+  // `makeSameBoundarySidePredicateMerc`'s `eps` — no production call site passes
+  // a literal any more — and that sharing it with `isOnMercWorldRect` is
+  // deliberate, because "how close counts as ON a rect" is one physical question
+  // and two equal constants would be two authorities for it.
+  // 1708->1722 (#2553 follow-up, review): the collapsed-ring guard's rationale
+  // said the ring "has no interior in this tile". That is false for one of the two
+  // rings the guard drops — a ring that IS the tile rect has FULL interior and is
+  // still dropped, correctly, because its outline coincides with the tile edge
+  // where the neighbour's geometry meets it. Measured through the real entry
+  // points: exact-rect polygon -> outline 0, the same box inset by 1 degree ->
+  // outline 980. The comment now names both rings separately and records why
+  // `onRect` must stay PURELY geometric (a narrowed one stops the guard firing —
+  // the reverted runtime patch in #2603). Comment only; no executable change.
+  'compiler/src/tiler/vector-tiler.ts': 1722,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

@@ -19,7 +19,8 @@ Declarative machine-readable catalogue of the 8 real X-GIS language constructs (
 ### Working In This Directory
 
 - `language.ts` is a codegen contract: `SchemaProperty.key` values (e.g. `strokeWidth`) are stable identifiers consumed by both the blueprint editor and compiler codegen. Never rename a key — add a new one and deprecate the old one if needed.
-- When the grammar gains a construct or a new field, update `LANGUAGE_SCHEMA` here AND add a `SAMPLES` entry in `language.test.ts` — the conformance test asserts `Object.keys(SAMPLES).sort()` equals `Object.keys(LANGUAGE_SCHEMA).sort()`, so omitting either side fails CI.
+- When the grammar gains a construct or a new field, update `LANGUAGE_SCHEMA` here AND add a `SAMPLES` entry in `language.test.ts` — the conformance test asserts `Object.keys(SAMPLES).sort()` equals `Object.keys(LANGUAGE_SCHEMA).sort()`, so omitting either side fails CI. A `valueKind: 'enum'` property additionally needs an `ENUM_SAMPLES` renderer, because every one of its `options` is parsed (#2548).
+- An enum's `options` must be the list the grammar/lowering already owns, imported — never re-declared here. The symbol block's `anchor` names `SYMBOL_ANCHORS` (`ir/symbol-elements.ts`) for exactly that reason: a local nine-value copy advertised four corner anchors the lexer cannot read (#2548).
 - `astKind` must match the exact `kind` string used in `parser/ast.ts` Statement union types. Drift here is silent at schema-definition time but breaks any consumer that switches on `astKind`.
 - The `refs` array on `layer` defines 4 typed input pins (`source` required, `style`, `apply` multi-preset, `symbol`). The conformance test asserts every `ref.refType` names a real producing construct, so adding a ref to a non-producing construct fails immediately.
 - Do NOT add editor-only fields (colors, textarea hints, palette ordering) — those belong in `@xgis/blueprint`.

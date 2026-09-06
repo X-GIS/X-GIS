@@ -114,7 +114,8 @@ describe('#1984 W2 — a raster-dem source emits it too (the other clipping cons
   it('emits bounds on the raster-dem block, DEM diagnostics untouched', () => {
     const { code, warnings } = convert(demStyle({ bounds: [5, 45, 11, 48] }))
     const block = sourceBlock(code, 'terrain')
-    expect(block).toContain('type: raster-dem')
+    // Quoted since #2549 — a bare `raster-dem` re-parses as `raster - dem`.
+    expect(block).toContain('type: "raster-dem"')
     expect(block).toContain('bounds: [5, 45, 11, 48]')
     expect(boundsWarnings(warnings)).toEqual([])
     // Pre-existing raster-dem diagnostics are not in scope and must not move by THIS

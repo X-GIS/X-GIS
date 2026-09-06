@@ -1,7 +1,8 @@
 // Repro for #1221 — a GeoJSON LineString whose longitudes continue past
 // 180 renders broken at the antimeridian: a spurious vertical stroke down
 // the 180 seam and a missing shifted world-copy continuation (180→195).
-// Polygons crossing the same seam render fine.
+// (This header used to add "polygons crossing the same seam render fine" —
+// they did not; that is #2550, gated by ../wrap-polygon-antimeridian.test.ts.)
 //
 // Witness: [[165,60],[175,66],[185,68],[195,64]] — a monotone-east polyline
 // whose last two vertices sit past +180 (i.e. in the next world copy).
@@ -137,7 +138,7 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
   // each tile at world-copy offsets of ±360° (ADR-0006): the ONLY way 180→195
   // can render is for the tail to exist as data in the WEST tiles (−180→−165),
   // which the renderer then draws at world-copy +1 → appears at 180→195.
-  // pushLinePartWithWrap emits that −360-shifted copy. This asserts the tail
+  // pushPartWithWrap emits that −360-shifted copy. This asserts the tail
   // reaches BOTH the east tile (z2 x3) AND the wrapped west tile (z2 x0).
   describe('inline compileSingleTile world-copy continuation', () => {
     const parts = decomposeFeatures([WITNESS_LINE as unknown as GeoJSONInput] as never)
@@ -180,6 +181,213 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
         expect(l, `west lon ${l} ≤ −165`).toBeLessThanOrEqual(-164.999)
         expect(l + 360, `west lon+360 ${l + 360} is a beyond-seam lon (>180)`).toBeGreaterThan(180)
       }
+    })
+  })
+})
+
+// ── #2547: the FOLDED authoring of the same seam crossing ──
+//
+// Everything above drives the past-seam convention (165→195). Most producers
+// emit the other one: a LineString folded back into (−180, 180], e.g.
+// [[170,0],[-170,0]] for the same 20° span. `subdivideLine` interpolated the
+// intermediates on the unwrapped branch (171…189) but pushed the authored
+// endpoint −170 verbatim, leaving a 359° step. The part's bbox then spanned
+// −170…189, `pushPartWithWrap` copied that, and the per-tile clip handed a
+// piece to every z2 column on the equator.
+//
+// Oracle: the folded input must tile like the same span written unwrapped —
+// the representation the #1221 path above already handles.
+describe('#2547 folded antimeridian authoring tiles like the unwrapped span', () => {
+  /** Drive a producer-shaped Feature through the real entry points and report
+   *  both quantities the 359° step corrupted: the lon extent of each emitted
+   *  part (including its world-copy), and the z2 columns that receive line
+   *  geometry.
+   *
+   *  Vertex COUNTS are compared too. They used not to be, on the ground that
+   *  the two authorings differ by one ULP in `greatCircleDistanceDeg` (acos of
+   *  cos(20°) vs of cos(−340°)) landing either side of `Math.ceil` — that reason
+   *  died with #2547: `unwrapLonBranch` now runs BEFORE the distance is taken,
+   *  so both authorings hand it identical coordinates and the counts are equal
+   *  by construction (measured: 22 and 22 for the two-point pair). The count is
+   *  the quantity a re-specialisation of the densifier would move first, so it
+   *  is the strongest equality available here. */
+  function tiledSeamCrossing(coords: number[][]): {
+    partLonRanges: [number, number][]
+    columns: number[]
+    lineVertexCount: number
+  } {
+    const feature = {
+      type: 'Feature',
+      properties: { name: 'seam-crosser' },
+      geometry: { type: 'LineString', coordinates: coords },
+    } as unknown as GeoJSONInput
+    const parts = decomposeFeatures([feature] as never)
+    const columns: number[] = []
+    let lineVertexCount = 0
+    for (let x = 0; x < 4; x++) {
+      const tile = compileSingleTile(parts, 2, x, 1, 7)
+      if (tile && tile.lineVertices.length > 0) {
+        columns.push(x)
+        lineVertexCount += tile.lineVertices.length
+      }
+    }
+    return { partLonRanges: parts.map((p) => [p.minLon, p.maxLon]), columns, lineVertexCount }
+  }
+
+  it('(a) a two-point folded crossing tiles like its unwrapped twin', () => {
+    // Instrument check: the unwrapped control is the documented two-tile
+    // world-copy result (x3 carries 170→180, x0 the −360-shifted tail).
+    const unwrapped = tiledSeamCrossing([
+      [170, 0],
+      [190, 0],
+    ])
+    expect(unwrapped.columns).toEqual([0, 3])
+    expect(unwrapped.partLonRanges).toEqual([
+      [170, 190],
+      [-190, -170],
+    ])
+
+    // FAIL-BEFORE: the folded arm's part spanned −170…189 and reached x1
+    // (−90…0) and x2 (0…90), nowhere near the feature.
+    const folded = tiledSeamCrossing([
+      [170, 0],
+      [-170, 0],
+    ])
+    // The whole-object equality now covers `lineVertexCount` too (see the
+    // helper's docblock). Pin it POSITIVE as well: 0 === 0 would satisfy the
+    // equality while proving nothing about the geometry in those tiles.
+    expect(unwrapped.lineVertexCount).toBeGreaterThan(0)
+    expect(folded).toEqual(unwrapped)
+  })
+
+  it('(b) a folded polyline crossing the seam twice tiles like its unwrapped twin', () => {
+    // Per vertex, not just the last one: each successive point has to be
+    // carried onto the running branch, so the offset accumulates and cancels.
+    const folded = tiledSeamCrossing([
+      [175, 20],
+      [-175, 22],
+      [175, 24],
+      [-175, 26],
+    ])
+    const unwrapped = tiledSeamCrossing([
+      [175, 20],
+      [185, 22],
+      [175, 24],
+      [185, 26],
+    ])
+    expect(unwrapped.columns).toEqual([0, 3])
+    expect(unwrapped.partLonRanges).toEqual([
+      [175, 185],
+      [-185, -175],
+    ])
+    expect(unwrapped.lineVertexCount).toBeGreaterThan(0)
+    expect(folded).toEqual(unwrapped)
+  })
+
+  // ── The ±180 / ±360 exemption inside `unwrapLonBranch` ──
+  //
+  // `geometry-sphere.ts` rounds a Δlon to the nearest whole-world branch EXCEPT
+  // at the two exact boundaries (`mag <= 180 || mag === 360`). Two longitudes
+  // normalized into (−180, 180] are strictly less than a whole world apart
+  // unless they are −180 and 180 themselves, so neither boundary can be a fold,
+  // and rounding either one destroys real geometry.
+  //
+  // These arms live HERE, on the line path, because that is the only place the
+  // exemption still runs: `subdivideLine` is `unwrapLonBranch`'s sole production
+  // caller since #2550's per-ring unwrap was reverted (a ring bounds an AREA and
+  // is read at face value — RFC 7946 §3.1.9 puts the split burden on the
+  // producer, so a wide ring edge is a wide box, not a fold). The arm that used
+  // to stand for the exemption — `(f)` in ../wrap-polygon-antimeridian.test.ts —
+  // goes through `tiledPolygon`, which no longer reaches this code at all.
+  //
+  // LINES are the other side of that settled asymmetry: they take the SHORT way
+  // round, which is what arm (e) below controls for and what
+  // ../parallel-arc-fidelity.test.ts pins at the densifier.
+  //
+  // End to end through `decomposeFeatures` → `compileSingleTile` rather than
+  // against `subdivideLine`'s array, because the quantity the exemption protects
+  // is the part's lon extent that the per-tile clip reads — the same observables
+  // arms (a)/(b) above use, so one harness covers both.
+  describe('#2550 an exact half- or whole-world line edge is NOT read as a fold', () => {
+    it('(c) mag === 360: a −180 → 180 line sweeps the whole world, it does not collapse', () => {
+      // FAIL-BEFORE (exemption deleted): Δlon = +360 rounds to one whole world,
+      // so the second vertex is rewritten to −180. The line becomes a zero-width
+      // point — partLonRanges [[-180, -180]], columns [0], and `subdivideLine`
+      // returns 2 vertices instead of 65 because the span is now 0.
+      const world = tiledSeamCrossing([
+        [-180, 0],
+        [180, 0],
+      ])
+      expect(world.partLonRanges, 'the full-world sweep collapsed to a point').toEqual([
+        [-180, 180],
+      ])
+      expect(world.columns, 'a full-world line must reach every z2 column').toEqual([0, 1, 2, 3])
+    })
+
+    it('(d) mag === 180: a 0 → 180 line stays in the eastern hemisphere', () => {
+      // FAIL-BEFORE (exemption deleted): Δlon = +180 is exactly half a world and
+      // `Math.round(0.5)` is 1, so the endpoint is rewritten to −180 and the
+      // whole hemisphere edge flips west — partLonRanges [[-180, 0]],
+      // columns [0, 1].
+      const eastern = tiledSeamCrossing([
+        [0, 0],
+        [180, 0],
+      ])
+      expect(eastern.partLonRanges, 'the hemisphere edge flipped onto the other half').toEqual([
+        [0, 180],
+      ])
+      expect(eastern.columns, 'an eastern-hemisphere line must tile x2 and x3').toEqual([2, 3])
+    })
+
+    it('(c2) the SAME at Δlon = −360: a 180 → −180 line also sweeps the whole world', () => {
+      // (c) alone leaves a live mutant: `mag === 360` -> `rawDLon === 360` keeps
+      // (c) green (its delta is +360) while THIS line, whose delta is −360, gets
+      // rounded and collapses to a point. The exemption is written on |Δlon|, so
+      // it owes an arm on each side of zero.
+      const world = tiledSeamCrossing([
+        [180, 0],
+        [-180, 0],
+      ])
+      expect(world.partLonRanges, 'the −360 full-world sweep collapsed to a point').toEqual([
+        [-180, 180],
+      ])
+      expect(world.columns, 'a full-world line must reach every z2 column').toEqual([0, 1, 2, 3])
+    })
+
+    it('(d2) a Δlon JUST past the half-world boundary is folded, in the negative direction', () => {
+      // The exemption draws its line at 180, so the arm that guards that line
+      // has to sit just past it. 90 → −110 is a −200 step: the long way west is
+      // 200°, the short way east is 160°, and a LINE takes the short way, so the
+      // endpoint is carried to 250 and the part gets its −360 world copy.
+      //
+      // This kills a mutant no other arm here does. Arms (a)/(b)/(e) all fold a
+      // 340° step, so `mag <= 180` -> `mag < 270` (or any threshold between 200
+      // and 340) leaves every one of them green; measured, that mutant survives
+      // all 336 tiler tests without this arm.
+      const past = tiledSeamCrossing([
+        [90, 0],
+        [-110, 0],
+      ])
+      expect(past.partLonRanges, 'a −200 step stopped being read as a fold').toEqual([
+        [90, 250],
+        [-270, -110],
+      ])
+    })
+
+    it('(e) CONTROL: a genuine fold is still unwrapped, so (c) and (d) are not vacuous', () => {
+      // The exemption exempts the two boundaries and nothing else. Deleting
+      // `unwrapLonBranch` outright would green (c) and (d) — this arm is what
+      // says the unwrap is still there: 170 → −170 is a real 20° fold and must
+      // come out as 170 → 190 with its −360 world copy, exactly as (a) asserts.
+      const folded = tiledSeamCrossing([
+        [170, 0],
+        [-170, 0],
+      ])
+      expect(folded.partLonRanges, 'a genuine fold stopped being unwrapped').toEqual([
+        [170, 190],
+        [-190, -170],
+      ])
+      expect(folded.columns).toEqual([0, 3])
     })
   })
 })

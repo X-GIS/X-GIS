@@ -1,2 +1,2 @@
 export { Lexer } from './lexer'
-export { TokenType, type Token } from './tokens'
+export { TokenType, type Token, isBareIdentifierSafe } from './tokens'

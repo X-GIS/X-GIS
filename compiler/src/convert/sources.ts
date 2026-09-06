@@ -3,6 +3,7 @@ import { sanitizeId } from './utils'
 import { checkSourceBounds } from '../ir/source-bounds'
 import { isTileScheme, schemeRejectReason } from '../ir/source-scheme'
 import { convertSourceCluster } from './sources-cluster'
+import { isBareIdentifierSafe } from '../lexer/tokens'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
@@ -465,7 +466,12 @@ export function convertSource(
           )
         }
       }
-      lines.push('  type: raster-dem')
+      // QUOTED: `raster-dem` is the one built-in whose name is not identifier-shaped,
+      // so a bare emission re-parses as the expression `raster - dem` and lowers as
+      // `geojson` — the converted DEM source silently became a geojson one (#2549).
+      // Derived from `isBareIdentifierSafe` rather than hand-quoted, so this emitter
+      // and blueprint's codegen cannot drift apart on the rule.
+      lines.push(`  type: ${isBareIdentifierSafe('raster-dem') ? 'raster-dem' : '"raster-dem"'}`)
       lines.push(`  url: ${JSON.stringify(url)}`)
       lines.push(...tileProps) // tileSize/maxzoom/minzoom (#1983) + bounds (#1984) + scheme (#1985)
       // Mapbox raster-dem elevation encoding (#2003): 'mapbox' (default — RGB-packed

@@ -47,6 +47,63 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
   return (Math.acos(cosOmega) * 180) / Math.PI
 }
 
+/** Carry a coordinate list onto ONE 360° longitude branch — the branch its
+ *  FIRST coordinate defines. Each successive vertex is shifted by the running
+ *  multiple of 360° that makes its delta from the previous one the short way
+ *  round, so a path authored folded into (−180, 180] (170 → −170) comes out as
+ *  the past-seam form (170 → 190) and a path already authored past the seam is
+ *  returned verbatim (offset 0 throughout).
+ *
+ *  LINES ONLY, and that asymmetry is deliberate. `subdivideLine` is the sole
+ *  production caller (#2547): a line is a PATH, so it takes the short way and a
+ *  340° step is a fold to undo — the part bbox and every per-tile clip would
+ *  otherwise read it as a segment sweeping the whole equator. A polygon RING is
+ *  an AREA boundary and is read at face value, so `makePolygonPart` does NOT
+ *  run this (#2550 briefly did, and it collapsed the z=0 world parent
+ *  [−170 … 170] that data/src/sub-tile-generator.test.ts pins; reverted in
+ *  3c7f27f1). RFC 7946 §3.1.9 puts the split burden on the producer, which is
+ *  why a folded ring cannot be inferred.
+ *  Latitude and any 3rd/4th ordinate are untouched. */
+export function unwrapLonBranch(coords: number[][]): number[][] {
+  if (coords.length < 2) return coords
+  const out: number[][] = new Array(coords.length)
+  out[0] = coords[0]
+  let lonOffset = 0
+  for (let i = 1; i < coords.length; i++) {
+    const rawDLon = coords[i][0] - coords[i - 1][0]
+    // Nearest whole-world branch, EXCEPT at the two exact boundaries. A fold of
+    // two values normalized into (−180, 180] always lands STRICTLY between a
+    // half and a whole world, so ±180 and ±360 are not folds and rounding them
+    // the other way destroys real geometry: −180 → 180 is the z=0 world
+    // rectangle (a full sweep, which would collapse to a zero-width ring) and
+    // 0 → 180 is a hemisphere edge (which would flip onto the other half).
+    // Both SIGNS are pinned, in wrap-line-antimeridian.test.ts — the ±360 arms
+    // are what stop `mag === 360` decaying to `rawDLon === 360`, and the −270
+    // arm is what stops `mag <= 180` decaying to `rawDLon <= 180`.
+    //
+    // NOT `wrapLonDelta` (geo/src/projection.ts), and they disagree at exactly
+    // 360 on purpose: that one picks a world-copy REPRESENTATIVE for a point
+    // against a central meridian, so `wrapLonDelta(360) === 0` is right there;
+    // this one asks whether the delta between two consecutive PATH vertices is
+    // a fold artifact, and a 360 step is a real full sweep. Do not unify them.
+    //
+    // The equality is exact because the inputs are AUTHORED GeoJSON degrees,
+    // before any transform, and the canonical spellings (±180, 0/180) are
+    // exactly representable. A producer that emits 179.999… → −180 instead is
+    // outside the exemption and reads as a fold; no epsilon is added for it
+    // because a near-whole-world delta is genuinely ambiguous — nothing local
+    // separates "almost a full sweep" from "almost a full fold".
+    const mag = Math.abs(rawDLon)
+    lonOffset -= 360 * (mag <= 180 || mag === 360 ? 0 : Math.round(rawDLon / 360))
+    // Reuse the input array while the branch is the authored one; rebuild onto
+    // the running branch once it is not. BOTH arms keep any 3rd/4th ordinate
+    // (the rebuild spreads `slice(1)`), so the only difference is that the
+    // first avoids an allocation for the common no-fold case.
+    out[i] = lonOffset === 0 ? coords[i] : [coords[i][0] + lonOffset, ...coords[i].slice(1)]
+  }
+  return out
+}
+
 /** Insert intermediate vertices into a line / ring so each sub-segment spans
  *  at most ~1° of arc. Edges shorter than 0.5° are left as-is (their chord is
  *  already indistinguishable from the arc at any reasonable rendering scale).
@@ -68,10 +125,15 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
 export function subdivideLine(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
   const DEG2RAD = Math.PI / 180
-  const out: number[][] = [coords[0]]
-  for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i],
-      b = coords[i + 1]
+  // One 360° branch first (#2547), so every delta below is already the short
+  // way round and every emitted vertex sits on the branch the FIRST coordinate
+  // defines. Polygon rings deliberately do NOT get this step — see
+  // `unwrapLonBranch`'s docblock for why a ring is read literally.
+  const branch = unwrapLonBranch(coords)
+  const out: number[][] = [branch[0]]
+  for (let i = 0; i < branch.length - 1; i++) {
+    const a = branch[i],
+      b = branch[i + 1]
 
     // Unwrap the longitude delta onto the SHORT direction before interpolating.
     // Two authoring conventions meet at ±180 and both have to come out right:
@@ -88,10 +150,10 @@ export function subdivideLine(coords: number[][]): number[][] {
     //   • Authored as the folded pair (170 → −170), the same 20° span written
     //     the other way. Interpolating that raw −340° delta would walk the LONG
     //     way round and draw a world-spanning line — the failure mode a naive
-    //     lon lerp introduces. Unwrapping it to +20 crosses the seam the short
-    //     way, which is what the great-circle interpolant did implicitly.
-    const rawDLon = b[0] - a[0]
-    const dLon = rawDLon - 360 * Math.round(rawDLon / 360)
+    //     lon lerp introduces. `unwrapLonBranch` has already rewritten it as
+    //     170 → 190 (#2547), so the delta read here is the short +20 and the
+    //     endpoint is on the same branch as the intermediates.
+    const dLon = b[0] - a[0]
     const dLat = b[1] - a[1]
 
     // How long is the edge, measured along the path actually drawn? The
