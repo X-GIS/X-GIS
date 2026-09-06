@@ -63,7 +63,7 @@ import {
   tileEcefCenterFromMerc,
   DSFUN_EARTH_R,
 } from './ecef-packing'
-import { subdivideLine } from './geometry-sphere'
+import { subdivideLine, unwrapLonBranch } from './geometry-sphere'
 import { tilePolygonPart } from './polygon-tiler'
 import { tileLinePart } from './line-tiler'
 import { tilePointPart } from './point-tiler'
@@ -103,17 +103,17 @@ export function decomposeFeatures(
     if (!geom) return
     if (geom.type === 'Polygon') {
       const rings = geom.coordinates as number[][][]
-      parts.push(makePolygonPart(rings, id))
+      pushPartWithWrap(parts, makePolygonPart(rings, id))
     } else if (geom.type === 'MultiPolygon') {
       for (const poly of geom.coordinates as number[][][][]) {
-        parts.push(makePolygonPart(poly, id))
+        pushPartWithWrap(parts, makePolygonPart(poly, id))
       }
     } else if (geom.type === 'LineString') {
       const coords = geom.coordinates as number[][]
-      pushLinePartWithWrap(parts, makeLinePart(coords, id))
+      pushPartWithWrap(parts, makeLinePart(coords, id))
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates as number[][][]) {
-        pushLinePartWithWrap(parts, makeLinePart(line, id))
+        pushPartWithWrap(parts, makeLinePart(line, id))
       }
     } else if (geom.type === 'Point') {
       const coord = geom.coordinates as number[]
@@ -165,9 +165,37 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // makeLinePart). Polygon fill and outline both derive from the same
   // un-simplified `clipped` ring per tile (see processZoomLevelShared /
   // compileSingleTile), so they coincide by construction (d34aed2).
-  const bbox = ringsBBox(rings[0])
-  const mmRings = projectRingsToMM(rings)
+  //
+  // Longitude UNWRAPPING is applied (#2550) — the one step lines already got
+  // from subdivideLine. A ring authored folded into (−180, 180] (170 → −170,
+  // the common GeoJSON seam shape) holds a segment 340° wide in authored
+  // longitude, and both the bbox below and every per-tile clip read that as a
+  // ring sweeping the whole equator: the measured symptom was a 20°-wide box
+  // filling all four z2 columns.
+  const branchRings = unwrapRingsToOneBranch(rings)
+  const bbox = ringsBBox(branchRings[0])
+  const mmRings = projectRingsToMM(branchRings)
   return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
+}
+
+/** Put every ring of one polygon on the SAME 360° longitude branch: each ring
+ *  is carried onto its own first vertex's branch by `unwrapLonBranch` (the
+ *  single authority for that step, shared with the line densifier), then each
+ *  hole is shifted by whole worlds onto the SHELL's branch — otherwise a hole
+ *  authored folded (−175) would sit 360° away from the shell (185) that
+ *  contains it, and the hole-distribution point-in-ring test would never
+ *  place it. */
+function unwrapRingsToOneBranch(rings: number[][][]): number[][][] {
+  const out = rings.map((ring) => unwrapLonBranch(ring))
+  const shell = out[0]
+  if (!shell?.length) return out
+  for (let r = 1; r < out.length; r++) {
+    const hole = out[r]
+    if (!hole.length) continue
+    const shift = 360 * Math.round((shell[0][0] - hole[0][0]) / 360)
+    if (shift !== 0) out[r] = hole.map((c) => [c[0] + shift, ...c.slice(1)])
+  }
+  return out
 }
 
 function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
@@ -179,10 +207,10 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
   return { type: 'line', coords: subdivided, featureIndex, ...bbox }
 }
 
-/** Push a line part plus, when it was authored past the antimeridian,
+/** Push a line or polygon part plus, when it reaches past the antimeridian,
  *  its ±360-shifted world-copy continuation — the inline-tiler equivalent
  *  of geojson-vt's `wrap()` (geojsonvt/wrap.ts: centre clip + shifted
- *  left/right buffer copies). #1221 round 2.
+ *  left/right buffer copies). #1221 round 2; polygons since #2550.
  *
  *  WHY: subdivideLine keeps a >±180-authored line MONOTONE
  *  (round 1), but every per-tile clip (clipLineToRect / compileSingleTile)
@@ -196,28 +224,36 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
  *  puts it exactly there (mirror: a <−180 line gets a +360 copy).
  *
  *  Shifting by an exact 360° multiple preserves the already-densified
- *  line geometry (Mercator x shifts by exactly one world width),
- *  so no re-subdivision is needed. Lines only — polygons clip/fill
- *  correctly through the existing path (task scope §3). */
-function pushLinePartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
+ *  line geometry / the tessellation-free ring (Mercator x shifts by exactly
+ *  one world width), so no re-subdivision and no re-tessellation is needed.
+ *
+ *  A polygon needs exactly the same treatment (#2550): the per-tile clip cuts
+ *  a ring at merc(±180) just as it cuts a line, so a box authored 170…190 had
+ *  its 180…190 half in NO tile at all. */
+function pushPartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
   parts.push(part)
-  if (part.maxLon > 180) parts.push(shiftLinePartLon(part, -360))
-  else if (part.minLon < -180) parts.push(shiftLinePartLon(part, 360))
+  if (part.maxLon > 180) parts.push(shiftPartLon(part, -360))
+  else if (part.minLon < -180) parts.push(shiftPartLon(part, 360))
 }
 
-/** Shift a line part's longitudes (and lon bbox) by `offsetDeg` (an exact
- *  ±360° multiple). Latitude and vertex count are unchanged. */
-function shiftLinePartLon(part: GeometryPart, offsetDeg: number): GeometryPart {
-  const coords = part.coords!.map((c) => [c[0] + offsetDeg, c[1], ...c.slice(2)])
-  return {
-    type: 'line',
-    coords,
-    featureIndex: part.featureIndex,
+/** Shift a part's longitudes (and lon bbox) by `offsetDeg` (an exact ±360°
+ *  multiple). Latitude and vertex count are unchanged. Line coords are stored
+ *  in authored degrees, polygon rings in Mercator metres — and Mercator x is
+ *  linear in longitude, so the ring offset is `lonLatToMercF64(offsetDeg, 0).x`
+ *  read off the same projection authority the rings were built with. */
+function shiftPartLon(part: GeometryPart, offsetDeg: number): GeometryPart {
+  const shifted: GeometryPart = {
+    ...part,
     minLon: part.minLon + offsetDeg,
-    minLat: part.minLat,
     maxLon: part.maxLon + offsetDeg,
-    maxLat: part.maxLat,
   }
+  if (part.type === 'polygon') {
+    const offsetMM = lonLatToMercF64(offsetDeg, 0)[0]
+    shifted.rings = part.rings!.map((ring) => ring.map((c) => [c[0] + offsetMM, c[1]]))
+  } else {
+    shifted.coords = part.coords!.map((c) => [c[0] + offsetDeg, c[1], ...c.slice(2)])
+  }
+  return shifted
 }
 
 function ringsBBox(ring: number[][]): {

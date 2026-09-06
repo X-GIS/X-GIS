@@ -47,6 +47,39 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
   return (Math.acos(cosOmega) * 180) / Math.PI
 }
 
+/** Carry a coordinate list onto ONE 360° longitude branch — the branch its
+ *  FIRST coordinate defines. Each successive vertex is shifted by the running
+ *  multiple of 360° that makes its delta from the previous one the short way
+ *  round, so a path authored folded into (−180, 180] (170 → −170) comes out as
+ *  the past-seam form (170 → 190) and a path already authored past the seam is
+ *  returned verbatim (offset 0 throughout).
+ *
+ *  Single authority for that step: `subdivideLine` runs it before densifying a
+ *  line (#2547) and `makePolygonPart` runs it per ring (#2550), because the
+ *  part bbox and every per-tile clip read a 340° fold as a segment that sweeps
+ *  the whole equator. Latitude and any 3rd/4th ordinate are untouched. */
+export function unwrapLonBranch(coords: number[][]): number[][] {
+  if (coords.length < 2) return coords
+  const out: number[][] = new Array(coords.length)
+  out[0] = coords[0]
+  let lonOffset = 0
+  for (let i = 1; i < coords.length; i++) {
+    const rawDLon = coords[i][0] - coords[i - 1][0]
+    // Nearest whole-world branch, EXCEPT at the two exact boundaries. A fold of
+    // two values normalized into (−180, 180] always lands STRICTLY between a
+    // half and a whole world, so ±180 and ±360 are not folds and rounding them
+    // the other way destroys real geometry: −180 → 180 is the z=0 world
+    // rectangle (a full sweep, which would collapse to a zero-width ring) and
+    // 0 → 180 is a hemisphere edge (which would flip onto the other half).
+    const mag = Math.abs(rawDLon)
+    lonOffset -= 360 * (mag <= 180 || mag === 360 ? 0 : Math.round(rawDLon / 360))
+    // Verbatim while the branch is the authored one (identity, and it keeps
+    // any 3rd/4th ordinate); rebuilt onto the running branch once it is not.
+    out[i] = lonOffset === 0 ? coords[i] : [coords[i][0] + lonOffset, ...coords[i].slice(1)]
+  }
+  return out
+}
+
 /** Insert intermediate vertices into a line / ring so each sub-segment spans
  *  at most ~1° of arc. Edges shorter than 0.5° are left as-is (their chord is
  *  already indistinguishable from the arc at any reasonable rendering scale).
@@ -68,14 +101,14 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
 export function subdivideLine(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
   const DEG2RAD = Math.PI / 180
-  const out: number[][] = [coords[0]]
-  // Running multiple of 360° that carries every emitted vertex onto the branch
-  // the FIRST coordinate defines. Zero for a line authored past the seam, so
-  // that convention is emitted byte-for-byte as authored.
-  let lonOffset = 0
-  for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i],
-      b = coords[i + 1]
+  // One 360° branch first (#2547), so every delta below is already the short
+  // way round and every emitted vertex sits on the branch the FIRST coordinate
+  // defines. Polygon rings get the same step in makePolygonPart (#2550).
+  const branch = unwrapLonBranch(coords)
+  const out: number[][] = [branch[0]]
+  for (let i = 0; i < branch.length - 1; i++) {
+    const a = branch[i],
+      b = branch[i + 1]
 
     // Unwrap the longitude delta onto the SHORT direction before interpolating.
     // Two authoring conventions meet at ±180 and both have to come out right:
@@ -92,23 +125,11 @@ export function subdivideLine(coords: number[][]): number[][] {
     //   • Authored as the folded pair (170 → −170), the same 20° span written
     //     the other way. Interpolating that raw −340° delta would walk the LONG
     //     way round and draw a world-spanning line — the failure mode a naive
-    //     lon lerp introduces. Unwrapping it to +20 crosses the seam the short
-    //     way, which is what the great-circle interpolant did implicitly.
-    //     The unwrapped branch has to carry the ENDPOINT too (#2547): emitting
-    //     the interpolated 171…189 and then the authored −170 left a 359° step,
-    //     which the part bbox and the per-tile clip read as a segment sweeping
-    //     the equator. `lonOffset` accumulates across the WHOLE coordinate
-    //     list, so a folded polyline crossing the seam several times stays on
-    //     one branch throughout.
-    const rawDLon = b[0] - a[0]
-    const wraps = Math.round(rawDLon / 360)
-    const dLon = rawDLon - 360 * wraps
+    //     lon lerp introduces. `unwrapLonBranch` has already rewritten it as
+    //     170 → 190 (#2547), so the delta read here is the short +20 and the
+    //     endpoint is on the same branch as the intermediates.
+    const dLon = b[0] - a[0]
     const dLat = b[1] - a[1]
-    const aLon = a[0] + lonOffset
-    lonOffset -= 360 * wraps
-    // `b` verbatim while the branch is the authored one (identity, and it keeps
-    // any 3rd/4th ordinate); rebuilt onto the running branch once it is not.
-    const bOut = lonOffset === 0 ? b : [b[0] + lonOffset, ...b.slice(1)]
 
     // How long is the edge, measured along the path actually drawn? The
     // great-circle distance answered that exactly while the interpolant WAS
@@ -128,16 +149,16 @@ export function subdivideLine(coords: number[][]): number[][] {
     const arcDeg = greatCircleDistanceDeg(a[0], a[1], b[0], b[1])
     const spanDeg = Math.max(arcDeg, Math.hypot(dLat, dLon * cosMax))
     if (spanDeg < 0.5) {
-      out.push(bOut)
+      out.push(b)
       continue
     }
 
     const K = Math.min(64, Math.ceil(spanDeg))
     for (let k = 1; k < K; k++) {
       const t = k / K
-      out.push([aLon + dLon * t, a[1] + dLat * t])
+      out.push([a[0] + dLon * t, a[1] + dLat * t])
     }
-    out.push(bOut)
+    out.push(b)
   }
   return out
 }

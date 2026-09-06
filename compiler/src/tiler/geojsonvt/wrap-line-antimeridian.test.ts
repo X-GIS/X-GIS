@@ -1,7 +1,8 @@
 // Repro for #1221 — a GeoJSON LineString whose longitudes continue past
 // 180 renders broken at the antimeridian: a spurious vertical stroke down
 // the 180 seam and a missing shifted world-copy continuation (180→195).
-// Polygons crossing the same seam render fine.
+// (This header used to add "polygons crossing the same seam render fine" —
+// they did not; that is #2550, gated by ../wrap-polygon-antimeridian.test.ts.)
 //
 // Witness: [[165,60],[175,66],[185,68],[195,64]] — a monotone-east polyline
 // whose last two vertices sit past +180 (i.e. in the next world copy).
@@ -137,7 +138,7 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
   // each tile at world-copy offsets of ±360° (ADR-0006): the ONLY way 180→195
   // can render is for the tail to exist as data in the WEST tiles (−180→−165),
   // which the renderer then draws at world-copy +1 → appears at 180→195.
-  // pushLinePartWithWrap emits that −360-shifted copy. This asserts the tail
+  // pushPartWithWrap emits that −360-shifted copy. This asserts the tail
   // reaches BOTH the east tile (z2 x3) AND the wrapped west tile (z2 x0).
   describe('inline compileSingleTile world-copy continuation', () => {
     const parts = decomposeFeatures([WITNESS_LINE as unknown as GeoJSONInput] as never)
@@ -191,7 +192,7 @@ describe('#1221 antimeridian LineString (lon past 180)', () => {
 // [[170,0],[-170,0]] for the same 20° span. `subdivideLine` interpolated the
 // intermediates on the unwrapped branch (171…189) but pushed the authored
 // endpoint −170 verbatim, leaving a 359° step. The part's bbox then spanned
-// −170…189, `pushLinePartWithWrap` copied that, and the per-tile clip handed a
+// −170…189, `pushPartWithWrap` copied that, and the per-tile clip handed a
 // piece to every z2 column on the equator.
 //
 // Oracle: the folded input must tile like the same span written unwrapped —
