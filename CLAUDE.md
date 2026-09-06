@@ -399,6 +399,16 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
 - Worktrees share the repository's git state — stash, refs, hooks, config; only
   HEAD/index/working-files are per-worktree.
   → `2026-07-11-git-worktrees-share-more-than-you-think.md`
+- A LONG-LIVED DEV SERVER outlives your branch switch, and its stale module graph then
+  reads as a NETWORK failure. Vite serves the graph it resolved before the checkout, so a
+  module that exists only on the branch you left is still requested — a `@fs/` URL for
+  `sprite-atlas-need.ts` 404s, the page dies with `ERR_CONNECTION_RESET`, and three e2e runs
+  were about to be classified NEEDS-LOCAL-RUN (blocked egress) even though `curl` had just
+  shown the same server healthy on both `demo.html` and the fixture. What named it was
+  `page.on('response', r => r.status() >= 400)`: the 404 carries the path, and the path was
+  a file from the abandoned branch. Never switch branches under a running dev server — stop
+  it first (by PID, never `pkill -f`), or give the other branch its own worktree and server;
+  and print the failing RESPONSE URLs before blaming the environment.
 - Measure LOC ceilings AFTER the prettier pre-commit hook rewrote the files:
   `git show HEAD:<file> | wc -l`, never the pre-commit working tree.
 - `tsc --build` replays CACHED errors from stale `.tsbuildinfo` after branch churn —
