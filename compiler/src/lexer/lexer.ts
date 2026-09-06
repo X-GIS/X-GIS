@@ -211,8 +211,13 @@ export class Lexer {
       this.col++
     }
 
-    if (value.length !== 4 && value.length !== 7 && value.length !== 9) {
-      this.error(`Invalid color literal: ${value} (expected #RGB, #RRGGBB, or #RRGGBBAA)`)
+    // The four CSS Color Module 4 hex shapes: #RGB / #RGBA / #RRGGBB /
+    // #RRGGBBAA. `#RGBA` (length 5) was rejected here while
+    // convert/colors.ts emitted it verbatim and tokens/colors.ts,
+    // eval/evaluator-helpers.ts and the runtime all resolved it — so a
+    // converted style using the shorthand failed to lex outright (#2543).
+    if (value.length !== 4 && value.length !== 5 && value.length !== 7 && value.length !== 9) {
+      this.error(`Invalid color literal: ${value} (expected #RGB, #RGBA, #RRGGBB, or #RRGGBBAA)`)
     }
 
     this.tokens.push({ type: TokenType.Color, value, line: this.line, col: startCol })
