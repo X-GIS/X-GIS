@@ -129,6 +129,9 @@ function packBlock(f: Fixture): Uint8Array {
     f.lat,
     f.camAnchor,
     COLORS,
+    // #2134 — this gate's references (render()/checker) are both straight-alpha
+    // sources, so raster_params.y stays 0 and every reference byte below is unchanged.
+    false,
   )
   expect(block.byteLength).toBe(192)
   return new Uint8Array(block.buffer)
@@ -140,6 +143,36 @@ describe('raster global uniform — block bytes ≡ retired render() writer', ()
       expect([...packBlock(f)]).toEqual([...mainReferenceBytes(f)])
     })
   }
+})
+
+// #2134 — the producer of raster_params.y. The material/shader gates
+// (raster-material-premultiply.test.ts) prove the GPU blend + fragment math are
+// right; this proves the CPU packer that feeds them actually honours the
+// `premultiplied` argument, at the LITERAL call shape a real caller uses
+// (writeRasterFrameUniform's own args), not a re-derived helper.
+describe('raster global uniform — premultiplied:true/false writes raster_params.y (#2134)', () => {
+  it('differs from the false case in EXACTLY f32 lane 21, nothing else', () => {
+    const f = FIXTURES[0]!
+    const block = uniformBlock(RASTER_U)
+    writeRasterFrameUniform(
+      block,
+      { matrix: MVP, logDepthFc: f.logDepthFc },
+      f.projType,
+      f.lon,
+      f.lat,
+      f.camAnchor,
+      COLORS,
+      true,
+    )
+    const got = new Float32Array(new Uint8Array(block.buffer).buffer)
+    const straight = new Float32Array(packBlock(f).buffer)
+    for (let lane = 0; lane < got.length; lane++) {
+      if (lane === 21) continue
+      expect(got[lane], `f32 lane ${lane}`).toBe(straight[lane])
+    }
+    expect(straight[21], 'premultiplied:false must leave raster_params.y at 0').toBe(0)
+    expect(got[21], 'premultiplied:true must set raster_params.y to 1').toBe(1)
+  })
 })
 
 describe('raster checker unification — sole delta is the dead raster_params.w lane', () => {

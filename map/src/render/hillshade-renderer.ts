@@ -616,6 +616,12 @@ export class HillshadeRenderer {
         saturation: 0,
         contrast: 0,
       },
+      // #2134 — the shared raster_params lane. DEM tiles are a straight-alpha
+      // source, AND fs_hillshade (hillshade.ts) never reads this lane at all
+      // (HillshadeDraper keeps its own separate blend: 'alpha' colour target,
+      // untouched by #2134) — false either way, written explicitly like every
+      // other writer of this shared uniform.
+      false,
       // #2539 — the VERTEX stage decodes with the same four factors the fragment does.
       // Read from `_params.unpack`, the one place the encoding was resolved
       // (`demUnpack()`), so a source that declares `terrarium` displaces by the same

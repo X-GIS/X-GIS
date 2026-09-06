@@ -134,6 +134,18 @@ export function writeRasterFrameUniform(
   projCenterLat: number,
   camAnchor: readonly [number, number, number],
   c: RasterColorParams,
+  /** #2134 — raster_params.y: true when the sampled texture is ALREADY
+   *  premultiplied (currently only the vector-drape bake), false for every
+   *  straight-alpha source (fetched raster tiles, the WebGL2 checker, DEM
+   *  tiles via hillshade). fs_tile's mix(c.a,1,premul) picks the no-op branch
+   *  at false. Required (no default) so every caller states its source kind
+   *  explicitly rather than silently inheriting a zero-initialised lane.
+   *
+   *  MERGE ORDER (#2134 <- main #2539): this is REQUIRED and `demUnpack` below
+   *  carries a default, so it must precede it — TypeScript forbids a required
+   *  parameter after an optional one. Every caller that passed `demUnpack`
+   *  positionally therefore gains this argument before it. */
+  premultiplied: boolean,
   /** D5 INC-3 (#2539) — the terrain DEM's unpack factors (redFactor, greenFactor,
    *  blueFactor, baseShift), as `demUnpack()` (hillshade-renderer.ts) resolves them
    *  per encoding. Default ALL-ZERO = no terrain source; the vertex decode is then 0
@@ -150,7 +162,7 @@ export function writeRasterFrameUniform(
   block.write({
     mvp: frame.matrix,
     proj_params: [projType, projCenterLon, projCenterLat, frame.logDepthFc],
-    raster_params: [c.opacity, 0, 0, 0],
+    raster_params: [c.opacity, premultiplied ? 1 : 0, 0, 0],
     raster_color0: [c.hueRotate, c.brightnessMin, c.brightnessMax, c.saturation],
     raster_color1: [c.contrast, 0, 0, 0],
     cam_ecef_center: [hi(camAnchor[0]), hi(camAnchor[1]), hi(camAnchor[2]), 0],
@@ -570,6 +582,7 @@ export class RasterRenderer {
       projCenterLat,
       rasterFrameCamAnchor(camera, projType, projCenterLon, projCenterLat),
       this.colorParams(),
+      false, // #2134 — the analytic checker texture is straight alpha, not premultiplied
     )
 
     // One z0 world tile (whole Mercator band).
@@ -797,6 +810,7 @@ export class RasterRenderer {
       projCenterLat,
       camAnchor,
       this.colorParams(),
+      false, // #2134 — fetched raster tiles are straight alpha, not premultiplied
     )
     // The raster draw goes through the RHI Material seam (P1.4: the sole path). Collect each
     // visible tile (+ world-copy) into a RasterTile, then issue them in ONE draper.draw below.

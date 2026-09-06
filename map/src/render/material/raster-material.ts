@@ -141,7 +141,12 @@ export class RasterDraper {
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [RASTER_GROUP0, RASTER_TILE_GROUP],
-      colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
+      // #2134 — fs_tile now always emits PREMULTIPLIED colour (raster.ts);
+      // raster_params.y (written per-caller by writeRasterFrameUniform) says
+      // whether that premultiply is a real texel multiply (drape) or a no-op
+      // mix(c.a,1,0)=c.a (every straight-alpha source), so BOTH source kinds
+      // need this same premultiplied blend state.
+      colorTargets: [{ format: format as 'bgra8unorm', blend: 'premult' }],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pipeline-rhi' }],
       pool: { group: 1, slotSize: rasterTileBytes() }, // 48 — the canonical TileUniforms size
       // Reflect-derived (was a hardcoded 160) so it tracks the 'Uniforms' struct —
@@ -210,8 +215,10 @@ export class RasterDraper {
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [RASTER_GROUP0, RASTER_TILE_GROUP],
+      // #2134 — pick twin of the colour-target blend fix above; same fs_tile,
+      // same premultiplied emit.
       colorTargets: [
-        { format: this.format as 'bgra8unorm', blend: 'alpha' },
+        { format: this.format as 'bgra8unorm', blend: 'premult' },
         { format: 'rg32uint' },
       ],
       variants: [{ depthWrite: false, depthCompare: 'always', label: 'raster-pick-pipeline-rhi' }],
