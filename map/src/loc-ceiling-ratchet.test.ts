@@ -2714,7 +2714,12 @@ const CEILINGS: Record<string, number> = {
   // the narrowing was missing (provenance may only narrow a ring that HAS
   // interior here), and it cannot be an area test: `intersect` snaps a cut
   // vertex to the tile grid, so a collapsed ring's shoelace is not zero.
-  'compiler/src/tiler/vector-tiler.ts': 1703,
+  // 1703->1708 (#2553 nit): +5 recording that BOUNDARY_EPS_MM is the DEFAULT of
+  // `makeSameBoundarySidePredicateMerc`'s `eps` — no production call site passes
+  // a literal any more — and that sharing it with `isOnMercWorldRect` is
+  // deliberate, because "how close counts as ON a rect" is one physical question
+  // and two equal constants would be two authorities for it.
+  'compiler/src/tiler/vector-tiler.ts': 1708,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

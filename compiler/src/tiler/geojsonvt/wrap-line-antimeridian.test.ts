@@ -203,12 +203,18 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
    *  part (including its world-copy), and the z2 columns that receive line
    *  geometry.
    *
-   *  Vertex COUNTS are deliberately not compared: the two authorings differ by
-   *  one ULP in `greatCircleDistanceDeg` (acos of cos(20°) vs of cos(−340°)),
-   *  which lands either side of `Math.ceil` and is not what this gate is about. */
+   *  Vertex COUNTS are compared too. They used not to be, on the ground that
+   *  the two authorings differ by one ULP in `greatCircleDistanceDeg` (acos of
+   *  cos(20°) vs of cos(−340°)) landing either side of `Math.ceil` — that reason
+   *  died with #2547: `unwrapLonBranch` now runs BEFORE the distance is taken,
+   *  so both authorings hand it identical coordinates and the counts are equal
+   *  by construction (measured: 22 and 22 for the two-point pair). The count is
+   *  the quantity a re-specialisation of the densifier would move first, so it
+   *  is the strongest equality available here. */
   function tiledSeamCrossing(coords: number[][]): {
     partLonRanges: [number, number][]
     columns: number[]
+    lineVertexCount: number
   } {
     const feature = {
       type: 'Feature',
@@ -217,11 +223,15 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
     } as unknown as GeoJSONInput
     const parts = decomposeFeatures([feature] as never)
     const columns: number[] = []
+    let lineVertexCount = 0
     for (let x = 0; x < 4; x++) {
       const tile = compileSingleTile(parts, 2, x, 1, 7)
-      if (tile && tile.lineVertices.length > 0) columns.push(x)
+      if (tile && tile.lineVertices.length > 0) {
+        columns.push(x)
+        lineVertexCount += tile.lineVertices.length
+      }
     }
-    return { partLonRanges: parts.map((p) => [p.minLon, p.maxLon]), columns }
+    return { partLonRanges: parts.map((p) => [p.minLon, p.maxLon]), columns, lineVertexCount }
   }
 
   it('(a) a two-point folded crossing tiles like its unwrapped twin', () => {
@@ -243,6 +253,10 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
       [170, 0],
       [-170, 0],
     ])
+    // The whole-object equality now covers `lineVertexCount` too (see the
+    // helper's docblock). Pin it POSITIVE as well: 0 === 0 would satisfy the
+    // equality while proving nothing about the geometry in those tiles.
+    expect(unwrapped.lineVertexCount).toBeGreaterThan(0)
     expect(folded).toEqual(unwrapped)
   })
 
@@ -266,6 +280,7 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
       [175, 185],
       [-185, -175],
     ])
+    expect(unwrapped.lineVertexCount).toBeGreaterThan(0)
     expect(folded).toEqual(unwrapped)
   })
 

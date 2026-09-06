@@ -141,7 +141,7 @@ export function tilePolygonPart(
     // of original-boundary edges, or the whole closed ring when the
     // polygon is fully interior (closed-by-intent → append the
     // first vertex so the last→first edge strokes).
-    const sidePred = makeSameBoundarySidePredicateMerc(clip.mxW, clip.myS, clip.mxE, clip.myN, 1.0)
+    const sidePred = makeSameBoundarySidePredicateMerc(clip.mxW, clip.myS, clip.mxE, clip.myN)
     for (const ring of clipped) {
       if (ring.length < 2) continue
       for (const arc of extractNonSyntheticArcs(ring, sidePred, clipInserted)) {

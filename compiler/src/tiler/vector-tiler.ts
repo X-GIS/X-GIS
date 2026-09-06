@@ -827,7 +827,12 @@ export function extractNonSyntheticArcs(
 }
 
 /** Boundary-coincidence tolerance in Mercator metres — how close a vertex
- *  must be to a rect axis to count as lying ON it. */
+ *  must be to a rect axis to count as lying ON it. The DEFAULT of
+ *  `makeSameBoundarySidePredicateMerc`'s `eps`, so every caller inherits it by
+ *  omission; no production call site passes a literal. Deliberately shared with
+ *  `isOnMercWorldRect`: the world rect is a rect too, and "how close is ON" is
+ *  one physical question, so two equal constants would be two authorities for
+ *  it. */
 const BOUNDARY_EPS_MM = 1.0
 
 /** Half the Mercator world extent: lon ±180 and lat ±85.05 both project to
@@ -1287,7 +1292,7 @@ function processZoomLevelShared(
           // the outline strokes a seam at every internal tile boundary),
           // returning open boundary arcs or the whole closed ring when
           // fully interior.
-          const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN, 1.0)
+          const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN)
           for (const ring of clipped) {
             if (ring.length < 2) continue
             for (const arc of extractNonSyntheticArcs(ring, sidePred, clipInserted)) {
