@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 6c2fdfd9a12e1138a67cf2cc06e67e793cc6accc
+  Generated from: e7ced65cbb2adac36f63656a08dab56991efcc72
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 6c2fdfd9a12e
+    bun scripts/emit-changelog.ts --since e7ced65cbb2a
 -->
 
 # Changelog
@@ -28,6 +28,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **playground:** re-bake the shader artifacts in the dev server on every edit they depend on ([#2588](https://github.com/X-GIS/X-GIS/pull/2588)) `e7ced65`
+- **map/terrain:** D5 INC-1→3 — the DEM reaches the vertex, and the ground moves (#2525, #2532, #2539) `de40fba`
+- **quality:** add the shape lens — the Type-2 duplication the token gate cannot see ([#2566](https://github.com/X-GIS/X-GIS/pull/2566)) `7603a1b`
 - **map+compiler:** `text-optional` lets a rejected label's icon survive (#2440) ([#2485](https://github.com/X-GIS/X-GIS/pull/2485)) `1a7f2bc`
 - **compiler:** lower Mapbox v3 `imports` to xgis import statements (#2471) ([#2475](https://github.com/X-GIS/X-GIS/pull/2475)) `a2a40b0`
 - **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
@@ -48,6 +51,12 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **compiler/parser:** replay the source's own spacing when rebuilding a fn-call (#2544) ([#2587](https://github.com/X-GIS/X-GIS/pull/2587)) `f9c4960`
+- **map/render:** bind the ECEF kernel's `a` and `e2` from the active body, not EARTH ([#2586](https://github.com/X-GIS/X-GIS/pull/2586)) `da6769e`
+- **compiler/lexer:** accept the 4-digit `#rgba` colour the converter already emits (#2543) ([#2582](https://github.com/X-GIS/X-GIS/pull/2582)) `d93e51d`
+- **compiler/schema:** the symbol anchor list derives from SYMBOL_ANCHORS instead of restating it (#2548) ([#2583](https://github.com/X-GIS/X-GIS/pull/2583)) `fee47eb`
+- **map/camera:** `dpr` is required on pan/zoomAt/panToScreenAnchor (#2542) ([#2568](https://github.com/X-GIS/X-GIS/pull/2568)) `b9babac`
+- **map/render:** a text-only style with an inline image(...) label now loads the sprite it declares (#2517) ([#2536](https://github.com/X-GIS/X-GIS/pull/2536)) `7e00238`
 - **map+compiler:** issue-hunt 2026-09-02 — 31 verified defects across three packages, three new real-GPU gates ([#2330](https://github.com/X-GIS/X-GIS/pull/2330)) `fdd304f`
 - **compiler+map:** text-rotation-alignment `viewport-glyph` billboards instead of following the tangent (#2224) ([#2546](https://github.com/X-GIS/X-GIS/pull/2546)) `b30ab89`
 - **map+compiler:** `categorical()` data-sized palette + dense index (#2439), and stop claiming raster-dem is unsupported (#2520) ([#2510](https://github.com/X-GIS/X-GIS/pull/2510)) `f99a092`
@@ -134,6 +143,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### perf
 
+- three premises the owner traces refuted — the link read, the dedup reset, and per-frame raster row math ([#2560](https://github.com/X-GIS/X-GIS/pull/2560)) `5630525`
+- **render:** every registered family reads its bake, the seam's id is required, and layout derivation never emits ([#2557](https://github.com/X-GIS/X-GIS/pull/2557)) `edaf591`
 - **render:** bake the split-bind twins and oit-compose — a WGSL-only key shape, and a WebGPU boot compiles zero runtime-emitted programs (#2499) ([#2516](https://github.com/X-GIS/X-GIS/pull/2516)) `a3d63bb`
 - **map:** make the draw dedup key numeric on both levels (#2309) ([#2495](https://github.com/X-GIS/X-GIS/pull/2495)) `dbefd76`
 - **render:** the WebGPU polygon base shader reads its bake, and a boot provenance gate names what still does not (#2499) ([#2506](https://github.com/X-GIS/X-GIS/pull/2506)) `9465b58`
@@ -146,6 +157,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map:** turn render() into a spine of eleven named phases (#2508) ([#2573](https://github.com/X-GIS/X-GIS/pull/2573)) `9f15800`
 - **rhi:** the globe drape asks a CAPABILITY, not the backend's name (#2474) ([#2483](https://github.com/X-GIS/X-GIS/pull/2483)) `fb601cb`
 - **engine+render:** one RetireQueue the hand-mirrored deferred-destroy lists collapse into ([#2405](https://github.com/X-GIS/X-GIS/pull/2405)) `a79a44a`
 - **map:** delete RenderStats.tilesLoaded and gpuBuffers — no producer ever wrote them (#2307) ([#2407](https://github.com/X-GIS/X-GIS/pull/2407)) `4f85bd2`
@@ -153,6 +165,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **claude:** record the stale-dev-server 404 lesson in the §12 ledger ([#2595](https://github.com/X-GIS/X-GIS/pull/2595)) `2c9c2cf`
+- **quality:** retract the co-change archetype — the "no import edge" premise was false ([#2581](https://github.com/X-GIS/X-GIS/pull/2581)) `6544914`
 - **github:** add the Intent issue template — Stage-1 record of the AI-native SDLC loop ([#2562](https://github.com/X-GIS/X-GIS/pull/2562)) `3f96944`
 - **map/render:** the frame-id comment claimed a short-circuit that does not exist (#2277) ([#2484](https://github.com/X-GIS/X-GIS/pull/2484)) `97f320e`
 - **claude:** a verdict is not finished at the first consumer — §12 ledger entry ([#2443](https://github.com/X-GIS/X-GIS/pull/2443)) `991f9b4`
@@ -187,6 +201,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 #### chore
 
 - **quality:** jscpd duplication ratchet, consolidation policy (ADR-0013) and the 2026-09-05 audit ([#2533](https://github.com/X-GIS/X-GIS/pull/2533)) `6c2fdfd`
+
+#### style
+
+- **repo:** make `format:check` green — format the 8 drifted files, ignore two generator-owned trees ([#2565](https://github.com/X-GIS/X-GIS/pull/2565)) `7520e4e`
 
 ### 2026-08
 
