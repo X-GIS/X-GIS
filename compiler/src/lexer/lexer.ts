@@ -211,8 +211,16 @@ export class Lexer {
       this.col++
     }
 
-    if (value.length !== 4 && value.length !== 7 && value.length !== 9) {
-      this.error(`Invalid color literal: ${value} (expected #RGB, #RRGGBB, or #RRGGBBAA)`)
+    // #2543 — `#rgba` (CSS Color Module 4 four-digit shorthand, length 5)
+    // is accepted everywhere else in the pipeline: the Mapbox converter
+    // validates and emits it verbatim (convert/colors.ts:69), and both
+    // tokens/colors.ts:resolveColorToRgba and
+    // ir/render-node-helpers.ts:hexToRgba carry a `length === 5` branch.
+    // Pre-fix the lexer was the only outlier, so a converted style with
+    // `"fill-color": "#f00a"` converted with zero warnings and then threw
+    // here — killing the whole import, not just that layer.
+    if (value.length !== 4 && value.length !== 5 && value.length !== 7 && value.length !== 9) {
+      this.error(`Invalid color literal: ${value} (expected #RGB, #RGBA, #RRGGBB, or #RRGGBBAA)`)
     }
 
     this.tokens.push({ type: TokenType.Color, value, line: this.line, col: startCol })

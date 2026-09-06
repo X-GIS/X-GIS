@@ -6,6 +6,7 @@ import { tileUrl, loadImageBitmap, type TileRowScheme, type TileCoord } from '@x
 import { selectFlatTiles } from './flat-tile-selector'
 import { activeBody } from '@xgis/shared'
 import { lonLatToECEF, type ECEF } from '@xgis/shared'
+import { RowGeomCache } from './raster-row-geom'
 import type { RhiDevice, RhiRenderPass, RhiTexture } from '@xgis/engine'
 import { RasterDraper, type RasterTile } from './material/raster-material'
 import { FailedTileLedger, InflightLedger } from './tile-retry'
@@ -256,6 +257,9 @@ export class RasterRenderer {
 
   // LRU tile cache
   private tileCache = new Map<string, CachedTile>()
+
+  /** #2560 — memoised (z, y) row geometry; see raster-row-geom.ts. */
+  private readonly _rowGeom = new RowGeomCache()
   /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
@@ -854,6 +858,9 @@ export class RasterRenderer {
       texture: RasterTile['texture'],
       tileOpacity: number,
     ): void => {
+      // jscpd:ignore-start — not a deliberate twin: this is the pre-existing raster/hillshade
+      // `emitTileAt` preamble and this change SHRANK it (the pair: 5 clones/588 tokens -> 4/412).
+      // The ratchet re-fingerprints a shortened clone as new (#2570); drop this when that lands.
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
       const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
@@ -861,21 +868,16 @@ export class RasterRenderer {
       drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
-      const north = (Math.atan(Math.sinh(Math.PI * (1 - (2 * renderCoord.y) / rn))) * 180) / Math.PI
-      const south =
-        (Math.atan(Math.sinh(Math.PI * (1 - (2 * (renderCoord.y + 1)) / rn))) * 180) / Math.PI
+      // jscpd:ignore-end
+      // #2560 — the row's latitude bounds and Mercator span depend on (z, y)
+      // alone, so they are memoised rather than recomputed per drawn tile per
+      // frame. `west`/`east` stay here: they are the only part that moves with
+      // x and the world copy, and they are two multiplies.
+      const { north, south, mercSouth, mercDiff } = this._rowGeom.get(renderCoord.z, renderCoord.y)
       // ECEF anchor: SW corner in WGS84 ECEF (unshifted across copies); the shader
       // subtracts it from lonlat_to_ecef(vertex) for the RTC offset. f64 here, f32
       // in the uniform — fine because tile SW is close to the vertices.
       const swEcef = lonLatToECEF(west, south)
-      // Mercator Y bounds in f64 — store merc_south + the small diff separately to
-      // avoid f32 cancellation at high zoom where the two are nearly equal.
-      const DEG2RAD = Math.PI / 180
-      const MERC_LIMIT = 85.051129
-      const clampMerc = (v: number) => Math.max(-MERC_LIMIT, Math.min(MERC_LIMIT, v))
-      const mercSouth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(south) * DEG2RAD) / 2))
-      const mercNorth = Math.log(Math.tan(Math.PI / 4 + (clampMerc(north) * DEG2RAD) / 2))
-      const mercDiff = mercNorth - mercSouth
       // iter-188 world-copy loop; #1040 grid N from the render (fallback-aware) zoom.
       const gridN = rasterGridN(projType, renderCoord.z)
       for (const wo of RASTER_WORLD_COPIES) {

@@ -12,6 +12,8 @@
 // construct through the real Lexer + Parser so this declaration cannot
 // drift from what the compiler actually accepts.
 
+import { SYMBOL_ANCHORS } from '../ir/symbol-elements'
+
 export type SchemaValueKind =
   | 'identifier' // block name (the `foo` in `source foo { … }`)
   | 'string' // quoted/url-ish text
@@ -84,19 +86,6 @@ export const SOURCE_TYPES = [
   'h5',
 ] as const
 
-/** Accepted `symbol { anchor: … }` values. */
-export const ANCHORS = [
-  'center',
-  'top',
-  'bottom',
-  'left',
-  'right',
-  'top-left',
-  'top-right',
-  'bottom-left',
-  'bottom-right',
-] as const
-
 export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
   import: {
     keyword: 'import',
@@ -130,7 +119,12 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     properties: [
       { key: 'name', valueKind: 'identifier', required: true },
       { key: 'path', valueKind: 'string' },
-      { key: 'anchor', valueKind: 'enum', options: ANCHORS },
+      // SYMBOL_ANCHORS is the single authority on which anchors exist — the
+      // lowering gates on it (`isSymbolAnchor`) and the grammar agrees with it.
+      // Referenced, never re-listed: the schema used to carry its own 9-value
+      // copy, and the four corner values in it were hard PARSE errors, so an
+      // editor driven by this table emitted uncompilable `.xgis` (#2548).
+      { key: 'anchor', valueKind: 'enum', options: SYMBOL_ANCHORS },
     ],
   },
 
