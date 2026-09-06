@@ -13,7 +13,9 @@
 // @xgis/geo / @xgis/rhi-webgpu, and a separate npm shell bought nothing but a name
 // that kept attracting code. The exported surface below is unchanged from it.
 
-export { XGISMap } from './map'
+// #2613 — the narrowed surface, from the single authority both entry points share.
+// `./map` would re-export the CLASS, and with it all 215 of its public members.
+export { XGISMap, type PublishedMapMember } from './published-map'
 // #1262 — DOM overlay API anchored to geo coordinates.
 export { Marker, Popup, type MarkerAnchor, type MarkerOptions, type PopupOptions } from './marker'
 export { StatsPanel, StatsTracker, type RenderStats } from './stats'

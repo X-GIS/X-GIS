@@ -8,9 +8,9 @@ are support types folded in from the sibling `@xgis/*` packages and reachable on
 through an exported one. Members are names, not signatures — see the header of
 `scripts/map-public-surface.test.ts` for why.
 
-- declarations: 463
-- exported names: 50
-- members: 2625 (plus 762 `private` name slots)
+- declarations: 466
+- exported names: 51
+- members: 2626 (plus 762 `private` name slots)
 - `@internal` tags surviving into the bundle: 1
 
 ## Exported
@@ -31,6 +31,7 @@ PolarCapFeatureCollection
 PolarCapOptions
 Popup
 PopupOptions
+PublishedMapMember
 RUNTIME_CAPABILITIES
 RenderStats
 RuntimeCapability
@@ -2146,6 +2147,7 @@ interface PropertyTable
   fieldNames
   fieldTypes
   values
+type PublishedMapMember *
 interface PushCoverageOpts
   group
   ramp
@@ -3503,7 +3505,9 @@ class XGISLayerStyle
   set strokeWidth
   set visible
 type XGISLayerStyleKey
-class XGISMap *
+const XGISMap *
+type XGISMap *
+class XGISMap$1
   _atmosphere
   _backgroundColor
   _backgroundColorFromStyle
@@ -3639,6 +3643,7 @@ class XGISMap *
   inputs
   inspectPipeline
   invalidate
+  isCameraPositioned
   isGraticuleEnabled
   isPolarCapsEnabled
   jumpTo

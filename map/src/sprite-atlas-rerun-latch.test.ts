@@ -6,7 +6,7 @@
 // one-shot and latch-gated, so a latch left `true` from run #1 means the re-loaded
 // atlas is never pushed and every fill/line/background-pattern layer samples the stub.
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { XGISMap } from '@xgis/map'
+import { XGISMap } from './map'
 import {
   installWebGPUStub,
   type StubInstallation,

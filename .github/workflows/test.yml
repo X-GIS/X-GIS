@@ -472,6 +472,12 @@ jobs:
       # is a standalone program), so `bun run build` never sees them — typecheck
       # them explicitly or spec-only type rot lands silently (#1683).
       - run: ./node_modules/.bin/tsc -p playground/e2e/tsconfig.json --noEmit
+      # ...and `playground/src` for the SAME reason, which #1683 fixed only for
+      # its sibling: playground's package build is `vite build`, which transpiles
+      # per-file and typechecks nothing, so `bun run build` never sees this code
+      # either. It is the only real consumer of @xgis/map's public surface, and
+      # until this line existed a type error in it reached main silently (#2621).
+      - run: ./node_modules/.bin/tsc -p playground/tsconfig.json --noEmit
 
   # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
   # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any

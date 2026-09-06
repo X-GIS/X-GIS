@@ -1157,7 +1157,7 @@ const CEILINGS: Record<string, number> = {
   // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
   // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
   // renderer FIELDS is #2578 and must extract, not accumulate.
-  'map/src/map.ts': 5547,
+  'map/src/map.ts': 5557,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

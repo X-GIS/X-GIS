@@ -27,7 +27,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventDispatcher, type DispatcherDeps } from '@xgis/map'
-import { XGISMap } from '@xgis/map'
+import { XGISMap } from './map'
 
 // ── Shared mock RAF: records handles, does NOT auto-fire ─────────────
 //
