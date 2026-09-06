@@ -86,13 +86,27 @@ export const INCLUDE = [
 //       `not an HDF5 file`.
 //
 //   (2) process-global writers and the suites that read a global's pristine
-//       default: `vi\.stubGlobal\(`, an assignment onto `globalThis`, or a write
-//       through one of the authorities that keeps its state there —
+//       default: `vi\.stubGlobal\(`, an assignment onto `globalThis`, a
+//       `vi\.spyOn` on a process-global CLOCK (`performance.now`, `Date.now`),
+//       or a write through one of the authorities that keeps its state there —
 //       `configureBody`, `configureBodyConsts`, `configureProjections`,
 //       `setLogSink`. Measured casualties: `shared/src/body.test.ts` (its
-//       subject IS `activeBody()` on "an unconfigured process") and
+//       subject IS `activeBody()` on "an unconfigured process"),
 //       `rhi-webgpu/src/device-lost-recovery.test.ts` (a swapped
-//       `navigator.gpu`, which timed out at 30s when it was left shared).
+//       `navigator.gpu`, which timed out at 30s when it was left shared), and
+//       `map/src/sprite/sprite-idle-keep-warm.test.ts` (a frozen
+//       `performance.now`, 30s timeout in the shared pass, 16ms alone).
+//
+//       The clock clause is why that third one is here: `vi.spyOn(performance,
+//       'now')` replaces a method every module in the worker shares, so it is
+//       the SAME write as `stubGlobal` one level down — and a frozen clock
+//       changes what a deadline comparison in a DIFFERENT module evaluates to.
+//       The criterion, not the list, was what had been too narrow, so a census
+//       run against the old wording could never have found it. A census over
+//       the widened criterion (2026-09-06) put 13 files in the class and all 13
+//       are below. It also found 22 that spy `console` ONLY; those are NOT
+//       admitted, because `console` is a sink nothing reads back — a judgement,
+//       not a measurement, recorded with the whole list at #2634.
 //
 //   (3) the two suites that assert a WALL-CLOCK threshold
 //       (`merc-high-pitch-drag-perf`, `pbf-to-slot-dos`). A shared worker holds
@@ -126,11 +140,15 @@ export const ISOLATED = [
   'data/src/hdf5/range-reader.test.ts',
   'data/src/source-resolve-error-report.test.ts',
   'data/src/sources/pmtiles-backend.test.ts',
+  // (2) clock — `vi.spyOn(Date, 'now')` drives the catalog's freshness window.
+  'data/src/sources/virtual-catalog-fetch.test.ts',
   'data/src/sources/virtual-pmtiles-teardown.test.ts',
   // (1) module mock — geojson-tiling-pool + mvt-worker-pool, so the worker compile arm
   //     can be held open mid-flight (#2359).
   'data/src/sources/virtual-pmtiles-worker-detach.test.ts',
   'data/src/tile-catalog-layout-version-eviction.test.ts',
+  // (2) `vi.spyOn(globalThis, …)` — a swapped global `fetch` for the lifecycle arms.
+  'data/src/tile-catalog-lifecycle.test.ts',
   'data/src/tile-select-budget.test.ts',
   'data/src/vector-tile-loader-negcache-abort.test.ts',
   'data/src/viewport-class-budget-migration.test.ts',
@@ -153,6 +171,8 @@ export const ISOLATED = [
   'map/src/__tests__/event-dispatcher-leave-inflight-pick.test.ts',
   'map/src/__tests__/event-dispatcher-leave-raf-cancel.test.ts',
   'map/src/__tests__/event-dispatcher-listener-gate.test.ts',
+  // (2) clock — the arrow's show/hide schedule is read off a frozen `performance.now`.
+  'map/src/arrow-show-time-clock.test.ts',
   'map/src/arrow-show.test.ts',
   'map/src/bandwidth-link-prefetch.test.ts',
   'map/src/body-blind-caches.test.ts',
@@ -164,6 +184,8 @@ export const ISOLATED = [
   'map/src/controller-cooperative-gestures.test.ts',
   'map/src/controller-dblclick-boxzoom.test.ts',
   'map/src/controller-dpr-anchor.test.ts',
+  // (2) clock — the inertia recency gate compares against a frozen `performance.now`.
+  'map/src/controller-inertia-recency-gate.test.ts',
   // (2) assigns `globalThis.window` and writes QUALITY via updateQuality (interaction-dpr anchor fix).
   'map/src/controller-interaction-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
@@ -197,6 +219,8 @@ export const ISOLATED = [
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
+  // (2) clock — freezes BOTH `performance.now` and `Date.now`.
+  'map/src/pending-work.test.ts',
   'map/src/render-loop-helpers.report-error-scope.test.ts',
   'map/src/render-loop-interaction-dpr.test.ts',
   'map/src/render/back-face-cull-comprehensive.test.ts',
@@ -210,12 +234,16 @@ export const ISOLATED = [
   'map/src/render/merc-high-pitch-drag-perf.test.ts',
   'map/src/render/no-eager-uniform-reflect.test.ts',
   'map/src/render/p4-end-to-end.test.ts',
+  // (2) clock — the label pass's fade schedule is stepped by a frozen `performance.now`.
+  'map/src/render/passes/label-pass-time-clock.test.ts',
   'map/src/render/passes/opaque-pass-checker-arm.test.ts',
   'map/src/render/passes/overdraw-frame-truth.test.ts',
   'map/src/render/raster-abort-not-failure.test.ts',
   'map/src/render/raster-cache-byte-cap.test.ts',
   'map/src/render/raster-loadtile-webgl2-cleanup.test.ts',
   'map/src/render/raster-tile-retry-storm.test.ts',
+  // (2) clock — the readiness gate's give-up deadline is a `performance.now` delta.
+  'map/src/render/readiness-gate-unreachable-target.test.ts',
   'map/src/render/renderer-compute-simulation.test.ts',
   'map/src/render/renderer-stub-construction.test.ts',
   // (2) `configureBody` — it switches the process-global body to MOON / MARS to
@@ -223,10 +251,14 @@ export const ISOLATED = [
   'map/src/render/tile-camera-anchor-body.test.ts',
   'map/src/render/tile-compute-resources.test.ts',
   'map/src/render/vector-drape-bake-budget.test.ts',
+  // (2) `vi.stubGlobal(` — rule (2)'s own literal criterion, simply missed.
+  'map/src/render/vector-drape-cold-release.test.ts',
   'map/src/render/vector-tile-renderer-helpers.test.ts',
   'map/src/render/viewport-class-budget-behaviour.test.ts',
   'map/src/render/vtr-bundle-compaction-invalidate.test.ts',
   'map/src/render/vtr-destroy-resource-release.test.ts',
+  // (2) clock — the prefetch pump's budget window is a frozen `performance.now`.
+  'map/src/render/vtr-pump-prefetch.test.ts',
   'map/src/render/wire-frame-colour-overdraw-cap.test.ts',
   'map/src/safety-ssrf-integration.test.ts',
   'map/src/shaders/baked/baked-body-guard.test.ts',
@@ -241,7 +273,13 @@ export const ISOLATED = [
   'map/src/shaders/emit/shader-emit-pool.test.ts',
   'map/src/source-manager-drop-tiling.test.ts',
   'map/src/source-manager-refresh.test.ts',
+  // (2) clock — the measured casualty that widened this rule's criterion (#2634).
+  'map/src/sprite/sprite-idle-keep-warm.test.ts',
   'map/src/stats-byte-telemetry.test.ts',
+  // (2) clock — the frame clock IS a `performance.now` reading.
+  'map/src/stats-frame-clock.test.ts',
+  // (2) clock — the keep-warm deadline is stamped from a frozen `performance.now`.
+  'map/src/text/glyph-inflight-keep-warm.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
   // (2) assigns `globalThis.HTMLElement` before dynamically importing component.ts,
   //     which binds its DOM base class at module load — a shared registry that has
@@ -252,6 +290,8 @@ export const ISOLATED = [
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).
   'playground/e2e/helpers/validation.test.ts',
+  // (2) `vi.stubGlobal(` — rule (2)'s own literal criterion, simply missed.
+  'playground/src/overdraw-capture.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',
   'shared/src/safety.test.ts',
