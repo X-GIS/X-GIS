@@ -103,3 +103,23 @@ export function mapModuleExprs(
     ),
   }
 }
+
+/** `mapModuleExprs` where the rewrite is derived PER FUNCTION — the shape every
+ *  substitution pass has: skip a fn holding a raw Stmt (raw WGSL may read a name the
+ *  pass cannot see), build that fn's rewrite from its OWN bindings, then rebuild the
+ *  body. `makeF` returning `undefined` leaves the fn untouched, so a pass whose
+ *  collection came back empty keeps the subtree's identity rather than rebuilding an
+ *  equal tree. */
+export function mapModuleExprsPerFunc(
+  m: ModuleDecl,
+  makeF: (fn: FuncDecl) => ((e: Expr) => Expr) | undefined,
+): ModuleDecl {
+  return {
+    ...m,
+    funcs: m.funcs.map((fn): FuncDecl => {
+      if (bodyHasRaw(fn.body)) return fn
+      const f = makeF(fn)
+      return f === undefined ? fn : { ...fn, body: fn.body.map((s) => mapStmt(s, f)) }
+    }),
+  }
+}
