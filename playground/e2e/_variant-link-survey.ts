@@ -21,13 +21,7 @@ import {
   type VariantLinkResult,
 } from '../../shader-dsl/src/core/variant-link'
 import { variantFamily } from '../../shader-dsl/src/core/variant-family'
-import {
-  builtin,
-  ioStruct,
-  location,
-  resource,
-  type IoStruct,
-} from '../../shader-dsl/src/core/sot'
+import { builtin, ioStruct, location, resource, type IoStruct } from '../../shader-dsl/src/core/sot'
 import {
   fn,
   module,

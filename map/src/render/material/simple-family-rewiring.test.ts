@@ -23,9 +23,13 @@
 //
 // Link D is a SET EQUALITY against a derived expectation, not a for-each over a hand list:
 // a loop over the seven files can only ever confirm the seven files (§996 — an assertion
-// that cannot fail for the case it exists to catch). The eligible set is computed from
-// `SIMPLE_FAMILIES` ∩ boot group, minus a shrink-only DEFERRED allowlist whose entries
-// carry a reason and an increment number.
+// that cannot fail for the case it exists to catch). Since #2499 step 3 the expectation is
+// ALL of `SIMPLE_FAMILIES`: every simple family is either REWIRED (and proven installed
+// before its draper is built — boot, or lazy with a prefetch seam) or in the shrink-only
+// DEFERRED allowlist with a reason. Until then the criterion was "boot, or lazy with a
+// seam", which let a lazy family with NO seam fall out of the comparison silently — three
+// registered families (scene-upscale, flow-advect, line-composite) were baked, shipped in
+// the lazy artifact and read by nobody, and this file could not say so.
 //
 // WHAT THIS FILE DELIBERATELY DOES NOT DO: construct the drapers. Each one builds a real
 // `Material`, which needs a device that creates shader modules, pipelines and bind-group
@@ -61,6 +65,16 @@ const REWIRED: Readonly<Record<string, string>> = {
   'arrow-retained': 'arrow-retained-material.ts',
   'particle-retained': 'particle-retained-material.ts',
   'arrow-retained-advected': 'arrow-retained-advected-material.ts',
+  // #1679 inc 9 wired the three heatmap passes (one material file, three families); they
+  // were never listed here because the old eligibility criterion could only see a seam
+  // under graphics/. Accounted for since #2499 step 3.
+  'heatmap-accum': 'heatmap-material.ts',
+  'heatmap-blur': 'heatmap-material.ts',
+  'heatmap-compose': 'heatmap-material.ts',
+  // #2499 step 3 — the three families the old criterion silently dropped.
+  'scene-upscale': 'scene-upscale-material.ts',
+  'line-composite': 'line-composite-material.ts',
+  'flow-advect': 'flow-advect-material.ts',
 }
 
 /** Boot-group simple families NOT rewired yet, each with the reason and the increment that
@@ -182,21 +196,27 @@ describe("#1679 inc 5 — C: every derived id exists in its group's committed ar
 // something fetches the lazy chunk before the family's draper is built. #1888 made that true for
 // the five retained families: `GraphicsManager` calls `prefetchLazyShaders` at its registration
 // seams (`add` / `addCompiledArrowLayer`) and builds the draper at the first DRAW, one frame
-// later — the same window `prefetchLazyShaders` documents for `HeatmapRenderer.addLayer`.
+// later — the same window `prefetchLazyShaders` documents for `HeatmapRenderer.addLayer`;
+// #2499 step 3 added `CoverageRenderer.setCoverage` (a coverage with a vector band IS the flow
+// layer's registration, and it arms strictly before the flow pass builds the advect draper).
 //
-// This table names the file that owes that call, per lazy REWIRED family, and the arm below
-// checks it is really there. Without it, "eligible" would just be "boot or lazy", which is every
-// family — a criterion that excludes nothing and would have let a lazy family be rewired with no
-// installer at all, resolving 'absent' at every call.
+// This table names the file (repo-relative under map/src) that owes that call, per lazy
+// REWIRED family, and the arm below checks it is really there. A lazy family with NO row here
+// is not "ineligible" — it is UNACCOUNTED FOR, and link D reds until it gets a REWIRED row with
+// a seam or a DEFERRED row with a reason.
 const LAZY_PREFETCH_SEAM: Readonly<Record<string, string>> = {
-  'circle-retained': 'graphics-manager.ts',
-  'icon-retained': 'graphics-manager.ts',
-  'arrow-retained': 'graphics-manager.ts',
-  'particle-retained': 'graphics-manager.ts',
-  'arrow-retained-advected': 'graphics-manager.ts',
+  'circle-retained': 'graphics/graphics-manager.ts',
+  'icon-retained': 'graphics/graphics-manager.ts',
+  'arrow-retained': 'graphics/graphics-manager.ts',
+  'particle-retained': 'graphics/graphics-manager.ts',
+  'arrow-retained-advected': 'graphics/graphics-manager.ts',
+  'heatmap-accum': 'render/heatmap-renderer.ts',
+  'heatmap-blur': 'render/heatmap-renderer.ts',
+  'heatmap-compose': 'render/heatmap-renderer.ts',
+  'flow-advect': 'render/coverage-renderer.ts',
 }
 
-const GRAPHICS = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'graphics')
+const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 /** True when the family's ids are installed before its draper is built: boot (installed at
  *  attach) or lazy WITH a seam that prefetches and is proven to call it. */
@@ -204,26 +224,27 @@ function installedBeforeUse(f: SimpleFamily): boolean {
   if (FAMILY_GROUPS[f] === 'boot') return true
   const seam = LAZY_PREFETCH_SEAM[f]
   if (seam === undefined) return false
-  return readFileSync(join(GRAPHICS, seam), 'utf8').includes('prefetchLazyShaders(')
+  return readFileSync(join(MAP_SRC, seam), 'utf8').includes('prefetchLazyShaders(')
 }
 
-describe('#1679 inc 5 — D: the rewired set is exactly the eligible set', () => {
-  it('rewired ∪ deferred === the families whose ids are installed before use', () => {
-    const eligible = SIMPLE_FAMILIES.filter(installedBeforeUse)
+describe('#1679 inc 5 / #2499 step 3 — D: every simple family is accounted for', () => {
+  it('rewired ∪ deferred === SIMPLE_FAMILIES', () => {
     const covered = new Set([...Object.keys(REWIRED), ...Object.keys(DEFERRED)])
-    // SET EQUALITY in both directions. A for-each over REWIRED can only confirm what is
-    // already in REWIRED; the failure worth catching is an EIGHTH boot-group simple family
-    // arriving and nobody wiring it, which only a comparison against the derived set sees.
+    // SET EQUALITY in both directions against the grammar's own family list. A for-each over
+    // REWIRED can only confirm what is already in REWIRED; the failure worth catching is a
+    // fifteenth simple family arriving and nobody wiring it — or a lazy one arriving without
+    // a prefetch seam and dropping out of sight, which is exactly how three registered
+    // families sat baked-and-unread from #1679 inc 4 to #2499.
     expect(
       [...covered].sort(),
-      `the eligible simple families and the families this file accounts for have diverged. ` +
-        `Eligible (boot, or lazy with a proven prefetch seam): ${eligible.join(', ')}. ` +
-        `Accounted for ` +
+      `the simple families and the families this file accounts for have diverged. ` +
+        `SIMPLE_FAMILIES: ${[...SIMPLE_FAMILIES].sort().join(', ')}. Accounted for ` +
         `(REWIRED + DEFERRED): ${[...covered].sort().join(', ')}. A new family on the left ` +
-        `needs either a REWIRED row (pass its ids at the call site) or a DEFERRED row with ` +
-        `the reason; one on the right that is no longer boot-group or no longer simple has ` +
+        `needs either a REWIRED row (pass its ids at the call site, and for a lazy family a ` +
+        `LAZY_PREFETCH_SEAM row naming the registration seam that calls prefetchLazyShaders) ` +
+        `or a DEFERRED row with the reason; one on the right that is no longer simple has ` +
         `moved and its row must move with it.`,
-    ).toEqual([...eligible].sort())
+    ).toEqual([...SIMPLE_FAMILIES].sort())
   })
 
   it('no DEFERRED family has quietly been rewired (shrink-only)', () => {

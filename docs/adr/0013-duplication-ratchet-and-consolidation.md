@@ -4,7 +4,8 @@
 - **Date**: 2026-09-05
 - **Related**: `.jscpd.json`, `scripts/dup-ratchet.ts` (+
   `scripts/dup-ratchet.test.ts`), `.github/workflows/test.yml` (`lint` job),
-  `scripts/precheck.ts`, `map/src/loc-ceiling-ratchet.test.ts`,
+  `scripts/precheck.ts` (`bun run dup` / `dup:report` / `dup:shape`),
+  `map/src/loc-ceiling-ratchet.test.ts`,
   `engine/src/dependency-direction-ratchet.test.ts`, CLAUDE.md §14,
   `docs/plans/2026-09-05-code-duplication-audit.md` (the measured audit + work queue)
 
@@ -41,6 +42,69 @@ None of the existing gates sees this. LOC ceilings measure size; the dependency-
 ratchet measures edges; knip measures reachability; ESLint has no cross-file rule. Nothing
 measured repetition, so the only thing between a third copy and a fourth was a reviewer
 noticing.
+
+### The second question: the duplication that is NOT textually identical
+
+The owner's follow-up the same day: what about code that is not a verbatim copy — the same
+shape re-flowed, a function re-created under a different name, a family that should have
+been one abstraction and was written N times instead? That is the larger half, and a token
+detector is blind to all of it, because the sibling families here differ in exactly the
+identifiers that say which primitive they serve.
+
+The standard vocabulary (Roy & Cordy, 2007) separates it cleanly, and each row has a
+different instrument and a different honest answer:
+
+| type | what differs                                      | instrument here                                           |
+| ---- | ------------------------------------------------- | --------------------------------------------------------- |
+| 1    | whitespace and comments only                      | `bun run dup` — **gated**                                 |
+| 2    | identifiers, literals, types                      | `bun run dup:shape` / `--type-insensitive` — report       |
+| 3    | copied, then edited (statements added or removed) | partly, wherever the unedited part still clears 70 tokens |
+| 4    | same behaviour, independently written             | **nothing, by choice** — Decision 5                       |
+
+Type-2 was measured by mirroring the tree with every identifier rewritten to `_`, every
+string to `"S"` and every number to `0` (TypeScript's own scanner; comments blanked to
+spaces so line numbers still point at the real file), running the same `.jscpd.json` over
+the mirror, and subtracting the pairs the token pass already covers. At `6c2fdfd` the 802 raw
+shape pairs
+decompose, and the decomposition is the honest part:
+
+| bucket                                                       | pairs   | lines    |
+| ------------------------------------------------------------ | ------- | -------- |
+| self-overlaps and uniform data tables (filtered — noise)     | 475     | —        |
+| extends a pair the gate already flags (same finding, bigger) | 86      | —        |
+| **SHAPE-ONLY — duplication the gate cannot see**             | **241** | **3831** |
+| the token pass itself, for comparison                        | 279     | 3673     |
+
+**So the gate sees about half** — 3673 of 7504 duplicated lines, 49%. Nothing pins these
+figures (the gate stores no count), so re-run `bun run dup:shape` rather than quoting them.
+
+Two accounting traps were hit building this, both worth recording because both produced a
+number that looked like a finding:
+
+- **Subtracting by equal START LINE rather than by range overlap.** Erasing identifiers
+  changes the token stream, so jscpd re-anchors a match a few lines either way and the same
+  finding returns with a different start. Keyed on the start, 54 pairs / 1276 lines came back
+  as "invisible to the gate" on file pairs the gate had already flagged — a quarter of the
+  reported total, inflating shape-only to 294 / 5100.
+- **Comparing jscpd's de-duplicated `duplicatedLines` stat against a sum of pair lines.** The
+  filtered subsets can only be summed per pair, so the token side must be summed the same
+  way. Mixed, it read 3380 vs 3824 → "the gate sees 40%"; in one unit it is 49%. This is
+  CLAUDE.md §12's units lesson, met inside the instrument built to apply it.
+
+The largest single cluster is a good illustration of what the "extends" bucket means and why
+it is kept separate. `map/src/render/material/circle-retained-material.ts:12-82` and
+`particle-retained-material.ts:14-87` are each a structural copy of
+`arrow-retained-material.ts:13-89` covering the whole file below its header — three ~85-line
+drapers, one shape, each copy saying "Mirrors RetainedArrowDraper" in its own comment. The
+gate DOES flag that file pair, at 31 scattered lines; the shape lens re-finds it as 77 lines
+in one fragment. That is not duplication the gate misses — it is duplication the gate
+under-measures, which is a different claim and is why consolidation should be scoped from the
+lens rather than from the gate's corner of a cluster. The audit document carries both lists.
+
+The shape mirror's own file and line totals are not comparable to the token pass's — it
+covers `.ts/.tsx` only (not `.js/.mjs`), and `mild` mode skips blank lines while a blanked
+comment line becomes blank. Only pair counts and pair-summed lines are quoted, never a
+percentage of tree.
 
 ### How large codebases handle it — the prior art this borrows
 
@@ -97,6 +161,21 @@ noticing.
    within a week. That is the same argument Decision 3 uses to keep test duplication out of
    the gate, turned on the gate itself. `--baseline-from-ref` removes the whole class: with
    nothing stored, nothing can go stale, and the debt number moves to `dup:report`.
+9. **Gating the shape lens too** — rejected. Its false positives are legitimate code: a
+   uniform data table, a switch over an enum, a list of bind-group entries all shape to the
+   same text without being duplication in any sense a rewrite could remove. Two filters
+   (drop a region matching itself a few entries along; drop a fragment whose shaped lines are
+   less than half distinct) drop 475 of 802 raw pairs — a heuristic that
+   good, gated, is Alternative 8's mistake wearing different clothes: a gate that reds on
+   something the author cannot reasonably remove gets bypassed. It is a lens for the human
+   deciding what to consolidate, and its output is a queue, not a verdict.
+10. **A Type-4 detector** (metric-vector or AST-embedding similarity, the research line
+    behind Deckard and the ML clone detectors) — rejected, and this is the deliberate blind
+    spot rather than an oversight. Nothing available can be validated against a known
+    positive on this tree, and CLAUDE.md §12's rule cuts the other way here: an instrument
+    that cannot be trusted reports ZERO, and a zero reads as "clean". A documented blind spot
+    is strictly better than a detector nobody can check (#2561). Decision 5 says what stands
+    in for it.
 
 ## Decision
 
@@ -190,6 +269,49 @@ baseline has been shrinking for a while.
 5. **One issue per cluster** (CLAUDE.md §9.5): `file:line` of every copy, the remedy class,
    the helper's home, and the gate that proves it closed.
 
+### 5. The shape lens is a REPORT; Type-4 gets no detector, and that is the decision
+
+`bun run dup:shape` is the Type-2 lens: the shaped-tree pass above, minus the token pass,
+minus the two noise classes. Read it BEFORE consolidating a family — the token gate shows a
+corner of a cluster and the shape lens shows the cluster, and consolidating from the corner
+is how a half-done extraction happens (Decision 4 step 3: every copy in the same PR, and the
+gate cannot tell you which copies those are). It is never a gate, per Alternative 9.
+
+Two properties of the subtraction are load-bearing and were both got wrong first (Context):
+it is by **range overlap**, because erasing identifiers re-anchors a match and the same
+finding returns at a different start line; and the pairs it removes because the gate already
+covers them are **counted and reported separately** rather than silently dropped, because
+"the gate under-measures this cluster" is a different claim from "the gate is blind to it"
+and the retained-draper family — the biggest one — is in the first category, not the second.
+
+For Type-4 — a helper re-invented under another name with a different shape — there is no
+instrument and none is proposed. What stands in for one:
+
+- **The report is read before authoring a sibling**, not after (CLAUDE.md §14): the third
+  copy within a package, the second across a boundary.
+- **The co-change signal**, when a family is suspected: files changed together across
+  history. Cheap to compute (`git log --name-only --pretty=format:%H`, pair-count over
+  commits) and it names pairs a text detector structurally cannot. It is also the weakest
+  instrument here, and it produced a wrong headline before anyone checked it (#2561):
+  - **Resolve imports with `.js` specifiers rewritten.** `shader-dsl` is the only package in
+    this repo that writes them — 883 relative `.js` imports against 0 in every other package
+    — so a resolver that skips that rewrite reports "no import edge" precisely where the
+    interesting pair lives. `glsl.ts:70` has imported `./wgsl.js` since the GLSL backend's
+    first commit; the published archetype was false for its whole life.
+  - **Check the MEDIATOR before inferring a missing abstraction.** Both flagged pairs
+    co-change with the file that mediates them (the RHI adapters: 8 of 8 also touch
+    `rhi/src/rhi.ts`; `glsl.ts ↔ wgsl.ts`: 10 of 11 also touch another `core/` seam file).
+    Implementations moving with their interface is the signature of a HEALTHY abstraction.
+    Lockstep is not evidence of duplication; lockstep WITHOUT a mediator might be.
+    The resolved verdicts live in #2561: the shader backends already share `Backend`,
+    `core/emit.ts` and the `INTRINSICS` table, and the RHI adapters are a chartered twin whose
+    separation the dependency-direction ratchet enforces.
+- **Review**, which is where a re-invented helper is actually caught, informed by the two
+  above rather than replaced by them.
+
+The measurement to revisit: if the shape lens's ~240 does not fall as the queue is worked, the
+queue is being worked from the token corner rather than from the cluster.
+
 ## Consequences
 
 - (+) Mechanical, ~4 s, no build, nothing committed to keep in sync. A clone this PR adds
@@ -198,8 +320,15 @@ baseline has been shrinking for a while.
   verdict does not change, because the comparison is rebuilt from the base each run. That
   is the property the first design lacked (Alternative 8).
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
-- (−) Token-level: identifier renames and reordered statements are invisible; so are
-  annotation-only differences (visible to the `--type-insensitive` lens, not to the gate).
+- (+) The gate's blind spot is MEASURED rather than assumed: `dup:shape` puts a number on
+  what the token pass cannot see (3831 lines against 3673), so "the gate is green" is never
+  mistaken for "there is no duplication here".
+- (−) Token-level: identifier renames and reordered statements are invisible to the GATE; so
+  are annotation-only differences. Both have a lens (`dup:shape`, `--type-insensitive`) and
+  neither has a gate — Alternative 9.
+- (−) Type-4 is not detected at all, deliberately (Alternative 10 / Decision 5). The
+  substitutes are the report, the co-change signal and review; none of them is mechanical,
+  so this is the class that can still compound unnoticed.
 - (−) The debt number lives in `dup:report` and this ADR's table, not in a file CI diffs —
   so a slow drift downward is not celebrated anywhere. Acceptable: the gate's job is to stop
   new duplication, and the queue is what drives the number down.

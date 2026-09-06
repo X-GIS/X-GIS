@@ -27,6 +27,7 @@ import {
   clusterClones,
   resolveBaseRef,
   scan,
+  shapeOnlyClones,
   type Clone,
 } from './dup-ratchet.js'
 
@@ -104,6 +105,58 @@ describe('bareMarkers — an intentional twin carries its reason', () => {
       ['c.ts', '// jscpd:ignore-start — WebGL2/WebGPU twin kept apart on purpose (#2165)\n'],
     ]
     expect(bareMarkers(files)).toEqual([])
+  })
+})
+
+describe('shapeOnlyClones — the two noise classes the shape lens must discard', () => {
+  // Every fragment below is read out of these two synthetic "shaped" files.
+  const TABLE = Array.from({ length: 40 }, () => '_: "S",').join('\n')
+  const CODE = Array.from(
+    { length: 40 },
+    (_, i) => `const _ = _(${i % 7}) + _.${'x'.repeat((i % 5) + 1)}`,
+  ).join('\n')
+  const read = (f: string): string => (f === 'table.ts' ? TABLE : CODE)
+
+  it('drops a clone the token pass already reports', () => {
+    const c = clone('code.ts', 1, 20, 'code.ts', 21, 40)
+    expect(shapeOnlyClones([c], [c], read)).toEqual([])
+  })
+
+  it('drops one the token pass reports at a SHIFTED start — same finding, re-anchored', () => {
+    // Erasing identifiers changes the token stream, so jscpd re-anchors the match a few
+    // lines either way. Keying the subtraction on the start line (the first implementation)
+    // let 54 clones / 1276 lines back in as "invisible to the gate" when the gate had
+    // already flagged that file pair; overlap is the rule that distinguishes.
+    const shaped = clone('code.ts', 3, 22, 'code.ts', 23, 42)
+    const token = clone('code.ts', 1, 20, 'code.ts', 21, 40)
+    expect(shapeOnlyClones([shaped], [token], read)).toEqual([])
+  })
+
+  it('drops one the token pass reports with the two files SWAPPED', () => {
+    // jscpd's file order inside a pair is not canonical — it emits both (a,b) and (b,a).
+    const shaped = clone('a.ts', 1, 20, 'b.ts', 41, 60)
+    const token = clone('b.ts', 41, 60, 'a.ts', 1, 20)
+    expect(shapeOnlyClones([shaped], [token], () => CODE)).toEqual([])
+  })
+
+  it('keeps one on a file pair the token pass flags ELSEWHERE — a different finding', () => {
+    const shaped = clone('code.ts', 1, 15, 'code.ts', 21, 35)
+    const elsewhere = clone('code.ts', 60, 79, 'code.ts', 90, 109)
+    expect(shapeOnlyClones([shaped], [elsewhere], read)).toEqual([shaped])
+  })
+
+  it('drops a region matching ITSELF a few entries along — a list, not a copy', () => {
+    // colors.ts:5-277 ~ :18-290 was the real one: a 270-row table, overlapping ranges.
+    expect(shapeOnlyClones([clone('code.ts', 1, 30, 'code.ts', 5, 34)], [], read)).toEqual([])
+  })
+
+  it('drops a uniform data table — every row shapes to the same text', () => {
+    expect(shapeOnlyClones([clone('table.ts', 1, 20, 'table.ts', 21, 40)], [], read)).toEqual([])
+  })
+
+  it('keeps a structurally varied clone the token pass never saw', () => {
+    const c = clone('code.ts', 1, 15, 'code.ts', 21, 35)
+    expect(shapeOnlyClones([c], [], read)).toEqual([c])
   })
 })
 
