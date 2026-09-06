@@ -155,6 +155,16 @@ export { lowerModule } from './core/passes/match-lower.js'
 export { cse } from './core/passes/opt/cse.js'
 export { autoVars } from './core/passes/opt/auto-vars.js'
 
+// #2572 — REACHABILITY, the fact a host needs to answer "can this entry pair draw
+// through that bind group layout?" without emitting. `reflect()` publishes what a
+// module DECLARES; a driver validates what an entry pair statically USES, and the
+// two differ whenever one module carries several entry points (a pattern fragment's
+// sprite atlas is declared in every polygon module and reached by none of the fill
+// entries). A consumer that answers it from emitted text instead measures the union
+// of all entries and is wrong for every multi-entry module. Already the GLSL
+// backend's own per-stage scope, so this exports a fact rather than adding one.
+export { reachFrom, type EntryReach } from './core/passes/stage-bindings.js'
+
 // fp64 (emulated double precision): the host-side split, the anti-fast-math
 // guard declarator (REQUIRED by f64-using modules — see SD0042), and the
 // lowering pass itself (runs automatically inside every emit; exported for

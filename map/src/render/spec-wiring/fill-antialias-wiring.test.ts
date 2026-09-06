@@ -28,9 +28,6 @@
 // reach the GPU is gone, and the test catches it before any render.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { resolveShow } from '../resolved-show'
 import {
   installWebGPUStub,
@@ -40,6 +37,7 @@ import { initGPU } from '@xgis/rhi-webgpu'
 import { VectorTileRenderer } from '@xgis/map'
 import { UniformRing } from '@xgis/map'
 import { polygonUniformStride } from '@xgis/map'
+import { renderPathSource } from '../render-path-source'
 
 // cam_ecef_off_h.w — the spare lane fill-antialias rides (1 default, 0 = off).
 const FILL_ANTIALIAS_SLOT = 55
@@ -278,10 +276,7 @@ describe('fill-antialias zoom expression → the same uniform lane (#1995)', () 
 // and camera, and a stub deep enough to execute it would pin the mock rather
 // than the code. So the property is asserted about the twin's TEXT — that it
 // derives the lane and packs what it derived, in that order.
-const VTR_SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '..', 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const VTR_SRC = renderPathSource()
 
 /** The `renderFillsRhi` body, from its signature to the next method. */
 function fillsRhiBody(): string {

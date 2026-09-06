@@ -449,7 +449,13 @@ const CEILINGS: Record<string, number> = {
   // identifiers, which re-fingerprints every overlapping pair for `--baseline-from-ref`.
   // Marked as twins with their reasons rather than consolidated (a WebGL2-path extraction
   // this motion-only PR must not smuggle in); the markers are the growth.
-  'map/src/render/vector-tile-renderer.ts': 5873,
+  // 5873→3886 (#2537): ten of the eleven `render()` phases named by #2508 moved
+  // out to `render/render-phases/` — the first time this key has gone DOWN. Phase 0 stays:
+  // it is the frame's concrete-backend seam and moving it would spread that coupling past
+  // the #991 ratchets. The members the moved bodies touch became `@internal`, which the
+  // publish pass strips (#2601), so the published `.d.ts` narrows by 87 name slots.
+  // Measured with `wc -l` on the post-prettier tree.
+  'map/src/render/vector-tile-renderer.ts': 3886,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2753,7 +2759,14 @@ const CEILINGS: Record<string, number> = {
   // `diagnostics` sink. Same shape and same rationale as the X-GIS0028 raise
   // above: the gate must sit where the resolve verdict is known, and that is
   // this switch. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
-  'compiler/src/ir/lower.ts': 1552,
+  // 1552→1575 (#2549, tenth main merge): the THIRD double-delta on this key today.
+  // #2544 raised it to 1552 on main while this branch raised it for the
+  // `source { type: … }` gate from the same base; git merged the two ceiling
+  // edits without a conflict and silently kept 1552, which is one whole change
+  // too low — CI reddened on `1549 > ceiling 1527` before the merge and would
+  // have reddened again after it. No arithmetic on the two numbers: RE-MEASURED
+  // with `wc -l` on the conflict-resolved post-prettier tree (§12).
+  'compiler/src/ir/lower.ts': 1575,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

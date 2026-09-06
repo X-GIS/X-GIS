@@ -10,12 +10,9 @@
 // vector-tile-renderer-uniform-completeness.test.ts.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { renderPathSource } from './render-path-source'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const src = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
+const src = renderPathSource()
 
 describe('VTR wires TileUniformArena at all six lifecycle points (#2042 INC-2)', () => {
   it('slots are established on the per-tile path, gated to UNCLIPPED draws', () => {
@@ -133,7 +130,10 @@ describe('VTR wires UniformSplitBind at all lifecycle points (#2042 INC-4b)', ()
     // splitWalkSkip and the bundle-key builder's ringCursor sentinel; drift
     // between them would re-couple the keys the sentinel decouples. Pin the
     // authority's terms, the delegation, and both key sites.
-    const qual = src.indexOf('private _walkRingFree(')
+    // #2537 — the member is `@internal` rather than `private` so the render
+    // phases can reach it from render-phases/; the newline + indent still pins
+    // the DECLARATION, not a `this._walkRingFree(` call site.
+    const qual = src.indexOf('\n  _walkRingFree(')
     expect(qual, '_walkRingFree authority not found').toBeGreaterThan(0)
     const qualBody = src.slice(qual, qual + 1600)
     for (const term of [

@@ -25,6 +25,7 @@
 import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 import { INPUT_DUPLICATE, INPUT_UNUSED, INPUT_POOL_EXHAUSTED } from '../diagnostics/diagnostic'
+import { mapExprChildren, mapStatementExprs } from './walk-expr'
 
 /** Reserved GPU uniform-pool sizes — see file header. */
 export const INPUT_F32_POOL_SIZE = 8
@@ -107,10 +108,19 @@ export function resolveInputs(
         default: decl.default,
       }
     }
-    return mapChildren(expr, resolve)
+    return mapExprChildren(expr, resolve)
   }
 
-  const body = program.body.map((s): AST.Statement => resolveStatement(s, resolve))
+  const body = program.body.map((s): AST.Statement =>
+    // Unlike fn-inline.ts (which leaves `FnStatement` untouched — inlining
+    // happens at call sites via a separate memo), THIS pass must resolve
+    // inputs inside fn bodies directly: it runs BEFORE inlineUserFns, so if
+    // a bare `input` identifier inside a fn body isn't rewritten here,
+    // inlineUserFns's X-GIS0017 free-identifier check would wrongly reject
+    // it (that check only allows params + zoom/pitch, and doesn't know
+    // about input names). Every other statement kind is the shared shape.
+    s.kind === 'FnStatement' ? { ...s, body: resolve(s.body) } : mapStatementExprs(s, resolve),
+  )
 
   for (const decl of table.values()) {
     if (referenced.has(decl.name)) continue
@@ -127,115 +137,4 @@ export function resolveInputs(
   }
 
   return { program: { kind: 'Program', body }, inputs: [...table.values()] }
-}
-
-/** Structurally rewrite every child expression of `expr` (shallow clone).
- *  Duplicated from fn-inline.ts's `mapChildren` rather than shared: this
- *  pass runs strictly before fn-inline in the pipeline, and the two
- *  walkers' only coupling should be the `Expr` union shape, not each
- *  other's module — importing one from the other would suggest an
- *  ordering dependency neither actually needs. */
-function mapChildren(expr: AST.Expr, f: (e: AST.Expr) => AST.Expr): AST.Expr {
-  switch (expr.kind) {
-    case 'NumberLiteral':
-    case 'StringLiteral':
-    case 'ColorLiteral':
-    case 'BoolLiteral':
-    case 'Identifier':
-    case 'InputRef':
-      return expr
-    case 'FieldAccess':
-      return expr.object ? { ...expr, object: f(expr.object) } : expr
-    case 'FnCall':
-      return {
-        ...expr,
-        callee: expr.callee.kind === 'Identifier' ? expr.callee : f(expr.callee),
-        args: expr.args.map(f),
-        ...(expr.matchBlock
-          ? {
-              matchBlock: {
-                ...expr.matchBlock,
-                arms: expr.matchBlock.arms.map((a) => ({ pattern: a.pattern, value: f(a.value) })),
-              },
-            }
-          : {}),
-      }
-    case 'BinaryExpr':
-      return { ...expr, left: f(expr.left), right: f(expr.right) }
-    case 'UnaryExpr':
-      return { ...expr, operand: f(expr.operand) }
-    case 'ConditionalExpr':
-      return {
-        ...expr,
-        condition: f(expr.condition),
-        thenExpr: f(expr.thenExpr),
-        elseExpr: f(expr.elseExpr),
-      }
-    case 'ArrayLiteral':
-      return { ...expr, elements: expr.elements.map(f) }
-    case 'ObjectLiteral':
-      return {
-        ...expr,
-        properties: expr.properties.map((p) => ({ key: p.key, value: f(p.value) })),
-      }
-    case 'ArrayAccess':
-      return { ...expr, array: f(expr.array), index: f(expr.index) }
-    case 'MatchBlock':
-      return { ...expr, arms: expr.arms.map((a) => ({ pattern: a.pattern, value: f(a.value) })) }
-  }
-}
-
-function resolveStatement(s: AST.Statement, resolve: (e: AST.Expr) => AST.Expr): AST.Statement {
-  const resolveLines = (lines: AST.UtilityLine[]): AST.UtilityLine[] =>
-    lines.map((line) => ({
-      ...line,
-      items: line.items.map((item) => ({
-        ...item,
-        binding: item.binding ? resolve(item.binding) : null,
-        ...(item.args ? { args: item.args.map(resolve) } : {}),
-      })),
-    }))
-  const resolveProps = (props: AST.BlockProperty[]): AST.BlockProperty[] =>
-    props.map((p) => ({ ...p, value: resolve(p.value) }))
-
-  switch (s.kind) {
-    case 'SourceStatement':
-      return { ...s, properties: resolveProps(s.properties) }
-    case 'LayerStatement':
-      return {
-        ...s,
-        properties: resolveProps(s.properties),
-        utilities: resolveLines(s.utilities),
-        ...(s.stages ? { stages: s.stages.map((st) => ({ ...st, body: resolve(st.body) })) } : {}),
-      }
-    case 'BackgroundStatement':
-      return { ...s, utilities: resolveLines(s.utilities) }
-    case 'PresetStatement':
-      return { ...s, properties: resolveProps(s.properties), utilities: resolveLines(s.utilities) }
-    case 'KeyframesStatement':
-      return {
-        ...s,
-        frames: s.frames.map((fr) => ({
-          ...fr,
-          utilities: fr.utilities.map((item) => ({
-            ...item,
-            binding: item.binding ? resolve(item.binding) : null,
-          })),
-        })),
-      }
-    case 'FnStatement':
-      // Unlike fn-inline.ts's rewriteStatement (which leaves FnStatement
-      // untouched — inlining happens at call sites via a separate memo),
-      // THIS pass must resolve inputs inside fn bodies directly: it runs
-      // BEFORE inlineUserFns, so if a bare `input` identifier inside a fn
-      // body isn't rewritten here, inlineUserFns's X-GIS0017 free-
-      // identifier check would wrongly reject it (that check only allows
-      // params + zoom/pitch, and doesn't know about input names).
-      return { ...s, body: resolve(s.body) }
-    // StructStatement / ImportStatement / SymbolStatement / InputStatement
-    // carry no evaluated expressions (or, for InputStatement, only the
-    // already-resolved literal default) — nothing to rewrite.
-    default:
-      return s
-  }
 }

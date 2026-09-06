@@ -10,7 +10,7 @@
 // catches it on the CPU, ahead of the maintainer's real-GPU DC=0 gate.
 
 import { describe, expect, it } from 'vitest'
-import { EARTH, MOON, MARS_IAU2000, makeBody, activeBody } from './body'
+import { EARTH, MOON, MARS_IAU2000, makeBody, activeBody, configureBody } from './body'
 import {
   lonLatToECEF,
   ecefToLonLat,
@@ -43,6 +43,36 @@ describe('EARTH constants are bit-identical to the retired ecef.ts literals', ()
     expect(EARTH.f).toBe(RETIRED_F)
   })
   it('an unconfigured process defaults to EARTH', () => {
+    expect(activeBody()).toBe(EARTH)
+  })
+
+  // #2567. The assertion above is the EFFECT side: it goes red long after, and
+  // far away from, whatever broke it. The cause is that the active body lives on
+  // `globalThis` while EARTH is a per-module-instance object — so if the slot is
+  // seeded with the EARTH *object*, the FIRST instance to evaluate this module
+  // publishes its singleton to every later one, and their `activeBody()` returns
+  // an Earth that is structurally equal and never `===`. Module duplication is
+  // not hypothetical here: the globalThis backing exists precisely because a
+  // mixed resolver instantiates a workspace package more than once (see the
+  // docblock on `_state`). A `?query` import IS that second evaluation, so this
+  // reproduces the class on demand instead of waiting for a resolver to do it.
+  it('a duplicate module instance defaults to its OWN EARTH (#2567)', async () => {
+    // The `?query` suffix is what makes the runtime evaluate this file a SECOND
+    // time. It is held in a variable because TypeScript cannot resolve a suffixed
+    // specifier (TS2307) — only the runtime resolver can.
+    const dupSpecifier = './body?duplicate=1'
+    const dup = (await import(/* @vite-ignore */ dupSpecifier)) as typeof import('./body')
+    expect(dup.EARTH, 'the query import must really be a second instance').not.toBe(EARTH)
+    expect(dup.activeBody(), 'unconfigured ⟹ the reader instance‘s own EARTH').toBe(dup.EARTH)
+    // The restore every `configureBody` caller's afterEach performs. It must put
+    // the process BACK to the default, not publish this instance's EARTH object.
+    configureBody(EARTH)
+    expect(dup.activeBody(), 'configureBody(EARTH) restores the default').toBe(dup.EARTH)
+    // A real (non-Earth) configuration is still shared across instances — that
+    // is the whole point of backing the slot with globalThis.
+    configureBody(MOON)
+    expect(dup.activeBody(), 'a configured body IS shared across instances').toBe(MOON)
+    configureBody(EARTH)
     expect(activeBody()).toBe(EARTH)
   })
 })

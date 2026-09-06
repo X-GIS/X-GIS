@@ -118,6 +118,25 @@ function prop(lines: string[], key: string): string | undefined {
   return undefined
 }
 
+/** Body lines the caller's own fields did NOT claim, kept VERBATIM so a round
+ *  trip cannot silently drop them (#2549) — a custom source type's
+ *  `SourceDef.options` bag (`region: "kr"`), plus `crs:` / `refresh:` / the
+ *  tile-metadata props the Source node has no editor field for.
+ *
+ *  Deliberately narrow: only a `key: <string | number | array>` that is
+ *  COMPLETE on one line. A block-valued prop (`data: { …` spans lines, and
+ *  `bodyLines` has already split them) would otherwise be re-emitted as an
+ *  unbalanced brace, turning a lossy round trip into an unparseable one. Those
+ *  stay dropped exactly as they were before. */
+function otherProps(lines: string[], claimed: readonly string[]): string {
+  const ONE_LINE_PROP = /^([A-Za-z_][\w-]*)\s*:\s*("[^"]*"|-?\d+(?:\.\d+)?[a-z]*|\[[^[\]]*\])$/
+  return lines
+    .map((l) => l.match(ONE_LINE_PROP))
+    .filter((m): m is RegExpMatchArray => m !== null && !claimed.includes(m[1]))
+    .map((m) => m[0])
+    .join('\n')
+}
+
 function pipeText(lines: string[]): string {
   return lines
     .filter((l) => l.startsWith('|'))
@@ -171,6 +190,10 @@ export function xgisToGraph(src: string): BPGraph {
           .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
           .filter(Boolean)
           .join(', '),
+        // Everything the three fields above did not claim. No editor field —
+        // a pure round-trip carrier, like the source:/style: fallbacks below
+        // (#688/#691) — re-emitted verbatim by codegen's emitSource (#2549).
+        props: otherProps(lines, ['type', 'url', 'layers']),
       })
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)

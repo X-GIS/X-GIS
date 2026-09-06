@@ -207,16 +207,30 @@ choice is revisited when upstream fixes it (repro: the two files above,
 ### 2. The gate: no PR may add a clone its base does not already have
 
 `bun run dup` (`scripts/dup-ratchet.ts`) runs in the CI `lint` job beside eslint and knip,
-and first in `precheck`. It scans the working tree and compares the clone set against the
-tree of a base ref (`jscpd --baseline-from-ref`), reddening on any pair absent from the base
-— and on a `jscpd:ignore-start` without a reason. Nothing is stored: the comparison baseline
-is rebuilt from the ref on each run, in ~4 s over 233k lines.
+and first in `precheck`. It scans the working tree and compares it against the tree of a base
+ref (`jscpd --baseline-from-ref`), reddening on duplication the branch ADDS — and on a
+`jscpd:ignore-start` without a reason. Nothing is stored: the comparison baseline is rebuilt
+from the ref on each run, in ~4 s over 233k lines.
 
-**The base is the merge base with `origin/main`, falling back to `origin/main` itself when
-the history is shallow** — which is the exact answer under CI, whose checkout IS the PR
-merged into main, so "new versus main" is precisely "added by this PR". `resolveBaseRef`
-fetches `main` with an explicit refspec when the ref is absent (a `actions/checkout` clone
-carries only the checked-out ref) and THROWS when it cannot resolve one: a scan without a
+**What "adds" means is a per-file-pair token budget, not jscpd's per-clone `isNew` alone**
+(#2570). `isNew` keys on the token-stream fingerprint of a clone PAIR, so a clone whose
+extent SHRINKS is reported new — the gate then reds on the branch that REMOVED duplication.
+Measured on #2560: the `raster-renderer.ts` ↔ `hillshade-renderer.ts` pair went from 5 clones
+/ 588 tokens to 3 / 298, and the gate called it a regression. So the verdict is the pair's
+duplicated-token TOTAL — a quantity, comparable across revisions, moving in the direction the
+gate cares about — and `isNew` only narrows which clone of a grown pair the message names.
+Getting the base clone set costs a second jscpd run, taken lazily: a run with nothing flagged
+is already green and pays nothing.
+
+Line-interval containment was considered and rejected: the two sides of a comparison sit in
+DIFFERENT revisions of the same file, so one edit gives `590-602 ⊃ 590-599` on one side and
+`854-866 ⊅ 858-867` on the other. Line numbers are not comparable across revisions.
+
+**The base is the merge base with `origin/main`, with no fallback** — which is the exact
+answer under CI, whose checkout IS the PR merged into main, so "new versus main" is precisely
+"added by this PR". `resolveBaseRef` fetches `main` with an explicit refspec when the ref is
+absent (an `actions/checkout` clone carries only the checked-out ref), deepens once when the
+checkout is too shallow for a merge base, and THROWS when neither works: a scan without a
 base marks every clone new, so a silent failure would invert the gate. Loud is the only safe
 direction — the poller lesson in CLAUDE.md §12.
 
@@ -316,9 +330,43 @@ queue is being worked from the token corner rather than from the cluster.
 
 - (+) Mechanical, ~4 s, no build, nothing committed to keep in sync. A clone this PR adds
   cannot enter unnoticed; the queue is ranked, and each cluster names its remedy.
-- (+) Immune to base movement: main can merge under an open PR all day and the gate's
-  verdict does not change, because the comparison is rebuilt from the base each run. That
-  is the property the first design lacked (Alternative 8).
+- (+) No stored state to go stale: the comparison set is rebuilt from the base each run, so
+  there is nothing to re-record and no `dup:accept` step. That is the property the first
+  design lacked (Alternative 8).
+- (−) **NOT immune to base movement — this consequence claimed it was, and CI refuted the
+  claim on 2026-09-06.** `isNew` is jscpd's own verdict from `--baseline-from-ref`, and it
+  is sensitive to where jscpd ANCHORS a clone, not only to whether the duplication exists.
+  When main gains a commit that re-anchors a region — #2563 extracted `raster-row-geom.ts`
+  out of `hillshade-renderer.ts` / `raster-renderer.ts` — a branch still carrying the older
+  copies of those files is reported as ADDING the pair, in files its diff never touches.
+  PR #2593 (a `shader-dsl/` change, zero files under `map/`) went red on exactly that, with
+  a pair that demonstrably already exists on main.
+  **Root cause, and it was this gate's own code rather than jscpd's:** `resolveBaseRef` fell
+  back to the STRING `origin/main` when `git merge-base` failed, and under
+  `actions/checkout`'s default shallow clone it always failed. CI therefore compared the
+  branch against main's TIP — a commit the branch has not merged — instead of their common
+  ancestor. Same tree, same 272 clones, different base, opposite verdict: green locally
+  against the merge base, six "new" clones in CI against the tip.
+  **Fixed** by deleting that fallback (it now deepens the fetch once and THROWS rather than
+  guessing a base) and by checking the `lint` job out with `fetch-depth: 0`, which makes the
+  merge base exact. A gate that loses its base must be loud, never quietly wrong — the rule
+  Decision 2 already states for a missing `origin/main`, which this fallback quietly broke.
+  If the symptom is ever seen again the remedy is to merge main into the branch and re-run;
+  it is never to mark the pair `jscpd:ignore`, which would record a false reason and blind
+  the gate to a future real paste in those files.
+- (−) **A shrinking clone read as a new one, for the same reason a moving base did** (#2570).
+  Distinct from the entry above — that was the gate's own base resolution, this is jscpd's
+  fingerprint identity — and a fix for one is not a fix for the other. A branch that deletes
+  code from INSIDE an existing clone leaves a token stream the base's fingerprint set does
+  not contain, so the surviving, SHORTER clone arrives flagged `isNew`, indistinguishable
+  from a fresh paste. Worst class: a partial consolidation that shortens a clone instead of
+  eliminating it reds the gate that exists to ask for it. **Fixed** by the pair token budget
+  in Decision 2. Its cost is one extra jscpd scan on the would-be-red path, and its accepted
+  blind spot is stated where it will be read (`scripts/dup-ratchet.ts`'s header): a new clone
+  region between two files that already duplicate each other, in a branch that removes at
+  least as many duplicated tokens between those same two files. Net duplication between the
+  pair fell, which is not the direction this ADR blocks; the rule-of-three case is unaffected,
+  because a third copy always forms a pair the base has zero tokens for.
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
 - (+) The gate's blind spot is MEASURED rather than assumed: `dup:shape` puts a number on
   what the token pass cannot see (3831 lines against 3673), so "the gate is green" is never

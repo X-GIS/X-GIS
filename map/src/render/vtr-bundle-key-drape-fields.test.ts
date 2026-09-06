@@ -37,14 +37,9 @@
 // per-region assertions below fail for BOTH the primary and the fallback site.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { renderPathSource } from './render-path-source'
 
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const SOURCE = renderPathSource()
 
 const CLOSE = '} as const satisfies BundleKeyState'
 

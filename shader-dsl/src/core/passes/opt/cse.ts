@@ -31,13 +31,12 @@
 // only trade WHERE it runs, never WHETHER its value is the same.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
 import {
   keyOf,
   isCompound,
   eachExpr,
   mapChildren,
-  forEachTopExpr,
-  mapStmtTop,
   bodyHasRaw,
   collectLocals,
   collectMutatedRoots,
@@ -79,8 +78,9 @@ function eachOccurrence(
         if (s.defaultBody) eachOccurrence(s.defaultBody, [...bp, `${idx}#d`], visit)
         break
       default:
-        // forEachTopExpr already walks descendants (and, for `for`, nested bodies).
-        forEachTopExpr(s, node)
+        // eachStmtExpr walks the nested bodies too (`for`), and eachExpr the
+        // descendants of every Expr it hands back.
+        eachStmtExpr(s, (e) => eachExpr(e, node))
         break
     }
   })
@@ -217,9 +217,9 @@ function cseFn(f: FuncDecl): FuncDecl {
           defaultBody: s.defaultBody ? rewriteBlock(s.defaultBody, [...bp, `${idx}#d`]) : undefined,
         }
       default:
-        // `for` included: mapStmtTop replaces through its whole subtree, which is
+        // `for` included: mapStmtExpr replaces through its whole subtree, which is
         // exactly right — nothing was placed inside it.
-        return mapStmtTop(s, replace)
+        return mapStmtExpr(s, replace)
     }
   }
   return { ...f, body: rewriteBlock(f.body, []) }

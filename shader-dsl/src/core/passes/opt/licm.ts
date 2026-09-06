@@ -11,12 +11,12 @@
 // pinned by oracle value-equality.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { mapStmtExpr } from '../../ir/visit.js'
 import {
   keyOf,
   isCompound,
   refsLocal,
   mapChildren,
-  mapStmtTop,
   bodyHasRaw,
   collectLocals,
   collectMutatedRoots,
@@ -146,7 +146,7 @@ function licmFn(f: FuncDecl): FuncDecl {
     if (t !== undefined) return { op: 'varref', type: e.type, name: t }
     return mapChildren(e, replace)
   }
-  const newBody = f.body.map((s) => mapStmtTop(s, replace))
+  const newBody = f.body.map((s) => mapStmtExpr(s, replace))
   return { ...f, body: [...lets, ...newBody] }
 }
 

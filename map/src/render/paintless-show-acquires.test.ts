@@ -37,14 +37,9 @@
 // the `requestTiles` dispatch), never a neighbour.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { renderPathSource } from './render-path-source'
 
-const SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const SRC = renderPathSource()
 
 /** The `renderFillsRhi` body, from its signature to the next method. */
 function fillsRhiBody(): string {
