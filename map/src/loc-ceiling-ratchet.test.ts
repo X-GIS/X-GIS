@@ -432,7 +432,24 @@ const CEILINGS: Record<string, number> = {
   // the post-prettier merged tree.
   // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
   // the common base, so neither number is right (§12) — 5613 is `wc -l` on the merged tree.
-  'map/src/render/vector-tile-renderer.ts': 5613,
+  // 5588→5826 (#2508, the render() phase spine): `render()` turns into a spine of named
+  // phases — six pure consumers of the frame state and five producers of it — each a
+  // private method reading `args: RenderArgs` (vector-tile-renderer-types.ts) / `ctx: RenderFrameState`
+  // (declared here, typed through the unwrap seam this file owns, so the raw-WebGPU and
+  // backend-adapter ratchets stay flat). The growth is the two state literals, the state
+  // interface and eleven doc + signature blocks, not logic; every body is the former render()
+  // block with its free variables rebound (AST-rewritten, tsc-checked, frames byte-identical).
+  // Re-measured on every increment.
+  // MERGE RE-MEASURE (2026-09-06, main <- the #2508 phase-spine branch): main raised this
+  // key to 5613 (#2439 + the 2026-09-02 hunt) while this branch raised it to 5826, both from
+  // the 5588 common base — so neither number is right and the sum is not the answer either
+  // (§12). The number below is `wc -l` on the post-prettier MERGED tree.
+  // 5851→5873 (#2577, on this branch): four clone pairs the dup ratchet reported as "added"
+  // are pre-existing on main — the phase spine MOVED the regions and rebound their
+  // identifiers, which re-fingerprints every overlapping pair for `--baseline-from-ref`.
+  // Marked as twins with their reasons rather than consolidated (a WebGL2-path extraction
+  // this motion-only PR must not smuggle in); the markers are the growth.
+  'map/src/render/vector-tile-renderer.ts': 5873,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on

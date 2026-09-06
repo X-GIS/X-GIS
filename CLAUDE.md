@@ -491,6 +491,13 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   and where two modes have different semantics, assert each mode's own (the split path has
   no flag select at all, so "OFF + skew must be inert" is a premise it does not have).
   → `#2165`, and it is §12's shared-path/consumer-gates rule one increment on.
+- A ratchet that counts identifiers PER FILE measures where a type is WRITTEN, not what the
+  code touches — so a refactor that only RELOCATES existing debt reddens it. #2508's frame-state
+  record restated the `GPURenderPassEncoder` that `render()` already unwraps: declaring it in the
+  types file grew THAT file's #991 raw-WebGPU count, and typing it there through
+  `typeof unwrapWebGpuPass` grew the backend-adapter count instead. Declare such a type in the
+  file that already owns the seam, and DERIVE it from that seam so it follows when the seam
+  moves; never raise a baseline for a move. → `#2508`
 - A CACHE silently retires a "read live per frame" premise. The same gate injects its flags
   post-ready and documents why it may; `TileUniformArena` packs a slot ONCE and reuses it
   forever, so after INC-4b a flag set after boot could never reach a resident tile. When you
