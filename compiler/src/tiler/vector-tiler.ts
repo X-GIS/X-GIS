@@ -63,7 +63,7 @@ import {
   tileEcefCenterFromMerc,
   DSFUN_EARTH_R,
 } from './ecef-packing'
-import { subdivideLine, unwrapLonBranch } from './geometry-sphere'
+import { subdivideLine } from './geometry-sphere'
 import { tilePolygonPart } from './polygon-tiler'
 import { tileLinePart } from './line-tiler'
 import { tilePointPart } from './point-tiler'
@@ -166,36 +166,24 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // un-simplified `clipped` ring per tile (see processZoomLevelShared /
   // compileSingleTile), so they coincide by construction (d34aed2).
   //
-  // Longitude UNWRAPPING is applied (#2550) — the one step lines already got
-  // from subdivideLine. A ring authored folded into (−180, 180] (170 → −170,
-  // the common GeoJSON seam shape) holds a segment 340° wide in authored
-  // longitude, and both the bbox below and every per-tile clip read that as a
-  // ring sweeping the whole equator: the measured symptom was a 20°-wide box
-  // filling all four z2 columns.
-  const branchRings = unwrapRingsToOneBranch(rings)
-  const bbox = ringsBBox(branchRings[0])
-  const mmRings = projectRingsToMM(branchRings)
+  // Longitude is NOT unwrapped here, and that asymmetry with the line path is
+  // deliberate (#2550). A ring bounds an AREA, so it is read at face value: an
+  // edge of 340° is a 340°-wide box, NOT a 20° box folded across the seam. The
+  // two are indistinguishable from any single edge — `box(-170, 170)` and
+  // `box(170, -170)` differ only in winding — so a fold cannot be inferred, and
+  // guessing costs real geometry: data/src/sub-tile-generator.test.ts tiles a
+  // z=0 world parent whose ring is exactly [-170 … 170] and requires a
+  // mid-world z=2 child to receive fill. RFC 7946 §3.1.9 puts the burden on the
+  // producer to split at the antimeridian for the same reason. A polygon
+  // authored PAST the seam (170 → 190) is unambiguous and is served by the
+  // ±360 world copy `pushPartWithWrap` emits below, which is what #2550's
+  // actual defect — the beyond-180 half reaching no tile — needed.
+  // Lines are the opposite (subdivideLine carries them onto one branch,
+  // pinned by parallel-arc-fidelity.test.ts): a LineString's vertices are a
+  // path, and the short way is the interpolation a reader expects.
+  const bbox = ringsBBox(rings[0])
+  const mmRings = projectRingsToMM(rings)
   return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
-}
-
-/** Put every ring of one polygon on the SAME 360° longitude branch: each ring
- *  is carried onto its own first vertex's branch by `unwrapLonBranch` (the
- *  single authority for that step, shared with the line densifier), then each
- *  hole is shifted by whole worlds onto the SHELL's branch — otherwise a hole
- *  authored folded (−175) would sit 360° away from the shell (185) that
- *  contains it, and the hole-distribution point-in-ring test would never
- *  place it. */
-function unwrapRingsToOneBranch(rings: number[][][]): number[][][] {
-  const out = rings.map((ring) => unwrapLonBranch(ring))
-  const shell = out[0]
-  if (!shell?.length) return out
-  for (let r = 1; r < out.length; r++) {
-    const hole = out[r]
-    if (!hole.length) continue
-    const shift = 360 * Math.round((shell[0][0] - hole[0][0]) / 360)
-    if (shift !== 0) out[r] = hole.map((c) => [c[0] + shift, ...c.slice(1)])
-  }
-  return out
 }
 
 function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {

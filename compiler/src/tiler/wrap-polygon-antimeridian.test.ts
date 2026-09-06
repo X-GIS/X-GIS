@@ -1,26 +1,28 @@
 // Repro for #2550 — the inline tiler gave LineStrings a seam story
-// (`pushPartWithWrap`, #1221 round 2 / #2547) and polygons none. Two failures,
-// both measured end to end at z2 through the real entry points
-// (`decomposeFeatures` → `compileSingleTile`), on a 20°-wide box at lat −10…10:
+// (`pushPartWithWrap`, #1221 round 2 / #2547) and polygons none. Measured end to
+// end at z2 through the real entry points (`decomposeFeatures` →
+// `compileSingleTile`) on a 20°-wide box at lat −10…10:
 //
 //   authored 170 … 190  (past the seam)  → fill in z2 x3 ONLY, 567 vertices —
 //                                          the 180…190 half existed in no tile
-//   authored 170 … −170 (folded, the common GeoJSON shape)
-//                                        → fill in ALL FOUR z2 columns,
-//                                          4319 vertices each: a 20° box
-//                                          painted across the whole equator
 //
-// The oracle for both is the same box straddling an ORDINARY tile edge
-// (80…100 straddles the z2 x2|x3 boundary at lon 90). The seam is a tile edge
-// like any other once the ring is on one 360° branch and the beyond-seam half
-// is emitted as the ±360 world copy the renderer draws at world-copy ±1
-// (ADR-0006) — so the seam-crossing box must tile EXACTLY like that control,
-// tile for tile and vertex for vertex.
+// The oracle is the same box straddling an ORDINARY tile edge (80…100 straddles
+// the z2 x2|x3 boundary at lon 90). Once the beyond-seam half is emitted as the
+// ±360 world copy the renderer draws at world-copy ±1 (ADR-0006), the seam is a
+// tile edge like any other — so the past-seam box must tile EXACTLY like that
+// control, tile for tile and vertex for vertex.
 //
-// (Note the control is NOT the 1519 vertices of a box that fits inside one
-// tile: any 20° box straddling a tile edge tessellates to 567 + 567. The
-// pre-fix past-seam row scored 567 because it was one of those two halves and
-// the other was missing.)
+// (The control is NOT the 1519 vertices of a box that fits inside one tile: any
+// 20° box straddling a tile edge tessellates to 567 + 567. The pre-fix row
+// scored 567 because it was one of those halves and the other was missing.)
+//
+// The issue ALSO reported a folded ring (170 → −170) filling all four columns
+// and called that a second defect. It is not: a ring bounds an area and is read
+// at face value, so that ring IS a 340°-wide box. Nothing local distinguishes a
+// fold from a wide edge, and the first fix here guessed "fold" — which broke the
+// pre-existing z=0 world-parent contract in data/src/sub-tile-generator.test.ts,
+// whose parent ring is exactly [−170 … 170]. Arms (c) and (g) pin the literal
+// reading; the correction is recorded on the issue.
 
 import { describe, it, expect } from 'vitest'
 import { decomposeFeatures, compileSingleTile } from './vector-tiler'
@@ -96,51 +98,65 @@ describe('#2550 antimeridian Polygon (past-seam and folded authorings)', () => {
     expect(pastSeam.totalVertices).toBe(ordinaryEdge.totalVertices)
   })
 
-  it('(c) FAIL-BEFORE: the folded authoring tiles exactly like the past-seam one', () => {
-    // Pre-fix: [0,1,2,3] with 4319 vertices each — the un-unwrapped 170 → −170
-    // edge is 340° wide in authored longitude, so every column it swept got
-    // fill. Post-fix the ring is carried onto one branch (170 → 190) and the
-    // two authorings are indistinguishable downstream.
+  it('(c) the folded authoring is a DIFFERENT shape, not the past-seam one', () => {
+    // `box(170, -170)` is a 340°-wide box read literally, so it is NOT the 20°
+    // box `box(170, 190)` describes — the two differ only in which side of the
+    // seam the interior is on, and nothing local can tell a fold from a wide
+    // edge (see (g)). Asserting the two identical is what broke the pre-existing
+    // z=0 world-parent contract in data/src/sub-tile-generator.test.ts.
     const folded = tiledPolygon([box(170, -170)])
     const pastSeam = tiledPolygon([box(170, 190)])
-    expect(folded).toEqual(pastSeam)
+    expect(folded.columns).toEqual([0, 1, 2, 3])
+    expect(pastSeam.columns).toEqual([0, 3])
+    expect(folded).not.toEqual(pastSeam)
   })
 
-  it('(d) a hole authored on the far side of the seam stays inside its shell', () => {
-    // Producer shape: rings normalized INDEPENDENTLY into (−180, 180], so the
-    // hole's first vertex can sit on the other branch from the shell's. The
-    // shell here is past-seam (175…185); the hole is written from its west
-    // corner (−178 → 178 → …), which unwraps onto −182…−178 on its own branch —
-    // a whole world away from the shell that contains it.
+  it('(d) a past-seam hole is subtracted from its past-seam shell, world copy included', () => {
+    // The unambiguous authoring: both rings written past the seam, so no fold
+    // has to be guessed. The hole must survive the ±360 world copy — the copy
+    // shifts every ring of the part by one world, so a hole left behind would
+    // show up as a solid tile on the west side.
     const shell = box(175, 185, -5, 5)
-    const foldedHole = [
-      [-178, -2],
-      [178, -2],
-      [178, 2],
-      [-178, 2],
-      [-178, -2],
-    ]
-    const unwrappedHole = box(178, 182, -2, 2)
+    const hole = box(178, 182, -2, 2)
 
-    const withFoldedHole = tiledPolygon([shell, foldedHole])
-    const withUnwrappedHole = tiledPolygon([shell, unwrappedHole])
-    expect(withFoldedHole).toEqual(withUnwrappedHole)
-
-    // …and the hole is genuinely subtracted, so the equality above is not two
-    // copies of "the hole was dropped". Per TILE, not in total: the two halves
-    // of this shell hold 168 + 182 vertices with the hole and 175 + 175 without
-    // it, so the totals happen to agree and only the split tells them apart.
+    const holed = tiledPolygon([shell, hole])
     const solid = tiledPolygon([shell])
-    expect(withFoldedHole.counts).not.toEqual(solid.counts)
+    expect(holed.columns).toEqual(solid.columns)
+    // Genuinely subtracted, on BOTH the original and its world copy — per tile,
+    // because the totals can coincide while one side silently lost the hole.
+    expect(holed.counts).not.toEqual(solid.counts)
+    expect(holed.counts.length).toBe(2)
   })
 
-  it('(e) a MultiPolygon whose parts are folded tiles like its unwrapped twin', () => {
-    // The shape Natural-Earth-style sources emit for a seam-crossing group:
-    // several parts, each folded into (−180, 180] on its own.
-    const folded = tiledPolygon([[box(170, -170, -8, -2)], [box(175, -175, 2, 8)]], true)
+  it('(e) every part of a past-seam MultiPolygon gets its own world copy', () => {
+    // The shape a producer emits for a seam-crossing group once it has split at
+    // the antimeridian as RFC 7946 asks: several parts, each authored past 180.
+    // pushPartWithWrap runs per part, so each must carry its own −360 copy.
     const unwrapped = tiledPolygon([[box(170, 190, -8, -2)], [box(175, 185, 2, 8)]], true)
     expect(unwrapped.columns).toEqual([0, 3])
-    expect(folded).toEqual(unwrapped)
+    expect(unwrapped.partLonRanges).toEqual([
+      [170, 190],
+      [-190, -170],
+      [175, 185],
+      [-185, -175],
+    ])
+  })
+
+  it('(g) a WIDE ring is read literally — no |dlon| is treated as a fold', () => {
+    // The contract this file has to live under, and the one that refutes reading
+    // a >180° edge as a fold: a ring is an AREA boundary, taken at face value.
+    // `box(-170, 170)` is a 340°-wide box, not a 20° box across the seam — the
+    // two are indistinguishable from any single edge, so only the literal
+    // reading is decidable. Pinned since long before this issue by
+    // data/src/sub-tile-generator.test.ts ("clips z=0 world parent into a z=2
+    // child"), whose z=0 parent is exactly this ring and whose mid-world child
+    // must receive geometry. RFC 7946 §3.1.9 puts the burden on the producer to
+    // split at the antimeridian, which is why a folded ring cannot be inferred.
+    const wide = tiledPolygon([box(-170, 170)])
+    expect(wide.columns).toEqual([0, 1, 2, 3])
+    // …and it is genuinely the wide box, not a sliver: the mid-world columns
+    // carry as much fill as the edge ones.
+    expect(Math.min(...wide.counts)).toBeGreaterThan(0)
   })
 
   it('(f) an exact half- and whole-world edge is NOT read as a fold', () => {
