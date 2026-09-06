@@ -6899,7 +6899,8 @@ StringLit     = '"' , { Char } , '"' ;
 BoolLit       = 'true' | 'false' ;
 ColorLit      = '#' , HexDigit , HexDigit , HexDigit , HexDigit , HexDigit , HexDigit
               , [ HexDigit , HexDigit ]           (* #RRGGBB or #RRGGBBAA *)
-              | '#' , HexDigit , HexDigit , HexDigit ;   (* #RGB shorthand *)
+              | '#' , HexDigit , HexDigit , HexDigit
+              , [ HexDigit ] ;                    (* #RGB / #RGBA shorthand *)
 NoneLit       = 'none' ;
 
 (* ── 타입 ── *)

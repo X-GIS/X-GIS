@@ -19,8 +19,8 @@ function mercatorRatio(zoom: number): number {
   a.projType = 0
   const b = new Camera(0, 0, zoom)
   b.projType = 0
-  a.panToScreenAnchor(a.centerX, a.centerY, W / 2 + 10, H / 2, W, H)
-  b.pan(10, 0, W, H)
+  a.panToScreenAnchor(a.centerX, a.centerY, W / 2 + 10, H / 2, W, H, 1)
+  b.pan(10, 0, W, H, 1)
   return Math.abs(b.centerX) / Math.abs(a.centerX)
 }
 
@@ -37,7 +37,7 @@ function orthoRatio(zoom: number): number {
   expect(p1).not.toBeNull()
   const screenDeg = (Math.abs(p1![1] - p0![1]) / R) * (180 / Math.PI)
   const lat0 = cam.centerLatDeg
-  cam.pan(0, 10, W, H)
+  cam.pan(0, 10, W, H, 1)
   const panDeg = Math.abs(cam.centerLatDeg - lat0)
   return panDeg / screenDeg
 }

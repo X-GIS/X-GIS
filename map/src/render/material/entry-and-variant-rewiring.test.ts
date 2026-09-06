@@ -44,8 +44,10 @@ import {
   polygonGlslIds,
   polygonWgslId,
   wgslOnlyId,
+  wgslOnlyPlainId,
   OIT_SAMPLE_COUNTS,
   WGSL_ONLY_FAMILIES,
+  WGSL_ONLY_PLAIN_FAMILIES,
 } from '../../shaders/baked/ids'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -295,10 +297,18 @@ describe('#2499 — the WGSL-only families: every keyed id resolves in the WGSL 
     it(`oit-compose (sampleCount=${n}) resolves`, () => {
       expect(WGSL_BOOT.has(oitComposeWgslId(n)), oitComposeWgslId(n)).toBe(true)
     })
+  for (const family of WGSL_ONLY_PLAIN_FAMILIES)
+    it(`${family} resolves (parameterless, WGSL-only)`, () => {
+      expect(WGSL_BOOT.has(wgslOnlyPlainId(family)), wgslOnlyPlainId(family)).toBe(true)
+      expect(
+        read('render/material/extrude-shell-material.ts'),
+        'extrude-shell-material.ts no longer keys its compositor',
+      ).toContain(`wgslOnlyPlainId('${family}')`)
+    })
   it('no GLSL key exists for a WGSL-only family (a twin no call site reaches is dead payload)', () => {
     for (const id of GLSL_BOOT)
       expect(
-        /^glsl\/(polygon-split|line-split|oit-compose)\//.test(id),
+        /^glsl\/(polygon-split|line-split|oit-compose|extrude-shell-compose)\//.test(id),
         `${id} — a GLSL key for a WebGPU-only family`,
       ).toBe(false)
   })

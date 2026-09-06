@@ -120,8 +120,8 @@ describe('#777 IV3 — Pitch0Unprojector: the cache invalidates on everything bu
   // (and its inverse) untouched and moves only the `relToLonLat` compose. A
   // matrix-level assertion here would be un-failable, i.e. vacuous.
   const mutations: Array<[string, (c: Camera) => void]> = [
-    ['a pan in x', (c) => c.pan(60, 0, W, H)],
-    ['a pan in y', (c) => c.pan(0, 60, W, H)],
+    ['a pan in x', (c) => c.pan(60, 0, W, H, DPR)],
+    ['a pan in y', (c) => c.pan(0, 60, W, H, DPR)],
     ['zoom', (c) => (c.zoom += 1)],
     ['bearing', (c) => (c.bearing += 25)],
   ]

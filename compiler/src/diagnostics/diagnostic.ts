@@ -70,12 +70,9 @@
 //   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
 //                               no lowering handler — only `fill-*` is
 //                               wired under MODIFIER_HANDLERS today
+//   X-GIS0029  warn   lower     `fill:` / `stroke:` value resolves to    (ir/lower.ts — #2544)
+//                               no colour — previously a silent drop
 //   X-GIS0030  error  lower     `source { type: … }` is neither a bare   (ir/lower.ts — #2549)
-//                               built-in name nor a quoted custom key.
-//                               NOTE 0029 is taken by #2544 (PR #2587),
-//                               branched from the same base: both took
-//                               'the next free code' and neither could
-//                               see the other. Numbered 0030 here.
 //                               built-in name nor a quoted custom
 //                               registry key — previously a silent
 //                               fallback to `geojson`
@@ -172,6 +169,14 @@ export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
  *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
  *  turns the drop into a diagnostic. */
 export const UNHANDLED_MODIFIER = 'X-GIS0028'
+/** A `fill:` / `stroke:` style-property value that no colour resolver
+ *  accepts (#2544). `applyStyleProperties` skips the assignment on a
+ *  null resolve, so the layer keeps its inherited (usually absent)
+ *  colour — pre-fix that drop was completely silent, which is how a
+ *  re-serializer bug that mangled `hsl(120, 50%, 50%)` presented as "the
+ *  layer just doesn't paint". Warn, not error: an unknown colour is an
+ *  authoring typo, not a reason to refuse to compile the scene. */
+export const UNRESOLVED_COLOR = 'X-GIS0029'
 /** A `source`'s `type:` value that the grammar cannot read as a NAME (#2549) —
  *  neither a bare identifier (`type: geojson`) nor a quoted string
  *  (`type: "x-kr-admin"`). The motivating case is an unquoted hyphenated

@@ -290,13 +290,22 @@ instrument and none is proposed. What stands in for one:
 - **The report is read before authoring a sibling**, not after (CLAUDE.md §14): the third
   copy within a package, the second across a boundary.
 - **The co-change signal**, when a family is suspected: files changed together across
-  history that never import each other. Cheap to compute
-  (`git log --name-only --pretty=format:%H`, pair-count over commits) and it names the pairs
-  a text detector structurally cannot — the archetype here is
-  `shader-dsl/src/core/backends/glsl.ts` ↔ `wgsl.ts`, edited together in 67% of the commits
-  that touch either, over 16 commits, with no import edge between them. That is not a clone;
-  it is one specification emitted twice, and no token or shape detector will ever say so.
-  Two such pairs are recorded as decisions in #2561 rather than left as a finding.
+  history. Cheap to compute (`git log --name-only --pretty=format:%H`, pair-count over
+  commits) and it names pairs a text detector structurally cannot. It is also the weakest
+  instrument here, and it produced a wrong headline before anyone checked it (#2561):
+  - **Resolve imports with `.js` specifiers rewritten.** `shader-dsl` is the only package in
+    this repo that writes them — 883 relative `.js` imports against 0 in every other package
+    — so a resolver that skips that rewrite reports "no import edge" precisely where the
+    interesting pair lives. `glsl.ts:70` has imported `./wgsl.js` since the GLSL backend's
+    first commit; the published archetype was false for its whole life.
+  - **Check the MEDIATOR before inferring a missing abstraction.** Both flagged pairs
+    co-change with the file that mediates them (the RHI adapters: 8 of 8 also touch
+    `rhi/src/rhi.ts`; `glsl.ts ↔ wgsl.ts`: 10 of 11 also touch another `core/` seam file).
+    Implementations moving with their interface is the signature of a HEALTHY abstraction.
+    Lockstep is not evidence of duplication; lockstep WITHOUT a mediator might be.
+    The resolved verdicts live in #2561: the shader backends already share `Backend`,
+    `core/emit.ts` and the `INTRINSICS` table, and the RHI adapters are a chartered twin whose
+    separation the dependency-direction ratchet enforces.
 - **Review**, which is where a re-invented helper is actually caught, informed by the two
   above rather than replaced by them.
 

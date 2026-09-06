@@ -126,6 +126,16 @@ export interface UniformFieldSlots {
 export function uniformFieldSlots(reflection: Reflection, structName: string): UniformFieldSlots {
   const u: StructLayout | undefined = reflection.uniforms.find((s) => s.name === structName)
   if (!u) throw new Error(`reflectionToWebGPU: no uniform struct '${structName}' in reflection`)
+  return uniformFieldSlotsOf(u)
+}
+
+/** The same slots from a `StructLayout` in hand — `wgslLayout(u.struct, 'std140')` of a
+ *  `uniformStruct` HANDLE, which needs no module and so no emit (#2499 step 4: the
+ *  `*-uniform-slots.ts` helpers derive from the handle; `reflect(build*Module())` used to
+ *  build the module and, first time in a process, run the projection fixpoint for a layout).
+ *  `uniformFieldSlots` above is this applied to a reflection's named struct, so the two
+ *  agree by construction. */
+export function uniformFieldSlotsOf(u: StructLayout): UniformFieldSlots {
   const slot: Record<string, number> = {}
   for (const f of u.fields) {
     if (f.offset % 4 !== 0) {

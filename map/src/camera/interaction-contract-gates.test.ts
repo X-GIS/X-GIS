@@ -604,7 +604,7 @@ describe('G1b — flat non-merc 1/2/6 streamed-pinch zoom-anchor convergence (ME
     if (!g0) return null
 
     for (let s = 0; s < STREAM_STEPS; s++) {
-      cam.zoomAt(STREAM_DELTA, CURSOR_X, CURSOR_Y, G1_W, G1_H)
+      cam.zoomAt(STREAM_DELTA, CURSOR_X, CURSOR_Y, G1_W, G1_H, G1_DPR)
     }
 
     // Where does that ORIGINAL geographic point now sit on screen? The anchor
@@ -733,7 +733,7 @@ describe('G1c — flat non-merc 1/2/6 streamed-drag anchor convergence (B3 lock)
     for (let s = 0; s < DRAG_STEPS; s++) {
       px += DRAG_DX
       py += DRAG_DY
-      cam.panToScreenAnchor(ax, ay, px, py, G1_W, G1_H)
+      cam.panToScreenAnchor(ax, ay, px, py, G1_W, G1_H, G1_DPR)
     }
 
     // Where does the grabbed geographic point now sit on screen? The drag
@@ -910,7 +910,7 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
       SY = GZ_H * 0.5 + GZ_OFF_Y
     const g0 = discGeoUnderScreen(cam, name, SX, SY)
     if (!g0) return null
-    for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H)
+    for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H, GZ_DPR)
     const screen = discScreenForGeo(cam, name, g0[0], g0[1])
     if (!screen) return null
     return Math.hypot(screen[0] - SX, screen[1] - SY)
@@ -969,7 +969,7 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
       SY = GZ_H * 0.5 + GZ_OFF_Y
     const g0 = unprojectGlobe(SX, SY, GZ_W, GZ_H, gzGlobeView(cam))
     if (!g0) return null
-    for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H)
+    for (let s = 0; s < GZ_STEPS; s++) cam.zoomAt(GZ_DELTA, SX, SY, GZ_W, GZ_H, GZ_DPR)
     const screen = globeScreenForGeo(cam, g0[0], g0[1])
     if (!screen) return null
     return Math.hypot(screen[0] - SX, screen[1] - SY)
@@ -1088,7 +1088,7 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     for (let s = 0; s < 30; s++) {
       px += 2
       py -= 1.5
-      cam.panToScreenAnchor(g0[0], g0[1], px, py, GZ_W, GZ_H)
+      cam.panToScreenAnchor(g0[0], g0[1], px, py, GZ_W, GZ_H, GZ_DPR)
       const screen = globeScreenForGeo(cam, g0[0], g0[1])
       if (!screen) return null
       worst = Math.max(worst, Math.hypot(screen[0] - px, screen[1] - py))
@@ -1130,7 +1130,7 @@ describe('GATE 1 — disc(3/4/5) + globe(7) zoomAt-anchor invariant (G3a+G3b dis
     // centerLatDeg reaches the poleLimit(7)=90 clamp on this drag).
     const anchor = unprojectGlobe(GZ_W / 2, GZ_H / 2, GZ_W, GZ_H, gzGlobeView(cam))
     expect(anchor, 'pole-reach: anchor unproject returned null').not.toBeNull()
-    cam.panToScreenAnchor(anchor![0], anchor![1], GZ_W / 2, GZ_H / 2 + 300, GZ_W, GZ_H)
+    cam.panToScreenAnchor(anchor![0], anchor![1], GZ_W / 2, GZ_H / 2 + 300, GZ_W, GZ_H, GZ_DPR)
     expect(
       cam.centerLatDeg,
       `centerLatDeg ${cam.centerLatDeg}° did not cross the Mercator wall`,
@@ -1220,7 +1220,7 @@ describe('G10 — disc camera.pan moves the surface (matches globe), not the Mer
     }
     const lon0 = (cam.centerX / EARTH_R_G6) * RAD2DEG_G6
     const lat0Deg = cam.centerLatDeg
-    cam.pan(dx, dy, G6_W, G6_H)
+    cam.pan(dx, dy, G6_W, G6_H, 1)
     return {
       dLon: (cam.centerX / EARTH_R_G6) * RAD2DEG_G6 - lon0,
       dLat: cam.centerLatDeg - lat0Deg,

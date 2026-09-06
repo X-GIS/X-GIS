@@ -23,7 +23,7 @@ describe('#2322 — camera.pan uses the rendered (capped) scale in the sub-cap b
       a.pitch = 0
       a.bearing = 0
       const ax0 = a.centerX
-      a.panToScreenAnchor(ax0, a.centerY, W / 2 + 10, H / 2, W, H)
+      a.panToScreenAnchor(ax0, a.centerY, W / 2 + 10, H / 2, W, H, 1)
       const dA = a.centerX - ax0
 
       const b = new Camera(20, 0, zoom)

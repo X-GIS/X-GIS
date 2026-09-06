@@ -774,8 +774,16 @@ dup:shape` is the lens (structure-only mirror via the TypeScript scanner, minus 
 - **What NOTHING here catches: Type-4** — a helper re-invented under a different name with a
   different shape. No detector in this repo finds it, and none is proposed: a detector that
   reports zero reads as "clean", which is worse than a documented blind spot (#2561). The
-  levers are the report plus review, and the co-change signal (files always edited together
-  that never import each other — `glsl.ts ↔ wgsl.ts` at 67% over 16 commits is the archetype).
+  levers are the report plus review, and the co-change signal — but that signal needs a
+  MEDIATOR check before it means anything, and needs an import resolver that handles `.js`
+  specifiers. Both bit here: `glsl.ts ↔ wgsl.ts` was published as the archetype "with no
+  import edge" when `glsl.ts:70` has imported `./wgsl.js` since the backend's first commit —
+  missed because `shader-dsl` is the ONLY package writing `.js` specifiers (883 of them;
+  every other package: 0), so a resolver that does not rewrite `.js`→`.ts` is blind in
+  exactly the package that produced the headline. And the pairs co-change with the file that
+  MEDIATES them (RHI adapters: 8 of 8 also touch `rhi/src/rhi.ts`), which reads as
+  implementations moving with their interface — the signature of a HEALTHY abstraction, not
+  a missing one. Lockstep alone is not evidence. → #2561
 - **The detector is token-level and not perfect.** `.jscpd.json` routes `.ts/.tsx` through
   jscpd's JavaScript tokenizer on purpose: the TypeScript one has a deterministic blind spot
   (repro in the ADR), while the JS one flagged every planted whole-function copy above the

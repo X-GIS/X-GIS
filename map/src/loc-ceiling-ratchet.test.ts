@@ -459,7 +459,17 @@ const CEILINGS: Record<string, number> = {
   // number is right — carrying either across would leave the ceiling one change too low
   // (green on both branches, red on main). Measured 819 with `wc -l` on the post-prettier
   // merged tree.
-  'map/src/render/coverage-renderer.ts': 819,
+  // 815→819 (#2499 step 3): `setCoverage`'s vector-band branch arms `prefetchLazyShaders`
+  // — a coverage with a vector band IS the flow layer's registration, and it is the only
+  // seam that precedes the draw-path build of `FlowAdvectDraper`. Import + call + the
+  // two-line reason; the file sat exactly at its ceiling.
+  // MERGE RE-MEASURE (2026-09-05, #2499 chain <- main): the textbook §12 collision — main
+  // (#2319) and this branch (#2499) each raised this key to 819 from the same 815 base,
+  // and BOTH deltas are +4, so a carried-across 819 would be one full change too low and
+  // would red on main having been green on both sides. git surfaced it here only because
+  // the two comment blocks touch; the NUMBER would have merged silently. Measured 823 with
+  // `wc -l` on the post-prettier merged tree.
+  'map/src/render/coverage-renderer.ts': 823,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -1759,7 +1769,7 @@ const CEILINGS: Record<string, number> = {
   // BOTH histories above start from 1651 and BOTH add 22 — #2042 INC-6 and #2117 each
   // reached 1673 independently, which is exactly the merge where taking either side's
   // number looks right and is wrong. Merged and MEASURED post-merge (`wc -l`): 1695.
-  'map/src/shaders/dsl/line.ts': 1695,
+  'map/src/shaders/dsl/line.ts': 1696,
   // 1373→1422 (#1246): the flat-projection stroke-width fix. The VS clamp's flat
   // branch is rewritten from the (miscalibrated, no-op) targetNdc clamp to a
   // self-calibrating length(mercProbe)/length(projProbe) = 1/J screen-size ratio
@@ -2523,7 +2533,24 @@ const CEILINGS: Record<string, number> = {
   // its parity test (main's `raster-non-merc-selection-parity.test.ts` carries the
   // stronger FIX/TEETH/CONTROL witness). The file is main's byte-for-byte again;
   // RE-MEASURED post-prettier (`wc -l`) on the merged tree.
-  'map/src/render/raster-renderer.ts': 1060,
+  // 1060→1058 (#2560, LOWERED): `emitTileAt` stopped recomputing a tile row's
+  // latitude bounds and Mercator span per drawn tile per frame (two atan(sinh)
+  // + two log(tan); 325 ms of a 13.2 s raster session on the owner's profile).
+  // Both the math and its memo left for `raster-row-geom.ts` — extracted so a
+  // differential test can hold the math to the retired expression AND reach the
+  // cache, where the interesting way to be wrong lives (drop `y` from the inner
+  // key and a whole level takes row 0's bounds). Same reason `draw-dedup-key.ts`
+  // was pulled out in #2495. What remains here is one field and a destructure,
+  // against 13 lines of inline transcendentals removed — a net SHRINK.
+  // MERGE UNION (SIXTH collision on this key): main's side nets to 0 against the
+  // 1060 both sides share, this side is -2, so the merged file should read 1058
+  // — but the number below is `wc -l` on the MERGED tree, not that arithmetic.
+  // 1058→1062: +4 for a `jscpd:ignore` marker over the raster/hillshade `emitTileAt`
+  // preamble. The extraction above SHRANK that pre-existing clone (194→114 tokens,
+  // and it deleted a second 96-token one outright), but the duplication ratchet
+  // fingerprints a clone's token stream, so a shortened clone reads as a newly added
+  // one — gate defect #2570. The marker and these 4 lines go when #2570 lands.
+  'map/src/render/raster-renderer.ts': 1062,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -2667,7 +2694,20 @@ const CEILINGS: Record<string, number> = {
   // set EXACTLY to the count — headroom is re-justified per phase, never banked.
   // MERGE: main and this branch each raised this ceiling from a shared base;
   // neither side's number is right. MEASURED post-merge (`wc -l`): 1527.
-  'compiler/src/ir/lower.ts': 1527,
+  // 1527→1552 (#2544): the `fill:` / `stroke:` arms stop dropping an
+  // unresolvable colour in silence — each gains an `else` and the two share
+  // `warnUnresolvedColor` (X-GIS0029), and `applyStyleProperties` takes the
+  // `diagnostics` sink. Same shape and same rationale as the X-GIS0028 raise
+  // above: the gate must sit where the resolve verdict is known, and that is
+  // this switch. MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  // 1552→1575 (#2549, tenth main merge): the THIRD double-delta on this key today.
+  // #2544 raised it to 1552 on main while this branch raised it for the
+  // `source { type: … }` gate from the same base; git merged the two ceiling
+  // edits without a conflict and silently kept 1552, which is one whole change
+  // too low — CI reddened on `1549 > ceiling 1527` before the merge and would
+  // have reddened again after it. No arithmetic on the two numbers: RE-MEASURED
+  // with `wc -l` on the conflict-resolved post-prettier tree (§12).
+  'compiler/src/ir/lower.ts': 1575,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):

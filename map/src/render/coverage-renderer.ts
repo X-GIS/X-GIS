@@ -44,6 +44,7 @@ import { compileCoverageFilter, type CoverageFilterFn } from '../shaders/dsl/cov
 import type * as AST from '@xgis/compiler'
 import { resolveVectorBands } from '../coverage-vector-bands'
 import { packFlowFieldUV } from './flow-field-pack'
+import { prefetchLazyShaders } from '../shaders/baked/install'
 import {
   COVERAGE_GRID_N,
   coverageNodeCount,
@@ -337,6 +338,9 @@ export class CoverageRenderer {
     let flowValidView: RhiTextureView | null = null
     let flowScale = 0
     if (vec) {
+      // #2499 step 3 — a vector band IS a flow layer's registration, strictly before the flow
+      // pass builds its draper on the draw path: start the lazy-group fetch (see install.ts).
+      prefetchLazyShaders(this.rhi)
       const packed = packFlowFieldUV(vec.speed, vec.direction, vec.speedCodes, vec.directionCodes)
       flowScale = packed.scale
       flowU = this.uploadR16fFrom(packed.u, nLon, nLat, 'coverage-flow-u')

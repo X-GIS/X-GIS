@@ -22,10 +22,6 @@ export const BAKED_WGSL_LAZY: BakedArtifact = {
     projectionFingerprint: '292d53465dc3c9b4',
   },
   contents: {
-    '05dcf67938babf77':
-      'struct VsUpscaleOut{@builtin(position)pos:vec4<f32>,@location(0)uv:vec2<f32>}@group(0)@binding(0)var samp:sampler;@group(0)@binding(1)var src:texture_2d<f32>;@vertex fn vs_upscale(@builtin(vertex_index)vi:u32)->VsUpscaleOut{var _av0:vec2<f32> =vec2<f32>(-1.,-1.);var _av1:vec2<f32> =vec2<f32>(0.,1.);if((vi==1u)){_av0=vec2<f32>(3.,-1.);_av1=vec2<f32>(2.,1.);}if((vi==2u)){_av0=vec2<f32>(-1.,3.);_av1=vec2<f32>(0.,-1.);}return VsUpscaleOut(vec4<f32>(_av0,0.,1.),_av1);}@fragment fn fs_upscale(input:VsUpscaleOut)->@location(0)vec4<f32>{return textureSample(src,samp,input.uv);}\n',
-    e91b8622da23c278:
-      'struct CompUniform{opacity:f32,_pad:vec3<f32>}struct VsFullOut{@builtin(position)pos:vec4<f32>,@location(0)uv:vec2<f32>}@group(0)@binding(0)var samp:sampler;@group(0)@binding(1)var src:texture_2d<f32>;@group(0)@binding(2)var<uniform>cu:CompUniform;@vertex fn vs_full(@builtin(vertex_index)vi:u32)->VsFullOut{var _av0:vec2<f32> =vec2<f32>(-1.,-1.);var _av1:vec2<f32> =vec2<f32>(0.,1.);if((vi==1u)){_av0=vec2<f32>(3.,-1.);_av1=vec2<f32>(2.,1.);}if((vi==2u)){_av0=vec2<f32>(-1.,3.);_av1=vec2<f32>(0.,-1.);}return VsFullOut(vec4<f32>(_av0,0.,1.),_av1);}@fragment fn fs_full(input:VsFullOut)->@location(0)vec4<f32>{let _cse1=textureSample(src,samp,input.uv);let _cse0=_cse1.w;return vec4<f32>(((_cse1.rgb*_cse0)*cu.opacity),(_cse0*cu.opacity));}\n',
     '27e3ce7fe63218f9':
       'struct ComposeParams{params:vec4<f32>}struct VsOut{@builtin(position)pos:vec4<f32>,@location(0)uv:vec2<f32>}@group(0)@binding(0)var density_tex:texture_2d<f32>;@group(0)@binding(1)var ramp_tex:texture_2d<f32>;@group(0)@binding(2)var ramp_sampler:sampler;@group(0)@binding(3)var<uniform>u:ComposeParams;fn load_density(uv:vec2<f32>)->f32{let _cse1=textureDimensions(density_tex);let _cse0=vec2<f32>(f32(_cse1.x),f32(_cse1.y));return textureLoad(density_tex,vec2<i32>(i32((uv.x*_cse0.x)),i32((uv.y*_cse0.y))),0u).x;}@vertex fn vs_full(@builtin(vertex_index)idx:u32)->VsOut{var _v0:vec2<f32> =vec2<f32>(-1.,-1.);if((idx==1u)){_v0=vec2<f32>(3.,-1.);}else if((idx==2u)){_v0=vec2<f32>(-1.,3.);}return VsOut(vec4<f32>(_v0,0.,1.),vec2<f32>(((_v0.x+1.)*.5),(1.-((_v0.y+1.)*.5))));}@fragment fn fs_compose(in:VsOut)->@location(0)vec4<f32>{let _cse0=textureSample(ramp_tex,ramp_sampler,vec2<f32>(saturate((load_density(in.uv)*u.params.x)),.5));return vec4<f32>(_cse0.rgb,(_cse0.w*u.params.y));}\n',
     d9e838400fc24fe6:
@@ -54,8 +50,6 @@ export const BAKED_WGSL_LAZY: BakedArtifact = {
     'wgsl/heatmap-blur': 'ce07f5e32c337949',
     'wgsl/heatmap-compose': '27e3ce7fe63218f9',
     'wgsl/icon-retained': 'ac006e57cd7c3735',
-    'wgsl/line-composite': 'e91b8622da23c278',
     'wgsl/particle-retained': '5acf1827ac87ffdd',
-    'wgsl/scene-upscale': '05dcf67938babf77',
   },
 }

@@ -135,11 +135,12 @@ source lbl { label: "Seoul \"downtown\"\nzone" }
 ## 1.5 Colors
 
 ```
-COLOR  = "#" HEXDIG{3} | "#" HEXDIG{6} | "#" HEXDIG{8}
+COLOR  = "#" HEXDIG{3} | "#" HEXDIG{4} | "#" HEXDIG{6} | "#" HEXDIG{8}
 HEXDIG = DIGIT | "a"…"f" | "A"…"F"
 ```
 
-`#RGB`, `#RRGGBB`, or `#RRGGBBAA`. The lexer consumes the maximal hex run after `#`
+`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA` (the 4-digit form is the CSS Color
+Module 4 shorthand, #2543). The lexer consumes the maximal hex run after `#`
 and rejects any other length as a hard error (**"Invalid color literal"**) — so
 `#ff` and `#12345` do not lex (`lexer.ts` `readColor`).
 
@@ -523,6 +524,12 @@ xgis 1
 source w { type: geojson, url: "w.geojson" }
 layer l { source: w  fill: rgba(30, 41, 59, 0.8)  stroke-width: 1 }
 ```
+
+"Verbatim" is literal: the captured text reproduces the written spelling
+whitespace-for-whitespace, so `hsl(120, 50%, 50%)`, `rgba(0, 0, 0, .6)` and
+`hsl(120deg 50% 50%)` reach the colour resolver exactly as authored (#2544). A
+`fill:` / `stroke:` value that still resolves to no colour is `X-GIS0029` — a
+warning, and the property is dropped — never a silent no-op.
 
 ## 2.15 Expression statements — removed (#1072 / #1138)
 

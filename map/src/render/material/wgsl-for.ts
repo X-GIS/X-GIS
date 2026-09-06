@@ -99,9 +99,23 @@ export function bakedWgsl(emit: () => string, id: string): string {
   return bakedSource(id) ?? shipSource(emit())
 }
 
-export function wgslFor(rhi: ShaderSourceDevice, emit: () => string, id?: string): string {
+/** The OPEN-SET door, spelled. A call site that has no baked id — the coverage ramp
+ *  (its predicate is compiled from the style), a composer variant (`rhi-fill-variant`,
+ *  and the variant-carrying branches of the line / point drapers), a family the closed set
+ *  excludes by decision (`atmosphere`, #1258) — passes `LIVE` and gets `shipSource(emit())`.
+ *  It exists so that "this shader is not baked" is a statement at the seam rather than an
+ *  argument left off: the id is REQUIRED (#2499), a missing one no longer typechecks, and
+ *  `shader-seam-doors.test.ts` keeps every `LIVE` caller on a shrink-only list with its
+ *  reason. Three registered families sat baked-and-unread for a month because the door
+ *  used to be `undefined`, which looks exactly like forgetting. */
+export const LIVE: unique symbol = Symbol('xgis.shader-seam.live')
+
+/** What the seam accepts as an id: a baked key (`ids.ts` builds them) or the `LIVE` door. */
+export type ShaderSourceId = string | typeof LIVE
+
+export function wgslFor(rhi: ShaderSourceDevice, emit: () => string, id: ShaderSourceId): string {
   if (!readsWgsl(rhi)) return ''
-  if (id === undefined) return shipSource(emit())
+  if (id === LIVE) return shipSource(emit())
   return bakedWgsl(emit, id)
 }
 
@@ -110,10 +124,10 @@ export function wgslFor(rhi: ShaderSourceDevice, emit: () => string, id?: string
 export function glslFor(
   rhi: ShaderSourceDevice,
   emit: () => string,
-  id?: string,
+  id: ShaderSourceId,
 ): string | undefined {
   if (readsWgsl(rhi)) return undefined
-  if (id === undefined) return shipSource(emit())
+  if (id === LIVE) return shipSource(emit())
   return bakedSource(id) ?? shipSource(emit())
 }
 
@@ -140,10 +154,10 @@ export function glslFor(
 export function glslStagesFor(
   rhi: ShaderSourceDevice,
   emit: () => { vertex: string; fragment: string },
-  ids?: { vertex: string; fragment: string },
+  ids: { vertex: string; fragment: string } | typeof LIVE,
 ): { vsCode?: string; fsCode?: string } {
   if (readsWgsl(rhi)) return {}
-  if (ids !== undefined) {
+  if (ids !== LIVE) {
     const bakedVertex = bakedSource(ids.vertex)
     const bakedFragment = bakedSource(ids.fragment)
     if (bakedVertex !== undefined && bakedFragment !== undefined)
