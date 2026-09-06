@@ -2606,7 +2606,14 @@ const CEILINGS: Record<string, number> = {
   // its outline stroke instead of being mistaken for the clipper's own closing
   // edge. Not extract-able: the classifier and the outline call site it feeds
   // are the same single authority this file already houses.
-  'compiler/src/tiler/vector-tiler.ts': 1700,
+  // 1700->1688 (#2550): DOWN, not slack. `unwrapRingsToOneBranch` and its call in
+  // `makePolygonPart` are deleted — they read any >180 deg ring edge as a fold and
+  // rewrote it, which reinterpreted the z=0 world parent [-170..170] as a 20 deg
+  // seam crosser and collapsed its mid-world children
+  // (data/src/sub-tile-generator.test.ts). A ring bounds an AREA and is read at
+  // face value; RFC 7946 3.1.9 puts the split burden on the producer. Lowered to
+  // the measured figure rather than banked as headroom.
+  'compiler/src/tiler/vector-tiler.ts': 1688,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
@@ -2678,7 +2685,17 @@ const CEILINGS: Record<string, number> = {
   // the fn-call capture bug. The delta buys the single resolve rule + the diagnostic
   // that makes the next such loss visible. MEASURED post-prettier (`git show HEAD:… |
   // wc -l`), set EXACTLY to the count.
-  'compiler/src/ir/lower.ts': 1547,
+  // 1547->1569 (#2549): `lowerSource` no longer accepts a `type:` that lowered to
+  // neither an Identifier nor a StringLiteral. A hyphenated name written bare
+  // (`type: x-kr-admin`, and the built-in `raster-dem`) parses as a subtraction
+  // expression, which used to leave the `geojson` default standing with the
+  // source's whole options bag silently dropped. The delta is the rejection arm
+  // plus the X-GIS0030 push that names the source, and the docblock recording why
+  // the test is the GRAMMAR's identifier shape rather than SOURCE_TYPES membership
+  // (a membership test still breaks `raster-dem`). Not extract-able: this is the
+  // one place a source block becomes a SourceDef. MEASURED post-prettier (`git
+  // show HEAD:... | wc -l`), set EXACTLY to the count.
+  'compiler/src/ir/lower.ts': 1569,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
