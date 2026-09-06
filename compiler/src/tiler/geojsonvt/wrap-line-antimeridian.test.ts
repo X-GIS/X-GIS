@@ -293,7 +293,7 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
   // against `subdivideLine`'s array, because the quantity the exemption protects
   // is the part's lon extent that the per-tile clip reads — the same observables
   // arms (a)/(b) above use, so one harness covers both.
-  describe('an exact half- or whole-world line edge is NOT read as a fold', () => {
+  describe('#2550 an exact half- or whole-world line edge is NOT read as a fold', () => {
     it('(c) mag === 360: a −180 → 180 line sweeps the whole world, it does not collapse', () => {
       // FAIL-BEFORE (exemption deleted): Δlon = +360 rounds to one whole world,
       // so the second vertex is rewritten to −180. The line becomes a zero-width
@@ -322,6 +322,41 @@ describe('#2547 folded antimeridian authoring tiles like the unwrapped span', ()
         [0, 180],
       ])
       expect(eastern.columns, 'an eastern-hemisphere line must tile x2 and x3').toEqual([2, 3])
+    })
+
+    it('(c2) the SAME at Δlon = −360: a 180 → −180 line also sweeps the whole world', () => {
+      // (c) alone leaves a live mutant: `mag === 360` -> `rawDLon === 360` keeps
+      // (c) green (its delta is +360) while THIS line, whose delta is −360, gets
+      // rounded and collapses to a point. The exemption is written on |Δlon|, so
+      // it owes an arm on each side of zero.
+      const world = tiledSeamCrossing([
+        [180, 0],
+        [-180, 0],
+      ])
+      expect(world.partLonRanges, 'the −360 full-world sweep collapsed to a point').toEqual([
+        [-180, 180],
+      ])
+      expect(world.columns, 'a full-world line must reach every z2 column').toEqual([0, 1, 2, 3])
+    })
+
+    it('(d2) a Δlon JUST past the half-world boundary is folded, in the negative direction', () => {
+      // The exemption draws its line at 180, so the arm that guards that line
+      // has to sit just past it. 90 → −110 is a −200 step: the long way west is
+      // 200°, the short way east is 160°, and a LINE takes the short way, so the
+      // endpoint is carried to 250 and the part gets its −360 world copy.
+      //
+      // This kills a mutant no other arm here does. Arms (a)/(b)/(e) all fold a
+      // 340° step, so `mag <= 180` -> `mag < 270` (or any threshold between 200
+      // and 340) leaves every one of them green; measured, that mutant survives
+      // all 336 tiler tests without this arm.
+      const past = tiledSeamCrossing([
+        [90, 0],
+        [-110, 0],
+      ])
+      expect(past.partLonRanges, 'a −200 step stopped being read as a fold').toEqual([
+        [90, 250],
+        [-270, -110],
+      ])
     })
 
     it('(e) CONTROL: a genuine fold is still unwrapped, so (c) and (d) are not vacuous', () => {

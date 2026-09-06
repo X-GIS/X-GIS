@@ -54,10 +54,16 @@ function greatCircleDistanceDeg(lon0: number, lat0: number, lon1: number, lat1: 
  *  the past-seam form (170 → 190) and a path already authored past the seam is
  *  returned verbatim (offset 0 throughout).
  *
- *  Single authority for that step: `subdivideLine` runs it before densifying a
- *  line (#2547) and `makePolygonPart` runs it per ring (#2550), because the
- *  part bbox and every per-tile clip read a 340° fold as a segment that sweeps
- *  the whole equator. Latitude and any 3rd/4th ordinate are untouched. */
+ *  LINES ONLY, and that asymmetry is deliberate. `subdivideLine` is the sole
+ *  production caller (#2547): a line is a PATH, so it takes the short way and a
+ *  340° step is a fold to undo — the part bbox and every per-tile clip would
+ *  otherwise read it as a segment sweeping the whole equator. A polygon RING is
+ *  an AREA boundary and is read at face value, so `makePolygonPart` does NOT
+ *  run this (#2550 briefly did, and it collapsed the z=0 world parent
+ *  [−170 … 170] that data/src/sub-tile-generator.test.ts pins; reverted in
+ *  3c7f27f1). RFC 7946 §3.1.9 puts the split burden on the producer, which is
+ *  why a folded ring cannot be inferred.
+ *  Latitude and any 3rd/4th ordinate are untouched. */
 export function unwrapLonBranch(coords: number[][]): number[][] {
   if (coords.length < 2) return coords
   const out: number[][] = new Array(coords.length)
@@ -71,10 +77,28 @@ export function unwrapLonBranch(coords: number[][]): number[][] {
     // the other way destroys real geometry: −180 → 180 is the z=0 world
     // rectangle (a full sweep, which would collapse to a zero-width ring) and
     // 0 → 180 is a hemisphere edge (which would flip onto the other half).
+    // Both SIGNS are pinned, in wrap-line-antimeridian.test.ts — the ±360 arms
+    // are what stop `mag === 360` decaying to `rawDLon === 360`, and the −270
+    // arm is what stops `mag <= 180` decaying to `rawDLon <= 180`.
+    //
+    // NOT `wrapLonDelta` (geo/src/projection.ts), and they disagree at exactly
+    // 360 on purpose: that one picks a world-copy REPRESENTATIVE for a point
+    // against a central meridian, so `wrapLonDelta(360) === 0` is right there;
+    // this one asks whether the delta between two consecutive PATH vertices is
+    // a fold artifact, and a 360 step is a real full sweep. Do not unify them.
+    //
+    // The equality is exact because the inputs are AUTHORED GeoJSON degrees,
+    // before any transform, and the canonical spellings (±180, 0/180) are
+    // exactly representable. A producer that emits 179.999… → −180 instead is
+    // outside the exemption and reads as a fold; no epsilon is added for it
+    // because a near-whole-world delta is genuinely ambiguous — nothing local
+    // separates "almost a full sweep" from "almost a full fold".
     const mag = Math.abs(rawDLon)
     lonOffset -= 360 * (mag <= 180 || mag === 360 ? 0 : Math.round(rawDLon / 360))
-    // Verbatim while the branch is the authored one (identity, and it keeps
-    // any 3rd/4th ordinate); rebuilt onto the running branch once it is not.
+    // Reuse the input array while the branch is the authored one; rebuild onto
+    // the running branch once it is not. BOTH arms keep any 3rd/4th ordinate
+    // (the rebuild spreads `slice(1)`), so the only difference is that the
+    // first avoids an allocation for the common no-fold case.
     out[i] = lonOffset === 0 ? coords[i] : [coords[i][0] + lonOffset, ...coords[i].slice(1)]
   }
   return out
@@ -103,7 +127,8 @@ export function subdivideLine(coords: number[][]): number[][] {
   const DEG2RAD = Math.PI / 180
   // One 360° branch first (#2547), so every delta below is already the short
   // way round and every emitted vertex sits on the branch the FIRST coordinate
-  // defines. Polygon rings get the same step in makePolygonPart (#2550).
+  // defines. Polygon rings deliberately do NOT get this step — see
+  // `unwrapLonBranch`'s docblock for why a ring is read literally.
   const branch = unwrapLonBranch(coords)
   const out: number[][] = [branch[0]]
   for (let i = 0; i < branch.length - 1; i++) {
