@@ -134,18 +134,7 @@ export function writeRasterFrameUniform(
   projCenterLat: number,
   camAnchor: readonly [number, number, number],
   c: RasterColorParams,
-  /** #2134 — raster_params.y: true when the sampled texture is ALREADY
-   *  premultiplied (currently only the vector-drape bake), false for every
-   *  straight-alpha source (fetched raster tiles, the WebGL2 checker, DEM
-   *  tiles via hillshade). fs_tile's mix(c.a,1,premul) picks the no-op branch
-   *  at false. Required (no default) so every caller states its source kind
-   *  explicitly rather than silently inheriting a zero-initialised lane.
-   *
-   *  MERGE ORDER (#2134 <- main #2539): this is REQUIRED and `demUnpack` below
-   *  carries a default, so it must precede it — TypeScript forbids a required
-   *  parameter after an optional one. Every caller that passed `demUnpack`
-   *  positionally therefore gains this argument before it. */
-  premultiplied: boolean,
+  premultiplied: boolean, // #2134 — full rationale: raster-frame-uniform.test.ts
   /** D5 INC-3 (#2539) — the terrain DEM's unpack factors (redFactor, greenFactor,
    *  blueFactor, baseShift), as `demUnpack()` (hillshade-renderer.ts) resolves them
    *  per encoding. Default ALL-ZERO = no terrain source; the vertex decode is then 0
