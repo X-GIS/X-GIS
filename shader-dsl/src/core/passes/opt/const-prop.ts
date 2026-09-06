@@ -7,51 +7,25 @@
 // literals, that needs the P3 f32 differential). After propagation the binding is
 // usually dead; DCE (run later) removes it.
 //
-// SCOPE — one flat map per function. Binding names are unique per function (the
-// builder auto-names, and a name bound in one branch cannot be referenced from a
-// sibling — see the oracle's flat-env note, oracle.ts), so a function-wide map
-// needs no block scoping, exactly as DCE / LICM already assume. A name that is
-// EVER an assignment target is excluded (its value changes). A fn containing a raw
-// Stmt is skipped — raw WGSL may read a name this pass cannot see.
+// SCOPE is the shared substitution skeleton's: `collectLets` (expr-utils.ts) owns
+// the flat per-function map and why it needs no block scoping;
+// `mapModuleExprsPerFunc` (ir-transform.ts) owns skipping a fn with a raw Stmt.
+// What is THIS pass is the one line below — which bindings it admits.
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
-import { mapStmt } from './ir-transform.js'
-import { bodyHasRaw, collectMutatedRoots } from './expr-utils.js'
-
-/** Collect every `let name = <lit>` (recursively, incl. nested bodies) whose name
- *  is never mutated. Function-wide collection is safe — names are unique per fn. */
-function collectConstLets(
-  body: readonly Stmt[],
-  mutated: ReadonlySet<string>,
-  out: Map<string, Expr>,
-): void {
-  for (const s of body) {
-    if (s.s === 'let' && s.expr.op === 'lit' && !mutated.has(s.name)) out.set(s.name, s.expr)
-    else if (s.s === 'if') {
-      for (const a of s.arms) collectConstLets(a.body, mutated, out)
-      if (s.elseBody) collectConstLets(s.elseBody, mutated, out)
-    } else if (s.s === 'for') {
-      collectConstLets([s.init], mutated, out)
-      collectConstLets(s.body, mutated, out)
-    } else if (s.s === 'switch') {
-      for (const c of s.cases) collectConstLets(c.body, mutated, out)
-      if (s.defaultBody) collectConstLets(s.defaultBody, mutated, out)
-    }
-  }
-}
-
-function constPropFn(f: FuncDecl): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  const mutated = new Set<string>()
-  collectMutatedRoots(f.body, mutated)
-  const consts = new Map<string, Expr>()
-  collectConstLets(f.body, mutated, consts)
-  if (consts.size === 0) return f
-  const sub = (e: Expr): Expr => (e.op === 'varref' && consts.has(e.name) ? consts.get(e.name)! : e)
-  return { ...f, body: f.body.map((s) => mapStmt(s, sub)) }
-}
+import type { Expr, ModuleDecl } from '../../ir/index.js'
+import { mapModuleExprsPerFunc } from './ir-transform.js'
+import { collectLets, collectMutatedRoots } from './expr-utils.js'
 
 /** Propagate literal-bound, never-reassigned locals into their uses. Pure (module -> module). */
 export function constProp(m: ModuleDecl): ModuleDecl {
-  return { ...m, funcs: m.funcs.map(constPropFn) }
+  return mapModuleExprsPerFunc(m, (f) => {
+    const mutated = new Set<string>()
+    collectMutatedRoots(f.body, mutated)
+    const consts = collectLets(
+      f.body,
+      (name, e): e is Extract<Expr, { op: 'lit' }> => e.op === 'lit' && !mutated.has(name),
+    )
+    if (consts.size === 0) return undefined
+    return (e) => (e.op === 'varref' && consts.has(e.name) ? consts.get(e.name)! : e)
+  })
 }

@@ -6,7 +6,7 @@
 
 import type { Expr, Stmt, ShaderType } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
-import { eachExpr, mapStmtExpr } from '../../ir/visit.js'
+import { eachExpr, eachStmtExpr, mapStmtExpr } from '../../ir/visit.js'
 
 // The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
 // `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
@@ -165,6 +165,36 @@ export function bodyHasRaw(body: readonly Stmt[]): boolean {
     }
   }
   return false
+}
+
+/** Collect every `let` binding in `body` — nested bodies included — whose bound
+ *  expression `accepts` admits, keyed by binding name.
+ *
+ *  SCOPE — one FLAT map per function, no block scoping. Binding names are unique per
+ *  fn (the builder auto-names, and a name bound in one branch cannot be referenced
+ *  from a sibling — the oracle's flat-env note, oracle.ts), exactly as DCE / LICM
+ *  already assume. A name that is EVER an assignment target is the caller's to
+ *  exclude: `accepts` receives the name for that reason.
+ *
+ *  The descent is the traversal SoT's (`eachStmtExpr` open recursion, visit.ts), not
+ *  a fourth hand-written `if`/`for`/`switch` ladder — which is the point. The three
+ *  substitution passes that share this each wrote that ladder out, and all three had
+ *  drifted from the walker in the SAME position: a `for`'s update Stmt. Inert today
+ *  (every `for` update the builder and the random-IR generator emit is an `assign`,
+ *  builder.ts:317-331, random-ir.ts:424 — and an `assign` has no nested body), so
+ *  routing through the SoT changes no output; it removes the way it could.
+ */
+export function collectLets<T extends Expr>(
+  body: readonly Stmt[],
+  accepts: (name: string, e: Expr) => e is T,
+): Map<string, T> {
+  const out = new Map<string, T>()
+  const walk = (s: Stmt): void => {
+    if (s.s === 'let' && accepts(s.name, s.expr)) out.set(s.name, s.expr)
+    eachStmtExpr(s, () => {}, walk)
+  }
+  for (const s of body) walk(s)
+  return out
 }
 
 /** Collect every function-local binding name (let / var / for-counter). */

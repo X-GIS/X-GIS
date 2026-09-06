@@ -76,10 +76,10 @@
 // MOVER and would be legal at any tier; wiring it into O2 is a maintainer decision that
 // regenerates the byte snapshots (`passes/opt/optimize.ts` lists it as available-but-unwired).
 
-import type { Expr, Stmt, ModuleDecl, FuncDecl, StructDecl } from '../../ir/index.js'
+import type { Expr, ModuleDecl, StructDecl } from '../../ir/index.js'
 import { typeKey } from '../../ir/types.js'
-import { mapStmt } from './ir-transform.js'
-import { bodyHasRaw, collectMutatedRoots, eachExpr, refsLocal } from './expr-utils.js'
+import { mapModuleExprsPerFunc } from './ir-transform.js'
+import { collectLets, collectMutatedRoots, eachExpr, refsLocal } from './expr-utils.js'
 
 /** Component index of a single-character vector field, or -1. Both spellings the
  *  targets accept — WGSL and GLSL ES 3.00 each allow `xyzw` and `rgba`. */
@@ -130,71 +130,46 @@ function pickField(
   return undefined
 }
 
-/** Collect every `let name = <construct>` (nested bodies included) that is safe to
- *  resolve a later `.field` read through: neither the binding name NOR any name its
- *  arguments read may ever be an assignment target. Function-wide, exactly as
- *  const-prop: binding names are unique per fn, so no block scoping is needed.
- *
- *  Both halves are load-bearing. The binding check keeps the aggregate itself stable;
- *  the ARGUMENT check is what makes the forward legal across the statements between the
- *  binding and the read, which is the whole point of resolving through the `let`
- *  (#2354). Conservative on purpose — a mutation anywhere in the function disqualifies
- *  the binding, rather than trying to decide whether it lies between the two points. */
-function collectCtorLets(
-  body: readonly Stmt[],
-  mutated: ReadonlySet<string>,
-  out: Map<string, Extract<Expr, { op: 'construct' }>>,
-): void {
-  for (const s of body) {
-    if (
-      s.s === 'let' &&
-      s.expr.op === 'construct' &&
-      !mutated.has(s.name) &&
-      !s.expr.args.some((a) => refsLocal(a, mutated))
-    )
-      out.set(s.name, s.expr)
-    else if (s.s === 'if') {
-      for (const a of s.arms) collectCtorLets(a.body, mutated, out)
-      if (s.elseBody) collectCtorLets(s.elseBody, mutated, out)
-    } else if (s.s === 'for') {
-      collectCtorLets([s.init], mutated, out)
-      collectCtorLets(s.body, mutated, out)
-    } else if (s.s === 'switch') {
-      for (const c of s.cases) collectCtorLets(c.body, mutated, out)
-      if (s.defaultBody) collectCtorLets(s.defaultBody, mutated, out)
-    }
-  }
-}
-
-function memberFoldFn(f: FuncDecl, structs: ReadonlyMap<string, StructDecl>): FuncDecl {
-  if (bodyHasRaw(f.body)) return f
-  const mutated = new Set<string>()
-  collectMutatedRoots(f.body, mutated)
-  const ctors = new Map<string, Extract<Expr, { op: 'construct' }>>()
-  collectCtorLets(f.body, mutated, ctors)
-
-  // `mapExpr` rewrites bottom-up, so `e.base` is already folded when this runs. The
-  // binding is resolved HERE rather than by substituting the construct at every
-  // varref — that would copy the aggregate into uses this pass cannot remove.
-  const sub = (e: Expr): Expr => {
-    if (e.op !== 'member') return e
-    const base =
-      e.base.op === 'construct'
-        ? e.base
-        : e.base.op === 'varref'
-          ? ctors.get(e.base.name)
-          : undefined
-    if (base === undefined) return e
-    const picked = pickField(base, e.field, structs)
-    if (picked === undefined || typeKey(picked.type) !== typeKey(e.type)) return e
-    return callsAnything(picked) ? e : picked
-  }
-  return { ...f, body: f.body.map((s) => mapStmt(s, sub)) }
-}
-
 /** Fold `<construct>.<field>` — including through the `let` the CSE chain bound the
  *  construct to — down to the argument it reads. Pure (module -> module). */
 export function memberFold(m: ModuleDecl): ModuleDecl {
   const structs = new Map(m.structs.map((s) => [s.name, s]))
-  return { ...m, funcs: m.funcs.map((fn) => memberFoldFn(fn, structs)) }
+  return mapModuleExprsPerFunc(m, (f) => {
+    const mutated = new Set<string>()
+    collectMutatedRoots(f.body, mutated)
+    // Admit a `let name = <construct>` only when it is safe to resolve a later
+    // `.field` read through: neither the binding name NOR any name its arguments
+    // read may ever be an assignment target. Both halves are load-bearing — the
+    // binding check keeps the aggregate itself stable; the ARGUMENT check is what
+    // makes the forward legal across the statements between the binding and the
+    // read, which is the whole point of resolving through the `let` (#2354).
+    // Conservative on purpose: a mutation anywhere in the fn disqualifies the
+    // binding, rather than deciding whether it lies between the two points.
+    const ctors = collectLets(
+      f.body,
+      (name, e): e is Extract<Expr, { op: 'construct' }> =>
+        e.op === 'construct' && !mutated.has(name) && !e.args.some((a) => refsLocal(a, mutated)),
+    )
+
+    // No `undefined` early-out, unlike const-prop / copy-prop: this pass also folds a
+    // DIRECT `<construct>.<field>` that was never bound to a name, so an empty `ctors`
+    // still has work to do.
+    //
+    // `mapExpr` rewrites bottom-up, so `e.base` is already folded when this runs. The
+    // binding is resolved HERE rather than by substituting the construct at every
+    // varref — that would copy the aggregate into uses this pass cannot remove.
+    return (e) => {
+      if (e.op !== 'member') return e
+      const base =
+        e.base.op === 'construct'
+          ? e.base
+          : e.base.op === 'varref'
+            ? ctors.get(e.base.name)
+            : undefined
+      if (base === undefined) return e
+      const picked = pickField(base, e.field, structs)
+      if (picked === undefined || typeKey(picked.type) !== typeKey(e.type)) return e
+      return callsAnything(picked) ? e : picked
+    }
+  })
 }
