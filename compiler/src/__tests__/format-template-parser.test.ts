@@ -158,6 +158,63 @@ describe('parseTextTemplate', () => {
     })
   })
 
+  describe('colons inside the expression (#2551)', () => {
+    // The separator is the first depth-1 `:` that the EXPRESSION
+    // grammar has not already spoken for: a `:` inside a `"…"`
+    // string literal belongs to the string, and the `:` that closes
+    // a ternary `? :` (parser-expressions.ts:24-29) belongs to the
+    // ternary. `??` (QuestionQuestion) is one token, not a ternary.
+
+    it('colon inside a string literal is not the spec separator', () => {
+      expect(parseTextTemplate('{.name ?? "n/a: none"}')).toEqual([
+        { kind: 'interp', text: '.name ?? "n/a: none"' },
+      ])
+    })
+
+    it('the ternary arm colon is not the spec separator', () => {
+      expect(parseTextTemplate('{.pop > 1000 ? "big" : "sml"}')).toEqual([
+        { kind: 'interp', text: '.pop > 1000 ? "big" : "sml"' },
+      ])
+    })
+
+    it('a ternary AND a real spec — the spec is still found', () => {
+      expect(parseTextTemplate('{.pop > 1000 ? "big" : "sml":>8}')).toEqual([
+        {
+          kind: 'interp',
+          text: '.pop > 1000 ? "big" : "sml"',
+          spec: { align: '>', width: 8 },
+        },
+      ])
+    })
+
+    it('nested ternary consumes one colon per `?`', () => {
+      expect(parseTextTemplate('{.a ? 1 : .b ? 2 : 3:d}')).toEqual([
+        { kind: 'interp', text: '.a ? 1 : .b ? 2 : 3', spec: { type: 'd' } },
+      ])
+    })
+
+    it('a brace inside a string literal does not close the interp', () => {
+      expect(parseTextTemplate('{.name ?? "a}b"}')).toEqual([
+        { kind: 'interp', text: '.name ?? "a}b"' },
+      ])
+    })
+
+    it('control — a quote is a legal spec FILL char, so the spec side is not scanned as a string', () => {
+      // `"^10` = fill '"', align '^', width 10. Byte-identical to
+      // the pre-#2551 behaviour: the string machine models the
+      // EXPRESSION and must stop at the separator.
+      expect(parseTextTemplate('{x:"^10}')).toEqual([
+        { kind: 'interp', text: 'x', spec: { fill: '"', align: '^', width: 10 } },
+      ])
+    })
+
+    it('control — a ternary-free template still splits at its first colon', () => {
+      expect(parseTextTemplate('{ts:%H:%M:%S}')).toEqual([
+        { kind: 'interp', text: 'ts', spec: { type: '%H:%M:%S' } },
+      ])
+    })
+  })
+
   describe('error cases', () => {
     it('unmatched } throws', () => {
       expect(() => parseTextTemplate('hello}')).toThrow(/unmatched '\}'/)
