@@ -264,6 +264,50 @@ describe('#2553 a real polygon edge lying along a tile side keeps its stroke', (
     expect(strokeSegments(clipped, inserted)).toBe(3)
   })
 
+  it('a MIXED edge — one authored end, one clip-made — on a tile side keeps its stroke', () => {
+    // The arms above are all-or-nothing on provenance (both ends authored, both
+    // ends clipper-made, a whole clipper-made ring). This is the case a real
+    // coastline produces: a boundary that RUNS ALONG a tile side and is then
+    // truncated by the clipper. A box whose west side sits exactly on lon 0 and
+    // whose south side is BELOW the tile — the clip cuts that west side at the
+    // equator, leaving an edge with ONE authored endpoint (the box's own corner
+    // at lat 20) and ONE clipper-made endpoint (the south crossing).
+    //
+    // KEEPING IT IS THE RIGHT CALL — settled here so it is not re-opened. The
+    // clip-made end of a mixed edge is an INTERSECTION of that same authored
+    // edge with the rect, so every metre of what is stroked lies on the source
+    // polygon's own boundary: there is no clipper-made tail to draw. Sutherland-
+    // Hodgman's synthetic closure only ever runs from an EXIT point to a
+    // RE-ENTRY point and BOTH of those are clipper-made; the clip runs four
+    // half-plane stages, and every vertex a later stage adds to an earlier
+    // closure is itself clip-made, so no fragment of a closure ever acquires an
+    // authored end. Dropping the mixed edge would therefore erase real coastline
+    // stroke wherever a boundary follows a tile side — the #2553 symptom itself.
+    const { clipped, inserted } = clipZ1(mmBox(t1West, -10, 20, 20))
+    expect(clipped.length).toBe(1)
+    expect(inserted.size).toBe(2)
+
+    // The fixture is a broken ruler unless its boundary-coincident edges really
+    // carry the provenance this arm is about, so pin that first: how many of
+    // each such edge's two endpoints are clipper-made. Exactly two qualify —
+    // the west side (MIXED, 1) and the inserted closure along the south side
+    // (all-clipper, 2). A secretly all-authored or all-clipper fixture would
+    // make the assertions below vacuous.
+    const ring = clipped[0]!
+    const insertedEndsPerBoundaryEdge = ring
+      .map((a, i) => [a, ring[(i + 1) % ring.length]!] as const)
+      .filter(([a, b]) => t1SidePred(a, b))
+      .map(([a, b]) => Number(inserted.has(a)) + Number(inserted.has(b)))
+      .sort((x, y) => x - y)
+    expect(insertedEndsPerBoundaryEdge).toEqual([1, 2])
+
+    // 4 box sides − the one inserted closure = 3: the mixed west side is kept.
+    expect(strokeSegments(clipped, inserted)).toBe(3)
+    // …and provenance is what keeps it — geometry alone cannot tell the mixed
+    // edge from the closure and drops both (the pre-#2553 verdict).
+    expect(strokeSegments(clipped)).toBe(2)
+  })
+
   it('a ring that is ENTIRELY the tile rect (every vertex clipper-made) strokes nothing', () => {
     // A polygon covering the whole tile and beyond. Authored directly in MM
     // (the ring space the clip receives) because a lon/lat ring cannot reach
