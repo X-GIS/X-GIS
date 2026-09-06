@@ -3,6 +3,7 @@ import { sanitizeId } from './utils'
 import { checkSourceBounds } from '../ir/source-bounds'
 import { isTileScheme, schemeRejectReason } from '../ir/source-scheme'
 import { convertSourceCluster } from './sources-cluster'
+import { isBareIdentifierSafe } from '../lexer/tokens'
 
 export interface ConvertSourceOptions {
   /** When provided, inline GeoJSON `source.data` objects are stashed
