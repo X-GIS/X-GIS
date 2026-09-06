@@ -26,13 +26,11 @@
 // ORACLE: the canvas's own scale (canvasEffectiveDpr = width/clientWidth) is
 // the single geometric authority. A no-move pointermove is an exact no-op and
 // zoomAt keeps the point under the cursor, at ANY canvas scale.
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, afterEach } from 'vitest'
 import { Camera } from './camera'
 import { PanZoomController } from './controller'
-import { QUALITY, updateQuality, canvasEffectiveDpr } from '@xgis/engine'
+import { QUALITY, updateQuality, canvasEffectiveDpr, effectiveDpr } from '@xgis/engine'
 
 const CSS_W = 800
 const CSS_H = 600
@@ -88,14 +86,13 @@ function ptr(pointerId: number, clientX: number, clientY: number): Record<string
   return { pointerId, clientX, clientY, button: 0, ctrlKey: false }
 }
 
-/** How far the world point under (CX, CY) moves during one `zoomAt`, in CSS px.
- *  `dpr === undefined` takes `Camera.zoomAt`'s DEFAULT — the quality-policy dpr. */
+/** How far the world point under (CX, CY) moves during one `zoomAt`, in CSS px. */
 function anchorSlipCssPx(
   CX: number,
   CY: number,
   W: number,
   H: number,
-  dpr: number | undefined,
+  dpr: number,
 ): { x: number; y: number } {
   const cam = makeMercatorCamera()
   // Measure through the canvas's OWN scale in both arms: the oracle is where
@@ -104,8 +101,7 @@ function anchorSlipCssPx(
   const before = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
   const worldX0 = cam.centerX + before[0],
     worldY0 = cam.centerY + before[1]
-  if (dpr === undefined) cam.zoomAt(1, CX, CY, W, H)
-  else cam.zoomAt(1, CX, CY, W, H, dpr)
+  cam.zoomAt(1, CX, CY, W, H, dpr)
   const after = cam.unprojectToZ0(CX * dprReal, CY * dprReal, W, H, dprReal)!
   const mpp = 40075016.68557849 / 512 / Math.pow(2, cam.zoom)
   return {
@@ -113,8 +109,6 @@ function anchorSlipCssPx(
     y: (cam.centerY + after[1] - worldY0) / mpp,
   }
 }
-
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () => {
   const prevMaxDpr = QUALITY.maxDpr
@@ -191,12 +185,15 @@ describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () =
   // TEETH for the case above (CLAUDE.md §12: an assertion carries information
   // only if it DISTINGUISHES the two states). The case above passes `dprReal`
   // explicitly, so on its own it cannot tell a canvas-read dpr from the policy
-  // dpr — it would stay green if every caller went back to
-  // `min(devicePixelRatio, getMaxDpr())`. This is the same call in the
-  // 5-argument form, i.e. `Camera.zoomAt`'s DEFAULT `dpr = effectiveDpr()`:
-  // the point under the cursor runs away by ~1/8 of the viewport, which is
-  // exactly the defect the interaction-dpr fix exists to remove.
-  it('the DEFAULT dpr (the quality policy) anchors the wrong point — the two dprs are distinguishable', () => {
+  // dpr — it would stay green even if every caller went back to
+  // `min(devicePixelRatio, getMaxDpr())`. This case compares the two dprs
+  // directly: the canvas-read `dprReal` against `effectiveDpr()` — the
+  // quality-policy re-derivation `Camera.pan`/`zoomAt`/`panToScreenAnchor`'s
+  // `dpr` param is forbidden from defaulting to (#2542), because it disagrees
+  // with the swapchain while the canvas sits at `QUALITY.interactionDpr`. The
+  // point under the cursor runs away by ~1/8 of the viewport under the policy
+  // dpr, which is exactly the defect the interaction-dpr fix exists to remove.
+  it('the canvas-read dpr and the quality-policy dpr (effectiveDpr()) anchor different points — the two are distinguishable', () => {
     g.window = { devicePixelRatio: 2 }
     updateQuality({ maxDpr: 2, interactionDpr: 1.5 })
     const W = CSS_W * 1.5,
@@ -204,7 +201,7 @@ describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () =
     const CX = 600,
       CY = 450
     const withCanvasDpr = anchorSlipCssPx(CX, CY, W, H, W / CSS_W)
-    const withPolicyDpr = anchorSlipCssPx(CX, CY, W, H, undefined)
+    const withPolicyDpr = anchorSlipCssPx(CX, CY, W, H, effectiveDpr())
     expect(withCanvasDpr.x, `canvas-read dpr slipped ${withCanvasDpr.x} CSS px in X`).toBeLessThan(
       1,
     )
@@ -259,77 +256,27 @@ describe('drag anchor / zoomAt across the interactionDpr swapchain resize', () =
     }
   })
 
-  // The APPLICATION half. `Camera.zoomAt`'s `dpr` defaults to the policy dpr
-  // for the many callers that own no canvas (tests, headless camera math), so
-  // an app that DOES own one and omits the argument silently gets the defect
-  // the two cases above measure — which is what the site's three wheel
-  // handlers did. Keyed on a directory WALK, not a path list, so moving or
-  // adding a file cannot make it vacuously green (§12: a path-keyed gate dies
-  // silently when the files move).
-  it('no application caller of zoomAt / panToScreenAnchor omits the dpr argument', () => {
-    const roots = ['site/src', 'playground/src'].map((r) => join(REPO_ROOT, r))
-    const files: string[] = []
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) walk(full)
-        else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name))
-          files.push(full)
-      }
+  // Source-pin for this fix (#2542): the compiler only enforces "no default"
+  // for whatever is CURRENTLY written on `pan`/`zoomAt`/`panToScreenAnchor` —
+  // it cannot see a default that gets re-added later. This reads camera.ts
+  // directly and asserts none of the three declares one, so a regression is
+  // caught here even though it would produce no type error.
+  it('pan/zoomAt/panToScreenAnchor declare dpr with no default in camera.ts', () => {
+    const src = readFileSync(new URL('./camera/camera.ts', import.meta.url), 'utf8')
+    for (const method of ['pan', 'zoomAt', 'panToScreenAnchor']) {
+      const at = src.indexOf(`\n  ${method}(`)
+      expect(at, `${method}( declaration not found in camera.ts`).toBeGreaterThanOrEqual(0)
+      const close = src.indexOf('): void {', at)
+      const decl = src.slice(at, close + 1) // +1: include the ")" itself
+      // Match the dpr param regardless of one-line vs multi-line formatting
+      // (Prettier reflows the param list once it fits on one line): a default
+      // shows up as `=...` before the parameter's closing `,` or `)`.
+      const m = decl.match(/dpr:\s*number\s*(=[^,)]*)?[,)]/)
+      expect(m, `${method}(): no "dpr: number" parameter found — got: ${decl}`).not.toBeNull()
+      expect(
+        m![1] === undefined,
+        `${method}()'s dpr parameter must have no default — got: ${m![0]}`,
+      ).toBe(true)
     }
-    for (const r of roots) walk(r)
-    expect(files.length, 'the walk must find application sources').toBeGreaterThan(10)
-
-    // (method, arity WITHOUT dpr) — a call with that many top-level arguments
-    // is taking the default.
-    const METHODS: Array<[string, number]> = [
-      ['zoomAt', 5],
-      ['panToScreenAnchor', 6],
-    ]
-    const offenders: string[] = []
-    for (const file of files) {
-      const text = readFileSync(file, 'utf8')
-      for (const [method, bare] of METHODS) {
-        const needle = `.${method}(`
-        for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
-          let depth = 0,
-            j = i + needle.length - 1
-          for (; j < text.length; j++) {
-            if ('([{'.includes(text[j]!)) depth++
-            else if (')]}'.includes(text[j]!)) {
-              depth--
-              if (depth === 0) break
-            }
-          }
-          // Count NON-EMPTY top-level segments, not commas: prettier writes a
-          // trailing comma on every multi-line call, and counting commas read
-          // a 5-argument call as 6 — an instrument blind to exactly the calls
-          // it exists to find, which reported a clean corpus (§12).
-          const args = text.slice(i + needle.length, j)
-          let d = 0,
-            cur = ''
-          const segments: string[] = []
-          for (const ch of args) {
-            if ('([{'.includes(ch)) d++
-            else if (')]}'.includes(ch)) d--
-            if (ch === ',' && d === 0) {
-              segments.push(cur)
-              cur = ''
-            } else cur += ch
-          }
-          segments.push(cur)
-          const count = segments.filter((s) => s.trim() !== '').length
-          if (count <= bare) {
-            const line = text.slice(0, i).split('\n').length
-            offenders.push(`${file.slice(REPO_ROOT.length + 1)}:${line} .${method}(${count} args)`)
-          }
-        }
-      }
-    }
-    expect(
-      offenders,
-      'these callers own a canvas and let `dpr` default to the quality policy — ' +
-        'pass the scale the canvas is sized at (`XGISMap.getCanvasDpr()`)',
-    ).toEqual([])
   })
 })

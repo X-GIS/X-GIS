@@ -1,6 +1,6 @@
 // ═══ Map Camera — 줌/패닝/회전/피치 ═══
 
-import { effectiveDpr, computeLogDepthFc } from '@xgis/engine'
+import { computeLogDepthFc } from '@xgis/engine'
 import { type ECEF } from '@xgis/shared'
 import {
   lonLatToMercator,
@@ -1020,13 +1020,7 @@ export class Camera {
   }
 
   /** Pan by CSS pixels (clientX/clientY delta), accounting for map rotation */
-  pan(
-    dx: number,
-    dy: number,
-    _canvasWidth: number,
-    canvasHeight: number,
-    dpr: number = effectiveDpr(),
-  ): void {
+  pan(dx: number, dy: number, _canvasWidth: number, canvasHeight: number, dpr: number): void {
     // #2322 — scale screen pixels by the metres each is RENDERED at: effectiveMpp,
     // the capped authority every renderer reads (WORLD_MERC / cssH for Mercator,
     // 2R / cssH for ortho at whole-earth zooms), not the raw tile-pyramid mpp, which
@@ -1128,7 +1122,7 @@ export class Camera {
     screenY: number,
     canvasWidth: number,
     canvasHeight: number,
-    dpr: number = effectiveDpr(),
+    dpr: number,
   ): void {
     // A pure zoom must NOT move the centre latitude. Capture the TRUE centre
     // latitude and the Mercator-derived latitude BEFORE any centerY mutation,
@@ -1305,7 +1299,7 @@ export class Camera {
     cursorY: number,
     canvasWidth: number,
     canvasHeight: number,
-    dpr: number = effectiveDpr(),
+    dpr: number,
   ): void {
     if (this.globeMode) {
       // #11: ground-track the sphere via centerLatDeg (the Mercator path
