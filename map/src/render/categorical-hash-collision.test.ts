@@ -131,8 +131,8 @@ describe('#2579 — a hashed categorical field collides on the birthday bound', 
       const sl = slot(stableCategoryId(v))
       if (!firstSeen.includes(sl)) firstSeen.push(sl)
     }
-    const collidingInArrival = firstSeen.filter((sl) =>
-      POI_CLASSES.filter((v) => slot(stableCategoryId(v)) === sl).length > 1,
+    const collidingInArrival = firstSeen.filter(
+      (sl) => POI_CLASSES.filter((v) => slot(stableCategoryId(v)) === sl).length > 1,
     )
     expect(collidingInArrival).toEqual([96, 484, 29, 68])
     expect([...collidingInArrival].sort((a, b) => a - b)).toEqual([29, 68, 96, 484])
