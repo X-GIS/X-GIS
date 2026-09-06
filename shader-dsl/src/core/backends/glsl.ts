@@ -56,6 +56,7 @@ import {
   stageOf,
 } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet, typeStructNames } from '../ir/collect-refs.js'
+import { mapChildren, mapStmtExpr } from '../ir/visit.js'
 import { ioAttrOf, retIoAttrOf } from '../ir/entry-io.js'
 import { UnsupportedFeatureError, type Backend, type CapProfile } from '../backend.js'
 import { spellIntrinsic, INTRINSIC_HELPERS } from '../intrinsics.js'
@@ -1269,7 +1270,7 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
           }
           return { op: 'construct', type: e.type, args: comps }
         }
-        return { ...e, base: rE(e.base) }
+        break
       }
       case 'index':
         if (e.base.op === 'varref' && f32Names.has(e.base.name))
@@ -1299,69 +1300,14 @@ function lowerStorageToDataTexture(m: ModuleDecl): ModuleDecl {
           throw new UnsupportedFeatureError(
             `glsl-es300 storage-emul: storage struct element '${e.base.name}[i]' used without a .field access — a whole-struct element read has no lane; read one field at a time (e.g. ${e.base.name}[i].someField)`,
           )
-        return { ...e, base: rE(e.base), idx: rE(e.idx) }
-      case 'binop':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'compare':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'logical':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'unop':
-        return { ...e, a: rE(e.a) }
-      case 'call':
-        return { ...e, args: e.args.map(rE) }
-      case 'construct':
-        return { ...e, args: e.args.map(rE) }
-      case 'select':
-        return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
-      case 'matchExpr':
-        return {
-          ...e,
-          scrutinee: rE(e.scrutinee),
-          cases: e.cases.map(([v, x]) => [v, rE(x)] as const),
-          default: rE(e.default),
-        }
+        break
       default:
-        return e // lit / constref / param / varref
+        break
     }
+    // Everything the specials above did not claim is a plain structural rebuild.
+    return mapChildren(e, rE)
   }
-  const rS = (s: Stmt): Stmt => {
-    switch (s.s) {
-      case 'let':
-        return { ...s, expr: rE(s.expr) }
-      case 'var':
-        return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
-      case 'assign':
-        return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'assignOp':
-        return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'return':
-        return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : s
-      case 'if':
-        return {
-          ...s,
-          arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })),
-          elseBody: s.elseBody?.map(rS),
-        }
-      case 'for':
-        return {
-          ...s,
-          init: rS(s.init),
-          cond: rE(s.cond),
-          update: rS(s.update),
-          body: s.body.map(rS),
-        }
-      case 'switch':
-        return {
-          ...s,
-          scrut: rE(s.scrut),
-          cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })),
-          defaultBody: s.defaultBody?.map(rS),
-        }
-      default:
-        return s
-    }
-  }
+  const rS = (s: Stmt): Stmt => mapStmtExpr(s, rE)
   return { ...m, bindings, funcs: m.funcs.map((f) => ({ ...f, body: f.body.map(rS) })) }
 }
 
@@ -1477,38 +1423,13 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
       throw new UnsupportedFeatureError(
         `glsl-es300 compute-emul: global_invocation_id used other than '.x' — only a 1-D linear invocation index is supported`,
       )
-    switch (e.op) {
-      case 'member':
-        return { ...e, base: rE(e.base) }
-      case 'index':
-        return { ...e, base: rE(e.base), idx: rE(e.idx) }
-      case 'binop':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'compare':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'logical':
-        return { ...e, a: rE(e.a), b: rE(e.b) }
-      case 'unop':
-        return { ...e, a: rE(e.a) }
-      case 'call':
-        return { ...e, args: e.args.map(rE) }
-      case 'construct':
-        return { ...e, args: e.args.map(rE) }
-      case 'select':
-        return { ...e, cond: rE(e.cond), ifTrue: rE(e.ifTrue), ifFalse: rE(e.ifFalse) }
-      case 'matchExpr':
-        return {
-          ...e,
-          scrutinee: rE(e.scrutinee),
-          cases: e.cases.map(([v, x]) => [v, rE(x)] as const),
-          default: rE(e.default),
-        }
-      default:
-        return e // lit / constref / param(non-gid) / varref
-    }
+    return mapChildren(e, rE)
   }
 
   let writes = 0
+  // Two statement-level rewrites the shared Expr walk cannot express: the SOLE
+  // read_write-storage write becomes the fragment `return`, and the bounds-guard's
+  // exprless `return;` becomes `discard;`. Everything else keeps the shape.
   const rS = (s: Stmt): Stmt => {
     // the SOLE read_write-storage write `out[gid.x] = E` → `return E` (R32UI draw buffer).
     if (
@@ -1524,41 +1445,9 @@ export function lowerComputeToFragment(m: ModuleDecl): ModuleDecl {
         )
       return { s: 'return', expr: rE(s.expr) }
     }
-    switch (s.s) {
-      case 'let':
-        return { ...s, expr: rE(s.expr) }
-      case 'var':
-        return { ...s, init: s.init !== undefined ? rE(s.init) : undefined }
-      case 'assign':
-        return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'assignOp':
-        return { ...s, target: rE(s.target), expr: rE(s.expr) }
-      case 'return':
-        return s.expr !== undefined ? { ...s, expr: rE(s.expr) } : { s: 'discard' } // bounds-guard early-out → discard
-      case 'if':
-        return {
-          ...s,
-          arms: s.arms.map((a) => ({ cond: rE(a.cond), body: a.body.map(rS) })),
-          elseBody: s.elseBody?.map(rS),
-        }
-      case 'for':
-        return {
-          ...s,
-          init: rS(s.init),
-          cond: rE(s.cond),
-          update: rS(s.update),
-          body: s.body.map(rS),
-        }
-      case 'switch':
-        return {
-          ...s,
-          scrut: rE(s.scrut),
-          cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })),
-          defaultBody: s.defaultBody?.map(rS),
-        }
-      default:
-        return s // discard
-    }
+    // bounds-guard early-out → discard
+    if (s.s === 'return' && s.expr === undefined) return { s: 'discard' }
+    return mapStmtExpr(s, rE, rS)
   }
 
   const newBody = entry.body.map(rS)

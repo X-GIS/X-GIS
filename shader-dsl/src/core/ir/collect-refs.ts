@@ -16,6 +16,7 @@
 
 import type { Expr, Stmt, FuncDecl } from './nodes.js'
 import type { ShaderType } from './types.js'
+import { eachStmtExpr } from './visit.js'
 
 export interface RefSet {
   readonly calls: Set<string>
@@ -80,43 +81,15 @@ function collectExpr(e: Expr, out: RefSet): void {
 }
 
 function collectStmt(s: Stmt, out: RefSet): void {
-  switch (s.s) {
-    case 'let':
-      collectExpr(s.expr, out)
-      break
-    case 'var':
-      typeStructNames(s.type, out.structs)
-      if (s.init !== undefined) collectExpr(s.init, out)
-      break
-    case 'assign':
-    case 'assignOp':
-      collectExpr(s.target, out)
-      collectExpr(s.expr, out)
-      break
-    case 'return':
-      if (s.expr !== undefined) collectExpr(s.expr, out)
-      break
-    case 'if':
-      for (const arm of s.arms) {
-        collectExpr(arm.cond, out)
-        for (const b of arm.body) collectStmt(b, out)
-      }
-      if (s.elseBody) for (const b of s.elseBody) collectStmt(b, out)
-      break
-    case 'for':
-      collectStmt(s.init, out)
-      collectExpr(s.cond, out)
-      collectStmt(s.update, out)
-      for (const b of s.body) collectStmt(b, out)
-      break
-    case 'switch':
-      collectExpr(s.scrut, out)
-      for (const c of s.cases) for (const b of c.body) collectStmt(b, out)
-      if (s.defaultBody) for (const b of s.defaultBody) collectStmt(b, out)
-      break
-    default:
-      break // break / continue / discard / placeholder / raw — no Expr to walk
-  }
+  // A `var`'s DECLARED type spells a struct name in the emitted text and is not an
+  // Expr, so it is read here; the Expr slots and the nested bodies come from the
+  // shared statement walk.
+  if (s.s === 'var') typeStructNames(s.type, out.structs)
+  eachStmtExpr(
+    s,
+    (e) => collectExpr(e, out),
+    (b) => collectStmt(b, out),
+  )
 }
 
 /** Collect every call id / varref name / struct type name referenced by `f`

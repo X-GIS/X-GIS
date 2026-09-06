@@ -7,6 +7,7 @@
 // IR is treated as immutable: every helper returns a new node, never mutates.
 
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../../ir/index.js'
+import { mapStmtExpr } from '../../ir/visit.js'
 import { bodyHasRaw } from './dce.js'
 
 /** Bottom-up expression rewrite: map children first, then apply `f` to the
@@ -71,46 +72,15 @@ export function mapExpr(e: Expr, f: (e: Expr) => Expr): Expr {
   return f(r)
 }
 
-/** Rewrite every Expr inside a Stmt (and its nested bodies) via `mapExpr`. */
+/** Rewrite every Expr inside a Stmt (and its nested bodies) via `mapExpr` — the
+ *  bottom-up flavour of the shared statement rewrite, for passes that fold whole
+ *  expression trees. */
 export function mapStmt(s: Stmt, f: (e: Expr) => Expr): Stmt {
-  switch (s.s) {
-    case 'let':
-      return { ...s, expr: mapExpr(s.expr, f) }
-    case 'var':
-      return s.init !== undefined ? { ...s, init: mapExpr(s.init, f) } : s
-    case 'assign':
-      return { ...s, target: mapExpr(s.target, f), expr: mapExpr(s.expr, f) }
-    case 'assignOp':
-      return { ...s, target: mapExpr(s.target, f), expr: mapExpr(s.expr, f) }
-    case 'return':
-      return s.expr !== undefined ? { ...s, expr: mapExpr(s.expr, f) } : s
-    case 'if':
-      return {
-        ...s,
-        arms: s.arms.map((arm) => ({
-          cond: mapExpr(arm.cond, f),
-          body: arm.body.map((b) => mapStmt(b, f)),
-        })),
-        elseBody: s.elseBody?.map((b) => mapStmt(b, f)),
-      }
-    case 'for':
-      return {
-        ...s,
-        init: mapStmt(s.init, f),
-        cond: mapExpr(s.cond, f),
-        update: mapStmt(s.update, f),
-        body: s.body.map((b) => mapStmt(b, f)),
-      }
-    case 'switch':
-      return {
-        ...s,
-        scrut: mapExpr(s.scrut, f),
-        cases: s.cases.map((c) => ({ value: c.value, body: c.body.map((b) => mapStmt(b, f)) })),
-        defaultBody: s.defaultBody?.map((b) => mapStmt(b, f)),
-      }
-    default:
-      return s // break / continue / discard / raw / placeholder — no sub-Exprs
-  }
+  return mapStmtExpr(
+    s,
+    (e) => mapExpr(e, f),
+    (b) => mapStmt(b, f),
+  )
 }
 
 /** Apply an Expr rewrite to every function body in a module. With

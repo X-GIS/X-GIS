@@ -145,15 +145,11 @@ export const ISOLATED = [
   'data/src/workers/mvt-worker-pool.error.test.ts',
   'map/src/__profile__/perf-marks.test.ts',
   'map/src/__tests__/event-dispatcher-hover-cursor.test.ts',
-  // (2) the same mock-rAF subject as its three siblings here, and its own header
-  //     says it "mirrors event-dispatcher-leave-raf-cancel.test.ts" — it was the
-  //     one of the four left off the list when #2330 landed them. Under the
-  //     shared registry its deferred pick never resolved and both cases died on
-  //     the 30 s timeout, while `vitest run` (isolated, which is what CI uses)
-  //     passed them in 9 ms. Exactly the come-due described at the top of
-  //     scripts/isolated-closure.test.ts: it stayed green while the pool
-  //     happened to schedule it first, and an unrelated branch adding compiler
-  //     tests repacked the workers.
+  // (2) the FOURTH `event-dispatcher-*` suite. The three listed around it stub the
+  //     same `requestAnimationFrame` / `cancelAnimationFrame` pair through a
+  //     near-identical `installMockRaf()`; this one was simply missed. Measured
+  //     casualty: two 30 s timeouts in its OWN tests, in the SHARED pass, on 3 of 3
+  //     full sweeps, while it passes alone in 9 ms (#2567).
   'map/src/__tests__/event-dispatcher-leave-inflight-pick.test.ts',
   'map/src/__tests__/event-dispatcher-leave-raf-cancel.test.ts',
   'map/src/__tests__/event-dispatcher-listener-gate.test.ts',

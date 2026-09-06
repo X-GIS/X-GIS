@@ -684,6 +684,17 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   sweep tool (`trace_path`, direction `both`); it flapped all session here and the fallback
   to grep went UNANNOUNCED, which §6.1 forbids for exactly this reason.
   → `#2427` (filed on the refuted premise), `#2440`, `#2439`
+- One increment on from the entry above: sweeping far enough is not the same as MEASURING.
+  A cause READ off a condition is worth less than one counter — three root causes for #2584
+  were published from static reads (a literal paint composing to the null variant; a
+  data-driven paint fixing it; the vector drape being the lever) and all three were refuted,
+  while every claim backed by a counter held. Each refutation cost the same cheap thing: one
+  gate run with a counter per branch on `globalThis`, surfaced through the spec and read for
+  BOTH arms. Reading says what CAN happen; a counter says what DID. Instrument the branch you
+  are about to accuse BEFORE publishing the cause — and when a published cause is later
+  measured wrong, retract it everywhere it was written (that one had reached an issue body, a
+  comment, a commit message, two gate comments and a PR body).
+  → `#2584`
 - A CI-FAILURE WAKE CAN NAME A COMMIT THAT IS NO LONGER HEAD. `test.yml`'s concurrency
   cancels a PR's in-flight run on the next push, and the two AGGREGATING jobs —
   `test-result` and `render-gate` — conclude `failure` when the jobs they `needs` were
@@ -811,19 +822,25 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
 `ADT/Support` + TableGen, rustc `tidy`, the rule of three) — full rationale in
 `docs/adr/0013-duplication-ratchet-and-consolidation.md`:
 
-- **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): jscpd
-  compares this branch's clone set against the tree of its merge base with `origin/main` and
-  reds on any pair the base does not have (≥70 tokens / 5 lines, tests excluded). Nothing is
-  stored, so there is no baseline to re-record. That is NOT the same as immunity to base
-  movement, and the gate shipped believing it was: `resolveBaseRef` fell back to main's TIP
-  when `merge-base` failed, which under CI's shallow checkout was always — so it compared a
-  branch against a commit it had not merged, and any commit that re-anchored a clone made
-  untouched files look newly duplicated (#2591 / #2593, 2026-09-06). Fixed by deepening and
-  throwing instead of guessing, plus `fetch-depth: 0` on the `lint` job. If you ever see it
-  again: **merge main into the branch and re-run** — never silence it with `jscpd:ignore`,
-  which records a false reason and blinds the gate to a future real paste there. There is no accept command and no
-  `--allow-growth`: the only way past the gate is to remove the copy or mark a deliberate
-  twin (below).
+- **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): jscpd scans
+  this branch against the tree of its merge base with `origin/main` (≥70 tokens / 5 lines,
+  tests excluded) and reds on a FILE PAIR that carries more duplicated tokens than it did on
+  the base. Nothing is stored, so there is no baseline to re-record. That is NOT the same as
+  immunity to base movement, and the gate shipped believing it was — twice, from two
+  different causes, both fixed 2026-09-06. (1) `resolveBaseRef` fell back to main's TIP when
+  `merge-base` failed, which under CI's shallow checkout was always, so it compared a branch
+  against a commit it had not merged and any commit that re-anchored a clone made untouched
+  files look newly duplicated (#2591 / #2593 / #2597); fixed by deepening and throwing
+  instead of guessing, plus `fetch-depth: 0` on the `lint` job. (2) The verdict was jscpd's
+  per-clone `isNew`, which keys on the clone pair's token-stream fingerprint — so SHORTENING
+  a clone re-fingerprints it and the gate red the branch that removed the duplication
+  (#2570, measured on #2560: 588 → 298 tokens between two files, reported as a regression);
+  fixed by making the verdict the pair's token TOTAL, a quantity that is comparable across
+  revisions where a line interval is not. If you ever see a misattribution again: **merge
+  main into the branch and re-run** — never silence it with `jscpd:ignore`, which records a
+  false reason and blinds the gate to a future real paste there. There is no accept command
+  and no `--allow-growth`: the only way past the gate is to remove the copy or mark a
+  deliberate twin (below).
 - **Before authoring a sibling** of an existing packer / material / backend / converter, run
   `bun run dup:report` and read the cluster it will join. The third copy within a package,
   or the SECOND copy across a package boundary, is the moment to extract — not "later".

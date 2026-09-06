@@ -44,6 +44,7 @@ import {
   type ModuleDecl,
   type Stmt,
 } from './ir/nodes.js'
+import { eachStmtExpr } from './ir/visit.js'
 import { reflect } from './reflect.js'
 import type { EmitPlugin } from './emit.js'
 
@@ -271,7 +272,7 @@ function literalFacts(m: ModuleDecl, c: Canon): string[] {
     if (e.op === 'lit') out.push(`lit ${typeSig(e.type, c)}=${String(e.value)}`)
     for (const sub of subExprs(e)) walkE(sub)
   }
-  for (const f of m.funcs) for (const s of f.body) walkStmtExprs(s, walkE)
+  for (const f of m.funcs) for (const s of f.body) eachStmtExpr(s, walkE)
   return out
 }
 
@@ -315,46 +316,6 @@ function subExprs(e: Expr): readonly Expr[] {
       return [e.scrutinee, ...e.cases.map(([, v]) => v), e.default]
     default:
       return [] // lit / constref / overrideref / param / varref
-  }
-}
-
-/** Every Expr directly held by a statement (not descending into nested bodies). */
-function walkStmtExprs(s: Stmt, f: (e: Expr) => void): void {
-  switch (s.s) {
-    case 'let':
-      f(s.expr)
-      break
-    case 'var':
-      if (s.init !== undefined) f(s.init)
-      break
-    case 'assign':
-    case 'assignOp':
-      f(s.target)
-      f(s.expr)
-      break
-    case 'return':
-      if (s.expr !== undefined) f(s.expr)
-      break
-    case 'if':
-      for (const a of s.arms) {
-        f(a.cond)
-        for (const b of a.body) walkStmtExprs(b, f)
-      }
-      if (s.elseBody) for (const b of s.elseBody) walkStmtExprs(b, f)
-      break
-    case 'for':
-      walkStmtExprs(s.init, f)
-      f(s.cond)
-      walkStmtExprs(s.update, f)
-      for (const b of s.body) walkStmtExprs(b, f)
-      break
-    case 'switch':
-      f(s.scrut)
-      for (const cs of s.cases) for (const b of cs.body) walkStmtExprs(b, f)
-      if (s.defaultBody) for (const b of s.defaultBody) walkStmtExprs(b, f)
-      break
-    default:
-      break // break / continue / discard / placeholder / raw
   }
 }
 
