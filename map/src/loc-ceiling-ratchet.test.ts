@@ -2590,7 +2590,15 @@ const CEILINGS: Record<string, number> = {
   // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
   // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
   // dependency the gate now genuinely has.
-  'compiler/src/tiler/vector-tiler.ts': 1616,
+  // 1616->1652 (#2550, measured post-prettier): antimeridian handling for polygons.
+  // The 36 lines buy `unwrapRingsToOneBranch` (11 lines of code, putting every ring
+  // of one polygon on a single 360-degree branch and each hole onto its shell's) plus
+  // the type dispatch that lets the existing world-copy emit serve polygons as well as
+  // lines — and the docblocks recording WHY, including the deletion of the "polygons
+  // clip/fill correctly through the existing path" claim that hid the bug. Not
+  // extract-able without splitting the part-decomposition step away from the part
+  // types it builds, which is the one place that decides what a GeometryPart is.
+  'compiler/src/tiler/vector-tiler.ts': 1652,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +
