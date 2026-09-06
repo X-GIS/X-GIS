@@ -22,12 +22,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   IGNORE,
+  addedClones,
   bareMarkers,
   classify,
   clusterClones,
   resolveBaseRef,
   scan,
+  scanRef,
   shapeOnlyClones,
+  tokensByPair,
   type Clone,
 } from './dup-ratchet.js'
 
@@ -228,5 +231,80 @@ describe('scan against a base ref (real jscpd, real git)', () => {
     git(root, 'commit', '--quiet', '-m', 'third copy lands on the base')
     const moved = git(root, 'rev-parse', 'HEAD')
     expect(scan({ ...opts, baseRef: moved }).clones.filter((c) => c.isNew)).toEqual([])
+  })
+})
+
+// ═══ The SHRINK rung (#2570) — a branch that REMOVES duplication must stay green ═══
+//
+// jscpd's `isNew` keys on the clone pair's token stream, so shortening a clone re-fingerprints
+// it and it arrives flagged, indistinguishable from a fresh copy. These rungs pin the verdict
+// on the pair's token TOTAL instead, and — per CLAUDE.md §12 — pair the green case with the cut
+// that must still be red, so the fix cannot be a blanket weakening.
+describe('a shrinking clone is not a new one (real jscpd, real git)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dup-shrink-'))
+  git(root, 'init', '--quiet')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(join(root, 'src', 'a.ts'), FIXTURE_FN)
+  writeFileSync(join(root, 'src', 'b.ts'), FIXTURE_FN)
+  git(root, 'add', '-A')
+  git(root, 'commit', '--quiet', '-m', 'base carries the a↔b pair')
+  const base = git(root, 'rev-parse', 'HEAD')
+  const opts = { root, roots: ['src'], ignore: IGNORE }
+
+  // Delete the tail of the shared body from ONE side: the pair survives, shorter. That is a
+  // duplication REDUCTION, and the token stream it leaves is absent from the base's set.
+  const SHRUNK = FIXTURE_FN.split('\n')
+    .filter((l) => !l.includes('acc +='))
+    .join('\n')
+
+  it('jscpd itself reports the shortened clone as new — the defect this rung exists for', () => {
+    writeFileSync(join(root, 'src', 'a.ts'), SHRUNK)
+    const head = scan({ ...opts, baseRef: base }).clones
+    expect(head.some((c) => c.isNew)).toBe(true)
+    // …and the pair strictly improved, which is what the flag cannot see.
+    const beforeTokens = tokensByPair(scanRef(root, base, ['src'], IGNORE))
+    const afterTokens = tokensByPair(head)
+    expect([...afterTokens.values()].reduce((n, t) => n + t, 0)).toBeLessThan(
+      [...beforeTokens.values()].reduce((n, t) => n + t, 0),
+    )
+  })
+
+  it('the gate stays GREEN: no file pair carries more duplicated tokens than it did', () => {
+    const head = scan({ ...opts, baseRef: base }).clones
+    expect(addedClones(head, scanRef(root, base, ['src'], IGNORE))).toEqual([])
+  })
+
+  it('CUT: a genuinely new copy landing in the same commit is still RED, and named', () => {
+    writeFileSync(join(root, 'src', 'c.ts'), FIXTURE_FN)
+    const head = scan({ ...opts, baseRef: base }).clones
+    const fresh = addedClones(head, scanRef(root, base, ['src'], IGNORE))
+    expect(fresh.length).toBeGreaterThan(0)
+    expect(fresh.every((c) => c.a.file === 'src/c.ts' || c.b.file === 'src/c.ts')).toBe(true)
+  })
+})
+
+describe('addedClones — the pair-total verdict, without the binary', () => {
+  const flag = (c: Clone, isNew: boolean): Clone => ({ ...c, isNew })
+  const ab = clone('src/a.ts', 1, 20, 'src/b.ts', 1, 20) // 20 lines → 160 tokens
+
+  it('a pair whose total did not grow contributes nothing, however it re-fingerprinted', () => {
+    const shrunk = flag(clone('src/a.ts', 1, 10, 'src/b.ts', 3, 12), true) // 80 tokens
+    expect(addedClones([shrunk], [ab])).toEqual([])
+  })
+
+  it('a pair whose total grew is reported — and only the clone jscpd flagged', () => {
+    const grown = flag(clone('src/a.ts', 1, 30, 'src/b.ts', 1, 30), true) // 240 tokens
+    const untouched = flag(clone('src/a.ts', 40, 50, 'src/b.ts', 40, 50), false)
+    expect(addedClones([grown, untouched], [ab])).toEqual([grown])
+  })
+
+  it('a pair the base does not have at all counts from zero', () => {
+    const fresh = flag(clone('src/a.ts', 1, 10, 'src/c.ts', 1, 10), true)
+    expect(addedClones([fresh], [ab])).toEqual([fresh])
+  })
+
+  it('the pair key is unordered — jscpd may report the two files either way round', () => {
+    const swapped = flag(clone('src/b.ts', 1, 10, 'src/a.ts', 3, 12), true)
+    expect(addedClones([swapped], [ab])).toEqual([])
   })
 })

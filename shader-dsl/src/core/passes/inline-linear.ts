@@ -49,6 +49,7 @@
 
 import { stageOf } from '../ir/index.js'
 import type { Expr, Stmt, ModuleDecl, FuncDecl } from '../ir/index.js'
+import { eachStmtExpr } from '../ir/visit.js'
 import { mapExpr } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
 import { fixpoint, LEVEL_PASSES, type OptPass } from './opt/optimize.js'
@@ -272,7 +273,7 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
   // leaves usedParams empty, no arg temp is bound, and `rw` then leaves the
   // `param` nodes standing in a caller that has no such parameter — a miscompile,
   // not a missed optimization.
-  for (const s of lb.prelude) forEachStmtExprDeep(s, probeParam)
+  for (const s of lb.prelude) eachStmtExpr(s, probeParam)
   probeParam(lb.ret)
 
   /** Replace every call to `name` in `e` with a fresh temp varref, pushing the
@@ -376,33 +377,6 @@ export function inlineLinearFn(m: ModuleDecl, name: string, counter: { n: number
   return { ...m, funcs: stillCalled ? [target, ...others] : others }
 }
 
-/** Every expression in `s`, nested block bodies and loop headers INCLUDED. */
-function forEachStmtExprDeep(s: Stmt, visit: (e: Expr) => void): void {
-  forEachStmtExpr(s, visit)
-  switch (s.s) {
-    case 'if':
-      for (const a of s.arms) {
-        visit(a.cond)
-        for (const b of a.body) forEachStmtExprDeep(b, visit)
-      }
-      for (const b of s.elseBody ?? []) forEachStmtExprDeep(b, visit)
-      break
-    case 'for':
-      forEachStmtExprDeep(s.init, visit)
-      visit(s.cond)
-      forEachStmtExprDeep(s.update, visit)
-      for (const b of s.body) forEachStmtExprDeep(b, visit)
-      break
-    case 'switch':
-      visit(s.scrut)
-      for (const c of s.cases) for (const b of c.body) forEachStmtExprDeep(b, visit)
-      for (const b of s.defaultBody ?? []) forEachStmtExprDeep(b, visit)
-      break
-    default:
-      break
-  }
-}
-
 /** Every name a block DECLARES, nested bodies and `for` init included. Names are
  *  unique per function (the builder auto-names), so a flat set is exact. */
 function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
@@ -424,28 +398,6 @@ function declaredNamesDeep(stmts: readonly Stmt[]): Set<string> {
   }
   walk(stmts)
   return out
-}
-
-/** Apply an expr rewrite to a statement's OWN expressions (not nested blocks). */
-function forEachStmtExpr(s: Stmt, visit: (e: Expr) => void): void {
-  switch (s.s) {
-    case 'let':
-      visit(s.expr)
-      break
-    case 'var':
-      if (s.init !== undefined) visit(s.init)
-      break
-    case 'assign':
-    case 'assignOp':
-      visit(s.target)
-      visit(s.expr)
-      break
-    case 'return':
-      if (s.expr !== undefined) visit(s.expr)
-      break
-    default:
-      break
-  }
 }
 
 /** Rename a prelude statement's declared name (let/var) and rewrite its exprs,

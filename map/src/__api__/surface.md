@@ -10,7 +10,7 @@ through an exported one. Members are names, not signatures — see the header of
 
 - declarations: 463
 - exported names: 50
-- members: 2625 (plus 850 `private` name slots)
+- members: 2625 (plus 763 `private` name slots)
 - `@internal` tags surviving into the bundle: 1
 
 ## Exported
@@ -3343,27 +3343,8 @@ class VectorTileRenderer
   hasFeatureData
   hasPendingUploads
   inputs
-  private _adjacentPrefetchZooms
   private _bakeBlock
-  private _bakeDpr
-  private _bakeStroke
-  private _bakeStrokeActive
-  private _bakeStrokesGated
-  private _bindGroups
-  private _bundleWalkAllocs
-  private _coldStartBurst
-  private _dashArrayCache
   private _diagFillsThisFrame
-  private _distMemo
-  private _distMemoCamX
-  private _distMemoCamY
-  private _distSqStable
-  private _drape
-  private _drapeGlobeFills
-  private _drapeStrokes
-  private _drawStats
-  private _extrudeTranslucentFrontShell
-  private _featureBinder
   private _fillBakeMatRhi
   private _fillMatRhi
   private _fillPatternMatRhi
@@ -3372,34 +3353,16 @@ class VectorTileRenderer
   private _fillRhi
   private _fillTileBgRhi
   private _fillVariantsRhi
-  private _frameClassifyMemo
   private _labelSource
-  private _lastWalkRingFree
   private _lightColor
   private _lightIntensity
   private _lightPosition
-  private _linePatternActiveForShow
   private _lineTileBgRhi
   private _nextTilePointPrefix
   private _onSplitRebind
   private _onUniformRingGrow
-  private _patternRepeatMX
-  private _patternRepeatMY
-  private _patternUniformActive
-  private _prefetchMemoFrame
-  private _priorityInstalled
   private _releaseTileHook
-  private _ringCursorForBundleKey
-  private _scratchActiveKeys
-  private _scratchMergedStableKeys
-  private _scratchParentKeysSet
   private _scratchProtectedKeys
-  private _scratchSliceCachedMemo
-  private _scratchTileDecisions
-  private _skipFillDraw
-  private _skipFillDrawForBundle
-  private _skipStrokeDrawForBundle
-  private _sliceOverzoomDiag
   private _splitBind
   private _spriteAtlasRhi
   private _store
@@ -3411,78 +3374,28 @@ class VectorTileRenderer
   private _tilePointOwner
   private _tilePointShowIdPrefix
   private _tileUniforms
-  private _uploads
-  private _walkRingFree
   private _worldOffScratch
-  private _worldOffScratchKey
   private _writeRtcAnchors
-  private _zoomPrefetchZooms
   private allocUniformSlot
   private applyReplacedTiles
-  private bundleCache
-  private cachedFillColor
-  private cachedShowFill
-  private cachedShowStroke
-  private cachedStrokeColor
-  private cancelStaleUploads
-  private classifyTiles
-  private currentBearingDeg
-  private currentCameraZoom
-  private currentExtrudeBase
-  private currentExtrudeHeight
-  private currentExtrudeMode
-  private currentFillAntialias
-  private currentFillTranslateNdcX
-  private currentFillTranslateNdcY
-  private currentFillVerticalGradient
-  private currentFrameId
-  private currentOpacity
-  private currentPickId
-  private currentProjType
-  private currentStrokeTranslateNdcX
-  private currentStrokeTranslateNdcY
-  private doUploadTile
-  private drainPendingUploads
-  private drawFallback
-  private drawPrimary
   private ensureFillBakeMaterialRhi
   private ensureFillMaterialRhi
   private ensureFillPatternMaterialRhi
   private ensureFillPickMaterialRhi
-  private ensureUniformRing
   private fillPatternTileBgRhi
   private fillTileBgRhi
   private fillVariants
   private flushUniformStaging
-  private format
-  private frameBlock
-  private frameCount
-  private getOrCreateLayerCache
   private guardAndUnwrapPass
-  private lastZoom
-  private lineRenderer
   private lineTileBgRhi
-  private logDepthFc
   private prefetchScheduler
-  private prefetchTiers
   private recordTileFill
-  private renderTileKeys
-  private requestAndPrefetch
   private resetUploadFrameCap
-  private resolveDrapeRouting
-  private resolveLayerSlot
-  private resolvePaintUniforms
-  private rhi
   private ringBufferNative
-  private selectVisibleTiles
-  private source
-  private stableKeys
   private stageUniformSlot
   private stagingPool
   private stubAtlasRhi
-  private trackStableSetAndPoints
   private uniformRing
-  private uploadTile
   pumpPrefetch
   rebuildForQuality
   render

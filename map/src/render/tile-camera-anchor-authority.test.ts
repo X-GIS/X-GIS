@@ -20,11 +20,9 @@
 // GPU-free; rides the `test (map)` CI leg like the co-located ratchets.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { EARTH, activeBody } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat } from './tile-camera-anchor'
+import { renderPathSource } from './render-path-source'
 
 // Same three constants the authority reads (activeBody() defaults to EARTH here
 // — no configureBody call, so R stays the WGS84 semi-major axis).
@@ -192,10 +190,7 @@ describe('computeTileCameraAnchor: f64 lane parity (#1044)', () => {
 // ── Part 2 — source-authority gate ──
 // Read the SIBLING source (resolve relative to this file's directory, mirroring
 // the ratchet-test convention) and freeze the single-authority footprint.
-const SOURCE = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const SOURCE = renderPathSource()
 
 describe('source-authority gate: the anchor seam cannot silently drift (#1044)', () => {
   it('exactly four callers route through computeTileCameraAnchor()', () => {
