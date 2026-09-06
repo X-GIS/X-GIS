@@ -56,10 +56,18 @@ export function drawPrimary(
     // swapchain format, but the caller's `fillPipelineGroundOverride`
     // is the r16float debug variant. Always prefer the override here
     // so the entire opaque pass agrees on the r16float attachment.
+    // #2584 — the BASE-layout arm prefers the OVERRIDE too; taking the renderer
+    // default here discarded the per-style ground pipeline the scheduler had already
+    // resolved, and with it INC-4d's split twin (measured: per-style split draws
+    // 0 → 184). Scope is exactly the per-style shows — for a show without them
+    // `bucket-scheduler.ts:465` already resolves this same default. Layout-safe by
+    // construction: `groundIsBase` holds precisely when the show needs no feature
+    // buffer, which is when `baseVariantLayout` built its per-style pipeline against
+    // this very layout.
     const groundForLayout: RhiPipelineHandle | null = isOverdrawActive(vtr.rhi.caps)
       ? (args.fillPipelineGroundOverride ?? args.fillPipeline)
       : groundIsBase
-        ? vtr._bindGroups.groundPipeline()
+        ? (args.fillPipelineGroundOverride ?? vtr._bindGroups.groundPipeline())
         : (args.fillPipelineGroundOverride ?? null)
     // Fill-pattern routing. When the show has a resolved pattern UV bbox
     // AND the variant pipeline path isn't active AND overdraw isn't
