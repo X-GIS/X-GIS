@@ -46,6 +46,7 @@ import type {
   CmpOp,
 } from '../ir/nodes.js'
 import { stageOf } from '../ir/nodes.js'
+import { eachExpr, eachStmtExpr } from '../ir/visit.js'
 import {
   type ShaderType,
   f32T,
@@ -833,79 +834,12 @@ function moduleUsesF64(m: ModuleDecl): boolean {
 /** df64 helper names called from a helper body (for the transitive closure). */
 function helperCallees(d: FuncDecl): string[] {
   const out = new Set<string>()
-  const expr = (e: Expr): void => {
-    switch (e.op) {
-      case 'call':
-        if (e.fn.startsWith('df64_')) out.add(e.fn)
-        e.args.forEach(expr)
-        break
-      case 'binop':
-      case 'compare':
-      case 'logical':
-        expr(e.a)
-        expr(e.b)
-        break
-      case 'unop':
-        expr(e.a)
-        break
-      case 'construct':
-        e.args.forEach(expr)
-        break
-      case 'member':
-        expr(e.base)
-        break
-      case 'select':
-        expr(e.cond)
-        expr(e.ifTrue)
-        expr(e.ifFalse)
-        break
-      case 'index':
-        expr(e.base)
-        expr(e.idx)
-        break
-      default:
-        break
-    }
-  }
-  const stmt = (s: Stmt): void => {
-    switch (s.s) {
-      case 'let':
-        expr(s.expr)
-        break
-      case 'var':
-        if (s.init) expr(s.init)
-        break
-      case 'assign':
-      case 'assignOp':
-        expr(s.target)
-        expr(s.expr)
-        break
-      case 'return':
-        if (s.expr) expr(s.expr)
-        break
-      case 'if':
-        s.arms.forEach((a) => {
-          expr(a.cond)
-          a.body.forEach(stmt)
-        })
-        s.elseBody?.forEach(stmt)
-        break
-      case 'for':
-        stmt(s.init)
-        expr(s.cond)
-        stmt(s.update)
-        s.body.forEach(stmt)
-        break
-      case 'switch':
-        expr(s.scrut)
-        s.cases.forEach((c) => c.body.forEach(stmt))
-        s.defaultBody?.forEach(stmt)
-        break
-      default:
-        break
-    }
-  }
-  d.body.forEach(stmt)
+  for (const s of d.body)
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, (x) => {
+        if (x.op === 'call' && x.fn.startsWith('df64_')) out.add(x.fn)
+      }),
+    )
   return [...out]
 }
 
@@ -943,82 +877,13 @@ function helperClosure(
  *  So only inject when a used helper truly references the guard. */
 function helpersUseGuard(decls: readonly FuncDecl[]): boolean {
   let found = false
-  const expr = (e: Expr): void => {
-    if (found) return
-    switch (e.op) {
-      case 'call':
-        if (e.fn === 'f64Guard') found = true
-        else e.args.forEach(expr)
-        break
-      case 'binop':
-      case 'compare':
-      case 'logical':
-        expr(e.a)
-        expr(e.b)
-        break
-      case 'unop':
-        expr(e.a)
-        break
-      case 'construct':
-        e.args.forEach(expr)
-        break
-      case 'member':
-        expr(e.base)
-        break
-      case 'select':
-        expr(e.cond)
-        expr(e.ifTrue)
-        expr(e.ifFalse)
-        break
-      case 'index':
-        expr(e.base)
-        expr(e.idx)
-        break
-      default:
-        break
-    }
-  }
-  const stmt = (s: Stmt): void => {
-    if (found) return
-    switch (s.s) {
-      case 'let':
-        expr(s.expr)
-        break
-      case 'var':
-        if (s.init) expr(s.init)
-        break
-      case 'assign':
-      case 'assignOp':
-        expr(s.target)
-        expr(s.expr)
-        break
-      case 'return':
-        if (s.expr) expr(s.expr)
-        break
-      case 'if':
-        s.arms.forEach((a) => {
-          expr(a.cond)
-          a.body.forEach(stmt)
-        })
-        s.elseBody?.forEach(stmt)
-        break
-      case 'for':
-        stmt(s.init)
-        expr(s.cond)
-        stmt(s.update)
-        s.body.forEach(stmt)
-        break
-      case 'switch':
-        expr(s.scrut)
-        s.cases.forEach((c) => c.body.forEach(stmt))
-        s.defaultBody?.forEach(stmt)
-        break
-      default:
-        break
-    }
-  }
   for (const d of decls) {
-    d.body.forEach(stmt)
+    for (const s of d.body)
+      eachStmtExpr(s, (e) =>
+        eachExpr(e, (x) => {
+          if (x.op === 'call' && x.fn === 'f64Guard') found = true
+        }),
+      )
     if (found) return true
   }
   return found

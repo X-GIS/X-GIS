@@ -50,6 +50,7 @@ import type {
 } from '../ir/index.js'
 import type { ShaderType } from '../ir/index.js'
 import { collectFnRefs, emptyRefSet } from '../ir/collect-refs.js'
+import { mapStmtExpr } from '../ir/visit.js'
 import { mapExpr } from './opt/ir-transform.js'
 import { bodyHasRaw } from './opt/dce.js'
 import { RESERVED_WORDS } from '../reserved-words.js'
@@ -240,7 +241,7 @@ export function mangleModule(m: ModuleDecl): MangleResult {
         return t === y.type ? y : { ...y, type: t }
       })
 
-  // mapStmt covers exprs but not the `var` stmt's DECLARED type — a struct-typed
+  // mapStmtExpr covers exprs but not the `var` stmt's DECLARED type — a struct-typed
   // local (`VsOut _out;`) spells the struct name, so rename it here. `let`/`var`
   // also carry the DECLARATION of a function-scoped name in `.name`.
   const mkRS = (locals: ReadonlyMap<string, string>): ((s: Stmt) => Stmt) => {
@@ -257,34 +258,8 @@ export function mangleModule(m: ModuleDecl): MangleResult {
             type: renameType(s.type),
             ...(s.init !== undefined ? { init: rX(s.init) } : {}),
           }
-        case 'assign':
-        case 'assignOp':
-          return { ...s, target: rX(s.target), expr: rX(s.expr) }
-        case 'return':
-          return s.expr !== undefined ? { ...s, expr: rX(s.expr) } : s
-        case 'if':
-          return {
-            ...s,
-            arms: s.arms.map((a) => ({ cond: rX(a.cond), body: a.body.map(rS) })),
-            elseBody: s.elseBody?.map(rS),
-          }
-        case 'for':
-          return {
-            ...s,
-            init: rS(s.init),
-            cond: rX(s.cond),
-            update: rS(s.update),
-            body: s.body.map(rS),
-          }
-        case 'switch':
-          return {
-            ...s,
-            scrut: rX(s.scrut),
-            cases: s.cases.map((c) => ({ value: c.value, body: c.body.map(rS) })),
-            defaultBody: s.defaultBody?.map(rS),
-          }
         default:
-          return s // break / continue / discard / placeholder (raw already bailed)
+          return mapStmtExpr(s, rX, rS)
       }
     }
     return rS

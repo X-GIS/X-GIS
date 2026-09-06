@@ -41,7 +41,8 @@
 
 import type { CmpOp, Expr, Stmt, ModuleDecl, FuncDecl, ShaderType } from '../../ir/index.js'
 import { mapExpr, mapStmt } from './ir-transform.js'
-import { bodyHasRaw, collectLocals, collectMutatedRoots, forEachTopExpr } from './expr-utils.js'
+import { eachStmtExpr } from '../../ir/visit.js'
+import { bodyHasRaw, collectLocals, collectMutatedRoots, eachExpr } from './expr-utils.js'
 
 type ForStmt = Extract<Stmt, { s: 'for' }>
 
@@ -217,14 +218,16 @@ function bodyIsUnrollable(body: readonly Stmt[], name: string): boolean {
 }
 
 /** Expression-node count of a body — the growth-budget unit (auto-inline exprCost).
- *  forEachTopExpr already descends nested bodies, so an inner (already-unrolled)
+ *  eachStmtExpr already descends nested bodies, so an inner (already-unrolled)
  *  loop is counted, which is what bounds nested expansion. */
 function bodyNodeCost(body: readonly Stmt[]): number {
   let n = 0
   for (const s of body)
-    forEachTopExpr(s, () => {
-      n++
-    })
+    eachStmtExpr(s, (e) =>
+      eachExpr(e, () => {
+        n++
+      }),
+    )
   return n
 }
 

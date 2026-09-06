@@ -37,6 +37,7 @@ import {
   collectMutatedRoots,
   refsLocal,
   isWorthHoisting,
+  mapStmtValue,
 } from './expr-utils.js'
 
 interface Tally {
@@ -132,30 +133,6 @@ function valueExprs(s: Stmt): readonly Expr[] {
       return s.arms.length > 0 ? [s.arms[0]!.cond] : []
     default:
       return []
-  }
-}
-
-// Rewrite the unconditionally-evaluated exprs of a statement (target lvalue untouched).
-// Must name exactly the same set as `valueExprs`: a condition that is tallied but not
-// rewritten mints a temp and leaves the original recomputing next to it. The arm bodies
-// are already processed by `recurseBlocks` and pass through here unchanged.
-function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
-  switch (s.s) {
-    case 'let':
-      return { ...s, expr: f(s.expr) }
-    case 'var':
-      return s.init !== undefined ? { ...s, init: f(s.init) } : s
-    case 'assign':
-    case 'assignOp':
-      return { ...s, expr: f(s.expr) }
-    case 'return':
-      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
-    case 'if': {
-      const [first, ...rest] = s.arms
-      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
-    }
-    default:
-      return s
   }
 }
 
