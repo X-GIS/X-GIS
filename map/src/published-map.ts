@@ -94,6 +94,11 @@ export type PublishedMapMember =
   // label debugging — the playground's overlay is a real consumer
   | 'setLabelDebugHook'
 
-export const XGISMap = XGISMapCtor as unknown as {
+// No cast: a constructor's return type is COVARIANT, and the class's instance
+// type is assignable to the `Pick` of it, so a plain annotation is enough to
+// republish the same constructor under the narrower instance type. (`as unknown
+// as` would work too and is what this started as — the forced-cast ratchet was
+// right to ask for the seam instead.)
+export const XGISMap: {
   new (...args: ConstructorParameters<typeof XGISMapCtor>): XGISMap
-}
+} = XGISMapCtor
