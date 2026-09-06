@@ -37,7 +37,9 @@ import * as ts from 'typescript'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { SIBLING_DTS, bundlePublicDts } from '../map/scripts/dts-bundle'
+import { SIBLING_DTS, TSCONFIG, bundleDts, bundlePublicDts } from '../map/scripts/dts-bundle'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SNAPSHOT = join(ROOT, 'map', 'src', '__api__', 'surface.md')
@@ -266,6 +268,87 @@ describe('@xgis/map published surface', () => {
       ).toContain('camera')
       expect(surface.decls.some((d) => d.name === 'Camera' && d.kind === 'class')).toBe(true)
     })
+  })
+
+  // ── The publish pass's `@internal` mechanism ────────────────────────────────
+  //
+  // #2537 will widen 77 `private` members of `VectorTileRenderer` so the render
+  // phases can move out of the file, and hide them again with `@internal`. That
+  // rests entirely on `stripInternal` doing what we think, through a bundler that
+  // is not `tsc` — so the claim gets a test rather than a comment.
+  //
+  // It is TWO properties, because either can break alone: the flag is set where
+  // the published artifact is produced, and the toolchain honours it.
+  //
+  // MEASURED LIMITATION, recorded here because it is cheap to forget: an input
+  // that is ALREADY an emitted `.d.ts` is copied through, not re-emitted, so a tag
+  // inside one survives. That is why `map/dist/index.d.ts` still carries the one
+  // `@internal` from `compiler/src/builder/scene-builder.ts:194` (the snapshot
+  // header counts it). It does not reach the #2537 case: `VectorTileRenderer` is
+  // map's own source, which the bundler does re-emit.
+  describe('the publish pass honours `@internal`', () => {
+    it('sets stripInternal on the config the publish pass actually reads', () => {
+      const read = (file: string): ts.CompilerOptions => {
+        const { config, error } = ts.readConfigFile(file, ts.sys.readFile)
+        expect(error, `could not read ${relative(ROOT, file)}`).toBeUndefined()
+        // parseJsonConfigFileContent resolves `extends`, so this is the EFFECTIVE
+        // option — a string match on the file would pass on a config whose parent
+        // never applies.
+        return ts.parseJsonConfigFileContent(config, ts.sys, dirname(file)).options
+      }
+      expect(read(TSCONFIG.publish).stripInternal).toBe(true)
+      // The typecheck config must NOT carry it: cross-package typechecking reads
+      // the siblings' emitted declarations, and `map/src/map.ts:2934` reads
+      // compiler's `@internal` `SceneProgram.program` through one of them (#2601).
+      expect(read(TSCONFIG.typecheck).stripInternal).toBeFalsy()
+    })
+
+    it('strips an `@internal` member and keeps an untagged one', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'xgis-strip-internal-'))
+      writeFileSync(
+        join(dir, 'fixture.ts'),
+        `export class Probe {\n` +
+          `  /** Untagged — must survive both arms. */\n` +
+          `  kept(a: number): number {\n    return a\n  }\n` +
+          `  /** @internal Must disappear when the flag is on. */\n` +
+          `  hidden(a: number): number {\n    return a\n  }\n` +
+          `  /** Decoy: the word internal appears in prose with no tag. Must survive. */\n` +
+          `  notInternal(a: number): number {\n    return a\n  }\n` +
+          `}\n`,
+      )
+      const conf = (name: string, strip: boolean): string => {
+        const file = join(dir, name)
+        writeFileSync(
+          file,
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2022',
+              module: 'ESNext',
+              moduleResolution: 'bundler',
+              strict: true,
+              declaration: true,
+              stripInternal: strip,
+              skipLibCheck: true,
+            },
+            include: ['*.ts'],
+          }),
+        )
+        return file
+      }
+      const entry = join(dir, 'fixture.ts')
+      // The control arm is the instrument check: it proves the reader can SEE the
+      // tagged member, so its absence in the other arm is the flag acting rather
+      // than the probe being blind (§12).
+      const off = await bundleDts(entry, conf('tsconfig.off.json', false))
+      expect(off, 'control arm: the tagged member should be present with the flag OFF').toContain(
+        'hidden',
+      )
+
+      const on = await bundleDts(entry, conf('tsconfig.on.json', true))
+      expect(on, '`@internal` member survived stripInternal').not.toContain('hidden')
+      expect(on, 'an untagged member was stripped').toContain('kept')
+      expect(on, 'a member with "internal" only in prose was stripped').toContain('notInternal')
+    }, 60_000)
   })
 
   describe('the committed snapshot matches the bundle', () => {

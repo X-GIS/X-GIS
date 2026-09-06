@@ -1,0 +1,20 @@
+{
+  // The PUBLISH pass's config — used by `scripts/dts-bundle.ts` and by nothing
+  // else. It differs from `tsconfig.json` in exactly one option.
+  //
+  // `stripInternal` must NOT live in `tsconfig.base.json` (#2601). Cross-package
+  // typechecking reads the siblings' emitted declarations — 10 of map's 11
+  // `paths` entries point at `../<pkg>/dist/index.d.ts` — and those are NOT a
+  // published contract: every workspace package is `private: true`, and the
+  // declarations exist only so sibling typechecks do not recompile each other's
+  // source. A repo-wide flip breaks the build immediately, and the counter-example
+  // is already in the tree: `compiler/src/builder/scene-builder.ts:194` tags
+  // `SceneProgram.program` `@internal`, and `map/src/map.ts:2934` reads it.
+  //
+  // So the tag means "not part of the PUBLISHED contract", and it is honoured at
+  // exactly the point where a published artifact is produced.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "stripInternal": true
+  }
+}

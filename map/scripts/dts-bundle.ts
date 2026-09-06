@@ -37,21 +37,41 @@ export const SIBLING_DTS = [
   '../../shader-dsl/dist/index.d.ts',
 ].map(here)
 
+/** Run an entry through the publish pass's declaration bundler.
+ *
+ *  Exported alongside `bundlePublicDts` so the mechanism check in
+ *  `scripts/map-public-surface.test.ts` can feed it a fixture: `rollup` and
+ *  `rollup-plugin-dts` are map's own dependencies and do not resolve from the
+ *  repo root, and a second copy of these options there would be a second
+ *  authority over how the published bundle is produced.
+ *
+ *  Invoked through the rollup JS API from `bun` (which executes this TS file
+ *  directly), avoiding a `rollup` CLI / `@rollup/plugin-typescript` dependency. */
+export async function bundleDts(input: string, tsconfig: string): Promise<string> {
+  const bundle = await rollup({
+    input,
+    external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
+    plugins: [dts({ tsconfig, respectExternal: false })],
+  })
+  const { output } = await bundle.generate({ format: 'es' })
+  await bundle.close()
+  return output[0].code
+}
+
 /** Bundle `src/public.ts` into one declaration file with the `@xgis/*` types
  *  (data, geo, engine, rhi*, compiler, shader-dsl, shared) INLINED. Plain `tsc`
  *  would leave them as `import('@xgis/compiler').Foo` references, which do not
  *  resolve for a consumer — the published tarball ships none of those private
  *  packages.
  *
- *  Invoked through the rollup JS API from `bun` (which executes this TS file
- *  directly), avoiding a `rollup` CLI / `@rollup/plugin-typescript` dependency. */
-export async function bundlePublicDts(tsconfig = here('../tsconfig.json')): Promise<string> {
-  const bundle = await rollup({
-    input: here('../src/public.ts'),
-    external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
-    plugins: [dts({ tsconfig, respectExternal: false })],
-  })
-  const { output } = await bundle.generate({ format: 'es' })
-  await bundle.close()
-  return BANNER + output[0].code
+ *  Reads `tsconfig.publish.json`, whose only difference from `tsconfig.json` is
+ *  `stripInternal` — see that file for why the flag cannot be repo-wide (#2601). */
+export async function bundlePublicDts(): Promise<string> {
+  return BANNER + (await bundleDts(here('../src/public.ts'), here('../tsconfig.publish.json')))
 }
+
+/** The two configs the publish pass and its mechanism check compare. */
+export const TSCONFIG = {
+  typecheck: here('../tsconfig.json'),
+  publish: here('../tsconfig.publish.json'),
+} as const
