@@ -70,6 +70,8 @@
 //   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
 //                               no lowering handler — only `fill-*` is
 //                               wired under MODIFIER_HANDLERS today
+//   X-GIS0029  warn   lower     `fill:` / `stroke:` value resolves to    (ir/lower.ts — #2544)
+//                               no colour — previously a silent drop
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -163,6 +165,14 @@ export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
  *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
  *  turns the drop into a diagnostic. */
 export const UNHANDLED_MODIFIER = 'X-GIS0028'
+/** A `fill:` / `stroke:` style-property value that no colour resolver
+ *  accepts (#2544). `applyStyleProperties` skips the assignment on a
+ *  null resolve, so the layer keeps its inherited (usually absent)
+ *  colour — pre-fix that drop was completely silent, which is how a
+ *  re-serializer bug that mangled `hsl(120, 50%, 50%)` presented as "the
+ *  layer just doesn't paint". Warn, not error: an unknown colour is an
+ *  authoring typo, not a reason to refuse to compile the scene. */
+export const UNRESOLVED_COLOR = 'X-GIS0029'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits

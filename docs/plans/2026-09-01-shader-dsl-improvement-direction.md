@@ -51,6 +51,29 @@ fixpoint, up to 8 iterations, structural-equality convergence). Recorded costs:
 | hillshade fixpoint 2211 ms → ~492 ms main-thread block after #1405   | `map/src/shaders/baked/seed-hillshade.ts:7`   |
 | heatmap's three passes 33.9 ms (WGSL) / 38.4 ms (GLSL) at first draw | `map/src/shaders/baked/install.ts:106-107`    |
 
+**Re-measured after D1.3 (#2499 steps 1–4), which D1's Verify clause requires.** Warm
+medians of 5 runs, one process, nothing else on the machine (§7), on this tree:
+`emitPolygonWgsl(null,false)` **33.0 ms**, `emitPolygonSplitWgsl` **38.8 ms**,
+`emitLineWgsl` **151.9 ms**, `emitLineSplitWgsl` **121.6 ms** — while
+`buildPolygonModule(null,false)` is **0.3 ms**. The module BUILD is free; the emit is the
+cost, and `profileEmit` says where: of 52.9 ms total for polygon/WGSL, **optimize is
+47.2 ms (89%)** — `cse` 19.9 ms, `gvn` 8.8 ms, `cseLocal` 8.4 ms, over 86 pass runs, against
+2.5 ms for `validate` and 1.0 ms for `lowerModule`. (The 81–101 ms and 233–314 ms figures
+quoted for the two split twins in #2499 are COLD first-call numbers, which is what a boot
+actually pays; these are the warm steady-state.)
+
+Two things follow, and the second corrects what the plan's own wording would otherwise
+suggest. First, a boot now pays NONE of this on the closed set, so the residual is the open
+set only — style variants, the coverage ramp, `?nobake=1` — which moves this cost off the
+first-frame path and onto a per-new-style one. Second, these numbers are measured WITH
+#2492's `keyOf` memo already in (merged 2026-09-05), and the SHAPE is unchanged by it:
+optimize is still 89% of the emit and `cse` + `gvn` + `cseLocal` are still 79% of optimize
+(37.1 of 47.2 ms). So the remaining cost is not waiting on any D5.2/D5.3 item — #2465
+refuted the scope-walk premise (the walks are ≤6%) and measured out LICM v2, the GVN
+headers and D5.3's DSE. **What is inside those three passes after the memo has not been
+measured**, and that measurement, not the plan's existing D5 wording, is the prerequisite
+for any further reduction.
+
 The baked store (`map/src/shaders/baked/`), its sync gates, body guards, download groups and
 lazy prefetch exist because of these numbers. That subsystem is correct and well-gated; the
 point for a five-year plan is that it is a **cache for a compiler that is too slow to run
@@ -160,8 +183,15 @@ REQUIRED with `LIVE` as the spelled open-set door; both doors are shrink-only li
 (`shader-seam-doors.test.ts`); the five `*-uniform-slots.ts` helpers derive from the
 `uniformStruct` handle, so a fully baked boot builds no module and never pays the
 projection fixpoint. The gate's WebGPU runtime table is empty and baked vs `?nobake=1`
-frames hash equal on both backends. 4 (bake HMR) and 5 (off-main-thread residual emit)
-are open; the residual emit is the open set (coverage, composer variants) plus `?nobake=1`.
+frames hash equal on both backends. 4 is #2535: `renderAllBakedModules()`
+(`map/src/shaders/baked/bake-all.ts`) is now the ONE authority for what the six files
+contain, and `playground/dev/bake-shaders-on-edit.ts` re-runs it inside the dev server
+through Vite's SSR module runner — no `bun run build`, because the server resolves
+`@xgis/shader-dsl` to source — writing only the artifacts whose bytes moved. The
+dependency set is DERIVED from what the runner evaluated (172 files), never a glob, so it
+cannot go blind when a helper moves. Measured: 7.5 s per re-bake, 2 of 6 artifacts
+rewritten for a one-literal edit in `line.ts`. 5 (off-main-thread residual emit) is open;
+the residual emit is the open set (coverage, composer variants) plus `?nobake=1`.
 
 ### D2 — Precision as a checked property
 

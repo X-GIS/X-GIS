@@ -372,3 +372,20 @@ export interface XGISMapOptions {
  *  from the constructor options and consulted in TextStage when
  *  computing per-label letter-spacing and line-height. */
 export type FontTypographyMap = Map<string, { letterSpacingEm: number; lineHeightScale: number }>
+
+/** `XGISMap.setTerrain` options — the Mapbox/MapLibre top-level `terrain` block,
+ *  narrowed to what this engine honours today (D5, #2539).
+ *
+ *  The DEM itself still comes from the STYLE: a `raster-dem` source with a
+ *  `hillshade` layer over it. Mapbox names that source here (`source: 'dem'`)
+ *  because a style may declare several; this engine arms exactly one hillshade
+ *  renderer per map, so there is nothing to select — and the field is absent
+ *  rather than accepted-and-ignored, because an option that silently does
+ *  nothing is the failure this repo filed #2520 for. */
+export interface TerrainOptions {
+  /** Vertical exaggeration applied to the decoded DEM metres. Default 1,
+   *  matching Mapbox: `setTerrain({})` means "terrain on, at 1x". 0 is flat,
+   *  and flat is bit-identical to no terrain at all — the displacement is a
+   *  multiply by this value, so 0 multiplies the elevation by exactly 0.0. */
+  exaggeration?: number
+}

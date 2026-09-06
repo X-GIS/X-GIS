@@ -342,7 +342,8 @@ describe('VectorTileRenderer.pumpPrefetch — pan-speculation walk throttle', ()
 
 // ── The in-render prefetch throttles (#2309) ────────────────────────────────
 //
-// Two prefetch tiers live inside render() rather than in pumpPrefetch above,
+// Two prefetch tiers live on render()'s own path — since #2508 in its `prefetchTiers`
+// phase — rather than in pumpPrefetch above,
 // because both need that ShowCommand's own selection output (`currentZ`,
 // `cameraIdle`, `tiles`) which the frame-scope pump does not have. That
 // placement is what broke their throttles: render() runs once per
@@ -383,12 +384,12 @@ describe('VectorTileRenderer in-render prefetch — the throttle is per FRAME (#
   })
 
   it('tier 1 (prefetchAdjacent) is memoised, not a bare modulo', () => {
-    const guard = guardFor('this.source.prefetchAdjacent(tiles, currentZ)')
+    const guard = guardFor('ctx.source.prefetchAdjacent(ctx.tiles, ctx.currentZ)')
     expect(guard, 'tier-1 must consult the memo').toContain(
-      '!this._adjacentPrefetchZooms.has(currentZ)',
+      '!this._adjacentPrefetchZooms.has(ctx.currentZ)',
     )
     expect(guard, 'tier-1 must record the run, or the memo never throttles').toContain(
-      'this._adjacentPrefetchZooms.add(currentZ)',
+      'this._adjacentPrefetchZooms.add(ctx.currentZ)',
     )
     expect(guard, 'the window is frames, so the modulo is on the frame id').toContain(
       'this.currentFrameId % 10 === 0',
@@ -399,12 +400,12 @@ describe('VectorTileRenderer in-render prefetch — the throttle is per FRAME (#
   })
 
   it('tier 2 (zoom-direction prefetch) is memoised, not a bare modulo', () => {
-    const guard = guardFor('this.source.prefetchTiles(prefetchKeys)')
+    const guard = guardFor('ctx.source.prefetchTiles(prefetchKeys)')
     expect(guard, 'tier-2 must consult the memo').toContain(
-      '!this._zoomPrefetchZooms.has(currentZ)',
+      '!this._zoomPrefetchZooms.has(ctx.currentZ)',
     )
     expect(guard, 'tier-2 must record the run, or the memo never throttles').toContain(
-      'this._zoomPrefetchZooms.add(currentZ)',
+      'this._zoomPrefetchZooms.add(ctx.currentZ)',
     )
     expect(guard, 'the window is frames, so the modulo is on the frame id').toContain(
       'this.currentFrameId % 6 === 0',

@@ -4,7 +4,14 @@
 // no logic or symbol renames. `LayerDrawPhase` remains part of the
 // public surface and is re-exported from vector-tile-renderer.ts.
 
-import type { RhiBindGroup, RhiBuffer } from '@xgis/engine'
+import type { RhiBindGroup, RhiBuffer, RhiPipelineHandle, RhiRenderPass } from '@xgis/engine'
+import type { Camera } from '../camera'
+import type { ShowCommand } from './renderer-types'
+import type { ResolvedShow } from './resolved-show'
+import type { PointRenderer } from './point-renderer'
+import type { BindGroupRegistry } from './bind-group-registry'
+import type { Selection } from './tile-selection-cache'
+import type { Projection } from '@xgis/geo'
 
 /** Layer draw phase — replaces the prior `translucentLines: boolean` flag.
  *  'all' draws fill + stroke in one pass (opaque default).
@@ -112,4 +119,127 @@ export interface GPUTile {
    *  changed on every upload/eviction anywhere in the cache (over-
    *  invalidates). */
   uploadEpoch: number
+} /** The bind-group-layout family the registry deals in (`baseLayout()`), spelled
+ *  through the map-side owner of layouts rather than as the native type (#991). */
+export type ShowBindGroupLayout = NonNullable<ReturnType<BindGroupRegistry['baseLayout']>>
+
+/** #2508 — `VectorTileRenderer.render()`'s parameter list as one value, so the
+ *  render phases (`drawPrimary`, `drawFallback`, …) read it as `args.<name>`
+ *  instead of each re-declaring a slice of the 22 parameters. Built once per
+ *  `render()` call and never written afterwards. The parameter docs on
+ *  `render()` itself remain the contract; this mirrors them field for field. */
+export interface RenderArgs {
+  readonly rhiPass: RhiRenderPass
+  readonly camera: Camera
+  readonly projType: number
+  readonly projCenterLon: number
+  readonly projCenterLat: number
+  readonly canvasWidth: number
+  readonly canvasHeight: number
+  readonly show: ShowCommand
+  readonly fillPipeline: RhiPipelineHandle
+  readonly linePipeline: RhiPipelineHandle
+  readonly bindGroupLayout: ShowBindGroupLayout
+  readonly fillPipelineFallback: RhiPipelineHandle | undefined
+  readonly linePipelineFallback: RhiPipelineHandle | undefined
+  readonly pointRenderer: PointRenderer | null | undefined
+  readonly phase: LayerDrawPhase
+  readonly dpr: number
+  readonly fillPipelineGroundOverride: RhiPipelineHandle | undefined
+  readonly fillPipelineGroundFallbackOverride: RhiPipelineHandle | undefined
+  readonly translucentBucket: boolean
+  readonly resolvedShow: ResolvedShow
+  readonly fillPipelineExtrudedOverride: RhiPipelineHandle | undefined
+  readonly fillPipelineExtrudedFallbackOverride: RhiPipelineHandle | undefined
+}
+
+/** #2508 phase 1 output — this layer's slot. */
+export interface LayerSlot {
+  /** Slice identity (`computeSliceKey`): the source layer + filter hash the
+   *  worker emitted this layer's tiles under. */
+  readonly sliceLayer: string
+  /** This slice's resident GPU tiles. */
+  readonly layerCache: Map<number, GPUTile>
+}
+
+/** #2508 phase 2 output — everything a later phase reads about "which tiles":
+ *  the camera's view for this projection, the selector's inputs and the cached
+ *  selection (tile-selection-cache.ts `Selection`, whose field docs are the
+ *  authority for the fields mirrored here). */
+export interface TileSelection {
+  /** The camera's view for this projection (MVP + log-depth constant). */
+  readonly frame: ReturnType<Camera['getViewForProjection']>
+  /** `frame.matrix` — copied into the uniform mirror by the paint phase; the
+   *  camera overwrites the reference on its next call. */
+  readonly mvp: Float32Array
+  /** `resolvedShow.strokeWidth`, read early because the frustum margin needs it. */
+  readonly strokeWidthPx_h: number
+  /** Frustum margin (CSS px) covering stroke width, offset and anchor
+   *  alignment, so an offset stroke near the edge still selects its tile. */
+  readonly offsetMarginPx: number
+  /** The projection the tile selector works in: the display projection for
+   *  projTypes 1–6, Mercator otherwise. */
+  readonly selectorProj: Projection
+  /** `source.maxLevel` — the deepest level the source serves. */
+  readonly maxLevel: number
+  /** Deepest virtual sub-tile level the over-zoom selector may descend to. */
+  readonly maxSubTileZ: number
+  /** `Selection.tiles` — the visible tile list the classification walks. */
+  readonly tiles: Selection['tiles']
+  /** `Selection.neededKeys` — the tile keys the drawn zoom needs this frame … */
+  readonly neededKeys: number[]
+  /** … and the world-copy longitude offsets (degrees) each is drawn at. */
+  readonly worldOffDeg: number[]
+  /** `Selection.protectedAncestors` — selector-injected fallback-only
+   *  ancestors kept resident. */
+  readonly protectedAncestors: number[]
+  /** `Selection.parentAtMaxLevel` — over-zoom: the source-maxLevel parents
+   *  standing in for keys past maxLevel. */
+  readonly parentAtMaxLevel: number[]
+  /** `Selection.archiveAncestor` — per needed key, the nearest ancestor the
+   *  archive index holds. */
+  readonly archiveAncestor: number[]
+  /** `Selection.currentZ` — the drawn (held) integer zoom. */
+  readonly currentZ: number
+  /** `Selection.targetZ` — the camera's target LOD, ahead of `currentZ`
+   *  during a zoom-in readiness hold. */
+  readonly targetZ: number
+  /** `Selection.cameraIdle`. */
+  readonly cameraIdle: boolean
+}
+
+/** #2508 phase 3 output — the layer-slot uniform offsets the paint phase
+ *  allocated. (Its other outputs are the renderer's per-call paint fields —
+ *  `current*`, `cached*`, the bake-stroke state — read by the draw phases
+ *  through `this`.) */
+export interface PaintSlots {
+  readonly lineLayerOffset: number
+  /** `-1` means the single-line legacy path (see `renderTileKeys`). */
+  readonly lineLayerOffsetGap: number
+}
+
+/** #2508 phase 4 output — what the per-tile decision walk collected. */
+export interface TileClassification {
+  /** True once a visible tile resolved through the in-archive path; the
+   *  primary draw is skipped otherwise (every key would `continue`). */
+  readonly anyInArchive: boolean
+  /** Memoised "is this key resident for this slice" probe, shared by the
+   *  classification and the prefetch walks. */
+  readonly sliceCached: (k: number) => boolean
+  /** Parents already pushed as fallbacks this render (scratch set). */
+  readonly parentKeysSet: Set<number>
+  /** Keys the classification found missing; the fetch phase requests them. */
+  readonly toLoad: number[]
+  /** `globalThis.__XGIS_INVARIANTS` snapshot for this call. */
+  readonly _inv: boolean | undefined
+  /** Fallback ancestors for the visible tiles missing their own resident
+   *  tile, index-parallel with `fallbackOffsets` / `fallbackVisibleKeys`.
+   *  NOT readonly: `drawFallback` re-sorts the three in place (deepest z
+   *  last) and the epilogue reads that order. */
+  fallbackKeys: number[]
+  /** World-copy offsets parallel to `fallbackKeys`. */
+  fallbackOffsets: number[]
+  /** The visible tile each fallback push fills for (its bounds become the
+   *  per-tile clip mask), parallel to `fallbackKeys`. */
+  fallbackVisibleKeys: number[]
 }

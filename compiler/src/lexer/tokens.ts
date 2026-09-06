@@ -72,6 +72,14 @@ export interface Token {
   value: string
   line: number
   col: number
+  /** True when non-token source text — whitespace, a newline, or a
+   *  comment — separated this token from its predecessor. The lexer is
+   *  the only component that holds the source, so it is the single
+   *  authority for this bit; a re-serializer that rebuilds source text
+   *  from tokens (`captureFnCallAsString`) replays it instead of
+   *  guessing where a space belongs. Absent (`undefined`) means the two
+   *  tokens were written adjacent — `50%`, `120deg`, `.6`. (#2544) */
+  spaceBefore?: boolean
 }
 
 const KEYWORDS: Record<string, TokenType> = {
