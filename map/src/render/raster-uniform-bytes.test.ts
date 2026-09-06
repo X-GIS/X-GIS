@@ -10,8 +10,11 @@ import { rasterUniformSlots, rasterUniformBytes, rasterTileSlots, rasterTileByte
 // for the DSFUN cam_ecef_center_l low half — the z18+ raster-jitter fix — 160→176.)
 describe('raster global Uniforms — reflect === shipped', () => {
   const S = rasterUniformSlots().slot
-  it('bytes === 176 (= slots × 4)', () => {
-    expect(rasterUniformBytes()).toBe(176)
+  it('bytes === 192 (= slots × 4)', () => {
+    // 176 → 192 (#2539): `dem_unpack`, the four DEM factors the VERTEX stage decodes
+    // elevation with. Appended, so every offset asserted below is unmoved — which is
+    // the property this file exists to hold, not the total.
+    expect(rasterUniformBytes()).toBe(192)
     expect(rasterUniformBytes()).toBe(rasterUniformSlots().slots * 4)
   })
   const cases: ReadonlyArray<readonly [string, number]> = [
@@ -34,14 +37,16 @@ describe('raster global Uniforms — reflect === shipped', () => {
 
 describe('raster per-tile TileUniforms — reflect === shipped', () => {
   const T = rasterTileSlots().slot
-  it('bytes === 336 (= slots × 4)', () => {
+  it('bytes === 352 (= slots × 4)', () => {
     // 48 → 336 (#2137): the CPU trig table added row_trig + col_trig, two
     // `array<vec4<f32>, 9>` = 2 × 144 B. The VS used to build the ~6.4e6 m ECEF
     // from angles, so every transcendental it evaluated multiplied the Earth
     // radius (1.17e+3 m of ground displacement measured on SwiftShader); the
     // table removes them from that path. This pin is the reflect-derived size —
     // it moves only when the struct does, which is the point.
-    expect(rasterTileBytes()).toBe(336)
+    // 336 → 352 (#2539): `dem_sub` — (scale, u0, v0, gain), where this tile sits in
+    // the resident DEM texture and by how much its metres are multiplied.
+    expect(rasterTileBytes()).toBe(352)
     expect(rasterTileBytes()).toBe(rasterTileSlots().slots * 4)
   })
   const cases: ReadonlyArray<readonly [string, number]> = [

@@ -1,17 +1,7 @@
-import { TokenType, type Token } from '../lexer/tokens'
+import { TokenType } from '../lexer/tokens'
 import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
 import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
-
-/** Exact source separation between two ADJACENT tokens, from the 1-based
- *  `line`/`col` the lexer stamps on each (#2544). A token's `value` is its
- *  verbatim source text here, so `next.col - (prev.col + len)` is the run the
- *  lexer skipped. A line break collapses to one space; a negative width (a
- *  String token, whose `value` has quotes/escapes resolved away) clamps to none. */
-function sourceGap(prev: Token, next: Token): string {
-  if (next.line !== prev.line) return ' '
-  return ' '.repeat(Math.max(0, next.col - (prev.col + prev.value.length)))
-}
 
 /** Statement handlers + the keyword→handler registry.
  *
@@ -525,28 +515,28 @@ export class StatementParser extends ExpressionParser {
    *  to capture function-call syntax in StyleProperty values (e.g.
    *  `rgb(255, 0, 0, 0.6)`) without committing to a structured
    *  expression representation. The resulting string is fed back to
-   *  the CSS-style colour resolver in lower.ts.
-   *
-   *  Separation between tokens is RECOVERED from their line/col
-   *  (`sourceGap`), never guessed. The former heuristic — a space before
-   *  every token bar after `(`/`-` and before a comma — glued one into every
-   *  CSS shape whose parts lex apart: `hsl(120, 50%, 50%)` captured as
-   *  `hsl(120, 50 %, 50 %)`, `rgba(…, .6)` as `…, . 6)`, `120deg` as
-   *  `120 deg`; resolveColor returned null and lower.ts dropped the fill
-   *  (#2544). The source is now the one authority. */
+   *  the CSS-style colour resolver in lower.ts. */
   private captureFnCallAsString(): string {
-    let prev = this.advance() // fn name
-    let raw = prev.value
+    let raw = this.advance().value // fn name
     if (!this.check(TokenType.LParen)) return raw
-    let depth = 0
-    while (!this.isEnd()) {
+    raw += '('
+    this.advance()
+    let depth = 1
+    while (depth > 0 && !this.isEnd()) {
       const t = this.current()
-      if (t.type === TokenType.LParen) depth++
-      else if (t.type === TokenType.RParen) depth--
-      raw += sourceGap(prev, t) + t.value
-      prev = t
+      // Replay the source's own whitespace. The lexer drops whitespace but
+      // records, per token, whether any separated it from its predecessor
+      // (`Token.spaceBefore`), so the rebuild reproduces what was WRITTEN
+      // rather than guessing. The guess it replaces ("a space before every
+      // token except after `(`/`-` or before a comma") glued a space into
+      // `50%`, `120deg` and `.6` — each of which is its own token — so
+      // `hsl(120, 50%, 50%)` captured as `hsl(120, 50 %, 50 %)`,
+      // resolveColor returned null, and the fill vanished (#2544).
+      if (t.spaceBefore) raw += ' '
+      raw += t.value
       this.advance()
-      if (depth === 0) break
+      if (t.type === TokenType.LParen) depth++
+      else if (t.type === TokenType.RParen && --depth === 0) break
     }
     return raw
   }

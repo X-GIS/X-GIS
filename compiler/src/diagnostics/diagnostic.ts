@@ -70,9 +70,8 @@
 //   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
 //                               no lowering handler — only `fill-*` is
 //                               wired under MODIFIER_HANDLERS today
-//   X-GIS0029  warn   lower     `fill:` / `stroke:` value the colour     (ir/lower.ts — #2544)
-//                               resolver cannot read — the assignment
-//                               used to be skipped silently
+//   X-GIS0029  warn   lower     `fill:` / `stroke:` value resolves to    (ir/lower.ts — #2544)
+//                               no colour — previously a silent drop
 //   X-GIS0030  error  lower     Source `type:` is neither a bare name    (ir/lower.ts — #2549)
 //                               nor a quoted string — a hyphenated name
 //                               written bare tokenises as a subtraction
@@ -171,10 +170,13 @@ export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
  *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
  *  turns the drop into a diagnostic. */
 export const UNHANDLED_MODIFIER = 'X-GIS0028'
-/** A `fill:` / `stroke:` style-property value the colour resolver cannot read
- *  (#2544) — previously the assignment was simply skipped, so the layer
- *  rendered with no fill and nothing said why. Warn-only: lowering stays
- *  total and the layer keeps whatever colour the cascade gave it. */
+/** A `fill:` / `stroke:` style-property value that no colour resolver
+ *  accepts (#2544). `applyStyleProperties` skips the assignment on a
+ *  null resolve, so the layer keeps its inherited (usually absent)
+ *  colour — pre-fix that drop was completely silent, which is how a
+ *  re-serializer bug that mangled `hsl(120, 50%, 50%)` presented as "the
+ *  layer just doesn't paint". Warn, not error: an unknown colour is an
+ *  authoring typo, not a reason to refuse to compile the scene. */
 export const UNRESOLVED_COLOR = 'X-GIS0029'
 /** A source's `type:` is neither an Identifier nor a StringLiteral (#2549).
  *  Built-in types are bare identifiers; a hyphenated name — a custom registry

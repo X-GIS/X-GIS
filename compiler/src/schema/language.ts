@@ -119,14 +119,15 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     properties: [
       { key: 'name', valueKind: 'identifier', required: true },
       { key: 'path', valueKind: 'string' },
-      // The accepted `anchor` values are the LOWERING's list, imported rather than
-      // re-declared: a local copy drifted to nine (adding corners the grammar cannot
-      // lex — `anchor: top-left` reads `-` as a token, so the whole file dies with a
-      // ParseError) while `isSymbolAnchor` took five. Corners are a grammar change,
-      // not a schema entry (#2548; see symbol-elements.ts for why). NOTE the Mapbox
-      // converter's nine-valued VALID_ANCHORS (convert/layers-helpers.ts) stays as it
-      // is — `label-anchor-top-left` is a utility NAME, a different grammar position
-      // where the hyphen is a segment separator, so nine is correct there.
+      // SYMBOL_ANCHORS is the single authority on which anchors exist — the
+      // lowering gates on it (`isSymbolAnchor`) and the grammar agrees with it.
+      // Referenced, never re-listed: the schema used to carry its own 9-value
+      // copy, and the four corner values in it were hard PARSE errors, so an
+      // editor driven by this table emitted uncompilable `.xgis` (#2548).
+      // NOTE the Mapbox converter's nine-valued VALID_ANCHORS
+      // (convert/layers-helpers.ts) stays as it is: `label-anchor-top-left` is a
+      // utility NAME, a different grammar position where the hyphen is a segment
+      // separator, so nine is correct there and is NOT the same drift.
       { key: 'anchor', valueKind: 'enum', options: SYMBOL_ANCHORS },
     ],
   },

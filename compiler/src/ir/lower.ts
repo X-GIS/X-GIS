@@ -1368,6 +1368,27 @@ function lowerLayer(
   }
 }
 
+/** Report a `fill:` / `stroke:` value that resolved to no colour (#2544).
+ *  The assignment is skipped either way; the point is that the drop is now
+ *  audible — silence is what made the #2544 re-serializer bug present as
+ *  "the layer renders blank" with nothing to grep for. */
+function warnUnresolvedColor(
+  diagnostics: import('./render-node').Diagnostic[],
+  prop: AST.StyleProperty,
+): void {
+  diagnostics.push({
+    severity: 'warn',
+    code: UNRESOLVED_COLOR,
+    span: { line: prop.line, col: 1 },
+    message:
+      `\`${prop.name}: ${prop.value}\` resolves to no colour — the property is ` +
+      `dropped and the layer keeps its previous ${prop.name}.`,
+    help:
+      'Expected a hex literal (`#40bf40`), a palette token (`sky-700`), a CSS named ' +
+      'colour, or a CSS colour function (`rgb()`, `hsl()`, `oklab()`, …).',
+  })
+}
+
 /**
  * Apply CSS-like style properties to rendering values.
  * Resolves color names (via Tailwind palette), hex colors, and numbers.
@@ -1411,34 +1432,18 @@ function applyStyleProperties(
     if (!m) return null
     return { num: parseFloat(m[1]), unit: (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm' }
   }
-  // The ONE rule for what a `fill:`/`stroke:` value may name, shared by both
-  // arms. An unreadable value used to skip its assignment in silence, so a
-  // mis-captured CSS colour (#2544) rendered as "no fill" with nothing to
-  // point at; it now warns and lowering still stays total.
-  const applyColor = (prop: AST.StyleProperty, assign: (hex: string) => void): void => {
-    const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
-    if (hex) {
-      assign(hex)
-      return
-    }
-    diagnostics.push({
-      severity: 'warn',
-      code: UNRESOLVED_COLOR,
-      span: { line: prop.line, col: 1 },
-      message:
-        `\`${prop.name}: ${prop.value}\` names no colour the resolver recognises — ` +
-        `the property is ignored and the layer keeps its cascaded ${prop.name}.`,
-      help: `Use a hex literal (#rrggbb), a palette name (sky-500), or a CSS colour function (rgb()/hsl()/oklab()).`,
-    })
-  }
   for (const prop of props) {
     switch (prop.name) {
       case 'fill': {
-        applyColor(prop, (hex) => (fill = colorConstant(...hexToRgba(hex))))
+        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
+        if (hex) fill = colorConstant(...hexToRgba(hex))
+        else warnUnresolvedColor(diagnostics, prop)
         break
       }
       case 'stroke': {
-        applyColor(prop, (hex) => (strokeColor = colorConstant(...hexToRgba(hex))))
+        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
+        if (hex) strokeColor = colorConstant(...hexToRgba(hex))
+        else warnUnresolvedColor(diagnostics, prop)
         break
       }
       case 'stroke-width': {
