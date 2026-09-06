@@ -168,6 +168,74 @@ describe('resolveBaseRef — a lost base is loud, never silent', () => {
   })
 })
 
+// ── The CI shape: a depth-1 checkout of refs/pull/N/merge, with main moved on ──────────
+//
+// This is the only configuration in which the base can fail to be an ancestor of the
+// scanned tree, and it is the one CI runs on every pull request. Built with real git
+// rather than mocked, because the whole defect lived in what git actually reports when
+// the history is not there (#2597).
+describe('resolveBaseRef — a moving origin/main is never the base (#2597)', () => {
+  function buildRemote(): { remote: string; base: string; moved: string } {
+    const remote = mkdtempSync(join(tmpdir(), 'dup-remote-'))
+    git(remote, 'init', '--quiet', '--initial-branch=main')
+    // Fetching the base parent by sha is how the shallow path recovers it; GitHub allows
+    // this, and a bare local remote does not unless told to.
+    git(remote, 'config', 'uploadpack.allowReachableSHA1InWant', 'true')
+    writeFileSync(join(remote, 'a.txt'), 'base\n')
+    git(remote, 'add', '-A')
+    git(remote, 'commit', '--quiet', '-m', 'base')
+    const base = git(remote, 'rev-parse', 'HEAD')
+
+    // The PR branch, off `base`.
+    git(remote, 'checkout', '--quiet', '-b', 'pr')
+    writeFileSync(join(remote, 'pr.txt'), 'pr\n')
+    git(remote, 'add', '-A')
+    git(remote, 'commit', '--quiet', '-m', 'pr')
+
+    // GitHub's merge ref, built BASE-FIRST: parent 1 is main as merged, parent 2 the head.
+    git(remote, 'checkout', '--quiet', base)
+    git(remote, 'merge', '--quiet', '--no-ff', '-m', 'merge pr', 'pr')
+    git(remote, 'update-ref', 'refs/pull/1/merge', git(remote, 'rev-parse', 'HEAD'))
+
+    // main moves on AFTER the merge ref was computed — the whole point.
+    git(remote, 'checkout', '--quiet', 'main')
+    writeFileSync(join(remote, 'a.txt'), 'main moved on\n')
+    git(remote, 'add', '-A')
+    git(remote, 'commit', '--quiet', '-m', 'main advances')
+    const moved = git(remote, 'rev-parse', 'HEAD')
+    return { remote, base, moved }
+  }
+
+  it('takes the merge ref FIRST PARENT, not the tip, on a depth-1 PR checkout', () => {
+    const { remote, base, moved } = buildRemote()
+    const root = mkdtempSync(join(tmpdir(), 'dup-ci-'))
+    // `--depth` is only honoured over a transport, hence file://.
+    git(root, 'clone', '--quiet', '--depth=1', `file://${remote}`, '.')
+    git(root, 'fetch', '--quiet', '--depth=1', 'origin', '+refs/pull/1/merge:refs/pull/1/merge')
+    git(root, 'checkout', '--quiet', '--detach', 'refs/pull/1/merge')
+
+    // Preconditions — without these the test would pass for the wrong reason.
+    expect(() => git(root, 'merge-base', 'HEAD', 'origin/main')).toThrow()
+    expect(git(root, 'rev-parse', 'origin/main')).toBe(moved)
+
+    expect(resolveBaseRef(root)).toBe(base)
+  })
+
+  it('throws rather than falling back to the tip when no ancestor base can be had', () => {
+    const { remote } = buildRemote()
+    const root = mkdtempSync(join(tmpdir(), 'dup-orphan-'))
+    git(root, 'clone', '--quiet', '--depth=1', `file://${remote}`, '.')
+    // A depth-1 checkout of a NON-merge commit that shares no fetched history with the tip:
+    // the old code answered `origin/main` here too, which is the unsound comparison.
+    git(root, 'checkout', '--quiet', '--orphan', 'detached')
+    writeFileSync(join(root, 'x.txt'), 'x\n')
+    git(root, 'add', '-A')
+    git(root, 'commit', '--quiet', '-m', 'orphan')
+
+    expect(() => resolveBaseRef(root)).toThrow(/ancestor of HEAD/)
+  })
+})
+
 // ── The ladder, against the real binary, the committed .jscpd.json, and a real ref ─────
 
 const FIXTURE_FN = `export function fixtureFn(a: number, b: number, c: number): number {

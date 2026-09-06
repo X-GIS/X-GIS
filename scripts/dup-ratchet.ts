@@ -469,14 +469,28 @@ export function shapeOnlyClones(
   })
 }
 
-/** The commit this branch is measured against.
+/** The commit this branch is measured against. It MUST be an ancestor of the scanned tree:
+ *  `check` reports "clones the base lacks", and against a base that is not an ancestor that
+ *  set also contains every clone the base has since DELETED.
  *
- *  MERGE BASE with `origin/main` where the history is there; `origin/main` itself where it
- *  is not — CI checks out at depth 1, and there the checkout IS the PR merged into main, so
- *  main's tip is the correct and exact base. Fetches `main` shallowly when the ref is
- *  missing. THROWS rather than returning undefined: `scan` without a `baseRef` marks every
- *  clone new, so a silent failure here would turn the gate from "added by this branch" into
- *  "every clone in the repo" — loud is the only safe direction (CLAUDE.md §12). */
+ *  MERGE BASE with `origin/main` where the history is there. Where it is not — CI checks out
+ *  at depth 1, so `merge-base` has nothing to walk — the base is the FIRST PARENT of the
+ *  checked-out merge commit: `actions/checkout` puts `refs/pull/N/merge` at HEAD, and GitHub
+ *  builds that ref base-first, so parent 1 is main exactly as this branch was merged into it.
+ *
+ *  This used to return `origin/main` there instead, on the premise that "the checkout IS the
+ *  PR merged into main, so main's tip is the correct and exact base". The first half is true
+ *  and the second does not follow: the merge ref is computed when the PR updates and main
+ *  moves on while the run queues, so the tip is AHEAD of what was scanned. Measured on PR
+ *  #2596 — the scan totals matched main at 02:07 (279 clones) while the base fetched at 03:44
+ *  was 277, and the two clones the difference consisted of were reported as added by a branch
+ *  whose entire diff is one excluded test file (#2597).
+ *
+ *  Fetches `main` shallowly when the ref is missing, and the base parent by sha when only its
+ *  object is (the merge commit carries the sha either way). THROWS rather than returning a
+ *  ref that is not an ancestor: `scan` without a `baseRef` marks every clone new, and a base
+ *  that has moved ahead marks other people's deletions new — loud is the only safe direction
+ *  (CLAUDE.md §12). */
 export function resolveBaseRef(root: string): string {
   const git = (...args: string[]): string =>
     execFileSync('git', args, {
@@ -511,8 +525,42 @@ export function resolveBaseRef(root: string): string {
   try {
     return git('merge-base', 'HEAD', 'origin/main')
   } catch {
-    return 'origin/main' // shallow history: main's tip is the base CI actually wants
+    /* shallow history — fall through to the merge ref's first parent */
   }
+  // Read the parents off the RAW COMMIT OBJECT, not with `rev-list --parents`. A shallow
+  // clone grafts HEAD (it is listed in `.git/shallow`), so every traversal command reports
+  // the merge commit as parentless — a blind instrument answering "not a merge commit",
+  // which is the reading that sends this straight back to the tip. The object itself is
+  // intact and still carries both `parent` lines; measured, and it stays true after the
+  // parent's own object is fetched (CLAUDE.md §12 — validate the instrument, never read a
+  // uniform zero as a clean result).
+  let parents: readonly string[] = []
+  try {
+    parents = git('cat-file', 'commit', 'HEAD')
+      .split('\n')
+      .filter((l) => l.startsWith('parent '))
+      .map((l) => l.slice('parent '.length).trim())
+  } catch {
+    /* reported by the throw below */
+  }
+  if (parents.length >= 2) {
+    const baseParent = parents[0]!
+    if (!has(baseParent)) {
+      try {
+        git('fetch', '--depth=1', 'origin', baseParent)
+      } catch {
+        /* reported by the throw below */
+      }
+    }
+    if (has(baseParent)) return baseParent
+  }
+  throw new Error(
+    'dup: no base that is an ancestor of HEAD.\n' +
+      '  `merge-base HEAD origin/main` found none (shallow history) and HEAD is not a merge\n' +
+      '  commit whose first parent could be fetched. Comparing against `origin/main`\n' +
+      "  directly would report every clone main has deleted since as this branch's (#2597).\n" +
+      '  Set `fetch-depth: 0` on this job, or fetch enough history for a merge base.',
+  )
 }
 
 // ── Modes ────────────────────────────────────────────────────────────────────
