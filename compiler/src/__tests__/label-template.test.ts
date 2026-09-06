@@ -168,7 +168,7 @@ describe('label utility → IR TextValue', () => {
     // expression reaches the xgis parser — a truncated prefix would
     // either throw or lower to a different AST shape.
 
-    it('label-["{.pop > 1000 ? \"big\" : \"sml\"}"] lowers the whole ternary', () => {
+    it('label-["{.pop > 1000 ? "big" : "sml"}"] lowers the whole ternary', () => {
       const label = getLabel(`
         source vt { type: vector, url: "x.pmtiles" }
         layer x {
@@ -182,7 +182,7 @@ describe('label utility → IR TextValue', () => {
       }
     })
 
-    it('label-["{.name ?? \"n/a: none\"}"] keeps the colon inside the string', () => {
+    it('label-["{.name ?? "n/a: none"}"] keeps the colon inside the string', () => {
       const label = getLabel(`
         source vt { type: vector, url: "x.pmtiles" }
         layer x {
