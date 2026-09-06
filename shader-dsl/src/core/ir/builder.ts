@@ -35,6 +35,7 @@ import {
   externRef,
   installStmtSink,
 } from './node.js'
+import { eachExpr, eachStmtExpr } from './visit.js'
 import { dslError } from '../diagnostics/error.js'
 import { captureLoc, recordLoc } from '../diagnostics/loc.js'
 
@@ -958,84 +959,11 @@ function walkCalls(
   stmts: readonly Stmt[],
   onCall: (e: Extract<Expr, { op: 'call' }>) => void,
 ): void {
-  const expr = (e: Expr): void => {
-    switch (e.op) {
-      case 'binop':
-      case 'compare':
-      case 'logical':
-        expr(e.a)
-        expr(e.b)
-        break
-      case 'unop':
-        expr(e.a)
-        break
-      case 'call':
-        onCall(e)
-        for (const a of e.args) expr(a)
-        break
-      case 'construct':
-        for (const a of e.args) expr(a)
-        break
-      case 'member':
-        expr(e.base)
-        break
-      case 'index':
-        expr(e.base)
-        expr(e.idx)
-        break
-      case 'select':
-        expr(e.cond)
-        expr(e.ifTrue)
-        expr(e.ifFalse)
-        break
-      case 'matchExpr':
-        expr(e.scrutinee)
-        for (const [, v] of e.cases) expr(v)
-        expr(e.default)
-        break
-      default:
-        break // lit / constref / param / varref — leaves
-    }
-  }
-  const stmt = (s: Stmt): void => {
-    switch (s.s) {
-      case 'let':
-        expr(s.expr)
-        break
-      case 'var':
-        if (s.init) expr(s.init)
-        break
-      case 'assign':
-      case 'assignOp':
-        expr(s.target)
-        expr(s.expr)
-        break
-      case 'return':
-        if (s.expr) expr(s.expr)
-        break
-      case 'if':
-        for (const arm of s.arms) {
-          expr(arm.cond)
-          arm.body.forEach(stmt)
-        }
-        s.elseBody?.forEach(stmt)
-        break
-      case 'for':
-        stmt(s.init)
-        expr(s.cond)
-        stmt(s.update)
-        s.body.forEach(stmt)
-        break
-      case 'switch':
-        expr(s.scrut)
-        for (const c of s.cases) c.body.forEach(stmt)
-        s.defaultBody?.forEach(stmt)
-        break
-      default:
-        break // break / continue / discard / placeholder / raw — no exprs
-    }
-  }
-  stmts.forEach(stmt)
+  const onExpr = (e: Expr): void =>
+    eachExpr(e, (x) => {
+      if (x.op === 'call') onCall(x)
+    })
+  for (const s of stmts) eachStmtExpr(s, onExpr)
 }
 
 /** Normalize `funcs` (array or key-named record) into the ModuleDecl array:

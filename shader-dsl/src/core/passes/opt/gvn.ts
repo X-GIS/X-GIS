@@ -43,6 +43,7 @@ import {
   collectMutatedRoots,
   refsLocal,
   isWorthHoisting,
+  mapStmtValue,
 } from './expr-utils.js'
 
 /** The varref / param root names an expression reads. */
@@ -99,31 +100,6 @@ function valueExprs(s: Stmt): readonly Expr[] {
       return s.arms.length > 0 ? [s.arms[0]!.cond] : []
     default:
       return [] // for / switch / break / continue / discard — see the note above
-  }
-}
-
-/** Rewrite the unconditionally-evaluated exprs of a statement (lvalue target
- *  untouched). Mirrors `valueExprs` exactly — a condition that is tallied but not
- *  rewritten would mint a temp and leave the original recomputing beside it, so the
- *  two must name the same set. The arm BODIES are already GVN'd as their own blocks
- *  by `recurseBlocks` and are carried over as-is. */
-function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
-  switch (s.s) {
-    case 'let':
-      return { ...s, expr: f(s.expr) }
-    case 'var':
-      return s.init !== undefined ? { ...s, init: f(s.init) } : s
-    case 'assign':
-    case 'assignOp':
-      return { ...s, expr: f(s.expr) }
-    case 'return':
-      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
-    case 'if': {
-      const [first, ...rest] = s.arms
-      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
-    }
-    default:
-      return s
   }
 }
 

@@ -12,7 +12,8 @@
 // Runs BEFORE lower/cse (which clone exprs and would break identity).
 
 import type { Expr, Stmt, FuncDecl, ModuleDecl, ShaderType } from '../../ir/index.js'
-import { eachExpr, mapChildren, mapStmtTop } from './expr-utils.js'
+import { mapStmtExpr } from '../../ir/visit.js'
+import { eachExpr, mapChildren } from './expr-utils.js'
 
 // The ROOT of an assign/assignOp target — peel any `.field` / `[i]` access so a member-assign
 // (`c.a = …` / `m[i] = …`) materialises the underlying value `c` / `m`, not the access expr.
@@ -160,7 +161,7 @@ function autoVarsFn(f: FuncDecl): FuncDecl {
           defaultBody: s.defaultBody ? processBlock(s.defaultBody) : undefined,
         }
       default:
-        return mapStmtTop(s, rewrite)
+        return mapStmtExpr(s, rewrite)
     }
   }
 

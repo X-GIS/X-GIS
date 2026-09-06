@@ -6,6 +6,13 @@
 
 import type { Expr, Stmt, ShaderType } from '../../ir/index.js'
 import { typeKey } from '../../ir/index.js'
+import { eachExpr, mapStmtExpr } from '../../ir/visit.js'
+
+// The IR walkers moved to `core/ir/visit.ts` — `core/ir` cannot import from
+// `passes/opt`, and the builder / fp64 / GLSL backends need them too (ADR-0013:
+// IR walkers live in core/ir). Re-exported here so the analysis passes keep ONE
+// import surface; a NEW walker belongs in visit.ts, not in this file.
+export { eachExpr, mapChildren } from '../../ir/visit.js'
 
 /** `'i32'` / `'u32'` for an integer scalar or integer VECTOR type, else undefined.
  *
@@ -112,157 +119,33 @@ export const isCompound = (e: Expr): boolean =>
   e.op !== 'param' &&
   e.op !== 'varref'
 
-/** Visit `e` and every descendant (pre-order). */
-export function eachExpr(e: Expr, visit: (e: Expr) => void): void {
-  visit(e)
-  switch (e.op) {
-    case 'binop':
-    case 'compare':
-    case 'logical':
-      eachExpr(e.a, visit)
-      eachExpr(e.b, visit)
-      break
-    case 'unop':
-      eachExpr(e.a, visit)
-      break
-    case 'call':
-    case 'construct':
-      for (const a of e.args) eachExpr(a, visit)
-      break
-    case 'member':
-      eachExpr(e.base, visit)
-      break
-    case 'index':
-      eachExpr(e.base, visit)
-      eachExpr(e.idx, visit)
-      break
-    case 'select':
-      eachExpr(e.cond, visit)
-      eachExpr(e.ifTrue, visit)
-      eachExpr(e.ifFalse, visit)
-      break
-    case 'matchExpr':
-      eachExpr(e.scrutinee, visit)
-      for (const [, v] of e.cases) eachExpr(v, visit)
-      eachExpr(e.default, visit)
-      break
-    default:
-      break
-  }
-}
-
-/** Rebuild `e` with `f` applied to its direct children only (self untouched). */
-export function mapChildren(e: Expr, f: (c: Expr) => Expr): Expr {
-  switch (e.op) {
-    case 'lit':
-    case 'constref':
-    case 'overrideref':
-    case 'externref':
-    case 'param':
-    case 'varref':
-      return e
-    case 'binop':
-      return { ...e, a: f(e.a), b: f(e.b) }
-    case 'compare':
-      return { ...e, a: f(e.a), b: f(e.b) }
-    case 'logical':
-      return { ...e, a: f(e.a), b: f(e.b) }
-    case 'unop':
-      return { ...e, a: f(e.a) }
-    case 'call':
-      return { ...e, args: e.args.map(f) }
-    case 'construct':
-      return { ...e, args: e.args.map(f) }
-    case 'member':
-      return { ...e, base: f(e.base) }
-    case 'index':
-      return { ...e, base: f(e.base), idx: f(e.idx) }
-    case 'select':
-      return { ...e, cond: f(e.cond), ifTrue: f(e.ifTrue), ifFalse: f(e.ifFalse) }
-    case 'matchExpr':
-      return {
-        ...e,
-        scrutinee: f(e.scrutinee),
-        cases: e.cases.map(([n, v]) => [n, f(v)] as const),
-        default: f(e.default),
-      }
-  }
-}
-
-/** Visit every top-level expr in a stmt (and its nested bodies' top-level exprs). */
-export function forEachTopExpr(s: Stmt, visit: (e: Expr) => void): void {
+/** The unconditionally-evaluated VALUE positions of a statement, rewritten through `f`
+ *  (the lvalue TARGET is not one, and the nested block bodies are their own blocks).
+ *  Shared by `cse-local` and `gvn`, which must name exactly the same set as their
+ *  `valueExprs`: a position that is tallied but not rewritten mints a temp and leaves
+ *  the original recomputing beside it. `glsl-legalize` keeps its OWN version — it also
+ *  rewrites the target's INDEX subexpressions, a different set on purpose. */
+export function mapStmtValue(s: Stmt, f: (e: Expr) => Expr): Stmt {
   switch (s.s) {
-    case 'let':
-      eachExpr(s.expr, visit)
-      break
-    case 'var':
-      if (s.init !== undefined) eachExpr(s.init, visit)
-      break
     case 'assign':
     case 'assignOp':
-      eachExpr(s.target, visit)
-      eachExpr(s.expr, visit)
-      break
-    case 'return':
-      if (s.expr !== undefined) eachExpr(s.expr, visit)
-      break
-    case 'if':
-      for (const a of s.arms) {
-        eachExpr(a.cond, visit)
-        for (const b of a.body) forEachTopExpr(b, visit)
-      }
-      if (s.elseBody) for (const b of s.elseBody) forEachTopExpr(b, visit)
-      break
-    case 'for':
-      forEachTopExpr(s.init, visit)
-      eachExpr(s.cond, visit)
-      forEachTopExpr(s.update, visit)
-      for (const b of s.body) forEachTopExpr(b, visit)
-      break
-    case 'switch':
-      eachExpr(s.scrut, visit)
-      for (const c of s.cases) for (const b of c.body) forEachTopExpr(b, visit)
-      if (s.defaultBody) for (const b of s.defaultBody) forEachTopExpr(b, visit)
-      break
-    default:
-      break
-  }
-}
-
-/** Apply `f` to each top-level expr of a stmt (f does its own recursion). */
-export function mapStmtTop(s: Stmt, f: (e: Expr) => Expr): Stmt {
-  switch (s.s) {
-    case 'let':
+      // The lvalue TARGET is not a value position — only the right-hand side.
       return { ...s, expr: f(s.expr) }
+    case 'if': {
+      // Arm 0 only: every later arm is an `else if`, reached only when the earlier
+      // conditions were false, so hoisting one would evaluate it unconditionally.
+      const [first, ...rest] = s.arms
+      return first === undefined ? s : { ...s, arms: [{ ...first, cond: f(first.cond) }, ...rest] }
+    }
+    case 'let':
     case 'var':
-      return s.init !== undefined ? { ...s, init: f(s.init) } : s
-    case 'assign':
-    case 'assignOp':
-      return { ...s, target: f(s.target), expr: f(s.expr) }
     case 'return':
-      return s.expr !== undefined ? { ...s, expr: f(s.expr) } : s
-    case 'if':
-      return {
-        ...s,
-        arms: s.arms.map((a) => ({ cond: f(a.cond), body: a.body.map((b) => mapStmtTop(b, f)) })),
-        elseBody: s.elseBody?.map((b) => mapStmtTop(b, f)),
-      }
-    case 'for':
-      return {
-        ...s,
-        init: mapStmtTop(s.init, f),
-        cond: f(s.cond),
-        update: mapStmtTop(s.update, f),
-        body: s.body.map((b) => mapStmtTop(b, f)),
-      }
-    case 'switch':
-      return {
-        ...s,
-        scrut: f(s.scrut),
-        cases: s.cases.map((c) => ({ value: c.value, body: c.body.map((b) => mapStmtTop(b, f)) })),
-        defaultBody: s.defaultBody?.map((b) => mapStmtTop(b, f)),
-      }
+      // These hold nothing BUT value positions and no nested body, so the shared
+      // statement rewrite is exactly right for them.
+      return mapStmtExpr(s, f)
     default:
+      // `for` / `switch` headers run per-iteration or guard a block — not value
+      // positions here — and the Expr-less kinds have nothing to rewrite.
       return s
   }
 }
