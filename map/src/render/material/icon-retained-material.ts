@@ -1,26 +1,26 @@
 // ═══ Retained-icon adapter over the generic Material (#797 Phase 1) ═══
 //
-// The GPU adapter for the host DRAWING API's retained geo-anchored icon batch.
-// Modeled on IconDraper (a thin ~adapter over the generic Material, NOT a new
-// renderer) — with two structural choices the #797 P1 N-independence gate needs:
+// The GPU adapter for the host DRAWING API's retained geo-anchored icon batch. Modeled on
+// IconDraper (a thin adapter over the generic Material, NOT a new renderer); everything it
+// shares with the other four retained overlays lives in `retained-overlay-material.ts`,
+// including the two structural choices the #797 P1 N-independence gate needs:
 //
-//   • The batch resources (feat storage + tint storage + atlas texture/sampler)
-//     are group 1, bound through a bind group the caller builds ONCE per batch and
-//     caches (like IconDraper's pre-built bind group, NOT PointDraper's per-draw
-//     createBindGroup). Stable because Phase 0 guarantees a never-recreated atlas
-//     texture identity and the batch's feat/tint buffers are packed once.
-//   • The ~160 B frame uniform (pointU) is group 0 in the Material POOL — one pool
-//     slot PER world copy per draw, so a flat-Mercator batch can fan out across
-//     visible world copies (each with its own `world_offset` in circle_params.x)
-//     WITHOUT re-baking the per-instance buffer. queue.writeBuffer can't feed two
-//     draws in one pass different values from one buffer; the pool gives each copy
-//     its own buffer. COPIES is O(1..~5), so this stays N-independent.
+//   • The ~160 B frame uniform (pointU) is group 0 in the Material POOL — one pool slot PER
+//     world copy per draw, so a flat-Mercator batch can fan out across visible world copies
+//     (each with its own `world_offset` in circle_params.x) WITHOUT re-baking the
+//     per-instance buffer. queue.writeBuffer can't feed two draws in one pass different
+//     values from one buffer; the pool gives each copy its own. COPIES is O(1..~5), so this
+//     stays N-independent.
+//   • draw = draw(6, count) instanced, one call per world copy (`drawPerWorldCopy`).
 //
-// draw = draw(6, count) instanced — no vertex/index buffers (the quad is
-// procedural from vertex_index; the per-instance record is read from the feat
-// storage via instance_index). One draw call per world copy.
+// THE ICON'S OWN HALF is group 1: unlike arrow / circle / particle it is a SPRITE, so the
+// atlas texture and its sampler join feat + tint. The bind group is built ONCE per batch and
+// cached by the caller (like IconDraper's pre-built bind group, NOT PointDraper's per-draw
+// createBindGroup) — stable because Phase 0 guarantees a never-recreated atlas texture
+// identity and the batch's feat/tint buffers are packed once.
 
 import type {
+  Material,
   RhiBindGroup,
   RhiBuffer,
   RhiDevice,
@@ -28,62 +28,42 @@ import type {
   RhiSampler,
   RhiTextureView,
 } from '@xgis/engine'
-import { Material, executeItems, type DrawItem } from '@xgis/engine'
 import { emitIconRetainedWgsl, emitIconRetainedGlslStages } from '../../shaders/dsl/icon-retained'
-import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
-import { wgslFor, glslStagesFor } from './wgsl-for'
+import {
+  batchBindGroup,
+  drawPerWorldCopy,
+  retainedOverlayMaterial,
+} from './retained-overlay-material'
 
 export class RetainedIconDraper {
   private readonly material: Material
 
   constructor(rhi: RhiDevice, format: string, sampleCount: number, uniformSlotSize: number) {
-    // #823 — GLSL ES 3.00 twins for the WebGL2 backend, emitted behind a LIVE
-    // backend guard so the WebGPU boot never pays the double emit (#778 P6).
-    // WebGl2Device.createPipeline requires the split sources; WebGPU ignores them.
-    this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitIconRetainedWgsl, simpleWgslId('icon-retained')),
-      ...glslStagesFor(rhi, emitIconRetainedGlslStages, {
-        vertex: simpleGlslId('icon-retained', 'vertex'),
-        fragment: simpleGlslId('icon-retained', 'fragment'),
-      }),
+    this.material = retainedOverlayMaterial(rhi, format, sampleCount, uniformSlotSize, {
+      family: 'icon-retained',
+      wgsl: emitIconRetainedWgsl,
+      glslStages: emitIconRetainedGlslStages,
       vsEntry: 'vs_icon_retained',
       fsEntry: 'fs_icon_retained',
-      format: format as 'bgra8unorm',
-      sampleCount,
-      // Entry `name`s = the DSL binding names — the WebGL2 backend reflects the
-      // linked program BY NAME with them (multi-resource group 1 binds correctly
-      // regardless of declaration order); WebGPU ignores them.
-      groups: [
-        // group 0 — the per-copy frame uniform (pooled). GLSL UBO tag = struct name.
-        [{ binding: 0, kind: 'uniform', name: 'Uniforms' }],
-        // group 1 — the per-batch resources (built once, cached by the caller).
-        [
-          { binding: 0, kind: 'storage', name: 'feat_data' }, // position DSFUN + quad geometry
-          { binding: 1, kind: 'storage', name: 'tint_data' }, // rgba, its own buffer
-          { binding: 2, kind: 'texture', name: 'atlas_tex' }, // atlas
-          { binding: 3, kind: 'sampler', name: 'atlas_smp' },
-        ],
+      group1: [
+        { binding: 0, kind: 'storage', name: 'feat_data' }, // position DSFUN + quad geometry
+        { binding: 1, kind: 'storage', name: 'tint_data' }, // rgba, its own buffer
+        { binding: 2, kind: 'texture', name: 'atlas_tex' }, // atlas
+        { binding: 3, kind: 'sampler', name: 'atlas_smp' },
       ],
-      colorTargets: [{ format: format as 'bgra8unorm', blend: 'alpha' }],
-      // No depth-stencil — pure overlay (globe far-side handled by the shader's
-      // cos_c cull, not the depth buffer). Single variant.
-      variants: [{ label: 'icon-retained-pipeline-rhi' }],
-      // Frame uniform per world copy (raster's per-tile pool pattern).
-      pool: { group: 0, slotSize: uniformSlotSize },
     })
   }
 
-  /** Build the per-batch group-1 bind group ONCE (feat + tint storage + atlas
-   *  view/sampler). Cached by the caller for the batch's life — the atlas view is
-   *  Phase-0 stable-identity, and feat/tint are packed once, so the bind group
-   *  never needs rebuilding on a camera-only frame. */
+  /** Build the per-batch group-1 bind group ONCE (feat + tint storage + atlas view/sampler).
+   *  Cached by the caller for the batch's life — the atlas view is Phase-0 stable-identity,
+   *  and feat/tint are packed once, so it never needs rebuilding on a camera-only frame. */
   makeBatchBindGroup(
     feat: RhiBuffer,
     tint: RhiBuffer,
     atlasView: RhiTextureView,
     atlasSampler: RhiSampler,
   ): RhiBindGroup {
-    return this.material.rhi.createBindGroup(this.material.layout(1), [
+    return batchBindGroup(this.material, [
       { binding: 0, resource: { buffer: feat } },
       { binding: 1, resource: { buffer: tint } },
       { binding: 2, resource: { view: atlasView } },
@@ -91,28 +71,12 @@ export class RetainedIconDraper {
     ])
   }
 
-  /** Draw one batch across its visible world copies. `perCopyUniformBytes` holds
-   *  one frame-uniform snapshot per copy (each with its own world_offset baked in
-   *  circle_params.x); `count` is the instance count (icons in the batch). One
-   *  instanced draw(6, count) per copy. Returns the draw calls issued (= copies,
-   *  NOT the instance count) — the N-independence invariant the #797 gate pins. */
   draw(
     pass: RhiRenderPass,
     batchBindGroup: RhiBindGroup,
     perCopyUniformBytes: ReadonlyArray<BufferSource>,
     count: number,
   ): number {
-    if (count === 0 || perCopyUniformBytes.length === 0) return 0
-    const items: DrawItem[] = perCopyUniformBytes.map((bytes) => ({
-      variant: 0,
-      // group 0 (null) is filled from the pool via poolBytes; group 1 is the
-      // cached batch bind group.
-      bindGroups: [null, batchBindGroup],
-      poolBytes: bytes,
-      count: 6,
-      indexed: false,
-      instanceCount: count,
-    }))
-    return executeItems(this.material, pass, items)
+    return drawPerWorldCopy(this.material, pass, batchBindGroup, perCopyUniformBytes, count)
   }
 }

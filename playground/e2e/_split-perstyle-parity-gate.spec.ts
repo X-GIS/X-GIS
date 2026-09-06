@@ -12,11 +12,34 @@
 // colours, no filters, so every layer is its own per-style show).
 //
 // Vacuity guards (the #996 lesson):
-//   • the ON arm must report `__xgisVtrSplitDraws > 0` — per-style twins
-//     count through the same executed-mechanism counter — AND
-//     `__xgisVtrWalkSkips > 0` — the INC-5 pack bypass must now ENGAGE for
-//     this class (it measured 0 here before INC-4d, which is the finding
-//     this increment answers); the OFF arm must report 0 for both.
+//   • the ON arm must report `__xgisVtrSplitPerStyleDraws > 0` — the PER-STYLE
+//     branch of recordFillDraw alone — plus `__xgisVtrSplitDraws > 0` and
+//     `__xgisVtrWalkSkips > 0` (the INC-5 pack bypass must ENGAGE for this
+//     class); the OFF arm must report 0 for all three.
+//
+//     #2572 — the per-style counter is why those other two are no longer the
+//     guard. Both are satisfied by the DEFAULT flat/ground twins: the total
+//     counts `mat === eff.flat` draws (polygon-fill-material.ts), and
+//     `_walkRingFree`'s `splitFillsCapable` is an OR over the four default
+//     pipelines and the per-style twin (vector-tile-renderer.ts:2131-2137). So
+//     any variant-less fill in the scene drives both above zero whatever the
+//     per-style resolver answers — which is exactly what happened: the resolver
+//     decided eligibility by regexing the emitted module (the union of all nine
+//     entry points, so `fs_fill_pattern`'s sprite bindings disqualified every
+//     variant), returned null for every styled fill this gate draws, and this
+//     gate stayed GREEN throughout. A composite counter cannot attribute.
+//
+//     #2584 — and the per-style path is empty here for a SECOND, separate reason.
+//     Measured across three runs, both arms on WebGPU: fills/perStyle/skips =
+//     185/0/180, 169/0/165, 201/0/180 — the per-style branch executes zero times,
+//     `perStyleSplitTwin` is never called, and the per-style Material lookup in
+//     `recordFillDraw` never hits. WHY is not established: the compiler does hand
+//     the renderer a per-style-composing variant for every fill layer in this scene
+//     (measured through `convertMapboxStyle` → `lower` → `emitCommands` →
+//     `toComposerVariant`: NON-NULL for a literal colour as well as for `get` /
+//     `match` / `interpolate`), so the break is somewhere between that variant and
+//     `eff.perStyle`. The per-style assertion is DEFERRED to #2584 rather than
+//     guessed at. Two independent defects were hiding each other here.
 //   • No skew arm: these variants INLINE their colours as module consts, so
 //     the ShowBlock colour lanes the skew hook inverts are never read — the
 //     read-proof for the lanes this class DOES consume (mvp/proj from
@@ -212,11 +235,27 @@ function pixelDiff(a: Buffer, b: Buffer): { count: number; highCount: number; ma
   return { count, highCount, maxDelta }
 }
 
-const mechCounts = (page: Page): Promise<{ fills: number; skips: number }> =>
-  page.evaluate(() => ({
-    fills: (globalThis as { __xgisVtrSplitDraws?: number }).__xgisVtrSplitDraws ?? 0,
-    skips: (globalThis as { __xgisVtrWalkSkips?: number }).__xgisVtrWalkSkips ?? 0,
-  }))
+const mechCounts = (
+  page: Page,
+): Promise<{ fills: number; perStyle: number; skips: number; backend: string }> =>
+  page.evaluate(() => {
+    const g = globalThis as {
+      __xgisVtrSplitDraws?: number
+      __xgisVtrSplitPerStyleDraws?: number
+      __xgisVtrWalkSkips?: number
+      __xgisMap?: { ctx?: { rhi?: { backend?: string } } }
+    }
+    return {
+      fills: g.__xgisVtrSplitDraws ?? 0,
+      perStyle: g.__xgisVtrSplitPerStyleDraws ?? 0,
+      skips: g.__xgisVtrWalkSkips ?? 0,
+      // A silent WebGL2 fallback builds no split layout at all
+      // (PipelineFactory.build early-returns), so every counter reads 0 for a
+      // reason that has nothing to do with eligibility. Report it rather than
+      // let it masquerade as an ineligible twin.
+      backend: g.__xgisMap?.ctx?.rhi?.backend ?? 'unknown',
+    }
+  })
 
 test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk-skip provably engage', async ({
   browser,
@@ -246,13 +285,27 @@ test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk
   ] as const) {
     expect(arm.errors, `arm ${name} page errors:\n${arm.errors.join('\n')}`).toEqual([])
   }
+  // A red arm must say what it MEASURED, not only which bound it missed.
+  console.log(`[perstyle-parity] legacy ${JSON.stringify(legacyCounts)}`)
+  console.log(`[perstyle-parity] split  ${JSON.stringify(splitCounts)}`)
   expect(
-    legacyCounts.fills + legacyCounts.skips,
+    splitCounts.backend,
+    'split arm did not run on WebGPU — no split layout is built at all',
+  ).toBe('webgpu')
+  expect(
+    legacyCounts.fills + legacyCounts.perStyle + legacyCounts.skips,
     'legacy arm recorded split draws / walk-skips — the flag gate leaks',
   ).toBe(0)
+  // #2584 — `splitCounts.perStyle` is the guard this gate WANTS, and it cannot be
+  // asserted yet: measured at ZERO across three runs while the total varied with
+  // tile selection (185/169/201), so the per-style branch is structurally never
+  // reached in this scene. The cause is open — the compiler DOES produce a
+  // per-style-composing variant for these layers — so #2584 owns finding it and
+  // turning this assertion on. Until then the gate measures the default class, and
+  // the log line above is what says so out loud instead of leaving it silent.
   expect(
     splitCounts.fills,
-    'split arm recorded ZERO split FILL draws — the per-style twin never engaged; the A/B below is vacuous',
+    'split arm recorded ZERO split FILL draws — the split path never engaged at all',
   ).toBeGreaterThan(0)
   expect(
     splitCounts.skips,
