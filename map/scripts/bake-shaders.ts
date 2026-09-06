@@ -35,51 +35,30 @@
 // be gated against — the gate would then be green by construction and prove nothing.
 // The artifact is COMMITTED; this script is how a human refreshes it.
 //
-// Configure order mirrors the XGISMap constructor exactly (configureProjections, then
-// applyBodyOption): the emitted sources splice in the host-injected projection graph
-// and embed the body consts as literals, so a bake under different seams is a
-// different artifact. `applyBodyOption()` with no argument keeps the process default,
-// which is EARTH — the only body the committed artifact is valid for, and what the
-// gate re-checks through the artifact's `meta`.
+// The host seams (configureProjections, then applyBodyOption — the XGISMap constructor's
+// order), the (language, group) walk and the module text are `renderAllBakedModules` in
+// `map/src/shaders/baked/bake-all.ts`: ONE authority, shared with the dev-server plugin
+// (`playground/dev/bake-shaders-on-edit.ts`, #2535) that re-bakes on every shader edit
+// while `bun run dev` is up. This script is the no-dev-server path, and the only one that
+// needs the build above.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { PROJECTIONS } from '@xgis/geo'
-import { configureProjections } from '../src/shaders/dsl/projections'
-import { applyBodyOption } from '../src/body-consts'
-import {
-  buildBakedArtifact,
-  renderBakedModule,
-  bakedArtifactFile,
-  bakedReportRow,
-  formatBakedReport,
-  BAKED_GROUPS,
-  BAKED_LANGUAGES,
-  type BakedReportRow,
-} from '../src/shaders/baked/bake'
+import { bakedReportRow, formatBakedReport, type BakedReportRow } from '../src/shaders/baked/bake'
+import { renderAllBakedModules } from '../src/shaders/baked/bake-all'
 
-configureProjections(PROJECTIONS)
-applyBodyOption()
-
-const written: {
-  language: (typeof BAKED_LANGUAGES)[number]
-  group: (typeof BAKED_GROUPS)[number]
-  path: string
-  artifact: ReturnType<typeof buildBakedArtifact>
-}[] = []
-for (const language of BAKED_LANGUAGES)
-  for (const group of BAKED_GROUPS) {
-    const artifact = buildBakedArtifact(language, group)
-    const file = bakedArtifactFile(language, group)
-    const path = fileURLToPath(new URL(`../src/shaders/baked/${file}`, import.meta.url))
-    writeFileSync(path, renderBakedModule(language, group, artifact))
-    written.push({ language, group, path, artifact })
-    console.log(
-      `${file}: ${Object.keys(artifact.index).length} keys → ` +
-        `${Object.keys(artifact.contents).length} distinct sources`,
-    )
-  }
+// The seams, the key walk and the module text are `renderAllBakedModules` — ONE authority,
+// shared with the dev-server plugin (#2535). This script only writes and formats.
+const written = renderAllBakedModules().map((m) => {
+  const path = fileURLToPath(new URL(`../src/shaders/baked/${m.file}`, import.meta.url))
+  writeFileSync(path, m.text)
+  console.log(
+    `${m.file}: ${Object.keys(m.artifact.index).length} keys → ` +
+      `${Object.keys(m.artifact.contents).length} distinct sources`,
+  )
+  return { ...m, path }
+})
 const paths = written.map((w) => w.path)
 
 // Format through the REPO ROOT's prettier so the committed bytes are already canonical.

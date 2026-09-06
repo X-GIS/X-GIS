@@ -102,6 +102,18 @@ export interface Demo {
   projection?: string
   /** Action buttons rendered by demo-runner while this demo is mounted. */
   actions?: DemoAction[]
+  /** D5 INC-3 (#2539) — 3D terrain vertical exaggeration applied on open, 0 = flat.
+   *
+   *  Demo metadata for the same reason `pitch` is: the `.xgis` carries only style,
+   *  and the Mapbox `terrain` block that would carry this is not lowered yet, so the
+   *  runtime lever (`map.hillshadeRenderer.setTerrainExaggeration`) is what a demo has.
+   *  When that block lands this field goes away and the style owns it — it is a
+   *  stopgap with a named end, not a second authority.
+   *
+   *  Unlike the camera fields it is NOT hash-overridable: `#z/lat/lon` carries no
+   *  terrain term, so gating it on `!location.hash` would silently flatten the demo
+   *  for anyone arriving with a shared camera link. */
+  terrainExaggeration?: number
   /** Initial camera pitch (degrees) / bearing (degrees) applied on open with
    *  the same hash-override rule. For camera-pose demos (the MapLibre
    *  "Set pitch and bearing" port) — the .xgis carries only style, so the

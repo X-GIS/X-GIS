@@ -207,6 +207,9 @@ export const ISOLATED = [
   'map/src/render/raster-tile-retry-storm.test.ts',
   'map/src/render/renderer-compute-simulation.test.ts',
   'map/src/render/renderer-stub-construction.test.ts',
+  // (2) `configureBody` — it switches the process-global body to MOON / MARS to
+  //     witness #2564 and restores EARTH in afterEach.
+  'map/src/render/tile-camera-anchor-body.test.ts',
   'map/src/render/tile-compute-resources.test.ts',
   'map/src/render/vector-drape-bake-budget.test.ts',
   'map/src/render/vector-tile-renderer-helpers.test.ts',
