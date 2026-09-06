@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { packDrawSubKey } from './draw-dedup-key'
+import { renderPathSource } from './render-path-source'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -178,7 +179,7 @@ describe('the world-copy unit is the one the call sites pass -- degrees', () => 
 })
 
 describe('the dedup path is numeric end to end (#2309)', () => {
-  const VTR = readFileSync(join(HERE, 'vector-tile-renderer.ts'), 'utf8')
+  const VTR = renderPathSource()
   const STATS = readFileSync(join(HERE, 'frame-draw-stats.ts'), 'utf8')
 
   it('no draw key is built as a template literal', () => {

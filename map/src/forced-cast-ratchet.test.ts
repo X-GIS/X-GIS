@@ -128,7 +128,15 @@ const BASELINE: Record<string, number> = {
   // 5→6 (INC-4c): the stroke_color fieldOffset key for the stroke-read
   // skew witness — same reflection-key class as the rest.
   'map/src/render/uniform-split-bind.ts': 6,
-  'map/src/render/vector-tile-renderer.ts': 2,
+  // 2→1 (#2537): the `window as unknown as {…}` debug-flag read moved out with
+  // `resolveLayerSlot`. A MOVE, not a closure — the destination below carries it,
+  // so the total is unchanged.
+  'map/src/render/vector-tile-renderer.ts': 1,
+  // #2537 — arrived with `resolveLayerSlot` from vector-tile-renderer.ts (2→1
+  // above). A `globalThis`/`window` shape read for a debug escape hatch: the DOM
+  // lib has no such property, so there is no type seam to fix, only a cast to
+  // confine — which is what the local shape literal does.
+  'map/src/render/render-phases/resolve-layer-slot.ts': 1,
   'map/src/shaders/dsl/projections.ts': 2,
   'map/src/source-manager.ts': 5,
   'map/src/sprite/icon-renderer.ts': 1,

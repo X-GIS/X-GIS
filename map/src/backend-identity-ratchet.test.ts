@@ -97,6 +97,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { renderPathSource } from './render/render-path-source'
 
 const MAP_SRC = join(dirname(fileURLToPath(import.meta.url)))
 // 31→29 (#2499 step 3): scene-upscale-material.ts and line-composite-material.ts route their
@@ -201,7 +202,7 @@ function drapeRoutingExpr(src: string): string {
 
 describe("#2474 presence gate: the globe drape's routing reads a CAPABILITY", () => {
   it('`bakeAvailable` asks caps.outOfFramePasses and names no backend', () => {
-    const vtr = readFileSync(join(MAP_SRC, 'render', 'vector-tile-renderer.ts'), 'utf8')
+    const vtr = renderPathSource()
     const expr = drapeRoutingExpr(vtr)
     // CAUSE before EFFECT (§12): the cap must be what is read...
     expect(expr, `the drape's routing site no longer reads the capability:\n${expr}`).toContain(

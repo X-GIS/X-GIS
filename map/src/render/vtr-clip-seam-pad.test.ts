@@ -17,10 +17,8 @@
 // the source gate is the fail-before lever (pristine source has no `clipPad` → RED).
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { EARTH } from '@xgis/shared'
+import { renderPathSource } from './render-path-source'
 
 // ── Shader discard predicate, emulated in plain JS (same strict inequalities + gate) ──
 type Clip = { x: number; y: number; z: number; w: number }
@@ -126,10 +124,7 @@ describe('#1087 fallback clip-window overlap pad — CPU invariant', () => {
 // This is the fail-before lever: pristine vector-tile-renderer.ts has no `clipPad`, so the
 // two `clipPad` assertions go RED under `git stash` of the source fix.
 describe('#1087 source gate — pack site vs sentinels', () => {
-  const src = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-    'utf8',
-  )
+  const src = renderPathSource()
 
   it('real-window arm computes the 1-CSS-px Mercator pad from the in-scope R + camera zoom', () => {
     expect(src).toMatch(
