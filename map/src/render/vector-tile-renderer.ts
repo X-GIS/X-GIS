@@ -2989,6 +2989,10 @@ export class VectorTileRenderer {
         ? strokeWidthPx_h / 2
         : 0
     const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
+    // jscpd:ignore-start — twin of `tile-selection-cache.ts`'s selector-projection
+    // rationale, which is the authority for it; both sites must build the projection the
+    // same way and the prose says why. Pre-exists on main (VTR:2871); #2508 only moved it
+    // here, which re-fingerprints the pair for the dup ratchet (#2577).
     // Projection-aware tile selection: the flat selectors project tile
     // corners through THIS projection's forward (relative to the projected
     // centre), matching the GPU vertex path, so equirect / natural_earth
@@ -3003,6 +3007,7 @@ export class VectorTileRenderer {
       args.projType >= 1 && args.projType <= 6
         ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, args.projCenterLon, args.projCenterLat)
         : mercatorProj
+    // jscpd:ignore-end
 
     // Per-frame visible-tile selection + zoom-transition hysteresis +
     // readiness gate. The selection collaborator owns the cross-frame
@@ -3334,6 +3339,12 @@ export class VectorTileRenderer {
       // lines (boundary_3 has [1,1] dash + 1-2 px width — without
       // the multiply, 1-px dashes against a 1-px line gave near-
       // continuous coverage and looked solid).
+      // jscpd:ignore-start — twins of `renderLinesRhi`'s dash + pattern-slot derivation,
+      // which that method documents as mirroring this one verbatim (#834 M5 slice 5) so the
+      // WebGL2 line path cannot drift from the WebGPU paint path. Both copies pre-exist on
+      // main (VTR:1580/1599 and :3189/3208); #2508 only moved this one into the paint phase,
+      // which re-fingerprints the pair for the dup ratchet. Extracting the two helpers is
+      // #2577 — a WebGL2-path change this motion-only refactor must not smuggle in.
       const dashWidthScalePx = sel.strokeWidthPx_h
       // Prefer the PER-FRAME resolved dash array (zoom-interp STEP) over
       // the static one; constant dash falls through unchanged.
@@ -3378,6 +3389,7 @@ export class VectorTileRenderer {
           anchor: anchorMap[p.anchor ?? 'repeat'],
         }))
         .filter((p) => p.shapeId > 0)
+      // jscpd:ignore-end
 
       // In translucent mode ('strokes' phase) the offscreen RT must hold the FULL color + stroke
       // alpha (no opacity multiply); the composite step then blends with the layer opacity —
@@ -4625,6 +4637,15 @@ export class VectorTileRenderer {
               this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
             )
           } else {
+            // jscpd:ignore-start — the bundle-hit re-walk below and the no-bundle arm that
+            // follows issue the SAME 17-argument fallback dispatch; only the surrounding
+            // bundle bookkeeping differs. The pair pre-exists on main, and hoisting the two
+            // calls into one helper is blocked by a gate rather than by taste:
+            // `vtr-fallback-drape-draw.test.ts` anchors the #1076 witness on the POSITION of
+            // each `renderTileKeys(` relative to the drape clear and restore, so a helper
+            // declared at the top of this phase would put the first occurrence above the
+            // clear and silently retarget it. Consolidating means reworking that gate's
+            // anchoring first — #2577.
             this._skipFillDrawForBundle = true
             this._skipStrokeDrawForBundle = true
             this.renderTileKeys(
@@ -4684,6 +4705,7 @@ export class VectorTileRenderer {
             ctx.sliceLayer,
           )
         }
+        // jscpd:ignore-end
       } finally {
         this._drapeGlobeFills = _fbSavedDrapeGlobeFills
         this._drapeStrokes = _fbSavedDrapeStrokes

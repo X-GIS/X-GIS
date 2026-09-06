@@ -444,7 +444,12 @@ const CEILINGS: Record<string, number> = {
   // key to 5613 (#2439 + the 2026-09-02 hunt) while this branch raised it to 5826, both from
   // the 5588 common base — so neither number is right and the sum is not the answer either
   // (§12). The number below is `wc -l` on the post-prettier MERGED tree.
-  'map/src/render/vector-tile-renderer.ts': 5851,
+  // 5851→5873 (#2577, on this branch): four clone pairs the dup ratchet reported as "added"
+  // are pre-existing on main — the phase spine MOVED the regions and rebound their
+  // identifiers, which re-fingerprints every overlapping pair for `--baseline-from-ref`.
+  // Marked as twins with their reasons rather than consolidated (a WebGL2-path extraction
+  // this motion-only PR must not smuggle in); the markers are the growth.
+  'map/src/render/vector-tile-renderer.ts': 5873,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
