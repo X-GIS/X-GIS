@@ -56,7 +56,7 @@ describe('#8 globe pan bearing rotation direction', () => {
     const cam = makeGlobeCamera(0, 0, 4)
     cam.bearing = 90
 
-    cam.pan(50, 0, W, H)
+    cam.pan(50, 0, W, H, DPR)
 
     // With Rot(-θ): gdy = -50*sin(π/2)+0 = -50 → centerLatDeg < 0 (WRONG)
     // With Rot(+θ): gdy = 50*sin(π/2)+0  = +50 → centerLatDeg > 0 (CORRECT)
@@ -83,7 +83,7 @@ describe('#8 globe pan bearing rotation direction', () => {
     // Now camera.pan must agree in sign with the reference.
     const camTest = makeGlobeCamera(0, 0, 4)
     camTest.bearing = 90
-    camTest.pan(50, 0, W, H)
+    camTest.pan(50, 0, W, H, DPR)
     expect(Math.sign(camTest.centerLatDeg)).toBe(Math.sign(camRef.centerLatDeg))
   })
 })
@@ -102,7 +102,7 @@ describe('#6 disc pole-ward zoom drift', () => {
     expect(cam.centerLatDeg).toBeCloseTo(88, 1)
 
     // Zoom in 1 step at screen centre
-    cam.zoomAt(1, W / 2, H / 2, W, H)
+    cam.zoomAt(1, W / 2, H / 2, W, H, DPR)
 
     // Without fix: centerLatDeg drifts to ~84 or lower
     // With fix: stays within 1° of 88
@@ -111,7 +111,7 @@ describe('#6 disc pole-ward zoom drift', () => {
 
   it('azimuthal_eq (projType=4) at lat=85 stays near 85 after zoom-in', () => {
     const cam = makeDiscCamera(0, 85, 2, 4)
-    cam.zoomAt(1, W / 2, H / 2, W, H)
+    cam.zoomAt(1, W / 2, H / 2, W, H, DPR)
     expect(cam.centerLatDeg).toBeGreaterThan(84)
   })
 })

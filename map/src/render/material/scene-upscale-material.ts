@@ -12,7 +12,8 @@
 import type { RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitSceneUpscaleWgsl, emitSceneUpscaleGlsl } from '../../shaders/dsl/scene-upscale'
-import { wgslFor } from './wgsl-for'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 export class SceneUpscaleDraper {
   private _material?: Material
@@ -31,13 +32,24 @@ export class SceneUpscaleDraper {
   /** Lazy — built on the first scaled frame. group 0 = sampler + scene colour.
    *  Opaque write (no blend): the seam replaces every screen pixel. */
   private mat(): Material {
-    const gl2 = this.rhi.backend === 'webgl2'
+    // #2499 — `scene-upscale` is a boot key now. Its emit used to land at the exact moment
+    // a weak device was downgrading quality; the store answers instead, and the seam is what
+    // decides which language this device reads.
     return (this._material ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, emitSceneUpscaleWgsl),
+      shader: wgslFor(this.rhi, emitSceneUpscaleWgsl, simpleWgslId('scene-upscale')),
       vsEntry: 'vs_upscale',
       fsEntry: 'fs_upscale',
-      vsCode: gl2 ? emitSceneUpscaleGlsl('vertex') : undefined,
-      fsCode: gl2 ? emitSceneUpscaleGlsl('fragment') : undefined,
+      ...glslStagesFor(
+        this.rhi,
+        () => ({
+          vertex: emitSceneUpscaleGlsl('vertex'),
+          fragment: emitSceneUpscaleGlsl('fragment'),
+        }),
+        {
+          vertex: simpleGlslId('scene-upscale', 'vertex'),
+          fragment: simpleGlslId('scene-upscale', 'fragment'),
+        },
+      ),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

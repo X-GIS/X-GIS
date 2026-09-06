@@ -246,7 +246,7 @@ describe('Camera — zoomAt preserves cursor world point', () => {
     const beforeWorldX = cam.centerX + before![0]
     const beforeWorldY = cam.centerY + before![1]
 
-    cam.zoomAt(2.0, cursorX, cursorY, W, H)
+    cam.zoomAt(2.0, cursorX, cursorY, W, H, DPR)
 
     const after = cam.unprojectToZ0(cursorX, cursorY, W, H)
     expect(after).not.toBeNull()
@@ -263,7 +263,7 @@ describe('Camera — zoomAt preserves cursor world point', () => {
   it('zoomAt clamps to maxZoom', () => {
     const cam = new Camera(0, 0, 20)
     cam.maxZoom = 22
-    cam.zoomAt(10.0, W / 2, H / 2, W, H)
+    cam.zoomAt(10.0, W / 2, H / 2, W, H, DPR)
     expect(cam.zoom).toBeLessThanOrEqual(22)
   })
 })
@@ -274,7 +274,7 @@ describe('Camera — pan X-wrap + Y clamp', () => {
     const startX = cam.centerX
     expect(startX).toBeGreaterThan(0)
     // Pan east by enough CSS pixels to cross the antimeridian.
-    cam.pan(-2000, 0, W, H) // negative dx in pan() = move world east
+    cam.pan(-2000, 0, W, H, DPR) // negative dx in pan() = move world east
     const wrapped = cam.centerX
     // Wrap kicks in: wrapped should NOT be far east of startX; it
     // should have wrapped to the negative side.
@@ -288,7 +288,7 @@ describe('Camera — pan X-wrap + Y clamp', () => {
     // matches Mapbox's "world point under cursor stays put" — the map
     // shifts in the OPPOSITE direction of the cursor motion.)
     const cam = new Camera(0, 0, 5)
-    for (let i = 0; i < 1000; i++) cam.pan(0, +100, W, H)
+    for (let i = 0; i < 1000; i++) cam.pan(0, +100, W, H, DPR)
     expect(cam.centerY).toBeGreaterThan(0)
     expect(cam.centerY).toBeLessThanOrEqual(20_037_508.34)
   })
@@ -298,7 +298,7 @@ describe('Camera — pan X-wrap + Y clamp', () => {
     // If a future tweak to `maxCameraY` lets the camera drift at
     // zoom 0, this assertion fires and forces a deliberate decision.
     const cam = new Camera(0, 0, 0)
-    for (let i = 0; i < 50; i++) cam.pan(0, +100, W, H)
+    for (let i = 0; i < 50; i++) cam.pan(0, +100, W, H, DPR)
     // -0 === 0 in IEEE 754, but vitest's `toBe` uses Object.is which
     // distinguishes them. Compare via Math.abs to ignore the sign of
     // zero (the clamp can land at either +0 or -0 depending on input).
@@ -620,7 +620,7 @@ describe('Camera — bearing + zoom accumulation', () => {
 
   it('zoomAt clamps zoom at 0 on the floor side too', () => {
     const cam = new Camera(0, 0, 0)
-    cam.zoomAt(-5, W / 2, H / 2, W, H)
+    cam.zoomAt(-5, W / 2, H / 2, W, H, DPR)
     expect(cam.zoom).toBeGreaterThanOrEqual(0)
   })
 
@@ -712,12 +712,12 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     const R = 6378137
     const cam = new Camera(0, 0, 3)
     cam.globeMode = true
-    cam.pan(100, 0, W, H) // drag right
+    cam.pan(100, 0, W, H, DPR) // drag right
     const lon = (cam.centerX / R) * (180 / Math.PI)
     expect(lon).toBeLessThan(0) // dragging right brings western land into view
     const cam2 = new Camera(0, 0, 3)
     cam2.globeMode = true
-    cam2.pan(0, 80, W, H) // drag down
+    cam2.pan(0, 80, W, H, DPR) // drag down
     const lat = (2 * Math.atan(Math.exp(cam2.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
     expect(lat).toBeGreaterThan(0) // drag down → look further south… content moves down
   })
@@ -726,7 +726,7 @@ describe('Camera — globeMode (orbit matrix for the true 3D globe)', () => {
     const R = 6378137
     const cam = new Camera(0, 85, 1)
     cam.globeMode = true
-    cam.pan(0, -5000, W, H) // huge upward drag
+    cam.pan(0, -5000, W, H, DPR) // huge upward drag
     const lat = (2 * Math.atan(Math.exp(cam.centerY / R)) - Math.PI / 2) * (180 / Math.PI)
     expect(lat).toBeLessThanOrEqual(85.0512)
     expect(Number.isFinite(cam.centerX)).toBe(true)
@@ -794,7 +794,7 @@ describe('Camera — gesture zoom honors minZoom (floor is minZoom, not literal 
   it('flat arm: zoomAt with a large zoom-out delta clamps at minZoom, not 0', () => {
     const cam = new Camera(0, 0, 10) // projType 0 (mercator) → flat zoomAt arm
     cam.minZoom = 8
-    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    cam.zoomAt(-20, W / 2, H / 2, W, H, DPR)
     expect(cam.zoom).toBeGreaterThanOrEqual(8)
   })
 
@@ -802,7 +802,7 @@ describe('Camera — gesture zoom honors minZoom (floor is minZoom, not literal 
     const cam = new Camera(0, 0, 10)
     cam.projType = 3 // orthographic — !globeMode && promotesToGlobeWhenTilted → disc arm (cam.ts:934)
     cam.minZoom = 8
-    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    cam.zoomAt(-20, W / 2, H / 2, W, H, DPR)
     expect(cam.zoom).toBeGreaterThanOrEqual(8)
   })
 
@@ -829,7 +829,7 @@ describe('Camera — gesture zoom honors minZoom (floor is minZoom, not literal 
 
   it('still clamps at the literal 0 floor when minZoom is left at its default', () => {
     const cam = new Camera(0, 0, 5) // minZoom defaults to 0
-    cam.zoomAt(-20, W / 2, H / 2, W, H)
+    cam.zoomAt(-20, W / 2, H / 2, W, H, DPR)
     expect(cam.zoom).toBeGreaterThanOrEqual(0)
     expect(cam.zoom).toBeCloseTo(0, 6)
   })

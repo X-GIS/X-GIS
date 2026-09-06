@@ -271,6 +271,7 @@ const LAYER = uniformStruct(
     gradient_pos: arrayOf(vec4fT, 2),
   },
 )
+export { LAYER as lineLayerU, PatternSlot as linePatternSlot } // #2499 step 4 — see line-uniform-slots.ts
 
 const LineSegment = structDecl('LineSegment', {
   // DSFUN endpoint pairs in tile-local Mercator meters.

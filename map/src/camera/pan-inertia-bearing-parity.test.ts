@@ -33,7 +33,7 @@ describe('pan inertia/drag parity across bearing (pitch 0)', () => {
       a.bearing = bearing
       const ax0 = a.centerX,
         ay0 = a.centerY
-      a.panToScreenAnchor(ax0, ay0, W / 2 + DX, H / 2 + DY, W, H)
+      a.panToScreenAnchor(ax0, ay0, W / 2 + DX, H / 2 + DY, W, H, 1)
       const dAx = a.centerX - ax0,
         dAy = a.centerY - ay0
 
@@ -45,7 +45,7 @@ describe('pan inertia/drag parity across bearing (pitch 0)', () => {
       b.bearing = bearing
       const bx0 = b.centerX,
         by0 = b.centerY
-      b.pan(DX, DY, W, H)
+      b.pan(DX, DY, W, H, 1)
       const dBx = b.centerX - bx0,
         dBy = b.centerY - by0
 

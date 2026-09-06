@@ -22,6 +22,7 @@ import type {
   RhiRenderPass,
 } from '@xgis/engine'
 import { emitFlowAdvectWgsl, emitFlowAdvectGlslStages } from '../../shaders/dsl/flow-advect'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
 import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** Floats in AdvectParams: step(4) + phase(4). */
@@ -53,11 +54,18 @@ export class FlowAdvectDraper {
     // mirroring its thunk seam too: one language per device, one lowering for the GLSL pair.
     // Byte-neutral — `emitFlowAdvectGlslStages` is pinned byte-identical to two per-stage
     // calls by `glsl-stage-entry-parity.test.ts`.
+    // #2499 step 3 — keyed. `flow-advect` is a LAZY family: its chunk is prefetched by
+    // `CoverageRenderer.setCoverage` the moment a coverage with a vector band is armed,
+    // strictly before the flow pass builds this draper — the same registration-seam
+    // contract `HeatmapRenderer.addLayer` follows (install.ts, `prefetchLazyShaders`).
     this.material = new Material(rhi, {
-      shader: wgslFor(rhi, emitFlowAdvectWgsl),
+      shader: wgslFor(rhi, emitFlowAdvectWgsl, simpleWgslId('flow-advect')),
       vsEntry: 'vs_flow_advect',
       fsEntry: 'fs_flow_advect',
-      ...glslStagesFor(rhi, emitFlowAdvectGlslStages),
+      ...glslStagesFor(rhi, emitFlowAdvectGlslStages, {
+        vertex: simpleGlslId('flow-advect', 'vertex'),
+        fragment: simpleGlslId('flow-advect', 'fragment'),
+      }),
       format: format as 'bgra8unorm',
       sampleCount,
       groups: [[...FLOW_ADVECT_BINDINGS]],

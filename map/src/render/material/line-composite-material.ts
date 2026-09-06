@@ -11,7 +11,8 @@ import type { RhiBuffer, RhiDevice, RhiRenderPass, RhiTextureView } from '@xgis/
 import { Material, executeItems } from '@xgis/engine'
 import { emitCompositeWgsl } from '../../shaders/dsl/line-composite'
 import { emitCompositeGlsl } from '../../shaders/dsl/line-glsl'
-import { wgslFor } from './wgsl-for'
+import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
+import { glslStagesFor, wgslFor } from './wgsl-for'
 
 /** Composite uniform ring slot size (matches LineRenderer.COMPOSITE_SLOT). */
 const COMPOSITE_SLOT = 256
@@ -42,13 +43,21 @@ export class LineCompositeDraper {
    *  'premult'. Entry names come from the DSL bindings (samp/src/CompUniform) so the webgl2
    *  by-name reflection wires them regardless of declaration order. */
   private mat(): Material {
-    const gl2 = this.rhi.backend === 'webgl2'
+    // #2499 — `line-composite` is a boot key now, so both languages come from the store
+    // before either emitter runs. Any translucent stroke reaches this draper, and it is
+    // built inside the draw path, which is why the family cannot be lazy.
     return (this._material ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, emitCompositeWgsl),
+      shader: wgslFor(this.rhi, emitCompositeWgsl, simpleWgslId('line-composite')),
       vsEntry: 'vs_full',
       fsEntry: 'fs_full',
-      vsCode: gl2 ? emitCompositeGlsl('vertex') : undefined,
-      fsCode: gl2 ? emitCompositeGlsl('fragment') : undefined,
+      ...glslStagesFor(
+        this.rhi,
+        () => ({ vertex: emitCompositeGlsl('vertex'), fragment: emitCompositeGlsl('fragment') }),
+        {
+          vertex: simpleGlslId('line-composite', 'vertex'),
+          fragment: simpleGlslId('line-composite', 'fragment'),
+        },
+      ),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [

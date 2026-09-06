@@ -47,6 +47,8 @@ const KEYED_LAZY: Readonly<Record<string, string>> = {
   'heatmap-accum': 'render/material/heatmap-material.ts',
   'heatmap-blur': 'render/material/heatmap-material.ts',
   'heatmap-compose': 'render/material/heatmap-material.ts',
+  // #2499 step 3 — prefetched by CoverageRenderer.setCoverage when a vector band is armed.
+  'flow-advect': 'render/material/flow-advect-material.ts',
 }
 
 describe('#1679 inc 9 — reader sanity', () => {

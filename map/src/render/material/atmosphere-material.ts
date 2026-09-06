@@ -11,7 +11,7 @@
 import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitAtmosphereWgsl, emitAtmosphereGlslStages } from '../../shaders/dsl/atmosphere'
-import { wgslFor, glslStagesFor } from './wgsl-for'
+import { LIVE, glslStagesFor, wgslFor } from './wgsl-for'
 
 export class AtmosphereDraper {
   private _material?: Material
@@ -28,10 +28,10 @@ export class AtmosphereDraper {
    *  not in the closed set). */
   private mat(): Material {
     return (this._material ??= new Material(this.rhi, {
-      shader: wgslFor(this.rhi, emitAtmosphereWgsl),
+      shader: wgslFor(this.rhi, emitAtmosphereWgsl, LIVE),
       vsEntry: 'vs_atmosphere',
       fsEntry: 'fs_atmosphere',
-      ...glslStagesFor(this.rhi, emitAtmosphereGlslStages),
+      ...glslStagesFor(this.rhi, emitAtmosphereGlslStages, LIVE),
       format: this.format as 'bgra8unorm',
       sampleCount: this.sampleCount,
       groups: [[{ binding: 0, kind: 'uniform', name: 'atm' }]],

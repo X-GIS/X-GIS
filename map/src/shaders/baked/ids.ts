@@ -157,6 +157,14 @@ export const PICKED_MODULE_FAMILIES: readonly PickedModuleFamily[] = ['raster', 
 export type WgslOnlyFamily = 'polygon-split' | 'line-split'
 export const WGSL_ONLY_FAMILIES: readonly WgslOnlyFamily[] = ['polygon-split', 'line-split']
 
+/** WGSL-only AND parameterless: the translucent-extrusion shell compositor (#2499 step 3).
+ *  Same "no GLSL twin by construction" as the split twins (the whole extrude path is absent
+ *  on the GLSL backend — `PipelineFactory.build()` returns early there), and no pick axis
+ *  either, so it is neither a `SimpleFamily` (which demands a GLSL twin) nor a
+ *  `WgslOnlyFamily` (whose keys carry pick). */
+export type WgslOnlyPlainFamily = 'extrude-shell-compose'
+export const WGSL_ONLY_PLAIN_FAMILIES: readonly WgslOnlyPlainFamily[] = ['extrude-shell-compose']
+
 /** The OIT compose pass: one fullscreen WGSL module per MSAA sample count and no GLSL twin
  *  (WebGPU-only, like the split twins), built at every WebGPU boot (`PipelineFactory.build()`).
  *  The domain restates `QUALITY.msaa` (engine `gpu/quality.ts`, `1 | 2 | 4`) because this
@@ -172,6 +180,7 @@ export type BakedFamily =
   | SimpleFamily
   | PickedModuleFamily
   | WgslOnlyFamily
+  | WgslOnlyPlainFamily
   | 'hillshade'
   | 'polygon'
   | 'line'
@@ -250,6 +259,21 @@ export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
   'line-split': 'boot',
   // Built in the same `build()` at every WebGPU boot — one module per MSAA sample count.
   'oit-compose': 'boot',
+  // #2499 step 3 — lazy from #1679 inc 4 to here, and keyed by nobody in between: both drapers
+  // are built INSIDE the draw path (`ensureCompositeDraper`, line-renderer.ts; the first scaled
+  // `execute`, passes/scene-upscale-pass.ts), where no prefetch can land before the build, so a
+  // lazy key would resolve `absent` on every first use (#1679 inc 7). Each is about a kilobyte
+  // per language; what a lazy key would have saved is an 8.7 ms emit at the exact moment a
+  // weak device is downgrading quality (scene-upscale) and a 2 ms emit on the first
+  // translucent stroke of nearly every real style (line-composite). The asymmetry rule above
+  // decides: AMBIGUOUS → boot.
+  'scene-upscale': 'boot',
+  'line-composite': 'boot',
+  // #2499 step 3 — reached only by a translucent extrusion, and its compositor is built
+  // inside `OitPass.execute` (oit-pass.ts), the draw path: no registration seam precedes it,
+  // so a lazy key would resolve `absent` on every first use. ~300 B gzipped, WGSL-only (the
+  // GLSL artifact carries no key), against a 1.2 ms emit at the first such frame — boot.
+  'extrude-shell-compose': 'boot',
 
   // ── lazy ──
   // The five `map.graphics.*` retained families. Their drapers used to be constructed
@@ -271,17 +295,6 @@ export const FAMILY_GROUPS: Readonly<Record<BakedFamily, BakedGroup>> = {
   'heatmap-compose': 'lazy',
   // `FlowRenderer` builds the advection draper only for a flow source (flow-renderer.ts:219).
   'flow-advect': 'lazy',
-  // The scene→screen seam runs only on a SCALED frame (`shouldRun: scene.sceneScaled`,
-  // passes/scene-upscale-pass.ts:42) and the draper is built inside that first scaled
-  // execute. Render scale is a quality decision, so this can arrive mid-session on a weak
-  // device — but never at boot.
-  'scene-upscale': 'lazy',
-  // The translucent-line composite draper is created inside the DRAW path
-  // (`ensureCompositeDraper`, line-renderer.ts:383), reached only by a line show with
-  // opacity < 1. The closest call in this group: `line` itself is boot, and a style with a
-  // translucent line reaches this on its first such frame. Kept lazy because the
-  // construction is demonstrably on the draw path, not on attach.
-  'line-composite': 'lazy',
   // (No coverage-ramp row: `buildCoverageModule` takes a `CoverageFilterFn`, so that family
   // is style-parameterised and stays runtime-emitted — it is not in the closed set at all.)
 }
@@ -430,6 +443,9 @@ export const pickedModuleGlslId = (
 
 export const wgslOnlyId = (family: WgslOnlyFamily, pick: boolean): string =>
   wgslId(family, { pick })
+
+/** `wgsl/<family>` — the parameterless WGSL-only shape. */
+export const wgslOnlyPlainId = (family: WgslOnlyPlainFamily): string => wgslId(family)
 
 /** `wgsl/oit-compose/s<n>`. Takes a plain `number` so the call site can hand over what
  *  `getSampleCount()` returns; a count outside `OIT_SAMPLE_COUNTS` spells an id the registry

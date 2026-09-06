@@ -219,13 +219,25 @@ edited together across history with no import edge between them. Measured over 4
 `git fetch --unshallow`; that zero was the blind instrument, not a finding): 42 coupled pairs,
 22 of them without an import edge. The archetype:
 
-- `shader-dsl/src/core/backends/glsl.ts` ↔ `wgsl.ts` — changed together in 67% of the commits
-  touching either, 16 commits, no import edge. One specification emitted twice.
+- `shader-dsl/src/core/backends/glsl.ts` ↔ `wgsl.ts` — 67% over 16 commits.
 - `rhi-webgl2/src/*` ↔ `rhi-webgpu/src/*` — the same pattern across the backend pair.
 
-Neither is a clone in any detector's sense; both are subsystem-owner decisions (a shared
-emitter skeleton, or a recorded deliberate twin). They are tracked on #2561, not as queue rows
-— a `jscpd:ignore` marker does not apply to code no detector flags.
+**Both were investigated and both came back "no shared abstraction warranted" (#2561), and
+the reason is a lesson about this instrument rather than about the code.** The "no import
+edge" half of the signal was WRONG: `glsl.ts:70` has imported `./wgsl.js` since the GLSL
+backend's first commit, missed because `shader-dsl` is the only package here writing `.js`
+specifiers (883, against 0 everywhere else) and the resolver did not rewrite them. Both RHI
+adapters import `@xgis/rhi`, which a relative-import check cannot see at all. And the
+discriminating measurement — do they co-change with the file that MEDIATES them? — says yes
+(RHI adapters 8/8 with `rhi/src/rhi.ts`), i.e. implementations moving with their interface,
+which is what a healthy abstraction looks like.
+
+So: run the mediator check before inferring a missing abstraction from lockstep, and rewrite
+`.js` specifiers before believing "no import edge". The shader backends already share
+`Backend`, the neutral `core/emit.ts` driver and the `INTRINSICS` table; the RHI adapters are
+a chartered twin the dependency-direction ratchet enforces, and a `jscpd:ignore` marker is
+the wrong artifact for them (jscpd finds 0 clones there — the marker would suppress nothing
+and blind the gate to a future real paste).
 
 ## Test-side duplication (reported, not gated)
 
