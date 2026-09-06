@@ -737,7 +737,12 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
 - **`bun run dup` is a CI gate** (the `lint` job, and the first `precheck` step): jscpd
   compares this branch's clone set against the tree of its merge base with `origin/main` and
   reds on any pair the base does not have (≥70 tokens / 5 lines, tests excluded). Nothing is
-  stored, so main moving under an open PR cannot red it. There is no accept command and no
+  stored, so there is no baseline to re-record — but that is NOT immunity to base movement:
+  `isNew` comes from jscpd and is sensitive to where it ANCHORS a clone, so a commit on main
+  that re-anchors a region makes a branch carrying the older files look like it ADDED the
+  pair, in files its diff never touches (PR #2593, 2026-09-06). **Merge main into the branch
+  and re-run** — never silence it with `jscpd:ignore`, which records a false reason and
+  blinds the gate to a future real paste there. There is no accept command and no
   `--allow-growth`: the only way past the gate is to remove the copy or mark a deliberate
   twin (below).
 - **Before authoring a sibling** of an existing packer / material / backend / converter, run

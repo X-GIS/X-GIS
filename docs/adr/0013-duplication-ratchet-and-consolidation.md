@@ -316,9 +316,23 @@ queue is being worked from the token corner rather than from the cluster.
 
 - (+) Mechanical, ~4 s, no build, nothing committed to keep in sync. A clone this PR adds
   cannot enter unnoticed; the queue is ranked, and each cluster names its remedy.
-- (+) Immune to base movement: main can merge under an open PR all day and the gate's
-  verdict does not change, because the comparison is rebuilt from the base each run. That
-  is the property the first design lacked (Alternative 8).
+- (+) No stored state to go stale: the comparison set is rebuilt from the base each run, so
+  there is nothing to re-record and no `dup:accept` step. That is the property the first
+  design lacked (Alternative 8).
+- (−) **NOT immune to base movement — this consequence claimed it was, and CI refuted the
+  claim on 2026-09-06.** `isNew` is jscpd's own verdict from `--baseline-from-ref`, and it
+  is sensitive to where jscpd ANCHORS a clone, not only to whether the duplication exists.
+  When main gains a commit that re-anchors a region — #2563 extracted `raster-row-geom.ts`
+  out of `hillshade-renderer.ts` / `raster-renderer.ts` — a branch still carrying the older
+  copies of those files is reported as ADDING the pair, in files its diff never touches.
+  PR #2593 (a `shader-dsl/` change, zero files under `map/`) went red on exactly that, with
+  a pair that demonstrably already exists on main.
+  **The remedy is to merge main into the branch and re-run**, which restores the
+  apples-to-apples comparison; it is not to mark the pair with `jscpd:ignore`, which would
+  record a false reason and blind the gate to a future real paste in those files. The
+  failure mode Alternative 8 was rejected for — main moving under an open PR reddens it —
+  is therefore _reduced_, not eliminated: it now costs one merge commit rather than a
+  re-record commit per burst, and it fires on far fewer commits, but it still fires.
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
 - (+) The gate's blind spot is MEASURED rather than assumed: `dup:shape` puts a number on
   what the token pass cannot see (3831 lines against 3673), so "the gate is green" is never
