@@ -135,11 +135,12 @@ source lbl { label: "Seoul \"downtown\"\nzone" }
 ## 1.5 Colors
 
 ```
-COLOR  = "#" HEXDIG{3} | "#" HEXDIG{6} | "#" HEXDIG{8}
+COLOR  = "#" HEXDIG{3} | "#" HEXDIG{4} | "#" HEXDIG{6} | "#" HEXDIG{8}
 HEXDIG = DIGIT | "a"…"f" | "A"…"F"
 ```
 
-`#RGB`, `#RRGGBB`, or `#RRGGBBAA`. The lexer consumes the maximal hex run after `#`
+`#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA` (the 4-digit form is the CSS Color
+Module 4 shorthand, #2543). The lexer consumes the maximal hex run after `#`
 and rejects any other length as a hard error (**"Invalid color literal"**) — so
 `#ff` and `#12345` do not lex (`lexer.ts` `readColor`).
 
