@@ -557,6 +557,18 @@ build > log; grep -c "error TS" log` reports FAILURE on a clean build, because g
   hash-for-hash across four flag states, which no single gate fixed to suit itself could
   fake. When a parity gate is red, check whether a sibling gate on the same scene says the
   same thing. → #2120
+- A CONTAINER'S BROWSER CAN LACK EGRESS ITS SHELL HAS, and it is indistinguishable from a
+  map bug: tile fetches issued, **no response and no failure**, nothing ever resident, and
+  `getMissingTileCount()` reporting 0 so the map declares itself idle on a blank frame.
+  `curl` answers 200 in 0.3 s from the same container, which is what makes it convincing.
+  Chromium never reads env proxies (`playground/playwright.config.ts:114-121` says so, and
+  says such a spec hangs "looking like a map bug") — and the `XGIS_BROWSER_PROXY` opt-in
+  did NOT fix it here either, the proxy CA not being in the preinstalled `headless_shell`'s
+  trust store. Cost two 10-minute spec timeouts and nearly a wrongly-filed product bug. The
+  instrument is a **20-second page-side `fetch()` probe**, run BEFORE any live-tile
+  conclusion: `TypeError: Failed to fetch` settles it in one arm. Live-tile RENDER is then
+  not verifiable in that container — SAY SO; do not claim verification. (The wedge the
+  probe exposed on the way is real and is #2574; the blank frame was not.)
 - Render-gate ladder: directional diff (DC>0, D1<D0) → threshold DC=0 → hash equality.
   Measure the SAME-CODE noise floor before trusting any rung; a deterministic harness
   (fixed camera, pumped convergence, software rasterizer) makes rung 3 (`md5sum`) reachable.
@@ -664,8 +676,13 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   AGAINST THE PR'S CURRENT HEAD FIRST (`pull_request_read` `get_check_runs` lists only the
   current head's checks — a failure absent from that list is a superseded run, not a
   regression), and prefer to push EARLY in a run's life: superseding at minute 5 costs
-  nothing, at minute 55 it costs the render shards. The sibling of the poller entry above,
-  from the reader's side rather than the pusher's. → PR #2533
+  nothing, at minute 55 it costs the render shards. **The cheap discriminator, paid for
+  six times in one session:** only `test-result` and `render-gate` aggregate — `lint`,
+  `typecheck` and the `test (…)` legs are never aggregates, so a failure naming one of
+  THOSE on the current head is real by construction and needs no triage call at all. Five
+  of that session's six red wakes were aggregates on superseded heads; the sixth was
+  `lint`, and it was a genuine clone the duplication ratchet had caught. The sibling of
+  the poller entry above, from the reader's side rather than the pusher's. → PR #2533
 
 **Process**
 
@@ -799,6 +816,15 @@ compounding, borrowed from how large codebases do it (Linux `lib/` + Coccinelle,
   `// jscpd:ignore-end`; the gate rejects a bare marker. A copy that avoids a dependency
   edge across a boundary can be right (Go: "a little copying is better than a little
   dependency") — say so in the marker.
+- **A ratchet that reds on the line YOU added to two PRE-EXISTING near-identical blocks is
+  reporting the copies, not your line.** `runScene` and `runBinary` each carried a
+  byte-identical 19-line renderer install (the only difference was a 3-line comment) and
+  sat just under jscpd's threshold until #2539 added one line to both. Marking it a
+  deliberate twin would have preserved the actual defect: the reason a boot path could
+  forget the new call is that there were TWO hand-rolled installs, so a third would forget
+  it too. Extract, and the invariant gets stronger — "exactly one installer, and every boot
+  path goes through it" catches what "every copy has the line" cannot. Diff the two blocks
+  first: if they differ only in comments, the extraction is exact. → PR #2558
 - Test duplication is reported (`bun run dup:report --tests`), not gated — different remedy
   (shared fixture builders), and a gate on `arrange` blocks gets bypassed.
 - **The gate is TOKEN-level, and that is about HALF of what is there.** Measured 2026-09-05,
