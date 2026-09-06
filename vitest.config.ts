@@ -133,6 +133,9 @@ export const ISOLATED = [
   'data/src/tile-catalog-layout-version-eviction.test.ts',
   'data/src/tile-select-budget.test.ts',
   'data/src/vector-tile-loader-negcache-abort.test.ts',
+  // (2) swaps `globalThis.fetch` AND `globalThis.setTimeout` — the retry clock is the
+  //     subject, so a sibling holding the real timer defeats the whole file.
+  'data/src/vector-tile-loader-retry-jitter.test.ts',
   'data/src/viewport-class-budget-migration.test.ts',
   'data/src/workers/geojson-compile-pool-isolation.test.ts',
   'data/src/workers/geojson-compile-pool.error.test.ts',
@@ -189,6 +192,12 @@ export const ISOLATED = [
   'map/src/map-inline-geojson-route.test.ts',
   'map/src/map-polar-cap-deprecation.test.ts',
   'map/src/map-rebuild-layers.characterization.test.ts',
+  // (2) SECOND clause — "the suites that read a global's pristine default". It writes
+  //     nothing and mocks nothing, so the mechanical half of the rule cannot see it; it is
+  //     admitted by hand as a MEASURED casualty, the way its `rhi-webgpu` namesake was.
+  //     Surfaced when the seven entries above left the shared pass and the pool repacked:
+  //     two tests hung to the 30 s budget, and the file passes ALONE in 24 ms.
+  'map/src/map-device-lost-recovery.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
@@ -197,6 +206,8 @@ export const ISOLATED = [
   'map/src/render/back-face-cull-comprehensive.test.ts',
   'map/src/render/compute-layer-handle.test.ts',
   'map/src/render/compute-layer-registry.test.ts',
+  // (2) `setLogSink` — one of the four authorities rule (2) names by hand.
+  'map/src/render/feature-data-sparse-fid.test.ts',
   'map/src/render/frame-uniform.test.ts',
   'map/src/render/hillshade-loadtile-rhi.test.ts',
   'map/src/render/maprenderer-uniform-bind-size.test.ts',
@@ -205,8 +216,13 @@ export const ISOLATED = [
   'map/src/render/merc-high-pitch-drag-perf.test.ts',
   'map/src/render/no-eager-uniform-reflect.test.ts',
   'map/src/render/p4-end-to-end.test.ts',
+  // (2) swaps `globalThis.fetch` to serve its DEM tiles.
+  'map/src/render/passes/hillshade-pass-pick-attachment-parity.test.ts',
   'map/src/render/passes/opaque-pass-checker-arm.test.ts',
   'map/src/render/passes/overdraw-frame-truth.test.ts',
+  // (2) `configureBody` + `configureBodyConsts` — the same process-global pair
+  //     #2567/#2590 are about, and `vitest.setup.ts`'s leak guard watches.
+  'map/src/render/polygon-shader-cache-baked.test.ts',
   'map/src/render/raster-abort-not-failure.test.ts',
   'map/src/render/raster-cache-byte-cap.test.ts',
   'map/src/render/raster-loadtile-webgl2-cleanup.test.ts',
@@ -218,6 +234,8 @@ export const ISOLATED = [
   'map/src/render/tile-camera-anchor-body.test.ts',
   'map/src/render/tile-compute-resources.test.ts',
   'map/src/render/vector-drape-bake-budget.test.ts',
+  // (2) stubs `window` and `matchMedia`.
+  'map/src/render/vector-drape-cold-release.test.ts',
   'map/src/render/vector-tile-renderer-helpers.test.ts',
   'map/src/render/viewport-class-budget-behaviour.test.ts',
   'map/src/render/vtr-bundle-compaction-invalidate.test.ts',
@@ -236,6 +254,9 @@ export const ISOLATED = [
   'map/src/shaders/emit/shader-emit-pool.test.ts',
   'map/src/source-manager-drop-tiling.test.ts',
   'map/src/source-manager-refresh.test.ts',
+  // (2) stubs `requestAnimationFrame` / `cancelAnimationFrame` — the SAME pair whose
+  //     absence from this list cost #2567's 30 s timeouts — plus `Worker`.
+  'map/src/sprite-atlas-rerun-latch.test.ts',
   'map/src/stats-byte-telemetry.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
   // (2) assigns `globalThis.HTMLElement` before dynamically importing component.ts,
@@ -247,6 +268,8 @@ export const ISOLATED = [
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).
   'playground/e2e/helpers/validation.test.ts',
+  // (2) stubs `document`, `window` and `Image`.
+  'playground/src/overdraw-capture.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',
   'shared/src/safety.test.ts',
