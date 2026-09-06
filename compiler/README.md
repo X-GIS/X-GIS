@@ -79,7 +79,7 @@ import type { ShaderVariant, Scene } from '@xgis/compiler'
 - **Convert / Diagnostics** — `convertMapboxStyle`, `MAPBOX_COVERAGE`, `getStyleProfile`,
   IR-pass 리포트(`analyzeCSE`, `annotateDeps`, `Dep` …)
 - **Binary / Schema / Tokens** — `serializeXGB`/`deserializeXGB`, blueprint용
-  `LANGUAGE_SCHEMA`/`SOURCE_TYPES`/`ANCHORS`, `resolveColor`(Tailwind 토큰)
+  `LANGUAGE_SCHEMA`/`SOURCE_TYPES`, `resolveColor`(Tailwind 토큰)
 
 > 새 공개 심볼은 deep-path가 아니라 `index.ts`에서 export한다. 시그니처/타입 변경은
 > `src/AGENTS.md`의 그룹 순서를 유지할 것.
