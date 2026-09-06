@@ -1705,7 +1705,20 @@ const CEILINGS: Record<string, number> = {
   // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
   // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
   // under the 800 new-file cap.
-  'map/src/render/pipeline-factory.ts': 1734,
+  // 1734→1741 (#2627): `perStyleSplitTwin` labels its Materials `shader-<variant.key>/…`.
+  // The +7 is one argument and the comment recording WHY a label is load-bearing — #2499's
+  // provenance gate classifies a program as open-set from that prefix, and this twin's bytes
+  // are a per-style composer variant that carried only the generic `fill-*-rhi` names. Without
+  // the note the next reader deletes a "cosmetic" label and reds a gate three files away.
+  'map/src/render/pipeline-factory.ts': 1741,
+  // FIRST ENTRY for this file (#2627) — it was unlisted at 799 because it sat under
+  // NEW_FILE_CAP, and the `labelPrefix` input crosses it (799→807). The +8 is one optional
+  // field plus the docblock that says what a caller must pass and why the default must stay
+  // `''` (a pinned label depends on it). Not extracted: the four labels are three lines of a
+  // 60-line builder, and pulling them out would put a Material's own identity in another file
+  // — the opposite of the single-authority move #2309 made when it extracted the label index
+  // to keep this file under the cap. Same measurement rule as every entry here: post-prettier.
+  'map/src/render/material/polygon-fill-material.ts': 807,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
