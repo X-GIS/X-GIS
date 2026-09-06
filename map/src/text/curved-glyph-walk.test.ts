@@ -321,3 +321,34 @@ describe('curved glyph walk — the pre-INC-4 path is unchanged', () => {
     expect(xs(r.glyphOffsets, 5)).toEqual([0, 20, 40, 60, 80])
   })
 })
+
+describe('curved glyph walk — the #1793 end clamp also covers the keep-upright reversed walk (#2317)', () => {
+  // Same 400-px run as above but walked start-to-end in the OTHER direction, so its
+  // live tangent points left and keep-upright reverses the walk (§ header, "keepUpright
+  // is decided on the LIVE tangent"). The reversed branch recomputes `startS` from
+  // scratch (line ~162) — the #1793 clamp must still bound whichever value survives,
+  // not just the forward one it was written against.
+  const REV_X = new Float32Array([400, 300, 200, 100, 0])
+
+  it("clamps near the run's live-tangent start instead of extrapolating past it", () => {
+    const r = walkCurvedGlyphs(
+      baseInput({ px: REV_X, qx: REV_X, n: 5, keepUpright: true, centerOffsetPx: 390 }),
+    )!
+    for (const x of xs(r.glyphOffsets, 5)) {
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThanOrEqual(400)
+    }
+    expect(xs(r.glyphOffsets, 5)).toEqual([0, 20, 40, 60, 80])
+  })
+
+  it("clamps near the run's live-tangent end instead of extrapolating past it", () => {
+    const r = walkCurvedGlyphs(
+      baseInput({ px: REV_X, qx: REV_X, n: 5, keepUpright: true, centerOffsetPx: 10 }),
+    )!
+    for (const x of xs(r.glyphOffsets, 5)) {
+      expect(x).toBeGreaterThanOrEqual(0)
+      expect(x).toBeLessThanOrEqual(400)
+    }
+    expect(xs(r.glyphOffsets, 5)).toEqual([300, 320, 340, 360, 380])
+  })
+})

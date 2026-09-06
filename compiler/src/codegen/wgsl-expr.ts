@@ -243,12 +243,26 @@ function fnCallToNode(expr: AST.FnCall, fieldMap: Map<string, number>): NodeLike
     return f32Mul(args[0] ?? f32Lit(0), args[1] ?? f32Lit(1))
   }
   if (name === 'step') {
-    // step(value, threshold, below, above)
-    return selectF32(
-      args[3] ?? f32Lit(1),
-      args[2] ?? f32Lit(0),
-      compareToBool(args[0] ?? f32Lit(0), '<', args[1] ?? f32Lit(0)),
-    )
+    // Mapbox N-stop `step(input, default, stop1, val1, stop2, val2, …)` — the
+    // only shape the converter emits (convert/expr-string.ts stepHandler) and
+    // the branch the CPU authority (eval/evaluator-helpers.ts callBuiltin
+    // 'step') always takes here: its legacy-form discriminator is VALUE-based
+    // (a non-numeric `below` payload), and every value on the f32 GPU path is
+    // numeric. So the chain below is the exact GPU mirror, not an added shape.
+    // Pre-#2311 this arm hard-coded the legacy (value, threshold, below, above)
+    // select, which read stop1 as a payload and dropped every stop past the
+    // first — silently, since it still compiled and drew.
+    //
+    // Nested selects are applied in ascending stop order, so the OUTERMOST
+    // (largest) satisfied stop wins — identical to the evaluator's loop for the
+    // strictly-ascending stops the Mapbox spec requires (the converter warns on
+    // any other ordering, whose output the spec leaves undefined).
+    const input = args[0] ?? f32Lit(0)
+    let result = args[1] ?? f32Lit(0)
+    for (let i = 2; i + 1 < args.length; i += 2) {
+      result = selectF32(result, args[i + 1]!, compareToBool(input, '>=', args[i]!))
+    }
+    return result
   }
   if (name === 'log10') {
     return f32Div(

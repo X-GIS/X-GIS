@@ -62,7 +62,7 @@ export interface UploadStore {
     arena: GPUArena,
     needed: number,
     stable: readonly number[],
-    hook: (k: string) => void,
+    hook: (k: string, keyRebound: boolean) => void,
   ): boolean
 }
 
@@ -92,8 +92,8 @@ export interface UploadHost {
   /** Current frame's protected (visible + ancestor) tile keys — eviction
    *  must not drop these. Reassigned each frame, so read at call time. */
   stableKeys(): readonly number[]
-  /** Compute-handle release hook for the store's eviction path. */
-  releaseTileHook(handleKey: string): void
+  /** Compute-handle release hook for the store's eviction path (`ReleaseTileHook`). */
+  releaseTileHook(handleKey: string, keyRebound: boolean): void
   /** Warn-once dedup (FrameDrawStats), shared with the rest of VTR. */
   hasWarned(key: string): boolean
   markWarned(key: string): void
@@ -650,11 +650,11 @@ export class UploadCoordinator {
       let pair = this._allocPolyPair(vArena, iArena, polyVertexByteLength, polyIndexByteLength)
       if (pair === null) {
         perfMarkStart('vtr.evict')
-        store.forceEvictBytes(vArena, polyVertexByteLength, this.host.stableKeys(), (k) =>
-          this.host.releaseTileHook(k),
+        store.forceEvictBytes(vArena, polyVertexByteLength, this.host.stableKeys(), (k, rebound) =>
+          this.host.releaseTileHook(k, rebound),
         )
-        store.forceEvictBytes(iArena, polyIndexByteLength, this.host.stableKeys(), (k) =>
-          this.host.releaseTileHook(k),
+        store.forceEvictBytes(iArena, polyIndexByteLength, this.host.stableKeys(), (k, rebound) =>
+          this.host.releaseTileHook(k, rebound),
         )
         perfMarkEnd('vtr.evict')
         pair = this._allocPolyPair(vArena, iArena, polyVertexByteLength, polyIndexByteLength)

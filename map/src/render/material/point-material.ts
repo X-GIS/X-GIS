@@ -5,7 +5,7 @@
 // wraps the point renderer's native buffers into one generic DrawItem. The
 // pipeline/layout build + draw loop are the shared generic core (material.ts).
 
-import type { RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
+import type { MaterialDesc, RhiBuffer, RhiDevice, RhiRenderPass } from '@xgis/engine'
 import { Material, executeItems } from '@xgis/engine'
 import { emitPointWgsl, emitPointGlslStages, type PointVariantSpec } from '../../shaders/dsl/point'
 import { simpleGlslId, simpleWgslId } from '../../shaders/baked/ids'
@@ -41,13 +41,25 @@ export class PointDraper {
    *  so nothing else would ever reclaim these. */
   destroy(): void {
     this.material.destroy()
+    this._pickMaterial?.destroy()
+    this._pickMaterial = undefined
   }
 
   private readonly material: Material
+  /** The descriptor `material` was built from — kept so the pick twin below is the SAME
+   *  material with different colour targets, rather than a hand-copied second descriptor
+   *  that can drift from this one (three depth variants to keep in step). */
+  private readonly desc: MaterialDesc
+  // Tile points draw INSIDE the opaque sub-pass, which carries a SECOND (rg32uint) colour
+  // attachment while picking is on (#2319): WebGPU rejects `setPipeline` when the pipeline's
+  // fragment-target count differs from the pass's attachment count, dropping the whole
+  // sub-pass — basemap included — every frame. LAZY, so the non-pick path (the dedicated
+  // points pass, and WebGL2, which fail-closes on an rg32uint MRT) never builds it.
+  private _pickMaterial?: Material
 
   constructor(
     rhi: RhiDevice,
-    format: string,
+    private readonly format: string,
     sampleCount: number,
     vertexBuffers: VertexBuffers,
     /** A feature-free @color/@stroke composer variant (#1605 Phase 2), or null
@@ -84,7 +96,7 @@ export class PointDraper {
     // guard so the WebGPU boot never pays the double emit (mirrors RetainedCircleDraper).
     // The point storage buffers (feat_data / shapes / segments) lower to data-texture
     // samplers via the default storage lowering; on WebGPU these are ignored.
-    this.material = new Material(rhi, {
+    this.desc = {
       shader: wgslFor(rhi, () => emitPointWgsl(this.shaderVariant), bakedPointIds?.wgsl),
       ...glslStagesFor(rhi, () => emitPointGlslStages(this.shaderVariant), bakedPointIds?.glsl),
       vsEntry: 'vs_point',
@@ -120,17 +132,42 @@ export class PointDraper {
         // flat: depth-read, NO write, NO bias — flat ground-plane circles (painter's order).
         { depthWrite: false, depthCompare: 'less-equal', label: 'sdf-point-pipeline-flat-rhi' },
       ],
-    })
+    }
+    this.material = new Material(rhi, this.desc)
   }
 
-  draw(pass: RhiRenderPass, b: PointBatch): void {
+  /** The pick-pass twin: same shader, same group-0 layout, same three depth variants (a
+   *  `PointBatch.variant` indexes both materials identically), one extra rg32uint target so
+   *  the pipeline is layout-compatible with the opaque sub-pass's pick MRT (#2319).
+   *  `writeMask: 0` because a tile point carries no feature id and must not clobber the id
+   *  the fill under it already wrote (#1215). Reusing `material`'s layout keeps the bind
+   *  group `draw` builds valid for either pipeline. */
+  private pickMat(): Material {
+    return (this._pickMaterial ??= new Material(this.material.rhi, {
+      ...this.desc,
+      groups: [this.material.layout(0)],
+      colorTargets: [
+        { format: this.format as 'bgra8unorm', blend: 'alpha' },
+        { format: 'rg32uint', writeMask: 0 },
+      ],
+      variants: this.desc.variants.map((v) => ({ ...v, label: `${v.label}-pick` })),
+    }))
+  }
+
+  draw(
+    pass: RhiRenderPass,
+    b: PointBatch,
+    /** Draw through the pick twin — the caller reads `pickTargetsEnabled(rhi.caps)`, the
+     *  single authority the opaque pass attaches its pick MRT from (#2319). */
+    pick = false,
+  ): void {
     const bg = this.material.rhi.createBindGroup(this.material.layout(0), [
       { binding: 0, resource: { buffer: b.uniform } },
       { binding: 1, resource: { buffer: b.feat } },
       { binding: 2, resource: { buffer: b.shape } },
       { binding: 3, resource: { buffer: b.seg } },
     ])
-    executeItems(this.material, pass, [
+    executeItems(pick ? this.pickMat() : this.material, pass, [
       {
         variant: b.variant,
         bindGroups: [bg],

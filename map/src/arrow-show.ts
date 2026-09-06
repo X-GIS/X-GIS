@@ -22,6 +22,8 @@ import { warnPerFeatureColorUnresolved } from './render/per-feature-color-warnin
 export interface ArrowShowHost {
   graphics: GraphicsManager
   camera: { zoom: number; pitch: number }
+  /** The frame clock render-loop.ts stamps per rendered frame; 0 before the first. */
+  _elapsedMs: number
 }
 
 const DEFAULT_ARROW_SIZE = 16
@@ -29,10 +31,10 @@ const DEFAULT_ARROW_SIZE = 16
 /** Resolve the layer's constant/base arrow size (used for features whose size is NOT
  *  data-driven). Mirrors the Point fork's baseSize (paintShapes.circle.size, zoom-interp
  *  resolved when it is a shape rather than a constant). */
-function baseArrowSize(show: ShowCommand, zoom: number): number {
+function baseArrowSize(show: ShowCommand, zoom: number, elapsedMs: number): number {
   const s = show.paintShapes.circle.size
   if (s === null) return DEFAULT_ARROW_SIZE
-  return s.kind === 'constant' ? s.value : resolveNumberShape(s, zoom, performance.now()).value
+  return s.kind === 'constant' ? s.value : resolveNumberShape(s, zoom, elapsedMs).value
 }
 
 /** Build one `| arrow` show's compiled-arrow layer from the filtered Point FC. No-ops
@@ -51,7 +53,10 @@ export function addArrowShowLayer(
   const bearingAst = show.arrowBearingExpr?.ast as Expr | undefined
   const bearingConst = show.arrowBearing ?? 0
   const sizeAst = show.sizeExpr?.ast as Expr | undefined
-  const sizeConst = baseArrowSize(show, zoom)
+  // #2324 — the frame clock (host._elapsedMs), not performance.now(): a
+  // time-interpolated size must animate from the same clock every other
+  // time-interpolated property reads, not one that starts at navigation.
+  const sizeConst = baseArrowSize(show, zoom, host._elapsedMs)
   const fillAst = show.fillColorExpr?.ast as Expr | undefined
   // #1666 — a MALFORMED layer constant (a ShowCommand carrying a non-hex `fill`) resolves
   // to null here, not to opaque black, so it lands on the same flat-white default as a

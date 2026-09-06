@@ -182,6 +182,20 @@ describe('lowerMatchColorToMatch', () => {
     expect(lowerMatchColorToMatch(expr)).toBeNull()
   })
 
+  it('returns null for a NUMERIC label — the compute path cannot encode it (#2316)', () => {
+    // The kernel's ids are positions in a string-keyed category map and
+    // `packFeatureData` looks the feature value up as a string, so a numeric
+    // label could only ever hit the -1 default. Bailing hands the block to the
+    // inline-shader path, whose cases are keyed by the value itself.
+    const numeric = parseExpressionString(
+      'match(.admin_level) { 2 -> #ff0000, 4 -> #0000ff, _ -> #000000 }',
+    )
+    expect(lowerMatchColorToMatch({ ast: numeric })).toBeNull()
+    // A string-labelled block still lowers — that is what the category map is for.
+    const strings = parseExpressionString('match(.class) { "school" -> #ff0000, _ -> #000000 }')
+    expect(lowerMatchColorToMatch({ ast: strings })!.arms.map((a) => a.pattern)).toEqual(['school'])
+  })
+
   it('skips arms whose value is not resolvable to hex (mirrors shader-gen)', () => {
     const expr: DataExpr = {
       ast: {

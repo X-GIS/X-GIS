@@ -23,6 +23,18 @@ export type IntrinsicTarget = 'wgsl' | 'glsl'
 type Spelling = {
   readonly wgsl: (args: readonly string[]) => string
   readonly glsl: (args: readonly string[]) => string
+  /** Set when the spelling RE-EMBEDS an argument in a position that binds TIGHTER than a
+   *  plain argument slot — an operand of an inlined operator, or the base of a `.field`
+   *  postfix (#2350). The emit walk renders a normal argument at the loosest precedence
+   *  (it sits inside `(…)` or after a `,`, so anything parses), which under
+   *  `parens: 'minimal'` hands the template a BARE `a + b`; spliced into `a + b / c` or
+   *  `vv * s.x` that is a different parse — silently wrong arithmetic, or not even legal
+   *  source. Marking the entry makes `core/emit.ts` render every argument as a PRIMARY
+   *  instead, which is safe in any re-embedding position. Target-free on purpose: the
+   *  neutral walk knows no target, and over-parenthesizing the column that does not
+   *  re-embed costs bytes, never meaning. A new template that splices an argument
+   *  anywhere but a plain argument slot MUST set this. */
+  readonly atomArgs?: true
 }
 
 const join = (args: readonly string[]): string => args.join(', ')
@@ -141,6 +153,9 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
   mod: {
     wgsl: (a) => `(${a[0]} - ${a[1]} * floor(${a[0]} / ${a[1]}))`,
     glsl: (a) => `mod(${join(a)})`,
+    // Both operands land inside the `/` (and the divisor under a `*`), so both must
+    // arrive as primaries — see `atomArgs` above.
+    atomArgs: true,
   },
   inverseSqrt: { wgsl: (a) => `inverseSqrt(${join(a)})`, glsl: (a) => `inversesqrt(${join(a)})` },
   // fma(a,b,c) = a·b+c. WGSL has a fused hardware fma — a SINGLE rounding, atomic:
@@ -187,6 +202,8 @@ export const INTRINSICS: Readonly<Record<string, Spelling>> = {
     wgsl: (a) => `pack4x8unorm(${join(a)})`,
     glsl: (a) =>
       `(uint(round(clamp(${a[0]}.x, 0.0, 1.0) * 255.0)) | (uint(round(clamp(${a[0]}.y, 0.0, 1.0) * 255.0)) << 8) | (uint(round(clamp(${a[0]}.z, 0.0, 1.0) * 255.0)) << 16) | (uint(round(clamp(${a[0]}.w, 0.0, 1.0) * 255.0)) << 24))`,
+    // The argument is a `.x`/`.y`/`.z`/`.w` postfix BASE — see `atomArgs` above.
+    atomArgs: true,
   },
   unpack4x8unorm: {
     wgsl: (a) => `unpack4x8unorm(${join(a)})`,
@@ -353,6 +370,13 @@ export function spellIntrinsic(
   if (entry) return entry[target](args)
   return `${name}(${join(args)})`
 }
+
+/** True if `name`'s spelling re-embeds an argument where a bare operator would re-parse, so
+ *  the caller must render every argument as a PRIMARY rather than in the loosest argument
+ *  position (#2350). Read by the neutral emit walk (`core/emit.ts`, the ONE place call
+ *  arguments become text) so the requirement lives beside the spelling that imposes it
+ *  instead of being re-derived per template. */
+export const intrinsicNeedsAtomArgs = (name: string): boolean => INTRINSICS[name]?.atomArgs === true
 
 // ── Portable builtins (the EXPLICIT identity-spelled set) ──
 //

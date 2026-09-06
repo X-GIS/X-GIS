@@ -246,7 +246,7 @@ export function canExtendGroup(first: RenderNode, candidate: RenderNode): boolea
  *  none-color }` expression for the merged group. */
 export function buildMatchAst(
   field: string,
-  arms: Array<{ pattern: string; rgba: import('../property-types').RGBA }>,
+  arms: Array<{ pattern: string | number; rgba: import('../property-types').RGBA }>,
   /** Override for the `_` default arm. When the merge pass absorbs
    *  a complementary `&&`-chain `!=` layer (e.g. `landuse_other`),
    *  its fill / stroke colour becomes the default. Without it the
@@ -303,7 +303,7 @@ export function buildMatchAst(
  *  them) fall back to layer width without rendering at zero. */
 export function buildWidthMatchAst(
   field: string,
-  arms: Array<{ pattern: string; width: number }>,
+  arms: Array<{ pattern: string | number; width: number }>,
   /** Override for the `_` default arm's width. Used when the merge
    *  pass absorbs an `&&`-chain `!=` default-arm layer (the
    *  `landuse_other` pattern). 0 = "no override" sentinel. */

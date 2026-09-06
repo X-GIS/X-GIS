@@ -158,6 +158,8 @@ export const ISOLATED = [
   'map/src/controller-cooperative-gestures.test.ts',
   'map/src/controller-dblclick-boxzoom.test.ts',
   'map/src/controller-dpr-anchor.test.ts',
+  // (2) assigns `globalThis.window` and writes QUALITY via updateQuality (interaction-dpr anchor fix).
+  'map/src/controller-interaction-dpr-anchor.test.ts',
   'map/src/controller-interaction-gate.test.ts',
   'map/src/coverage-abort-spine.test.ts',
   'map/src/coverage-catalogue.test.ts',
@@ -227,6 +229,11 @@ export const ISOLATED = [
   'map/src/source-manager-refresh.test.ts',
   'map/src/stats-byte-telemetry.test.ts',
   'map/src/text/sdf/pbf/glyph-pbf-cache-warning.test.ts',
+  // (2) assigns `globalThis.HTMLElement` before dynamically importing component.ts,
+  //     which binds its DOM base class at module load — a shared registry that has
+  //     already imported that module hands the class the REAL base and the fake
+  //     `attachShadow` never applies (#2327).
+  'map/src/web/component.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).

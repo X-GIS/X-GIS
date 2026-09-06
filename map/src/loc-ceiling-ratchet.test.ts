@@ -409,7 +409,30 @@ const CEILINGS: Record<string, number> = {
   // #2439 (+8, here) both wrote 5588 over the 5580 base — the SAME number from two
   // different deltas, so the source merged with no conflict and this file conflicted
   // only on the COMMENT. 5580 + 8 + 8 = 5596 = `wc -l` on the merged tree.
-  'map/src/render/vector-tile-renderer.ts': 5596,
+  // 5466→5478 (#2292, hunt 2026-09-02): `rebuildForQuality()` releases the globe
+  // VectorDrapeRenderer whose RasterDraper pipelines bake the OLD sample count — one
+  // 3-line body plus the 7-line rationale (why a kept drape is a WebGPU validation
+  // error, not just a leak). Measured with `wc -l` on the post-prettier tree.
+  // 5478→5483 (#2301, hunt 2026-09-02): the store's release hook now takes `keyRebound`
+  // so the SUPERSEDE path keeps the ComputeLayerHandle the replacement upload re-used —
+  // one guard plus the 5-line rationale (why the other two caches still drop).
+  // Measured with `wc -l` on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 5489 with `wc -l` on the post-prettier
+  // merged tree.
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 5597 with `wc -l` on the
+  // post-prettier merged tree.
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, FOURTH merge): main's #2309
+  // (+8, the numeric draw-dedup sub-key) and this branch's #2292/#2301 stack over the
+  // common base, so neither side's number is right (§12). Measured 5605 with `wc -l` on
+  // the post-prettier merged tree.
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 5613 is `wc -l` on the merged tree.
+  'map/src/render/vector-tile-renderer.ts': 5613,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -424,7 +447,19 @@ const CEILINGS: Record<string, number> = {
   // between sides. Both re-measured against the merged tree.
   // 812->815 (#2286): dispose() drops the drapers; releaseRegion never touched them, so the
   // one path map teardown reaches left them all alive.
-  'map/src/render/coverage-renderer.ts': 815,
+  // 812→815 (#2319, hunt 2026-09-02): the drape draw now selects its pipeline from
+  // `pickTargetsEnabled(this.rhi.caps)` — the one authority the opaque pass attaches its
+  // rg32uint pick MRT from — so a coverage layer under `?picking=1` stops handing a
+  // 1-target pipeline to a 2-attachment sub-pass. One argument plus the 3-line rationale
+  // (why a mismatched target count invalidates the WHOLE sub-pass, basemap included);
+  // the pick twin itself lives in coverage-material.ts, not here. Measured with `wc -l`
+  // on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 819 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/render/coverage-renderer.ts': 819,
   // 4232→4237 (#1000 heatmap relocate): the heatmap density-target OWNERSHIP
   // extracted to render/heatmap-targets.ts; map keeps only the irreducible
   // composition-root wiring — the `heatmapTargets` field + its import (mirrors
@@ -893,7 +928,34 @@ const CEILINGS: Record<string, number> = {
   // branch that blocks a single-finger TOUCH drag from panning (mouse
   // drag-pan unaffected), and cleanup teardown for the hint div + its timer.
   // Same cohesive gesture-controller ownership as #1265; shrink-only from now.
-  'map/src/controller.ts': 1166,
+  // 1166→1184 (interaction-dpr anchor fix, measured post-prettier per §12): every
+  // gesture site now reads the scale the swapchain is ACTUALLY sized at
+  // (canvasEffectiveDpr) instead of re-deriving min(devicePixelRatio, maxDpr),
+  // and forwards it to camera.zoomAt / panToScreenAnchor / pan. The growth is
+  // prettier wrapping five now-6-argument camera calls; nothing to extract.
+  // 1184→1195 (#2294): the pan-inertia launch gains a recency gate —
+  // INERTIA_MAX_IDLE_MS plus the pointerup check that discards a velocity
+  // sample older than it, so a drag that ends with a stationary HOLD no longer
+  // flings from the frozen last-pointermove velocity. Growth is the comment
+  // explaining why the sample is zeroed; nothing to extract.
+  // 1195→1216 (#2295 + #2296, re-measured post-prettier per §12 — the two fixes
+  // grew the file without carrying the number, which is exactly the "re-measure,
+  // never carry the ceiling across" trap): #2295 gates the pointerup 2→1 handoff
+  // on the same cooperativeGestures/touch predicate pointerdown already applies,
+  // so the single-finger contract is a property of the pointer-count STATE
+  // rather than the press origin; #2296 clears `pressEligible` when a second
+  // pointer joins, so a multi-touch gesture cannot pass the click gate. Both are
+  // in-place guards inside handlers this file owns — 31 lines of branch
+  // conditions and their rationale, with nothing cohesive to extract.
+  // 1216->1224 (#2295 review follow-up): the handoff above asked the predicate
+  // about `e`, the pointerup of the finger that LEFT, so a touch finger still
+  // panned when a pen lifted beside it and a mouse drag was newly blocked when a
+  // touch pointer did. `activePointers` now stores each pointer's `pointerType`
+  // so the predicate can be asked about the one that REMAINS. The +8 is the map's
+  // widened entry type, the two set() sites, and the two comments naming which
+  // pointer is being asked about — the mistake was invisible precisely because
+  // nothing at either site said which one it was.
+  'map/src/controller.ts': 1224,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
@@ -999,7 +1061,60 @@ const CEILINGS: Record<string, number> = {
   // import); moving the derivation into the binder, lazily, cut this to the wire AND
   // fixed a staleness bug, so the smaller number is the better design rather than a
   // trimmed comment. Ratcheting DOWN from the 5448 that draft measured.
-  'map/src/map.ts': 5440,
+  // 5419→5427 (hunt 2026-09-02): `_releaseGpuResources` now drops the synthetic
+  // earth-surface background's two owner refs (`_syntheticBackend`,
+  // `underOccluder`) it was leaking across a re-run — 3 statements plus the
+  // 5-line rationale. Measured with `wc -l` on the post-prettier tree.
+  // 5427→5432 (#2292, hunt 2026-09-02): the per-VTR loop in `setQuality` now also calls
+  // `vtRenderer.rebuildForQuality()` — one line only map.ts can write (it owns
+  // `vtSources`) plus the 4-line reason. Measured with `wc -l` on the post-prettier tree.
+  // 5432→5437 (#2298, hunt 2026-09-02): `_releaseGpuResources` now re-arms the
+  // `_spriteAtlasViewPushed` one-shot latch — one statement only map.ts can write (it
+  // owns both the latch and the shared teardown body) plus the 4-line reason. Measured
+  // with `wc -l` on the post-prettier tree.
+  // 5437→5439 (#2324, hunt 2026-09-02): the addLayer-time circle base-size resolve
+  // now reads `this._elapsedMs` (the frame clock) instead of `performance.now()`, so
+  // a time-interpolated size is born at its t=0 stop instead of navigation-elapsed —
+  // one line plus the 2-line reason. Measured with `wc -l` on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-02, main <- issue-hunt branch): both sides raised this
+  // key from a common base, so the merged file carries BOTH deltas and neither side's
+  // number is right — carrying either across would leave the ceiling one change too low
+  // (green on both branches, red on main). Measured 5452 with `wc -l` on the post-prettier
+  // merged tree, then 5452->5450 when the merge's duplicated under-occluder teardown
+  // (#2290 here, #2286 on main — git auto-merged both into one function) folded back
+  // to one site.
+  // 5450->5468 (#2411): setQuality now rebuilds the under-occluder, the seventh
+  // sample-count-baked owner and the only one with no rebuildForQuality() for the
+  // fan-out to reach — 8 statements plus the 10-line reason (why a constructor-baked
+  // count cannot be re-wired in place, and what the real device says when it is not
+  // rebuilt). Only map.ts can write it: it owns `underOccluder`, `ctx` and
+  // `_backgroundColor` alike, and extracting 8 lines used once would add a file to
+  // pay for a bug fix — a refactor smuggled inside a fix, which the #2249 note above
+  // declines for the same reason. Measured with `wc -l` on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 5473 with `wc -l` on the
+  // post-prettier merged tree.
+  // 5473->5477 (#2305): setQuality's msaa/picking rebuild fan-out now guards on
+  // `this.renderer` being assigned — pre-run() it dereferenced an unassigned
+  // renderer field right after `updateQuality(patch)` had already mutated the
+  // process-global QUALITY, throwing a TypeError with no way to retell whether the
+  // half-applied patch stuck. 1 changed condition + a 4-line comment on why the
+  // guard holds (run()/runBinary() are the only assignment sites; the boot itself
+  // reads QUALITY live, so the pre-boot value is still honoured). Measured with
+  // `wc -l` on the post-prettier tree.
+  // 5477->5490 (#2289 review follow-up): `getCanvasDpr()` — a host that drives
+  // `Camera.zoomAt` from its own gesture listeners (the site's three wheel
+  // handlers) had no way to ask what scale the canvas is sized at, so all three
+  // took the `dpr = effectiveDpr()` default and anchored the wrong world point
+  // whenever the swapchain sat below the policy dpr. One 2-line accessor
+  // delegating to `canvasEffectiveDpr` + the 9-line docblock naming the
+  // authority and what re-deriving it costs, which is the half that keeps the
+  // next host from writing `min(devicePixelRatio, maxDpr)` again. Measured with
+  // `wc -l` on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 5493 is `wc -l` on the merged tree.
+  'map/src/map.ts': 5493,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1143,7 +1258,16 @@ const CEILINGS: Record<string, number> = {
   // missed optimisation. One `setSeededFeatures(reprojected.features)` next to the
   // existing `reseedTiles()`, plus the four lines saying why a reader must not drop
   // it. Re-seeding drops the binder's memo, so the ranks cannot outlive their data.
-  'map/src/source-manager.ts': 1073,
+  // 1068→1094 (#2300, and re-measured over the #2299 per-source `_showSourceMaps`
+  // bump this file had already taken): `resetForReinit()` — the manager half of the
+  // teardown spine, which now releases `hostSeededFC` / `vtBackends` /
+  // `_showSourceMaps` instead of only stopping the refresh loops, so a swapped-out
+  // scene's seeded collections cannot outlive it. +26 = the 4-line body and the
+  // recorded reasoning (why nothing keyed there is still live after either teardown
+  // path, and what the stale FC did to `updateFeature`). MEASURED post-prettier.
+  // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
+  // the common base, so neither number is right (§12) — 1099 is `wc -l` on the merged tree.
+  'map/src/source-manager.ts': 1099,
   // 1920→1930 (#1042 R3): the globe limb cull for MULTI-LINE labels must land in
   // the collision phase — the ONLY site holding the label's quad half-height (the
   // collision box IS the height authority; the label-pass dispatch site has only
@@ -1279,7 +1403,38 @@ const CEILINGS: Record<string, number> = {
   // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
   // 2171→2172 (#2446): one argument — the label's inline-image anchors — threaded
   // into wrapWithKnuthPlass so the whitespace trim stops at an image.
-  'map/src/text/text-stage.ts': 2172,
+  // 2149→2178 (#2313 — an unshapeable curved line label must still be counted).
+  // The three early-outs of the line-shaping loop (no glyphs, degenerate
+  // polyline, glyph walk rejected by run length / text-max-angle) `continue`d
+  // out of the loop, so the label never entered `shaped[]` and the drop loop —
+  // which stamps droppedPairKeys only from `shaped[]` — left its paired highway
+  // shield on screen as an empty badge with no road number. Each early-out now
+  // pushes a layout-less entry, which the EXISTING collision + drop wiring
+  // already reports as unplaced (+15 for the shared field builder and its
+  // rationale, +9 at the three sites, +5 for the two z-order comparators'
+  // optional anchor read). The file had ZERO headroom and there is nothing to
+  // extract that would carry this: the entry's fields ARE prepare()'s local
+  // ShapedLabel shape, so the one duplication the fix would have introduced is
+  // instead collapsed into `lineShapedFields`, which the fitted push now shares.
+  // MEASURED post-prettier.
+  // 2178→2195 (#2323 — same-route spacing window follows the run's own
+  // authored symbol-spacing instead of one frame-wide 250*dpr constant):
+  // `addCurvedLineLabel` grew one trailing param + doc comment, `PendingLineLabel`
+  // / `ShapedLabel` each grew one field + doc comment, and the two
+  // `collisionInput` builders (legacy + z-order-ordered) each grew one line
+  // forwarding it through to `CollisionItem`. No single site could absorb this —
+  // it is the same field threaded through every existing carrier on the
+  // point-to-collision path, mirroring how `lineId`/`anchorDistancePx` are
+  // already threaded. MEASURED post-prettier.
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 2217 with `wc -l` on the
+  // post-prettier merged tree.
+  // MERGE RE-MEASURE (2026-09-05, third main merge): main's #2503 (leading-whitespace
+  // trim) and #2507 (limb-cull) landed on this file while this branch carried #2313 and
+  // #2323, so the merged file holds every delta and neither side's number is right.
+  // Measured 2218 with `wc -l` on the post-prettier merged tree.
+  'map/src/text/text-stage.ts': 2218,
   // 1786→1719 (#727 C): the line/point dedupe + pair-key helper block was
   // EXTRACTED to passes/line-label-dedupe.ts when the world-copy fan-out would
   // otherwise have grown this file — the extract-don't-grow answer.
@@ -1400,7 +1555,13 @@ const CEILINGS: Record<string, number> = {
   // name per line (+6) and the call to three lines, against the six-line why.
   // RE-MEASURE after any merge with a branch that also moves this key — #2536
   // lowers it to 1990 from the same base, and the file takes BOTH deltas.
-  'map/src/render/passes/label-pass.ts': 2008,
+  // 1998→2001 (#2324, hunt 2026-09-02): the per-show `elapsedMs` now reads
+  // `host._elapsedMs` (the frame clock the fade ledger above it already reads)
+  // instead of `performance.now()` — one line plus the 2-line reason. MEASURED
+  // post-prettier (`wc -l`).
+  // MERGE RE-MEASURE (ninth main merge): both sides raised this key; 2011 is `wc -l`
+  // on the post-prettier merged tree (§12 — never carry either side's number across).
+  'map/src/render/passes/label-pass.ts': 2011,
   // #1081 — per-anchor perspective distance attenuation (MapLibre parity). New
   // baseline: the wCenter + perspScale scratch-out-value lives INLINE in the two
   // existing projector closures (it rides the cw already computed per anchor —
@@ -1427,6 +1588,20 @@ const CEILINGS: Record<string, number> = {
   // would need a concrete backend-adapter import, which the #991 backend-adapter
   // ratchet rejects for this file — it has no baseline row — and would falsify this
   // module's "no GPU coupling" header. No import was added; the prose paid for the +23.
+  // 841→869 (#2315): `frameCenterLatDeg` — the frame's RTC centre latitude, moved here
+  // out of the render loop (which shrinks by the same block, ceiling lowered below) and
+  // fixed to read the centre through `representsCenterAs` instead of the Mercator-
+  // saturated `mercatorYToLat(centerY)`. +28 = the 4-line signature prettier wraps, the
+  // 7-line body, and the doc prose that records WHY the sphere family's centre latitude
+  // is authoritative here: the tile/raster/drape anchors and the orbit matrix's RTC
+  // origin must be the same point, and the saturated value put them 441 km apart at
+  // lat 89. That prose is the reason a future edit cannot 'simplify' the branch away.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY to the count.
+  // 869->841 (2026-09-05, third main merge): this branch's #2315 helper
+  // `frameCenterLatDeg` was superseded by main's `frameCenterLatOf` (view-matrix.ts,
+  // #2507), which took over its only call site in render-loop.ts, so the helper and
+  // its test were removed as the orphans the merge created. Shrink-only: measured 841
+  // with `wc -l` on the post-prettier merged tree.
   'map/src/render-loop-helpers.ts': 841,
   // 1458→1505 (#1155 F4 mount-hang): the per-variant WGSL emit is deduped —
   // buildShader now memoizes emitPolygonWgsl by (variant.key, pickEnabled), and
@@ -1488,7 +1663,32 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (#2507 <- main): main's -1 (#2332, above) and the branch's -1 (#2500:
   // the disc zoomAt branch's viewport-fit clamp + latPreserve reset block became one
   // dual write, _setDiscCenterLat) compose. MEASURED post-merge: 1440. A LOWERING.
-  'map/src/camera/camera.ts': 1440,
+  // 1442→1452 (interaction-dpr anchor fix, measured post-prettier per §12): pan /
+  // zoomAt / panToScreenAnchor / maxCameraY take the caller's device scale
+  // instead of each re-deriving min(devicePixelRatio, maxDpr) — three inline
+  // derivations out, one parameter + its rationale in.
+  // 1452→1459 (#2322, measured post-prettier per §12): pan()'s two raw-mpp
+  // scale lines (sphere-family + flat) now call the existing effectiveMpp
+  // single authority instead of re-deriving the uncapped formula, so the
+  // inertia glide / off-ground fallback moves by the same on-screen scale
+  // the frame is rendered at below the view-height cap. No new file to
+  // extract to — both call sites already had the authority in scope; the
+  // growth is the two swapped lines plus their rationale comments.
+  // 1459→1474 (#2332, measured post-prettier per §12): effectiveMpp's globe arm
+  // mirrored buildECEFFrameView's cos-lat cap, but globeMode routes
+  // getViewForProjection into buildGlobeFrame/globeAltitude instead — uncapped
+  // for the perspective globe (#450), flat-capped for the promoted disc — so
+  // every metre-scaled size consumer read a scale up to 6.6x off below z*. The
+  // branch now splits per REACHABLE BUILDER (+5 lines of body); the other +10 is
+  // the per-arm builder map that replaces the one-line claim the split refutes.
+  // Nothing to extract: it is a two-line decision about this class's own fields,
+  // and moving it out would re-create the mirror-drift the fix closes.
+  // MERGE RE-MEASURE (2026-09-05, third main merge): main's #2332 (6e34251, kept as the
+  // implementation) and this branch's #2289 (dpr-anchored pan/zoom) + #2322 (pan scale
+  // cap) all raised this key from a common base; the merged file carries every delta and
+  // neither side's number is right. Measured 1457 with `wc -l` on the post-prettier
+  // merged tree.
+  'map/src/camera/camera.ts': 1457,
   // 1441→1524 (#1605 Phase 1, measured post-prettier per §12): compute_line_color gains
   // an explicit vec4 return type + a 'line-color-return' placeholder (named alpha/
   // base_color Lets + a line_color_out Var so a foreign composer Stmt list can varref
@@ -1854,6 +2054,13 @@ const CEILINGS: Record<string, number> = {
   // the registry scope, so the call site passes one input fewer. MEASURED post-prettier.
   // 933->932 (#2162 option B): the hand-maintained three-term `_missingTileCount` re-sum
   // becomes one registry read (`count(SCOPE_TILE_COUNT)`). A LOWERING.
+  // 932→924 (#2315): the inline RTC-centre-latitude clamp (and its S5/S10 roadmap
+  // comment, now landed) became one call to render-loop-helpers' frameCenterLatDeg;
+  // the orphaned `poleLimit` import went with it. A LOWERING. MEASURED post-prettier.
+  // 924->932 (2026-09-05, third main merge): render-loop.ts is main's file verbatim after
+  // #2507 superseded this branch's #2315 there, and main's own ceiling for it is 932 —
+  // the merge had kept this branch's 924 because both sides raised the key inside one
+  // conflict hunk. Measured 932 with `wc -l` on the merged tree (identical to main).
   'map/src/render-loop.ts': 932,
   // Baselined at 806 (hillshade tile fade-in): HillshadeRenderer crossed
   // NEW_FILE_CAP restoring the three tile-streaming fixes raster-renderer had
@@ -1923,7 +2130,16 @@ const CEILINGS: Record<string, number> = {
   // carries both deltas and neither side's number is right (§12) — RE-MEASURED
   // post-prettier (`wc -l`) on the merged tree.
   // 754→753 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
-  'map/src/render/hillshade-renderer.ts': 753,
+  // 753→758 (#2314, main <- issue-hunt branch, fourth merge): the draw took the bare
+  // `isPickEnabled()` and selected a 2-target (rg32uint) pipeline for a pass that opens
+  // ONE colour attachment — a per-frame WebGPU validation error whenever picking and a
+  // DEM layer are both on. The call site is now a literal `false`; the +5 is the comment
+  // recording why, at the argument it constrains, so the flag cannot drift back. This
+  // branch's own #2302 fix (`selectFlatProjTiles` in raster-renderer.ts) was SUPERSEDED
+  // by main's flat-tile-selector.ts on this merge and removed as its orphan, so #2314 is
+  // the only delta this branch still carries here. RE-MEASURED post-prettier (`wc -l`)
+  // on the merged tree.
+  'map/src/render/hillshade-renderer.ts': 758,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2125,7 +2341,15 @@ const CEILINGS: Record<string, number> = {
   // push sites and its own drain loop stating one rule — became one shared
   // RetireQueue. A consolidation that pays for its own comments, so the number
   // comes DOWN rather than being held; RE-MEASURED post-prettier.
-  'map/src/render/gpu-tile-store.ts': 996,
+  // 1000→1004 (#2301, hunt 2026-09-02): `_releaseTileResources` carries the release
+  // REASON (`keyRebound`) through to the hook — a parameter on the two release entry
+  // points plus the note on `ReleaseTileHook` saying what a rebound key means.
+  // Measured with `wc -l` on the post-prettier tree.
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 1000 with `wc -l` on the
+  // post-prettier merged tree.
+  'map/src/render/gpu-tile-store.ts': 1000,
   // 930→948 (#1078): the zoom-transition readiness gate now probes the SAME
   // selector the frame draws with — routeToSphereSelector picks globeVisibleTiles
   // on the globe/sphere route (vs the flat visibleTilesSSE) so cz hold/advance is
@@ -2282,6 +2506,12 @@ const CEILINGS: Record<string, number> = {
   // branch), so the merged file carries both deltas and neither side's number is
   // right (§12) — RE-MEASURED post-prettier (`wc -l`) on the merged tree.
   // 1061→1060 (#2507 merge): the `@xgis/geo` import line emptied on both sides. RE-MEASURED.
+  // FOURTH merge (2026-09-05, main <- issue-hunt branch): this branch's own #2302 fix
+  // (`selectFlatProjTiles`, +52 here, shared with HillshadeRenderer) was SUPERSEDED by
+  // main's flat-tile-selector.ts and removed together with its `@xgis/map` re-export and
+  // its parity test (main's `raster-non-merc-selection-parity.test.ts` carries the
+  // stronger FIX/TEETH/CONTROL witness). The file is main's byte-for-byte again;
+  // RE-MEASURED post-prettier (`wc -l`) on the merged tree.
   // 1060→1058 (#2560, LOWERED): `emitTileAt` stopped recomputing a tile row's
   // latitude bounds and Mercator span per drawn tile per frame (two atan(sinh)
   // + two log(tan); 325 ms of a 13.2 s raster session on the owner's profile).
@@ -2290,10 +2520,11 @@ const CEILINGS: Record<string, number> = {
   // cache, where the interesting way to be wrong lives (drop `y` from the inner
   // key and a whole level takes row 0's bounds). Same reason `draw-dedup-key.ts`
   // was pulled out in #2495. What remains here is one field and a destructure,
-  // against 13 lines of inline transcendentals removed — a net SHRINK, so the
-  // ceiling comes down rather than up. The new module is unlisted at 96 lines,
-  // far under NEW_FILE_CAP.
-  'map/src/render/raster-renderer.ts': 1058,
+  // against 13 lines of inline transcendentals removed — a net SHRINK.
+  // MERGE UNION (SIXTH collision on this key): main's side nets to 0 against the
+  // 1060 both sides share, this side is -2, so the merged file should read 1058
+  // — but the number below is `wc -l` on the MERGED tree, not that arithmetic.
+  'map/src/render/raster-renderer.ts': 0,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
@@ -2490,7 +2721,33 @@ const CEILINGS: Record<string, number> = {
   // arm — the four-way condition prettier wraps to one value per line, plus the
   // five-line why (rejecting a spec-valid value emitted NO utility, so the layer
   // silently took the runtime's placement default). MEASURED post-prettier.
-  'compiler/src/convert/layers-symbol.ts': 1434,
+  // 1384→1400 (#2318): a constant text-opacity paired with a zoom-interpolated
+  // text-color folded no alpha (label rendered opaque at every zoom), and the
+  // data-driven text-color branch had no way to carry a constant text-opacity
+  // at all. Both branches now fold/carry the alpha; +16 is the two fix sites
+  // plus their why-comments (post-prettier, `wc -l`).
+  // 1400→1428 (#2320): a non-constant text-max-width (zoom-interpolate or
+  // legacy stops) fell through to the placement-gated spec-default arm and
+  // silently emitted label-max-width-10, discarding the authored value with
+  // zero warnings. The value is now folded through interpolateZoomCall ahead
+  // of the emit chain, like the sibling text-padding / text-letter-spacing
+  // arms, and a shape the fold does not recognise keeps the single default-10
+  // arm plus a warning naming the property. +37 is that fold, the warning, the
+  // review fold-in that gives a NEGATIVE folded stop the same diagnostic the
+  // constant arm already had, and their why-comments (post-prettier, `wc -l`).
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 1449 with `wc -l` on the
+  // post-prettier merged tree.
+  // FIFTH merge (2026-09-05, main <- issue-hunt branch): this branch's own #2331 fix (the same
+  // four warn-and-drop arms, +35 here) was SUPERSEDED by main's 2dd796b above and dropped;
+  // its witness (layers-symbol-nonconstant-drop-warns.test.ts) passes against main's arms and
+  // stays as distinct coverage. #2318 (+16) and #2320 (+37) from this branch stack on main's
+  // 1424, so neither side's number is right (§12). RE-MEASURED post-prettier (`wc -l`) on the
+  // merged tree.
+  // MERGE RE-MEASURE (ninth main merge): both sides raised this key; 1487 is `wc -l`
+  // on the post-prettier merged tree (§12 — never carry either side's number across).
+  'compiler/src/convert/layers-symbol.ts': 1487,
   // 1187→1190 (#1664 review fold-in): label/icon colour joins fill and stroke as a
   // producer of `resolveColorTokenLiterals`. A token arm (`sky-300`) has no colour
   // terminal in the grammar, so it reached label-pass.ts as arithmetic, evaluated to
@@ -2515,7 +2772,19 @@ const CEILINGS: Record<string, number> = {
   // restating the enum, plus the 4-line why (the literal union was a second
   // authority and rejected the value the converter had already accepted).
   // MEASURED post-prettier.
-  'compiler/src/ir/lower-label.ts': 973,
+  // 952→966 (#2320): the `label-max-width-[interpolate(zoom, …)]` arm — the
+  // consumer half of the converter fold. Without it the folded utility hit the
+  // X-GIS0005 fallthrough and LabelDef.maxWidth arrived undefined, which
+  // text-stage reads as "no wrap at any zoom" (worse than the spec default the
+  // fold replaced). +14 = the arm plus the why for seeding the single em value
+  // from the last stop. MEASURED post-prettier (`wc -l`).
+  // MERGE RE-MEASURE (2026-09-05, main <- issue-hunt branch, second merge): both sides
+  // raised this key from a common base, so the merged file carries BOTH deltas and
+  // neither side's number is right (§12). Measured 977 with `wc -l` on the
+  // post-prettier merged tree.
+  // MERGE RE-MEASURE (ninth main merge): both sides raised this key; 987 is `wc -l`
+  // on the post-prettier merged tree (§12 — never carry either side's number across).
+  'compiler/src/ir/lower-label.ts': 987,
   'compiler/src/tokens/colors.ts': 937,
   // 943→956 (#1302): RenderNodeArrowPaint sub-bundle (isArrow + arrowBearing).
   // 956→957 (merge union with #1305 RenderNodeCoveragePaint).
@@ -2565,7 +2834,13 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION: both sides raised this key from 912 and neither number is right — the
   // edits are in different regions of the file, so the merged file takes BOTH deltas
   // (§12: never pick a side, never max() the two). RE-MEASURED post-merge with `wc -l`.
-  'compiler/src/convert/paint-helpers.ts': 934,
+  // 934→954 (#2329): the legacy `{type: "interval", stops: […]}` zoom
+  // function was silently lowered as a linear interpolate — MapLibre's
+  // evaluateIntervalFunction is a STEP (holds the greatest stop <= the
+  // input). Added the `step` curve variant to interpolateZoomStops'
+  // legacy branch + a step-emitting arm in interpolateZoomCall.
+  // MEASURED post-prettier (`wc -l`), set EXACTLY — no headroom banked.
+  'compiler/src/convert/paint-helpers.ts': 954,
   // 800→845 (#2008 C-tier): the split/join string builtins + the to-rgba
   // colour coercion added to callBuiltin's single-authority switch (the
   // #1066 comment on BUILTIN_FN_NAMES: every dispatchable name lives here,

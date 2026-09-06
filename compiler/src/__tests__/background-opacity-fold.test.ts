@@ -63,4 +63,27 @@ describe('background-opacity constant fold', () => {
     const xgis = convertMapboxStyle(build(-0.5) as never)
     expect(xgis).toContain('background { fill: #ff800000 }')
   })
+
+  // #2318: a constant background-opacity paired with a zoom-
+  // interpolated background-color was silently dropped — the fold
+  // only ran on the single-hex constant-colour branch, so the
+  // background rendered opaque at every zoom instead of the authored
+  // alpha.
+  it('zoom-interp background-color + constant opacity folds alpha into every stop (#2318)', () => {
+    const xgis = convertMapboxStyle({
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'bg',
+          type: 'background',
+          paint: {
+            'background-color': ['interpolate', ['linear'], ['zoom'], 5, '#000000', 10, '#ffffff'],
+            'background-opacity': 0.5,
+          },
+        },
+      ],
+    } as never)
+    expect(xgis).toContain('background { fill: interpolate(zoom, 5, #00000080, 10, #ffffff80) }')
+  })
 })

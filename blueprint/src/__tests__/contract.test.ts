@@ -201,6 +201,61 @@ describe('@xgis/blueprint codegen contract', () => {
     )
   })
 
+  // #2348: `ramp`/`range` are real `layer` properties (schema/language.ts,
+  // #1158 INC-D) surfaced as editor fields, so they must survive the
+  // editor's own emit → parse → import round-trip like every sibling.
+  it('coverage layer ramp/range round-trip codegen → compiler → import (#2348)', () => {
+    const l = {
+      id: uid('n'),
+      type: 'layer' as const,
+      x: 0,
+      y: 0,
+      data: {
+        name: 'speed',
+        source: 'currents',
+        sourceLayer: '',
+        minzoom: '',
+        maxzoom: '',
+        filter: '',
+        ramp: 'viridis',
+        range: '[0, 2]',
+        pipe: '',
+      },
+    }
+    const g: BPGraph = { nodes: [l], edges: [] }
+    const src = graphToXgis(g)
+    expect(src).toContain('ramp: "viridis"')
+    expect(src).toContain('range: [0, 2]')
+    expect(() => parses(src)).not.toThrow()
+
+    const node = xgisToGraph(src).nodes.find((n) => n.type === 'layer')!
+    expect(node.data.ramp).toBe('viridis')
+    expect(node.data.range).toBe('[0, 2]')
+  })
+
+  it('a layer with no ramp/range emits neither property (#2348)', () => {
+    const l = {
+      id: uid('n'),
+      type: 'layer' as const,
+      x: 0,
+      y: 0,
+      data: {
+        name: 'districts',
+        source: 'world',
+        sourceLayer: '',
+        minzoom: '',
+        maxzoom: '',
+        filter: '',
+        ramp: '',
+        range: '',
+        pipe: 'fill-blue-400',
+      },
+    }
+    const src = graphToXgis({ nodes: [l], edges: [] })
+    expect(src).not.toContain('ramp:')
+    expect(src).not.toContain('range:')
+  })
+
   it('reroute knots are transparent in codegen', () => {
     const s = {
       id: uid('n'),

@@ -435,3 +435,186 @@ describe('#605 cross-tile shield same-line screen-space cap (prepare wiring)', (
     expect(captured[0]!.length, 'lineId-less curved labels unaffected by min-line spacing').toBe(3)
   })
 })
+
+// #2323 — the #605 same-line spacing gate above used ONE frame-wide window
+// (250*dpr) for every layer, regardless of its authored `symbol-spacing`. A
+// layer spaced BELOW 250 (OFM highway-shield-* = 200) had every second
+// consecutive stop of its own run rejected by that oversized window — a 200 px
+// cadence rendered at 400 px, half the authored rate. addCurvedLineLabel now
+// takes the run's own spacing as a trailing `minLineSpacingPx` (dispatch
+// forwards `run.spacingPx`), which overrides the frame-wide default per item.
+describe("#2323 same-route window follows the run's own symbol-spacing", () => {
+  it('two stops 200 px apart (run spacing 200) both place when the run spacing is forwarded', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    // One 600 px polyline; two stops 200 px apart, well inside the frame-wide
+    // 250 px default but exactly at the run's OWN 200 px cadence — a 2-glyph
+    // shield at size 20 is far narrower than 200 px, so the bboxes don't
+    // overlap and only the same-line spacing gate can drop either one.
+    const [px, py] = hLine(0, 600, 5000)
+    const LINE_ID = 'roads_shield 82'
+    ;[100, 300].forEach((aDist) => {
+      stage.addCurvedLineLabel(
+        litValue('82'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        LINE_ID,
+        aDist,
+        'roads_shield' + LINE_ID,
+        undefined, // ground
+        200, // #2323 — the run's own authored symbol-spacing
+      )
+    })
+    stage.prepare()
+    expect(
+      captured[0]!.length,
+      'both stops of a symbol-spacing 200 run are legitimately spaced and must place',
+    ).toBe(2)
+  })
+
+  it('a caller that omits the run spacing keeps the frame-wide 250 px default (legacy fallback)', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    const [px, py] = hLine(0, 600, 6000)
+    const LINE_ID = 'roads_shield 83'
+    ;[100, 300].forEach((aDist) => {
+      stage.addCurvedLineLabel(
+        litValue('83'),
+        {},
+        px,
+        py,
+        aDist,
+        lineDef(),
+        undefined,
+        'roads_shield',
+        undefined,
+        LINE_ID,
+        aDist,
+        'roads_shield' + LINE_ID,
+      )
+    })
+    stage.prepare()
+    expect(
+      captured[0]!.length,
+      'no per-run spacing supplied → the 250 px default still gates a 200 px cadence',
+    ).toBe(1)
+  })
+})
+
+// #2313 — a curved line label the shaping loop cannot lay out (glyph walk
+// rejects the run length or text-max-angle, degenerate polyline, no glyphs)
+// left the loop WITHOUT entering `shaped`, and the drop loop stamps
+// droppedPairKeys only from `shaped`. IconStage therefore kept the paired
+// shield badge: an empty white box with no road number on highway-shield
+// layers. MapLibre draws neither half. Every unshapeable line label must now
+// enter `shaped` with an empty layout list so the existing collision + drop
+// wiring reports it as unplaced and stamps its pairKey.
+describe('#2313 unshapeable curved label drops its paired badge', () => {
+  it('does not fit the run: 6 glyphs on a 10 px polyline -> no draw, pairKey stamped', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    const [px, py] = hLine(0, 10, 100)
+    stage.addCurvedLineLabel(
+      litValue('ABCDEF'),
+      {},
+      px,
+      py,
+      5,
+      lineDef(),
+      undefined,
+      'highway-shield',
+      'k',
+      undefined,
+      undefined,
+      'shield ABCDEF',
+    )
+    stage.prepare()
+    expect(captured[0]!.length, 'label wider than its run is not drawn').toBe(0)
+    expect(stage.getDroppedPairKeys().has('k'), 'undrawn label stamps pairKey k').toBe(true)
+  })
+
+  it('text-max-angle: 90-degree corner run -> no draw, pairKey stamped', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(
+      litValue('ABCDEF'),
+      {},
+      new Float32Array([0, 100, 100]),
+      new Float32Array([100, 100, 200]),
+      100,
+      lineDef(),
+      undefined,
+      'highway-shield',
+      'k2',
+      undefined,
+      undefined,
+      'shield corner',
+    )
+    stage.prepare()
+    expect(captured[0]!.length, 'max-angle-rejected label is not drawn').toBe(0)
+    expect(stage.getDroppedPairKeys().has('k2'), 'undrawn label stamps pairKey k2').toBe(true)
+  })
+
+  it('degenerate polyline (single vertex) -> no draw, pairKey stamped', () => {
+    const { stage, captured } = makeStage()
+    stage.beginFrame()
+    stage.addCurvedLineLabel(
+      litValue('AB'),
+      {},
+      new Float32Array([50]),
+      new Float32Array([50]),
+      0,
+      lineDef(),
+      undefined,
+      'highway-shield',
+      'k3',
+      undefined,
+      undefined,
+      'shield degenerate',
+    )
+    stage.prepare()
+    expect(captured[0]!.length, 'single-vertex polyline is not drawn').toBe(0)
+    expect(stage.getDroppedPairKeys().has('k3'), 'undrawn label stamps pairKey k3').toBe(true)
+  })
+
+  it('atlas-overflow drop (no glyphs): every undrawn label stamps its pairKey', () => {
+    // Tiny atlas (16 slots) + far more unique CJK glyphs than fit: the
+    // overflow guard blanks the evicted labels' text, so ensureString returns
+    // no glyphs. Rows are 200 px apart, so nothing collides — the only reason
+    // a label is missing from the draws is the empty shaping.
+    const { stage, captured } = makeStage(true)
+    stage.setCameraZoom(11)
+    stage.beginFrame()
+    const words = ['서울특별', '부산광역', '인천대구', '광주울산', '대전세종', '평양원산']
+    words.forEach((w, i) => {
+      const [px, py] = hLine(0, 600, 100 + i * 200)
+      stage.addCurvedLineLabel(
+        litValue(w),
+        {},
+        px,
+        py,
+        300,
+        lineDef(),
+        undefined,
+        'highway-shield',
+        `p${i}`,
+        undefined,
+        undefined,
+        `shield ${w}`,
+      )
+    })
+    stage.prepare()
+    const drawn = captured[0]!.length
+    expect(drawn, 'the tiny atlas must drop at least one label').toBeLessThan(words.length)
+    expect(
+      stage.getDroppedPairKeys().size,
+      'every label that produced no draw stamped its pairKey',
+    ).toBe(words.length - drawn)
+  })
+})

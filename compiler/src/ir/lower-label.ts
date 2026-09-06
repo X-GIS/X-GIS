@@ -203,6 +203,20 @@ export function lowerLabelProps(
           if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base
           continue
         }
+        if (zoomStops && name === 'label-max-width') {
+          // Mapbox `text-max-width: interpolate(zoom, …)` (#2320) — the
+          // converter now folds the authored stops instead of discarding them
+          // for the spec default 10, so this arm is what keeps them from
+          // reaching the X-GIS0005 fallthrough below (a dropped max-width
+          // leaves LabelDef.maxWidth undefined, which text-stage.ts reads as
+          // "no wrap at any zoom" — strictly worse than the default it
+          // replaced). LabelDef.maxWidth is a single em value (text-stage
+          // wraps at layout time, not per frame), so seed it from the LAST
+          // stop, the same fallback the label-halo / label-color zoom-interp
+          // arms use until their field gains stops.
+          labelMaxWidth = zoomStops.stops[zoomStops.stops.length - 1]!.value
+          continue
+        }
         if (zoomStops && name === 'label-icon-size') {
           // Mapbox `icon-size: interpolate(zoom, …)` per-frame resolve
           // (iter 523). Clamp negatives to 0.

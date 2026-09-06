@@ -449,8 +449,8 @@ export class XGISMap {
   }
   /** iter-183 — one-shot guard so the sprite atlas view is pushed
    *  into MapRenderer + every VTR exactly once after the iconStage
-   *  uploads it. Stays true for the session life since the atlas
-   *  texture identity doesn't change post-load. */
+   *  uploads it. Scoped to ONE iconStage/renderer generation, not the
+   *  session — `_releaseGpuResources` re-arms it (#2298). */
   _spriteAtlasViewPushed = false
 
   // Vector tile sources + renderers (per .xgvt source)
@@ -1750,6 +1750,19 @@ export class XGISMap {
     return (this.ctx?.canvas ?? this.canvas) as HTMLCanvasElement
   }
 
+  /** The device-pixel scale the canvas is CURRENTLY sized at — what a host
+   *  must pass as `dpr` to `Camera.zoomAt` / `panToScreenAnchor` when it
+   *  drives them from its own gesture listeners (the site's wheel handlers do).
+   *  Delegates to `canvasEffectiveDpr`, the one geometric authority the render
+   *  loop, project/unproject and the controller already read: a host that
+   *  re-derives `min(devicePixelRatio, maxDpr)` instead disagrees with the
+   *  swapchain the moment it sits at `QUALITY.interactionDpr` or is clamped to
+   *  `maxTextureDimension2D`, and every anchored zoom then pulls the wrong
+   *  world point under the cursor. */
+  getCanvasDpr(): number {
+    return canvasEffectiveDpr(this.getCanvas())
+  }
+
   /** Mapbox-API parity: return the canvas's parent container element.
    *  Returns null if the canvas has no parent (e.g. detached mount).
    *  Mapbox GL JS hosts use this to position UI controls relative to
@@ -2124,7 +2137,11 @@ export class XGISMap {
     const dprChanged =
       before.maxDpr !== after.maxDpr || before.interactionDpr !== after.interactionDpr
 
-    if (msaaChanged || pickingChanged) {
+    // #2305 — `renderer` / `rasterRenderer` / `hillshadeRenderer` / `coverageRenderer`
+    // are only assigned inside run()/runBinary(); on a constructed-but-never-run map
+    // there is nothing to rebuild yet (run() reads QUALITY live via getSampleCount() /
+    // isPickEnabled(), so the value above is still honoured once it boots).
+    if ((msaaChanged || pickingChanged) && this.renderer) {
       // Force next renderFrame to recreate msaa / stencil / pick
       // textures at the new sampleCount. The existing size-change gate
       // (`msaaWidth !== w`) won't trip on its own since width/height
@@ -2136,6 +2153,24 @@ export class XGISMap {
       this.coverageRenderer.rebuildForQuality()
       this.lineRenderer?.rebuildForQuality()
       this.pointRenderer?.rebuildForQuality()
+      // #2411 — the seventh sample-count-baked owner, and the one with no rebuildForQuality
+      // to fan out to: UnderOccluderRenderer takes the count as a CONSTRUCTOR
+      // argument (under-occluder-renderer.ts:113) and bakes it into its Material at
+      // :156, while its only build site is setBackgroundFill. Left alone across a
+      // flip it binds a pipeline whose attachment state the pass re-allocated above
+      // rejects — `Attachment state of [RenderPipeline "under-occluder-rhi"] is not
+      // compatible with [RenderPassEncoder]`, which invalidates the frame. Rebuilt
+      // here rather than given a rebuildForQuality() of its own because the count is
+      // immutable in the constructor and the colour it needs lives on the map.
+      if (this.underOccluder && this._backgroundColor) {
+        this.underOccluder.destroy()
+        this.underOccluder = new UnderOccluderRenderer(
+          this.ctx.rhi,
+          this.ctx.format,
+          getSampleCount(),
+        )
+        this.underOccluder.setColor(this._backgroundColor)
+      }
       // Per-show variant pipelines + layouts both went stale: the pipelines embed the OLD pick-
       // attachment/MSAA target state, and the layouts reference the OLD base/feature bind-group-
       // layouts that initPipelines just replaced. We can't simply null `entry.pipelines` and rely
@@ -2184,6 +2219,11 @@ export class XGISMap {
         )
         vtRenderer.setOITPipeline(this.renderer.fillPipelineExtrudedOIT)
         vtRenderer.setFillRhi?.(this.renderer.fillRhiState?.() ?? null)
+        // #2292 — a VTR also owns a lazily-built globe VectorDrapeRenderer whose
+        // RasterDraper pipelines BAKE the sample count they were created at. Re-wiring
+        // layouts and pipelines does not touch it, so without this the drape kept 4x
+        // pipelines against the 1x pass renderTargets.invalidate() re-allocates above.
+        vtRenderer.rebuildForQuality()
       }
     }
     if (dprChanged) {
@@ -3728,7 +3768,9 @@ export class XGISMap {
           sizeShape !== null
             ? sizeShape.kind === 'constant'
               ? sizeShape.value
-              : resolveNumberShape(sizeShape, this.camera.zoom, performance.now()).value
+              : // #2324 — the frame clock (this._elapsedMs), not performance.now():
+                // before the first frame this is 0, the correct t=0 start value.
+                resolveNumberShape(sizeShape, this.camera.zoom, this._elapsedMs).value
             : 8
 
         // Evaluate per-feature size if data-driven. Inject reserved keys (`$zoom` /
@@ -5115,10 +5157,10 @@ export class XGISMap {
     // must not report loaded() === true on a blank corpse. (#1153 C)
     this._loaded = false
     this._stopCoverageMachinery() // #1569 — the same stop-block destroy() runs
-    // #1304 — a scene swap must stop the outgoing scene's `refresh:` polling loops
-    // before the incoming one attaches; otherwise a stale tick could land on a
-    // same-named source in the NEW scene, the exact #1569 ghost-write class.
-    this.sourceManager.stopAllRefresh()
+    // #1304/#2300 — a scene swap must stop the outgoing scene's `refresh:` loops AND
+    // release its seeded FCs / vt backends before the incoming one attaches; a stale
+    // tick or a stale seeded FC on a same-named source is the #1569 ghost-write class.
+    this.sourceManager.resetForReinit()
     this._releaseGpuResources()
   }
 
@@ -5155,12 +5197,28 @@ export class XGISMap {
     this._burst.exit()
     // Per-source GPU renderers + tile catalogs.
     for (const key of [...this.vtSources.keys()]) this.teardownSource(key)
+    // The synthetic background's catalog+VTR die in that loop, so its two OWNER
+    // refs must go too: left dangling, _installSyntheticEarthSurfaceSource
+    // short-circuits and a re-run never re-registers the source (background lost)
+    // while the opaque pass keeps drawing the old occluder on a dead device.
+    // Destroyed before ctx.rhi.destroy(), the order setBackgroundFill(null) uses.
+    // The under-occluder is the same debt from the other side (#2286): its only
+    // destroy lived in `setBackgroundFill`, where a background change replaces it,
+    // so no teardown path released it. One site owns it now.
+    this._syntheticBackend = null
+    this.underOccluder?.destroy()
+    this.underOccluder = null
 
     // Overlay stages own GPU buffers + glyph/icon atlases.
     this.textStage?.destroy()
     this.textStage = null
     this.iconStage?.destroy()
     this.iconStage = null
+    // #2298 — the atlas OWNER dies here while run()/device-loss recovery rebuilds its
+    // consumers (a fresh MapRenderer, a fresh VTR per source) seeded on the engine's
+    // 1×1 stub view, so the one-shot push latch must re-arm here too; left true, the
+    // re-loaded atlas is never pushed and every pattern layer samples the stub forever.
+    this._spriteAtlasViewPushed = false
     // #797 P0 — drop the per-run host-atlas GPU mirror; KEEP the registry so
     // host images survive the scene swap and re-pack on the next run.
     this.graphics.destroyGpu()
@@ -5179,11 +5237,6 @@ export class XGISMap {
     // destroyed here the DEV owner-leak detector reports them on every run,
     // burying the next real leak in ~40 lines of expected noise.
     this.renderer?.destroy()
-    // #2286 — the under-occluder's only destroy lived in `setBackgroundFill`,
-    // where a background change replaces it; nothing released it on teardown.
-    this.underOccluder?.destroy()
-    this.underOccluder = null
-
     this.rasterRenderer?.destroy()
     this.hillshadeRenderer?.destroy()
 
@@ -5236,8 +5289,8 @@ export class XGISMap {
     this.running = false // next requestAnimationFrame tick early-returns
     // #1569 — the coverage stop-block, shared with _teardownForReinit.
     this._stopCoverageMachinery()
-    // #1304 — every `refresh:` polling loop, shared with _teardownForReinit.
-    this.sourceManager.stopAllRefresh()
+    // #1304/#2300 — refresh loops + retained source state, shared with _teardownForReinit.
+    this.sourceManager.resetForReinit()
 
     // Pending interaction-idle debounce.
     if (this._interactionIdleTimer !== null) {

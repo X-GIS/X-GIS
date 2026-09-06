@@ -78,6 +78,12 @@ export class EventDispatcher {
   private wheelRafHandle: number | null = null
   /** Latest wheel payload — overwritten until the next rAF flushes it. */
   private wheelLatest: { x: number; y: number; ev: WheelEvent } | null = null
+  /** Generation counter for the hover state. Bumped by every event that
+   *  INVALIDATES `hoverPrev` (pointer leave, destroy). `flushMove` samples it
+   *  before its `pickAt` await and drops the result if it changed while the
+   *  readback was in flight — the rAF cancel alone cannot do this, because a
+   *  flush that has already started holds no handle to cancel. */
+  private hoverGen = 0
 
   constructor(private deps: DispatcherDeps) {}
 
@@ -149,6 +155,7 @@ export class EventDispatcher {
     this.moveLatest = null
     this.wheelLatest = null
     this.hoverPrev = null
+    this.hoverGen++
   }
 
   /** Pointer left the canvas entirely. Force a `mouseleave` on whatever
@@ -163,6 +170,7 @@ export class EventDispatcher {
     this.moveLatest = null
     const prev = this.hoverPrev
     this.hoverPrev = null
+    this.hoverGen++
     // Pointer left the canvas → nothing is hovered; reset the cursor even if
     // this layer has no `mouseleave` listener (cursor ≠ event dispatch).
     if (prev) this.deps.onHoverActiveChange?.(false)
@@ -225,7 +233,14 @@ export class EventDispatcher {
       this.hoverPrev = null
       return
     }
+    const gen = this.hoverGen
     const hit = await this.deps.pickAt(clientX, clientY)
+    // The readback is ~1 frame long; a leave/destroy inside that window already
+    // reset `hoverPrev` and reported hover=false, so this answer describes a
+    // pointer position that no longer holds. Dropping it is complete: a leave
+    // BEFORE the rAF fired was cancelled at the handle, and one AFTER this
+    // returns observes the hoverPrev written below and emits its own mouseleave.
+    if (gen !== this.hoverGen) return
     const current = hit ? { layerId: hit.layerId, featureId: hit.featureId } : null
     const prev = this.hoverPrev
     const changed = !sameHover(prev, current)
