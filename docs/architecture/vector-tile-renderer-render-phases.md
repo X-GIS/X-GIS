@@ -152,16 +152,16 @@ A pure reshaping must not move a pixel, and the repo can assert that at the stro
 
 ## What this deliberately does not do
 
-- **Split the file** (#2537). The phases are named and their data flow is typed, so the
-  move is now mechanical — but the bodies read 81 `this.*` members, **77 of them private**,
-  on a class `@xgis/map` exports from its index, and the repo has no `@internal` +
-  `stripInternal` convention to hide them again (0 of 488 tsconfigs). Moving them out
-  therefore widens the published API, duplicates the class's internals as a context type,
-  or requires adopting `stripInternal` repo-wide first. That is the owner's decision, filed
-  with the measurement rather than taken here.
-- **Touch `renderTileKeys()`** (800 lines). It is called from phases 7 and 8; reshaping it
-  before its callers had names would have been done twice. It is the natural next increment
-  and, unlike the file split, needs no visibility decision — it stays a private member.
+- ~~**Split the file** (#2537)~~ — **done.** The phases are named and their data flow is
+  typed, so the move was mechanical; the blocker was that the bodies read 81 `this.*`
+  members, **77 of them private**, on a class `@xgis/map` exports from its index, with no
+  `@internal` + `stripInternal` convention to hide them again (0 of 488 tsconfigs). The
+  owner chose `@internal` on 2026-09-06. See **What landed after this record** below — in
+  particular that the option as #2537 worded it (adopt `stripInternal` **repo-wide**) would
+  not have built.
+- ~~**Touch `renderTileKeys()`** (800 lines)~~ — **done** (#2508 step 3). It is called from
+  phases 7 and 8; reshaping it before its callers had names would have been done twice. It
+  needed no visibility decision — it stays reachable either way.
 - **Split phase 3** (409 lines, one long uniform-write block). Knowable only from inside
   it; the phase boundary makes it a local question now.
 
@@ -178,3 +178,59 @@ were unused the compiler would say so.
 is pure motion — a phase boundary cut through state outside the measured sets. The
 back-to-front order for the consumers bounds the blast radius of such a move to one
 increment; none moved.
+
+## What landed after this record
+
+This file is the design record for **step 1** — naming the phases in place. Steps 2 and 3
+followed; the numbers below are what they measured, so nobody reads the tables above as
+current state.
+
+|                            | step 1 (#2573)       | step 2 (#2614)       | step 3                   |
+| -------------------------- | -------------------- | -------------------- | ------------------------ |
+| `vector-tile-renderer.ts`  | 5,588 → 5,873        | → **3,886**          | → **3,395**              |
+| `render()` body            | 1,964 → 41           | 41                   | 41                       |
+| `renderTileKeys()` body    | 798                  | 798                  | → **251**                |
+| largest member in the file | `renderTileKeys` 798 | `renderTileKeys` 798 | **`renderFillsRhi` 297** |
+
+Step 1 RAISED the LOC ceiling (+285, for two state literals and eleven doc + signature
+blocks) and said so; steps 2 and 3 lowered it twice, to 42 % of where this record started.
+**Nothing in the file is over ~300 lines now.**
+
+**Where the code went.** Ten phases to `map/src/render/render-phases/` (phase 0,
+`guardAndUnwrapPass`, stays a private method — it is the frame's concrete-backend seam, and
+moving it _spread_ the `@xgis/rhi-webgpu` coupling to a second file rather than moving it).
+`renderTileKeys()`'s three blocks to `map/src/render/tile-draw/`: the per-tile uniform pack,
+the per-tile fill draw, and the deferred stroke pass.
+
+**Three things the second and third steps taught, none visible from a read:**
+
+1. **`private` → `@internal` NARROWS the published surface.** `tsc` emits a `private` member
+   as a name-only slot; `stripInternal` removes it outright. 98 `private` name slots left
+   `map/dist/index.d.ts` across the two steps (849 → 751) with declarations, exports and
+   members unchanged at 463 / 50 / 2,625. But the flag cannot be repo-wide: `map/src/map.ts`
+   reads an `@internal` member of the compiler _through `compiler/dist/index.d.ts`_, so it
+   lives in `map/tsconfig.publish.json` only — the publish pass strips, the typecheck pass
+   does not.
+2. **A restated type is a spread; a derived one is free.** A per-file ratchet counts where a
+   type is _written_, not what the code touches, so restating `GPURenderPassEncoder |
+GPURenderBundleEncoder` in a new module's parameter list ADDS native tokens without
+   removing any from the class. Deriving from the seam
+   (`Parameters<VectorTileRenderer['renderTileKeys']>[1]`) costs none and follows the seam
+   when it moves.
+3. **The extraction states control flow a read leaves buried.** `renderTileKeys`'s fill
+   block carried a bare `continue` that abandoned the rest of the tile's iteration; it
+   cannot cross a function boundary, so the abort became a return value. Step 1 hit the same
+   shape twice (phases 1 and 2 carry aborts, not only outputs).
+
+**The source-text gates follow the code through one reader.** `map/src/render/render-path-source.ts`
+returns the class plus every lifted module and normalises the parameter `vtr.` back to
+`this.`, so the 13 gates that pin this path kept their assertions verbatim. One gate that
+did NOT use it — the polygonU uniform-completeness gate — went red naming `light_dir_ecef`
+as written by nobody the moment the per-tile light writes moved. That is the good outcome:
+a gate keyed on presence rather than absence would have gone quietly green.
+
+**Still open on #2508: step 4, the ratchet reshape** — the part that decides whether any of
+this holds. The current form forbids growth but cannot force retirement, which is how this
+file grew +29 % one justified raise at a time. Measured 2026-09-06: 38 baselined files,
+**51,579 lines of ceiling in total**, every one of them above the 800-line `NEW_FILE_CAP`,
+and the largest is no longer this file but `map/src/map.ts` at 5,547.

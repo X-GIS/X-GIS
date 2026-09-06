@@ -221,7 +221,15 @@ const BASELINE: Record<string, number> = {
   // UniformSplitBind — boundary tokens of the same class as ringBufferNative.
   // 20→21 (#2042 INC-4c): strokeSplitBg (GPUBindGroup) at the stroke-emit
   // resolve — the same boundary token class as the fill resolve's.
-  'map/src/render/vector-tile-renderer.ts': 21,
+  // 21→18 (#2508 step 3): `renderTileKeys`'s three blocks left for tile-draw/,
+  // and the two per-tile declarations they share (`splitBind`, `currentTileBg`)
+  // now name DERIVED aliases (tile-draw/types.ts) instead of restating
+  // GPUBindGroup / GPUBindGroupLayout. A derivation spells no native token, so
+  // the pair moved out of this file without arriving anywhere.
+  'map/src/render/vector-tile-renderer.ts': 18,
+  // The one native token that MOVED rather than dissolved: the deferred stroke
+  // pass's own `strokeSplitBg` local, verbatim from the class body.
+  'map/src/render/tile-draw/draw-queued-strokes.ts': 1,
   'map/src/sprite/host-sprite-atlas-gpu.ts': 14,
   'map/src/sprite/icon-renderer.ts': 10,
   'map/src/sprite/icon-stage.ts': 7,

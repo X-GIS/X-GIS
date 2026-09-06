@@ -131,7 +131,9 @@ const BASELINE: Record<string, number> = {
   // 2→1 (#2537): the `window as unknown as {…}` debug-flag read moved out with
   // `resolveLayerSlot`. A MOVE, not a closure — the destination below carries it,
   // so the total is unchanged.
-  'map/src/render/vector-tile-renderer.ts': 1,
+  // Row DELETED (#2508 step 3): the last cast in the class rode out with the
+  // per-tile fill draw. Net-neutral — see the tile-draw row below.
+  'map/src/render/tile-draw/draw-tile-fill.ts': 1,
   // #2537 — arrived with `resolveLayerSlot` from vector-tile-renderer.ts (2→1
   // above). A `globalThis`/`window` shape read for a debug escape hatch: the DOM
   // lib has no such property, so there is no type seam to fix, only a cast to

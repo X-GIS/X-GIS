@@ -10,7 +10,7 @@ through an exported one. Members are names, not signatures — see the header of
 
 - declarations: 463
 - exported names: 50
-- members: 2625 (plus 762 `private` name slots)
+- members: 2625 (plus 751 `private` name slots)
 - `@internal` tags surviving into the bundle: 1
 
 ## Exported
@@ -3350,33 +3350,24 @@ class VectorTileRenderer
   private _fillPatternMatRhi
   private _fillPatternTileBgRhi
   private _fillPickMatRhi
-  private _fillRhi
   private _fillTileBgRhi
   private _fillVariantsRhi
   private _labelSource
-  private _lightColor
-  private _lightIntensity
-  private _lightPosition
   private _lineTileBgRhi
   private _nextTilePointPrefix
   private _onSplitRebind
   private _onUniformRingGrow
   private _releaseTileHook
   private _scratchProtectedKeys
-  private _splitBind
   private _spriteAtlasRhi
   private _store
-  private _strokeOffsetsScratch
   private _strokeQueueSlots
   private _strokeQueueTileOff
   private _strokeQueueTiles
   private _stubAtlasRhi
   private _tilePointOwner
   private _tilePointShowIdPrefix
-  private _tileUniforms
   private _worldOffScratch
-  private _writeRtcAnchors
-  private allocUniformSlot
   private applyReplacedTiles
   private ensureFillBakeMaterialRhi
   private ensureFillMaterialRhi
@@ -3389,10 +3380,8 @@ class VectorTileRenderer
   private guardAndUnwrapPass
   private lineTileBgRhi
   private prefetchScheduler
-  private recordTileFill
   private resetUploadFrameCap
   private ringBufferNative
-  private stageUniformSlot
   private stagingPool
   private stubAtlasRhi
   private uniformRing

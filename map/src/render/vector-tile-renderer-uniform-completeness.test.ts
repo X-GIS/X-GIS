@@ -30,16 +30,24 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { uniformBlock } from '@xgis/engine'
 import { polygonU } from '../shaders/dsl/polygon'
+import { renderPathSource } from './render-path-source'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-// The VTR plus every module it DELEGATES a frameBlock write to. #1539's 12-lane
-// `input` pool is written by input-pool.ts's writeInputPool(), called from each
-// of VTR's four frame-constant sites — the lanes are genuinely written per
-// frame, just not spelled inline in a file already at its LOC ceiling. Scanning
-// the delegate keeps this gate's guarantee intact (no polygonU field goes
-// silently unwritten) instead of parking 12 real, shader-read fields in
-// OMITTED, which is reserved for std140 padding.
-const WRITERS = ['vector-tile-renderer.ts', 'input-pool.ts'].map((f) => join(HERE, f))
+// The whole render path plus every module it DELEGATES a frameBlock write to.
+// #1539's 12-lane `input` pool is written by input-pool.ts's writeInputPool(),
+// called from each of VTR's four frame-constant sites — the lanes are genuinely
+// written per frame, just not spelled inline in a file already at its LOC
+// ceiling. Scanning the delegate keeps this gate's guarantee intact (no polygonU
+// field goes silently unwritten) instead of parking 12 real, shader-read fields
+// in OMITTED, which is reserved for std140 padding.
+//
+// #2508 step 3 moved the per-tile light + RTC-anchor writes to
+// `tile-draw/pack-tile-uniforms.ts`, and this gate — reading only the class —
+// went RED naming `light_dir_ecef` as never written. That is the good outcome of
+// the two: the same move against a gate keyed on presence rather than absence
+// would have gone quietly GREEN. `renderPathSource()` is the one reader that
+// follows the code (§12), so this gate joins it rather than listing a third path.
+const WRITERS = ['input-pool.ts'].map((f) => join(HERE, f))
 const stripComments = (s: string): string =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
@@ -55,7 +63,9 @@ const OMITTED: Record<string, string> = {}
 
 describe('VTR frameBlock writes every polygonU field (#999, #600 completeness class)', () => {
   const allFields = Object.keys(uniformBlock(polygonU).set)
-  const src = stripComments(WRITERS.map((f) => readFileSync(f, 'utf8')).join('\n'))
+  const src = stripComments(
+    [renderPathSource(), ...WRITERS.map((f) => readFileSync(f, 'utf8'))].join('\n'),
+  )
   // Written = patched via `.set.<field>` (receiver-agnostic: `this.frameBlock` and
   // the local `B = this.frameBlock` alias both), OR supplied as a `.write({…})`
   // object key (VTR has none today — future-proofs the gate against a write() port).
