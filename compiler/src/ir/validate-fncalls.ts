@@ -26,6 +26,7 @@ import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 import { UNKNOWN_FUNCTION } from '../diagnostics/diagnostic'
 import { BUILTIN_FN_NAMES } from '../eval/evaluator-helpers'
+import { nearestByEditDistance } from './edit-distance'
 
 /** Legal callee names handled OUTSIDE `callBuiltin`. A call to one of
  *  these is valid even though it is absent from `BUILTIN_FN_NAMES`. Each
@@ -242,39 +243,9 @@ function validateCallee(
 /** Nearest known callee by Levenshtein distance, or null when the closest
  *  match is too far to be a plausible typo (a distant match is noise). */
 function nearestName(name: string): string | null {
-  let best: string | null = null
-  let bestDist = Infinity
-  for (const cand of KNOWN_NAMES) {
-    const d = levenshtein(name, cand)
-    if (d < bestDist) {
-      bestDist = d
-      best = cand
-    }
-  }
   // Suggest only for small edits: ≤ 2 for names long enough that 2 edits
   // still share most characters, else ≤ 1. Keeps `sqrrt`→`sqrt` (1) while
   // dropping a wild `frobnicate` that happens to sit 2 away from a short
   // builtin.
-  const threshold = name.length >= 4 ? 2 : 1
-  return best !== null && bestDist <= threshold ? best : null
-}
-
-/** Classic two-row Levenshtein edit distance. */
-function levenshtein(a: string, b: string): number {
-  const m = a.length
-  const n = b.length
-  if (m === 0) return n
-  if (n === 0) return m
-  let prev = new Array<number>(n + 1)
-  for (let j = 0; j <= n; j++) prev[j] = j
-  for (let i = 1; i <= m; i++) {
-    const cur = new Array<number>(n + 1)
-    cur[0] = i
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-    }
-    prev = cur
-  }
-  return prev[n]
+  return nearestByEditDistance(name, KNOWN_NAMES, name.length >= 4 ? 2 : 1)
 }

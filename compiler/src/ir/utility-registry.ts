@@ -35,6 +35,8 @@
 // time here would recreate exactly the two-authorities drift this table
 // exists to remove.
 
+import { nearestByEditDistance } from './edit-distance'
+
 /** How `UtilityDef.prefix` is matched against a utility name. */
 export type UtilityMatch = 'prefix' | 'exact'
 
@@ -241,7 +243,7 @@ export function isKnownUtility(name: string): boolean {
 // ONE representative suggestion: the shortest PREFIX-match root for that family
 // (so `colr-…` → `fill-`, not `fill-extrusion-height-`), falling back to a bare
 // exact utility when the family has no prefix form (`visible`, `anchor-center`).
-const FIRST_SEGMENTS: { seg: string; prefix: string }[] = (() => {
+const FIRST_SEGMENTS: ReadonlyMap<string, string> = (() => {
   const seen = new Map<string, UtilityDef>()
   for (const d of UTILITY_REGISTRY) {
     const seg = d.prefix.split('-')[0]!
@@ -255,27 +257,8 @@ const FIRST_SEGMENTS: { seg: string; prefix: string }[] = (() => {
       (d.match === 'prefix' && cur.match === 'prefix' && d.prefix.length < cur.prefix.length)
     if (better) seen.set(seg, d)
   }
-  return [...seen.entries()].map(([seg, d]) => ({ seg, prefix: d.prefix }))
+  return new Map([...seen].map(([seg, d]) => [seg, d.prefix]))
 })()
-
-/** Levenshtein edit distance (small strings — the utility heads). */
-function editDistance(a: string, b: string): number {
-  const m = a.length
-  const n = b.length
-  if (m === 0) return n
-  if (n === 0) return m
-  let prev = Array.from({ length: n + 1 }, (_, j) => j)
-  let cur = new Array<number>(n + 1)
-  for (let i = 1; i <= m; i++) {
-    cur[0] = i
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-    }
-    ;[prev, cur] = [cur, prev]
-  }
-  return prev[n]
-}
 
 /**
  * Best-effort "did you mean …?" for an unknown utility: the known family
@@ -286,14 +269,6 @@ function editDistance(a: string, b: string): number {
  */
 export function suggestUtility(name: string): string | undefined {
   const head = name.split('-')[0] ?? name
-  let best: string | undefined
-  let bestD = Infinity
-  for (const { seg, prefix } of FIRST_SEGMENTS) {
-    const d = editDistance(head, seg)
-    if (d < bestD) {
-      bestD = d
-      best = prefix
-    }
-  }
-  return bestD <= 3 ? best : undefined
+  const seg = nearestByEditDistance(head, FIRST_SEGMENTS.keys(), 3)
+  return seg === null ? undefined : FIRST_SEGMENTS.get(seg)
 }
