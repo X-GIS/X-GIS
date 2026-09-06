@@ -270,6 +270,11 @@ export const ISOLATED = [
   //     witness #2564 and restores EARTH in afterEach.
   'map/src/render/tile-camera-anchor-body.test.ts',
   'map/src/render/tile-compute-resources.test.ts',
+  // (2) clock — `vi.spyOn(Date, 'now')` drives the retry backoff the file measures.
+  //     Landed on main in #2607, AFTER the census that produced the eleven entries
+  //     around it, and the widened arm caught it on the merge — which is the whole
+  //     point of gating the rule rather than re-censusing by hand.
+  'map/src/render/tile-retry.test.ts',
   'map/src/render/vector-drape-bake-budget.test.ts',
   // (2) stubs `window` and `matchMedia`.
   'map/src/render/vector-drape-cold-release.test.ts',

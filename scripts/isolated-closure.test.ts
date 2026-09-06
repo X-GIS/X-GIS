@@ -77,13 +77,28 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const MOCK_CALL = /\bvi\s*\.\s*(?:mock|doMock)\s*\(/
 
 /** Rule (2)'s triggers, matching the rule as `vitest.config.ts` states it so the two cannot
- *  drift apart in wording: the stub-global call, an assignment onto the process global, and
- *  the four authorities that keep their state there.
+ *  drift apart in wording: the stub-global call, an assignment onto the process global, a
+ *  `vi.spyOn` on the process global or on a global CLOCK, and the four authorities that keep
+ *  their state there.
  *
  *  `[^=>]` after the assignment is load-bearing, not tidiness — see the header: it keeps a
- *  type annotation on an arrow-returning value from reading as a write. */
+ *  type annotation on an arrow-returning value from reading as a write.
+ *
+ *  The `spyOn` arm is load-bearing for the same reason one level over, and it is what the
+ *  `>` exclusion alone got WRONG. `vi.spyOn(performance, 'now')` replaces a method on an
+ *  object every module in the worker shares — the same write as `stubGlobal`, one level
+ *  down — and the arms beside it cannot see it. `map/src/sprite/sprite-idle-keep-warm.test.ts`
+ *  is the measured casualty: it holds a genuine type-position match at line 110 AND three
+ *  real `vi.spyOn(performance, 'now')` writes, so clearing it on the strength of the former
+ *  cleared a true positive. 30 s timeout in the shared pass on a full sweep, 16 ms alone.
+ *
+ *  The receiver list is CLOSED on purpose. `globalThis`, `performance` and `Date` are read
+ *  BACK by other modules — a frozen clock changes what a deadline comparison in a different
+ *  file evaluates to. `console` is not: it is a sink nothing reads, so the 22 files that spy
+ *  only on it are deliberately out (#2634 carries the list and the reasoning, so the day a
+ *  swallowed-warning failure appears the judgement that excluded them is on record). */
 const GLOBAL_WRITE =
-  /\bvi\s*\.\s*stubGlobal\s*\(|\bglobalThis\s*\.\s*\w+\s*=[^=>]|\b(?:configureBody|configureBodyConsts|configureProjections|setLogSink)\s*\(/
+  /\bvi\s*\.\s*stubGlobal\s*\(|\bglobalThis\s*\.\s*\w+\s*=[^=>]|\bvi\s*\.\s*spyOn\s*\(\s*(?:globalThis|performance|Date)\s*,|\b(?:configureBody|configureBodyConsts|configureProjections|setLogSink)\s*\(/
 
 /** Comments stripped before matching, because the rule is about what a file CALLS.
  *
