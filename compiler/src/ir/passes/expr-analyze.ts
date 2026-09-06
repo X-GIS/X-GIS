@@ -62,9 +62,9 @@
 //     X-GIS builtins are pure.
 
 import type { IRPass } from '../pass-manager'
-import type { Scene, ColorValue, DataExpr, ConditionalBranch } from '../render-node'
-import type { PropertyShape } from '../property-types'
+import type { Scene } from '../render-node'
 import type { Expr } from '../../parser/ast'
+import { forEachExprChild, forEachSceneExpr } from '../walk-expr'
 
 /** Per-Expr metadata. Optional fields mean "not derivable from this
  *  Expr alone" — consumers fall back to safe-default behaviour. */
@@ -107,8 +107,8 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
 
   function visit(e: Expr): ExprMeta {
     totalNodes++
-    // Leaf metadata defaults. Each branch below mutates depth +
-    // propagates aggregate flags up.
+    // Leaf metadata defaults. The switch below records the facts that are
+    // a property of THIS node; the child walk then propagates aggregates up.
     let depth = 1
     let matchArmCount = 0
     let allArmsConst = false
@@ -120,48 +120,30 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
     switch (e.kind) {
       case 'FieldAccess':
         hasFieldAccess = true
-        if (e.object) childMetas.push(visit(e.object))
         break
       case 'FnCall':
         hasFnCall = true
-        childMetas.push(visit(e.callee))
-        for (const a of e.args) childMetas.push(visit(a))
         if (e.matchBlock) {
           hasMatch = true
           matchArmCount = e.matchBlock.arms.length
           // allArmsConst only meaningful when ALL arms are literals.
           allArmsConst = e.matchBlock.arms.every((arm) => isLiteral(arm.value))
-          for (const arm of e.matchBlock.arms) {
-            childMetas.push(visit(arm.value))
-          }
         }
-        break
-      case 'BinaryExpr':
-        childMetas.push(visit(e.left), visit(e.right))
-        break
-      case 'UnaryExpr':
-        childMetas.push(visit(e.operand))
-        break
-      case 'ConditionalExpr':
-        childMetas.push(visit(e.condition), visit(e.thenExpr), visit(e.elseExpr))
-        break
-      case 'ArrayLiteral':
-        for (const el of e.elements) childMetas.push(visit(el))
-        break
-      case 'ArrayAccess':
-        childMetas.push(visit(e.array), visit(e.index))
         break
       case 'MatchBlock':
         hasMatch = true
         matchArmCount = e.arms.length
         allArmsConst = e.arms.every((arm) => isLiteral(arm.value))
-        for (const arm of e.arms) childMetas.push(visit(arm.value))
         break
-      // Leaves — NumberLiteral, StringLiteral, ColorLiteral,
-      // BoolLiteral, Identifier — no children, no flag changes.
+      // Every other kind contributes no metadata of its own — only the
+      // aggregates its children propagate.
       default:
         break
     }
+
+    forEachExprChild(e, (child) => {
+      childMetas.push(visit(child))
+    })
 
     // Propagate up: depth = 1 + max(child depths); flag union.
     for (const cm of childMetas) {
@@ -186,50 +168,7 @@ export function analyzeExprs(scene: Scene): ExprAnalysis {
     return meta
   }
 
-  function visitDataExpr(e: DataExpr | null | undefined): void {
-    if (!e) return
-    visit(e.ast as Expr)
-  }
-
-  function visitColorValue(v: ColorValue): void {
-    switch (v.kind) {
-      case 'none':
-      case 'constant':
-      case 'zoom-interpolated':
-      case 'time-interpolated':
-        return
-      case 'data-driven':
-        visitDataExpr(v.expr)
-        return
-      case 'conditional':
-        for (const br of v.branches as ConditionalBranch<ColorValue>[]) {
-          visitColorValue(br.value)
-        }
-        visitColorValue(v.fallback)
-        return
-    }
-  }
-
-  function visitPropertyShape<T>(shape: PropertyShape<T>): void {
-    if (shape.kind === 'data-driven') visitDataExpr(shape.expr)
-  }
-
-  for (const node of scene.renderNodes) {
-    visitColorValue(node.fill)
-    visitColorValue(node.stroke.color)
-    visitDataExpr((node.stroke as { colorExpr?: DataExpr }).colorExpr)
-    visitPropertyShape(node.stroke.width)
-    visitPropertyShape(node.opacity)
-    if (node.size.kind === 'data-driven') visitDataExpr(node.size.expr)
-    visitDataExpr(node.filter)
-    visitDataExpr(node.geometry)
-    if (node.extrude?.kind === 'feature') {
-      visitDataExpr((node.extrude as { expr?: DataExpr }).expr)
-    }
-    if (node.extrudeBase?.kind === 'feature') {
-      visitDataExpr((node.extrudeBase as { expr?: DataExpr }).expr)
-    }
-  }
+  forEachSceneExpr(scene, visit)
 
   return { metaByExpr, totalNodes }
 }

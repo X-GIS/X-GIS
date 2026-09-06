@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 364 exports
+## `.` — 366 exports
 
 ```
 abs
@@ -111,6 +111,7 @@ EntryInfo
 EntryIo
 EntryIoField
 EntryParam
+EntryReach
 enumU32
 EnumU32
 exp
@@ -249,6 +250,7 @@ radians
 RawPayload
 rawStmt
 RawStmt
+reachFrom
 ReadonlyNode
 recommendFp64Flavor
 reduce
@@ -673,7 +675,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 418 definitions
+## Shapes — 420 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -1020,6 +1022,8 @@ src/core/passes/rename-varrefs.ts#rewriteExprsInFunc  function  (f: FuncDecl, re
 src/core/passes/required-caps.ts#assertCaps  function  (backend: Backend, m: ModuleDecl) => void
 src/core/passes/required-caps.ts#requiredCaps  function  (m: ModuleDecl) => Capability[]
 src/core/passes/single-exit.ts#checkSingleExit  function  (f: FuncDecl) => string[]
+src/core/passes/stage-bindings.ts#EntryReach  interface  { bindings: Set<string>; fns: Set<string>; refs: RefSet }
+src/core/passes/stage-bindings.ts#reachFrom  function  (m: ModuleDecl, entries: readonly FuncDecl[]) => EntryReach
 src/core/passes/validate.ts#ValidationError  class  { cause?: unknown; code: string; diagnostics: readonly Diagnostic[]; hint?: string; loc?: SourceLoc; message: string; name: string; stack?: string }
 src/core/passes/validate.ts#lintModule  function  (m: ModuleDecl, config?: LintConfig) => Diagnostic[]
 src/core/passes/validate.ts#validate  function  (m: ModuleDecl) => void
