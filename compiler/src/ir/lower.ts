@@ -22,7 +22,7 @@ import {
   type PresetCall,
 } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
-import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER } from '../diagnostics/diagnostic'
+import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER, UNRESOLVED_COLOR } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -722,6 +722,7 @@ function lowerLayer(
       opacity,
       projection,
       visible,
+      diagnostics,
     )
     fill = result.fill
     strokeColor = result.strokeColor
@@ -1357,6 +1358,7 @@ function applyStyleProperties(
   opacity: OpacityValue,
   projection: string,
   visible: boolean,
+  diagnostics: import('./render-node').Diagnostic[],
 ): {
   fill: ColorValue
   strokeColor: ColorValue
@@ -1387,16 +1389,34 @@ function applyStyleProperties(
     if (!m) return null
     return { num: parseFloat(m[1]), unit: (m[2] as 'm' | 'px' | 'km' | 'nm' | undefined) ?? 'm' }
   }
+  // The ONE rule for what a `fill:`/`stroke:` value may name, shared by both
+  // arms. An unreadable value used to skip its assignment in silence, so a
+  // mis-captured CSS colour (#2544) rendered as "no fill" with nothing to
+  // point at; it now warns and lowering still stays total.
+  const applyColor = (prop: AST.StyleProperty, assign: (hex: string) => void): void => {
+    const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
+    if (hex) {
+      assign(hex)
+      return
+    }
+    diagnostics.push({
+      severity: 'warn',
+      code: UNRESOLVED_COLOR,
+      span: { line: prop.line, col: 1 },
+      message:
+        `\`${prop.name}: ${prop.value}\` names no colour the resolver recognises — ` +
+        `the property is ignored and the layer keeps its cascaded ${prop.name}.`,
+      help: `Use a hex literal (#rrggbb), a palette name (sky-500), or a CSS colour function (rgb()/hsl()/oklab()).`,
+    })
+  }
   for (const prop of props) {
     switch (prop.name) {
       case 'fill': {
-        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
-        if (hex) fill = colorConstant(...hexToRgba(hex))
+        applyColor(prop, (hex) => (fill = colorConstant(...hexToRgba(hex))))
         break
       }
       case 'stroke': {
-        const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
-        if (hex) strokeColor = colorConstant(...hexToRgba(hex))
+        applyColor(prop, (hex) => (strokeColor = colorConstant(...hexToRgba(hex))))
         break
       }
       case 'stroke-width': {

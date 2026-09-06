@@ -1,7 +1,19 @@
-import { TokenType } from '../lexer/tokens'
+import { TokenType, type Token } from '../lexer/tokens'
 import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
 import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
+
+/** Exact source separation between two ADJACENT tokens, recovered from the
+ *  1-based `line`/`col` the lexer stamps on each one (#2544). A token's
+ *  `value` is its verbatim source text for every type this is used on, so
+ *  `next.col - (prev.col + prev.value.length)` is the whitespace/comment run
+ *  the lexer skipped. Across a line break the run is collapsed to one space;
+ *  a negative width (a String token, whose `value` has its quotes and escapes
+ *  resolved away) clamps to none. */
+function sourceGap(prev: Token, next: Token): string {
+  if (next.line !== prev.line) return ' '
+  return ' '.repeat(Math.max(0, next.col - (prev.col + prev.value.length)))
+}
 
 /** Statement handlers + the keyword→handler registry.
  *
@@ -515,38 +527,30 @@ export class StatementParser extends ExpressionParser {
    *  to capture function-call syntax in StyleProperty values (e.g.
    *  `rgb(255, 0, 0, 0.6)`) without committing to a structured
    *  expression representation. The resulting string is fed back to
-   *  the CSS-style colour resolver in lower.ts. */
+   *  the CSS-style colour resolver in lower.ts.
+   *
+   *  The lexer drops whitespace, so the separation between two tokens is
+   *  recovered from the `line`/`col` they already carry — NOT guessed. The
+   *  former heuristic (a space before every token except after `(`/`-` and
+   *  before a comma) glued a space into every CSS shape whose parts lex as
+   *  separate tokens: `hsl(120, 50%, 50%)` captured as `hsl(120, 50 %, 50 %)`,
+   *  `rgba(0, 0, 0, .6)` as `…, . 6)`, `hsl(120deg …)` as `hsl(120 deg …)`.
+   *  resolveColor returned null for all three and lower.ts dropped the fill
+   *  (#2544). Reconstructing the gap makes the SOURCE the one authority, so
+   *  no separator rule can be wrong about the next CSS syntax either. */
   private captureFnCallAsString(): string {
-    let raw = this.advance().value // fn name
+    let prev = this.advance() // fn name
+    let raw = prev.value
     if (!this.check(TokenType.LParen)) return raw
-    raw += '('
-    this.advance()
-    let depth = 1
-    while (depth > 0 && !this.isEnd()) {
+    let depth = 0
+    while (!this.isEnd()) {
       const t = this.current()
-      if (t.type === TokenType.LParen) {
-        depth++
-        raw += '('
-        this.advance()
-        continue
-      }
-      if (t.type === TokenType.RParen) {
-        depth--
-        raw += ')'
-        this.advance()
-        if (depth === 0) break
-        continue
-      }
-      // Re-insert a separator (lexer drops whitespace) so space-separated CSS
-      // colour fns like `oklab(0.5 -0.05 0.1)` don't collapse to `0.5-0.050.1`
-      // (→ parseCssColorFn <3 parts → null). Skip after `(`, before a comma,
-      // and after `-` (keep a negative channel glued: `-0.05`).
-      const last = raw[raw.length - 1]
-      if (last !== '(' && last !== '-' && t.type !== TokenType.Comma) {
-        raw += ' '
-      }
-      raw += t.value
+      if (t.type === TokenType.LParen) depth++
+      else if (t.type === TokenType.RParen) depth--
+      raw += sourceGap(prev, t) + t.value
+      prev = t
       this.advance()
+      if (depth === 0) break
     }
     return raw
   }

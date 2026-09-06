@@ -163,6 +163,11 @@ export const UNKNOWN_STYLE_PRESET = 'X-GIS0027'
  *  is NOT the runtime `hover:`/`selected:` feature (unstarted) — it only
  *  turns the drop into a diagnostic. */
 export const UNHANDLED_MODIFIER = 'X-GIS0028'
+/** A `fill:` / `stroke:` style-property value the colour resolver cannot read
+ *  (#2544) — previously the assignment was simply skipped, so the layer
+ *  rendered with no fill and nothing said why. Warn-only: lowering stays
+ *  total and the layer keeps whatever colour the cascade gave it. */
+export const UNRESOLVED_COLOR = 'X-GIS0029'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
