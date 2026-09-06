@@ -673,7 +673,8 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   collision space", "text-optional only needs the drop-cascade suppressed" — each died to
   something the trace had not reached, and TWICE the answer sat in the docstring of the very
   function being quoted: `feature-data-pack.ts:19-21` names `shader-gen.ts`'s `% <palette>`
-  (space 20, not 2^23 — collisions CERTAIN at 21, not 1% at 411); `text-stage.ts:743-753`
+  (space 512, not 2^23 — a 50% collision at ~27 distinct values, not 1% at 411);
+  `text-stage.ts:743-753`
   states the #609 premise `text-optional: true` falsifies (the surviving icon then seeds NO
   obstacle box); `rhi-fill-variant.ts:29-31` names the r32float fence an atlas-of-bboxes
   fails to LINK against on WebGL2. Before acting on "this IS the mechanism" or "this is

@@ -31,6 +31,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { RhiDevice } from '@xgis/engine'
 import { buildExtrudeMaterial } from './polygon-fill-material'
+import { renderPathSource } from '../render-path-source'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -154,7 +155,7 @@ describe('#1080 fill-extrusion front-shell — pipeline descriptors', () => {
 // The GPU A/B can only run if the two-draw dispatch + the resolved-alpha gate stay
 // wired. Freeze those seams so a refactor can't silently drop them.
 const FILL_MAT = readFileSync(join(HERE, 'polygon-fill-material.ts'), 'utf8')
-const VTR = readFileSync(join(HERE, '..', 'vector-tile-renderer.ts'), 'utf8')
+const VTR = renderPathSource()
 
 describe('#1080 front-shell — dispatch + gate wiring', () => {
   it('recordFillDraw issues the two-draw prepass(+4) then colour(+2) for translucent extrude', () => {

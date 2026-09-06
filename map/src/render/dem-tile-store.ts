@@ -93,7 +93,9 @@ export class DemTileStore {
   /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
-  private readonly loadingTiles = new InflightLedger()
+  private readonly loadingTiles = new InflightLedger((key) =>
+    this.failedTiles.noteOutcome(key, false),
+  )
   /** Tiles whose load resolved null, with the backoff state that stops them being
    *  re-requested every frame (policy in tile-retry.ts). Cleared when the
    *  source is re-armed — a new URL template is a new coverage. */

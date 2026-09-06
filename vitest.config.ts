@@ -87,8 +87,8 @@ export const INCLUDE = [
 //
 //   (2) process-global writers and the suites that read a global's pristine
 //       default: `vi\.stubGlobal\(`, an assignment onto `globalThis`, a
-//       `vi\.spyOn` on a process-global CLOCK (`performance.now`, `Date.now`),
-//       or a write through one of the authorities that keeps its state there —
+//       `vi\.spyOn` on `globalThis` or on a global CLOCK (`performance.now`,
+//       `Date.now`), or a write through an authority that keeps its state there —
 //       `configureBody`, `configureBodyConsts`, `configureProjections`,
 //       `setLogSink`. Measured casualties: `shared/src/body.test.ts` (its
 //       subject IS `activeBody()` on "an unconfigured process"),
@@ -102,11 +102,20 @@ export const INCLUDE = [
 //       the SAME write as `stubGlobal` one level down — and a frozen clock
 //       changes what a deadline comparison in a DIFFERENT module evaluates to.
 //       The criterion, not the list, was what had been too narrow, so a census
-//       run against the old wording could never have found it. A census over
-//       the widened criterion (2026-09-06) put 13 files in the class and all 13
-//       are below. It also found 22 that spy `console` ONLY; those are NOT
-//       admitted, because `console` is a sink nothing reads back — a judgement,
-//       not a measurement, recorded with the whole list at #2634.
+//       run against the old wording could never have found it — #2624's own
+//       closure gate cleared this very file as a false positive, correctly
+//       reading its line-110 TYPE POSITION and never seeing the three real
+//       writes three lines over. A census over the widened criterion
+//       (2026-09-06) put 13 files in the class; #2624 independently carried the
+//       two that its `stubGlobal` arm could see, and the other 11 are here.
+//
+//       The census also found 22 files that spy `console` ONLY, and those are
+//       NOT admitted: `console` is a sink nothing reads back, so a spy on it
+//       cannot move another suite's control flow the way a frozen clock can.
+//       That is a judgement, not a measurement, and the failure it would
+//       produce has a different shape (a swallowed warning, not a timeout) —
+//       so the list and the reasoning are written down at #2634, and if such a
+//       failure ever appears that cohort is the set to admit.
 //
 //   (3) the two suites that assert a WALL-CLOCK threshold
 //       (`merc-high-pitch-drag-perf`, `pbf-to-slot-dos`). A shared worker holds
@@ -151,6 +160,9 @@ export const ISOLATED = [
   'data/src/tile-catalog-lifecycle.test.ts',
   'data/src/tile-select-budget.test.ts',
   'data/src/vector-tile-loader-negcache-abort.test.ts',
+  // (2) swaps `globalThis.fetch` AND `globalThis.setTimeout` — the retry clock is the
+  //     subject, so a sibling holding the real timer defeats the whole file.
+  'data/src/vector-tile-loader-retry-jitter.test.ts',
   'data/src/viewport-class-budget-migration.test.ts',
   'data/src/workers/geojson-compile-pool-isolation.test.ts',
   'data/src/workers/geojson-compile-pool.error.test.ts',
@@ -199,11 +211,6 @@ export const ISOLATED = [
   'map/src/destroy-raf-and-globals.test.ts',
   'map/src/graphics/retained-draper-laziness.test.ts',
   'map/src/map-accessibility.test.ts',
-  // (2) mock rAF + a stubbed `Worker`. The second of the two rAF-stubbing files
-  //     the census below found outside this list; it has not been observed
-  //     failing, but rule (2) is a CLASS and admitting only the observed
-  //     casualty is what this list's own history warns against.
-  'map/src/sprite-atlas-rerun-latch.test.ts',
   'map/src/map-cold-start-burst-lifecycle.test.ts',
   'map/src/map-destroy.test.ts',
   'map/src/map-error-event.test.ts',
@@ -216,6 +223,12 @@ export const ISOLATED = [
   'map/src/map-inline-geojson-route.test.ts',
   'map/src/map-polar-cap-deprecation.test.ts',
   'map/src/map-rebuild-layers.characterization.test.ts',
+  // (2) SECOND clause — "the suites that read a global's pristine default". It writes
+  //     nothing and mocks nothing, so the mechanical half of the rule cannot see it; it is
+  //     admitted by hand as a MEASURED casualty, the way its `rhi-webgpu` namesake was.
+  //     Surfaced when the seven entries above left the shared pass and the pool repacked:
+  //     two tests hung to the 30 s budget, and the file passes ALONE in 24 ms.
+  'map/src/map-device-lost-recovery.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
@@ -226,6 +239,8 @@ export const ISOLATED = [
   'map/src/render/back-face-cull-comprehensive.test.ts',
   'map/src/render/compute-layer-handle.test.ts',
   'map/src/render/compute-layer-registry.test.ts',
+  // (2) `setLogSink` — one of the four authorities rule (2) names by hand.
+  'map/src/render/feature-data-sparse-fid.test.ts',
   'map/src/render/frame-uniform.test.ts',
   'map/src/render/hillshade-loadtile-rhi.test.ts',
   'map/src/render/maprenderer-uniform-bind-size.test.ts',
@@ -234,10 +249,15 @@ export const ISOLATED = [
   'map/src/render/merc-high-pitch-drag-perf.test.ts',
   'map/src/render/no-eager-uniform-reflect.test.ts',
   'map/src/render/p4-end-to-end.test.ts',
+  // (2) swaps `globalThis.fetch` to serve its DEM tiles.
+  'map/src/render/passes/hillshade-pass-pick-attachment-parity.test.ts',
   // (2) clock — the label pass's fade schedule is stepped by a frozen `performance.now`.
   'map/src/render/passes/label-pass-time-clock.test.ts',
   'map/src/render/passes/opaque-pass-checker-arm.test.ts',
   'map/src/render/passes/overdraw-frame-truth.test.ts',
+  // (2) `configureBody` + `configureBodyConsts` — the same process-global pair
+  //     #2567/#2590 are about, and `vitest.setup.ts`'s leak guard watches.
+  'map/src/render/polygon-shader-cache-baked.test.ts',
   'map/src/render/raster-abort-not-failure.test.ts',
   'map/src/render/raster-cache-byte-cap.test.ts',
   'map/src/render/raster-loadtile-webgl2-cleanup.test.ts',
@@ -251,7 +271,7 @@ export const ISOLATED = [
   'map/src/render/tile-camera-anchor-body.test.ts',
   'map/src/render/tile-compute-resources.test.ts',
   'map/src/render/vector-drape-bake-budget.test.ts',
-  // (2) `vi.stubGlobal(` — rule (2)'s own literal criterion, simply missed.
+  // (2) stubs `window` and `matchMedia`.
   'map/src/render/vector-drape-cold-release.test.ts',
   'map/src/render/vector-tile-renderer-helpers.test.ts',
   'map/src/render/viewport-class-budget-behaviour.test.ts',
@@ -273,6 +293,9 @@ export const ISOLATED = [
   'map/src/shaders/emit/shader-emit-pool.test.ts',
   'map/src/source-manager-drop-tiling.test.ts',
   'map/src/source-manager-refresh.test.ts',
+  // (2) stubs `requestAnimationFrame` / `cancelAnimationFrame` — the SAME pair whose
+  //     absence from this list cost #2567's 30 s timeouts — plus `Worker`.
+  'map/src/sprite-atlas-rerun-latch.test.ts',
   // (2) clock — the measured casualty that widened this rule's criterion (#2634).
   'map/src/sprite/sprite-idle-keep-warm.test.ts',
   'map/src/stats-byte-telemetry.test.ts',
@@ -290,7 +313,7 @@ export const ISOLATED = [
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).
   'playground/e2e/helpers/validation.test.ts',
-  // (2) `vi.stubGlobal(` — rule (2)'s own literal criterion, simply missed.
+  // (2) stubs `document`, `window` and `Image`.
   'playground/src/overdraw-capture.test.ts',
   'shared/src/body.test.ts',
   'shared/src/network-class.test.ts',

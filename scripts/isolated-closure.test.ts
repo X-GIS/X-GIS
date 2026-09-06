@@ -22,11 +22,30 @@
 // So this gate closes rule (1): every file in the unit corpus that mocks a module must
 // resolve into `ISOLATED`.
 //
-// ─── SCOPE: rule (1) ONLY, and that is deliberate ───
-// Rules (2)-(4) are not cheaply mechanical — a process-global write, a wall-clock
-// threshold, "the whole @xgis/rhi-webgpu package" — and a regex pretending to check them
-// would be an assertion that carries no information. They stay by-hand. This gate is
-// narrow on purpose; do not read its green as covering the other three.
+// ─── SCOPE: rules (1) and (2). (3) and (4) stay by-hand ───
+// This gate covered rule (1) only until #2567, on the stated ground that "a regex
+// pretending to check [rules 2-4] would be an assertion that carries no information".
+// That is still true of (3) and (4) and they are still declined: "asserts a WALL-CLOCK
+// threshold" and "the package whose suites drive a process-wide singleton" are judgements,
+// and a regex for either would be a rubber stamp.
+//
+// Rule (2) is not like them, and #2567 is what made the difference concrete. Its triggers
+// are a CLOSED, ENUMERATED list that `vitest.config.ts` writes down itself — the stub-global
+// call, an assignment onto the process global, and four named authorities. Checking a list
+// the rule already spells out is not a heuristic standing in for a judgement.
+//
+// What #2567 cost while this stayed open: the fourth `event-dispatcher-*` suite stubs the
+// same animation-frame pair as the three listed beside it, was never added, and timed out at
+// 30 s per test on 3 of 3 full sweeps while passing alone in 9 ms. Exactly rule (1)'s failure
+// shape, one rule over.
+//
+// TWO false-positive classes had to be handled, and both were MEASURED on this corpus rather
+// than guessed. Over 85 raw matches, NINE are prose — a file naming a trigger in a comment
+// that explains why it does not call it — which `stripComments` below already removes, the
+// same trap rule (1)'s header documents. The tenth is subtler and is why the assignment arm
+// excludes `>`: a TYPE POSITION reads exactly like a write when the annotated value is an
+// arrow function, and `map/src/sprite/sprite-idle-keep-warm.test.ts` has one. Left in, the
+// gate would have demanded isolation for a file that writes nothing.
 //
 // ─── Why here, and why not somewhere cheaper ───
 // NOT inside `vitest.config.ts`: the config module is evaluated on EVERY vitest
@@ -57,6 +76,15 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
  *  drift apart in wording. */
 const MOCK_CALL = /\bvi\s*\.\s*(?:mock|doMock)\s*\(/
 
+/** Rule (2)'s triggers, matching the rule as `vitest.config.ts` states it so the two cannot
+ *  drift apart in wording: the stub-global call, an assignment onto the process global, and
+ *  the four authorities that keep their state there.
+ *
+ *  `[^=>]` after the assignment is load-bearing, not tidiness — see the header: it keeps a
+ *  type annotation on an arrow-returning value from reading as a write. */
+const GLOBAL_WRITE =
+  /\bvi\s*\.\s*stubGlobal\s*\(|\bglobalThis\s*\.\s*\w+\s*=[^=>]|\b(?:configureBody|configureBodyConsts|configureProjections|setLogSink)\s*\(/
+
 /** Comments stripped before matching, because the rule is about what a file CALLS.
  *
  *  This is worth more than it looks. A RAW grep for the call over this corpus returns 25
@@ -83,7 +111,7 @@ const expand = (patterns: readonly string[]): Set<string> => {
   return out
 }
 
-describe('vitest.config.ts ISOLATED — rule (1) closure (#1958)', () => {
+describe('vitest.config.ts ISOLATED — rule (1) + (2) closure (#1958, #2567)', () => {
   const corpus = expand(INCLUDE)
   const quarantined = expand(ISOLATED)
 
@@ -96,6 +124,30 @@ describe('vitest.config.ts ISOLATED — rule (1) closure (#1958)', () => {
     // suite runs would quietly exclude nothing in `shared` mode.
     const stray = [...quarantined].filter((f) => !corpus.has(f)).sort()
     expect(stray, `ISOLATED entries outside the INCLUDE corpus:\n${stray.join('\n')}`).toEqual([])
+  })
+
+  it('every file that writes a process global is quarantined', () => {
+    const writers = [...corpus]
+      .filter((f) => GLOBAL_WRITE.test(stripComments(readFileSync(join(ROOT, f), 'utf8'))))
+      .sort()
+
+    // Non-vacuity, same shape as rule (1)'s: a scan that found nothing would let the
+    // assertion below pass over an empty set. A floor, not a pin.
+    expect(writers.length).toBeGreaterThan(40)
+
+    const missing = writers.filter((f) => !quarantined.has(f))
+    expect(
+      missing,
+      `${missing.length} file(s) write a process global but are not in ISOLATED.\n` +
+        `One registry per worker means the write outlives the file: a sibling packed into\n` +
+        `the same worker sees the stub, or the file's own stub loses to a module the\n` +
+        `sibling already imported. It passes until the pool repacks, then hangs or reddens\n` +
+        `somewhere unrelated — #2567 was 30 s timeouts whose VICTIM MOVED between runs.\n\n` +
+        `Paste into the ISOLATED list in vitest.config.ts, with the reason:\n` +
+        missing
+          .map((f) => `  // (2) process-global write — <which one, and why>\n  '${f}',`)
+          .join('\n'),
+    ).toEqual([])
   })
 
   it('every file that mocks a module is quarantined', () => {
