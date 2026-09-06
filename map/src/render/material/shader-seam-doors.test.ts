@@ -160,8 +160,6 @@ const LIVE_DOORS: Readonly<Record<string, string>> = {
 const BYPASSES: Readonly<Record<string, string>> = {
   'render/polygon-shader-cache.ts':
     'the polygon WGSL choke point: the null-variant branches go through `bakedWgsl`; the composer-variant branches ARE the open set, emitted raw and memoised per variant/pick/body epoch',
-  'render/material/line-material.ts':
-    '`splitEligible()` emits the split module to regex its group(0) bindings (variant drapers only; the null variant short-circuits) — derive eligibility from the IR instead (#2499 note)',
   'render/compose-pipelines.ts':
     '`emitOverdrawComposeWgsl` — the ?debug=overdraw compose pass, a debug-only fullscreen module (registry-emitter-coverage ALLOWLIST)',
   'debug-flags.ts':

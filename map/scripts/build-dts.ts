@@ -1,49 +1,13 @@
-// Declaration-bundle pass for @xgis/map.
+// Declaration-bundle WRITE pass for @xgis/map.
 //
-// Run after `vite build` (see the package `build` script). Emits a single
-// dist/index.d.ts in which the bundled-in @xgis/* types (data, geo, engine,
-// rhi*, compiler, shader-dsl, shared) are INLINED. Plain `tsc` would instead
-// leave them as `import('@xgis/compiler').Foo` references, which do not resolve
-// for a consumer (the published tarball ships none of those private packages).
-// map's tsconfig `paths` mapping points those specifiers at the sibling built
-// .d.ts, so rollup-plugin-dts follows and folds them in.
-//
-// Invoked via the rollup JS API from `bun` (which executes this TS file
-// directly), avoiding a `rollup` CLI / `@rollup/plugin-typescript` config
-// dependency.
+// Run after `vite build` (see the package `build` script). The bundling itself
+// lives in ./dts-bundle.ts, shared with the published-surface gate so the file
+// that ships and the file that is gated are the same bytes.
 
 import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { rollup } from 'rollup'
-import { dts } from 'rollup-plugin-dts'
+import { bundlePublicDts } from './dts-bundle'
 
-// The genuine third-party deps stay as bare external imports so the
-// consumer's own @types / shipped types resolve them.
-const EXTERNAL = ['earcut', 'proj4', 'pmtiles', 'pbf', '@mapbox/vector-tile']
-
-const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
-
-const bundle = await rollup({
-  input: here('../src/public.ts'),
-  external: (id) => EXTERNAL.includes(id) || EXTERNAL.some((d) => id.startsWith(d + '/')),
-  plugins: [
-    dts({
-      tsconfig: here('../tsconfig.json'),
-      respectExternal: false,
-    }),
-  ],
-})
-
-const { output } = await bundle.generate({ format: 'es' })
-
-await bundle.close()
-
-// The shipped declarations reference ambient WebGPU globals (GPUDevice,
-// GPUBuffer, …). Prepend a triple-slash reference so a strict consumer
-// (skipLibCheck:false, no @webgpu/types of their own) pulls the ambient
-// globals transitively from our `@webgpu/types` dependency.
-const BANNER = '/// <reference types="@webgpu/types" />\n'
-const code = output[0].code
-
-await writeFile(here('../dist/index.d.ts'), BANNER + code)
+const out = fileURLToPath(new URL('../dist/index.d.ts', import.meta.url))
+await writeFile(out, await bundlePublicDts())
 console.log('[build-dts] wrote dist/index.d.ts')

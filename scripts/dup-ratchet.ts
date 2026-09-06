@@ -511,7 +511,23 @@ export function resolveBaseRef(root: string): string {
   try {
     return git('merge-base', 'HEAD', 'origin/main')
   } catch {
-    return 'origin/main' // shallow history: main's tip is the base CI actually wants
+    /* shallow checkout — deepen once below rather than guessing a base */
+  }
+  // A shallow clone hides the common ancestor, and there is no safe guess. Falling back to
+  // main's TIP (what this did until 2026-09-06) compares the branch against a commit it has
+  // not merged, so any commit that re-anchors a clone reports untouched files as newly
+  // duplicated: PR #2593 (a shader-dsl change, zero files under map/) was reddened by a
+  // hillshade/raster-renderer pair that already existed on main, and #2591 by six more.
+  try {
+    git('fetch', '--deepen=250', 'origin', 'main')
+    return git('merge-base', 'HEAD', 'origin/main')
+  } catch {
+    throw new Error(
+      'dup: no merge base with `origin/main` — the checkout is too shallow, and this gate\n' +
+        "  must NOT fall back to main's tip: the branch has not merged it, so a commit that\n" +
+        '  re-anchors a clone would report untouched files as newly duplicated.\n' +
+        '  In CI, check out with `fetch-depth: 0`; locally, unshallow the clone.',
+    )
   }
 }
 

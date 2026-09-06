@@ -488,6 +488,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `bun run dup` needs the MERGE BASE with main. A shallow checkout hides the common
+          # ancestor, and the gate used to fall back to main's tip — comparing the branch
+          # against a commit it has not merged, which reported untouched files as newly
+          # duplicated whenever main re-anchored a clone (#2591 / #2593). Full history is a
+          # few seconds here and it is the only input that makes the base exact.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
