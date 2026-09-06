@@ -202,6 +202,16 @@ export const RASTER_INFLIGHT_KEEP_WARM_MS = 10_000
 export class InflightLedger {
   private readonly inflight = new Map<string, { ctrl: AbortController; since: number }>()
 
+  /** #2574 — called for every entry `reapHung` drops, so the OWNER can record the
+   *  timeout as a real failed attempt. Freeing the slot without it only trades the
+   *  wedge for a storm: `noteOutcome(key, aborted: true)` records nothing by design
+   *  (`if (!aborted)`), so `requestable(key)` is true again on the very next frame and
+   *  the same dead host is re-asked every deadline, forever, with `MAX_TILE_ATTEMPTS`
+   *  never reached and the map never idling. Routing it through the failed-tile ledger
+   *  instead gives the host-recovers case backoff-and-retry and the host-never-recovers
+   *  case the same terminal give-up a 404 host already gets. */
+  constructor(private readonly onReaped?: (key: string) => void) {}
+
   set(key: string, ctrl: AbortController): void {
     this.inflight.set(key, { ctrl, since: nowMs() })
   }
@@ -260,6 +270,7 @@ export class InflightLedger {
       if (now - entry.since > RASTER_INFLIGHT_KEEP_WARM_MS) {
         entry.ctrl.abort()
         this.inflight.delete(key)
+        this.onReaped?.(key)
       }
     }
   }

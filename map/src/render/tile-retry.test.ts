@@ -9,6 +9,7 @@ import {
   noteFailure,
   leafLoadBudget,
   InflightLedger,
+  FailedTileLedger,
   RASTER_INFLIGHT_KEEP_WARM_MS,
   type FailedTile,
 } from './tile-retry'
@@ -148,6 +149,50 @@ describe('failed-tile ledger is bounded', () => {
 // tile whose fetch never settles used to leave `size` counting it forever while
 // `liveCount()` alone went deadline-bounded — so a black-holing host wedged every
 // concurrency slot permanently even though the map reported itself idle.
+describe('InflightLedger records the reap, so a dead host is not re-asked forever (#2574)', () => {
+  it('routes the timeout into the failed-tile ledger instead of leaving the tile requestable', () => {
+    let clock = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    // Exactly the wiring both owners use (raster-renderer.ts, dem-tile-store.ts).
+    const failed = new FailedTileLedger()
+    const ledger = new InflightLedger((key) => failed.noteOutcome(key, false))
+    const key = '16/1/1'
+
+    ledger.set(key, new AbortController())
+    clock += RASTER_INFLIGHT_KEEP_WARM_MS + 1
+    expect(ledger.size).toBe(0) // reaped
+
+    // WITHOUT the callback this is `true`: `noteOutcome(key, aborted: true)` records
+    // nothing, so the load loop's only gate (`if (!failedTiles.requestable(key)) continue`)
+    // lets the same dead host be re-asked on the next frame — a reap every deadline,
+    // forever, which is the storm the slot reclamation on its own would have created.
+    expect(failed.requestable(key), 'a just-reaped tile must not be immediately requestable').toBe(
+      false,
+    )
+  })
+
+  it('gives up after MAX_TILE_ATTEMPTS, so the map can report itself loaded again', () => {
+    let clock = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const failed = new FailedTileLedger()
+    const ledger = new InflightLedger((key) => failed.noteOutcome(key, false))
+    const key = '16/2/2'
+
+    // A host that never answers: each round is one request reaped at the deadline.
+    for (let i = 0; i < MAX_TILE_ATTEMPTS; i++) {
+      clock += retryDelayMs(i) + 1 // past the backoff this attempt earned
+      ledger.set(key, new AbortController())
+      clock += RASTER_INFLIGHT_KEEP_WARM_MS + 1
+      expect(ledger.size).toBe(0)
+    }
+
+    // Terminal, exactly as a 404 host already reaches — no amount of waiting reopens it,
+    // which is what makes `getMissingTileCount() === 0` mean what it says.
+    clock += 60 * 60 * 1000
+    expect(failed.requestable(key), 'a permanently dead host must be abandoned').toBe(false)
+  })
+})
+
 describe('InflightLedger reaps a hung entry (#2574)', () => {
   it('reclaims the concurrency slot at the same deadline liveCount() already used', () => {
     let clock = 1_000
