@@ -33,7 +33,7 @@
 // could no longer move a pixel. Applying it at the single producer means
 // every packer inherits it by construction; there is no second site to drift.
 
-import { activeBody, EARTH } from '@xgis/shared'
+import { activeBody } from '@xgis/shared'
 
 const DEG2RAD = Math.PI / 180
 const MERC_LIMIT = 85.051129
@@ -113,7 +113,11 @@ export function computeTileCameraAnchor(
   camLonDeg: number,
   camLatDeg: number,
 ): TileCameraAnchor {
-  const R = activeBody().sphereR
+  // The Mercator basis is spherical (`sphereR`); the ECEF kernel below is the
+  // ellipsoid forward and reads `a` / `e2`. Both come from the SAME body — see
+  // the ECEF section for why that is the whole point (#2564).
+  const body = activeBody()
+  const R = body.sphereR
 
   // ── Mercator DSFUN rel (worldOff shifts the tile copy) ──
   const tileMercX = (tileWestDeg + worldOffDeg) * DEG2RAD * R
@@ -134,12 +138,21 @@ export function computeTileCameraAnchor(
   const camMercYH = Math.fround(camMercY)
 
   // ── Ellipsoid ECEF RTC: tileEcefCenter − cameraCenter (no worldOff) ──
-  const E2 = EARTH.e2
+  // `a` and `e2` are the two fields `lonLatToECEF` reads, taken from the same
+  // body it would read them from: this kernel IS that helper inlined, and the
+  // equality is the invariant the camera comment below states. #2564 — `e2`
+  // used to come from the `EARTH` singleton while the radius followed the
+  // active body, so off Earth the anchor was that body's radius wearing
+  // Earth's flattening (1261 m horizontal / 5092 m in z at lat 30 on MOON).
+  // Inlined rather than calling the helper because this runs per tile and
+  // `lonLatToECEF` returns a fresh array per call.
+  const A = body.a
+  const E2 = body.e2
   const tLatR = clampMercLat(tileSouthDeg) * DEG2RAD
   const tLonR = tileWestDeg * DEG2RAD
   const tSin = Math.sin(tLatR)
   const tCos = Math.cos(tLatR)
-  const tN = R / Math.sqrt(1 - E2 * tSin * tSin)
+  const tN = A / Math.sqrt(1 - E2 * tSin * tSin)
   // The CAMERA term is NOT Mercator-clamped: it must equal lonLatToECEF(cam) —
   // the orbit matrix's RTC origin (buildGlobeFrame reads centerLatDeg, which
   // reaches the pole). Clamping it here put the tile sheet 441 km off the
@@ -149,7 +162,7 @@ export function computeTileCameraAnchor(
   const camLonR = camLonDeg * DEG2RAD
   const camSin = Math.sin(camLatR)
   const camCos = Math.cos(camLatR)
-  const cN = R / Math.sqrt(1 - E2 * camSin * camSin)
+  const cN = A / Math.sqrt(1 - E2 * camSin * camSin)
   const tileX = tN * tCos * Math.cos(tLonR)
   const tileY = tN * tCos * Math.sin(tLonR)
   const tileZ = tN * (1 - E2) * tSin

@@ -2533,7 +2533,24 @@ const CEILINGS: Record<string, number> = {
   // its parity test (main's `raster-non-merc-selection-parity.test.ts` carries the
   // stronger FIX/TEETH/CONTROL witness). The file is main's byte-for-byte again;
   // RE-MEASURED post-prettier (`wc -l`) on the merged tree.
-  'map/src/render/raster-renderer.ts': 1060,
+  // 1060→1058 (#2560, LOWERED): `emitTileAt` stopped recomputing a tile row's
+  // latitude bounds and Mercator span per drawn tile per frame (two atan(sinh)
+  // + two log(tan); 325 ms of a 13.2 s raster session on the owner's profile).
+  // Both the math and its memo left for `raster-row-geom.ts` — extracted so a
+  // differential test can hold the math to the retired expression AND reach the
+  // cache, where the interesting way to be wrong lives (drop `y` from the inner
+  // key and a whole level takes row 0's bounds). Same reason `draw-dedup-key.ts`
+  // was pulled out in #2495. What remains here is one field and a destructure,
+  // against 13 lines of inline transcendentals removed — a net SHRINK.
+  // MERGE UNION (SIXTH collision on this key): main's side nets to 0 against the
+  // 1060 both sides share, this side is -2, so the merged file should read 1058
+  // — but the number below is `wc -l` on the MERGED tree, not that arithmetic.
+  // 1058→1062: +4 for a `jscpd:ignore` marker over the raster/hillshade `emitTileAt`
+  // preamble. The extraction above SHRANK that pre-existing clone (194→114 tokens,
+  // and it deleted a second 96-token one outright), but the duplication ratchet
+  // fingerprints a clone's token stream, so a shortened clone reads as a newly added
+  // one — gate defect #2570. The marker and these 4 lines go when #2570 lands.
+  'map/src/render/raster-renderer.ts': 1062,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
