@@ -17,14 +17,12 @@
 // against TileCatalog's private setSlice.
 
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { tileKey, tileKeyChildren } from '@xgis/compiler'
 import { Camera } from '../camera'
 import { VectorTileRenderer } from './vector-tile-renderer'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { TileSelectionCache, type FrameTileCache } from './tile-selection-cache'
+import { renderPathSource } from './render-path-source'
 
 // Build a minimal "catalog" that records prefetchTiles calls. Only
 // the fields pumpPrefetch reads need to be present; everything else
@@ -354,18 +352,59 @@ describe('VectorTileRenderer.pumpPrefetch — pan-speculation walk throttle', ()
 // quantity under test is the SHAPE of the guard, which only the call site
 // can show. The measured cost of getting it wrong is on #2309 (14.4 ms of a
 // 16.7 ms budget, mid-zoom on OFM Bright).
-const VTR_SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const VTR_SRC = renderPathSource()
 
 /** The `if (...)` guard immediately enclosing `anchor` — from the last
  *  method-body-level `if (` before it, through the anchor itself. */
+/** Start of the `if` whose block opens at `braceAt`, or -1 if that brace does not
+ *  open an `if`. Balances the condition's parens, so a wrapped multi-line
+ *  condition is matched the same as a one-liner. */
+function ifHeadBefore(braceAt: number): number {
+  let i = braceAt - 1
+  while (i >= 0 && /\s/.test(VTR_SRC[i])) i--
+  if (VTR_SRC[i] !== ')') return -1
+  let paren = 0
+  for (; i >= 0; i--) {
+    if (VTR_SRC[i] === ')') paren++
+    else if (VTR_SRC[i] === '(') {
+      paren--
+      if (paren === 0) break
+    }
+  }
+  if (i < 0) return -1
+  let j = i - 1
+  while (j >= 0 && /\s/.test(VTR_SRC[j])) j--
+  if (VTR_SRC.slice(j - 1, j + 1) !== 'if') return -1
+  return VTR_SRC.lastIndexOf('\n', j)
+}
+
 function guardFor(anchor: string): string {
   const at = VTR_SRC.indexOf(anchor)
   expect(at, `anchor not found: ${anchor}`).toBeGreaterThan(-1)
   expect(VTR_SRC.indexOf(anchor, at + 1), `anchor is not unique: ${anchor}`).toBe(-1)
-  const open = VTR_SRC.lastIndexOf('\n    if (', at)
+  // #2537 — this was `lastIndexOf('\n    if (')`: `render()`'s body depth inside
+  // the class, which happened to skip the nested guards and land on the outermost
+  // one. The phase modules sit two levels shallower, so neither that fixed indent
+  // nor a nearest-match works — the nested `if (prefetchKeys.length > 0)` is now
+  // at the old outer depth. Depth is what was meant, so walk the braces: the
+  // OUTERMOST `if (` still enclosing the anchor. The assertions are unchanged.
+  let depth = 0
+  let open = -1
+  for (let i = at; i >= 0; i--) {
+    const c = VTR_SRC[i]
+    if (c === '}') depth++
+    else if (c === '{') {
+      if (depth > 0) {
+        depth--
+        continue
+      }
+      // A long condition is wrapped, so the `{` can sit alone on a `) {` line —
+      // checking that line for `if` misses it. Match the parens back instead and
+      // test the keyword in front of the `(`.
+      const head = ifHeadBefore(i)
+      if (head >= 0) open = head
+    }
+  }
   expect(open, `no enclosing guard for: ${anchor}`).toBeGreaterThan(-1)
   return VTR_SRC.slice(open, at + anchor.length)
 }
@@ -420,7 +459,9 @@ describe('VectorTileRenderer in-render prefetch — the throttle is per FRAME (#
     // ordering matters. Any `frameCount % n` is a cadence, and cadences are
     // frames. Non-vacuity: the counter itself must still exist, or this
     // assertion is about nothing.
-    expect(VTR_SRC).toContain('private frameCount = 0')
+    // #2537 — `@internal` rather than `private`; the newline + indent pins the
+    // declaration, so this stays a non-vacuity guard on the counter existing.
+    expect(VTR_SRC).toContain('\n  frameCount = 0')
     expect([...VTR_SRC.matchAll(/this\.frameCount\s*%/g)].length).toBe(0)
   })
 })

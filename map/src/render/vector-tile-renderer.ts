@@ -18,7 +18,7 @@ import type {
 import type { GPUContext, WebGpuDevice, ComputeTimestampProvider } from '@xgis/rhi-webgpu'
 import { toVertexBufferLayout, unwrapWebGpuPass, wrapWebGpuBindGroup } from '@xgis/rhi-webgpu'
 import { renderImmediateArm } from './vtr-immediate-arm'
-import { fillTranslateNdc, rotateTranslateForAnchor } from './fill-translate-ndc'
+import { fillTranslateNdc } from './fill-translate-ndc'
 export { rotateTranslateForAnchor } from './fill-translate-ndc'
 import { POLYGON_FILL_FORMAT } from '@xgis/compiler'
 import { polygonUniformBytes } from './polygon-uniform-slots'
@@ -27,12 +27,11 @@ import type { InputStore } from './input-store'
 import { isOverdrawActive } from '../debug-flags'
 import { Camera } from '../camera'
 import type { ShowCommand, ShaderVariantInfo } from './renderer-types'
-import { variantProducesFill } from './renderer-helpers'
 import { reportRhiFillGap } from './rhi-fill-gap-warning'
 import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
-import { xlog, activeBody, EARTH } from '@xgis/shared'
+import { activeBody, EARTH } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
 import { packDrawSubKey } from './draw-dedup-key'
 import { TileUniformArena } from './tile-uniform-arena'
@@ -63,14 +62,7 @@ import { polygonU as POLYGON_U } from '../shaders/dsl/polygon'
 // (uniformBlock(U) is module-free — constructing it never triggers the
 // projection emit, so ctor-time field init is #612-safe.)
 import type { ResolvedShow } from './resolved-show'
-import { structuralHashKey } from '../_cache/structural-key'
-import type { BundleKeyState } from '../_cache/bundle-cache-key'
-import {
-  classifyTile,
-  computeProtectedKeys,
-  computeZoomDirectionPrefetchKeys,
-  type TileDecision,
-} from '../tile-decision'
+import { computeProtectedKeys, type TileDecision } from '../tile-decision'
 import { PrefetchScheduler } from './prefetch-scheduler'
 import { LabelFeatureSource } from './label-feature-source'
 import { FrameDrawStats } from './frame-draw-stats'
@@ -81,27 +73,17 @@ import { BindGroupRegistry } from './bind-group-registry'
 import { tileKeyParent, tileKeyUnpack, type PropertyTable } from '@xgis/compiler'
 import { StagingBufferPool } from '@xgis/rhi-webgpu'
 import { BundleCache, type BundleEncodeDescriptor } from '@xgis/rhi-webgpu'
-import { isPickEnabled, getSampleCount, adaptiveFarLodBoost } from '@xgis/engine'
 import { UploadCoordinator } from './upload-coordinator'
 import type { ShaderVariant } from '@xgis/compiler'
 import type { TileCatalog, TileData } from '@xgis/data'
 import { computeSliceKey } from '@xgis/data'
-import { mercator as mercatorProj, getProjection, type Projection } from '@xgis/geo'
-import { SELECTOR_PROJ_NAMES } from '@xgis/geo'
-import { bakesVectorDrape, drapesStrokesAtSelectionZ } from '@xgis/geo'
-import { drapesAtChordBudget } from './globe-drape-budget'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
-import { computeDrapeOverzoom, type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
+import { type DrapeOverzoomDiag } from './drape-overzoom-dispatch'
 import { pointWorldCopies, type PointRenderer } from './point-renderer'
 import type { LineRenderer } from './line-renderer'
 import { warnStageBlockUnsupported } from './stage-block-warning'
 import { toComposerLineVariant } from './line-shader-cache'
-import {
-  bakeTileStrokes,
-  emptyBakeStrokeStyle,
-  strokeBakeKey,
-  type BakeStrokeStyle,
-} from './vector-drape-stroke'
+import { bakeTileStrokes, emptyBakeStrokeStyle, type BakeStrokeStyle } from './vector-drape-stroke'
 import { hexToRgba } from '../feature-helpers'
 import { mirrorFillRhi, releaseFillRhi } from './fill-rhi-slot'
 import { arenaByteTotals } from '../render-stats-bytes'
@@ -115,10 +97,21 @@ import type {
   TileClassification,
 } from './vector-tile-renderer-types'
 import type { DrawStatsSnapshot } from './frame-draw-stats'
-import { getMaxGpuTiles, uploadBudgetFor } from './vector-tile-renderer-helpers'
+import { getMaxGpuTiles } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
 import { accumulateTilePoints } from './tile-point-emit'
+import { resolveLayerSlot } from './render-phases/resolve-layer-slot'
+import { selectVisibleTiles } from './render-phases/select-visible-tiles'
+import { resolvePaintUniforms } from './render-phases/resolve-paint-uniforms'
+import { classifyTiles } from './render-phases/classify-tiles'
+import { requestAndPrefetch } from './render-phases/request-and-prefetch'
+import { resolveDrapeRouting } from './render-phases/resolve-drape-routing'
+import { drawPrimary } from './render-phases/draw'
+import { drawFallback } from './render-phases/draw'
+import { prefetchTiers } from './render-phases/prefetch-tiers'
+import { trackStableSetAndPoints } from './render-phases/track-stable-set-and-points'
+export type { BundleEncodeDescriptor }
 
 // projType (camera.projType / proj_params.x) → projection registry name,
 // for building the projection-aware `selectorProj`. Index 0 (mercator) and
@@ -226,10 +219,11 @@ export type RenderFrameState = GuardedFrame &
   TileClassification
 
 export class VectorTileRenderer {
-  /** Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
+  /** @internal Backend-blind RHI device (#832 M2) — the uniform ring + arena/store route
    *  through it; the native WebGPU seams unwrap via ringBufferNative(). */
-  private rhi: RhiDevice
-  private source: TileCatalog | null = null
+  rhi: RhiDevice
+  /** @internal */
+  source: TileCatalog | null = null
 
   /** Max tile level of the backing source (0 if none), for camera zoom
    *  clamping in the render loop. */
@@ -261,12 +255,12 @@ export class VectorTileRenderer {
    *  VTR back-reference — `stableKeys`, the compute-handle release hook, and
    *  the upload-active probe arrive as call arguments. */
   private readonly _store: GpuTileStore
-  /** Base bind-group + fill-pipeline resource registry (Cluster C; see
+  /** @internal Base bind-group + fill-pipeline resource registry (Cluster C; see
    *  class doc). VTR keeps thin forwarders for the external setter surface
    *  and coordinates the onGrow fan-out (base rebuild then per-tile). The
    *  registry holds no VTR reference; the uniform-ring buffer + feature
    *  layout + feature data buffer arrive as `rebuildBase` call arguments. */
-  private readonly _bindGroups: BindGroupRegistry
+  readonly _bindGroups: BindGroupRegistry
   /** Compute-handle release hook handed to the store's eviction path
    *  (Cluster D). A single pre-bound arrow so the store never imports
    *  FeatureDataBinder nor holds a VTR reference, and eviction never
@@ -283,7 +277,8 @@ export class VectorTileRenderer {
     // #2042 INC-2 — same key frees the tile's persistent TileBlock slots.
     this._tileUniforms.releaseTile(handleKey)
   }
-  private getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
+  /** @internal */
+  getOrCreateLayerCache(sourceLayer: string): Map<number, GPUTile> {
     return this._store.getOrCreateLayer(sourceLayer)
   }
   /** Back-compat read-only view of the resident GPU tile cache for the
@@ -297,13 +292,16 @@ export class VectorTileRenderer {
   get gpuCache(): Map<string, Map<number, GPUTile>> {
     return this._store.cache()
   }
-  private frameCount = 0
-  private lastZoom = -1
-  /** Continuous camera.zoom cached by render() for slot 44 (u.zoom).
+  /** @internal */
+  frameCount = 0
+  /** @internal */
+  lastZoom = -1
+  /** @internal Continuous camera.zoom cached by render() for slot 44 (u.zoom).
    *  Distinct from lastZoom (integer tile-selection zoom) so polygon
    *  zoom-interp fills + palette gradients interpolate, not snap. */
-  private currentCameraZoom = 0
-  private stableKeys: number[] = []
+  currentCameraZoom = 0
+  /** @internal */
+  stableKeys: number[] = []
   /** Per-frame visible-tile selection + zoom hysteresis + readiness gate
    *  (Cluster E; see class doc). VTR calls `selectForFrame` once per
    *  render() and consumes the returned Selection; `stableKeys` stays on
@@ -317,22 +315,26 @@ export class VectorTileRenderer {
   /** CPU label-feature extraction (Cluster F; see class doc). VTR keeps
    *  thin forwarders (forEachLabelFeature etc.) so callers are unchanged. */
   private readonly _labelSource = new LabelFeatureSource()
-  private readonly _drawStats = new FrameDrawStats()
-  /** Hot-path scratch collections — reused across render() calls
+  /** @internal */
+  readonly _drawStats = new FrameDrawStats()
+  /** @internal Hot-path scratch collections — reused across render() calls
    *  to avoid per-frame Set/Map allocations. Each is `.clear()`'d
    *  before use; the same instance is fine because multi-render-
    *  per-frame is sequential (one ShowCommand at a time, and each
    *  render's lifetime is bounded by the function call). Total
    *  per-frame allocation drop: 5 × 4 layers ≈ 20 collections
    *  removed from the GC nursery. */
-  private _scratchActiveKeys = new Set<number>()
-  private _scratchSliceCachedMemo = new Map<number, boolean>()
-  private _scratchParentKeysSet = new Set<number>()
-  private _scratchMergedStableKeys = new Set<number>()
+  _scratchActiveKeys = new Set<number>()
+  /** @internal */
+  _scratchSliceCachedMemo = new Map<number, boolean>()
+  /** @internal */
+  _scratchParentKeysSet = new Set<number>()
+  /** @internal */
+  _scratchMergedStableKeys = new Set<number>()
   private _scratchProtectedKeys = new Set<number>()
-  /** Per-frame scratch array for the `_tileDecisions` diagnostic
+  /** @internal Per-frame scratch array for the `_tileDecisions` diagnostic
    *  (reused via `.length = N` reset). */
-  private readonly _scratchTileDecisions: (string | undefined)[] = []
+  readonly _scratchTileDecisions: (string | undefined)[] = []
   /** #1190 allocation ledger — the strokeQueue as reused PARALLEL scratch.
    *  Was a per-renderTileKeys `{cached, slotOffset}[]` with one object per
    *  stroked tile: O(stroked-tiles × layers) nursery garbage every
@@ -352,11 +354,11 @@ export class VectorTileRenderer {
   /** #778 P1: reused scratch for world-copy offset cache-key rounding
    *  (replaces per-frame `.map()` allocs; see `_worldOffScratchKey`). */
   private readonly _worldOffScratch: number[] = []
-  /** Typed pack target over the polygon 'Uniforms' struct (#733 P2d). PER-
+  /** @internal Typed pack target over the polygon 'Uniforms' struct (#733 P2d). PER-
    *  INSTANCE: frame-invariant fields persist across per-tile set.* patches +
    *  ring stages, exactly like the raw views this replaces. u32 lanes
    *  (pick_id / light_color_packed) route through the block's raw-word view. */
-  private frameBlock = uniformBlock(POLYGON_U)
+  frameBlock = uniformBlock(POLYGON_U)
   /** #2042 INC-2 — persistent per-(tile × worldCopy) TileBlock slots
    *  (tile-uniform-arena.ts): packed once at first unclipped draw, freed via
    *  _releaseTileHook. Nothing binds them until INC-4. Lazy device provider —
@@ -373,22 +375,22 @@ export class VectorTileRenderer {
   private _bakeBlock = uniformBlock(POLYGON_U)
   /** Live `input` values (#1539); null = no user style, pool lanes stay zero. */
   readonly inputs: InputStore | null
-  /** #599 I2 — set per render() when flat globe fills must DRAPE (baked→sphere
+  /** @internal #599 I2 — set per render() when flat globe fills must DRAPE (baked→sphere
    *  grid) instead of drawing as ECEF chords; false off the globe (flat path
    *  byte-identical). Read by renderTileKeys to skip the direct fill draw. */
-  private _drapeGlobeFills = false
-  /** #2346 — the frame's device pixel ratio, stashed for the mid-render bake.
+  _drapeGlobeFills = false
+  /** @internal #2346 — the frame's device pixel ratio, stashed for the mid-render bake.
    *  `bakeTileToTexture` is driven from VectorDrapeRenderer (which has no
    *  viewport state), and the baked stroke's AA band is the one screen-space
    *  quantity that must survive the bake — see bakeStrokeAaDpr. */
-  private _bakeDpr = 1
-  /** #2346 / design INC-3 — `_bakeStrokeActive` AFTER the STROKE ceiling
+  _bakeDpr = 1
+  /** @internal #2346 / design INC-3 — `_bakeStrokeActive` AFTER the STROKE ceiling
    *  (`drapesStrokesAtSelectionZ`). `_bakeStrokeActive` says the show HAS a
    *  drape-worthy stroke; this says the drape should still be the one drawing it.
    *  Read by `bakeTileToTexture` (which runs from VectorDrapeRenderer and cannot
    *  see the selection zoom) and by the bake cache key, so a ceiling change
    *  re-bakes instead of serving a texture with strokes burnt into it. */
-  private _bakeStrokesGated = false
+  _bakeStrokesGated = false
   /** #2346 — why the windowed-bake dispatch did what it did on the last frame.
    *  The switch is atomic, so its usual failure is to do nothing at all; this is
    *  the only place a gate or probe can read the cause. */
@@ -398,52 +400,60 @@ export class VectorTileRenderer {
    *  only ever holds the LAST one — which, measured, was a sparse layer whose
    *  legitimate "no geometry here" reading was mistaken for the dense layers'. */
   readonly _drapeOverzoomDiagBySlice = new Map<string, DrapeOverzoomDiag>()
-  /** Lazy owner of the globe fill drape (shared raster sphere-grid material). */
-  private _drape: VectorDrapeRenderer | null = null
-  private cachedFillColor = [0, 0, 0, 0]
-  private cachedStrokeColor = [0, 0, 0, 0]
-  private cachedShowFill = ''
-  private cachedShowStroke = ''
-  private currentOpacity = 1.0
-  /** 3D extrusion height (metres) for the current `render()` call. Set
+  /** @internal Lazy owner of the globe fill drape (shared raster sphere-grid material). */
+  _drape: VectorDrapeRenderer | null = null
+  /** @internal */
+  cachedFillColor = [0, 0, 0, 0]
+  /** @internal */
+  cachedStrokeColor = [0, 0, 0, 0]
+  /** @internal */
+  cachedShowFill = ''
+  /** @internal */
+  cachedShowStroke = ''
+  /** @internal */
+  currentOpacity = 1.0
+  /** @internal 3D extrusion height (metres) for the current `render()` call. Set
    *  per-show; uniform written per-tile from this. MVP: 50 m for the
    *  `buildings` MVT slice, 0 elsewhere. Future: per-feature data-
    *  driven via PropertyTable + style `extrude:` syntax. */
-  private currentExtrudeHeight = 0
-  /** Mapbox `fill-extrusion-base` wall-bottom z (metres). Default 0
+  currentExtrudeHeight = 0
+  /** @internal Mapbox `fill-extrusion-base` wall-bottom z (metres). Default 0
    *  matches a flat-base building flush with z=0. Constant form
    *  (show.extrudeBase.kind === 'constant') pulls the value; feature
    *  form falls back to the constant `fallback` for the uniform
    *  mirror (per-feature base would require a second vertex
    *  attribute, deferred). */
-  private currentExtrudeBase = 0
-  /** Mapbox fill-translate — pre-baked from CSS px to NDC-per-pixel.
+  currentExtrudeBase = 0
+  /** @internal Mapbox fill-translate — pre-baked from CSS px to NDC-per-pixel.
    *  Set at render() time when show.fillTranslateX/Y are non-zero
    *  using the current canvasWidth/Height. The vertex shader
    *  multiplies by clip.w so the screen-space offset stays
    *  pixel-constant regardless of depth. 0 = no translate (default). */
-  private currentFillTranslateNdcX = 0
-  private currentFillTranslateNdcY = 0
-  /** Mapbox line-translate — pre-baked from CSS px to NDC-per-pixel.
+  currentFillTranslateNdcX = 0
+  /** @internal */
+  currentFillTranslateNdcY = 0
+  /** @internal Mapbox line-translate — pre-baked from CSS px to NDC-per-pixel.
    *  Set at render() time when show.strokeTranslateX/Y are non-zero.
    *  Passed to writeLayerSlot → packed into line uniform buf[47/48]. */
-  private currentStrokeTranslateNdcX = 0
-  private currentStrokeTranslateNdcY = 0
-  /** Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-out
+  currentStrokeTranslateNdcX = 0
+  /** @internal */
+  currentStrokeTranslateNdcY = 0
+  /** @internal Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-out
    *  flags, baked per-show in render() and packed into the polygon
    *  uniform's spare cam_ecef_off_{h,l}.w lanes (f32 55 / 59). 1 =
    *  current behavior (default), 0 = the feature is disabled. Float (not
    *  bool) because the slot is an f32 the WGSL reads via `!= 0`. */
-  private currentFillAntialias = 1
-  private currentFillVerticalGradient = 1
-  /** Map bearing (deg) for the frame being drawn, baked per-show in render()
+  currentFillAntialias = 1
+  /** @internal */
+  currentFillVerticalGradient = 1
+  /** @internal Map bearing (deg) for the frame being drawn, baked per-show in render()
    *  alongside the flags above. The extrusion light is VIEWPORT-anchored
    *  (Mapbox `light.anchor` default), so it rotates with the map — see the
    *  light_dir_ecef packing in renderTileKeys. */
-  private currentBearingDeg = 0
-  /** #1080 — per render(): per-feature extruded fill draws FRONT-SHELL only
+  currentBearingDeg = 0
+  /** @internal #1080 — per render(): per-feature extruded fill draws FRONT-SHELL only
    *  (depth prepass + depth-`less-equal` colour) when resolved fill alpha < 1. */
-  private _extrudeTranslucentFrontShell = false
+  _extrudeTranslucentFrontShell = false
   /** Top-level fill-extrusion light, pushed each frame from the render
    *  loop (host._light). Defaults = MapLibre/Mapbox default so an untouched
    *  renderer is byte-identical to the baked consts. position = [radius,
@@ -453,56 +463,58 @@ export class VectorTileRenderer {
   private _lightPosition: [number, number, number] = [1.15, 210, 30]
   private _lightIntensity = 0.5
   private _lightColor: [number, number, number] = [1, 1, 1]
-  /** Fill-pattern per-show flag. Set true when the current `render()`
+  /** @internal Fill-pattern per-show flag. Set true when the current `render()`
    *  call's show has a resolved pattern UV bbox + the pattern pipeline is
    *  wired. Per-tile uniform writes use this to decide whether slot 46/47
    *  carries fill-translate NDC values or the pattern repeat in Mercator
    *  metres. */
-  private _patternUniformActive = false
-  private _patternRepeatMX = 1
-  private _patternRepeatMY = 1
-  /** Line-pattern per-show flag. True when the current `render()` call's
+  _patternUniformActive = false
+  /** @internal */
+  _patternRepeatMX = 1
+  /** @internal */
+  _patternRepeatMY = 1
+  /** @internal Line-pattern per-show flag. True when the current `render()` call's
    *  show has a resolved line-pattern UV bbox + repeat AND lineRenderer is
    *  wired. Read by the deferred drawSegments() pass to route through
    *  `pipelinePattern`. */
-  private _linePatternActiveForShow = false
-  /** Extrude routing for the current `render()` call.
+  _linePatternActiveForShow = false
+  /** @internal Extrude routing for the current `render()` call.
    *   - 'none': flat polygon, no z lift
    *   - 'per-feature': per-vertex z from the slice's wall mesh (extruded
    *     pipeline). #1084 routes the CONSTANT form here too — its heights are
    *     synthesised per-feature (show-source-maps); the old 'uniform' state is
    *     gone (u.extrude_height_m was read by no shader — a dead uniform).
    *  Consumed by renderTileKeys when picking the fill pipeline. */
-  private currentExtrudeMode: 'none' | 'per-feature' = 'none'
-  /** Set per render() from `show.pickId` so renderTileKeys can stamp every
+  currentExtrudeMode: 'none' | 'per-feature' = 'none'
+  /** @internal Set per render() from `show.pickId` so renderTileKeys can stamp every
    *  per-tile uniform with the layer's pick ID. 0 = unregistered (sentinel
    *  → pickAt returns null). */
-  private currentPickId = 0
-  /** Set per render() when the resolved fill is invisible AND no shader
+  currentPickId = 0
+  /** @internal Set per render() when the resolved fill is invisible AND no shader
    *  variant computes a per-feature fill — `renderTileKeys` skips the
    *  polygon `drawIndexed` in that case (no-op fragment work). */
-  private _skipFillDraw = false
-  /** #599 line-drape — when the globe drape baked this show's strokes into the tile texture,
+  _skipFillDraw = false
+  /** @internal #599 line-drape — when the globe drape baked this show's strokes into the tile texture,
    *  suppress the direct ECEF-chord stroke draw (mirror of how `_drapeGlobeFills` suppresses the
    *  direct fill via `drawFills`). Set at the drape seam; reset every render() so the flat / Mercator
    *  / translucent-stroke paths stay byte-identical (the drape never runs there). */
-  private _drapeStrokes = false
-  /** #599 line-drape — whether THIS show has a visible stroke the drape should bake. Reset every
+  _drapeStrokes = false
+  /** @internal #599 line-drape — whether THIS show has a visible stroke the drape should bake. Reset every
    *  render() and set inside the layer-slot block; read at the drape seam. */
-  private _bakeStrokeActive = false
-  /** #599 line-drape — the resolved (mpp-independent) stroke style captured from the direct
+  _bakeStrokeActive = false
+  /** @internal #599 line-drape — the resolved (mpp-independent) stroke style captured from the direct
    *  layer-slot write, re-packed per baked tile with the tile's bake mpp (E/BAKE_PX) in
    *  vector-drape-stroke.ts. Mutated in place (no per-render alloc). */
-  private readonly _bakeStroke: BakeStrokeStyle = emptyBakeStrokeStyle()
-  /** Log-depth factor for the current frame, sampled from camera at the
+  readonly _bakeStroke: BakeStrokeStyle = emptyBakeStrokeStyle()
+  /** @internal Log-depth factor for the current frame, sampled from camera at the
    *  start of render(). Packed into slot 35 of every tile uniform. */
-  private logDepthFc = 0
+  logDepthFc = 0
 
-  /** Active projType for the current frame, stashed where proj_params is
+  /** @internal Active projType for the current frame, stashed where proj_params is
    *  written (same pattern as logDepthFc). The light packer (#1198) reads it
    *  to pick the lighting frame: raw viewport light when flat (< 6.5),
    *  anchor-rotated ECEF when sphere. */
-  private currentProjType = 0
+  currentProjType = 0
 
   // ── Uniform ring (dynamic-offset) ──
   // Shared across all tiles + world copies + layers in a frame. Each draw
@@ -513,7 +525,8 @@ export class VectorTileRenderer {
   // `_bindGroups.baseGroup()` / `.featureGroup()` in the hot loop.
 
   // SDF line renderer (set externally)
-  private lineRenderer: LineRenderer | null = null
+  /** @internal */
+  lineRenderer: LineRenderer | null = null
 
   // Polygon flat-fill RHI Material twins + the native pipeline refs they
   // map to (set once from PipelineFactory). recordFillDraw routes EVERY
@@ -538,14 +551,14 @@ export class VectorTileRenderer {
     this.bundleCache.invalidateAll()
   }
 
-  /** Data-driven feature buffer + per-tile feature bind groups + compute
+  /** @internal Data-driven feature buffer + per-tile feature bind groups + compute
    *  paint (Cluster D; see class doc). VTR keeps thin forwarders
    *  (`buildFeatureDataBuffer`/`setComputePlan`/`dispatchComputePass`/
    *  `hasFeatureData`); the per-tile rebuild (`rebuildPerTileGroups`) is
    *  CALLED by `_onUniformRingGrow` (the single `UniformRing.onGrow`
    *  fan-out, base→per-tile). The binder never registers its own onGrow
    *  nor references VTR/gpuCache (they arrive as call args). */
-  private readonly _featureBinder: FeatureDataBinder
+  readonly _featureBinder: FeatureDataBinder
 
   constructor(ctx: GPUContext, inputs: InputStore | null = null) {
     this.inputs = inputs
@@ -596,31 +609,31 @@ export class VectorTileRenderer {
       markWarned: (key) => this._drawStats.markWarned(key),
     })
   }
-  /** Renderer-side GPU tile-upload pipeline (Cluster A sibling). See ctor. */
-  private readonly _uploads: UploadCoordinator
+  /** @internal Renderer-side GPU tile-upload pipeline (Cluster A sibling). See ctor. */
+  readonly _uploads: UploadCoordinator
 
-  /** #1155 F3 — cold-start burst flag. While on, the per-render upload budgets
+  /** @internal #1155 F3 — cold-start burst flag. While on, the per-render upload budgets
    *  are raised: uploadBudgetFor's concurrent-job cap (passed at the setMaxJobs
    *  call) AND the coordinator's per-frame enqueue cap. Off by default so the
    *  steady-state upload pacing is unchanged. */
-  private _coldStartBurst = false
+  _coldStartBurst = false
 
-  /** Swapchain color format, captured from the GPUContext so bundle
+  /** @internal Swapchain color format, captured from the GPUContext so bundle
    *  descriptors can declare the correct color attachment format. */
-  private format: GPUTextureFormat
-  /** Per-show RenderBundle cache. Encodes draw commands once + replays
+  format: GPUTextureFormat
+  /** @internal Per-show RenderBundle cache. Encodes draw commands once + replays
    *  via `executeBundles([bundle])` on stable scenes (idle camera / slow
    *  pan). Invalidated by cache key composition: any tile set change OR
    *  gpuCache change OR pipeline rebuild produces a different key →
    *  re-encode. */
-  private bundleCache: BundleCache
-  /** #1190 — ring-slot allocation count of each bundle's ENCODE walk,
+  bundleCache: BundleCache
+  /** @internal #1190 — ring-slot allocation count of each bundle's ENCODE walk,
    *  keyed by the bundle object (GC-synced with the cache). A key HIT
    *  guarantees the cursor base matches (ringCursor is in the key); this
    *  additionally pins the walk's own alloc count, so the dev invariant
    *  can prove the replayed offsets still align draw-for-draw — and goes
    *  red if a future input to renderTileKeys is left out of the key. */
-  private readonly _bundleWalkAllocs = new WeakMap<object, number>()
+  readonly _bundleWalkAllocs = new WeakMap<object, number>()
 
   /** Tiered MAP_WRITE | COPY_SRC pool used by the async upload path
    *  (`doUploadTileAsync`). The sync `doUploadTile` keeps using
@@ -753,7 +766,8 @@ export class VectorTileRenderer {
     this._onUniformRingGrow()
   }
 
-  private ensureUniformRing(): void {
+  /** @internal */
+  ensureUniformRing(): void {
     if (this.uniformRing) return
     this.uniformRing = new UniformRing(
       this.rhi,
@@ -804,12 +818,12 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Frame ID set by `beginFrame(frameId)`, threaded to
+  /** @internal Frame ID set by `beginFrame(frameId)`, threaded to
    *  `source.resetCompileBudget(frameId)`, which records it so `cancelStale` can
    *  age the prefetch shield per FRAME (#2273). The budget reset and backend tick
    *  there still run per ShowCommand, NOT once per frame — #2277 owns that. */
-  private currentFrameId = 0
-  /** #2309 — prefetch-throttle memo: the frame the two prefetch tiers last
+  currentFrameId = 0
+  /** @internal #2309 — prefetch-throttle memo: the frame the two prefetch tiers last
    *  ran in, and the `currentZ` values already served within it.
    *
    *  Both are documented "every 10 / 6 FRAMES", but `render()` runs once per
@@ -824,9 +838,11 @@ export class VectorTileRenderer {
    *  `isCached`, only SHRINKS the request set, and a not-yet-fetched tile is
    *  uncached for EVERY slice, so one run per distinct `currentZ` requests
    *  exactly the tiles 106 runs did. */
-  private _prefetchMemoFrame = -1
-  private readonly _adjacentPrefetchZooms = new Set<number>()
-  private readonly _zoomPrefetchZooms = new Set<number>()
+  _prefetchMemoFrame = -1
+  /** @internal */
+  readonly _adjacentPrefetchZooms = new Set<number>()
+  /** @internal */
+  readonly _zoomPrefetchZooms = new Set<number>()
 
   // ═══ #832 M2 — WebGL2 fills-only frame path ═══════════════════════════════
   // A fills-only sibling of render() for the WebGL2 immediate arm
@@ -993,10 +1009,10 @@ export class VectorTileRenderer {
    *  WebGL2 (the offscreen encoder is WebGPU-only; the WebGL2 drape is a later
    *  slice). `fill` is straight-alpha RGBA 0..1. The caller owns the returned
    *  texture's lifetime (`rhi.destroyTexture`). */
-  /** #2346 — the per-slice windowed-bake diagnostic scratch. Cleared in place so
+  /** @internal #2346 — the per-slice windowed-bake diagnostic scratch. Cleared in place so
    *  a reader always sees the LAST frame's answer for that slice, never a stale
    *  field from an earlier one. */
-  private _sliceOverzoomDiag(sliceLayer: string): DrapeOverzoomDiag {
+  _sliceOverzoomDiag(sliceLayer: string): DrapeOverzoomDiag {
     let d = this._drapeOverzoomDiagBySlice.get(sliceLayer)
     if (!d) {
       d = {}
@@ -2040,7 +2056,7 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Per-frame distSq memo + cached camera centre. distSq runs O(N log N)
+  /** @internal Per-frame distSq memo + cached camera centre. distSq runs O(N log N)
    *  times per upload-queue sort and once per fetch-priority dispatch;
    *  the camera is constant for the whole frame, so cache the (key →
    *  distance²) lookup across every render() call in the same frame.
@@ -2048,19 +2064,22 @@ export class VectorTileRenderer {
    *  of a fresh Map + closure happened ~80 times per frame on Bright
    *  (one per ShowCommand) and the memo never actually shared across
    *  layers. */
-  private _distMemo = new Map<number, number>()
-  private _distMemoCamX = NaN
-  private _distMemoCamY = NaN
+  _distMemo = new Map<number, number>()
+  /** @internal */
+  _distMemoCamX = NaN
+  /** @internal */
+  _distMemoCamY = NaN
   /** Stable closure that reads `_distMemo` + camera centre on the
    *  instance — installed ONCE on the upload queue + source, never
    *  re-allocated per render. */
-  /** Sentinel — once the stable comparators are installed (fetch-side
+  /** @internal Sentinel — once the stable comparators are installed (fetch-side
    *  `setFetchPriority` + the upload queue's priorityCallback), skip
    *  re-installing on every render(). Set once, never reset (the source +
    *  upload queue keep their identity for the renderer's lifetime). */
-  private _priorityInstalled = false
+  _priorityInstalled = false
 
-  private _distSqStable = (key: number): number => {
+  /** @internal */
+  _distSqStable = (key: number): number => {
     const cached = this._distMemo.get(key)
     if (cached !== undefined) return cached
     const [tz, tx, ty] = tileKeyUnpack(key)
@@ -2128,14 +2147,14 @@ export class VectorTileRenderer {
     return this.uniformRing!.allocSlot()
   }
 
-  /** UniformRing slot cursor for the bundle cache key (#1190) — the base
+  /** @internal UniformRing slot cursor for the bundle cache key (#1190) — the base
    *  every dynamic offset a recorded bundle bakes is measured from. -1
    *  before the ring exists (no allocations possible yet). */
-  private _ringCursorForBundleKey(): number {
+  _ringCursorForBundleKey(): number {
     return this.uniformRing?.slotCursor() ?? -1
   }
 
-  /** #2042 INC-5/5b — the SINGLE ring-free authority: true iff a
+  /** @internal #2042 INC-5/5b — the SINGLE ring-free authority: true iff a
    *  renderTileKeys call with these inputs emits ONLY split-bound draws, so
    *  (a) the walk-skip may bypass the per-tile pack + ring alloc/stage
    *  (INC-5), and (b) the bundle key may replace the live `ringCursor` with
@@ -2152,7 +2171,7 @@ export class VectorTileRenderer {
    *  unclipped path, the constant-fill base layout, no fill/line pattern,
    *  no per-feature extrude, not the translucent MAX pass, split-eligible
    *  strokes when strokes draw at all, no overdraw. */
-  private _walkRingFree(
+  _walkRingFree(
     fillPipeline: RhiPipelineHandle,
     // Opaque on purpose (identity-compared against baseLayout() only) — a
     // typed GPUBindGroupLayout here would add a raw-WebGPU token (#991).
@@ -2540,7 +2559,7 @@ export class VectorTileRenderer {
   // _frameGlobeTilesSelected, _frameDrawCalls/_frameTriangles/
   // _frameLines/_frameVertices, _frameDrawnByZoom) live on the
   // FrameDrawStats collaborator (Cluster G). See `_drawStats`.
-  /** Per-slice memo of classifyTile() decisions, keyed by sliceLayer.
+  /** @internal Per-slice memo of classifyTile() decisions, keyed by sliceLayer.
    *  In bright-style maps an MVT source (`openmaptiles`) backs 81
    *  shows that resolve to ~13 distinct (sourceLayer + filter)
    *  slices. Without this memo every show re-runs the per-tile
@@ -2551,9 +2570,9 @@ export class VectorTileRenderer {
    *  slice because the decision inputs (layerCache + index +
    *  catalog) only change via this same render call's uploads,
    *  which we re-apply identically to subsequent same-slice shows. */
-  private _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
+  _frameClassifyMemo: Map<string, Map<number, TileDecision>> = new Map()
 
-  /** #778 <P5>: single-entry memo for the per-frame scaled dash array.
+  /** @internal #778 <P5>: single-entry memo for the per-frame scaled dash array.
    *  `dashSrc.map(v => v * dashWidthScalePx * mpp)` allocated a fresh array
    *  every line-layer every frame. Both scale factors only move on zoom /
    *  stroke-width transitions, so a bearing/pan (unchanged zoom + width)
@@ -2561,7 +2580,7 @@ export class VectorTileRenderer {
    *  compared bit-exact — a combined product key would be unsafe because
    *  float multiply is non-associative, so only equal individual factors
    *  guarantee the re-mapped array is byte-identical to a fresh recompute. */
-  private _dashArrayCache: {
+  _dashArrayCache: {
     src: readonly number[]
     scalePx: number
     mpp: number
@@ -2610,17 +2629,17 @@ export class VectorTileRenderer {
     }
   }
 
-  /** Route uploads through the priority queue (background path). Thin
+  /** @internal Route uploads through the priority queue (background path). Thin
    *  forwarder to the upload coordinator, which owns the queue + per-frame
    *  cap + stale-cancel + the unified sync/async dispatch body. */
-  private uploadTile(key: number, data: TileData, sourceLayer = ''): void {
+  uploadTile(key: number, data: TileData, sourceLayer = ''): void {
     this._uploads.enqueue(key, data, sourceLayer)
   }
 
-  /** Mid-render fallback upload (sync). Thin forwarder — the coordinator's
+  /** @internal Mid-render fallback upload (sync). Thin forwarder — the coordinator's
    *  sync dispatch reaches no await, so the data is GPU-resident before this
    *  returns and the immediately-following render command sees the tile. */
-  private doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
+  doUploadTile(key: number, data: TileData, sourceLayer = ''): void {
     this._uploads.uploadSync(key, data, sourceLayer)
   }
 
@@ -2629,8 +2648,8 @@ export class VectorTileRenderer {
     this._uploads.resetFrameCap()
   }
 
-  /** Kick the upload queue (explicit flush point). Thin forwarder. */
-  private drainPendingUploads(): void {
+  /** @internal Kick the upload queue (explicit flush point). Thin forwarder. */
+  drainPendingUploads(): void {
     this._uploads.drain()
   }
 
@@ -2687,9 +2706,9 @@ export class VectorTileRenderer {
     }
   }
 
-  /** Drop queued + held uploads for tiles the camera moved past. Thin
+  /** @internal Drop queued + held uploads for tiles the camera moved past. Thin
    *  forwarder to the upload coordinator. */
-  private cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
+  cancelStaleUploads(activeKeys: ReadonlySet<number>): void {
     this._uploads.cancelStale(activeKeys)
   }
 
@@ -2795,22 +2814,22 @@ export class VectorTileRenderer {
     }
     const guard = this.guardAndUnwrapPass(args)
     if (!guard) return
-    const slot = this.resolveLayerSlot(args, guard)
+    const slot = resolveLayerSlot(this, args, guard)
     if (!slot) return
-    const sel = this.selectVisibleTiles(args, guard, slot)
+    const sel = selectVisibleTiles(this, args, guard, slot)
     if (!sel) return
 
-    const paint = this.resolvePaintUniforms(args, sel)
-    const cls = this.classifyTiles(guard, slot, sel)
+    const paint = resolvePaintUniforms(this, args, sel)
+    const cls = classifyTiles(this, guard, slot, sel)
     // #2508 — the frame state the phases below consume (RenderFrameState).
     const ctx: RenderFrameState = { ...guard, ...slot, ...sel, ...paint, ...cls }
 
-    this.requestAndPrefetch(args, ctx)
-    this.resolveDrapeRouting(args, ctx)
-    this.drawPrimary(args, ctx)
-    this.drawFallback(args, ctx)
-    this.prefetchTiers(args, ctx)
-    this.trackStableSetAndPoints(args, ctx)
+    requestAndPrefetch(this, args, ctx)
+    resolveDrapeRouting(this, args, ctx)
+    drawPrimary(this, args, ctx)
+    drawFallback(this, args, ctx)
+    prefetchTiers(this, args, ctx)
+    trackStableSetAndPoints(this, args, ctx)
   }
 
   /** #2508 phase 0 — the frame guards, and the two things they PROVE. Routes an
@@ -2849,2020 +2868,6 @@ export class VectorTileRenderer {
     const index = this.source.getIndex()
     if (!index) return null
     return { pass, source: this.source }
-  }
-
-  /** #2508 phase 1 — resolve this layer's slot: the slice key the worker emitted
-   *  the tiles under and the resident-tile cache for it, plus the per-frame
-   *  bookkeeping that hangs off the slot (frame counter, draw-order trace, uniform
-   *  ring). Returns `null` for the variant-pipeline guard — a show whose bind-group
-   *  layout is not the base one and that has neither a feature group nor variant
-   *  fields draws nothing this call, and `render()` stops there. */
-  private resolveLayerSlot(args: RenderArgs, guard: GuardedFrame): LayerSlot | null {
-    // Sliced-source slot for this layer. PMTiles emits per-show slices when
-    // the source-attach config carries `showSlices` — the slice key combines
-    // `sourceLayer` with a stable hash of the layer's `filter:` AST so xgis
-    // layers sharing a source layer but differing in filter get DIFFERENT
-    // slices. Without filter / for legacy sources (XGVT-binary,
-    // GeoJSON-runtime, no-filter PMTiles), sliceKey collapses to plain
-    // `sourceLayer` ('' for single-layer sources) — back-compat. Inline
-    // GeoJSON shows lack explicit `sourceLayer`; the tilingPool emits MVT
-    // bytes with `_layer = sourceName`, so VTR looks up by `targetName` —
-    // without this fallback, filtered shows (filter_gdp) computed
-    // sliceLayer='__hash' vs the worker's 'countries__hash' and tiles
-    // dropped silently. show-source-maps.ts mirrors the fallback.
-    const effectiveSourceLayer = args.show.sourceLayer || args.show.targetName || ''
-    const sliceLayer = computeSliceKey(effectiveSourceLayer, args.show.filterExpr?.ast ?? null)
-    // DIAG: capture per-frame draw order so the cross-tile depth
-    // question ("is buildings actually drawn LAST?") is answered from
-    // runtime behaviour rather than architectural reading. The Map's
-    // beginFrame resets `__xgisDrawOrderTrace = []`; map.ts dumps it
-    // after the frame and clears the flag. Production paths stay
-    // silent unless the flag is set.
-    if (typeof window !== 'undefined') {
-      const trace = (
-        window as unknown as {
-          __xgisDrawOrderTrace?: Array<{
-            seq: number
-            slice: string
-            phase: string
-            extrude: string
-            tileKey?: number
-            isFill?: boolean
-          }>
-        }
-      ).__xgisDrawOrderTrace
-      if (trace) {
-        // Stash for the per-tile drawIndexed entries renderTileKeys
-        // is about to push.
-        this._drawStats.setTrace(sliceLayer, args.phase)
-      } else {
-        this._drawStats.setTrace(null, null)
-      }
-    }
-    // Pre-fetch this layer's gpuCache slot once. Hot-path lookups
-    // become pure numeric Map.has/get — no composite-string alloc per
-    // tile. Use getOrCreate so the reference stays valid even if this
-    // is the first frame to upload a tile for this slice layer
-    // (otherwise mid-render compileTileOnDemand → uploadTile would
-    // create a fresh inner Map and our captured `undefined` would go
-    // stale). Empty inner Maps for unused layers cost only a Map
-    // allocation, no per-tile work.
-    const layerCache = this.getOrCreateLayerCache(sliceLayer)
-
-    // Variant-pipeline guard. Feature-buffer variants (match()/interpolate())
-    // need `featureBindGroupLayout`, but `tileBgFeature` is built lazily
-    // AFTER the async geojson worker compile resolves (map.ts:1082-1084);
-    // between registration and resolution only `tileBgDefault` exists, and
-    // drawing produced "Bind group layout ... does not match" validation
-    // errors (~5/frame on fixture_picking). Skip until a feature bg is
-    // ready — the layer pops in late, like any tile-load gap. Skip ONLY
-    // when none is available ANYWHERE: GeoJSON satisfies this with the
-    // source-level `this.tileBgFeature`; MVT/PMTiles with per-tile
-    // `cached.featureBindGroup`s built at upload. Returning unconditionally
-    // on `!this.tileBgFeature` was the OFM Bright school-fill bug — the MVT
-    // path leaves it null by design (empty PropertyTable), so the landuse
-    // `class` match variant never reached its tile loop; per-tile groups
-    // are tested inside the loop.
-    if (
-      args.bindGroupLayout !== this._bindGroups.baseLayout() &&
-      !this._bindGroups.featureGroup() &&
-      this._featureBinder.latestVariantFieldsLength() === 0
-    )
-      return null
-
-    this.frameCount++
-    // Pass the FRAME-level id (set by beginFrame from map's
-    // _frameCount, monotonic across render-loop ticks). The
-    // catalog short-circuits if the same id has already reset
-    // its budget this frame — without this, every ShowCommand
-    // sharing the source would reset the counters → each layer
-    // would get a fresh sub-tile budget → 4× more sub-tile clips
-    // per frame than intended → GPU buffer creation burst →
-    // Chrome STATUS_BREAKPOINT at over-zoom.
-    guard.source.resetCompileBudget(this.currentFrameId)
-    this._drawStats.resetRenderedDraws()
-    // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()
-    // resets it to 0. Multiple render() calls within one frame
-    // (one per ShowCommand for sliced sources like PMTiles 4-layer)
-    // ACCUMULATE into the same counter so map.ts's
-    // hasPendingSourceWork sees the true frame total. Resetting
-    // here would have clobbered earlier layers' miss counts and
-    // falsely signaled "no work pending" when only the last
-    // layer happened to converge first.
-    this.ensureUniformRing()
-    return { sliceLayer, layerCache }
-  }
-
-  /** #2508 phase 2 — select the visible tiles: the camera's view for this
-   *  projection, the selector projection and frustum margins, then the cached
-   *  selection (hysteresis-held drawn zoom, world copies, over-zoom parents,
-   *  protected ancestors). Everything a later phase reads about "which tiles" is
-   *  fixed here. Returns `null` when the selection cache has nothing for this
-   *  layer (the source's data-zoom range excludes it) — `render()` stops there. */
-  private selectVisibleTiles(
-    args: RenderArgs,
-    guard: GuardedFrame,
-    slot: LayerSlot,
-  ): TileSelection | null {
-    // Promote pending uploads first — they're strictly older than anything
-    // this frame's tile walk will queue, so servicing them now keeps the
-    // "filling in" order correct (near-z-to-current first).
-    this.drainPendingUploads()
-
-    const maxLevel = guard.source.maxLevel
-    // DSFUN precision lets sub-tiles work at any camera zoom. Clamp to 22
-    // to match the camera's universal maxZoom, not the old maxLevel+6.
-    // (Still used downstream by the Tier-2 prefetch gate below; the
-    // selection method recomputes its own copy internally.)
-    const maxSubTileZ = 22
-
-    // Hoisted: visibleTilesFrustum inputs needed both by the selection
-    // collaborator (passed into selectForFrame) and by the Tier-2
-    // prefetch gate further down. Cheap pure derivations; safe to
-    // compute once up here.
-    const strokeOffsetPx_h = Math.abs(args.show.strokeOffset ?? 0)
-    // Stroke width — zoom × time already collapsed by the bucket
-    // scheduler. ResolvedShow is the SOLE per-frame source.
-    const strokeWidthPx_h = args.resolvedShow.strokeWidth
-    const alignDeltaPx_h =
-      args.show.strokeAlign === 'inset' || args.show.strokeAlign === 'outset'
-        ? strokeWidthPx_h / 2
-        : 0
-    const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
-    // jscpd:ignore-start — twin of `tile-selection-cache.ts`'s selector-projection
-    // rationale, which is the authority for it; both sites must build the projection the
-    // same way and the prose says why. Pre-exists on main (VTR:2871); #2508 only moved it
-    // here, which re-fingerprints the pair for the dup ratchet (#2577).
-    // Projection-aware tile selection: the flat selectors project tile
-    // corners through THIS projection's forward (relative to the projected
-    // centre), matching the GPU vertex path, so equirect / natural_earth
-    // select the right tiles at the poles + dateline (previously they used
-    // Mercator's forward and went blank at high latitude — user report
-    // project_projection_issues_2026_05_18 #4). Built with the same centre
-    // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
-    // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
-    // selectorProj is unused — fall back to mercatorProj (globe has no
-    // flat-projection entry in the registry).
-    const selectorProj: Projection =
-      args.projType >= 1 && args.projType <= 6
-        ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, args.projCenterLon, args.projCenterLat)
-        : mercatorProj
-    // jscpd:ignore-end
-
-    // Per-frame visible-tile selection + zoom-transition hysteresis +
-    // readiness gate. The selection collaborator owns the cross-frame
-    // hysteresis/readiness state + the per-frame tile memo + the
-    // selection scratch arrays; it touches ZERO GPU state. It returns
-    // null when this layer's currentZ falls below the slice minzoom
-    // (the per-MVT-layer cull that used to `return` inline here) —
-    // skip the render() for this ShowCommand in that case.
-    const sel = this._selection.selectForFrame(
-      args.camera,
-      args.projType,
-      args.projCenterLon,
-      args.projCenterLat,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-      this.currentFrameId,
-      guard.source,
-      slot.sliceLayer,
-      offsetMarginPx,
-      maxLevel,
-      this._drawStats,
-    )
-    if (!sel) return null
-    const {
-      tiles,
-      neededKeys,
-      protectedAncestors,
-      worldOffDeg,
-      parentAtMaxLevel,
-      archiveAncestor,
-      currentZ,
-      targetZ,
-      cameraIdle,
-    } = sel
-
-    if (currentZ !== this.lastZoom) this.lastZoom = currentZ
-    this.currentCameraZoom = args.camera.zoom
-
-    // Display-projection MVP: `getViewForProjection` returns the flat 2D
-    // Mercator-plane MVP for flat Mercator (projType 0) and the ECEF-MVP
-    // for 3D / globe (and, currently, every other projType). The polygon /
-    // line VS branches on `proj_params.x` to consume the matching matrix
-    // (flat → `project(abs)−cam` 2D-plane metres; 3D → ECEF-RTC). The
-    // returned `matrix` reference is overwritten by the next call from the
-    // same camera — copy into the uniform mirror immediately. Both paths
-    // return the same far-plane in non-globe mode, so `logDepthFc` matches.
-    const frame = args.camera.getViewForProjection(
-      args.projType,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-    )
-    const mvp = frame.matrix
-    this.logDepthFc = frame.logDepthFc
-    return {
-      mvp,
-      frame,
-      strokeWidthPx_h,
-      tiles,
-      neededKeys,
-      maxLevel,
-      parentAtMaxLevel,
-      archiveAncestor,
-      worldOffDeg,
-      currentZ,
-      targetZ,
-      cameraIdle,
-      maxSubTileZ,
-      selectorProj,
-      offsetMarginPx,
-      protectedAncestors,
-    }
-  }
-
-  /** #2508 phase 3 — resolve the paint into uniforms: every zoom × time
-   *  resolved scalar / colour of the show is written to the layer slot(s) of
-   *  the uniform ring, and the renderer's per-call paint fields
-   *  (`current*`, `cached*`, `_skipFillDraw`, the pattern / dash / bake-stroke
-   *  state) are set for the draw phases. Returns the layer-slot offsets. */
-  private resolvePaintUniforms(args: RenderArgs, sel: TileSelection): PaintSlots {
-    // Cache color parsing — only reparse if show properties changed.
-    //
-    // Animation override: if `resolvedFillRgba` / `resolvedStrokeRgba` is
-    // set, the classifier has already interpolated this frame's value from
-    // a keyframes block. Use it directly — skipping both the hex cache
-    // check AND the hex parse. The cached base color stays intact so a
-    // subsequent static frame can re-use it.
-    // Opacity is already resolved (zoom × time) by the bucket
-    // scheduler — ResolvedShow is the SOLE per-frame source.
-    this.currentOpacity = args.resolvedShow.opacity
-    this.currentPickId = args.show.pickId ?? 0
-    // 3D extrusion: driven by the layer's `extrude:` style keyword. Both the
-    //   * `extrude: 50`      constant form AND
-    //   * `extrude: .height` per-feature form
-    // now feed the SAME per-feature heights Map → wall mesh → extruded pipe
-    // (#1084 synthesises a constant NumberLiteral for the `50` form at the
-    // show-source-maps seam). currentExtrudeHeight / u.extrude_height_m is a
-    // dead mirror no shader reads — kept only to avoid a uniform re-layout.
-    //
-    // #1252 — a data-driven fill (needsFeatureBuffer) now extrudes too: the
-    // show routes through the feature layout AND the bucket scheduler hands
-    // VTR the variant's own feature-layout extruded pipeline (drawFpE), which
-    // fs_fill_extrude uses to sample feat_data[fid]. No more flat downgrade.
-    if (args.show.extrude && args.show.extrude.kind === 'constant') {
-      this.currentExtrudeHeight = args.show.extrude.value
-      this.currentExtrudeMode = 'per-feature' // #1084: heights synthesised per-feature → extruded pipe
-    } else if (args.show.extrude && args.show.extrude.kind === 'feature') {
-      this.currentExtrudeHeight = args.show.extrude.fallback
-      this.currentExtrudeMode = 'per-feature'
-    } else {
-      this.currentExtrudeHeight = 0
-      this.currentExtrudeMode = 'none'
-    }
-    // Mapbox `fill-extrusion-base` — wall BOTTOM z. Constant form
-    // packs into u.extrude_base_m; feature form falls back to the
-    // declared fallback for the uniform mirror (per-feature base
-    // needs its own attribute, deferred). Absent → 0 (flat ground).
-    if (args.show.extrudeBase && args.show.extrudeBase.kind === 'constant') {
-      this.currentExtrudeBase = args.show.extrudeBase.value
-    } else if (args.show.extrudeBase && args.show.extrudeBase.kind === 'feature') {
-      this.currentExtrudeBase = args.show.extrudeBase.fallback
-    } else {
-      this.currentExtrudeBase = 0
-    }
-    // Mapbox fill-/line-translate — bake CSS px → NDC-per-pixel (`2 /
-    // canvasDim`); vertex shader multiplies by clip.w so the offset stays
-    // pixel-constant after the perspective divide. Reads the PER-FRAME
-    // resolved offset from ResolvedShow (zoom-interp shapes already collapsed
-    // to a scalar; constant forms pass through). translate-anchor=map:
-    // rotateTranslateForAnchor rotates (dx,dy) by the map bearing so the
-    // offset tracks the MAP world axes (MapLibre map-anchor). Default
-    // anchor=viewport returns (dx,dy) untouched → byte-identical historical
-    // screen-space path. (Pitch foreshortening of a map-anchored offset is
-    // not reproduced by this clip-space bake; bearing rotation is the flat
-    // behaviour.)
-    const bearingDeg = args.camera.bearing ?? 0
-    const fillTr = fillTranslateNdc(
-      args.resolvedShow,
-      args.show,
-      args.camera,
-      args.canvasWidth,
-      args.canvasHeight,
-    )
-    this.currentFillTranslateNdcX = fillTr[0]
-    this.currentFillTranslateNdcY = fillTr[1]
-    const [ltx, lty] = rotateTranslateForAnchor(
-      args.resolvedShow.strokeTranslateX,
-      args.resolvedShow.strokeTranslateY,
-      args.show.strokeTranslateAnchorMap,
-      bearingDeg,
-    )
-    this.currentStrokeTranslateNdcX = ltx !== 0 ? (ltx * 2) / args.canvasWidth : 0
-    this.currentStrokeTranslateNdcY = lty !== 0 ? (lty * 2) / args.canvasHeight : 0
-    // Mapbox fill-antialias / fill-extrusion-vertical-gradient opt-outs, packed
-    // into cam_ecef_off_{h,l}.w below: 1 = current behavior (byte-identical
-    // default), 0 = opt-out, and the WGSL gates on `!= 0`. Antialias reads the
-    // per-frame RESOLVED flag so #1995's zoom form flips it at its authored zoom.
-    this.currentFillAntialias = args.resolvedShow.fillAntialias ? 1 : 0
-    this.currentFillVerticalGradient = args.show.fillExtrusionVerticalGradient === false ? 0 : 1
-    this.currentBearingDeg = args.camera.bearing ?? 0
-    // Per-frame resolved fill RGBA — animated stops were already
-    // collapsed by the bucket scheduler. ResolvedShow is the SOLE
-    // per-frame source; static hex still flows via show.fill below
-    // when the ShowCommand declared a `kind: 'constant'` fill.
-    const resolvedFill = args.resolvedShow.fill
-    if (resolvedFill) {
-      this.cachedFillColor[0] = resolvedFill[0]
-      this.cachedFillColor[1] = resolvedFill[1]
-      this.cachedFillColor[2] = resolvedFill[2]
-      this.cachedFillColor[3] = resolvedFill[3]
-      this.cachedShowFill = ''
-    } else if (args.show.fill !== this.cachedShowFill) {
-      this.cachedShowFill = args.show.fill ?? ''
-      const raw = hexToRgba(args.show.fill)
-      this.cachedFillColor[0] = raw ? raw[0] : 0
-      this.cachedFillColor[1] = raw ? raw[1] : 0
-      this.cachedFillColor[2] = raw ? raw[2] : 0
-      this.cachedFillColor[3] = raw ? raw[3] : 0
-    }
-    const resolvedStroke = args.resolvedShow.stroke
-    if (resolvedStroke) {
-      this.cachedStrokeColor[0] = resolvedStroke[0]
-      this.cachedStrokeColor[1] = resolvedStroke[1]
-      this.cachedStrokeColor[2] = resolvedStroke[2]
-      this.cachedStrokeColor[3] = resolvedStroke[3]
-      this.cachedShowStroke = ''
-    } else if (args.show.stroke !== this.cachedShowStroke) {
-      this.cachedShowStroke = args.show.stroke ?? ''
-      const raw = hexToRgba(args.show.stroke)
-      this.cachedStrokeColor[0] = raw ? raw[0] : 0
-      this.cachedStrokeColor[1] = raw ? raw[1] : 0
-      this.cachedStrokeColor[2] = raw ? raw[2] : 0
-      this.cachedStrokeColor[3] = raw ? raw[3] : 0
-    }
-
-    // Skip the fill drawIndexed entirely when we KNOW nothing visible will
-    // be produced. Two cases qualify:
-    //   1. show.fill is undefined AND no shader variant computes the fill
-    //      from feature data (e.g. multi_layer's `borders | stroke-* opacity-80`
-    //      gets routed through the opaque bucket as fillPhase='fills' but
-    //      declared no fill at all).
-    //   2. show.fill resolved to a color whose alpha is effectively 0.
-    // BUT a data-driven `fill match(...)` produces colors entirely inside
-    // the variant pipeline (fillIsDefault === false), so cachedFillColor
-    // can be [0,0,0,0] yet the draw is still meaningful — must keep it.
-    // The skip uses the typed `fillIsDefault` sentinel (variantProducesFill()
-    // helper), not a default-uniform string compare on variantFillExpr.
-    this._skipFillDraw =
-      !variantProducesFill(args.show.shaderVariant) && this.cachedFillColor[3] <= 0.005
-    // #1080 — translucent fill-extrusion front-shell gate (MapLibre draws a front
-    // shell for opacity < 1). Data-driven fill → layer opacity; else fill.a×opacity.
-    const extrudeFillAlpha = variantProducesFill(args.show.shaderVariant)
-      ? this.currentOpacity
-      : this.cachedFillColor[3] * this.currentOpacity
-    this._extrudeTranslucentFrontShell = extrudeFillAlpha < 0.999
-    // #599 line-drape — reset per render(); set at the drape seam / layer-slot block below.
-    this._drapeStrokes = false
-    this._bakeStrokeActive = false
-    this._bakeStrokesGated = false
-
-    // Write uniforms through the typed block's fixed-arity setters (zero
-    // per-call allocation — the hot-loop surface; #733 P2d).
-    const B = this.frameBlock
-    B.set.mvp(sel.mvp) // ECEF-MVP
-    // Fill-pattern packs the sprite atlas UV bbox into the fill_color slot
-    // instead of the resolved RGBA. fs_fill_pattern reads (u0, v0, u1, v1)
-    // from u.fill_color. The pattern repeat in metres is written to the
-    // fill_translate slots below (overriding the fill-translate NDC values).
-    // Both overrides apply ONLY when the show has a resolved pattern bbox +
-    // the pattern pipeline path is wired by the caller (setPatternPipelines).
-    // #1059 — the pattern-active DECISION + slot bytes come from the shared
-    // resolveFillPatternPack authority (the WebGL2 twin renderFillsRhi packs the
-    // SAME bytes through it, so the two backends cannot drift). Byte-identical to
-    // the prior inline pack: fill_color = the atlas-UV bbox, repeat = fillPatternRepeatM.
-    const pack = resolveFillPatternPack(
-      args.show.fillPatternUV,
-      args.show.fillPatternRepeatM,
-      this._bindGroups.patternGroundPipeline() !== null,
-    )
-    if (pack.active) {
-      B.set.fill_color(pack.u0, pack.v0, pack.u1, pack.v1)
-      this._patternUniformActive = true
-      this._patternRepeatMX = pack.repeatMX
-      this._patternRepeatMY = pack.repeatMY
-    } else {
-      B.set.fill_color(
-        this.cachedFillColor[0]!,
-        this.cachedFillColor[1]!,
-        this.cachedFillColor[2]!,
-        this.cachedFillColor[3]! * this.currentOpacity,
-      )
-      this._patternUniformActive = false
-    }
-    // Line-pattern packs the sprite atlas UV bbox into the stroke_color
-    // slot (20-23). fs_line_pattern reads (u0, v0, u1, v1) from
-    // tile.stroke_color. Pattern shows trade their solid stroke colour for
-    // the atlas sample.
-    const linePatternSlotsActive =
-      args.show.linePatternUV != null &&
-      args.show.linePatternRepeatM != null &&
-      this.lineRenderer != null
-    this._linePatternActiveForShow = linePatternSlotsActive
-    if (linePatternSlotsActive) {
-      const lu = args.show.linePatternUV!
-      B.set.stroke_color(lu[0]!, lu[1]!, lu[2]!, lu[3]!)
-    } else {
-      B.set.stroke_color(
-        this.cachedStrokeColor[0]!,
-        this.cachedStrokeColor[1]!,
-        this.cachedStrokeColor[2]!,
-        this.cachedStrokeColor[3]! * this.currentOpacity,
-      )
-    }
-    // proj_params + globe_eye written TOGETHER (frame-invariant; kept colocated
-    // so the #600 "projection set, eye forgotten" leak stays unrepresentable —
-    // frame.eye is the globe/ECEF camera position, undefined off the globe →
-    // globe_eye zero, ignored by the flat/disc cull arms).
-    B.set.proj_params(args.projType, args.projCenterLon, args.projCenterLat, 0)
-    this.currentProjType = args.projType
-    const ge = globeEyeUniform(sel.frame.eye)
-    B.set.globe_eye(ge[0], ge[1], ge[2], ge[3])
-    writeInputPool(B, this.inputs)
-
-    // Allocate + write SDF line layer slot for this render() call. All
-    // drawSegments() calls below will use this same byte offset.
-    // In 'fills' phase no drawSegments runs, so skip the allocation entirely
-    // to avoid ring-slot churn, redundant pattern-param warnings, and any
-    // incidental validation surface in the translucent fill pre-pass.
-    let lineLayerOffset = 0
-    // Mapbox `line-gap-width` double-draw second offset. When
-    // show.strokeGapWidth > 0 the line renders as TWO parallel
-    // strokes; this holds the second layer-slot uniform offset.
-    // -1 sentinel = no second draw (single-line legacy path).
-    let lineLayerOffsetGap = -1
-    if (this.lineRenderer && args.phase !== 'fills') {
-      // Pure-zoom stroke-width stops (Mapbox `paint.line-width:
-      // ["interpolate", curve, ["zoom"], …]`) recompute per frame
-      // against camera.zoom — so a line widens smoothly as the user
-      // zooms inside one tile-zoom level. The static `show.strokeWidth`
-      // is the lower.ts default (1); we override it here. Per-feature
-      // widths (compound merge → `strokeWidthExpr`) still go through
-      // the worker bake + segment slot.
-      // Pre-resolved by bucket-scheduler (zoom × time → plain scalar).
-      const strokeWidthPx = args.resolvedShow.strokeWidth
-      // #739 — capped world scale the frozen low-zoom MVP renders at (see the
-      // renderLinesRhi twin). Keeps dash + pattern metres and stroke width in
-      // lockstep with the view instead of the uncapped 2^zoom mpp.
-      const mpp = args.camera.effectiveMpp(args.projType, args.canvasHeight, args.dpr)
-      const capMap = { butt: 0, round: 1, square: 2, arrow: 3 } as const
-      const joinMap = { miter: 0, round: 1, bevel: 2 } as const
-      // Mapbox GL spec defaults for OMITTED line-cap/join/miter-limit:
-      // butt / miter / 2 (the converter emits a utility only when the layer
-      // SETS them). Sharp miters bevel-fall-back in line-segment-build.ts.
-      const cap = capMap[args.show.linecap ?? 'butt']
-      const join = joinMap[args.show.linejoin ?? 'miter']
-      const miterLimit = args.show.miterlimit ?? 2.0
-      // Mapbox line-round-limit (default 1.05). Unset → 0, which the line
-      // shader reads as "use the historical round-join fold threshold"
-      // (byte-identical to pre-feature behaviour); a positive value scales
-      // that threshold by round_limit / 1.05.
-      const roundLimit = args.show.roundLimit ?? 0
-      // Dash values are in LINE-WIDTH UNITS (Mapbox spec:
-      // "The lengths are later multiplied by the line width").
-      // A `[2, 3]` dash on a 4-px line is 8 px dash + 12 px gap;
-      // the same dash on a 6-px line is 12 + 18. Earlier the code
-      // treated dash values as raw pixels, which produced near-
-      // invisible dashes on thin admin-boundary / bridge-casing
-      // lines (boundary_3 has [1,1] dash + 1-2 px width — without
-      // the multiply, 1-px dashes against a 1-px line gave near-
-      // continuous coverage and looked solid).
-      // jscpd:ignore-start — twins of `renderLinesRhi`'s dash + pattern-slot derivation,
-      // which that method documents as mirroring this one verbatim (#834 M5 slice 5) so the
-      // WebGL2 line path cannot drift from the WebGPU paint path. Both copies pre-exist on
-      // main (VTR:1580/1599 and :3189/3208); #2508 only moved this one into the paint phase,
-      // which re-fingerprints the pair for the dup ratchet. Extracting the two helpers is
-      // #2577 — a WebGL2-path change this motion-only refactor must not smuggle in.
-      const dashWidthScalePx = sel.strokeWidthPx_h
-      // Prefer the PER-FRAME resolved dash array (zoom-interp STEP) over
-      // the static one; constant dash falls through unchanged.
-      const dashSrc = args.resolvedShow.dashArray ?? args.show.dashArray
-      let dashArray: number[] | null = null
-      if (dashSrc && dashSrc.length >= 2) {
-        // #778 <P5>: reuse the cached scaled array when the source-array
-        // identity AND both scale factors are bit-identical (unchanged
-        // zoom + stroke-width → byte-identical map); else recompute + cache.
-        // Factors compared separately, not as a product (float multiply is
-        // non-associative → equal product would NOT guarantee equal values).
-        const c = this._dashArrayCache
-        if (c !== null && c.src === dashSrc && c.scalePx === dashWidthScalePx && c.mpp === mpp) {
-          dashArray = c.result
-        } else {
-          dashArray = dashSrc.map((v) => v * dashWidthScalePx * mpp)
-          this._dashArrayCache = { src: dashSrc, scalePx: dashWidthScalePx, mpp, result: dashArray }
-        }
-      }
-      const dash =
-        dashArray !== null
-          ? {
-              array: dashArray,
-              offset: args.resolvedShow.dashOffset * dashWidthScalePx * mpp,
-            }
-          : null
-
-      // Resolve patterns: shape name → registry ID; unit name → flag code.
-      const unitMap = { m: 0, px: 1, km: 2, nm: 3 } as const
-      const anchorMap = { repeat: 0, start: 1, end: 2, center: 3 } as const
-      const patternSlots = (args.show.patterns ?? [])
-        .slice(0, 3)
-        .map((p) => ({
-          shapeId: this.lineRenderer!.resolveShapeId(p.shape),
-          spacing: p.spacing,
-          spacingUnit: unitMap[p.spacingUnit ?? 'm'],
-          size: p.size,
-          sizeUnit: unitMap[p.sizeUnit ?? 'm'],
-          offset: p.offset ?? 0,
-          offsetUnit: unitMap[p.offsetUnit ?? 'm'],
-          startOffset: p.startOffset ?? 0,
-          anchor: anchorMap[p.anchor ?? 'repeat'],
-        }))
-        .filter((p) => p.shapeId > 0)
-      // jscpd:ignore-end
-
-      // In translucent mode ('strokes' phase) the offscreen RT must hold the FULL color + stroke
-      // alpha (no opacity multiply); the composite step then blends with the layer opacity —
-      // otherwise we'd double-apply it.
-      const layerOpacity = args.phase === 'strokes' ? 1.0 : this.currentOpacity
-
-      // Resolve stroke alignment to an effective offset. Inset/outset shift by ±half_width;
-      // combines additively with explicit stroke-offset-N (fine-tune around the baseline).
-      const explicitOffset = args.show.strokeOffset ?? 0
-      const alignDelta =
-        args.show.strokeAlign === 'inset'
-          ? strokeWidthPx / 2
-          : args.show.strokeAlign === 'outset'
-            ? -strokeWidthPx / 2
-            : 0
-      const effectiveOffset = explicitOffset + alignDelta
-
-      // Mapbox line-gap-width: render the line as TWO parallel strokes with perpendicular
-      // offsets ±(gap + stroke) / 2. OFM Liberty waterway_tunnel is the only fixture hit. Zero
-      // or absent gap stays on the legacy single-line path. The half-offset is added/subtracted
-      // from `effectiveOffset` so existing alignment + explicit offset stack correctly (a line
-      // authored with stroke-offset-right-2 + line-gap-width:6 + line-width:1 ends up with one
-      // stroke at offset 2 + 3.5 = 5.5 and one at offset 2 − 3.5 = −1.5).
-      const gapWidth = args.show.strokeGapWidth ?? 0
-      const halfGap = gapWidth > 0 ? (gapWidth + strokeWidthPx) / 2 : 0
-
-      // Line-pattern override. When the show has a resolved pattern repeat, replace
-      // strokeColor.r / .a with the x / y repeat metres (fs_line_pattern reads layer.color.r/.a
-      // as repeat axes). The solid stroke colour is lost on the pattern path, but the sprite
-      // atlas sample provides the visual colour band (mirror of fill-pattern's fill_color reuse).
-      const linePatternActive =
-        args.show.linePatternUV != null && args.show.linePatternRepeatM != null
-      // #2117 — a pattern layer trades layer.color for the atlas repeat/UV lanes and takes its
-      // RGB from the sprite, so a ramp there could only bend the pattern's alpha. Mapbox treats
-      // the two as mutually exclusive; the pattern wins.
-      const lineGradient = linePatternActive ? null : (args.show.strokeGradientStops ?? null)
-      const lineSlotColor: [number, number, number, number] = linePatternActive
-        ? [args.show.linePatternRepeatM![0], 0, 0, args.show.linePatternRepeatM![1]]
-        : [
-            this.cachedStrokeColor[0],
-            this.cachedStrokeColor[1],
-            this.cachedStrokeColor[2],
-            this.cachedStrokeColor[3],
-          ]
-
-      const lineVariant = toComposerLineVariant(args.show.shaderVariant)
-      // #1605 Phase 1 — narrowed to a genuine @stroke stage block that
-      // toComposerLineVariant rejected for another reason (needsFeatureBuffer
-      // etc, Phase 1b+); an ordinary constant/zoom/time-only stroke is NOT a
-      // stage block (strokeIsStage is false for it) and never warns.
-      warnStageBlockUnsupported(
-        args.show.targetName,
-        'line',
-        Boolean(args.show.shaderVariant?.strokeIsStage) && !lineVariant,
-      )
-      lineLayerOffset = this.lineRenderer.writeLayerSlot(
-        lineSlotColor,
-        strokeWidthPx,
-        layerOpacity,
-        mpp,
-        cap,
-        join,
-        miterLimit,
-        dash,
-        patternSlots,
-        effectiveOffset + halfGap,
-        args.canvasHeight,
-        args.show.strokeBlur ?? 0,
-        args.dpr,
-        this.currentStrokeTranslateNdcX,
-        this.currentStrokeTranslateNdcY,
-        roundLimit,
-        lineGradient,
-      )
-      if (gapWidth > 0) {
-        lineLayerOffsetGap = this.lineRenderer.writeLayerSlot(
-          [
-            this.cachedStrokeColor[0],
-            this.cachedStrokeColor[1],
-            this.cachedStrokeColor[2],
-            this.cachedStrokeColor[3],
-          ],
-          strokeWidthPx,
-          layerOpacity,
-          mpp,
-          cap,
-          join,
-          miterLimit,
-          dash,
-          patternSlots,
-          effectiveOffset - halfGap,
-          args.canvasHeight,
-          args.show.strokeBlur ?? 0,
-          args.dpr,
-          this.currentStrokeTranslateNdcX,
-          this.currentStrokeTranslateNdcY,
-          roundLimit,
-          lineGradient,
-        )
-      }
-
-      // #599 line-drape — capture the resolved (mpp-INDEPENDENT) stroke style so the globe drape can
-      // re-pack a layer slot per baked tile with that tile's bake mpp (E/BAKE_PX). Screen-space knobs
-      // (viewport_height, dpr, line-translate) are dropped in the bake; `dashSrc` stays in width units
-      // and is re-scaled to metres in bakeStrokeLayerSlot. gap-width's second stroke isn't draped
-      // (a rare OFM tunnel case) — it keeps its direct chord draw off the sphere only.
-      const bs = this._bakeStroke
-      bs.color = lineSlotColor
-      bs.widthPx = strokeWidthPx
-      bs.cap = cap
-      bs.join = join
-      bs.miterLimit = miterLimit
-      bs.roundLimit = roundLimit
-      bs.blur = args.show.strokeBlur ?? 0
-      bs.dashSrc = dashSrc && dashSrc.length >= 2 ? dashSrc : null
-      bs.dashOffsetUnits = args.resolvedShow.dashOffset
-      bs.patternSlots = patternSlots
-      bs.offset = effectiveOffset
-      bs.gradient = lineGradient
-      // A stroke is drape-worthy when it draws something: a resolved colour+width, or a line pattern
-      // (which carries its colour in the sprite atlas, not cachedStrokeColor).
-      this._bakeStrokeActive =
-        linePatternActive || (this.cachedStrokeColor[3] > 0.003 && strokeWidthPx > 0)
-    }
-    return { lineLayerOffset, lineLayerOffsetGap }
-  }
-
-  /** #2508 phase 4 — classify every visible tile into exactly one decision
-   *  (direct, parent fallback, over-zoom parent, dropped, pending …), collecting
-   *  the fallback pushes, the keys to request and the per-decision counts the
-   *  inspector reads. The production invariant (`__XGIS_INVARIANTS`) runs here. */
-  private classifyTiles(
-    guard: GuardedFrame,
-    slot: LayerSlot,
-    sel: TileSelection,
-  ): TileClassification {
-    // neededKeys + worldOffDeg + parentAtMaxLevel + archiveAncestor
-    // already computed (and cached frame-wide) above. Per-tile loop
-    // and prefetch loop both read those arrays directly — no need
-    // for a per-render `closestExistingByI` mirror, since the
-    // sliceLayer-independent ancestor result is identical across
-    // every same-frame ShowCommand render.
-    const fallbackKeys: number[] = []
-    const fallbackOffsets: number[] = []
-    /** Parallel to `fallbackKeys`: the visible-tile key each fallback
-     *  push is FILLING FOR. When a parent z=11 ancestor renders as
-     *  fallback for a missing visible z=15 child, the per-tile clip
-     *  mask uniform must clip the parent's geometry to the visible
-     *  z=15 child's mercator bounds — otherwise the parent's data
-     *  spills over neighboring children (some primary-loaded with
-     *  their OWN buildings, causing cross-z depth fights). */
-    const fallbackVisibleKeys: number[] = []
-    const toLoad: number[] = []
-    // Memoize sliceCached lookups across the per-tile + prefetch loops
-    // within this render. Adjacent visible tiles share ancestors so
-    // without memo the same parent key gets queried per layer slot.
-    // hasEntryInIndex is no longer memoized at render scope — the
-    // frame cache populate runs the only memoized walk now (see
-    // archiveAncestor[] above), and the few remaining direct
-    // hasEntryInIndex calls in the per-tile loop hit case-6 paths
-    // that fire at most once per tile per render.
-    const sliceCachedMemo = this._scratchSliceCachedMemo
-    sliceCachedMemo.clear()
-    const sliceCached = (k: number): boolean => {
-      let v = sliceCachedMemo.get(k)
-      if (v === undefined) {
-        v = slot.layerCache.has(k) || guard.source!.hasTileData(k, slot.sliceLayer)
-        sliceCachedMemo.set(k, v)
-      }
-      return v
-    }
-
-    // parentKeysSet is the prefetch queue. Hoisted ahead of the
-    // main per-tile loop so the over-zoom fast path can populate it
-    // for parents that need fetching, instead of duplicating the
-    // queue logic.
-    const parentKeysSet = this._scratchParentKeysSet
-    parentKeysSet.clear()
-    // Tracks whether ANY visible tile went through the in-archive
-    // (normal) path. When false, the prefetch loop + primary
-    // renderTileKeys are pure no-ops (every neededKey is over-zoom
-    // so gpuCache.get returns null for all of them) and we can
-    // skip them entirely.
-    let anyInArchive = false
-
-    // Per-tile decision tracker. Each visible tile resolves to one of:
-    //   'primary'         — layerCache hit, will draw
-    //   'parent-fallback' — cached ancestor pushed to fallbackKeys
-    //   'child-fallback'  — cached child (deck.gl best-available) pushed
-    //   'overzoom-parent' — over-zoom fast path pushed parent at maxLevel
-    //   'queued-no-fb'    — uploadTile queued, NO fallback (= BUG)
-    //   'drop-empty-slice'— sliced source layer has no features here
-    //   'drop-no-archive' — tile not in archive index, no ancestor either
-    //   'pending'         — fetch issued, no fallback found (cold area)
-    //
-    // Always populated (lightweight: array of constant-string refs).
-    // The invariant-throw at end of loop is gated on
-    // `globalThis.__XGIS_INVARIANTS`; the per-decision count summary
-    // (exposed via `getLastDecisionCounts()`) is always available.
-    // Scratch reuse + length reset; prior values are overwritten inside
-    // the loop below (decision always assigned per tile).
-    const _tileDecisions = this._scratchTileDecisions
-    _tileDecisions.length = sel.tiles.length
-    const _inv = (globalThis as { __XGIS_INVARIANTS?: boolean }).__XGIS_INVARIANTS
-
-    // Per-frame slice memo: 81 shows in bright resolve to ~13 distinct
-    // slices, so without this we run classifyTile 81× per visible tile
-    // even though the inputs only vary by sliceLayer. See field decl.
-    let sliceMemo = this._frameClassifyMemo.get(slot.sliceLayer)
-    if (!sliceMemo) {
-      sliceMemo = new Map()
-      this._frameClassifyMemo.set(slot.sliceLayer, sliceMemo)
-    }
-
-    for (let i = 0; i < sel.tiles.length; i++) {
-      const key = sel.neededKeys[i]
-
-      // ── OVER-ZOOM FAST PATH ──
-      // For tiles past archive maxLevel, every layer renders the
-      // parent at maxLevel as camera-magnified fallback (no sub-tile
-      // gen — Mapbox-style). Skip the entire per-tile body: no
-      // gpuCache.has chain, no hasTileData chain, no parent-walk
-      // (we know the destination is exactly maxLevel ancestor), no
-      // compileTileOnDemand call. Just walk up by tileKeyParent and
-      // push the fallback. Profiled: dropped per-tile loop time on
-      // pmtiles_layered z=22 from 6.4 ms → ~1 ms per render.
-      // Per-tile resolution via the pure `classifyTile` classifier
-      // (engine/tile-decision.ts). The classifier returns ONE explicit
-      // TileDecision; the side-effect application below pushes fallbackKeys,
-      // requests uploads, and bumps counters per the decision kind.
-      let decision: TileDecision | undefined = sliceMemo.get(key)
-      if (!decision) {
-        decision = classifyTile({
-          visible: sel.tiles[i],
-          visibleKey: key,
-          maxLevel: sel.maxLevel,
-          parentAtMaxLevel: sel.parentAtMaxLevel[i],
-          archiveAncestor: sel.archiveAncestor[i],
-          layerCache: slot.layerCache,
-          hasSliceInCatalog: sliceCached,
-          // Non-empty predicate: single-layer GeoJSON stores an empty
-          // placeholder (zero geometry) under the default '' slice for
-          // tiles with no features; hasTileData reports it as cached.
-          // Report it as NOT-cached here so the empty default slice
-          // classifies as drop-empty instead of queued-with-fallback.
-          hasNonEmptySliceInCatalog: (k) => {
-            if (slot.layerCache.has(k)) return true
-            const d = guard.source!.getTileData(k, slot.sliceLayer)
-            return (
-              !!d &&
-              (d.vertices.length > 0 ||
-                d.lineVertices.length > 0 ||
-                (d.pointVertices?.length ?? 0) > 0 ||
-                !!d.fullCover)
-            )
-          },
-          hasAnySliceInCatalog: (k) => guard.source!.hasTileData(k),
-          hasEntryInIndex: (k) => guard.source!.hasEntryInIndex(k),
-          // Consecutive fetch failures on record for the key — a `pending`
-          // decision goes `terminal` past KEEP_WARM_MAX_FAILURES, which is
-          // what lets the consumer below stop counting it as a missed tile.
-          failureCount: (k) => guard.source!.getTileFailureCount(k),
-          sliceLayer: slot.sliceLayer,
-          // Coherence: any peer slice for this tile still queued blocks
-          // primary in this layer too, so all consumers transition
-          // together. See UploadCoordinator.isHeld (cap-deferred held set).
-          hasOtherSliceHeld: this._uploads.isHeld(key),
-        })
-        sliceMemo.set(key, decision)
-      }
-      _tileDecisions[i] =
-        decision.kind === 'queued-with-fallback' ? decision.fallback.kind : decision.kind
-
-      if (decision.kind === 'overzoom-parent') {
-        fallbackKeys.push(decision.parentKey)
-        fallbackOffsets.push(sel.worldOffDeg[i])
-        fallbackVisibleKeys.push(key)
-        if (decision.parentNeedsFetch) {
-          parentKeysSet.add(decision.parentKey)
-        } else if (decision.parentNeedsUpload) {
-          const data = guard.source.getTileData(decision.parentKey, slot.sliceLayer)
-          perfMarkStart('vtr.upload')
-          if (data) this.doUploadTile(decision.parentKey, data, slot.sliceLayer)
-          perfMarkEnd('vtr.upload')
-        }
-        continue
-      }
-
-      anyInArchive = true
-      if (decision.kind === 'primary') continue
-      if (decision.kind === 'drop-empty-slice') continue
-      if (decision.kind === 'drop-no-archive') {
-        const t = sel.tiles[i]
-        const wKey = `no-ancestor:${t.z}/${t.x}/${t.y}`
-        if (sel.maxLevel > 0 && !this._drawStats.hasWarned(wKey)) {
-          this._drawStats.markWarned(wKey)
-          xlog.warn(
-            `[VTR tile-drop] no ancestor found for ${t.z}/${t.x}/${t.y} — dropping from render (maxLevel=${sel.maxLevel}).`,
-          )
-        }
-        continue
-      }
-
-      // queued-with-fallback wraps an inner fallback decision. The
-      // outer kind triggers a uploadTile (queued behind the per-
-      // frame budget); the inner is the visual fill until the
-      // upload lands. Unwrap and process the inner uniformly.
-      let inner: TileDecision = decision
-      if (decision.kind === 'queued-with-fallback') {
-        this.uploadTile(key, guard.source.getTileData(key, slot.sliceLayer)!, slot.sliceLayer)
-        inner = decision.fallback
-      }
-
-      if (inner.kind === 'parent-fallback') {
-        if (inner.parentNeedsUpload) {
-          // Ancestor upload BYPASSES the per-frame budget. Fallback
-          // parents are the visual safety net for every visible
-          // tile currently uncached on GPU. Without the immediate
-          // upload, renderTileKeys finds no gpuCache entry and the
-          // tile draws as a black hole. (See _high-pitch-flicker
-          // regression case.)
-          perfMarkStart('vtr.upload')
-          this.doUploadTile(
-            inner.parentKey,
-            guard.source.getTileData(inner.parentKey, slot.sliceLayer)!,
-            slot.sliceLayer,
-          )
-          perfMarkEnd('vtr.upload')
-        }
-        fallbackKeys.push(inner.parentKey)
-        fallbackOffsets.push(sel.worldOffDeg[i])
-        fallbackVisibleKeys.push(key)
-        // Advance the fetch frontier — without this push the parent
-        // fallback covers the area visually forever but the proper-z
-        // tile is never fetched, so the rendering stalls one z
-        // coarser than the source supports. catalog.requestTiles
-        // dedupes against `loadingTiles` so repeat pushes per frame
-        // collapse to one in-flight fetch.
-        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
-      } else if (inner.kind === 'child-fallback') {
-        for (const ck of inner.childrenNeedingUpload) {
-          const childData = guard.source.getTileData(ck, slot.sliceLayer)
-          perfMarkStart('vtr.upload')
-          if (childData) this.doUploadTile(ck, childData, slot.sliceLayer)
-          perfMarkEnd('vtr.upload')
-        }
-        for (const ck of inner.childKeys) {
-          fallbackKeys.push(ck)
-          fallbackOffsets.push(sel.worldOffDeg[i])
-          fallbackVisibleKeys.push(key)
-        }
-        // Fetch-frontier push, mirror of the parent-fallback arm above
-        // (#2013): covered is not loaded — without this the stretched
-        // descendants satisfy every frame and the visible z is never
-        // requested. requestTiles dedupes against loadingTiles.
-        if (inner.wantsRequestKey !== null) toLoad.push(inner.wantsRequestKey)
-      } else if (inner.kind === 'pending') {
-        if (inner.requestKey !== null) toLoad.push(inner.requestKey)
-        // #1596 — a terminal key has failed KEEP_WARM_MAX_FAILURES times in
-        // a row. It is still pushed to toLoad above (the source owns retry
-        // timing), but it stops counting as a missed tile so the render loop
-        // can finally idle instead of hot-looping on totalMissed>0 forever.
-        // A key still INSIDE that budget deliberately keeps counting: this
-        // counter is the only VT keep-warm signal, and the retry runs only
-        // from a rendered frame, so suppressing it during the backoff would
-        // strand a transient failure until the next user interaction.
-        if (!inner.terminal) this._drawStats.recordMissedTile()
-      }
-    }
-
-    // ── Production invariant — visibility/fallback consistency check ──
-    // Fires if any visible tile reached the end of the per-tile loop
-    // with `queued-no-fb` (the white-flash bug class) or with no decision
-    // at all (un-tracked code path). Pending +
-    // intentional drops are allowed; primary / fallback resolutions
-    // are allowed. The bug pattern is: catalog has data, primary
-    // can't draw (queued upload), AND no per-tile fallback was
-    // pushed. Unlike the global fallbackKeys check, this is per-tile
-    // so a fallback pushed by a NEIGHBOURING tile (sharing the same
-    // ancestor) does NOT mask the bug here.
-    if (_inv) {
-      for (let i = 0; i < sel.tiles.length; i++) {
-        const d = _tileDecisions[i]
-        if (d === 'queued-no-fb' || d === undefined) {
-          const t = sel.tiles[i]
-          throw new Error(
-            `[XGIS INVARIANT] tile ${t.z}/${t.x}/${t.y} layer="${slot.sliceLayer}" ` +
-              `decision=${d ?? 'untracked'}. The per-tile loop resolved this tile ` +
-              `without a primary draw or a per-tile fallback push. This is the bug ` +
-              `class fixed by commit 49d4801 (uploadTile queue + continue skipping ` +
-              `the parent-walk fallback).`,
-          )
-        }
-      }
-    }
-
-    // Always-on per-decision summary for inspector / console diagnosis.
-    // Reset to start fresh each render() call so consumers see THIS
-    // layer's distribution. Tilly with `getLastDecisionCounts()`.
-    this._drawStats.clearDecisionCounts()
-    for (let i = 0; i < sel.tiles.length; i++) {
-      const d = _tileDecisions[i] ?? 'untracked'
-      this._drawStats.incDecisionCount(d)
-    }
-    return {
-      anyInArchive,
-      sliceCached,
-      parentKeysSet,
-      fallbackKeys,
-      toLoad,
-      _inv,
-      fallbackOffsets,
-      fallbackVisibleKeys,
-    }
-  }
-
-  /** #2508 phase 5 — request what the classification found missing, BEFORE
-   *  anything draws: on-demand tiles compile synchronously and land in the GPU
-   *  cache within the same frame. Also drops the uploads the selection no
-   *  longer needs and installs the camera-distance upload priority. Consumes
-   *  only. */
-  private requestAndPrefetch(args: RenderArgs, ctx: RenderFrameState): void {
-    // Request missing tiles BEFORE drawing — on-demand tiles compile synchronously
-    // and become available in gpuCache within the same frame.
-    //
-    // Parent prefetch delegates the walk to `firstIndexedAncestor` so
-    // the logic is CPU-testable and unified across call sites. The old
-    // inline loop capped at 2 levels, which silently dropped every
-    // descendant whose real parent lived more than 2 levels up — at
-    // z=20 over a maxLevel=5 source, that meant the z=5 parent was
-    // never prefetched, VTR drew nothing, and FLICKER fired sustainedly.
-    //
-    // Set-based dedup: hundreds of z=20 tiles share a single z=5
-    // ancestor, so we request it once per frame.
-    // parentKeysSet declared above (hoisted for over-zoom fast path).
-    // Skip the prefetch loop entirely when EVERY tile was handled by
-    // the over-zoom fast path — fast path already populated
-    // parentKeysSet for any parents needing fetch, and the per-tile
-    // hasEntry/sliceCached calls in this loop would all be redundant
-    // (all currentZ keys are out-of-archive, all parents already
-    // checked above). Same idea as the primary-renderTileKeys skip
-    // below.
-    // Anticipatory parent prefetch for IN-ARCHIVE tiles only. The
-    // toLoad branch from the legacy prefetch loop is gone: per-tile
-    // case 6 already pushes `key`/`closestExisting` into toLoad with
-    // the same `hasEntryInIndex` guard, so a second push here was
-    // pure duplication (the catalog dedupes against `loadingTiles`
-    // but the JS overhead of re-iterating + re-checking still cost
-    // ~0.5 ms / render at z=21.6 over Seoul). For over-zoom tiles
-    // the fast path already enqueued the maxLevel parent into
-    // parentKeysSet, so we skip them entirely — only in-archive
-    // tiles whose own ancestor needs prefetching reach the body.
-    if (ctx.anyInArchive) {
-      for (let i = 0; i < ctx.neededKeys.length; i++) {
-        if (ctx.parentAtMaxLevel[i] >= 0) continue
-        const pk = ctx.archiveAncestor[i]
-        // Keep already-loading ancestors in parentKeysSet so they
-        // stay in `activeKeys` for cancelStale's protection check.
-        // Excluding them here meant a parent in flight got dropped
-        // from the next frame's active set → cancelStale aborted
-        // it → cold-start at high zoom (z=14) never resolved
-        // (regression repro: _pmtiles-zoom14-blank.spec.ts). The
-        // catalog's requestTiles dedupes loadingTiles internally,
-        // so re-adding here costs only a Set membership check.
-        if (pk >= 0 && !ctx.sliceCached(pk)) {
-          ctx.parentKeysSet.add(pk)
-        }
-      }
-    }
-    // Load parents first, then current zoom tiles
-    const parentKeys = [...ctx.parentKeysSet]
-
-    // Cancel in-flight fetches the camera has moved past. Active set =
-    // anything we still need this frame: current visible (neededKeys)
-    // + their parent fallbacks (parentKeys) + the parents that fast
-    // path & in-archive walk pushed into fallbackKeys. Without this,
-    // every frame leaves a trail of zombie fetches behind — the
-    // user pans / zooms past a tile while its bytes are still on the
-    // wire, and by the time the bytes arrive the catalog has moved
-    // on, but bandwidth + worker capacity already paid for the
-    // round-trip. cancelStale clips that trail by aborting the
-    // network transfers and dropping decode-queued bytes for keys
-    // the catalog no longer wants. Backends without cancellation
-    // (XGVT-binary, GeoJSON-runtime) are no-ops.
-    {
-      const activeKeys = this._scratchActiveKeys
-      activeKeys.clear()
-      for (const k of ctx.neededKeys) activeKeys.add(k)
-      for (const k of parentKeys) activeKeys.add(k)
-      for (const k of ctx.fallbackKeys) activeKeys.add(k)
-      // Rule 1 (replace refinement): classifyFallback's pending branch
-      // routes the request to the SHALLOWEST uncached ancestor, which
-      // can sit between the pinned skeleton (z=0..2/3) and the visible
-      // zoom (e.g. z=5 when skeleton ends at z=2). Without unioning
-      // toLoad, the next frame's cancelStale sees those mid-chain
-      // ancestors as "stale" (not in needed/parent/fallback/skeleton/
-      // prefetch sets) and aborts the in-flight fetch — top-down
-      // loading then never converges, the request loops forever
-      // between fire and abort.
-      for (const k of ctx.toLoad) activeKeys.add(k)
-      if (ctx.source.cancelStale) ctx.source.cancelStale(activeKeys)
-      // Same active-set for the renderer-side upload queue. Without
-      // this, the queue accumulates hundreds of stale `uploadTile`
-      // jobs across fast zoom+pan and per-frame maxJobs (4-8) can't
-      // drain fast enough — new visible tiles never reach the GPU and
-      // parent-fallback fills persist. See cancelStaleUploads doc.
-      this.cancelStaleUploads(activeKeys)
-    }
-
-    // Update the fetch-queue priority comparator with the current
-    // camera centre BEFORE issuing requestTiles. The PriorityQueue
-    // re-sorts on every dispatch using whatever comparator is set, so
-    // the first job picked from the queue right after this is the
-    // closest tile to the camera. World-copy offsets aren't carried in
-    // the tile-key (only z/x/y), so a tile's distance is computed
-    // against the central-world-copy mercator centre — adequate for
-    // priority ordering since all visible copies of the same tile
-    // sort together. Backends without a queue (XGVT-binary, GeoJSON)
-    // ignore this hook.
-    // Update fetch + upload priority comparators with the current
-    // camera centre. Wired through stable instance closures
-    // (`_distSqStable`) — re-allocating a fresh closure + Map per
-    // render() call (called ~80 times per frame on 80-layer styles)
-    // dominated the JS-thread slice before this hoist. The memo on
-    // `_distMemo` actually shares the lookup across every render() in
-    // the frame now, instead of starting empty each time.
-    if (this._distMemoCamX !== args.camera.centerX || this._distMemoCamY !== args.camera.centerY) {
-      this._distMemoCamX = args.camera.centerX
-      this._distMemoCamY = args.camera.centerY
-      // Camera moved → previously-sorted items now compare against
-      // different distances. Force the next upload-queue sort to
-      // re-execute (the per-frame idempotency skip would otherwise
-      // keep the stale ordering when the queue's items haven't
-      // changed since last frame).
-      this._uploads.markQueueDirty()
-      this._distMemo.clear()
-    }
-    if (!this._priorityInstalled) {
-      // Install the shared distance comparator on BOTH the fetch queue
-      // (source) and the renderer-side upload queue (coordinator). Once —
-      // both keep their identity for the renderer's lifetime.
-      ctx.source.setFetchPriority(this._distSqStable)
-      this._uploads.installPriority(this._distSqStable)
-      this._priorityInstalled = true
-    }
-    // #1155 F3 — pass the burst flag so the concurrent-upload cap rises to 8/4
-    // during cold start (signature-compatible; false in steady state).
-    this._uploads.setMaxJobs(
-      uploadBudgetFor(args.canvasWidth, args.canvasHeight, args.dpr, this._coldStartBurst),
-    )
-
-    // Visible-tile fetches: ALWAYS issued, like parentKeys. The
-    // earlier `cameraIdle` gate here was a heat mitigation that
-    // turned out to be too aggressive — at flat pitch on a settled
-    // camera, the gate was leaving 11 of 12 visible z=currentZ
-    // tiles uncached, so the canvas filled but with a parent-walk
-    // (z=currentZ-1) fallback stripe (regression repro:
-    // _mobile-detail-uniformity.spec.ts).
-    //
-    // The cancelStale mechanism above already abort-frees in-flight
-    // fetches whose keys leave the active set during a gesture, so
-    // the per-frame fetch traffic is self-trimmed without an extra
-    // gate. Heat protection now relies entirely on the concurrency
-    // caps (MAX_INFLIGHT, MAX_CONCURRENT_LOADS) + the prefetch /
-    // step-prefetch idle gates, not on suppressing visible-fetch
-    // start.
-    if (parentKeys.length > 0) ctx.source.requestTiles(parentKeys)
-    if (ctx.toLoad.length > 0) ctx.source.requestTiles(ctx.toLoad)
-
-    // After on-demand compile, newly available tiles may need upload
-    for (const key of ctx.toLoad) {
-      if (!ctx.layerCache.has(key) && ctx.source!.hasTileData(key, ctx.sliceLayer)) {
-        this.uploadTile(key, ctx.source!.getTileData(key, ctx.sliceLayer)!, ctx.sliceLayer)
-      }
-    }
-
-    // NOW draw (tiles are guaranteed in gpuCache if they compiled synchronously)
-  }
-
-  /** #2508 phase 6 — decide the drape routing for this layer on the curved
-   *  projections: whether a bake is available at all (a capability, #2474),
-   *  whether the fills and — separately — the strokes drape or draw direct
-   *  (the #2094 pixel budget against the held / target LOD), and the globe
-   *  virtual overzoom dispatch past the source's maxLevel (#2024). Writes the
-   *  drape fields the draw phases read (`_drapeGlobeFills`, `_drapeStrokes`,
-   *  `_bakeStrokesGated`, `_bakeDpr`, `_drape`); reads no later state. */
-  private resolveDrapeRouting(args: RenderArgs, ctx: RenderFrameState): void {
-    // #599 I2 — globe/sphere vector great-circle drape. On a curved-surface route a
-    // flat fill triangle spanning a big arc projects as a CHORD under the sphere, so
-    // instead each resident tile's fill bakes to a texture (I1) and drapes onto the
-    // raster sphere grid (VectorDrapeRenderer) to hug the curve. `bakesVectorDrape`
-    // gates it to the {3,4,5}∪globeMode surface — oblique(6) is cylindrical/flat-MVP
-    // at all pitches so it is EXCLUDED (renders direct). `drapesAtChordBudget` adds
-    // the #2094 PIXEL BUDGET: the trade reverses once the tiles are fine enough FOR
-    // THIS CAMERA, so anything a source can serve renders direct. Needs an out-of-frame
-    // pass + NON-extruded + CONSTANT fill; `__XGIS_DISABLE_VECTOR_DRAPE` draws direct.
-    this._bakeDpr = args.dpr
-    // Whether a bake is AVAILABLE at all, as opposed to whether it WINS: the bake
-    // records an offscreen pass on an out-of-frame encoder — a CAPABILITY (#2474).
-    const bakeAvailable =
-      this.rhi.caps.outOfFramePasses &&
-      this.currentExtrudeMode === 'none' &&
-      (globalThis as { __XGIS_DISABLE_VECTOR_DRAPE?: boolean }).__XGIS_DISABLE_VECTOR_DRAPE !== true
-    // Design INC-3 — the STROKE half of the drape decision, taken next to the fill
-    // half rather than inside it. Same escape hatches (the force flag holds the
-    // drape for A/B arms; the disable flag forces every direct draw), same
-    // bake availability and same held-vs-camera LOD reading.
-    this._bakeStrokesGated =
-      this._bakeStrokeActive &&
-      bakesVectorDrape(args.projType, args.camera.globeMode) &&
-      (drapesStrokesAtSelectionZ(Math.max(ctx.currentZ, ctx.targetZ)) ||
-        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
-          true) &&
-      bakeAvailable
-    this._drapeGlobeFills =
-      bakesVectorDrape(args.projType, args.camera.globeMode) &&
-      // #2094 — PIXEL BUDGET, not a LOD ceiling: the drape wins only where the direct
-      // arm's chord error exceeds the bake's own resample cost, i.e. where the camera
-      // has run past what the source can supply. Read off the drawn LOD OR the camera's
-      // (`targetZ`): in a zoom-in readiness hold currentZ trails the camera and the held
-      // tiles must draw direct (_globe-direct-hold-window-gate). FORCE holds the drape.
-      (drapesAtChordBudget(Math.max(ctx.currentZ, ctx.targetZ), args.camera.zoom) ||
-        (globalThis as { __XGIS_FORCE_VECTOR_DRAPE?: boolean }).__XGIS_FORCE_VECTOR_DRAPE ===
-          true) &&
-      bakeAvailable &&
-      // The I1 bake is the DEFAULT fill pipeline (single `fill_color`), so it
-      // reproduces a constant / zoom-interp fill but NOT a per-feature (feature-
-      // buffer) fill or a sprite pattern — those keep the direct draw.
-      !args.show.shaderVariant?.needsFeatureBuffer &&
-      args.show.fillPatternUV == null
-    if (
-      this._drapeGlobeFills &&
-      args.phase !== 'strokes' &&
-      args.phase !== 'oit-fill' &&
-      // Run the drape when there is a FILL to bake OR a stroke to bake (#599 line-drape). A line-only
-      // show — a coastline / road layer — has `_skipFillDraw` (no fill geometry) but still drapes its
-      // strokes; the fill bake self-skips the empty interior and the stroke bake curves the line.
-      (!this._skipFillDraw || this._bakeStrokesGated)
-    ) {
-      this._drape ??= new VectorDrapeRenderer(this.rhi, this.format, getSampleCount())
-      // #599 line-drape — a baked stroke is drawn by the sphere grid, so the direct
-      // ECEF-chord draw for this show is suppressed (see `drawStrokes` in renderTileKeys).
-      // Design INC-3: the stroke ceiling is its OWN number, so a frame can drape its
-      // fills and still draw its roads direct — see GLOBE_DIRECT_MIN_STROKE_Z.
-      this._drapeStrokes = this._bakeStrokesGated
-      // #2024 — globe virtual overzoom: past the source maxLevel, drape sharp
-      // windowed sub-tile bakes instead of the 2^(zoom − maxLevel)×-magnified
-      // parent bake (mechanism + atomic-switch rules: drape-overzoom-dispatch).
-      const drapeOverzoom = computeDrapeOverzoom({
-        camera: args.camera,
-        projType: args.projType,
-        currentZ: ctx.currentZ,
-        cssWidth: args.canvasWidth / args.dpr,
-        cssHeight: args.canvasHeight / args.dpr,
-        dpr: args.dpr,
-        diag: this._sliceOverzoomDiag(ctx.sliceLayer),
-        source: ctx.source,
-        sliceLayer: ctx.sliceLayer,
-        neededKeys: ctx.neededKeys,
-        layerCache: this.getOrCreateLayerCache(ctx.sliceLayer),
-        uploadResident: (parentKey) =>
-          this.uploadTile(
-            parentKey,
-            ctx.source!.getTileData(parentKey, ctx.sliceLayer)!,
-            ctx.sliceLayer,
-          ),
-      })
-      this._drape.renderGlobeFills(
-        args.rhiPass,
-        ctx.frame,
-        args.projType,
-        args.projCenterLon,
-        args.projCenterLat,
-        args.camera,
-        this.currentOpacity ?? 1,
-        this.cachedFillColor as [number, number, number, number],
-        strokeBakeKey(this._bakeStrokesGated, this._bakeStroke),
-        args.camera.zoom,
-        ctx.sliceLayer,
-        ctx.neededKeys,
-        ctx.worldOffDeg,
-        this.getOrCreateLayerCache(ctx.sliceLayer),
-        this,
-        drapeOverzoom,
-        [this.currentFillTranslateNdcX, this.currentFillTranslateNdcY], // #2249
-      )
-    }
-  }
-
-  /** #2508 phase 7 — draw the current-zoom tiles (stencil write) across the
-   *  world copies. A pure CONSUMER of the frame: every argument is a value
-   *  `render()` has already fixed, and nothing computed here is read by a
-   *  later phase (free-variable analysis: 0 writes to `render()` locals, 0
-   *  declarations read after it). The body is the former `render()` block,
-   *  moved — it decides bundle vs direct dispatch per world copy and hands
-   *  each set of keys to `renderTileKeys`. */
-  private drawPrimary(args: RenderArgs, ctx: RenderFrameState): void {
-    // Render current zoom tiles (stencil write) — with world copy offsets.
-    // Translucent line passes have NO depth/stencil attachment, so skip the
-    // stencil reference call there.
-    //
-    // Skip primary renderTileKeys when no tile went through the in-
-    // archive path: every neededKey is over-zoom so its gpuCache.get
-    // returns null inside renderTileKeys (none of them are populated;
-    // fast path uploads only PARENTS, never the over-zoom keys
-    // themselves). The function's loop would iterate every key just
-    // to `continue`, burning N method calls + N drawKey computations
-    // per layer for zero output.
-    if (ctx.anyInArchive) {
-      if (args.phase !== 'strokes') ctx.pass.setStencilReference(1)
-      // Ground-layer fill (`extrude.kind === 'none'`) uses the
-      // depth-disabled pipeline so coplanar layers resolve via
-      // painter's order. Layers with `extrude:` keep the regular
-      // depth-write pipeline; the per-feature extruded path takes
-      // its own branch inside renderTileKeys.
-      //
-      // Pick the depth-disabled ground pipeline whose layout matches
-      // the show's bind-group layout. Two cases:
-      //   • Show is base-layout (no variant feature buffer): use the
-      //     renderer-level default `fillPipelineGround` (base-only).
-      //   • Show is variant + featureBindGroupLayout: use the
-      //     `fillPipelineGroundOverride` the caller built for THIS
-      //     variant (matches layout). When that's absent (very old
-      //     caller / test stub), fall back to `fillPipeline` and
-      //     accept depth-write — better z-fighting than a layout
-      //     mismatch that drops the whole encoder.
-      const groundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
-      // ?debug=overdraw: VTR's internal `fillPipelineGround` targets the
-      // swapchain format, but the caller's `fillPipelineGroundOverride`
-      // is the r16float debug variant. Always prefer the override here
-      // so the entire opaque pass agrees on the r16float attachment.
-      // #2584 — the BASE-layout arm prefers the OVERRIDE too; taking the renderer
-      // default here discarded the per-style ground pipeline the scheduler had already
-      // resolved, and with it INC-4d's split twin (measured: per-style split draws
-      // 0 → 184). Scope is exactly the per-style shows — for a show without them
-      // `bucket-scheduler.ts:465` already resolves this same default. Layout-safe by
-      // construction: `groundIsBase` holds precisely when the show needs no feature
-      // buffer, which is when `baseVariantLayout` built its per-style pipeline against
-      // this very layout.
-      const groundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
-        ? (args.fillPipelineGroundOverride ?? args.fillPipeline)
-        : groundIsBase
-          ? (args.fillPipelineGroundOverride ?? this._bindGroups.groundPipeline())
-          : (args.fillPipelineGroundOverride ?? null)
-      // Fill-pattern routing. When the show has a resolved pattern UV bbox
-      // AND the variant pipeline path isn't active AND overdraw isn't
-      // active (r16float surface), swap the ground pipeline for the
-      // pattern variant. The pattern pipeline uses the same base
-      // bindGroupLayout, so it's only valid on the `groundIsBase` path;
-      // variant + feature-data pattern shows fall through to the generic
-      // fillPipeline (renders solid colour, not crash).
-      const patternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        groundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternGroundPipeline() !== null
-      const groundChoice = patternActive
-        ? this._bindGroups.patternGroundPipeline()
-        : groundForLayout
-      const mainFill =
-        this.currentExtrudeMode === 'none' && groundChoice !== null
-          ? groundChoice
-          : args.fillPipeline
-      // Fill-extrusion-pattern: when the extruded pattern pipeline is wired
-      // and the show has a resolved pattern UV bbox, route per-feature
-      // extruded draws to the pattern variant. Same gate as the ground path.
-      const extrudedPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        groundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternExtrudedPipeline() !== null
-      // #1252 — the SHOW's variant extruded pipeline wins when present (a
-      // data-driven fill on the feature layout); otherwise the pattern-extrude
-      // variant, then the shared base extruded pipeline. A data-driven fill and
-      // a fill-pattern are mutually exclusive (both own fill_color slots), so
-      // the override never collides with extrudedPatternActive.
-      const extrudedPipeline =
-        args.fillPipelineExtrudedOverride ??
-        (extrudedPatternActive
-          ? this._bindGroups.patternExtrudedPipeline()
-          : this._bindGroups.extrudedPipeline())
-      // Bundle wrap for the primary opaque pass call. Gated to the main
-      // opaque attachment context (excludes OIT, debug overdraw,
-      // translucent stroke bucket, the standalone strokes phase). Cache key
-      // includes every input that affects the recorded draws OR the bundle
-      // descriptor; the next miss re-encodes from scratch.
-      //
-      // Hit path: re-runs renderTileKeys for state side effects (uniform
-      // staging, strokeQueue population) but `_skipFillDrawForBundle` +
-      // `_skipStrokeDrawForBundle` mute the actual draw emit;
-      // `executeBundles([bundle])` replays the cached commands.
-      // Miss path: getOrEncode runs renderTileKeys with the bundle encoder —
-      // state side effects + draws recorded into the bundle, then
-      // `executeBundles` replays into the real pass.
-      // Bundle ONLY when every needed tile is in layer cache. Partial-set
-      // bundles caused the user-reported flicker (OFM Bright import + wheel
-      // zoom):
-      //
-      //   1. Fast zoom selects new neededKeys; tiles A,B not loaded yet.
-      //   2. Bundle encodes — recordTileFill skips A,B (cache miss
-      //      inside per-tile loop), records draws for already-loaded
-      //      C,D only.
-      //   3. Bundle cached under key with ueXor reflecting only C,D's
-      //      uploadEpochs ("tiles not yet in layerCache contribute 0" was
-      //      the design gap).
-      //   4. Frame N+1: same neededKeys, same ueXor (A,B still loading,
-      //      C,D unchanged) → cache HIT → replays the partial bundle
-      //      with A,B missing → polygon fills disappear for A,B until
-      //      they finally upload + bump ueXor.
-      //   5. Strokes don't hit this because `phase === 'strokes'` skips
-      //      the bundle path entirely, and the fallback ancestor path is
-      //      also bundled with the same gap.
-      //
-      // Gating shouldBundle on the all-loaded invariant eliminates the
-      // partial-encode case. During fast zoom we fall through to a direct
-      // renderTileKeys call (no bundle, no cache); steady-state (all tiles
-      // loaded) keeps the 97.6% hit rate.
-      //
-      // #1190 — DEFAULT ON again (WebGPU only; WebGL2 has no render
-      // bundles). The prior default-off was containment for an
-      // then-undiagnosed replay bug: interactive navigation showed a
-      // MOSTLY EMPTY canvas (iPhone OFM Bright z=7.53 pitch 3.6) even
-      // under the all-loaded gate, because the recorded bundles bake
-      // UniformRing dynamic offsets and the ring CURSOR BASE (every
-      // allocation earlier in the frame, across the VTR's other shows +
-      // fallback walks) was not part of the cache key — an upstream
-      // alloc-count change replayed stale offsets under a hit. The key
-      // now pins `ringCursor` + the stroke draws' layer-slot offsets
-      // (BundleKeyState), making a stale-offset replay a MISS by
-      // construction; the hit-path dev invariant below proves the
-      // re-walk still lands draw-for-draw on the baked offsets.
-      // `_bundle-replay-parity-gate.spec.ts` is the interactive §5 gate
-      // the old single-static-screenshot validation lacked.
-      //   __XGIS_BUNDLE_OFF = true   → A/B + emergency escape hatch
-      let allTilesLoaded = true
-      for (let i = 0; i < ctx.neededKeys.length; i++) {
-        if (!ctx.layerCache.get(ctx.neededKeys[i]!)) {
-          allTilesLoaded = false
-          break
-        }
-      }
-      const _bundleOff = (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
-      const shouldBundle =
-        !_bundleOff &&
-        this.rhi.caps.renderBundles &&
-        !isOverdrawActive(this.rhi.caps) &&
-        !args.translucentBucket &&
-        args.phase !== 'strokes' &&
-        args.phase !== 'oit-fill' &&
-        allTilesLoaded
-      if (shouldBundle) {
-        // Structural cache key: a single structuralHashKey() over a typed
-        // state literal. Adding a new dependency below = one new property;
-        // the hash adapts and the cache invalidates correctly without
-        // string-template churn. See _cache/structural-key.ts.
-        const pickOn = isPickEnabled()
-        const samples = getSampleCount()
-        const epochs: number[] = new Array(ctx.neededKeys.length)
-        for (let i = 0; i < ctx.neededKeys.length; i++) {
-          epochs[i] = ctx.layerCache.get(ctx.neededKeys[i]!)!.uploadEpoch
-        }
-        // `satisfies BundleKeyState` enforces that every property of the
-        // contract is filled. Adding a new dimension to BundleKeyState
-        // breaks BOTH call sites here (primary + fallback) until the literal
-        // is updated.
-        const keyState = {
-          sliceLayer: ctx.sliceLayer,
-          phase: args.phase,
-          // Order significant — neededKeys is iteration order, the
-          // same order the bundle records draws in.
-          // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-          neededKeys: ctx.neededKeys,
-          epochs,
-          // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-          worldOffsets: this._worldOffScratchKey(ctx.worldOffDeg),
-          bindGroupEpoch: this._bindGroups.epoch(),
-          pickOn,
-          samples,
-          mainPipelineLabel: mainFill.label ?? null,
-          linePipelineLabel: args.linePipeline.label ?? null,
-          // #1190 — the walk's dynamic-offset base and the stroke draws'
-          // baked layer-slot offsets. Without the cursor, an EARLIER
-          // show's allocation-count change let this show's key hit while
-          // its baked offsets pointed at foreign slots — the "mostly
-          // empty canvas during interactive navigation" that kept the
-          // bundle path disabled. See BundleKeyState field docs.
-          // #2042 INC-5b — a RING-FREE walk (every draw split-bound; see
-          // _walkRingFree) bakes no per-tile ring reader, so the live
-          // cursor is not a replay dependency there: keying it anyway made
-          // one tile's residency flip re-record every downstream show
-          // (PR #2090's sweep: bundleMisses ≈ N per window). The -2
-          // sentinel decouples ring-free shows from the frame's ring
-          // traffic; every _walkRingFree input is itself pinned by this
-          // key, so record and hit agree on the verdict.
-          ringCursor: this._walkRingFree(
-            mainFill,
-            args.bindGroupLayout,
-            args.phase,
-            args.translucentBucket,
-            null,
-            args.show.shaderVariant,
-            ctx.sliceLayer,
-          )
-            ? -2
-            : this._ringCursorForBundleKey(),
-          lineLayerOffset: ctx.lineLayerOffset,
-          lineLayerOffsetGap: ctx.lineLayerOffsetGap,
-          // #2093 — these SELECT what the bundle records (`drawFills` /
-          // `drawStrokes`); nothing else in the key separates the two arms.
-          // Full derivation: the BundleKeyState field docs.
-          drapeGlobeFills: this._drapeGlobeFills,
-          drapeStrokes: this._drapeStrokes,
-        } as const satisfies BundleKeyState
-        const cacheKey = `vt:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(keyState)}`
-        const desc: BundleEncodeDescriptor = {
-          colorFormats: pickOn ? [this.format, 'rg32uint'] : [this.format],
-          depthStencilFormat: 'depth24plus-stencil8',
-          sampleCount: samples,
-          depthReadOnly: false,
-          stencilReadOnly: false,
-          label: cacheKey,
-        }
-        let wasMiss = false
-        const bundle = this.bundleCache.getOrEncode(cacheKey, desc, (encoder) => {
-          wasMiss = true
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
-          this.renderTileKeys(
-            ctx.neededKeys,
-            encoder,
-            mainFill,
-            args.linePipeline,
-            args.projCenterLon,
-            args.projCenterLat,
-            ctx.worldOffDeg,
-            ctx.lineLayerOffset,
-            ctx.lineLayerOffsetGap,
-            args.phase,
-            ctx.layerCache,
-            extrudedPipeline,
-            args.bindGroupLayout,
-            args.translucentBucket,
-            undefined,
-            args.show.shaderVariant,
-            ctx.sliceLayer,
-          )
-        })
-        if (wasMiss) {
-          // #1190 — pin the encode walk's ring-slot alloc count to the bundle.
-          this._bundleWalkAllocs.set(
-            bundle,
-            this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor),
-          )
-        } else {
-          // Cache hit: replay path. Re-run renderTileKeys for state
-          // side effects with both skip flags TRUE — recordTileFill
-          // + drawSegments no-op; uniform staging + strokeQueue
-          // population still happens.
-          this._skipFillDrawForBundle = true
-          this._skipStrokeDrawForBundle = true
-          this.renderTileKeys(
-            ctx.neededKeys,
-            ctx.pass,
-            mainFill,
-            args.linePipeline,
-            args.projCenterLon,
-            args.projCenterLat,
-            ctx.worldOffDeg,
-            ctx.lineLayerOffset,
-            ctx.lineLayerOffsetGap,
-            args.phase,
-            ctx.layerCache,
-            extrudedPipeline,
-            args.bindGroupLayout,
-            args.translucentBucket,
-            undefined,
-            args.show.shaderVariant,
-            ctx.sliceLayer,
-          )
-          this._skipFillDrawForBundle = false
-          this._skipStrokeDrawForBundle = false
-          // #1190 invariant — the hit re-walk must land its uniforms on
-          // EXACTLY the offsets the bundle baked: same base (ringCursor is
-          // in the key, so it matches by key equality) AND same alloc
-          // count. A mismatch means an input to renderTileKeys changed
-          // under an unchanged BundleKeyState — the class of bug that
-          // produced the mostly-empty interactive canvas. Fail loud in
-          // dev; the key fix (not this check) is what prevents it.
-          // EXEMPT under a ring-reader-free walk (#2042 INC-5): a
-          // splitWalkSkip call bakes no per-tile ring readers (every fill
-          // and stroke binds the three-range split group; even the seed
-          // tile's ring stage is write-only), so alloc-count alignment is
-          // a vacuous proxy there — record packs fresh tiles (1 + k
-          // allocs), the next hit's re-walk skips them (1), and both
-          // replay correctly. Key equality ⇒ identical qualification
-          // inputs ⇒ the exemption is stable across record and hit.
-          if (ctx._inv && !this._lastWalkRingFree) {
-            const expected = this._bundleWalkAllocs.get(bundle)
-            const got = this._ringCursorForBundleKey() - Math.max(0, keyState.ringCursor)
-            if (expected !== undefined && got !== expected) {
-              throw new Error(
-                `[XGIS INVARIANT] bundle hit re-walk allocated ${got} ring slots where ` +
-                  `the encoded bundle recorded ${expected} (key ${cacheKey}). An input to ` +
-                  `renderTileKeys changed under an unchanged BundleKeyState — the baked ` +
-                  `dynamic offsets no longer align. Add the missing input to ` +
-                  `_cache/bundle-cache-key.ts.`,
-              )
-            }
-          }
-        }
-        ctx.pass.executeBundles([bundle])
-      } else {
-        this.renderTileKeys(
-          ctx.neededKeys,
-          ctx.pass,
-          mainFill,
-          args.linePipeline,
-          args.projCenterLon,
-          args.projCenterLat,
-          ctx.worldOffDeg,
-          ctx.lineLayerOffset,
-          ctx.lineLayerOffsetGap,
-          args.phase,
-          ctx.layerCache,
-          extrudedPipeline,
-          args.bindGroupLayout,
-          args.translucentBucket,
-          undefined,
-          args.show.shaderVariant,
-          ctx.sliceLayer,
-        )
-      }
-    }
-  }
-
-  /** #2508 phase 8 — draw the fallback ancestors (stencil test) across the
-   *  world copies for the visible tiles with no resident tile of their own.
-   *  A consumer with ONE frame-state write, stated here because the epilogue
-   *  depends on it: the three parallel fallback arrays are re-sorted into
-   *  `ctx` (smallest z first, deepest last, so the most detailed parent wins
-   *  the LEQUAL fragment competition) and the stable set is built from that
-   *  order. The drape flags are saved, cleared around the dispatch and
-   *  restored — the fallback draws direct even when the primary drapes
-   *  (#1076). */
-  private drawFallback(args: RenderArgs, ctx: RenderFrameState): void {
-    // Render fallback ancestors (stencil test) — with world offsets for wrapping
-    if (args.fillPipelineFallback && ctx.fallbackKeys.length > 0) {
-      // Sort ascending by z (smallest-z first → deepest-z last). Where
-      // multiple z-level parents overlap in screen space (z=11 parent
-      // covers area that z=14 parent also covers), the deepest z draws
-      // last and wins LEQUAL fragment competition. Without this the
-      // simpler-geometry parent could occlude the more-detailed one
-      // depending on fallbackKeys insertion order.
-      //
-      // Do NOT dedup by (key, offset): each push renders the SAME parent
-      // with a DIFFERENT per-tile visible clip mask (one push per visible
-      // tile it fills for), so dedup'ing would erase coverage of N-1
-      // visible tiles.
-      if (ctx.fallbackKeys.length > 1) {
-        const indexed: { k: number; o: number; vk: number; z: number }[] = []
-        for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-          const k = ctx.fallbackKeys[i]
-          // Extract z from tileKey: tileKey = 4^z + morton(x,y).
-          let z = 0
-          while (Math.pow(4, z + 1) <= k) z++
-          indexed.push({ k, o: ctx.fallbackOffsets[i], vk: ctx.fallbackVisibleKeys[i], z })
-        }
-        indexed.sort((a, b) => a.z - b.z)
-        ctx.fallbackKeys = indexed.map((c) => c.k)
-        ctx.fallbackOffsets = indexed.map((c) => c.o)
-        ctx.fallbackVisibleKeys = indexed.map((c) => c.vk)
-      }
-      if (args.phase !== 'strokes') ctx.pass.setStencilReference(0)
-      // Visual debug hook: when `globalThis.__XGIS_FALLBACK_RED = true` is
-      // set, override the fallback fill colour to bright red. Lets the
-      // user visually confirm whether parent/child fallback is actually
-      // rendering during a "white flash" — if red is visible, the bug
-      // is downstream of fallback rendering (e.g., later layer covering
-      // it, alpha = 0, render order); if no red appears, the fallback
-      // path itself is dropping the tile.
-      const _debugRed = (globalThis as { __XGIS_FALLBACK_RED?: boolean }).__XGIS_FALLBACK_RED
-      let _origR = 0,
-        _origG = 0,
-        _origB = 0
-      if (_debugRed) {
-        // Save/override RGB only — alpha stays whatever the tile loop last
-        // wrote (the setter's fixed arity re-writes it with its current value).
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a0 = this.frameBlock.fieldOffset('fill_color') / 4
-        _origR = f32[a0]!
-        _origG = f32[a0 + 1]!
-        _origB = f32[a0 + 2]!
-        this.frameBlock.set.fill_color(1.0, 0.0, 0.0, f32[a0 + 3]!)
-      }
-      // Same layout-matched ground pickup as the primary path —
-      // base layout uses the renderer-level fallback ground; feature
-      // layout uses the variant's fallback ground override.
-      const fallbackGroundIsBase = args.bindGroupLayout === this._bindGroups.baseLayout()
-      const fallbackGroundForLayout: RhiPipelineHandle | null = isOverdrawActive(this.rhi.caps)
-        ? (args.fillPipelineGroundFallbackOverride ?? args.fillPipelineFallback ?? null)
-        : fallbackGroundIsBase
-          ? this._bindGroups.groundPipelineFallback()
-          : (args.fillPipelineGroundFallbackOverride ?? null)
-      // Fill-pattern fallback routing (mirror of the primary path above).
-      const fallbackPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternGroundPipelineFallback() !== null
-      const fallbackGroundChoice = fallbackPatternActive
-        ? this._bindGroups.patternGroundPipelineFallback()
-        : fallbackGroundForLayout
-      const fallbackFill =
-        this.currentExtrudeMode === 'none' && fallbackGroundChoice !== null
-          ? fallbackGroundChoice
-          : args.fillPipelineFallback
-      // Fill-extrusion-pattern fallback path mirror.
-      const fallbackExtrudedPatternActive =
-        !isOverdrawActive(this.rhi.caps) &&
-        fallbackGroundIsBase &&
-        args.show.fillPatternUV != null &&
-        this._bindGroups.patternExtrudedPipelineFallback() !== null
-      const fallbackExtrudedPipeline =
-        args.fillPipelineExtrudedFallbackOverride ??
-        (fallbackExtrudedPatternActive
-          ? this._bindGroups.patternExtrudedPipelineFallback()
-          : this._bindGroups.extrudedPipelineFallback())
-      // Fallback path bundle wrap. Mirror of the primary-call wrap, applied
-      // to the fallbackKeys renderTileKeys invocation. Same gate + same
-      // cache key shape, plus the fallback-specific `fallbackVisibleKeys`
-      // hash so the per-tile clip_bounds (set from `visibleKeysForClip`) is
-      // part of the invalidation surface. Tiles + visibleKeys + offsets
-      // together fully describe the recorded draws.
-      // Mirror the primary path's all-loaded gate. Fallback keys are by
-      // construction picked from layerCache, but an entry could be evicted
-      // between selection and bundle encode (LRU under tight cap). Cheap
-      // guard avoids the same partial-set replay class of bug.
-      let fbAllLoaded = true
-      for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-        if (!ctx.layerCache.get(ctx.fallbackKeys[i]!)) {
-          fbAllLoaded = false
-          break
-        }
-      }
-      // #1190 — fallback path defaults ON with the primary (same key fix,
-      // same escape hatch; see the primary-site rationale).
-      const _fbBundleOff =
-        (globalThis as { __XGIS_BUNDLE_OFF?: boolean }).__XGIS_BUNDLE_OFF === true
-      const fbShouldBundle =
-        !_fbBundleOff &&
-        this.rhi.caps.renderBundles &&
-        !isOverdrawActive(this.rhi.caps) &&
-        !args.translucentBucket &&
-        args.phase !== 'strokes' &&
-        args.phase !== 'oit-fill' &&
-        !_debugRed &&
-        fbAllLoaded
-      // #1076 — the fallback ancestors MUST draw even when the drape owns the primary
-      // tiles. `_drapeGlobeFills`/`_drapeStrokes` suppress the PRIMARY direct draw
-      // (renderGlobeFills bakes the primary tiles onto the sphere), but the drape only
-      // ever receives `neededKeys`, never `fallbackKeys` — so a suppressed fallback
-      // dispatch leaves a streaming hemisphere pure background. Clear the suppression
-      // for the fallback dispatch ONLY (the bundle-record arm — where the bundle is
-      // encoded — and the direct arm both flow through here), restore in `finally` so
-      // the PRIMARY suppression above stays intact. Coarse ECEF chords beat a blank
-      // hemisphere; chord fallback is the accepted globe behaviour whenever the drape
-      // is inactive. Proper drape-fallback (parent-bake UV windowing) is a #599 follow-up.
-      const _fbSavedDrapeGlobeFills = this._drapeGlobeFills
-      const _fbSavedDrapeStrokes = this._drapeStrokes
-      this._drapeGlobeFills = false
-      this._drapeStrokes = false
-      try {
-        if (fbShouldBundle) {
-          // Structural cache key (mirrors primary path; see
-          // _cache/structural-key.ts).
-          const fbPickOn = isPickEnabled()
-          const fbSamples = getSampleCount()
-          const fbEpochs: number[] = new Array(ctx.fallbackKeys.length)
-          for (let i = 0; i < ctx.fallbackKeys.length; i++) {
-            fbEpochs[i] = ctx.layerCache.get(ctx.fallbackKeys[i]!)?.uploadEpoch ?? 0
-          }
-          const fbKeyState = {
-            sliceLayer: ctx.sliceLayer,
-            phase: args.phase,
-            // Fallback bundle has no `neededKeys` (the primary side),
-            // only fallback tile keys; populate both for uniform shape
-            // — the structural hash treats null + the array distinctly.
-            // #778 P1: pass by-ref; the hash reads it synchronously and never retains keyState → the defensive .slice() was pure waste.
-            neededKeys: ctx.fallbackKeys,
-            fallbackKeys: ctx.fallbackKeys.slice(),
-            fallbackVisibleKeys: ctx.fallbackVisibleKeys ? ctx.fallbackVisibleKeys.slice() : null,
-            epochs: fbEpochs,
-            // #778 P1: reused scratch instead of a per-frame `.map()` alloc (identical rounded contents → identical hash).
-            worldOffsets: this._worldOffScratchKey(ctx.fallbackOffsets),
-            bindGroupEpoch: this._bindGroups.epoch(),
-            pickOn: fbPickOn,
-            samples: fbSamples,
-            mainPipelineLabel: fallbackFill.label ?? null,
-            linePipelineLabel: args.linePipelineFallback?.label ?? null,
-            // #1190 — mirror of the primary site: the fallback walk's
-            // dynamic-offset base (it runs AFTER the primary walk, so
-            // its base also moves with the primary's alloc count) and
-            // the stroke draws' baked layer-slot offsets.
-            // #2042 INC-5b — always the LIVE cursor here: fallback-clip
-            // walks pass visibleKeysForClip, which disqualifies ring-free
-            // by definition (their clip_bounds live in ring slots).
-            ringCursor: this._ringCursorForBundleKey(),
-            lineLayerOffset: ctx.lineLayerOffset,
-            lineLayerOffsetGap: ctx.lineLayerOffsetGap,
-            // #2093 — mirror of the primary site. The #1076 fallback dispatch
-            // PINS both false above; the key follows the field, not a literal.
-            drapeGlobeFills: this._drapeGlobeFills,
-            drapeStrokes: this._drapeStrokes,
-          } as const satisfies BundleKeyState
-          const fbCacheKey = `vt-fb:${ctx.sliceLayer}:${args.phase}:${structuralHashKey(fbKeyState)}`
-          const fbDesc: BundleEncodeDescriptor = {
-            colorFormats: fbPickOn ? [this.format, 'rg32uint'] : [this.format],
-            depthStencilFormat: 'depth24plus-stencil8',
-            sampleCount: fbSamples,
-            depthReadOnly: false,
-            stencilReadOnly: false,
-            label: fbCacheKey,
-          }
-          let fbWasMiss = false
-          const fbBundle = this.bundleCache.getOrEncode(fbCacheKey, fbDesc, (encoder) => {
-            fbWasMiss = true
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            this.renderTileKeys(
-              ctx.fallbackKeys,
-              encoder,
-              fallbackFill,
-              args.linePipelineFallback!,
-              args.projCenterLon,
-              args.projCenterLat,
-              ctx.fallbackOffsets,
-              ctx.lineLayerOffset,
-              ctx.lineLayerOffsetGap,
-              args.phase,
-              ctx.layerCache,
-              fallbackExtrudedPipeline,
-              args.bindGroupLayout,
-              args.translucentBucket,
-              ctx.fallbackVisibleKeys,
-              args.show.shaderVariant,
-              ctx.sliceLayer,
-            )
-          })
-          if (fbWasMiss) {
-            // #1190 — pin the encode walk's alloc count (mirror of primary).
-            this._bundleWalkAllocs.set(
-              fbBundle,
-              this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor),
-            )
-          } else {
-            // jscpd:ignore-start — the bundle-hit re-walk below and the no-bundle arm that
-            // follows issue the SAME 17-argument fallback dispatch; only the surrounding
-            // bundle bookkeeping differs. The pair pre-exists on main, and hoisting the two
-            // calls into one helper is blocked by a gate rather than by taste:
-            // `vtr-fallback-drape-draw.test.ts` anchors the #1076 witness on the POSITION of
-            // each `renderTileKeys(` relative to the drape clear and restore, so a helper
-            // declared at the top of this phase would put the first occurrence above the
-            // clear and silently retarget it. Consolidating means reworking that gate's
-            // anchoring first — #2577.
-            this._skipFillDrawForBundle = true
-            this._skipStrokeDrawForBundle = true
-            this.renderTileKeys(
-              ctx.fallbackKeys,
-              ctx.pass,
-              fallbackFill,
-              args.linePipelineFallback!,
-              args.projCenterLon,
-              args.projCenterLat,
-              ctx.fallbackOffsets,
-              ctx.lineLayerOffset,
-              ctx.lineLayerOffsetGap,
-              args.phase,
-              ctx.layerCache,
-              fallbackExtrudedPipeline,
-              args.bindGroupLayout,
-              args.translucentBucket,
-              ctx.fallbackVisibleKeys,
-              args.show.shaderVariant,
-              ctx.sliceLayer,
-            )
-            this._skipFillDrawForBundle = false
-            this._skipStrokeDrawForBundle = false
-            // #1190 invariant — mirror of the primary site; see there.
-            if (ctx._inv) {
-              const expected = this._bundleWalkAllocs.get(fbBundle)
-              const got = this._ringCursorForBundleKey() - Math.max(0, fbKeyState.ringCursor)
-              if (expected !== undefined && got !== expected) {
-                throw new Error(
-                  `[XGIS INVARIANT] fallback bundle hit re-walk allocated ${got} ring ` +
-                    `slots where the encoded bundle recorded ${expected} (key ${fbCacheKey}). ` +
-                    `An input to renderTileKeys changed under an unchanged BundleKeyState — ` +
-                    `add the missing input to _cache/bundle-cache-key.ts.`,
-                )
-              }
-            }
-          }
-          ctx.pass.executeBundles([fbBundle])
-        } else {
-          this.renderTileKeys(
-            ctx.fallbackKeys,
-            ctx.pass,
-            fallbackFill,
-            args.linePipelineFallback!,
-            args.projCenterLon,
-            args.projCenterLat,
-            ctx.fallbackOffsets,
-            ctx.lineLayerOffset,
-            ctx.lineLayerOffsetGap,
-            args.phase,
-            ctx.layerCache,
-            fallbackExtrudedPipeline,
-            args.bindGroupLayout,
-            args.translucentBucket,
-            ctx.fallbackVisibleKeys,
-            args.show.shaderVariant,
-            ctx.sliceLayer,
-          )
-        }
-        // jscpd:ignore-end
-      } finally {
-        this._drapeGlobeFills = _fbSavedDrapeGlobeFills
-        this._drapeStrokes = _fbSavedDrapeStrokes
-      }
-      if (_debugRed) {
-        const f32 = new Float32Array(this.frameBlock.buffer)
-        const a3 = this.frameBlock.fieldOffset('fill_color') / 4 + 3
-        this.frameBlock.set.fill_color(_origR, _origG, _origB, f32[a3]!)
-      }
-    }
-  }
-
-  /** #2508 phase 9 — prefetch tiers: the adjacent tiles (idle only, every 10th
-   *  frame — the memo is what makes that per frame rather than per slice,
-   *  #2309) and the zoom-direction next LOD while the camera is mid-zoom
-   *  (#2013 — deliberately not idle-gated). Consumes only. */
-  private prefetchTiers(args: RenderArgs, ctx: RenderFrameState): void {
-    // Prefetch adjacent + next zoom (every 10th frame, idle only).
-    // While the camera is actively moving the prefetched edge tiles
-    // are likely to be invalidated within ~100 ms of being fetched
-    // — wasted bandwidth + GPU upload pressure on mobile.
-    // #2309 — the memo is what makes "every 10th frame" true; a bare
-    // modulo fires per SLICE, not per frame (see _prefetchMemoFrame).
-    if (this._prefetchMemoFrame !== this.currentFrameId) {
-      this._prefetchMemoFrame = this.currentFrameId
-      this._adjacentPrefetchZooms.clear()
-      this._zoomPrefetchZooms.clear()
-    }
-    if (
-      ctx.cameraIdle &&
-      this.currentFrameId % 10 === 0 &&
-      !this._adjacentPrefetchZooms.has(ctx.currentZ)
-    ) {
-      this._adjacentPrefetchZooms.add(ctx.currentZ)
-      ctx.source.prefetchAdjacent(ctx.tiles, ctx.currentZ)
-    }
-
-    // Tier 2: zoom-direction prefetch.
-    //
-    // When the user is mid-zoom toward an integer boundary, request
-    // the *next* LOD's visible tiles in the background so they're
-    // GPU-resident by the time `currentZ` actually advances. Without
-    // this, the integer boundary still produces a brief
-    // missed-tile spike + parent-fallback period — visible as a
-    // detail "pop" on the user's screen even with floor-based
-    // currentZ + hysteresis (Tier 1).
-    //
-    // Triggers (only one fires per frame, never both — direction is
-    // mutually exclusive at any instant):
-    //   * Zoom-in:   camera.zoom > currentZ + 0.5 → prefetch z=cz+1
-    //   * Zoom-out:  camera.zoom < currentZ      → prefetch z=cz-1
-    //                (cz - 0.3 is the hysteresis switch threshold,
-    //                so once user crosses below cz, the prior LOD
-    //                is what they're heading toward)
-    //
-    // Throttled to every 6 frames (~100 ms) to keep the selector walk
-    // amortised — the prefetch doesn't need per-frame freshness because
-    // the camera typically moves slowly relative to the rAF cadence.
-    //
-    // #2013 — deliberately NOT gated on cameraIdle (unlike prefetchAdjacent
-    // above). The idle gate made this block unreachable in the exact case it
-    // exists for: during an ACTIVE zoom the camera moves every frame, so
-    // cameraIdle stayed false for the whole gesture and every integer
-    // boundary was crossed with zero next-LOD tiles in flight — the
-    // measured fallback fan-out + blank-tile window on zoom-out (osm_style
-    // z17 pitch 75, missedTiles 8→20). The zoom-direction target is the set
-    // the camera is provably heading toward (same centre, next LOD), so the
-    // pan-invalidation rationale behind the adjacent-prefetch idle gate does
-    // not apply; cost is bounded by the 6-frame throttle, the isCached
-    // filter, and the fetch queue's own concurrency cap.
-    // #2309 — that throttle is the modulo AND the per-frame memo. The
-    // modulo alone admitted ~17.7 selector walks a frame at 0.81 ms each
-    // — 14.4 ms of a 16.7 ms budget, measured mid-zoom on OFM Bright.
-    if (this.currentFrameId % 6 === 0 && !this._zoomPrefetchZooms.has(ctx.currentZ)) {
-      this._zoomPrefetchZooms.add(ctx.currentZ)
-      // Tile-set math extracted to tile-decision.computeZoomDirectionPrefetchKeys
-      // (pure, unit-tested). Guard + prefetchTiles side-effect stay inline so
-      // execution order/throttle is byte-identical to the prior inline block.
-      const prefetchKeys = computeZoomDirectionPrefetchKeys({
-        camera: args.camera,
-        cameraZoom: args.camera.zoom,
-        currentZ: ctx.currentZ,
-        maxSubTileZ: ctx.maxSubTileZ,
-        projType: args.projType,
-        globeMode: args.camera.globeMode,
-        centerX: args.camera.centerX,
-        centerY: args.camera.centerY,
-        pitch: args.camera.pitch ?? 0,
-        bearing: args.camera.bearing ?? 0,
-        canvasWidth: args.canvasWidth,
-        canvasHeight: args.canvasHeight,
-        dpr: args.dpr,
-        selectorProj: ctx.selectorProj,
-        offsetMarginPx: ctx.offsetMarginPx,
-        isCached: ctx.sliceCached,
-        // #1393/#2013 — probe the same far-field notch the drawing selection
-        // runs at, so the prefetch set matches the renderer's actual demand.
-        farTargetBoost: adaptiveFarLodBoost(),
-      })
-      if (prefetchKeys.length > 0) {
-        ctx.source.prefetchTiles(prefetchKeys)
-      }
-    }
-  }
-
-  /** #2508 phase 10 — epilogue. Records this layer's stable tile set (needed +
-   *  fallback + selector-protected ancestors: every key whose buffers a draw
-   *  recorded this frame still binds, so the deferred eviction cannot destroy
-   *  one before `queue.submit()`), then emits the tile-based points. Consumes
-   *  only. */
-  private trackStableSetAndPoints(args: RenderArgs, ctx: RenderFrameState): void {
-    // Track stable tile set for eviction protection and point rendering.
-    // IMPORTANT: include fallbackKeys too — those tiles' buffers are bound
-    // in bind groups used by the draw calls we just recorded. Evicting them
-    // now would destroy their buffers before `queue.submit()` runs, causing
-    // "Buffer used in submit while destroyed" validation errors.
-    if (ctx.fallbackKeys.length > 0 || ctx.protectedAncestors.length > 0) {
-      const merged = this._scratchMergedStableKeys
-      merged.clear()
-      for (const k of ctx.neededKeys) merged.add(k)
-      for (const k of ctx.fallbackKeys) merged.add(k)
-      // Selector-injected fallback-only ancestors (currently the
-      // high-pitch parent inject) — protected from eviction so they
-      // stay resident and the eviction-driven foreground ancestor-
-      // block regression doesn't reappear under the mobile cap.
-      for (const k of ctx.protectedAncestors) merged.add(k)
-      this.stableKeys = [...merged]
-    } else {
-      this.stableKeys = ctx.neededKeys
-    }
-
-    // GPU cache eviction is deferred to beginFrame() — see the comment there
-    // for why mid-frame eviction races the bucket scheduler's multi-render-
-    // per-frame pattern. Bounded by the per-frame upload budget meanwhile.
-
-    // Tile-based points via PointRenderer (if available); the single-
-    // authority body lives in emitTilePointsRhi (#1057), shared with the twin.
-    this.emitTilePointsRhi(
-      args.rhiPass,
-      args.camera,
-      args.projType,
-      args.projCenterLon,
-      args.projCenterLat,
-      args.canvasWidth,
-      args.canvasHeight,
-      args.dpr,
-      args.show,
-      args.pointRenderer,
-    )
   }
 
   /** #1632 — this renderer's tile-point cache namespace. `sliceLayer` alone
@@ -4972,22 +2977,22 @@ export class VectorTileRenderer {
     )
   }
 
-  /** Flag set during bundle replay to gate the recordTileFill draw emit.
+  /** @internal Flag set during bundle replay to gate the recordTileFill draw emit.
    *  When true, recordTileFill skips the GPU commands (the cached bundle
    *  replays them instead); the caller still runs renderTileKeys for
    *  per-frame state side effects (uniform staging, strokeQueue
    *  population). Default false. */
-  private _skipFillDrawForBundle: boolean = false
+  _skipFillDrawForBundle: boolean = false
 
-  /** Sibling of `_skipFillDrawForBundle` for the stroke (drawSegments)
+  /** @internal Sibling of `_skipFillDrawForBundle` for the stroke (drawSegments)
    *  draws at the tail of renderTileKeys. When the bundle includes strokes
    *  (phase === 'all' on the opaque pass), a cache-hit replay that re-runs
    *  renderTileKeys for state side effects must NOT re-emit strokes to the
    *  real pass — `executeBundles([bundle])` already replays them. Gates the
    *  two `drawSegments` call sites (outlines, lines). Default false. */
-  private _skipStrokeDrawForBundle: boolean = false
+  _skipStrokeDrawForBundle: boolean = false
 
-  /** #2042 INC-5 — set by EVERY renderTileKeys call: true iff the call
+  /** @internal #2042 INC-5 — set by EVERY renderTileKeys call: true iff the call
    *  qualified for the walk-skip (`splitWalkSkip`), i.e. every draw it
    *  emitted (or would emit) is split-bound and NOTHING it baked reads a
    *  per-tile ring slot. The bundle-hit ring-alloc invariant reads it:
@@ -4995,7 +3000,7 @@ export class VectorTileRenderer {
    *  (residency transitions legitimately change it — record packs fresh
    *  tiles, the next hit's re-walk skips them), so the invariant is
    *  exempted exactly there and nowhere else. */
-  private _lastWalkRingFree: boolean = false
+  _lastWalkRingFree: boolean = false
 
   /** Bundle-compatible per-tile fill draw recording. The GPU commands here
    *  are EXACTLY the subset accepted by both `GPURenderPassEncoder` and
@@ -5060,13 +3065,13 @@ export class VectorTileRenderer {
     )
   }
 
-  /** #778 P1: round world-copy offsets into the shared reused scratch,
+  /** @internal #778 P1: round world-copy offsets into the shared reused scratch,
    *  replacing a per-frame `.map()` alloc at both bundle-key sites. One
    *  scratch is safe: each keyState is hashed synchronously (before the
    *  other site can overwrite it) and is never retained past the hash
    *  (see `_cache/structural-key.ts`). Mirrors the original
    *  `offs ? offs.map(o => Math.round(o * 1e3)) : null` exactly. */
-  private _worldOffScratchKey(offs: readonly number[] | null): readonly number[] | null {
+  _worldOffScratchKey(offs: readonly number[] | null): readonly number[] | null {
     if (!offs) return null
     const s = this._worldOffScratch
     s.length = offs.length
@@ -5074,13 +3079,13 @@ export class VectorTileRenderer {
     return s
   }
 
-  /** `pass` accepts `GPURenderPassEncoder` OR `GPURenderBundleEncoder` so
+  /** @internal `pass` accepts `GPURenderPassEncoder` OR `GPURenderBundleEncoder` so
    *  the per-tile draw loop can be recorded into a cached bundle. Every
    *  method this calls on `pass` (`setPipeline`, `setBindGroup`,
    *  `setVertexBuffer`, `setIndexBuffer`, `drawIndexed`) is in BOTH
    *  interfaces' common subset; the pass-only calls (`setStencilReference`)
    *  live ONE level up in the calling site so they wrap any bundle replay. */
-  private renderTileKeys(
+  renderTileKeys(
     keys: number[],
     pass: GPURenderPassEncoder | GPURenderBundleEncoder,
     fillPipeline: RhiPipelineHandle,

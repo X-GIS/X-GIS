@@ -21,11 +21,9 @@
 // first case reds — the written mvp is then the untranslated camera matrix.
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { VectorDrapeRenderer, type DrapeBakeProvider } from './vector-drape-renderer'
 import type { GPUTile } from './vector-tile-renderer-types'
+import { renderPathSource } from './render-path-source'
 
 interface MockBuf {
   __id: number
@@ -239,10 +237,7 @@ describe('#2249 — fill-translate reaches the globe drape', () => {
 // it pins that the ONE call site forwards the ONE producer's fields, and an
 // allowlist makes a new literal argument fail loudly instead of silently.
 
-const VTR_SRC = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'vector-tile-renderer.ts'),
-  'utf8',
-)
+const VTR_SRC = renderPathSource()
 
 describe('#2249 — the VTR actually forwards the pair (wiring)', () => {
   it('renderGlobeFills is called with the fillTranslateNdc fields, not a literal', () => {

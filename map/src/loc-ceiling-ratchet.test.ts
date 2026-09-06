@@ -449,14 +449,13 @@ const CEILINGS: Record<string, number> = {
   // identifiers, which re-fingerprints every overlapping pair for `--baseline-from-ref`.
   // Marked as twins with their reasons rather than consolidated (a WebGL2-path extraction
   // this motion-only PR must not smuggle in); the markers are the growth.
-  // 5873→5881 (#2584): a ONE-LINE behaviour fix — `mainFill`'s base-layout arm now prefers
-  // the per-style ground override — plus the 8-line comment that records why. The code is
-  // net-zero; the comment is the whole growth, and it earns its lines: without it the next
-  // reader sees a `??` where the old code had none and cannot tell that removing it silently
-  // re-parks INC-4d's split twin (per-style split draws 184 → 0) while every other counter
-  // stays green. Not extracted: pulling the groundForLayout/patternActive/mainFill block into
-  // a helper is a real improvement and a separate refactor this fix must not smuggle in (§3).
-  'map/src/render/vector-tile-renderer.ts': 5881,
+  // 5873→3886 (#2537): ten of the eleven `render()` phases named by #2508 moved
+  // out to `render/render-phases/` — the first time this key has gone DOWN. Phase 0 stays:
+  // it is the frame's concrete-backend seam and moving it would spread that coupling past
+  // the #991 ratchets. The members the moved bodies touch became `@internal`, which the
+  // publish pass strips (#2601), so the published `.d.ts` narrows by 87 name slots.
+  // Measured with `wc -l` on the post-prettier tree.
+  'map/src/render/vector-tile-renderer.ts': 3886,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
