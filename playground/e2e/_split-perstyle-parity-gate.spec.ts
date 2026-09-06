@@ -223,17 +223,25 @@ function pixelDiff(a: Buffer, b: Buffer): { count: number; highCount: number; ma
   return { count, highCount, maxDelta }
 }
 
-const mechCounts = (page: Page): Promise<{ fills: number; perStyle: number; skips: number }> =>
+const mechCounts = (
+  page: Page,
+): Promise<{ fills: number; perStyle: number; skips: number; backend: string }> =>
   page.evaluate(() => {
     const g = globalThis as {
       __xgisVtrSplitDraws?: number
       __xgisVtrSplitPerStyleDraws?: number
       __xgisVtrWalkSkips?: number
+      __xgisMap?: { ctx?: { rhi?: { backend?: string } } }
     }
     return {
       fills: g.__xgisVtrSplitDraws ?? 0,
       perStyle: g.__xgisVtrSplitPerStyleDraws ?? 0,
       skips: g.__xgisVtrWalkSkips ?? 0,
+      // A silent WebGL2 fallback builds no split layout at all
+      // (PipelineFactory.build early-returns), so every counter reads 0 for a
+      // reason that has nothing to do with eligibility. Report it rather than
+      // let it masquerade as an ineligible twin.
+      backend: g.__xgisMap?.ctx?.rhi?.backend ?? 'unknown',
     }
   })
 
@@ -265,6 +273,13 @@ test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk
   ] as const) {
     expect(arm.errors, `arm ${name} page errors:\n${arm.errors.join('\n')}`).toEqual([])
   }
+  // A red arm must say what it MEASURED, not only which bound it missed.
+  console.log(`[perstyle-parity] legacy ${JSON.stringify(legacyCounts)}`)
+  console.log(`[perstyle-parity] split  ${JSON.stringify(splitCounts)}`)
+  expect(
+    splitCounts.backend,
+    'split arm did not run on WebGPU — no split layout is built at all',
+  ).toBe('webgpu')
   expect(
     legacyCounts.fills + legacyCounts.perStyle + legacyCounts.skips,
     'legacy arm recorded split draws / walk-skips — the flag gate leaks',
