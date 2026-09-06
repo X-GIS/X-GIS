@@ -38,7 +38,7 @@
 // module yet; INC-4b builds the pipeline family. The structure gate
 // (polygon-split-emit.test.ts) asserts the transform's completeness.
 
-import { emitModule, rewriteExprsInFunc, vec2, vec4 } from '@xgis/shader-dsl'
+import { emitModule, reachFrom, rewriteExprsInFunc, vec2, vec4 } from '@xgis/shader-dsl'
 import type { Expr } from '@xgis/shader-dsl'
 import { buildPolygonModule, type PolygonVariantSpec } from './polygon'
 import { tileBlockU } from './tile-block'
@@ -162,3 +162,39 @@ export const emitPolygonSplitWgsl = (
   variant: PolygonVariantSpec | null,
   pickEnabled: boolean,
 ): string => emitModule(buildPolygonSplitModule(variant, pickEnabled))
+
+/** The three blocks the split rewrite creates, by binding NAME. They ARE the
+ *  contents of the split group-0 layout (`PipelineFactory.SPLIT_FILL_LAYOUT_ENTRIES`,
+ *  bindings 7/10/11) — `split-bind-eligibility.test.ts` pins the two to the same
+ *  triple, so this stays a derivation of the layout rather than a fourth copy of it. */
+const SPLIT_BLOCK_NAMES: ReadonlySet<string> = new Set([
+  frameBlockU.binding.name,
+  showBlockU.binding.name,
+  tileBlockU.binding.name,
+])
+
+/** #2572 — can the pipeline whose entry points are `entryNames` draw through the
+ *  split group-0 bind group? True iff those entries REACH no group-0 binding beyond
+ *  the three split blocks.
+ *
+ *  The question is per-ENTRY-PAIR, which is why the emitted text cannot answer it:
+ *  one module carries every entry point (nine on the polygon side, four on the line
+ *  side) and its text is their UNION, so `fs_fill_pattern`'s sprite atlas (bindings
+ *  5/6) appears in every polygon module — including the base one, whose fill entries
+ *  touch neither. A driver validates statically-USED resources, so what it keeps is
+ *  the reachable set; `reachFrom` is that same walk, over the IR and without an emit.
+ *
+ *  Throws when an entry name is not in the module. That is deliberate: an unreachable
+ *  name would otherwise reach NOTHING, and the empty set fits every layout — the one
+ *  way this check could answer "eligible" for a pipeline it never looked at. */
+export function fitsSplitLayout(m: ModuleDecl, entryNames: readonly string[]): boolean {
+  const entries = entryNames.map((name) => {
+    const f = m.funcs.find((fn) => fn.name === name)
+    if (!f) throw new Error(`fitsSplitLayout: no entry point '${name}' in the module`)
+    return f
+  })
+  const reached = reachFrom(m, entries).bindings
+  return !m.bindings.some(
+    (b) => b.group === 0 && reached.has(b.name) && !SPLIT_BLOCK_NAMES.has(b.name),
+  )
+}
