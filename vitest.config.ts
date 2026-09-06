@@ -192,6 +192,12 @@ export const ISOLATED = [
   'map/src/map-inline-geojson-route.test.ts',
   'map/src/map-polar-cap-deprecation.test.ts',
   'map/src/map-rebuild-layers.characterization.test.ts',
+  // (2) SECOND clause — "the suites that read a global's pristine default". It writes
+  //     nothing and mocks nothing, so the mechanical half of the rule cannot see it; it is
+  //     admitted by hand as a MEASURED casualty, the way its `rhi-webgpu` namesake was.
+  //     Surfaced when the seven entries above left the shared pass and the pool repacked:
+  //     two tests hung to the 30 s budget, and the file passes ALONE in 24 ms.
+  'map/src/map-device-lost-recovery.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
