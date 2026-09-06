@@ -12,6 +12,8 @@
 // construct through the real Lexer + Parser so this declaration cannot
 // drift from what the compiler actually accepts.
 
+import { SYMBOL_ANCHORS } from '../ir/symbol-elements'
+
 export type SchemaValueKind =
   | 'identifier' // block name (the `foo` in `source foo { … }`)
   | 'string' // quoted/url-ish text
@@ -84,19 +86,6 @@ export const SOURCE_TYPES = [
   'h5',
 ] as const
 
-/** Accepted `symbol { anchor: … }` values. */
-export const ANCHORS = [
-  'center',
-  'top',
-  'bottom',
-  'left',
-  'right',
-  'top-left',
-  'top-right',
-  'bottom-left',
-  'bottom-right',
-] as const
-
 export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
   import: {
     keyword: 'import',
@@ -130,7 +119,15 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
     properties: [
       { key: 'name', valueKind: 'identifier', required: true },
       { key: 'path', valueKind: 'string' },
-      { key: 'anchor', valueKind: 'enum', options: ANCHORS },
+      // The accepted `anchor` values are the LOWERING's list, imported rather than
+      // re-declared: a local copy drifted to nine (adding corners the grammar cannot
+      // lex — `anchor: top-left` reads `-` as a token, so the whole file dies with a
+      // ParseError) while `isSymbolAnchor` took five. Corners are a grammar change,
+      // not a schema entry (#2548; see symbol-elements.ts for why). NOTE the Mapbox
+      // converter's nine-valued VALID_ANCHORS (convert/layers-helpers.ts) stays as it
+      // is — `label-anchor-top-left` is a utility NAME, a different grammar position
+      // where the hyphen is a segment separator, so nine is correct there.
+      { key: 'anchor', valueKind: 'enum', options: SYMBOL_ANCHORS },
     ],
   },
 
