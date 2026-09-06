@@ -52,10 +52,20 @@ function pipeLines(raw: string | undefined): string[] {
     .filter((l) => l.length > 0)
 }
 
+/** A name the grammar accepts as a bare identifier. `type:` is the one source
+ *  field whose QUOTING is load-bearing: a name that is not identifier-shaped
+ *  (a custom registry key like `x-kr-admin`, and the hyphenated built-in
+ *  `raster-dem`) re-parses as a subtraction expression when emitted bare, and
+ *  lowers as the `geojson` default — silently, taking the custom options bag
+ *  with it (#2549; compiler/src/ir/lower.ts:147-152). Identifier-shaped names
+ *  stay bare, which is how the language is normally written. */
+const BARE_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
 function emitSource(n: BPNode): string {
   const d = n.data
   const lines: string[] = [`source ${nameOf(n, 'source')} {`]
-  lines.push(`  type: ${d.type?.trim() || 'geojson'}`)
+  const type = d.type?.trim() || 'geojson'
+  lines.push(`  type: ${BARE_NAME.test(type) ? type : JSON.stringify(type)}`)
   if (d.url?.trim()) lines.push(`  url: ${JSON.stringify(d.url.trim())}`)
   const layers = (d.layers || '')
     .split(',')
@@ -64,6 +74,12 @@ function emitSource(n: BPNode): string {
   if (layers.length === 1) lines.push(`  layers: ${JSON.stringify(layers[0])}`)
   else if (layers.length > 1)
     lines.push(`  layers: [${layers.map((l) => JSON.stringify(l)).join(', ')}]`)
+  // Properties the node has no dedicated field for, carried verbatim by
+  // import.ts so they survive the round trip (#2549).
+  for (const p of (d.props || '').split('\n')) {
+    const t = p.trim()
+    if (t) lines.push(`  ${t}`)
+  }
   lines.push('}')
   return lines.join('\n')
 }

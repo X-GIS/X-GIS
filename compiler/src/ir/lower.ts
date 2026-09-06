@@ -22,7 +22,12 @@ import {
   type PresetCall,
 } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
-import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER, UNRESOLVED_COLOR } from '../diagnostics/diagnostic'
+import {
+  UNKNOWN_UTILITY,
+  UNHANDLED_MODIFIER,
+  UNRESOLVED_COLOR,
+  SOURCE_TYPE_NOT_A_NAME,
+} from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -150,6 +155,23 @@ function lowerSource(
       // `x-kr-admin` would otherwise tokenise as the expression `x - kr - admin`).
       if (prop.value.kind === 'Identifier') type = prop.value.name
       else if (prop.value.kind === 'StringLiteral') type = prop.value.value
+      else {
+        // Anything else is a `type:` the grammar cannot mean — a hyphenated name
+        // written bare lands here as the BinaryExpr `x - kr - admin`. Keeping the
+        // `geojson` default silently is what let a blueprint round trip turn a
+        // custom source into a geojson one, options and all, with no trace (#2549).
+        diagnostics.push({
+          severity: 'error',
+          code: SOURCE_TYPE_NOT_A_NAME,
+          span: { line: stmt.line, col: 1 },
+          message:
+            `Source "${stmt.name}" declares a \`type:\` that is neither a bare name ` +
+            `nor a quoted string, so it lowers as \`geojson\`.`,
+          help:
+            `A type whose name is not an identifier — a custom registry key, or the ` +
+            `built-in \`raster-dem\` — must be QUOTED: \`type: "raster-dem"\`.`,
+        })
+      }
       // `hdf5` / `h5` are format-named aliases of the coverage family (the mirror of
       // `pmtiles`/`tilejson` under `vector`) — canonicalise to the role name HERE, the
       // single chokepoint, so the IR + dead-layer-elim + runtime only ever see

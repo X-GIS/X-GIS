@@ -126,6 +126,21 @@ function pipeText(lines: string[]): string {
     .join('\n')
 }
 
+/** Source-block lines the source node has no dedicated field for — `crs:`,
+ *  `refresh:`, and the custom-loader options bag a registry `type:` carries
+ *  (the compiler's `SourceDef.options`). Kept VERBATIM so they round-trip
+ *  instead of being dropped silently (#2549), the same policy as the utility
+ *  pipe text. A value spanning several lines (an inline `data: {…}` object)
+ *  cannot be recovered line-wise, so the carry is skipped wholesale rather
+ *  than re-emitted as half an object literal. */
+function extraSourceProps(lines: string[]): string {
+  const rest = lines.filter((l) => !/^(?:type|url|layers)\s*:/.test(l) && !l.startsWith('//'))
+  const oneLiner = (l: string) =>
+    /^[A-Za-z_][\w-]*\s*:/.test(l) &&
+    (l.match(/[{[]/g)?.length ?? 0) === (l.match(/[}\]]/g)?.length ?? 0)
+  return rest.every(oneLiner) ? rest.join('\n') : ''
+}
+
 function mk(type: NodeType, data: Record<string, string>): BPNode {
   return { id: uid('n'), type, x: 0, y: 0, data: { ...defaultData(type), ...data } }
 }
@@ -171,6 +186,7 @@ export function xgisToGraph(src: string): BPGraph {
           .map((s) => s.trim().replace(/^"(.*)"$/, '$1'))
           .filter(Boolean)
           .join(', '),
+        props: extraSourceProps(lines),
       })
       nodes.push(n)
       if (name) sourceByName.set(name, n.id)

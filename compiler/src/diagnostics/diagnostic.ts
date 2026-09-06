@@ -70,6 +70,14 @@
 //   X-GIS0028  error  lower     Modifier item (`hover:opacity-100`) has  (ir/lower.ts — #1069 slice)
 //                               no lowering handler — only `fill-*` is
 //                               wired under MODIFIER_HANDLERS today
+//   X-GIS0029  warn   lower     `fill:` / `stroke:` value the colour     (ir/lower.ts — #2544)
+//                               resolver cannot read — the assignment
+//                               used to be skipped silently
+//   X-GIS0030  error  lower     Source `type:` is neither a bare name    (ir/lower.ts — #2549)
+//                               nor a quoted string — a hyphenated name
+//                               written bare tokenises as a subtraction
+//                               expression, and used to leave the
+//                               `geojson` default standing silently
 //
 // NOTE: a `color`-typed input in a scalar position needs NO new code —
 // ir/expr-type.ts's inferVecArity() treats a color input as vec4-arity,
@@ -168,6 +176,12 @@ export const UNHANDLED_MODIFIER = 'X-GIS0028'
  *  rendered with no fill and nothing said why. Warn-only: lowering stays
  *  total and the layer keeps whatever colour the cascade gave it. */
 export const UNRESOLVED_COLOR = 'X-GIS0029'
+/** A source's `type:` is neither an Identifier nor a StringLiteral (#2549).
+ *  Built-in types are bare identifiers; a hyphenated name — a custom registry
+ *  key, or the built-in `raster-dem` — must be QUOTED or it tokenises as a
+ *  subtraction expression. Previously a silent fall-back to the `geojson`
+ *  default that took the source's whole options bag with it. */
+export const SOURCE_TYPE_NOT_A_NAME = 'X-GIS0030'
 
 /** A 1-based, document-relative source span. `line`/`col` are always
  *  present; `endLine`/`endCol` are optional (a point diagnostic omits
