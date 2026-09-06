@@ -129,6 +129,9 @@ function packBlock(f: Fixture): Uint8Array {
     f.lat,
     f.camAnchor,
     COLORS,
+    // #2134 — this gate's references (render()/checker) are both straight-alpha
+    // sources, so raster_params.y stays 0 and every reference byte below is unchanged.
+    false,
   )
   expect(block.byteLength).toBe(192)
   return new Uint8Array(block.buffer)
@@ -140,6 +143,58 @@ describe('raster global uniform — block bytes ≡ retired render() writer', ()
       expect([...packBlock(f)]).toEqual([...mainReferenceBytes(f)])
     })
   }
+})
+
+// #2134 — the producer of raster_params.y: true when the sampled texture is
+// ALREADY premultiplied (currently only the vector-drape bake — its RT clears to
+// transparent and the fill/line FS write non-premultiplied (C, a) onto it, so a
+// texel over the clear is (C*a, a)), false for every straight-alpha source
+// (fetched raster tiles, the WebGL2 checker, hillshade's DEM tiles). fs_tile's
+// `mix(c.a, 1, premul)` selects the no-op branch at false: the emit becomes
+// `adjRgb*c.a*f` under srcFactor `one`, ALGEBRAICALLY the same expression the old
+// `adjRgb` under srcFactor `src-alpha` produced (`mix(c.a, 1, 0) = c.a`, and both
+// blend states share the same alpha sub-channel factors) — only WHERE the
+// multiply is quantised moves (shader f32 vs the target's 8-bit ROP), so a
+// straight-alpha frame may differ by <= 1 LSB, which the render verification
+// measures rather than asserting bit-equality. hillshade.ts's fs_hillshade never
+// reads raster_params.y at all (HillshadeDraper keeps its own separate
+// blend: 'alpha' colour target) — hillshade-renderer.ts still writes `false`
+// explicitly, like every other writer of this shared uniform, not because the
+// lane's semantics apply to it.
+//
+// MERGE ORDER: `premultiplied` is REQUIRED (no default, so every caller states
+// its source kind explicitly), while `demUnpack` (D5 INC-3, #2539) carries a
+// default — TypeScript forbids a required parameter after an optional one, so
+// `premultiplied` sits BEFORE `demUnpack` in writeRasterFrameUniform's signature
+// and every positional `demUnpack` caller gains this argument ahead of it.
+//
+// The material/shader gates (raster-material-premultiply.test.ts) prove the GPU
+// blend + fragment math are right; this proves the CPU packer that feeds them
+// actually honours the `premultiplied` argument, at the LITERAL call shape a real
+// caller uses (writeRasterFrameUniform's own args), not a re-derived helper.
+describe('raster global uniform — premultiplied:true/false writes raster_params.y (#2134)', () => {
+  it('differs from the false case in EXACTLY f32 lane 21, nothing else', () => {
+    const f = FIXTURES[0]!
+    const block = uniformBlock(RASTER_U)
+    writeRasterFrameUniform(
+      block,
+      { matrix: MVP, logDepthFc: f.logDepthFc },
+      f.projType,
+      f.lon,
+      f.lat,
+      f.camAnchor,
+      COLORS,
+      true,
+    )
+    const got = new Float32Array(new Uint8Array(block.buffer).buffer)
+    const straight = new Float32Array(packBlock(f).buffer)
+    for (let lane = 0; lane < got.length; lane++) {
+      if (lane === 21) continue
+      expect(got[lane], `f32 lane ${lane}`).toBe(straight[lane])
+    }
+    expect(straight[21], 'premultiplied:false must leave raster_params.y at 0').toBe(0)
+    expect(got[21], 'premultiplied:true must set raster_params.y to 1').toBe(1)
+  })
 })
 
 describe('raster checker unification — sole delta is the dead raster_params.w lane', () => {
