@@ -207,6 +207,9 @@ export const ISOLATED = [
   'map/src/render/p4-end-to-end.test.ts',
   'map/src/render/passes/opaque-pass-checker-arm.test.ts',
   'map/src/render/passes/overdraw-frame-truth.test.ts',
+  // (1) module mock — polygon-shader-cache, so `perStyleSplitTwin`'s eligibility probe and
+  //     its emit are stubbed and the assertion is about the pipeline LABEL alone (#2627).
+  'map/src/render/pipeline-factory-split-twin-label.test.ts',
   'map/src/render/raster-abort-not-failure.test.ts',
   'map/src/render/raster-cache-byte-cap.test.ts',
   'map/src/render/raster-loadtile-webgl2-cleanup.test.ts',
