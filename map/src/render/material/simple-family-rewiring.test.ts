@@ -21,6 +21,14 @@
 //      set                                       an eighth family arriving un-rewired, or
 //                                                a deferred one being rewired early
 //
+// #2534 SPLIT LINKS A AND B IN TWO for the five retained overlays. Their descriptor was five
+// copies of one shape and is now `retained-overlay-material.ts`, which derives all three ids
+// from `spec.family` — so the id is derived BY CONSTRUCTION for every member and the thing a
+// per-file arm can still catch is the FAMILY being wrong or the factory call being replaced.
+// Those families are therefore checked as (file hands its family to the factory) + (the
+// factory derives the ids), both arms below; the other three keep the original single arm.
+// Link C is untouched and still ties every derived id to the committed artifact.
+//
 // Link D is a SET EQUALITY against a derived expectation, not a for-each over a hand list:
 // a loop over the seven files can only ever confirm the seven files (§996 — an assertion
 // that cannot fail for the case it exists to catch). Since #2499 step 3 the expectation is
@@ -77,6 +85,27 @@ const REWIRED: Readonly<Record<string, string>> = {
   'flow-advect': 'flow-advect-material.ts',
 }
 
+/** The file the five retained overlays build their `Material` in (#2534) — one copy of the
+ *  descriptor they used to hold five copies of. */
+const OVERLAY_FACTORY = 'retained-overlay-material.ts'
+
+/** Families whose material file no longer derives its own ids: it hands `family` to
+ *  `retainedOverlayMaterial` — directly (icon, advected) or through the `RetainedFeatTintDraper`
+ *  base it extends (arrow, circle, particle) — and that derives the WGSL id, both GLSL stage
+ *  ids AND the pipeline label from that ONE value. Link B is then satisfied for every member
+ *  by construction — a draper cannot spell an id that disagrees with its family — so the
+ *  chain is checked in two halves instead of one: the per-file arm proves the family and the
+ *  route reach the factory, and
+ *  `A+B (factory)` proves the factory derives all three ids from it. Link C is unchanged and
+ *  still ties each derived id to the committed artifact. */
+const VIA_OVERLAY_FACTORY: ReadonlySet<string> = new Set([
+  'circle-retained',
+  'icon-retained',
+  'arrow-retained',
+  'particle-retained',
+  'arrow-retained-advected',
+])
+
 /** Boot-group simple families NOT rewired yet, each with the reason and the increment that
  *  closes it. SHRINK-ONLY: when one is rewired, its entry must be deleted in the same
  *  commit or the arm below reds — an allowlist that outlives its reason is how a deferral
@@ -130,6 +159,17 @@ describe('#1679 inc 5 — reader sanity (the arms below are vacuous without this
     }
   })
 
+  it('every VIA_OVERLAY_FACTORY family is one this file actually checks', () => {
+    // The A+B loop walks REWIRED and only CONSULTS this set, so a key that is not in REWIRED
+    // is never read and its family would silently fall back to the per-file arm — the #996
+    // vacuity in the shape an allowlist takes. Assert the keys resolve.
+    expect(
+      [...VIA_OVERLAY_FACTORY].filter((f) => REWIRED[f] === undefined),
+      'these families route through the overlay factory but are not in REWIRED, so nothing ' +
+        'checks them',
+    ).toEqual([])
+  })
+
   it('both committed boot artifacts yielded an id index', () => {
     // A regex that stops matching returns an EMPTY set, and link C is a membership test —
     // so every id would read as missing, not as present. This arm is the one that says
@@ -149,6 +189,29 @@ describe('#1679 inc 5 — reader sanity (the arms below are vacuous without this
 
 describe('#1679 inc 5 — A+B: every rewired call site passes a DERIVED id', () => {
   for (const [family, file] of Object.entries(REWIRED)) {
+    if (VIA_OVERLAY_FACTORY.has(family)) {
+      it(`${family} hands its family to ${OVERLAY_FACTORY}`, () => {
+        const src = sourceOf(file)
+        // Link A for a factory-built draper: the id cannot be missing, but the FAMILY can be
+        // wrong or the file can stop routing through the shared module (a hand-rolled
+        // `new Material` again), and either costs the same runtime emit. Both halves are
+        // named so a red says which one moved. The import rather than a call spelling,
+        // because the three feat+tint drapers reach the factory through their base class and
+        // the icon and advected drapers call it directly.
+        expect(
+          src,
+          `${file} no longer imports ${OVERLAY_FACTORY} — it builds its own Material again, ` +
+            `so nothing derives its baked ids from its family any more`,
+        ).toContain(`from './${OVERLAY_FACTORY.replace('.ts', '')}'`)
+        expect(
+          src,
+          `${file} does not pass family: '${family}' — the factory derives all three ids AND ` +
+            `the pipeline label from that one value, so a wrong family serves another ` +
+            `family's baked bytes rather than missing the store`,
+        ).toContain(`family: '${family}'`)
+      })
+      continue
+    }
     it(`${family} passes simpleWgslId + both simpleGlslId stages`, () => {
       const src = sourceOf(file)
       // Anchored on the BUILDER CALL, not on the id string. A call site that spelled
@@ -168,6 +231,32 @@ describe('#1679 inc 5 — A+B: every rewired call site passes a DERIVED id', () 
         ).toContain(`simpleGlslId('${family}', '${stage}')`)
     })
   }
+
+  it(`${OVERLAY_FACTORY} derives all three ids from spec.family`, () => {
+    // The other half of link B for the five above. Without this arm they would only be
+    // proven to NAME a family, and the derivation could be deleted with every per-file
+    // assertion still green — the #996 vacuity, one indirection along. The base class the
+    // three feat+tint drapers extend lives in THIS file too, so the hop from it to the
+    // factory is not a cross-file revert risk the way link A is; tsc already requires it to
+    // build its Material through something, and there is only one builder here to choose.
+    const src = sourceOf(OVERLAY_FACTORY)
+    expect(
+      src.length,
+      `${OVERLAY_FACTORY} read as ${src.length} bytes — the factory moved, and the five ` +
+        `families above are then asserted against nothing`,
+    ).toBeGreaterThan(500)
+    expect(
+      src,
+      `${OVERLAY_FACTORY} does not call simpleWgslId(spec.family) — every family routed ` +
+        `through it emits its WGSL at runtime with the bake sitting unread`,
+    ).toContain('simpleWgslId(spec.family)')
+    for (const stage of ['vertex', 'fragment'] as const)
+      expect(
+        src,
+        `${OVERLAY_FACTORY} does not call simpleGlslId(spec.family, '${stage}') — ` +
+          `glslStagesFor is BOTH-OR-NEITHER, so one missing stage id costs both`,
+      ).toContain(`simpleGlslId(spec.family, '${stage}')`)
+  })
 })
 
 describe("#1679 inc 5 — C: every derived id exists in its group's committed artifact", () => {
