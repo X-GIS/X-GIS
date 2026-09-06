@@ -13,7 +13,10 @@
 // different colour with no error anywhere, which is the #723 bug class this
 // stable-id scheme exists to close. One authority, two callers.
 
-import { warnCategoricalPaletteWrap } from './category-palette-wrap-warning'
+import {
+  warnCategoricalPaletteWrap,
+  warnCategoricalSlotCollisions,
+} from './category-palette-wrap-warning'
 
 /** #723 — stable, tile-independent categorical palette id. FNV-1a of the
  *  value, masked to 23 bits so it round-trips EXACTLY through the f32
@@ -41,14 +44,22 @@ export function buildCategoryMap(
 ): Map<string, number> {
   const map = new Map<string, number>()
   for (const v of values) if (!map.has(v)) map.set(v, stableCategoryId(v))
-  // #2428 — the palette this id feeds has a FIXED length and the shader indexes it
-  // modulo that length, so past it the 21st category paints as the 1st. This is the
-  // only place the distinct set exists, so the check lives here at the single
-  // producer and both packers inherit it (§12). `fieldName` is optional so the
-  // #723 subset-independence tests can call this without inventing one; both
-  // PRODUCTION callers pass it, which `categorical-palette-wrap.test.ts` gates at
-  // the source rather than trusting the convention.
-  if (fieldName !== undefined) warnCategoricalPaletteWrap(fieldName, map.size)
+  // #2579 — the shader lands this id with `% CAT_PALETTE_SIZE`, and the id is a
+  // HASH, so two distinct values collide on the BIRTHDAY bound (even odds at ~27
+  // values) rather than the pigeonhole one. The count-keyed #2428 check that used
+  // to live on this line therefore reported nothing on a field already painting
+  // duplicates — 145 values / 21 collisions and silence. It is not gone: it is the
+  // right bound for the DENSE ids `deriveSeededCategoryOrder` produces and still
+  // fires from there. Here the map itself is in hand, so the collisions are
+  // counted rather than estimated.
+  //
+  // This is still the only place the distinct set exists, so the check stays at
+  // the single producer and both packers inherit it (§12). `fieldName` is
+  // optional so the #723 subset-independence tests can call this without
+  // inventing one; both PRODUCTION callers pass it, which
+  // `categorical-palette-wrap.test.ts` gates at the source rather than trusting
+  // the convention.
+  if (fieldName !== undefined) warnCategoricalSlotCollisions(fieldName, map)
   return map
 }
 
@@ -62,8 +73,8 @@ export function buildCategoryMap(
  *  rank needs the complete distinct set, and #723 needs it to be the same set
  *  for every tile — which is exactly what a seeded collection is and what a
  *  streamed MVT/PMTiles source can never be. Those sources pass nothing here
- *  and keep the hash (plus the #2428 warning), which remains the only correct
- *  answer where the distinct set is never final.
+ *  and keep the hash (plus the #2579 collision warning), which remains the
+ *  only correct answer where the distinct set is never final.
  *
  *  Sorted, so the assignment is a pure function of the VALUE SET — never of
  *  feature order, tile arrival order, or anything else network-dependent
@@ -98,16 +109,18 @@ export function deriveSeededCategoryOrder(
       if (typeof v === 'string') seen.add(v)
     }
     if (seen.size === 0) continue
-    // The #2428 wrap warning lives in `buildCategoryMap`, which this path
-    // BYPASSES — so without this line a seeded source silently lost the only
-    // diagnostic it had, and lost it exactly where the author is most likely
-    // to have too many categories (a whole FeatureCollection, not one tile).
-    // Caught by the render probe: the warning that fired before the dense
-    // index stopped firing after it, on the same scene.
+    // This path BYPASSES `buildCategoryMap` — so without this line a seeded
+    // source silently lost the only diagnostic it had, and lost it exactly
+    // where the author is most likely to have too many categories (a whole
+    // FeatureCollection, not one tile). Caught by the render probe: the warning
+    // that fired before the dense index stopped firing after it, on the same
+    // scene.
     //
-    // A dense rank wraps at N just as a hash does, so the message is true here
-    // too — and it is now the ONLY thing that wraps, which makes the count it
-    // reports exact rather than "at least".
+    // The PIGEONHOLE bound is the right one HERE and only here: these ids are a
+    // dense rank, so they collide when — and only when — there are more of them
+    // than slots, which makes the count it reports exact rather than "at least".
+    // The hashed path takes `warnCategoricalSlotCollisions` instead, because a
+    // count cannot see a birthday collision (#2579).
     warnCategoricalPaletteWrap(field, seen.size, warnSink)
     out[field] = [...seen].sort()
   }
@@ -184,9 +197,10 @@ export function packPerTileFeatureData(
       // value gets the same palette slot in every tile / at every zoom.
       // Reached when neither an authored `match()` list nor a SEEDED one
       // exists — i.e. a streamed MVT/PMTiles source, whose distinct set is
-      // never final. The hash collides on the birthday bound (#2439) and the
-      // #2428 warning below is what tells the author; a dense rank here would
-      // be the pre-#723 subset-dependent bug, so this stays.
+      // never final. The hash collides on the birthday bound (#2439) and
+      // `buildCategoryMap`'s #2579 collision warning is what tells the author;
+      // a dense rank here would be the pre-#723 subset-dependent bug, so this
+      // stays.
       const vals: string[] = []
       for (const props of featureProps.values()) {
         const v = props[fieldName]
