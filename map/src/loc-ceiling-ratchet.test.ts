@@ -449,7 +449,14 @@ const CEILINGS: Record<string, number> = {
   // identifiers, which re-fingerprints every overlapping pair for `--baseline-from-ref`.
   // Marked as twins with their reasons rather than consolidated (a WebGL2-path extraction
   // this motion-only PR must not smuggle in); the markers are the growth.
-  'map/src/render/vector-tile-renderer.ts': 5873,
+  // 5873→5881 (#2584): a ONE-LINE behaviour fix — `mainFill`'s base-layout arm now prefers
+  // the per-style ground override — plus the 8-line comment that records why. The code is
+  // net-zero; the comment is the whole growth, and it earns its lines: without it the next
+  // reader sees a `??` where the old code had none and cannot tell that removing it silently
+  // re-parks INC-4d's split twin (per-style split draws 184 → 0) while every other counter
+  // stays green. Not extracted: pulling the groundForLayout/patternActive/mainFill block into
+  // a helper is a real improvement and a separate refactor this fix must not smuggle in (§3).
+  'map/src/render/vector-tile-renderer.ts': 5881,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
