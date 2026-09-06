@@ -38,13 +38,10 @@ export type LinkBudgetClass = 'saver' | 'reduced' | 'full'
 /** Current link class, feature-detected. Progressive enhancement: absent API
  *  ⇒ `'full'` ⇒ unchanged behaviour.
  *
- *  Read live on every call, with no memoisation — unlike the viewport reads it
- *  sits beside, which are memoised per microtask because `window.innerWidth`
- *  forces style/layout. These are plain property reads on a Web IDL object with
- *  no layout cost, and reading fresh is what makes the API's `change` event
- *  work with no new plumbing: a link that degrades mid-session is picked up at
- *  the next cap read. The asymmetry with `readInnerWidthMemoised` is deliberate,
- *  not an oversight. */
+ *  Reads live on every call. That is right for the CLASSIFIER — its semantics
+ *  are what the matrix below tests, and a memo here would make the answer a
+ *  function of when you asked. The per-call COST is handled one level up, in
+ *  `linkBudgetClassMemoised`, which is what the two shaping helpers call. */
 export function linkBudgetClass(): LinkBudgetClass {
   if (typeof navigator === 'undefined') return 'full'
   const c = (navigator as Navigator & { connection?: NetworkInformationLike }).connection
@@ -56,6 +53,46 @@ export function linkBudgetClass(): LinkBudgetClass {
   return 'full'
 }
 
+/** `linkBudgetClass()` memoised for the lifespan of one microtask.
+ *
+ *  The docblock above used to argue the opposite — that these are "plain
+ *  property reads on a Web IDL object with no layout cost" and so need no
+ *  memo, calling the asymmetry with `readInnerWidthMemoised` deliberate. An
+ *  owner CPU profile of the deployed build refuted the premise: 96.2 ms of
+ *  main-thread self time, 1.4 % of a 6.7 s vector session, inside this
+ *  function. `effectiveType` and `saveData` are not field loads — they consult
+ *  Blink's NetworkStateNotifier on every get.
+ *
+ *  The asymmetry was not deliberate, it was an oversight, and
+ *  `tile-types.ts:274` is where it shows: `maxConcurrentLoads` reads
+ *  `readInnerWidthMemoised()` and `linkScaledConcurrency()` in ONE expression,
+ *  memoising the first and not the second — while its own comment records that
+ *  this site runs ~50 times in a single frame.
+ *
+ *  Same mechanism as that memo, for the same reason and with the same window:
+ *  valid for this call stack and any sync continuation, dropped on the next
+ *  microtask. So the `change` event still lands — a link that degrades
+ *  mid-session is picked up on the next frame's first read, which is the
+ *  liveness the original docblock actually wanted. */
+let _cachedClass: LinkBudgetClass | null = null
+function linkBudgetClassMemoised(): LinkBudgetClass {
+  if (_cachedClass !== null) return _cachedClass
+  const c = linkBudgetClass()
+  _cachedClass = c
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(() => {
+      _cachedClass = null
+    })
+  } else {
+    // Fire-and-forget by design: the microtask only drops the memo, and the body
+    // cannot throw. `void` is the repo's explicit-discard idiom (#1565).
+    void Promise.resolve().then(() => {
+      _cachedClass = null
+    })
+  }
+  return c
+}
+
 /** Whether SPECULATIVE work — fetching tiles the camera may never reach — is
  *  worth its bytes on this link.
  *
@@ -65,7 +102,7 @@ export function linkBudgetClass(): LinkBudgetClass {
  *  authorities for one policy: widening it to also cover `'reduced'` would
  *  otherwise mean finding every site that spelled the comparison itself. */
 export function speculativeFetchAllowed(): boolean {
-  return linkBudgetClass() !== 'saver'
+  return linkBudgetClassMemoised() !== 'saver'
 }
 
 /** Scale a device-class concurrency cap by link cost.
@@ -81,7 +118,7 @@ export function speculativeFetchAllowed(): boolean {
  *  exactly the links where it is already slowest — saving data must not mean
  *  making no progress. */
 export function linkScaledConcurrency(deviceCap: number): number {
-  switch (linkBudgetClass()) {
+  switch (linkBudgetClassMemoised()) {
     case 'saver':
       return Math.max(2, deviceCap >> 3)
     case 'reduced':

@@ -16,6 +16,11 @@ import { linkBudgetClass, linkScaledConcurrency, speculativeFetchAllowed } from 
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
+/** Cross a microtask boundary — the window `linkBudgetClassMemoised` is valid
+ *  for. Tests that switch link CLASS mid-body need this because the two shaping
+ *  helpers memoise; the classifier itself does not (see the split below). */
+const nextMicrotask = (): Promise<void> => Promise.resolve()
+
 /** Stub `navigator.connection`. Passing `undefined` models Safari/Firefox,
  *  which do not implement the Network Information API at all. */
 function stubConnection(connection: { saveData?: boolean; effectiveType?: string } | undefined) {
@@ -78,9 +83,10 @@ describe('linkBudgetClass — Save-Data and effectiveType, feature-detected', ()
   })
 
   it('is read live, so a link that degrades mid-session is picked up', () => {
-    // Deliberately NOT memoised (unlike the viewport reads it sits beside, which
-    // are, because innerWidth forces layout). This is what makes the API's
-    // `change` event work with no new plumbing.
+    // The CLASSIFIER is live. Its cost is memoised one level up, at the two
+    // shaping helpers (`linkBudgetClassMemoised`), so this stays a pure
+    // question about semantics and the `change` event still lands within a
+    // frame. The memo's own window is pinned in the describe block below.
     const conn = { saveData: false }
     stubConnection(conn)
     expect(linkBudgetClass()).toBe('full')
@@ -96,10 +102,16 @@ describe('linkScaledConcurrency — composes with the device cap, never replaces
     expect(linkScaledConcurrency(8)).toBe(8)
   })
 
-  it('scales rather than tabulating, so a retuned device cap carries through', () => {
+  it('scales rather than tabulating, so a retuned device cap carries through', async () => {
+    // The `await` is not incidental: this helper memoises per microtask, so a
+    // class switch mid-body is not observable. Nothing is lost — the mapping
+    // this test exists for is asserted identically either side of the boundary,
+    // and a link class CANNOT change within one call stack in production (it
+    // changes on the API's `change` event, which is its own task).
     stubConnection({ saveData: true })
     expect(linkScaledConcurrency(32)).toBe(4)
     expect(linkScaledConcurrency(16)).toBe(2)
+    await nextMicrotask()
     stubConnection({ effectiveType: '3g' })
     expect(linkScaledConcurrency(32)).toBe(8)
     expect(linkScaledConcurrency(16)).toBe(4)
@@ -117,18 +129,69 @@ describe('linkScaledConcurrency — composes with the device cap, never replaces
 })
 
 describe('speculativeFetchAllowed — one predicate for "is speculation worth it"', () => {
-  it('off only in saver; reduced still speculates because the link is usable', () => {
+  it('off only in saver; reduced still speculates because the link is usable', async () => {
     // The two speculative sites (skeleton prewarm budget, pan-ahead prefetch)
     // must agree by construction. Asserting the mapping HERE is what makes
-    // widening it to 'reduced' a one-line change rather than a hunt.
+    // widening it to 'reduced' a one-line change rather than a hunt. The
+    // `await`s cross this helper's memo window — see the note on
+    // linkScaledConcurrency's scaling test; the mapping coverage is unchanged.
     stubConnection({ saveData: true })
     expect(speculativeFetchAllowed()).toBe(false)
+    await nextMicrotask()
     stubConnection({ effectiveType: '2g' })
     expect(speculativeFetchAllowed()).toBe(false)
+    await nextMicrotask()
     stubConnection({ effectiveType: '3g' })
     expect(speculativeFetchAllowed()).toBe(true)
+    await nextMicrotask()
     stubConnection(undefined)
     expect(speculativeFetchAllowed()).toBe(true)
+  })
+})
+
+// ── The memo the two shaping helpers sit behind (#2560). An owner CPU profile
+// of the deployed build put 96.2 ms — 1.4 % of a 6.7 s vector session — inside
+// `linkBudgetClass`, refuting the docblock's claim that `effectiveType` /
+// `saveData` are free field loads needing no memo. These rows pin the window,
+// and the split: memo at the HELPERS, live at the CLASSIFIER. ──
+describe('linkBudgetClassMemoised — one read per microtask, not per call (#2560)', () => {
+  it('a mid-call-stack link change is NOT observed by the helpers', async () => {
+    // The property being bought. Production cannot hit this case — the class
+    // changes on the Network Information API's `change` event, which is its own
+    // task — so collapsing these reads costs no liveness a caller can observe.
+    const conn = { saveData: false, effectiveType: '4g' }
+    stubConnection(conn)
+    expect(speculativeFetchAllowed()).toBe(true)
+    expect(linkScaledConcurrency(32)).toBe(32)
+    conn.saveData = true
+    expect(speculativeFetchAllowed(), 'memo holds within the call stack').toBe(true)
+    expect(linkScaledConcurrency(32), 'and across both helpers — one shared memo').toBe(32)
+    await nextMicrotask()
+    expect(speculativeFetchAllowed(), 'and drops at the boundary').toBe(false)
+    expect(linkScaledConcurrency(32)).toBe(4)
+  })
+
+  it('the CLASSIFIER stays live inside that same window', () => {
+    // The discriminating row: it fails if the memo is put on `linkBudgetClass`
+    // instead of above it. Both placements make the helpers cheap; only this
+    // one keeps the 14 semantic rows above testing a pure function, and keeps
+    // a direct caller reading truth rather than a snapshot.
+    const conn = { saveData: false, effectiveType: '4g' }
+    stubConnection(conn)
+    expect(speculativeFetchAllowed()).toBe(true) // arms the memo
+    conn.saveData = true
+    expect(linkBudgetClass(), 'classifier is not behind the memo').toBe('saver')
+    expect(speculativeFetchAllowed(), 'helper still is').toBe(true)
+  })
+
+  it('the memo is dropped even when the class did not change', async () => {
+    // Guards the invalidation itself rather than its effect: a memo that only
+    // cleared on a differing read would pass the row above by luck.
+    stubConnection({ effectiveType: '4g' })
+    expect(speculativeFetchAllowed()).toBe(true)
+    await nextMicrotask()
+    stubConnection({ saveData: true })
+    expect(speculativeFetchAllowed()).toBe(false)
   })
 })
 

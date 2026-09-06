@@ -47,7 +47,17 @@ export class FrameDrawStats {
   >()
   /** Inner maps are retained across `resetRenderedDraws` and cleared in place —
    *  the tile set is stable frame to frame, so this trades a bounded, reused
-   *  set of maps for the per-render allocation a fresh outer map would cost. */
+   *  set of maps for the per-render allocation a fresh outer map would cost.
+   *
+   *  #2560: retaining them is only free if the reset is proportional to what
+   *  was DRAWN, not to what the outer map has accumulated. Nothing removes an
+   *  outer entry, so `for (const inner of renderedDraws.values()) inner.clear()`
+   *  walked every tile key the renderer had ever drawn, once per `render()` —
+   *  and `render()` is per ShowCommand (~106x/frame on OFM Bright), not per
+   *  frame. An owner profile measured it at 44.2 ms, against 21.3 ms for the
+   *  `hasDrawn` + `markDrawn` pair it exists to serve: the bookkeeping cost
+   *  twice the lookups. This list restores the O(drawn) reset. */
+  private readonly _dirtyKeys: number[] = []
   // DIAG: filled in by render() at the start of each show, read by
   // renderTileKeys when pushing per-tile drawIndexed entries into the
   // trace. Both fields are flag-gated and zero-cost when the trace
@@ -108,7 +118,15 @@ export class FrameDrawStats {
   /** Clear the render-scoped dedup map. Called at the start of each
    *  render() (per ShowCommand), NOT per frame. */
   resetRenderedDraws(): void {
-    for (const inner of this.renderedDraws.values()) inner.clear()
+    // Only the keys marked since the last reset can be non-empty: an inner map
+    // goes non-empty solely in `markDrawn`, which appends the key exactly when
+    // it makes that transition. So clearing this list clears the map, and the
+    // walk is proportional to the draws in THIS render rather than to every
+    // key the session has accumulated.
+    for (let i = 0; i < this._dirtyKeys.length; i++) {
+      this.renderedDraws.get(this._dirtyKeys[i]!)?.clear()
+    }
+    this._dirtyKeys.length = 0
   }
 
   /** Hot-loop dedup probe. Returns true when `key` has already been
@@ -135,6 +153,11 @@ export class FrameDrawStats {
       inner = new Map()
       this.renderedDraws.set(key, inner)
     }
+    // The empty→non-empty transition is the only moment a key becomes something
+    // the next reset must clear, and it happens at most once per key per render
+    // — so this appends each drawn key exactly once, never grows within a
+    // render, and is emptied by every reset.
+    if (inner.size === 0) this._dirtyKeys.push(key)
     inner.set(sub, {
       polyCount: polyIndexCount,
       lineCount: lineIndexCount,
