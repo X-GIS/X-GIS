@@ -684,6 +684,17 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   sweep tool (`trace_path`, direction `both`); it flapped all session here and the fallback
   to grep went UNANNOUNCED, which §6.1 forbids for exactly this reason.
   → `#2427` (filed on the refuted premise), `#2440`, `#2439`
+- One increment on from the entry above: sweeping far enough is not the same as MEASURING.
+  A cause READ off a condition is worth less than one counter — three root causes for #2584
+  were published from static reads (a literal paint composing to the null variant; a
+  data-driven paint fixing it; the vector drape being the lever) and all three were refuted,
+  while every claim backed by a counter held. Each refutation cost the same cheap thing: one
+  gate run with a counter per branch on `globalThis`, surfaced through the spec and read for
+  BOTH arms. Reading says what CAN happen; a counter says what DID. Instrument the branch you
+  are about to accuse BEFORE publishing the cause — and when a published cause is later
+  measured wrong, retract it everywhere it was written (that one had reached an issue body, a
+  comment, a commit message, two gate comments and a PR body).
+  → `#2584`
 - A CI-FAILURE WAKE CAN NAME A COMMIT THAT IS NO LONGER HEAD. `test.yml`'s concurrency
   cancels a PR's in-flight run on the next push, and the two AGGREGATING jobs —
   `test-result` and `render-gate` — conclude `failure` when the jobs they `needs` were
