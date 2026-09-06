@@ -145,6 +145,16 @@ export const ISOLATED = [
   'data/src/workers/mvt-worker-pool.error.test.ts',
   'map/src/__profile__/perf-marks.test.ts',
   'map/src/__tests__/event-dispatcher-hover-cursor.test.ts',
+  // (2) the same mock-rAF subject as its three siblings here, and its own header
+  //     says it "mirrors event-dispatcher-leave-raf-cancel.test.ts" — it was the
+  //     one of the four left off the list when #2330 landed them. Under the
+  //     shared registry its deferred pick never resolved and both cases died on
+  //     the 30 s timeout, while `vitest run` (isolated, which is what CI uses)
+  //     passed them in 9 ms. Exactly the come-due described at the top of
+  //     scripts/isolated-closure.test.ts: it stayed green while the pool
+  //     happened to schedule it first, and an unrelated branch adding compiler
+  //     tests repacked the workers.
+  'map/src/__tests__/event-dispatcher-leave-inflight-pick.test.ts',
   'map/src/__tests__/event-dispatcher-leave-raf-cancel.test.ts',
   'map/src/__tests__/event-dispatcher-listener-gate.test.ts',
   'map/src/arrow-show.test.ts',
@@ -171,6 +181,11 @@ export const ISOLATED = [
   'map/src/destroy-raf-and-globals.test.ts',
   'map/src/graphics/retained-draper-laziness.test.ts',
   'map/src/map-accessibility.test.ts',
+  // (2) mock rAF + a stubbed `Worker`. The second of the two rAF-stubbing files
+  //     the census below found outside this list; it has not been observed
+  //     failing, but rule (2) is a CLASS and admitting only the observed
+  //     casualty is what this list's own history warns against.
+  'map/src/sprite-atlas-rerun-latch.test.ts',
   'map/src/map-cold-start-burst-lifecycle.test.ts',
   'map/src/map-destroy.test.ts',
   'map/src/map-error-event.test.ts',
