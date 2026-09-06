@@ -1124,7 +1124,13 @@ const CEILINGS: Record<string, number> = {
   // `wc -l` on the post-prettier tree.
   // MERGE RE-MEASURE (2026-09-05, eighth main merge): both sides raised this key from
   // the common base, so neither number is right (§12) — 5493 is `wc -l` on the merged tree.
-  'map/src/map.ts': 5493,
+  // 5506 (#2515): the `_reinitializing` latch + its docblock, and `_adoptRendererSet` —
+  // one private method replacing the renderer-set adoption sequence that `run()` and
+  // `runBinary()` each carried a hand-copy of. The dedup pays part of the cost back
+  // (`bun run dup`: 277 -> 276 clones vs main); the rest is the docblock naming why the
+  // latch is cleared at the single producer rather than at each call site. Measured with
+  // `wc -l` on the post-prettier tree.
+  'map/src/map.ts': 5506,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

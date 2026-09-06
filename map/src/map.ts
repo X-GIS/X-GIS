@@ -210,7 +210,7 @@ import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-recovery'
 import { ColdStartBurstController } from './map-cold-start-burst'
-import { buildSceneRenderers } from './scene-renderers'
+import { buildSceneRenderers, type SceneRendererSet } from './scene-renderers'
 import {
   safeFetch,
   assertIngestBudget,
@@ -3137,30 +3137,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: commands.symbols,
     })
-    this.renderer = rendererSet.renderer
-    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
-    this.rasterRenderer = rendererSet.rasterRenderer
-    this.applyEffectiveRasterFadeDuration()
-    this.hillshadeRenderer = rendererSet.hillshadeRenderer
-    this.coverageRenderer = rendererSet.coverageRenderer
-    // #2515 — the fresh renderer set is live from here; setQuality() etc. can
-    // safely act on renderer/rasterRenderer/hillshadeRenderer again.
-    this._reinitializing = false
-    // A dropped region takes its arrows with it — including the LRU evictions the renderer
-    // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
-    this.flowRenderer = rendererSet.flowRenderer
-    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
-    // handle on it to bind — and to upload each batch's origins the moment it is added.
-    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
-    this.gpuTimer = rendererSet.gpuTimer
-    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
-    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
-    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
-    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
-    this.shapeRegistry = rendererSet.shapeRegistry
-    this.heatmapRenderer = rendererSet.heatmapRenderer
-    this.lineRenderer = rendererSet.lineRenderer
+    this._adoptRendererSet(rendererSet)
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
@@ -4245,27 +4222,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: undefined,
     })
-    this.renderer = rendererSet.renderer
-    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
-    this.rasterRenderer = rendererSet.rasterRenderer
-    this.applyEffectiveRasterFadeDuration()
-    this.hillshadeRenderer = rendererSet.hillshadeRenderer
-    this.coverageRenderer = rendererSet.coverageRenderer
-    // #2515 — the fresh renderer set is live from here; setQuality() etc. can
-    // safely act on renderer/rasterRenderer/hillshadeRenderer again.
-    this._reinitializing = false
-    // A dropped region takes its arrows with it — including the LRU evictions the renderer
-    // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
-    this.flowRenderer = rendererSet.flowRenderer
-    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
-    // handle on it to bind — and to upload each batch's origins the moment it is added.
-    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
-    this.gpuTimer = rendererSet.gpuTimer
-    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
-    this.shapeRegistry = rendererSet.shapeRegistry
-    this.heatmapRenderer = rendererSet.heatmapRenderer
-    this.lineRenderer = rendererSet.lineRenderer
+    this._adoptRendererSet(rendererSet)
 
     for (const load of commands.loads) {
       const url =
@@ -5169,6 +5126,40 @@ export class XGISMap {
    *  removal — those DOM hooks are reused by the re-run. After this
    *  returns, run()/runBinary() rebuild ctx + renderers + stages clean.
    *  No-op when nothing was ever loaded (`?.` covers a null ctx). */
+  /** Adopt a freshly built renderer set — the SINGLE producer of "the renderers
+   *  are live". `run()` and `runBinary()` both build their set with
+   *  `buildSceneRenderers` and then adopted it with an identical hand-copied
+   *  sequence; that copy is why `_reinitializing` had two places to be cleared
+   *  and could be forgotten in a third (#2515). Clearing the latch HERE makes
+   *  the invariant true by construction for every caller, present and future
+   *  (CLAUDE.md §12 — apply the witness at the single producer). */
+  private _adoptRendererSet(rendererSet: SceneRendererSet): void {
+    this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
+    this.rasterRenderer = rendererSet.rasterRenderer
+    this.applyEffectiveRasterFadeDuration()
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.coverageRenderer = rendererSet.coverageRenderer
+    // #2515 — the fresh renderer set is live from here; setQuality() etc. can
+    // safely act on renderer/rasterRenderer/hillshadeRenderer again.
+    this._reinitializing = false
+    // A dropped region takes its arrows with it — including the LRU evictions the renderer
+    // makes on its own, which nothing else observes (#1419).
+    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
+    this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
+    this.gpuTimer = rendererSet.gpuTimer
+    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
+    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
+    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
+    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
+    this.shapeRegistry = rendererSet.shapeRegistry
+    this.heatmapRenderer = rendererSet.heatmapRenderer
+    this.lineRenderer = rendererSet.lineRenderer
+  }
+
   private _teardownForReinit(): void {
     // #2515 — set before `_releaseGpuResources()` destroys renderer/rasterRenderer/
     // hillshadeRenderer without nulling them, so setQuality() cannot mistake their
