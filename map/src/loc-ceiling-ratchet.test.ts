@@ -1118,7 +1118,13 @@ const CEILINGS: Record<string, number> = {
   // applyTerrain re-applied at both renderer-install sites. It is a public-API
   // addition on the map shell, which is where a facade belongs; the 373-call-site
   // question of hiding the renderer FIELDS is #2578 and must extract, not accumulate.
-  'map/src/map.ts': 5555,
+  // 5493→5547 (#2539): the terrain FACADE (setTerrain/getTerrain + applyTerrain), and the
+  // EXTRACTION the duplication ratchet forced out of it — runScene and runBinary carried a
+  // byte-identical 19-line renderer install, and adding one line to both tipped it past the
+  // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
+  // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
+  // renderer FIELDS is #2578 and must extract, not accumulate.
+  'map/src/map.ts': 5547,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

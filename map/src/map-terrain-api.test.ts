@@ -103,22 +103,42 @@ describe('#2539 — the terrain facade', () => {
   })
 })
 
-describe('#2539 — every renderer install re-applies the terrain', () => {
-  // The test above proves `applyTerrain()` works; it cannot prove the install
-  // sites CALL it, and a missing call is exactly the bug the facade exists to
-  // prevent — silent, and invisible to tsc. Gate it on the source.
+describe('#2539 — ONE install authority, and it re-applies the terrain', () => {
+  // The behavioural tests above prove `applyTerrain()` works; they cannot prove the boot
+  // paths CALL it, and a missing call is exactly the silent bug the facade exists to
+  // prevent — invisible to tsc. Gate it on the source.
+  //
+  // This started as "every `this.hillshadeRenderer = rendererSet.hillshadeRenderer` is
+  // followed by applyTerrain()", over the two hand-rolled copies `runScene` and
+  // `runBinary` carried. Adding one line to both tipped them past the duplication
+  // ratchet's threshold, which was right: the copies were the reason a boot path could
+  // forget. They are now one `installRendererSet`, so the invariant gets STRONGER —
+  // exactly one installer, and every boot path goes through it. A third boot path that
+  // hand-rolls the assignments reds here instead of silently shipping flat ground.
   const SRC = readFileSync(new URL('./map.ts', import.meta.url), 'utf8').split('\n')
-  const installs = SRC.map((l, i) => [l, i] as const).filter(([l]) =>
-    /this\.hillshadeRenderer = rendererSet\.hillshadeRenderer/.test(l),
-  )
+  const at = (re: RegExp) => SRC.map((l, i) => [l, i] as const).filter(([l]) => re.test(l))
+  const installs = at(/this\.hillshadeRenderer = rendererSet\.hillshadeRenderer/)
+  const boots = at(/buildSceneRenderers\(/)
 
-  it('the instrument finds the install sites at all (a zero here would pass vacuously)', () => {
-    expect(installs.length).toBeGreaterThanOrEqual(2)
+  it('the instrument finds the boot paths at all (a zero here would pass vacuously)', () => {
+    expect(
+      boots.length,
+      'map.ts builds a renderer set in at least two places',
+    ).toBeGreaterThanOrEqual(2)
   })
 
-  it.each(installs.map(([, i]) => i))('map.ts:%i is followed by applyTerrain()', (i) => {
-    expect(SRC[i + 1], `map.ts:${i + 2} must re-apply the map's terrain intent`).toContain(
-      'this.applyTerrain()',
-    )
+  it('exactly ONE place installs a renderer set', () => {
+    expect(installs.length, 'a second installer is a second place to forget applyTerrain()').toBe(1)
+  })
+
+  it('that one place re-applies the map-owned terrain intent', () => {
+    expect(SRC[installs[0][1] + 1], `map.ts:${installs[0][1] + 2}`).toContain('this.applyTerrain()')
+  })
+
+  it.each(boots.map(([, i]) => i))('the boot path at map.ts:%i installs through it', (i) => {
+    expect(
+      SRC.slice(i, i + 8).join('\n'),
+      `map.ts:${i + 1} must not hand-roll the install`,
+    ).toContain('this.installRendererSet(rendererSet)')
   })
 })

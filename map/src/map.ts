@@ -212,7 +212,7 @@ import { FeatureUpdateQueue } from './feature-update-queue'
 import { MapEventBus } from './map-event-bus'
 import { wireDeviceLostRecovery, resumeDeviceLostRecovery } from './device-lost-recovery'
 import { ColdStartBurstController } from './map-cold-start-burst'
-import { buildSceneRenderers } from './scene-renderers'
+import { buildSceneRenderers, type SceneRendererSet } from './scene-renderers'
 import {
   safeFetch,
   assertIngestBudget,
@@ -1127,6 +1127,37 @@ export class XGISMap {
    *  `map-terrain-api.test.ts` asserts that no install site is missing the call. */
   private applyTerrain(): void {
     this.hillshadeRenderer?.setTerrainExaggeration(this._terrain?.exaggeration ?? 0)
+  }
+
+  /** THE ONE PLACE a renderer set is installed on the map. Extracted because the two
+   *  call sites (`runScene`, `runBinary`) had drifted into a byte-identical 19-line copy
+   *  that the duplication ratchet flagged the moment #2539 added a line to both
+   *  (docs/adr/0013). Being ONE authority is also what makes the terrain re-apply below
+   *  impossible to forget: a third boot path inherits it by construction rather than by
+   *  someone remembering, which is exactly the bug `map-terrain-api.test.ts` gates. */
+  private installRendererSet(rendererSet: SceneRendererSet): void {
+    this.renderer = rendererSet.renderer
+    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
+    this.rasterRenderer = rendererSet.rasterRenderer
+    this.applyEffectiveRasterFadeDuration()
+    this.hillshadeRenderer = rendererSet.hillshadeRenderer
+    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
+    this.coverageRenderer = rendererSet.coverageRenderer
+    // A dropped region takes its arrows with it — including the LRU evictions the renderer
+    // makes on its own, which nothing else observes (#1419).
+    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
+    this.flowRenderer = rendererSet.flowRenderer
+    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
+    // handle on it to bind — and to upload each batch's origins the moment it is added.
+    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
+    this.gpuTimer = rendererSet.gpuTimer
+    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
+    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
+    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
+    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
+    this.shapeRegistry = rendererSet.shapeRegistry
+    this.heatmapRenderer = rendererSet.heatmapRenderer
+    this.lineRenderer = rendererSet.lineRenderer
   }
 
   setBackgroundFill(rgba: [number, number, number, number] | null): void {
@@ -3185,28 +3216,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: commands.symbols,
     })
-    this.renderer = rendererSet.renderer
-    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
-    this.rasterRenderer = rendererSet.rasterRenderer
-    this.applyEffectiveRasterFadeDuration()
-    this.hillshadeRenderer = rendererSet.hillshadeRenderer
-    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
-    this.coverageRenderer = rendererSet.coverageRenderer
-    // A dropped region takes its arrows with it — including the LRU evictions the renderer
-    // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
-    this.flowRenderer = rendererSet.flowRenderer
-    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
-    // handle on it to bind — and to upload each batch's origins the moment it is added.
-    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
-    this.gpuTimer = rendererSet.gpuTimer
-    // Cast: pointRenderer field is a definite-assignment non-null (like ctx);
-    // buildSceneRenderers yields null only on a ctor failure, which overwrites a
-    // stale prior-run instance — part of the #7 fix (see scene-renderers.ts).
-    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
-    this.shapeRegistry = rendererSet.shapeRegistry
-    this.heatmapRenderer = rendererSet.heatmapRenderer
-    this.lineRenderer = rendererSet.lineRenderer
+    this.installRendererSet(rendererSet)
 
     // P3 Step 3c — upload the scene-level color gradient palette to GPU
     // so MapRenderer + freshly-built VTRs sample the real atlas instead
@@ -4291,25 +4301,7 @@ export class XGISMap {
       graticuleInitial: this._viewport.graticuleInitial,
       symbols: undefined,
     })
-    this.renderer = rendererSet.renderer
-    this.renderer.inputs = this.inputs // #1539 — non-tiled polygon path reads the pool too
-    this.rasterRenderer = rendererSet.rasterRenderer
-    this.applyEffectiveRasterFadeDuration()
-    this.hillshadeRenderer = rendererSet.hillshadeRenderer
-    this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
-    this.coverageRenderer = rendererSet.coverageRenderer
-    // A dropped region takes its arrows with it — including the LRU evictions the renderer
-    // makes on its own, which nothing else observes (#1419).
-    this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
-    this.flowRenderer = rendererSet.flowRenderer
-    // The advected arrows' state lives on the FlowRenderer (#1419); the graphics store needs a
-    // handle on it to bind — and to upload each batch's origins the moment it is added.
-    this.graphics.setAdvectedArrowSource(rendererSet.flowRenderer)
-    this.gpuTimer = rendererSet.gpuTimer
-    this.pointRenderer = rendererSet.pointRenderer as PointRenderer
-    this.shapeRegistry = rendererSet.shapeRegistry
-    this.heatmapRenderer = rendererSet.heatmapRenderer
-    this.lineRenderer = rendererSet.lineRenderer
+    this.installRendererSet(rendererSet)
 
     for (const load of commands.loads) {
       const url =
