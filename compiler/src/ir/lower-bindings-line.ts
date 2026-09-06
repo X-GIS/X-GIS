@@ -13,6 +13,7 @@ import {
   resolveColorTokenLiterals,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
+import { translateShapeHandler } from './lower-bindings'
 
 // ── Binding-form stroke arms (item.binding present) ──
 
@@ -75,32 +76,18 @@ export const strokeGapBindingHandler: BindingHandler = {
 }
 
 /** `stroke-translate-x/y-[interpolate(zoom, …)]` — per-axis zoom shape. */
-export const strokeTranslateXBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'stroke-translate-x',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.strokeTranslateXShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+export const strokeTranslateXBindingHandler = translateShapeHandler(
+  'stroke-translate-x',
+  (acc, shape) => {
+    acc.strokeTranslateXShape = shape
   },
-}
-export const strokeTranslateYBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'stroke-translate-y',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.strokeTranslateYShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+)
+export const strokeTranslateYBindingHandler = translateShapeHandler(
+  'stroke-translate-y',
+  (acc, shape) => {
+    acc.strokeTranslateYShape = shape
   },
-}
+)
 
 /** `stroke-opacity-[interpolate(zoom, …)]` — circle-stroke-opacity zoom shape
  *  on the 0..100 scale; divide each stop back to 0..1. */
