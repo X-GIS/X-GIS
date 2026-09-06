@@ -23,6 +23,7 @@ import {
   GEOMETRY_TYPE_KEY,
   GEOMETRY_KEY,
 } from '../eval/reserved-keys'
+import { nearestByEditDistance } from './edit-distance'
 
 /** The `$`-sigil keys the evaluator injects — never feature properties,
  *  so a schema never has to declare them. Derived from the reserved-keys
@@ -149,34 +150,5 @@ function walkFields(expr: AST.Expr, visit: (field: string) => void): void {
 /** Nearest declared field by edit distance, or null when the closest match
  *  is too far to be a plausible typo (mirrors the X-GIS0012 threshold). */
 function nearest(name: string, fields: ReadonlySet<string>): string | null {
-  let best: string | null = null
-  let bestDist = Infinity
-  for (const cand of fields) {
-    const d = levenshtein(name, cand)
-    if (d < bestDist) {
-      bestDist = d
-      best = cand
-    }
-  }
-  const threshold = name.length >= 4 ? 2 : 1
-  return best !== null && bestDist <= threshold ? best : null
-}
-
-function levenshtein(a: string, b: string): number {
-  const m = a.length
-  const n = b.length
-  if (m === 0) return n
-  if (n === 0) return m
-  let prev = new Array<number>(n + 1)
-  for (let j = 0; j <= n; j++) prev[j] = j
-  for (let i = 1; i <= m; i++) {
-    const cur = new Array<number>(n + 1)
-    cur[0] = i
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
-    }
-    prev = cur
-  }
-  return prev[n]
+  return nearestByEditDistance(name, fields, name.length >= 4 ? 2 : 1)
 }

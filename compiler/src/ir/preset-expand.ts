@@ -7,6 +7,7 @@ import type * as AST from '../parser/ast'
 import type { Diagnostic } from '../diagnostics/diagnostic'
 import { PRESET_ARITY, UNKNOWN_STYLE_PRESET } from '../diagnostics/diagnostic'
 import { substituteIdentifiers } from '../expr/substitute'
+import { nearestByEditDistance } from './edit-distance'
 
 /** A lowered preset: its `|` utility lines (inlined by expandPresets) + block properties
  *  (coverage paint `ramp:`/`range:`, merged onto a `style:`-referencing layer — #1272 E-②).
@@ -64,34 +65,10 @@ export function resolveStylePreset(
 }
 
 /** Nearest declared preset name by edit distance, or null when too far to be
- *  a plausible typo. Mirrors validate-schema-fields.ts's `nearest()` —
- *  duplicated locally per this codebase's per-file convention (each of
- *  utility-registry.ts / validate-fncalls.ts owns its own copy too). */
+ *  a plausible typo. Keeps this site's own threshold, which is looser than the
+ *  X-GIS0012 sites' and scales with the name length rather than stepping at 4. */
 function nearestPresetName(name: string, presetMap: Map<string, PresetDef>): string | null {
-  let best: string | null = null
-  let bestDist = Infinity
-  for (const candidate of presetMap.keys()) {
-    const d = levenshtein(name, candidate)
-    if (d < bestDist) {
-      bestDist = d
-      best = candidate
-    }
-  }
-  return best !== null && bestDist <= Math.max(2, Math.ceil(name.length / 3)) ? best : null
-}
-
-function levenshtein(a: string, b: string): number {
-  const dp: number[] = Array.from({ length: b.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= a.length; i++) {
-    let prev = dp[0]!
-    dp[0] = i
-    for (let j = 1; j <= b.length; j++) {
-      const tmp = dp[j]!
-      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j]!, dp[j - 1]!)
-      prev = tmp
-    }
-  }
-  return dp[b.length]!
+  return nearestByEditDistance(name, presetMap.keys(), Math.max(2, Math.ceil(name.length / 3)))
 }
 
 /**
