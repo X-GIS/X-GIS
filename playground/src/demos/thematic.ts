@@ -57,6 +57,24 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     center: [-112.14, 36.1],
   },
 
+  terrain_3d: {
+    name: 'Terrain: 3D (Grand Canyon)',
+    tag: 'raster',
+    description:
+      'The DEM MOVES the ground, not just shades it (D5 INC-3, #2539): the same live AWS Terrain Tiles as hillshade_terrarium, but `vs_tile` samples elevation per vertex and displaces along the ellipsoid normal — at pitch the ridges have real silhouettes and near faces occlude far ones. Flip between the two demos over the same tiles to see one flat sheet become a landform. The exaggeration buttons drive `setTerrainExaggeration` live; 0 returns the ground to bit-identical flat (the displacement is a multiply by the per-tile gain, so "off" is a multiply by 0.0). Terrain is invisible from straight above, which is why this opens pitched.',
+    source: load('terrain-3d.xgis'),
+    zoom: 11.5,
+    center: [-112.14, 36.1],
+    pitch: 65,
+    bearing: 20,
+    terrainExaggeration: 1.5,
+    actions: [
+      { label: 'Flat (0×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(0) },
+      { label: 'Real (1×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(1) },
+      { label: 'Exaggerated (3×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(3) },
+    ],
+  },
+
   hillshade_multidir: {
     name: 'Hillshade: multidirectional',
     tag: 'raster',

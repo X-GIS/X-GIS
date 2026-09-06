@@ -347,11 +347,20 @@ export class HillshadeRenderer {
    *  everyone who never asked for terrain. At 0 this multiplies the decoded metres
    *  by exactly 0.0, so the vertex is bit-identical to the pre-terrain one.
    *
-   *  Set by the host that owns the `terrain` block (a style path, or the playground's
-   *  `?terrain=` for the render gate) — the value rides `TileUniforms.dem_sub.w`. */
+   *  The value rides `TileUniforms.dem_sub.w`. */
   private _terrainExaggeration = 0
 
-  /** @see _terrainExaggeration — 0 (default) means no displacement at all. */
+  /** THE ONLY WAY TO TURN TERRAIN ON — `map.hillshadeRenderer.setTerrainExaggeration(e)`
+   *  from JS (the field is public on Map; this class is exported from `@xgis/map`).
+   *  There is no top-level `terrain` block in the style language yet and no URL
+   *  parameter: an earlier draft of this comment named a `?terrain=` that has never
+   *  existed, so the entry point is spelled out here rather than described (#2520).
+   *
+   *  PER-RENDERER state: `runScene()` / `runBinary()` each assign a fresh renderer
+   *  (map.ts:3132, 4237) initialised to 0, so set this AFTER run() resolves — before
+   *  it, the value is dropped. `rebuildForQuality` keeps it (it only drops the draper).
+   *
+   *  0 (the default) means no displacement at all. */
   setTerrainExaggeration(e: number): void {
     if (Number.isFinite(e)) this._terrainExaggeration = Math.max(0, e)
   }

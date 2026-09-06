@@ -2142,7 +2142,12 @@ const CEILINGS: Record<string, number> = {
   // literal `false` now, and this branch's merge kept it). Both sides edited THIS file
   // from the same 753 base, so neither number survives and the arithmetic (753 - 7 + 58
   // + 5 = 809) is only a cross-check: the ceiling below is `wc -l` on the merged tree.
-  'map/src/render/hillshade-renderer.ts': 804,
+  // 804→813: the terrain entry point documented on the PUBLIC setter instead of the
+  // private field. The old note named a `?terrain=` URL parameter that has never
+  // existed anywhere in the tree (#2520's shape); a reader asking "can I set terrain
+  // from JS?" now gets the answer at the method they would call. Measured on the
+  // POST-prettier tree, not the working copy.
+  'map/src/render/hillshade-renderer.ts': 813,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps

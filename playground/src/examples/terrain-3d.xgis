@@ -1,0 +1,48 @@
+xgis 1
+
+/* D5 INC-3 (#2539) — 3D TERRAIN from live elevation tiles.
+ *
+ * The same real `raster-dem` source hillshade-terrarium.xgis streams (AWS
+ * Terrain Tiles, Mapzen/Nextzen terrarium encoding, public S3, no API key) —
+ * but here the DEM does not only SHADE the ground, it MOVES it. `vs_tile`
+ * samples the elevation per vertex and displaces along the ellipsoid normal,
+ * so at pitch the ridges have real silhouettes instead of painted ones.
+ *
+ * Flip between this and `hillshade_terrarium` over the same tiles to see the
+ * difference: identical shading, one flat sheet and one solid landform.
+ *
+ * WHERE THE EXAGGERATION COMES FROM. Not this file — Mapbox carries it in a
+ * top-level `terrain` block, which the converter does not lower yet, so the
+ * demo sets it as metadata (`terrainExaggeration` in thematic.ts) through the
+ * runtime lever. When that block lands, it moves here and this note goes away.
+ *
+ * The camera pose is demo metadata too (center/zoom/pitch/bearing) — a .xgis
+ * carries style, not a viewpoint. Terrain is invisible from straight above:
+ * a vertical displacement is nearly parallel to the view direction at pitch 0
+ * and moves a pixel only through perspective. */
+
+/* Warm paper ground, for the reason hillshade-terrarium.xgis records: hillshade
+ * output is TRANSPARENT over flat terrain (MapLibre semantics), so over the
+ * playground's near-black default the scene reads as almost black. */
+background { fill: #f4efe6 }
+
+source terrain {
+  type: "raster-dem"
+  url: "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+  encoding: terrarium
+  tileSize: 256
+  /* The AWS terrarium bucket stops at z15. Without this the selector asks for z16+
+   * (rasterCoverZoom adds +1 on a 256-px source) and every visible tile 404s. */
+  maxzoom: 15
+}
+
+layer relief {
+  source: terrain
+  /* Lower exaggeration than the 2D sibling on purpose: the SHADING there has to
+   * imply relief the flat sheet does not have, so it is pushed. Here the geometry
+   * carries it, and over-shading a surface that already has silhouettes reads as
+   * grime in the valleys. */
+  | hillshade-exaggeration-0.4 hillshade-illumination-direction-315
+  | hillshade-shadow-color-#3d2b1f hillshade-highlight-color-#fffcf5
+    hillshade-accent-color-#4d3a26
+}
