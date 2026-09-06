@@ -2765,6 +2765,16 @@ export class XGISMap {
     this._cameraExplicitlyPositioned = true
   }
 
+  /** Whether the camera has been user-positioned — the reader paired with
+   *  `markCameraPositioned()`. A host that positions the camera itself needs
+   *  to ask this before deciding whether to seed one (the playground's
+   *  deep-link path does exactly that). The `_cameraPositionedFlag` getter
+   *  below reads the same state and stays test-only, as its docblock says;
+   *  this is the published half (#2613). */
+  isCameraPositioned(): boolean {
+    return this._cameraExplicitlyPositioned
+  }
+
   /** Test seam — the bounds-fit gate that runs when a GeoJSON worker
    *  compile lands. Extracted from the inline `.then()` branch so the
    *  decision is CPU-testable without spinning up a WebGPU device or

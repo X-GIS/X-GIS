@@ -30,7 +30,8 @@ import {
 } from '../../../rhi-webgpu/src/__test-support__/webgpu-stub'
 import { initGPU, type GPUContext } from '@xgis/rhi-webgpu'
 import { QUALITY, updateQuality, getSampleCount } from '@xgis/engine'
-import { RasterRenderer, XGISMap, VectorTileRenderer } from '@xgis/map'
+import { RasterRenderer, VectorTileRenderer } from '@xgis/map'
+import { XGISMap } from '../map'
 import { VectorDrapeRenderer } from './vector-drape-renderer'
 import { UnderOccluderRenderer } from './under-occluder-renderer'
 
