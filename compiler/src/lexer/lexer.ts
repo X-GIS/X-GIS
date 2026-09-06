@@ -6,6 +6,10 @@ export class Lexer {
   private line = 1
   private col = 1
   private tokens: Token[] = []
+  /** Set whenever non-token source text (whitespace, a newline, a
+   *  comment) is consumed; the NEXT token emitted claims it as
+   *  `spaceBefore` and clears it. See {@link Token.spaceBefore}. */
+  private gapBefore = false
 
   constructor(source: string) {
     this.src = source
@@ -13,7 +17,9 @@ export class Lexer {
 
   tokenize(): Token[] {
     while (this.pos < this.src.length) {
+      const wsStart = this.pos
       this.skipWhitespace()
+      if (this.pos > wsStart) this.gapBefore = true
       if (this.pos >= this.src.length) break
 
       const ch = this.src[this.pos]
@@ -24,6 +30,9 @@ export class Lexer {
         this.pos++
         this.line++
         this.col = 1
+        // The parser filters Newline tokens out (parser-cursor.ts), so the
+        // separation this newline provides has to ride on the next token too.
+        this.gapBefore = true
         continue
       }
 
@@ -196,7 +205,7 @@ export class Lexer {
 
     this.pos++ // skip closing "
     this.col++
-    this.tokens.push({ type: TokenType.String, value, line: startLine, col: startCol })
+    this.emit({ type: TokenType.String, value, line: startLine, col: startCol })
   }
 
   private readColor(): void {
@@ -215,7 +224,7 @@ export class Lexer {
       this.error(`Invalid color literal: ${value} (expected #RGB, #RRGGBB, or #RRGGBBAA)`)
     }
 
-    this.tokens.push({ type: TokenType.Color, value, line: this.line, col: startCol })
+    this.emit({ type: TokenType.Color, value, line: this.line, col: startCol })
   }
 
   private readNumber(): void {
@@ -280,7 +289,7 @@ export class Lexer {
       }
     }
 
-    this.tokens.push({ type: TokenType.Number, value, line: this.line, col: startCol })
+    this.emit({ type: TokenType.Number, value, line: this.line, col: startCol })
 
     // Check for unit suffix (px, m, km, etc.)
     if (this.pos < this.src.length && this.isAlpha(this.src[this.pos])) {
@@ -294,7 +303,7 @@ export class Lexer {
       }
       const unitType = lookupUnit(unitStr)
       if (unitType !== null) {
-        this.tokens.push({ type: unitType, value: unitStr, line: this.line, col: unitCol })
+        this.emit({ type: unitType, value: unitStr, line: this.line, col: unitCol })
       } else {
         // Not a unit — put it back, it's a separate identifier
         this.pos = unitStart
@@ -317,7 +326,7 @@ export class Lexer {
     }
 
     const type = lookupKeyword(value)
-    this.tokens.push({ type, value, line: this.line, col: startCol })
+    this.emit({ type, value, line: this.line, col: startCol })
   }
 
   private skipWhitespace(): void {
@@ -333,6 +342,7 @@ export class Lexer {
   }
 
   private skipLineComment(): void {
+    this.gapBefore = true
     while (this.pos < this.src.length && this.src[this.pos] !== '\n') {
       this.pos++
       this.col++
@@ -340,6 +350,7 @@ export class Lexer {
   }
 
   private skipBlockComment(): void {
+    this.gapBefore = true
     this.pos += 2 // skip /*
     this.col += 2
     while (this.pos < this.src.length) {
@@ -368,7 +379,20 @@ export class Lexer {
   }
 
   private push(type: TokenType, value: string): void {
-    this.tokens.push({ type, value, line: this.line, col: this.col })
+    this.emit({ type, value, line: this.line, col: this.col })
+  }
+
+  /** Append a token, transferring a pending {@link Token.spaceBefore}.
+   *  Every token the lexer produces goes through here so the flag is
+   *  claimed by exactly one token — notably NOT by the unit suffix in
+   *  `120deg`, which readNumber emits second and which is glued by
+   *  construction. */
+  private emit(token: Token): void {
+    if (this.gapBefore) {
+      token.spaceBefore = true
+      this.gapBefore = false
+    }
+    this.tokens.push(token)
   }
 
   private isDigit(ch: string): boolean {

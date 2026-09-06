@@ -524,6 +524,12 @@ source w { type: geojson, url: "w.geojson" }
 layer l { source: w  fill: rgba(30, 41, 59, 0.8)  stroke-width: 1 }
 ```
 
+"Verbatim" is literal: the captured text reproduces the written spelling
+whitespace-for-whitespace, so `hsl(120, 50%, 50%)`, `rgba(0, 0, 0, .6)` and
+`hsl(120deg 50% 50%)` reach the colour resolver exactly as authored (#2544). A
+`fill:` / `stroke:` value that still resolves to no colour is `X-GIS0029` — a
+warning, and the property is dropped — never a silent no-op.
+
 ## 2.15 Expression statements — removed (#1072 / #1138)
 
 There are no top-level expression statements. The former fallthrough that parsed a
