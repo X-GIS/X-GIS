@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   MAX_TILE_ATTEMPTS,
   COLD_START_PARENT_SLOTS,
@@ -8,8 +8,12 @@ import {
   tileRequestable,
   noteFailure,
   leafLoadBudget,
+  InflightLedger,
+  RASTER_INFLIGHT_KEEP_WARM_MS,
   type FailedTile,
 } from './tile-retry'
+
+afterEach(() => vi.restoreAllMocks())
 
 // The defect this encodes: a DEM tile whose load resolved null was in neither the
 // tile cache nor the in-flight set, so the next frame re-requested it — forever.
@@ -135,6 +139,41 @@ describe('failed-tile ledger is bounded', () => {
     // the ones it is still looking at — are the ones that keep their backoff.
     expect(failed.has('14/0/2000')).toBe(false)
     expect(failed.has(`14/${MAX_FAILED_TILES + 499}/2000`)).toBe(true)
+  })
+})
+
+// ═══ #2574 — InflightLedger's two readers must never disagree about a hung entry ═══
+//
+// `size` (the concurrency budget) and `liveCount()` (the idle signal) read one Map. A
+// tile whose fetch never settles used to leave `size` counting it forever while
+// `liveCount()` alone went deadline-bounded — so a black-holing host wedged every
+// concurrency slot permanently even though the map reported itself idle.
+describe('InflightLedger reaps a hung entry (#2574)', () => {
+  it('reclaims the concurrency slot at the same deadline liveCount() already used', () => {
+    let clock = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const ledger = new InflightLedger()
+    const ctrl = new AbortController()
+    ledger.set('16/1/1', ctrl)
+
+    expect(ledger.size).toBe(1)
+    expect(ledger.liveCount()).toBe(1)
+
+    // Still inside the deadline: both readers agree the entry is live, and the fetch
+    // has not been touched.
+    clock += RASTER_INFLIGHT_KEEP_WARM_MS
+    expect(ledger.liveCount()).toBe(1)
+    expect(ctrl.signal.aborted).toBe(false)
+
+    // One tick past the deadline: before the fix `size` stayed 1 for the rest of the
+    // session (nothing ever pruned the entry) while `liveCount()` had already dropped
+    // to 0 — the exact "not-pending yet still-holding-a-slot" disagreement #2574
+    // reports. The fix reaps the entry at the SAME deadline, so `size` now agrees, and
+    // the hung fetch is actually aborted rather than left to leak.
+    clock += 1
+    expect(ledger.size, 'the concurrency slot must be reclaimed, not held forever').toBe(0)
+    expect(ledger.liveCount()).toBe(0)
+    expect(ctrl.signal.aborted, 'the hung fetch is aborted, not merely uncounted').toBe(true)
   })
 })
 

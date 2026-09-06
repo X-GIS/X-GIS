@@ -181,22 +181,24 @@ export class FailedTileLedger {
 }
 
 /** #2149 — how long one in-flight raster/DEM tile fetch keeps the render loop awake.
- *  The load path frees its `loadingTiles` slot only when the fetch SETTLES (the
- *  renderers' `.catch(() => null).then(...)` chains), and the guarded fetch carries no
- *  timeout — so against a host that accepts the connection and never answers, the raw
- *  `size` stayed > 0 for the session: the #2091 never-idle wedge, one resource class
- *  over again. Sized off the shipped siblings (glyph / sprite / coverage: 10 000 ms). */
+ *  The load path frees its `loadingTiles` slot when the fetch SETTLES (the renderers'
+ *  `.catch(() => null).then(...)` chains) OR when `InflightLedger` reaps a fetch that
+ *  has sat past this deadline (#2574, below) — the guarded fetch itself carries no
+ *  timeout, so before #2574 a host that accepted the connection and never answered left
+ *  the raw `size` stuck > 0 for the session: the #2091 never-idle wedge, one resource
+ *  class over again. Sized off the shipped siblings (glyph / sprite / coverage: 10 000 ms). */
 export const RASTER_INFLIGHT_KEEP_WARM_MS = 10_000
 
 /** The in-flight half of a tile renderer's load state: the `Map<key, AbortController>`
  *  both the raster and DEM arms kept, plus a checkout stamp per key so the KEEP-WARM
- *  question is deadline-bounded (#2149). Everything else is byte-identical to the bare
- *  Map: entries are still freed by the load promise's settle handler, the zoom sweep
- *  still iterates `[key, controller]`, and a hung fetch still pins its concurrency slot
- *  exactly as before — past the deadline it merely stops holding the render loop awake,
- *  mirroring the glyph ledger (glyph-pbf-cache.ts). Owned HERE beside FailedTileLedger
- *  so the raster and DEM arms cannot drift into two interpretations — #1575's lesson,
- *  same file for the same reason. */
+ *  question is deadline-bounded (#2149). Entries are still freed by the load promise's
+ *  settle handler on a normal resolve/reject, and the zoom sweep still iterates
+ *  `[key, controller]` — but past `RASTER_INFLIGHT_KEEP_WARM_MS` a hung fetch no longer
+ *  pins its concurrency slot forever: `size` and `liveCount()` both reap it first
+ *  (`reapHung`), so the two accessors can never again disagree about a dead entry — the
+ *  #2574 wedge, where `size` stayed raw while `liveCount()` alone went deadline-bounded.
+ *  Owned HERE beside FailedTileLedger so the raster and DEM arms cannot drift into two
+ *  interpretations — #1575's lesson, same file for the same reason. */
 export class InflightLedger {
   private readonly inflight = new Map<string, { ctrl: AbortController; since: number }>()
 
@@ -212,9 +214,11 @@ export class InflightLedger {
     return this.inflight.has(key)
   }
 
-  /** Raw in-flight count — the CONCURRENCY-BUDGET quantity (hung slots included, as the
-   *  bare Map counted them). The keep-warm quantity is `liveCount()`. */
+  /** Raw in-flight count — the CONCURRENCY-BUDGET quantity. Reaps hung entries first
+   *  (`reapHung`), so a slot a dead host held past the deadline is freed before this
+   *  answers, instead of staying counted forever (#2574). */
   get size(): number {
+    this.reapHung()
     return this.inflight.size
   }
 
@@ -233,17 +237,30 @@ export class InflightLedger {
     for (const [key, entry] of this.inflight) yield [key, entry.ctrl]
   }
 
-  /** Deadline-bounded in-flight count — the KEEP-WARM quantity. A pure read: entries are
-   *  never pruned or aborted here (the settle handler and the zoom sweep own removal);
-   *  one past the deadline simply stops counting, so a hung host costs one deadline of
-   *  warm frames, not a map that never idles (#2091). */
+  /** Deadline-bounded in-flight count — the KEEP-WARM quantity. Reaps first (`reapHung`),
+   *  so after this call `size` reads the very same number — a hung entry can no longer be
+   *  simultaneously "not pending" here and "still holding a slot" there (#2574). */
   liveCount(): number {
-    if (this.inflight.size === 0) return 0
+    this.reapHung()
+    return this.inflight.size
+  }
+
+  /** #2574 — the one owner of removal for a hung entry. Past `RASTER_INFLIGHT_KEEP_WARM_MS`
+   *  in flight, abort its controller and delete it HERE, synchronously, so `size` and
+   *  `liveCount()` read the same set instead of one counting a dead fetch forever while the
+   *  other stopped. Aborting settles the load promise (`null`, `ctrl.signal.aborted`), so
+   *  the renderer's existing `.then` chain still runs its bookkeeping — `loadingTiles.delete`
+   *  (a harmless no-op, the key is already gone) and `failedTiles.noteOutcome(key, aborted:
+   *  true)`, which by design does not blocklist an abort, so the tile is simply requestable
+   *  again next frame rather than punished with backoff for a host issue, not a tile issue. */
+  private reapHung(): void {
+    if (this.inflight.size === 0) return
     const now = nowMs()
-    let live = 0
-    for (const entry of this.inflight.values()) {
-      if (now - entry.since <= RASTER_INFLIGHT_KEEP_WARM_MS) live++
+    for (const [key, entry] of this.inflight) {
+      if (now - entry.since > RASTER_INFLIGHT_KEEP_WARM_MS) {
+        entry.ctrl.abort()
+        this.inflight.delete(key)
+      }
     }
-    return live
   }
 }
