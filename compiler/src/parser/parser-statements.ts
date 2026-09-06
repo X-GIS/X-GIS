@@ -3,13 +3,11 @@ import type * as AST from './ast'
 import { ExpressionParser } from './parser-expressions'
 import { INPUT_BAD_TYPE, INPUT_DEFAULT_TYPE_MISMATCH } from '../diagnostics/diagnostic'
 
-/** Exact source separation between two ADJACENT tokens, recovered from the
- *  1-based `line`/`col` the lexer stamps on each one (#2544). A token's
- *  `value` is its verbatim source text for every type this is used on, so
- *  `next.col - (prev.col + prev.value.length)` is the whitespace/comment run
- *  the lexer skipped. Across a line break the run is collapsed to one space;
- *  a negative width (a String token, whose `value` has its quotes and escapes
- *  resolved away) clamps to none. */
+/** Exact source separation between two ADJACENT tokens, from the 1-based
+ *  `line`/`col` the lexer stamps on each (#2544). A token's `value` is its
+ *  verbatim source text here, so `next.col - (prev.col + len)` is the run the
+ *  lexer skipped. A line break collapses to one space; a negative width (a
+ *  String token, whose `value` has quotes/escapes resolved away) clamps to none. */
 function sourceGap(prev: Token, next: Token): string {
   if (next.line !== prev.line) return ' '
   return ' '.repeat(Math.max(0, next.col - (prev.col + prev.value.length)))
@@ -529,15 +527,13 @@ export class StatementParser extends ExpressionParser {
    *  expression representation. The resulting string is fed back to
    *  the CSS-style colour resolver in lower.ts.
    *
-   *  The lexer drops whitespace, so the separation between two tokens is
-   *  recovered from the `line`/`col` they already carry — NOT guessed. The
-   *  former heuristic (a space before every token except after `(`/`-` and
-   *  before a comma) glued a space into every CSS shape whose parts lex as
-   *  separate tokens: `hsl(120, 50%, 50%)` captured as `hsl(120, 50 %, 50 %)`,
-   *  `rgba(0, 0, 0, .6)` as `…, . 6)`, `hsl(120deg …)` as `hsl(120 deg …)`.
-   *  resolveColor returned null for all three and lower.ts dropped the fill
-   *  (#2544). Reconstructing the gap makes the SOURCE the one authority, so
-   *  no separator rule can be wrong about the next CSS syntax either. */
+   *  Separation between tokens is RECOVERED from their line/col
+   *  (`sourceGap`), never guessed. The former heuristic — a space before
+   *  every token bar after `(`/`-` and before a comma — glued one into every
+   *  CSS shape whose parts lex apart: `hsl(120, 50%, 50%)` captured as
+   *  `hsl(120, 50 %, 50 %)`, `rgba(…, .6)` as `…, . 6)`, `120deg` as
+   *  `120 deg`; resolveColor returned null and lower.ts dropped the fill
+   *  (#2544). The source is now the one authority. */
   private captureFnCallAsString(): string {
     let prev = this.advance() // fn name
     let raw = prev.value

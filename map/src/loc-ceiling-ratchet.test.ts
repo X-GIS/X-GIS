@@ -2672,7 +2672,13 @@ const CEILINGS: Record<string, number> = {
   // set EXACTLY to the count — headroom is re-justified per phase, never banked.
   // MERGE: main and this branch each raised this ceiling from a shared base;
   // neither side's number is right. MEASURED post-merge (`wc -l`): 1527.
-  'compiler/src/ir/lower.ts': 1527,
+  // 1527→1547 (#2544): `applyStyleProperties` takes the diagnostics sink and routes
+  // BOTH colour arms through one `applyColor` closure, which warns (X-GIS0029) instead
+  // of skipping an unresolvable `fill:`/`stroke:` in silence — the silence is what hid
+  // the fn-call capture bug. The delta buys the single resolve rule + the diagnostic
+  // that makes the next such loss visible. MEASURED post-prettier (`git show HEAD:… |
+  // wc -l`), set EXACTLY to the count.
+  'compiler/src/ir/lower.ts': 1547,
   // #777 I-B icon-keep-upright + I-F icon value-forms (merged) grow three
   // symbol-lowering god-files (per-row justification in
   // architecture-invariants.test.ts, the second authority):
