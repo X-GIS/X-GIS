@@ -7,9 +7,10 @@
 // answers "what are hillshade's bytes for this request", the store answers "does the bake
 // carry THIS id" — and phase A's path is deliberately left untouched here.
 //
-// WHAT IS DOWNLOADED, AND WHAT IS NOT. Exactly one file: the BOOT group of the device's own
-// language. The `lazy` group is named by nothing at runtime — not by this module, not by a
-// draper — which is what keeps Rollup dropping those two artifacts from the bundle whole,
+// WHAT IS DOWNLOADED, AND WHAT IS NOT. At attach, exactly one file: the BOOT group of the
+// device's own language. The `lazy` group is fetched by `prefetchLazyShaders` below, and only
+// from a REGISTRATION seam (a retained-graphics add, a heatmap layer, a coverage with a
+// vector band) — so Rollup keeps it a separate chunk a plain basemap boot never downloads —
 // and the `hillshade` group is the seeder's. So a WebGL2 boot downloads one GLSL chunk and
 // a WebGPU boot one WGSL chunk, and neither pays for the other's language (`readsWgsl` is
 // the one place in map/src that asks which language a device consumes).

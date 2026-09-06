@@ -171,6 +171,7 @@ const COVERED_BY: Readonly<Record<string, string>> = {
   emitLineSplitWgsl: 'line-split',
   buildLineSplitModule: 'line-split',
   emitOitComposeWgsl: 'oit-compose',
+  emitExtrudeShellComposeWgsl: 'extrude-shell-compose',
   emitRasterWgsl: 'raster',
   buildRasterModule: 'raster',
   emitSceneUpscaleWgsl: 'scene-upscale',
@@ -237,29 +238,6 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
     'debug-only fullscreen fragment pass (debug-flags.ts OVERDRAW_FS_SOURCE) — a ~20-line ' +
     'module with no projection graph spliced in, so it is not on the first-frame path the ' +
     'bake exists to shorten and baking it would grow the artifact for no boot win',
-
-  // ── Parameterless, but the closed set has no shape that fits it ──
-  // Its inputs ARE static (a fullscreen composite; the per-layer alpha rides a uniform,
-  // not the source), so the usual answer would be a registry key. It cannot take one:
-  // the ONLY parameterless shape the grammar has is `SimpleFamily`, and `buildKeys`
-  // pushes one WGSL key plus TWO GLSL stage keys per simple family out of
-  // `SIMPLE_FAMILY_EMITTERS`, whose `StageEmitters` type REQUIRES a `glsl` emitter.
-  // This family has no GLSL twin and cannot have a reachable one — the whole extrude
-  // path is absent on the GLSL backend (`PipelineFactory.build()` returns early there,
-  // `renderFillsRhi` skips every `cached.extruded` tile), so the shell pass never runs
-  // and its compositor is never constructed. Authoring a twin to satisfy the row would
-  // bake bytes for a shader no call site can reach INTO the artifact every map
-  // downloads, which is the cost the `boot`/`lazy` split exists to control. The WGSL-only
-  // key shape now exists (`WgslOnlyFamily`, #2499 — the split twins and oit-compose took
-  // it); what keeps THIS family out is the group: its compositor is built on the first
-  // translucent-extrusion frame (`oit-pass.ts`), so it is `lazy`, and a lazy family keyed
-  // before something prefetches its chunk resolves `absent` on every lookup — progress in a
-  // diff, zero when measured (#1679 inc 7). It joins the closed set with #2499 step 3,
-  // together with a prefetch seam.
-  emitExtrudeShellComposeWgsl:
-    'no GLSL twin by construction (the extrude path does not exist on the GLSL backend); ' +
-    'the WGSL-only key shape exists since #2499, but the family is lazy and has no prefetch ' +
-    'seam yet — keyed now it would resolve absent on every lookup (#1679 inc 7); step 3 of #2499',
 }
 
 describe('baked registry — every dsl emitter is baked or allowlisted (#1678 follow-up)', () => {

@@ -232,7 +232,7 @@ async function bootAndCollect(
   expect(marker, `window.__xgisActiveBackend for ${url}`).toBe(backend)
   // Capture BEFORE reading the record: the frame is what the boot compiled shaders for, so
   // anything a late pass compiles on the way to it is part of the boot's provenance.
-  const hash = await hashScreenshot(page, await captureMapFrame(page))
+  const hash = await stableFrameHash(page, backend)
   const seen = await page.evaluate(
     () => (window as unknown as { __xgisShaderProvenance?: Seen[] }).__xgisShaderProvenance ?? [],
   )
@@ -245,6 +245,23 @@ async function bootAndCollect(
     `${backend}: window.__xgisBakedStore is not published — install.ts did not run`,
   ).not.toBeNull()
   return { seen, hash, store: store! }
+}
+
+/** Capture until two CONSECUTIVE captures hash-equal (the `_split-bind-parity-gate` idiom):
+ *  per-frame animations advance with rendered frames and each capture's quiesce pumps them,
+ *  so a single capture can freeze a transient into the measurement — which the two-boot
+ *  arm below would then report as "the bake moved a pixel". The bound fails loud instead. */
+async function stableFrameHash(page: Page, backend: 'webgpu' | 'webgl2'): Promise<string> {
+  let prev = ''
+  for (let round = 0; round < 8; round++) {
+    const hash = await hashScreenshot(page, await captureMapFrame(page))
+    if (hash === prev) return hash
+    prev = hash
+  }
+  throw new Error(
+    `${backend}: no stable frame in 8 captures (last ${prev.slice(0, 12)}) — the scene is ` +
+      `still animating; the provenance arm cannot compare frames that never settle`,
+  )
 }
 
 /** The two-boot arm: provenance pinned on the baked boot, then the bake switched off and the
@@ -274,8 +291,8 @@ async function bakedVsLive(page: Page, url: string, backend: 'webgpu' | 'webgl2'
   expect(
     live.hash,
     `${backend}: the ?nobake=1 frame differs from the baked frame — serving baked bytes ` +
-      `moved a pixel (or the scene is not deterministic on this rasterizer; check the same ` +
-      `URL twice before blaming the bake)`,
+      `moved a pixel (each frame was captured to self-consistency first, so a transient ` +
+      `is ruled out; check the same URL twice before blaming the bake)`,
   ).toBe(baked.hash)
 }
 

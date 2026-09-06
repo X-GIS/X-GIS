@@ -37,7 +37,14 @@ import {
   _resetBakedStore,
 } from '../../shaders/baked/store'
 import type { BakedArtifact, BakedMeta } from '../../shaders/baked/registry'
-import { glslFor, glslStagesFor, shipSource, wgslFor, type ShaderSourceDevice } from './wgsl-for'
+import {
+  LIVE,
+  glslFor,
+  glslStagesFor,
+  shipSource,
+  wgslFor,
+  type ShaderSourceDevice,
+} from './wgsl-for'
 import { BAKED_SHADER_KEYS } from '../../shaders/baked/registry'
 
 const GL: ShaderSourceDevice = { caps: { shaderLanguage: 'glsl-es300' } }
@@ -96,22 +103,24 @@ afterEach(() => {
  *  which it deliberately is not. */
 const shipped = (src: string): string => shipSource(src)
 
-describe('emit seam: NO id is the pre-bake behaviour, exactly (#1679)', () => {
-  it('wgslFor without an id runs the thunk even when the store holds that very id', () => {
+describe('emit seam: LIVE is the pre-bake behaviour, exactly (#1679, spelled by #2499)', () => {
+  it('wgslFor with LIVE runs the thunk even when the store holds that very id', () => {
     installBakedSources(artifactOf({ [WGSL_ID]: 'BAKED WGSL' }))
-    expect(wgslFor(GPU, () => 'EMITTED WGSL')).toBe(shipped('EMITTED WGSL'))
+    expect(wgslFor(GPU, () => 'EMITTED WGSL', LIVE)).toBe(shipped('EMITTED WGSL'))
     untouched()
   })
 
-  it('glslFor without an id runs the thunk even when the store holds that very id', () => {
+  it('glslFor with LIVE runs the thunk even when the store holds that very id', () => {
     installBakedSources(artifactOf({ [GLSL_ID]: 'BAKED GLSL' }))
-    expect(glslFor(GL, () => 'EMITTED GLSL')).toBe(shipped('EMITTED GLSL'))
+    expect(glslFor(GL, () => 'EMITTED GLSL', LIVE)).toBe(shipped('EMITTED GLSL'))
     untouched()
   })
 
-  it('glslStagesFor without ids runs the thunk even when the store holds both stages', () => {
+  it('glslStagesFor with LIVE runs the thunk even when the store holds both stages', () => {
     installBakedSources(artifactOf({ [STROKE.vertex]: 'BAKED VS', [STROKE.fragment]: 'BAKED FS' }))
-    expect(glslStagesFor(GL, () => ({ vertex: 'EMITTED VS', fragment: 'EMITTED FS' }))).toEqual({
+    expect(
+      glslStagesFor(GL, () => ({ vertex: 'EMITTED VS', fragment: 'EMITTED FS' }), LIVE),
+    ).toEqual({
       vsCode: shipped('EMITTED VS'),
       fsCode: shipped('EMITTED FS'),
     })
