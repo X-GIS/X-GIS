@@ -858,6 +858,9 @@ export class RasterRenderer {
       texture: RasterTile['texture'],
       tileOpacity: number,
     ): void => {
+      // jscpd:ignore-start — not a deliberate twin: this is the pre-existing raster/hillshade
+      // `emitTileAt` preamble and this change SHRANK it (the pair: 5 clones/588 tokens -> 4/412).
+      // The ratchet re-fingerprints a shortened clone as new (#2570); drop this when that lands.
       const rn = Math.pow(2, renderCoord.z)
       const ox = renderCoord.ox ?? renderCoord.x
       const drawKey = `${renderCoord.z}/${renderCoord.x}/${renderCoord.y}/${ox}`
@@ -865,6 +868,7 @@ export class RasterRenderer {
       drawnKeys.add(drawKey)
       const west = (ox / rn) * 360 - 180
       const east = ((ox + 1) / rn) * 360 - 180
+      // jscpd:ignore-end
       // #2560 — the row's latitude bounds and Mercator span depend on (z, y)
       // alone, so they are memoised rather than recomputed per drawn tile per
       // frame. `west`/`east` stay here: they are the only part that moves with

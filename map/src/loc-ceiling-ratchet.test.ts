@@ -2524,7 +2524,12 @@ const CEILINGS: Record<string, number> = {
   // MERGE UNION (SIXTH collision on this key): main's side nets to 0 against the
   // 1060 both sides share, this side is -2, so the merged file should read 1058
   // — but the number below is `wc -l` on the MERGED tree, not that arithmetic.
-  'map/src/render/raster-renderer.ts': 0,
+  // 1058→1062: +4 for a `jscpd:ignore` marker over the raster/hillshade `emitTileAt`
+  // preamble. The extraction above SHRANK that pre-existing clone (194→114 tokens,
+  // and it deleted a second 96-token one outright), but the duplication ratchet
+  // fingerprints a clone's token stream, so a shortened clone reads as a newly added
+  // one — gate defect #2570. The marker and these 4 lines go when #2570 lands.
+  'map/src/render/raster-renderer.ts': 1062,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the
