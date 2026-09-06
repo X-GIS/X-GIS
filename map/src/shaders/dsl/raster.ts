@@ -16,7 +16,6 @@
 // raster always writes (0,0) since a basemap tile carries no feature id.
 
 import {
-  fn,
   module,
   transformMat4,
   arrayLit,
@@ -32,8 +31,12 @@ import {
   select,
   abs,
   atan,
+  max,
   exp,
   textureSample,
+  textureSampleLevel,
+  cos,
+  fn,
   radians,
   degrees,
   f32T,
@@ -53,6 +56,7 @@ import { ioStruct, builtin, location, uniformStruct, resource, arrayOf } from '@
 import { emitModule } from '@xgis/shader-dsl'
 import { isGlobeProj } from '@xgis/geo'
 import { ECEF_CONSTS, lonlatToEcef } from './ecef'
+import { demDecode, demSubUv } from './dem-elevation'
 import { rasterColorAdjust } from './raster-color'
 import { apply_log_depth, compute_log_frag_depth } from './log-depth'
 import {
@@ -113,6 +117,14 @@ const U = uniformStruct(
     // wrongly dropped eye-visible far-cap raster around the limb. Written by
     // raster-renderer; ALL-ZERO on flat / disc paths (those arms ignore it).
     globe_eye: vec4fT,
+    // D5 INC-3 (#2539) — the DEM unpack for the VERTEX displacement:
+    // (redFactor, greenFactor, blueFactor, baseShift), exactly what `demUnpack()`
+    // (hillshade-renderer.ts) resolves per encoding and what `dem_decode`
+    // (dem-elevation.ts, #2532) consumes. Global rather than per-tile because it is
+    // a property of the DEM SOURCE, not of a tile. ALL-ZERO when no terrain source
+    // is configured, which is inert twice over: the decode is then 0, and
+    // `tile.dem_sub.w` is 0 as well (see there).
+    dem_unpack: vec4fT,
   },
 )
 const Tile = uniformStruct(
@@ -143,6 +155,19 @@ const Tile = uniformStruct(
     // for all three consumers of this block (raster, drape AND hillshade).
     row_trig: arrayOf(vec4fT, 9), // x = sin(lat), y = cos(lat), z = N (prime vertical), w unused
     col_trig: arrayOf(vec4fT, 9), // x = sin(lon), y = cos(lon), zw unused
+    // D5 INC-3 (#2539) — where THIS tile sits inside the RESIDENT DEM texture,
+    // straight out of `DemTileStore.resolve()` (#2525): (scale, u0, v0, gain) with
+    // scale = 2^-levelsUp and (u0, v0) the tile's corner in the ancestor. `dem_sub_uv`
+    // (#2532) consumes xyz.
+    //
+    // `w` is the SCALAR the decoded metres are multiplied by, and it carries BOTH
+    // facts on one lane on purpose: 0 when no DEM covers the tile, the terrain
+    // exaggeration when one does. So "no terrain" is not a branch — it is a multiply
+    // by exactly 0.0, which leaves every ECEF/flat arm bit-identical to the
+    // pre-terrain vertex (N + 0.0 === N in IEEE) and needs no second uniform to say
+    // "off". A branch here would also be per-lane divergent, since residency differs
+    // per tile, not per draw.
+    dem_sub: vec4fT,
   },
 )
 // Exported (distinct barrel names — every dsl file calls its struct 'U'/'Tile'
@@ -166,6 +191,50 @@ const rasterFragmentOutput = (pickEnabled: boolean) =>
 
 const tex = resource('tex', texture2dfT, { group: 0, binding: 1 })
 const texSampler = resource('tex_sampler', samplerT, { group: 0, binding: 2 })
+
+// D5 INC-3 (#2539) — the DEM, read by the VERTEX stage to displace the surface.
+//
+// A SEPARATE binding from `tex` above, and that is the whole design decision: for a
+// RASTER draw `tex` is the imagery, for a HILLSHADE draw it is the DEM. A vs_tile
+// shared byte-for-byte between the two (see the export block at the foot of this
+// file) cannot read "the DEM" from a slot whose meaning depends on the caller, so the
+// elevation gets a slot that means one thing everywhere. Hillshade binds its DEM to
+// both; a raster draw with a terrain source binds imagery and DEM independently,
+// which is what draping imagery over terrain requires.
+//
+// Bindings 4/5 rather than 3/4: hillshade already owns group-0 binding 3
+// (HillshadeUniforms), so 4/5 is the first pair free in BOTH modules and the shared
+// vertex layout stays one shape.
+//
+// Stage visibility is NOT declared anywhere — `reflect()` derives it from the same
+// reachability walk the per-stage GLSL emit uses (reflect.ts:320-338), so the
+// textureSampleLevel below is what MAKES this pair vertex-visible. Nothing to keep in
+// sync by hand.
+const demTex = resource('dem_tex', texture2dfT, { group: 0, binding: 4 })
+const demSampler = resource('dem_sampler', samplerT, { group: 0, binding: 5 })
+
+/** Terrain elevation in metres at a tile UV, already scaled by the per-tile gain —
+ *  the SAMPLING wrapper over #2532's pure authority, living here because this module
+ *  owns the DEM binding (the split that issue's header describes).
+ *
+ *  Explicit LOD: a vertex stage has no derivatives, so this is `textureSampleLevel`
+ *  (WGSL) / `textureLod` (GLSL ES 3.00), both pinned by #1650 on both backends. Level 0
+ *  because a DEM is never mipped — a bilinear or averaged blend of PACKED bytes decodes
+ *  to garbage, which is also why the host binds a NEAREST sampler here.
+ *
+ *  Returns exactly 0.0 when `dem_sub.w` is 0 (no DEM resident, or no terrain source),
+ *  so every arm below collapses to the pre-terrain vertex without a branch. */
+const demHeight = fn('dem_height', { tile_uv: vec2fT }, ({ tile_uv }) =>
+  demDecode({
+    texel: textureSampleLevel(
+      demTex.node,
+      demSampler.node,
+      demSubUv({ tile_uv, sub: Tile.field.dem_sub }),
+      0,
+    ).rgb,
+    unpack: U.field.dem_unpack,
+  }).mul(Tile.field.dem_sub.w),
+)
 
 // ═══ #1040 — globe raster surface density ladder (userbug-09 sibling) ═══
 //
@@ -302,6 +371,13 @@ const vs = fn(
     const vTex = select(isCap, capP.y, vv)
     const absMercY = select(isCap, capP.z, mercYAbs)
 
+    // ── D5 INC-3 (#2539) — terrain elevation for THIS vertex ──
+    // Read ONCE and shared by every arm below; `dem_height` returns exactly 0.0 when
+    // no DEM covers the tile, so an arm that adds it is bit-identical to the
+    // pre-terrain arm until a terrain source is actually configured. `vTex` rather
+    // than `vv` so a pole-cap vertex samples where its colour does.
+    const terrainH = demHeight({ tile_uv: vec2(uu, vTex) })
+
     // ECEF path: lon/lat → WGS84 ECEF → subtract tile SW-corner anchor (RTC).
     // Works for every projection because the MVP is always the ECEF frame view
     // (Camera.getECEFFrameView). No per-projection branches needed.
@@ -318,15 +394,21 @@ const vs = fn(
     const useTrigTable = gridNU.eq(u32(8)).and(notCap)
     const rowT = Tile.field.row_trig.at(gy)
     const colT = Tile.field.col_trig.at(gx)
+    // #2539 — displaced by `terrainH` along the ellipsoid normal, which for the
+    // WGS84 parameterisation is exactly `N → N + h` in x/y and `N(1−e²) → N(1−e²) + h`
+    // in z. NO new transcendental: the whole reason #2137 built this table (never
+    // evaluate a ~6.4e6 m trig in f32) survives untouched, and at h = 0.0 every
+    // product is bit-identical to the pre-terrain expression.
+    const nPlusH = rowT.z.add(terrainH)
     const ecefTable = vec3(
-      rowT.z.mul(rowT.y).mul(colT.y),
-      rowT.z.mul(rowT.y).mul(colT.x),
-      rowT.z.mul(f32(1).sub(WGS84_E2)).mul(rowT.x),
+      nPlusH.mul(rowT.y).mul(colT.y),
+      nPlusH.mul(rowT.y).mul(colT.x),
+      rowT.z.mul(f32(1).sub(WGS84_E2)).add(terrainH).mul(rowT.x),
     )
     const ecef = select(
       useTrigTable,
       ecefTable,
-      lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height: f32(0) }),
+      lonlatToEcef({ lon_rad: lonRad, lat_rad: latRad, height: terrainH }),
     )
     // Camera-relative: ecef − cameraCenter (the MVP is camera-at-ENU-origin).
     // DSFUN two-term subtract: (ecef − hi) is Sterbenz-exact (both ~6.4e6 m), then
@@ -356,7 +438,16 @@ const vs = fn(
             // narrows after cancellation, so the camera no longer snaps to the
             // f32 grid and jitters as it pans. Was `p2d − hi.xy` alone.
             const rel2d = p2d.sub(vec2(camEcef.x, camEcef.y)).sub(vec2(camEcefL.x, camEcefL.y))
-            return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, 0, 1))
+            // #2539 — the flat MVP's units are MERCATOR metres, not ground metres.
+            // Mercator is conformal with point scale k = 1/cos φ, so one ground metre
+            // of relief is 1/cos φ Mercator metres and the vertical must be stretched
+            // by the same factor the horizontal already is — otherwise a mountain at
+            // 60°N reads half as tall as the same mountain at the equator. Clamped
+            // because the flat arm's φ is Mercator-bounded (±85.0511°, k ≈ 11.5) but a
+            // caller is not obliged to keep it there, and a k of 1/0 would send the
+            // whole tile to infinity rather than merely look wrong.
+            const zMerc = terrainH.div(max(cos(latRad), f32(0.05)))
+            return transformMat4(U.field.mvp, vec4(rel2d.x, rel2d.y, zMerc, 1))
           },
         ],
         [
@@ -396,6 +487,17 @@ const vs = fn(
             const tileRefLon = bounds.x.add(bounds.z).mul(0.5).sub(clonHi)
             const pv = project_geom(dLon, latDeg, projParamsRel, tileRefLon)
             const relG = pv.sub(vec2(camEcef.y, camEcef.z)).sub(vec2(camEcefL.y, camEcefL.z))
+            // #2539 — DELIBERATELY NOT DISPLACED, and this is a decision, not an
+            // omission. Every projection on this arm (equirectangular, natural-earth,
+            // orthographic, azimuthal-equidistant, stereographic, oblique-Mercator) is
+            // NON-CONFORMAL: the point scale differs between the two axes, so no single
+            // vertical factor is right for both. Equirectangular stretches x by 1/cos φ
+            // and leaves y true, so matching one axis mis-scales the other; orthographic
+            // is worse, since its scale COMPRESSES toward the limb while 1/cos φ grows,
+            // and relief would balloon exactly where the real surface is foreshortened.
+            // Mapbox restricts terrain to Mercator and the globe for the same reason.
+            // A projection-specific vertical scale is a real feature with its own
+            // design; it is not "add a multiply here", so it is not smuggled in as one.
             return transformMat4(U.field.mvp, vec4(relG.x, relG.y, 0, 1))
           },
         ],
@@ -485,7 +587,14 @@ export const buildRasterModule = (pickEnabled: boolean): ModuleDecl =>
     // raster_color_adjust still sees DEG2RAD_F (from ECEF_CONSTS) before its own body.
     consts: [...PROJECTION_CONSTS, ...ECEF_CONSTS],
     structs: [U.struct, Tile.struct, VsOut.decl, rasterFragmentOutput(pickEnabled).decl],
-    bindings: [U.binding, tex.binding, texSampler.binding, Tile.binding],
+    bindings: [
+      U.binding,
+      tex.binding,
+      texSampler.binding,
+      demTex.binding,
+      demSampler.binding,
+      Tile.binding,
+    ],
     funcs: [
       // Injection seam ONLY (#740 R1): the projection fns are extern-called (no
       // declRef) so module() cannot auto-collect them. ECEF / raster-color /
@@ -517,4 +626,6 @@ export {
   VsOut as rasterVsOut,
   tex as rasterTex,
   texSampler as rasterTexSampler,
+  demTex as rasterDemTex,
+  demSampler as rasterDemSampler,
 }

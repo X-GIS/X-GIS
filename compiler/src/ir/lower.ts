@@ -22,7 +22,7 @@ import {
   type PresetCall,
 } from './preset-expand'
 import { isKnownUtility, suggestUtility } from './utility-registry'
-import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER } from '../diagnostics/diagnostic'
+import { UNKNOWN_UTILITY, UNHANDLED_MODIFIER, UNRESOLVED_COLOR } from '../diagnostics/diagnostic'
 // Re-export public types so importers of './lower' keep their surface.
 export type { LowerOptions, ZoomStopsWithBase } from './lower-types'
 import {
@@ -722,6 +722,7 @@ function lowerLayer(
       opacity,
       projection,
       visible,
+      diagnostics,
     )
     fill = result.fill
     strokeColor = result.strokeColor
@@ -1345,6 +1346,27 @@ function lowerLayer(
   }
 }
 
+/** Report a `fill:` / `stroke:` value that resolved to no colour (#2544).
+ *  The assignment is skipped either way; the point is that the drop is now
+ *  audible — silence is what made the #2544 re-serializer bug present as
+ *  "the layer renders blank" with nothing to grep for. */
+function warnUnresolvedColor(
+  diagnostics: import('./render-node').Diagnostic[],
+  prop: AST.StyleProperty,
+): void {
+  diagnostics.push({
+    severity: 'warn',
+    code: UNRESOLVED_COLOR,
+    span: { line: prop.line, col: 1 },
+    message:
+      `\`${prop.name}: ${prop.value}\` resolves to no colour — the property is ` +
+      `dropped and the layer keeps its previous ${prop.name}.`,
+    help:
+      'Expected a hex literal (`#40bf40`), a palette token (`sky-700`), a CSS named ' +
+      'colour, or a CSS colour function (`rgb()`, `hsl()`, `oklab()`, …).',
+  })
+}
+
 /**
  * Apply CSS-like style properties to rendering values.
  * Resolves color names (via Tailwind palette), hex colors, and numbers.
@@ -1357,6 +1379,7 @@ function applyStyleProperties(
   opacity: OpacityValue,
   projection: string,
   visible: boolean,
+  diagnostics: import('./render-node').Diagnostic[],
 ): {
   fill: ColorValue
   strokeColor: ColorValue
@@ -1392,11 +1415,13 @@ function applyStyleProperties(
       case 'fill': {
         const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
         if (hex) fill = colorConstant(...hexToRgba(hex))
+        else warnUnresolvedColor(diagnostics, prop)
         break
       }
       case 'stroke': {
         const hex = resolveColor(prop.value) ?? (prop.value.startsWith('#') ? prop.value : null)
         if (hex) strokeColor = colorConstant(...hexToRgba(hex))
+        else warnUnresolvedColor(diagnostics, prop)
         break
       }
       case 'stroke-width': {

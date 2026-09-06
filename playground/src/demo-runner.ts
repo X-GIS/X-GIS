@@ -1910,6 +1910,14 @@ async function loadDemo(idx: number) {
     currentMap.markCameraPositioned()
   }
 
+  // #2539 — terrain exaggeration, applied whether or not a camera hash is present:
+  // the `#z/lat/lon` hash has no terrain term, so sharing a camera link to a terrain
+  // demo must not flatten it. 0 (every other demo) leaves the ground bit-identical —
+  // `dem_sub.w` is the multiplier, so "no terrain" is a multiply by exactly 0.0.
+  if (currentMap && demo.terrainExaggeration !== undefined) {
+    currentMap.hillshadeRenderer.setTerrainExaggeration(demo.terrainExaggeration)
+  }
+
   // Post-run hook: inline-source fixtures need the host to push
   // data — without this, gallery visitors see an empty canvas.
   // E2E tests that drive these fixtures themselves pass `?e2e=1`
