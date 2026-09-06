@@ -32,8 +32,13 @@
 
 import { describe, it, expect } from 'vitest'
 import { clipPolygonToRect } from './clip'
-import { extractNonSyntheticArcs, makeSameBoundarySidePredicateMerc } from './vector-tiler'
-import { lonLatToMercF64 } from './ecef-packing'
+import {
+  dropConsecutiveDuplicates,
+  extractNonSyntheticArcs,
+  makeSameBoundarySidePredicateMerc,
+} from './vector-tiler'
+import { lonLatToMercF64, projectRingsToMM } from './ecef-packing'
+import { precisionForZoomMM } from './encoding'
 
 // z3 tile (x=4, y=4): lon [0°, 45°], a band south of the equator. The east
 // edge (lon=45°) projects to a Mercator x that is NOT a multiple of the 10 m
@@ -153,5 +158,140 @@ describe('#360 polygon outline boundary-stroke — clip snap overshoot', () => {
     // And those real edges are NOT all hugging a boundary (the coastline node
     // is deep in the tile interior).
     expect(nearBoundaryVerticalStrokes(clipped, 5)).toBe(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #2553: a REAL polygon edge that RUNS ALONG a tile side is not synthetic.
+//
+// The classifier above re-derives "synthetic" GEOMETRICALLY — both endpoints
+// within 1 m of the same tile-rect axis. That is exactly what a boundary-
+// coincident REAL edge looks like: a box whose west side is on lon 0, or whose
+// south side is on the equator (the shape every whole-degree administrative /
+// sea-area grid has), lost that side from its OUTLINE while the fill kept it.
+// Neither eps direction separates the two — a real edge ON the boundary is at
+// distance 0, the same as the closing edge Sutherland-Hodgman inserts.
+//
+// FIX: carry PROVENANCE. `clipPolygonToRect` records every vertex IT created
+// (`intersect`) in the caller's identity Set, and an edge is synthetic only
+// when the geometric predicate holds AND BOTH endpoints are clipper-inserted.
+// The geometric predicate stays as the fallback for rings that reach the
+// classifier without provenance (the runtime sub-tilers).
+
+// z1 tile (x=1, y=0): lon [0°, 180°], lat [0°, 85.05°] — the MM rect is
+// west/south at the origin, east/north at the Mercator world edge. Derived the
+// way the tiler derives it, so `mxW`/`myS` are the SAME f64 values a ring
+// authored on lon 0 / the equator projects to.
+const Z1 = 1
+const N1 = 1 << Z1
+const t1West = (1 / N1) * 360 - 180
+const t1East = (2 / N1) * 360 - 180
+const t1LatN = (Math.atan(Math.sinh(Math.PI * (1 - 0 / N1))) * 180) / Math.PI
+const t1LatS = (Math.atan(Math.sinh(Math.PI * (1 - 2 / N1))) * 180) / Math.PI
+const [t1MxW, t1MyS] = lonLatToMercF64(t1West, t1LatS)
+const [t1MxE, t1MyN] = lonLatToMercF64(t1East, t1LatN)
+const t1SidePred = makeSameBoundarySidePredicateMerc(t1MxW, t1MyS, t1MxE, t1MyN, 1.0)
+const P1 = precisionForZoomMM(Z1)
+
+/** A GeoJSON-shaped (closed, CCW) lon/lat box, projected to MM by the same
+ *  `projectRingsToMM` the polygon pipeline entry uses — the exact ring shape
+ *  `clipPolygonToRect` receives in production. */
+function mmBox(lonW: number, latS: number, lonE: number, latN: number): number[][] {
+  return projectRingsToMM([
+    [
+      [lonW, latS],
+      [lonE, latS],
+      [lonE, latN],
+      [lonW, latN],
+      [lonW, latS],
+    ],
+  ])[0]!
+}
+
+/** Stroke segments the outline path actually emits for a clipped ring —
+ *  mirrors the production call site (extract → drop the S-H closing duplicate
+ *  → the whole-ring case strokes its last→first edge too). */
+function strokeSegments(clipped: number[][][], inserted?: Set<number[]>): number {
+  let n = 0
+  for (const ring of clipped) {
+    if (ring.length < 2) continue
+    for (const arc of extractNonSyntheticArcs(ring, t1SidePred, inserted)) {
+      const closed = arc.length >= 3 && arc === ring
+      const clean = dropConsecutiveDuplicates(arc)
+      if (clean.length < 2) continue
+      n += closed ? clean.length : clean.length - 1
+    }
+  }
+  return n
+}
+
+/** Clip a ring the way the polygon tiler does, capturing clipper provenance. */
+function clipZ1(ring: number[][]): { clipped: number[][][]; inserted: Set<number[]> } {
+  const inserted = new Set<number[]>()
+  const clipped = clipPolygonToRect([ring], t1MxW, t1MyS, t1MxE, t1MyN, P1, inserted)
+  return { clipped, inserted }
+}
+
+describe('#2553 a real polygon edge lying along a tile side keeps its stroke', () => {
+  it('control: a box 1° clear of the tile rect strokes all 4 sides', () => {
+    const { clipped, inserted } = clipZ1(mmBox(1, 1, 20, 20))
+    expect(clipped.length).toBe(1)
+    expect(inserted.size).toBe(0) // nothing was clipped away
+    expect(strokeSegments(clipped, inserted)).toBe(4)
+  })
+
+  it('a box whose WEST side is exactly on lon 0 strokes all 4 sides (fail-before: 3)', () => {
+    const { clipped, inserted } = clipZ1(mmBox(t1West, 1, 20, 20))
+    expect(clipped.length).toBe(1)
+    // The clip removed nothing: every vertex is the source ring's own.
+    expect(inserted.size).toBe(0)
+    expect(strokeSegments(clipped, inserted)).toBe(4)
+  })
+
+  it('a box whose SOUTH side is exactly on the equator strokes all 4 sides (fail-before: 3)', () => {
+    const { clipped, inserted } = clipZ1(mmBox(1, t1LatS, 20, 20))
+    expect(clipped.length).toBe(1)
+    expect(inserted.size).toBe(0)
+    expect(strokeSegments(clipped, inserted)).toBe(4)
+  })
+
+  it('a genuinely clipped box still loses ONLY the inserted closing edge', () => {
+    // Straddles the tile's west edge: the clip inserts the two boundary
+    // vertices and the run between them is the synthetic closure.
+    const { clipped, inserted } = clipZ1(mmBox(-10, 1, 20, 20))
+    expect(clipped.length).toBe(1)
+    expect(inserted.size).toBe(2)
+    expect(strokeSegments(clipped, inserted)).toBe(3)
+  })
+
+  it('a ring that is ENTIRELY the tile rect (every vertex clipper-made) strokes nothing', () => {
+    // A polygon covering the whole tile and beyond. Authored directly in MM
+    // (the ring space the clip receives) because a lon/lat ring cannot reach
+    // past this z1 row's north edge — it IS the Mercator world edge.
+    const covering: number[][] = [
+      [t1MxW - 1e6, t1MyS - 1e6],
+      [t1MxE + 1e6, t1MyS - 1e6],
+      [t1MxE + 1e6, t1MyN + 1e6],
+      [t1MxW - 1e6, t1MyN + 1e6],
+      [t1MxW - 1e6, t1MyS - 1e6],
+    ]
+    const { clipped, inserted } = clipZ1(covering)
+    expect(clipped.length).toBe(1)
+    expect(clipped[0]!.every((v) => inserted.has(v))).toBe(true)
+    expect(strokeSegments(clipped, inserted)).toBe(0)
+  })
+
+  it('WITHOUT provenance the geometric predicate still strips the tile-rect ring', () => {
+    // Rings reach `extractNonSyntheticArcs` without provenance from the
+    // runtime sub-tilers (sub-tile-generator, polygon-mesh), which re-clip a
+    // parent tile's STORED rings. That fallback must keep working.
+    const { clipped } = clipZ1([
+      [t1MxW - 1e6, t1MyS - 1e6],
+      [t1MxE + 1e6, t1MyS - 1e6],
+      [t1MxE + 1e6, t1MyN + 1e6],
+      [t1MxW - 1e6, t1MyN + 1e6],
+      [t1MxW - 1e6, t1MyS - 1e6],
+    ])
+    expect(strokeSegments(clipped)).toBe(0)
   })
 })

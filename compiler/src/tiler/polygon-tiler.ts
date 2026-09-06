@@ -58,6 +58,9 @@ export function tilePolygonPart(
   // by construction (d34aed2). Simplifying the fill at z<maxZoom while
   // the outline kept full detail produced a fill/stroke gap growing
   // with zoom-out; see the matching note in processZoomLevelShared.
+  // The outline classifier needs to know which vertices the CLIP made
+  // (#2553) — see `extractNonSyntheticArcs`.
+  const clipInserted = new Set<number[]>()
   const clipped = clipPolygonToRect(
     part.rings!,
     clip.mxW,
@@ -65,6 +68,7 @@ export function tilePolygonPart(
     clip.mxE,
     clip.myN,
     precisionMM,
+    clipInserted,
   )
   if (clipped.length > 0 && clipped[0].length >= 3) {
     const dataRings = clipped
@@ -140,7 +144,7 @@ export function tilePolygonPart(
     const sidePred = makeSameBoundarySidePredicateMerc(clip.mxW, clip.myS, clip.mxE, clip.myN, 1.0)
     for (const ring of clipped) {
       if (ring.length < 2) continue
-      for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
+      for (const arc of extractNonSyntheticArcs(ring, sidePred, clipInserted)) {
         // Augment with per-tile arc + tangents without moving any
         // vertex (mmInput) so fill/outline stay coincident. Cross-
         // tile global arc continuity is traded for exact coincidence

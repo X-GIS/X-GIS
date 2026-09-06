@@ -748,10 +748,21 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
  *    polylines (each representing a contiguous run of original
  *    polygon edges inside this tile). When the polygon is
  *    entirely inside the tile, a single closed ring is returned.
+ *
+ *  @param clipperInserted Identity set of the vertices the CLIP created
+ *    (`clipPolygonToRect`'s `insertedOut`). Pass it whenever the caller
+ *    still holds it: the geometry alone cannot tell a synthetic closing
+ *    edge from a REAL polygon edge that runs ALONG a tile side — a box on
+ *    lon 0 or on the equator is at distance 0 from the rect axis exactly
+ *    like the closing edge, and lost that side from its outline (#2553).
+ *    Omitted, the geometric predicate decides alone — the fallback for
+ *    rings that arrive without provenance (the runtime sub-tilers re-clip
+ *    a parent tile's STORED rings).
  */
 export function extractNonSyntheticArcs(
   ring: number[][],
   isSameBoundarySide: (a: number[], b: number[]) => boolean,
+  clipperInserted?: ReadonlySet<number[]>,
 ): number[][][] {
   const n = ring.length
   if (n < 2) return []
@@ -763,9 +774,17 @@ export function extractNonSyntheticArcs(
   // both endpoints can land on boundary lines but on DIFFERENT sides
   // (e.g. enters at x=west, exits at y=north). Those are real edges
   // of the source polygon and MUST keep rendering as stroke.
+  // With provenance the geometric verdict is NARROWED, never widened: an
+  // edge the clip did not create at BOTH ends is a real polygon edge, even
+  // when it lies flat on a rect axis (#2553). A vertex on the MERCATOR
+  // WORLD rect never narrows it — see `isOnMercWorldRect`.
+  const rescuesEdge = (v: number[]): boolean =>
+    clipperInserted !== undefined && !clipperInserted.has(v) && !isOnMercWorldRect(v)
   const edgeSynthetic: boolean[] = new Array(n)
   for (let i = 0; i < n; i++) {
-    edgeSynthetic[i] = isSameBoundarySide(ring[i], ring[(i + 1) % n])
+    const a = ring[i],
+      b = ring[(i + 1) % n]
+    edgeSynthetic[i] = isSameBoundarySide(a, b) && !rescuesEdge(a) && !rescuesEdge(b)
   }
 
   // All edges real → original polygon is fully inside the tile.
@@ -804,13 +823,38 @@ export function extractNonSyntheticArcs(
   return arcs
 }
 
+/** Boundary-coincidence tolerance in Mercator metres — how close a vertex
+ *  must be to a rect axis to count as lying ON it. */
+const BOUNDARY_EPS_MM = 1.0
+
+/** Half the Mercator world extent: lon ±180 and lat ±85.05 both project to
+ *  this magnitude. Derived from the SAME forward projection the rings are
+ *  built with, so a vertex authored at lon 180 lands on it exactly. */
+const MERC_WORLD_EDGE = lonLatToMercF64(180, 0)[0]
+
+/** Is this vertex on the Mercator WORLD rect (as opposed to some interior
+ *  tile boundary)? Provenance may not rescue an edge lying there: such an
+ *  edge was put there by the dataset's dateline split (Natural Earth cuts
+ *  every antimeridian-crossing country at lon ±180) or by the projection's
+ *  own latitude clamp, never by a polygon that continues past it — stroking
+ *  it draws the full-height seam line the user reported
+ *  (compiler/src/__tests__/antimeridian-outline-seam.test.ts). The clip
+ *  cannot supply provenance for those vertices because it never touches
+ *  them: they arrive already sitting on the tile rect. */
+function isOnMercWorldRect(v: number[]): boolean {
+  return (
+    Math.abs(Math.abs(v[0]) - MERC_WORLD_EDGE) < BOUNDARY_EPS_MM ||
+    Math.abs(Math.abs(v[1]) - MERC_WORLD_EDGE) < BOUNDARY_EPS_MM
+  )
+}
+
 /** Build the `isSameBoundarySide` predicate for a MM tile rect. */
 export function makeSameBoundarySidePredicateMerc(
   mxW: number,
   myS: number,
   mxE: number,
   myN: number,
-  eps: number = 1.0,
+  eps: number = BOUNDARY_EPS_MM,
 ): (a: number[], b: number[]) => boolean {
   return (a, b) => {
     // Both on x=mxW (tile west edge)
@@ -1152,6 +1196,9 @@ function processZoomLevelShared(
         // simplified fill at z<maxZoom diverged from its own stroke by
         // up to the tolerance (km at low zoom). simplify∘clip ≠
         // clip∘simplify, so simplifying the outline can't fix it either.
+        // The outline classifier needs to know which vertices the CLIP made
+        // (#2553) — see `extractNonSyntheticArcs`.
+        const clipInserted = new Set<number[]>()
         const clipped = clipPolygonToRect(
           sp.rings,
           tbMxW,
@@ -1159,6 +1206,7 @@ function processZoomLevelShared(
           tbMxE,
           tbMyN,
           precisionForZoomMM(z),
+          clipInserted,
         )
         if (clipped.length > 0 && clipped[0].length >= 3) {
           tileClippedRings.push(...clipped)
@@ -1239,7 +1287,7 @@ function processZoomLevelShared(
           const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN, 1.0)
           for (const ring of clipped) {
             if (ring.length < 2) continue
-            for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
+            for (const arc of extractNonSyntheticArcs(ring, sidePred, clipInserted)) {
               // mmInput augment adds per-tile arc + tangents WITHOUT
               // moving any vertex, so coincidence holds. Cross-tile
               // GLOBAL arc (3227174) is traded for exact coincidence:
