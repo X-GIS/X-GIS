@@ -26,7 +26,8 @@ import {
   getMaxDpr,
   isAdaptiveQualityEnabled,
 } from '@xgis/engine'
-import { mercatorYToLat } from '@xgis/geo'
+import { poleLimit } from '@xgis/geo'
+import { frameCenterLatOf } from './camera/view-matrix'
 import type { QualityConfig } from '@xgis/engine'
 import type { XGISMap } from './map'
 import { EARTH, xlog } from '@xgis/shared'
@@ -190,7 +191,9 @@ export function inspectMapPipeline(map: XGISMap): PipelineInspection {
     typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, getMaxDpr()) : 1
 
   const lon = (cam.centerX / R) * DEG
-  const lat = mercatorYToLat(cam.centerY)
+  // #2526 — the frame's centre authority (centerLatDeg for the sphere family,
+  // which reaches the pole), not the ±85.051129°-saturated Mercator mirror.
+  const lat = frameCenterLatOf(cam, cam.projType)
 
   const sources: PipelineInspection['sources'] = []
   for (const [name, entry] of m.vtSources) {
@@ -264,7 +267,7 @@ export async function captureMapSnapshot(map: XGISMap): Promise<MapSnapshot> {
   const m = map
   const camera = m.camera
   const lon = camera.centerX / EARTH.sphereR / (Math.PI / 180)
-  const lat = mercatorYToLat(camera.centerY)
+  const lat = frameCenterLatOf(camera, camera.projType) // #2526 — see inspectMapPipeline
 
   const sources: MapSnapshot['sources'] = {}
   if (m.vtSources) {
@@ -388,7 +391,7 @@ export async function replayMapSnapshot(
     )
   }
   const timeoutMs = opts.timeoutMs ?? 30_000
-  // camera (incl. syncCenterLat) / _needsRender / vtSources are public on
+  // camera / _needsRender / vtSources are public on
   // XGISMap; `_cameraExplicitlyPositioned` is private, so it stays the sole
   // cast (at the write below).
   const m = map
@@ -399,12 +402,14 @@ export async function replayMapSnapshot(
   const R = EARTH.sphereR
   const DEG2RAD = Math.PI / 180
   m.camera.centerX = snap.camera.lon * DEG2RAD * R
+  // #2526 — CameraController.setCenter's dual write: the Mercator mirror stays
+  // ±85.051129°-representable for the 2D readers, the TRUE centre latitude is
+  // clamped to the projType's own pole limit (90° for the sphere family) so a
+  // pole-ward globe snapshot replays where it was captured, not at 85.05°.
   const clampedLat = Math.max(-85.051129, Math.min(85.051129, snap.camera.lat))
   m.camera.centerY = Math.log(Math.tan(Math.PI / 4 + (clampedLat * DEG2RAD) / 2)) * R
-  // Keep the maintained true-centre-latitude consistent with the restored
-  // centerY (bounded ≤85.05 here, so byte-safe) — the globe anchor readers
-  // consume centerLatDeg, not the Mercator-bounded inverse.
-  m.camera.syncCenterLat()
+  const pl = poleLimit(m.camera.projType)
+  m.camera.centerLatDeg = Math.max(-pl, Math.min(pl, snap.camera.lat))
   m.camera.zoom = snap.camera.zoom
   m.camera.bearing = snap.camera.bearing
   m.camera.pitch = snap.camera.pitch

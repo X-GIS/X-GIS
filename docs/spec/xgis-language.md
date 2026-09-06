@@ -475,7 +475,7 @@ a `match(...)`/`categorical(...)`/`gradient(...)` call (with an optional trailin
 `match-block`, §3.13). A trailing unit after `]` is absorbed (`size-[expr]km`). The
 parser records `modifier`, `name`, `binding`, `bindingUnit` verbatim and does **not**
 validate the name against the vocabulary — see §3.11. A modifier item still needs a
-*lowering* handler for its utility half, and today only `fill-*` has one
+_lowering_ handler for its utility half, and today only `fill-*` has one
 (`MODIFIER_HANDLERS` in `compiler/src/ir/lower-bindings-registry.ts`) — any other
 utility under a modifier (`hover:opacity-100`) is `X-GIS0028`, not a silent no-op.
 

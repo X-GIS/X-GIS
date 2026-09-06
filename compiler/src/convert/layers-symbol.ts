@@ -74,7 +74,15 @@ export function convertTextPaintProperties(
       ? textOpacity
       : null
   if (!isOmittedValue(textColor)) {
-    const interp = interpolateZoomCall(textColor, warnings, (val, w) => colorToXgis(val, w))
+    // #2318: fold the constant text-opacity into every zoom-interp
+    // colour stop too, not just the single-hex constant-colour branch
+    // below — otherwise a constant text-opacity paired with a zoom-
+    // interpolated text-color was silently dropped (alpha 1.0 at every
+    // zoom).
+    const interp = interpolateZoomCall(textColor, warnings, (val, w) => {
+      const c = colorToXgis(val, w)
+      return c === null ? null : applyAlphaMultiplier(c, textOpacityConst)
+    })
     if (interp !== null) {
       utils.push(`label-color-[${interp}]`)
     } else {
@@ -89,6 +97,14 @@ export function convertTextPaintProperties(
         const expr = exprToXgis(textColor, warnings)
         if (expr !== null) {
           utils.push(`label-color-[${expr}]`)
+          // #2318: the expression path has no per-leaf alpha fold, so
+          // carry a constant text-opacity as its own binding — lower.ts
+          // routes a non-zoom label-opacity binding into
+          // LabelShapes.opacity (data-driven), which the runtime
+          // multiplies into resolvedColor.a per feature.
+          if (textOpacityConst !== null && textOpacityConst < 1) {
+            utils.push(`label-opacity-[${textOpacityConst}]`)
+          }
         } else {
           // Couldn't convert — fall back to Mapbox spec default.
           utils.push(`label-color-${applyAlphaMultiplier('#000000', textOpacityConst)}`)
@@ -1155,6 +1171,36 @@ export function convertTextLayoutProperties(
     overrides?.placement !== undefined
       ? overrides.placement
       : unwrapLiteralScalar(layout['symbol-placement'])
+  // Zoom-interpolated / legacy-stops form (#2320) — folded here, mirroring
+  // the text-padding / text-letter-spacing arms above, so a non-constant
+  // value no longer falls straight through to the spec-default arm below
+  // and silently emits the default 10. Only shapes interpolateZoomCall
+  // recognises fold; anything else (`["step", ["zoom"], …]`, a data-driven
+  // `["match", …]`, a non-finite number) keeps the default arm and is named
+  // by the warning there — emitting nothing would leave the runtime with no
+  // maxWidth at all ("undefined ⇒ no wrap"), which is further from Mapbox
+  // than the spec default. Gated on placement so a line-placed layer, whose
+  // max-width the spec disables anyway, folds nothing and warns about
+  // nothing.
+  const maxWidthInterp =
+    maxWidth !== undefined &&
+    maxWidth !== null &&
+    typeof maxWidth !== 'number' &&
+    placement !== 'line' &&
+    placement !== 'line-center'
+      ? interpolateZoomCall(maxWidth, warnings, (val, warn) => {
+          if (typeof val !== 'number' || !Number.isFinite(val)) return null
+          // Same spec violation as the constant arm below, so it gets the
+          // same diagnostic — a negative stop clamped in silence is the
+          // silent-loss this issue is about, one shape further in.
+          if (val < 0) {
+            warn.push(
+              `Symbol layer "${layer.id}" — text-max-width stop ${val} is negative; Mapbox spec requires >= 0. Clamped to 0 (label wraps every character).`,
+            )
+          }
+          return String(Math.max(0, val))
+        })
+      : null
   if (typeof maxWidth === 'number' && Number.isFinite(maxWidth)) {
     // Mapbox spec: text-max-width >= 0 (em units). Number.isFinite
     // rejects NaN / Infinity.
@@ -1164,7 +1210,14 @@ export function convertTextLayoutProperties(
       )
     }
     utils.push(`label-max-width-${Math.max(0, maxWidth)}`)
+  } else if (maxWidthInterp !== null) {
+    utils.push(`label-max-width-[${maxWidthInterp}]`)
   } else if (placement !== 'line' && placement !== 'line-center') {
+    if (maxWidth !== undefined && maxWidth !== null) {
+      warnings.push(
+        `Symbol layer "${layer.id}" — text-max-width is neither a constant number nor a zoom interpolation the converter can fold; falling back to the Mapbox spec default 10 ems.`,
+      )
+    }
     utils.push('label-max-width-10')
   }
   const lineHeight = unwrapLiteralScalar(layout['text-line-height'])
@@ -1291,12 +1344,22 @@ export function convertTextLayoutProperties(
   // wrapped value — the label fell back to the runtime's auto-default
   // (viewport for point, map for line) even when the style explicitly
   // requested otherwise.
+  // #2224 — FOUR values, not three: the pinned style spec defines
+  // `viewport-glyph` alongside map / viewport / auto. Rejecting it as invalid
+  // emitted no utility at all, so the layer silently took the runtime's
+  // placement default (tangent + ground basis on a line layer) — the opposite
+  // of what MapLibre draws for it.
   const rotAlign = unwrapLiteralScalar(layout['text-rotation-alignment'])
-  if (rotAlign === 'map' || rotAlign === 'viewport' || rotAlign === 'auto') {
+  if (
+    rotAlign === 'map' ||
+    rotAlign === 'viewport' ||
+    rotAlign === 'viewport-glyph' ||
+    rotAlign === 'auto'
+  ) {
     utils.push(`label-rotation-alignment-${rotAlign}`)
   } else if (typeof rotAlign === 'string') {
     warnings.push(
-      `Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'auto'.`,
+      `Symbol layer "${layer.id}" — text-rotation-alignment "${rotAlign.slice(0, 40)}" is not a valid enum; expected 'map' | 'viewport' | 'viewport-glyph' | 'auto'.`,
     )
   }
   const pitchAlign = unwrapLiteralScalar(layout['text-pitch-alignment'])

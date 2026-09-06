@@ -35,6 +35,12 @@ import { hasVariantCatalogs } from './map-teardown'
 // ── Stubs (no GPU / no real Worker) — mirrors source-manager-drop-tiling.test.ts ──
 class StubVectorTileRenderer {
   reseedTiles = vi.fn()
+  // #2439 — the reseed-in-place path re-seeds the dense `categorical()` value
+  // lists before it re-seeds the tiles. A `vi.fn()` rather than a no-op setter
+  // because the control test below now ASSERTS the forwarding: an unconditional
+  // production call against an incomplete double is how this surfaced (a
+  // TypeError inside setSourceData, which is far worse than a stale rank).
+  setSeededFeatures = vi.fn()
   setBindGroupLayout(): void {}
   setPaletteResources(): void {}
   setSpriteAtlasView(): void {}
@@ -292,12 +298,26 @@ describe('SourceManager.setSourceData — _reseedInPlace (#1371) variant stalene
   })
 
   it('control: still takes the reseed-in-place fast path when no variant catalog exists', async () => {
-    const { mgr, order } = makeManager()
+    const { mgr, order, registered } = makeManager()
     await attachBase(mgr)
 
     mgr.setSourceData(SOURCE_ID, PATCHED_FC)
 
     expect(order).toEqual([])
+
+    // #2439 — the fast path KEEPS the renderer, so the dense `categorical()`
+    // value lists it derived describe the PREVIOUS data. Assert the re-seed is
+    // forwarded with the NEW features: without it the next tile packs the new
+    // data against the old ranks and every category shifts colour, silently.
+    const stub = registered.get(SOURCE_ID)!.renderer
+    expect(stub.setSeededFeatures).toHaveBeenCalledTimes(1)
+    const seeded = stub.setSeededFeatures.mock.calls[0]![0] as unknown[]
+    expect(seeded).toHaveLength(PATCHED_FC.features.length)
+    // Ordering matters: seeding must happen BEFORE the tiles are re-requested,
+    // or a tile can be packed against the stale lists it was meant to replace.
+    expect(stub.setSeededFeatures.mock.invocationCallOrder[0]!).toBeLessThan(
+      stub.reseedTiles.mock.invocationCallOrder[0]!,
+    )
   })
 
   it('control: the pre-existing full-rebuild path (source never virtual-tiled) is unaffected', () => {

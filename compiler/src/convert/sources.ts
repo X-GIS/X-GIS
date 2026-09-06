@@ -45,7 +45,7 @@ function warnMapboxSchemeUrl(id: string, url: unknown, warnings: string[]): void
  *     (with `options.inlineGeoJSON` collector: data is captured for
  *     auto-push; without: runtime seeds an empty FC and the host must
  *     call `setSourceData(id, fc)` after `run()`)
- *   - `type: raster-dem`                      → emit + warn (Batch 4)
+ *   - `type: raster-dem`                      → emit (rendered by a hillshade layer, #777)
  *   - `type: image` / `video`                 → skip + warn */
 export function convertSource(
   id: string,
@@ -439,9 +439,11 @@ export function convertSource(
       warnings.push(`Raster source "${id}" has no URL.`)
     }
   } else if (src.type === 'raster-dem') {
-    // Source registered but rendering not yet implemented (Batch 4).
-    // Emit type so the runtime's source registry has the entry — a
-    // future hillshade / 3D-terrain layer will pick it up.
+    // Emit type so the runtime's source registry has the entry; a
+    // `hillshade` layer over this source RENDERS it (#777 Phase II —
+    // DEM decode -> 3x3 Sobel -> HillshadeRenderer, both backends).
+    // 3D terrain VERTEX DISPLACEMENT is the separate gap, and the
+    // top-level `terrain` block owns that warning — not this branch.
     const url = src.tiles?.[0] ?? src.url
     warnMapboxSchemeUrl(id, url, warnings)
     if (url) {
@@ -466,9 +468,6 @@ export function convertSource(
       lines.push('  type: raster-dem')
       lines.push(`  url: ${JSON.stringify(url)}`)
       lines.push(...tileProps) // tileSize/maxzoom/minzoom (#1983) + bounds (#1984) + scheme (#1985)
-      lines.push(
-        '  // NOTE: raster-dem rendering (hillshade / 3D terrain) — Batch 4 of the Mapbox compatibility roadmap.',
-      )
       // Mapbox raster-dem elevation encoding (#2003): 'mapbox' (default — RGB-packed
       // elevation à la Terrain RGB) / 'terrarium' (Mapzen / Stamen alternative encoding) /
       // 'custom' (redFactor/greenFactor/blueFactor/baseShift). The runtime decode already
@@ -512,9 +511,6 @@ export function convertSource(
           )
         }
       }
-      warnings.push(
-        `Source "${id}" type="raster-dem" registered but rendering not yet supported (Batch 4 — hillshade + 3D terrain).`,
-      )
     } else {
       lines.push('  // TODO: raster-dem source missing url/tiles')
       warnings.push(`raster-dem source "${id}" has no URL.`)

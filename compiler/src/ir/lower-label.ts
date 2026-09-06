@@ -69,7 +69,11 @@ export function lowerLabelProps(
   let labelHaloColorZoomStopsBase: number | undefined
   let labelHaloBlur: number | undefined
   let labelSpacing: number | undefined
-  let labelRotationAlignment: 'map' | 'viewport' | 'auto' | undefined
+  // #2224 — derived FROM LabelDef, not restated. The literal union here was a
+  // second authority for the same enum: LabelDef gained `viewport-glyph` and
+  // this line rejected it, which tsc caught but only after the value had
+  // already been accepted by the converter and the parse arm below.
+  let labelRotationAlignment: import('./render-node').LabelDef['rotationAlignment']
   let labelPitchAlignment: 'map' | 'viewport' | 'auto' | undefined
   let labelKeepUpright: boolean | undefined
   let labelMaxAngle: number | undefined
@@ -197,6 +201,20 @@ export function lowerLabelProps(
         if (zoomStops && name === 'label-size') {
           for (const s of zoomStops.stops) labelSizeZoomStops.push({ zoom: s.zoom, value: s.value })
           if (zoomStops.base !== 1) labelSizeZoomStopsBase = zoomStops.base
+          continue
+        }
+        if (zoomStops && name === 'label-max-width') {
+          // Mapbox `text-max-width: interpolate(zoom, …)` (#2320) — the
+          // converter now folds the authored stops instead of discarding them
+          // for the spec default 10, so this arm is what keeps them from
+          // reaching the X-GIS0005 fallthrough below (a dropped max-width
+          // leaves LabelDef.maxWidth undefined, which text-stage.ts reads as
+          // "no wrap at any zoom" — strictly worse than the default it
+          // replaced). LabelDef.maxWidth is a single em value (text-stage
+          // wraps at layout time, not per frame), so seed it from the LAST
+          // stop, the same fallback the label-halo / label-color zoom-interp
+          // arms use until their field gains stops.
+          labelMaxWidth = zoomStops.stops[zoomStops.stops.length - 1]!.value
           continue
         }
         if (zoomStops && name === 'label-icon-size') {
@@ -527,6 +545,12 @@ export function lowerLabelProps(
       }
       if (name === 'label-rotation-alignment-viewport') {
         labelRotationAlignment = 'viewport'
+        continue
+      }
+      // #2224 — checked AFTER the plain `viewport` arm above only because the
+      // match is exact; the two are distinct utilities, not a prefix pair.
+      if (name === 'label-rotation-alignment-viewport-glyph') {
+        labelRotationAlignment = 'viewport-glyph'
         continue
       }
       if (name === 'label-rotation-alignment-auto') {

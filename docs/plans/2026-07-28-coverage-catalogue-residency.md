@@ -78,12 +78,12 @@ consume, for zero gain over a JSON standard that already exists and already has 
 
 Minimum subset the engine reads, and nothing more:
 
-| STAC field                        | Engine use                                    |
-| --------------------------------- | --------------------------------------------- |
-| `features[].id`                   | the region key (`region` in the existing API)  |
-| `features[].bbox`                 | viewport intersection + relevance ordering     |
-| `features[].assets.data.href`     | the cell URL passed to `fetchCoverageHandle`   |
-| `features[].properties.datetime`  | (later) cycle identity for a rolling catalogue |
+| STAC field                       | Engine use                                     |
+| -------------------------------- | ---------------------------------------------- |
+| `features[].id`                  | the region key (`region` in the existing API)  |
+| `features[].bbox`                | viewport intersection + relevance ordering     |
+| `features[].assets.data.href`    | the cell URL passed to `fetchCoverageHandle`   |
+| `features[].properties.datetime` | (later) cycle identity for a rolling catalogue |
 
 Unknown fields are ignored. A catalogue that happens to be a full STAC API response still reads.
 
@@ -119,13 +119,13 @@ pattern from CLAUDE.md §12. The fix is not to sync them — it is to have one.
 ## The design
 
 **One authority: the renderer's GPU byte budget.** The catalogue driver does not predict
-eviction. It arms in relevance order and *listens*.
+eviction. It arms in relevance order and _listens_.
 
 - **Detect.** Sniff the fetched bytes, not the URL: HDF5 begins with the signature
   `89 48 44 46 0D 0A 1A 0A`. Signature present → a single cell, exactly today's path, unchanged.
   Absent → parse as JSON and read it as a STAC ItemCollection. Reading a standard's magic number
   is a verified-by-construction discriminator, not a guess — and it means a catalogue URL needs
-  no extension, no new `type:`, and no DSL change at all. (§12 forbids *writing* a magic number
+  no extension, no new `type:`, and no DSL change at all. (§12 forbids _writing_ a magic number
   into a house format; reading one the standard defines is the opposite.)
 - **Resolve.** On `moveend`, intersect the viewport with each item's `bbox`; order by overlap
   area, ties toward the smaller bbox (the more local, higher-resolution cell). This is
@@ -139,14 +139,14 @@ eviction. It arms in relevance order and *listens*.
   construction. When a drop names a region the driver still wants, the driver stops arming
   further regions this cycle: the budget is full, and the next item down is the least relevant
   one anyway. That single rule replaces the mosaic's whole predictive byte budget, and it cannot
-  drift from the renderer, because it *is* the renderer talking.
-- **Hysteresis stays, and moves to the primary only.** The resident *set* no longer churns on a
+  drift from the renderer, because it _is_ the renderer talking.
+- **Hysteresis stays, and moves to the primary only.** The resident _set_ no longer churns on a
   boundary-adjacent zoom (both neighbours are simply loaded), so the damping is only about
   keeping `current()`'s label steady. Whether the engine needs to expose a "primary" at all is
   an open question below.
-- **The time axis is untouched.** S-111 forecast hours live *inside* one cell as HDF5 groups;
+- **The time axis is untouched.** S-111 forecast hours live _inside_ one cell as HDF5 groups;
   `setCoverageTime` / `stepCoverageRegions` / `CoverageTimePlayer` keep working exactly as they
-  do. The catalogue selects *which cell*, never *which hour*. Nobody should redesign the time
+  do. The catalogue selects _which cell_, never _which hour_. Nobody should redesign the time
   player as part of this.
 - **A rolling catalogue re-reads through the existing refresh machinery.** `coverage-refresh.ts`
   already owns HEAD-probe validators and the poll loop keyed per source; the catalogue document

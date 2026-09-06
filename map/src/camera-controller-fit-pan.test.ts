@@ -13,7 +13,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { Camera } from './camera'
 import { CameraController, type CameraControllerDeps } from './camera-controller'
-import { WORLD_MERC } from '@xgis/geo'
+import { WORLD_MERC, mercatorYToLat } from '@xgis/geo'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -110,15 +110,62 @@ describe('Bug #1: fitBounds picks the MORE CONSTRAINING axis (lon vs lat)', () =
     expect(z).toBeCloseTo(Math.min(lonZ, latZ), 3) // should equal lonZ
   })
 
-  it('after fitBounds on tall bbox, center lat is the bbox midpoint', () => {
+  it('after fitBounds on tall bbox, center lat is the bbox MERCATOR midpoint', () => {
     const { ctrl } = makeController(800, 600)
     ctrl.fitBounds([
       [126, 33],
       [127, 38],
     ])
     const state = ctrl.getCameraState()
-    expect(state.center[1]).toBeCloseTo((33 + 38) / 2, 3)
+    // #2293: the centre is the Mercator-Y midpoint (35.5389°), NOT the degree
+    // midpoint (35.5°) this used to assert — the degree midpoint disagrees with
+    // the Mercator-Y-sized zoom and cropped the bbox's north edge.
+    expect(state.center[1]).toBeCloseTo(mercatorYToLat((latToMercY(33) + latToMercY(38)) / 2), 3)
     expect(state.center[0]).toBeCloseTo((126 + 127) / 2, 3)
+  })
+})
+
+// ── #2293: fitBounds must CONTAIN the bbox on the lat axis ───────────────────
+//
+// hunt 2026-09-02: fitBounds centred on the DEGREE midpoint (s+n)/2 while
+// sizing the zoom from the MERCATOR-Y span, so off-equator bboxes lost their
+// pole-ward edge off-screen (40–70° on 800×600: north edge at 68.05°).
+
+/** Visible lat range at pitch=0/bearing=0: centerY ± (cssH/2)·mpp. */
+function visibleLatRange(cam: Camera, cssH: number): [number, number] {
+  const mpp = WORLD_MERC / TILE_PX / Math.pow(2, cam.zoom)
+  const half = (cssH / 2) * mpp
+  return [mercatorYToLat(cam.centerY - half), mercatorYToLat(cam.centerY + half)]
+}
+
+describe('#2293: fitBounds contains the requested bbox on the lat axis', () => {
+  it.each([
+    [
+      [
+        [0, 40],
+        [10, 70],
+      ],
+    ],
+    [
+      [
+        [0, 0],
+        [10, 80],
+      ],
+    ],
+  ] as const)('bbox %j: north and south edges are on-screen', (bounds) => {
+    const { ctrl, cam } = makeController(800, 600)
+    const [[w, s], [e, n]] = bounds
+    // the lat axis must be the binding constraint for this bbox, else the
+    // assertion below would pass for the wrong reason.
+    expect(expectedLatFitZoom(s, n, 600)).toBeLessThan(expectedLonFitZoom(w, e, 800))
+    ctrl.fitBounds([
+      [w, s],
+      [e, n],
+    ])
+    expect(cam.zoom).toBeCloseTo(expectedLatFitZoom(s, n, 600), 6)
+    const [visS, visN] = visibleLatRange(cam, 600)
+    expect(visS, 'south edge visible').toBeLessThanOrEqual(s + 1e-6)
+    expect(visN, 'north edge visible').toBeGreaterThanOrEqual(n - 1e-6)
   })
 })
 

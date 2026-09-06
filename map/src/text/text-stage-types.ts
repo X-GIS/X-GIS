@@ -266,6 +266,11 @@ export interface PendingLineLabel {
    *  `minLineSpacingPx` of an already-placed one are dropped. Undefined →
    *  unused. */
   anchorDistancePx?: number
+  /** #2323 — the authored `symbol-spacing` for this label's run (physical
+   *  px), forwarded to the collision pass's per-item `minLineSpacingPx` so
+   *  the same-route window matches the layer's own cadence instead of the
+   *  frame-wide 250 px default. Undefined → that default applies. */
+  minLineSpacingPx?: number
   /** #728 — STABLE per-feature collision identity, forwarded to the
    *  collision pass's `tieBreak` (mirror of PendingLabel.collisionId). For
    *  line labels the caller derives it from the tile-stable layer+route

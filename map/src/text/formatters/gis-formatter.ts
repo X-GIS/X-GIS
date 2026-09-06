@@ -19,7 +19,8 @@
 // or longitude. Convention: positive → N or E, negative → S or W,
 // driven by an optional axis hint. When the spec doesn't carry the
 // hint, we omit the suffix (the user is expected to supply it as
-// literal text in the template, e.g. "{lat:dms}N").
+// literal text in the template, e.g. "{lat:dms}N") and instead keep
+// a leading '-' on negative values.
 
 export type CoordTuple = [number, number]
 export type Axis = 'lat' | 'lon' | undefined
@@ -53,18 +54,8 @@ export function formatDMS(deg: number, axis: Axis = undefined, precision = 1): s
     }
   }
   const suffix =
-    axis === 'lat'
-      ? sign < 0
-        ? 'S'
-        : 'N'
-      : axis === 'lon'
-        ? sign < 0
-          ? 'W'
-          : 'E'
-        : sign < 0
-          ? '-'
-          : ''
-  const prefix = axis ? '' : sign < 0 ? '' : ''
+    axis === 'lat' ? (sign < 0 ? 'S' : 'N') : axis === 'lon' ? (sign < 0 ? 'W' : 'E') : ''
+  const prefix = axis === undefined && sign < 0 ? '-' : ''
   return `${prefix}${d}°${m}'${sStr}"${suffix}`
 }
 
@@ -78,18 +69,9 @@ export function formatDM(deg: number, axis: Axis = undefined, precision = 3): st
   const { str: mStr, carry } = carryFixed(minTotal, precision)
   if (carry) d += 1
   const suffix =
-    axis === 'lat'
-      ? sign < 0
-        ? 'S'
-        : 'N'
-      : axis === 'lon'
-        ? sign < 0
-          ? 'W'
-          : 'E'
-        : sign < 0
-          ? '-'
-          : ''
-  return `${d}°${mStr}'${suffix}`
+    axis === 'lat' ? (sign < 0 ? 'S' : 'N') : axis === 'lon' ? (sign < 0 ? 'W' : 'E') : ''
+  const prefix = axis === undefined && sign < 0 ? '-' : ''
+  return `${prefix}${d}°${mStr}'${suffix}`
 }
 
 /** 3-digit bearing (000–359). Wraps negatives into 0-360 range; 360 folds to 000. */

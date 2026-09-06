@@ -51,8 +51,11 @@ import type { GPUTile } from './vector-tile-renderer-types'
  *  `FeatureDataBinder.releaseTile` and passed into the store's eviction
  *  entry points so the store can fire the `7b31ce52` eviction-free hook
  *  WITHOUT importing the binder — preserving the forward A→D dependency
- *  direction and the "store holds no back-reference" discipline. */
-export type ReleaseTileHook = (handleKey: string) => void
+ *  direction and the "store holds no back-reference" discipline.
+ *  `keyRebound` is true ONLY on the supersede path (#2301): the handle key
+ *  is not being vacated, it now names the REPLACEMENT tile's resources, so a
+ *  consumer that refreshes its entry in place across an upload must keep it. */
+export type ReleaseTileHook = (handleKey: string, keyRebound: boolean) => void
 
 /** Round up to the 4-byte boundary — mirrors GPUArena's internal align4 so
  *  the grow-target math matches what `alloc` will actually consume. */
@@ -597,7 +600,7 @@ export class GpuTileStore {
     if (!inner) return { vBytes: 0, iBytes: 0 }
     const tile = inner.get(tk)
     if (!tile) return { vBytes: 0, iBytes: 0 }
-    const freed = this._releaseTileResources(slot, tk, tile, releaseTileHook)
+    const freed = this._releaseTileResources(slot, tk, tile, releaseTileHook, false)
     inner.delete(tk)
     this._gpuCacheCount--
     return freed
@@ -622,7 +625,7 @@ export class GpuTileStore {
     superseded: GPUTile,
     releaseTileHook: ReleaseTileHook,
   ): void {
-    this._releaseTileResources(sourceLayer, key, superseded, releaseTileHook)
+    this._releaseTileResources(sourceLayer, key, superseded, releaseTileHook, true)
   }
 
   /** Resource-release body shared by eviction (which then drops the entry) and the
@@ -632,6 +635,7 @@ export class GpuTileStore {
     tk: number,
     tile: GPUTile,
     releaseTileHook: ReleaseTileHook,
+    keyRebound: boolean,
   ): { vBytes: number; iBytes: number } {
     let vBytes = 0
     let iBytes = 0
@@ -680,7 +684,7 @@ export class GpuTileStore {
     // hook) so its buffers are reclaimed and dispatchComputePass stops
     // iterating over this evicted tile every frame. Stays AFTER
     // featureDataBuffer.destroy() — the 7b31ce52 order.
-    releaseTileHook(`${tk}:${slot}`)
+    releaseTileHook(`${tk}:${slot}`, keyRebound)
     return { vBytes, iBytes }
   }
 

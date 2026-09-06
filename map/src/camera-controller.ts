@@ -15,7 +15,13 @@
 //   - `this._maxBounds` / `this._cameraExplicitlyPositioned` → owned here
 
 import { Camera } from './camera'
-import { MERCATOR_LAT_LIMIT, mercatorYToLat, mercatorYToLatRad, mercator } from '@xgis/geo'
+import {
+  MERCATOR_LAT_LIMIT,
+  latToMercatorY,
+  mercatorYToLat,
+  mercatorYToLatRad,
+  mercator,
+} from '@xgis/geo'
 import { poleLimit, representsCenterAs } from '@xgis/geo'
 import { WORLD_MERC, TILE_PX } from '@xgis/geo'
 import { canvasEffectiveDpr, effectiveDpr } from '@xgis/engine'
@@ -311,7 +317,11 @@ export class CameraController {
       return
     }
     const centerLon = (w + e) / 2
-    const centerLat = (s + n) / 2
+    // #2293 — the fit zoom sizes the viewport in MERCATOR-Y (_fitZoomToMercYSpan
+    // below), so the centre must be the Mercator-Y midpoint too. mercY is
+    // strictly convex off the equator, so the degree midpoint (s+n)/2 sits
+    // equator-ward of it and pushes the pole-ward bbox edge off-screen.
+    const centerLat = mercatorYToLat((latToMercatorY(s) + latToMercatorY(n)) / 2)
     const lonSpan = Math.max(1e-9, e - w)
     // canvas.width is DEVICE px (clientWidth*dpr, gpu.ts resizeCanvas) but
     // _fitZoomToLonSpan's degPerPx→zoom math expects CSS px, so strip the

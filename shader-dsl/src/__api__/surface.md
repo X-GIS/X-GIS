@@ -10,7 +10,7 @@ which is what the changelog, filing one entry per commit SUBJECT, cannot show (#
 This is not a version. A mirror consumer pins a SHA (#1681), and `git diff` over two SHAs
 of this file is the exact list of what changed for them.
 
-## `.` — 363 exports
+## `.` — 364 exports
 
 ```
 abs
@@ -171,6 +171,7 @@ IntKey
 intLit
 INTRINSIC_BINDING_REFS
 INTRINSIC_HELPERS
+intrinsicNeedsAtomArgs
 INTRINSICS
 IntrinsicTarget
 inverseSqrt
@@ -672,7 +673,7 @@ when
 workgroupSizeOf
 ```
 
-## Shapes — 417 definitions
+## Shapes — 418 definitions
 
 ```
 src/core/backend.ts#Backend  interface  { absentBuiltins?: ReadonlyMap<string, string>; capProfile: Readonly<Partial<Record<Capability, CapSupport>>>; caseBreak?: string; caseLabel: (value: number, scrutType: ShaderType) => string; constDecl: (name: string, type: ShaderType, value: string) => string; emitBinding: (b: BindingDecl) => string; emitConst: (c: ConstDecl) => string; emitFunc: (f: FuncDecl, parens?: ParenMode) => string; emitOverride?: (o: OverrideDecl) => string; emitStruct: (s: StructDecl) => string; floatMod?: (a: string, b: string) => string; id: string; intrinsic: (name: string, args: string[]) => string; literal: (value: number | boolean, t: ShaderType) => string; localLet: (name: string, type: ShaderType, init: string) => string; localVar: (name: string, type: ShaderType, init?: string) => string; modulePreamble?: (m: ModuleDecl) => string; optimize: (lowered: ModuleDecl) => ModuleDecl; placeholderStmt: (tag: string) => string; rawStmt: (s: RawStmt) => string; switchHead: (scrut: string) => string; typeName: (t: ShaderType) => string }
@@ -752,6 +753,7 @@ src/core/intrinsics.ts#INTRINSIC_HELPERS  const  Readonly<Record<string, { reado
 src/core/intrinsics.ts#IntrinsicTarget  type  "wgsl" | "glsl"
 src/core/intrinsics.ts#PORTABLE_INTRINSICS  const  ReadonlySet<string>
 src/core/intrinsics.ts#PRE_EMIT_INTRINSICS  const  ReadonlySet<string>
+src/core/intrinsics.ts#intrinsicNeedsAtomArgs  const  (name: string) => boolean
 src/core/intrinsics.ts#isKnownIntrinsic  const  (name: string) => boolean
 src/core/intrinsics.ts#spellIntrinsic  function  (target: IntrinsicTarget, name: string, args: readonly string[]) => string
 src/core/ir/builder.ts#Break  const  () => void

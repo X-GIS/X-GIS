@@ -1,0 +1,7 @@
+{
+  "minTokens": 70,
+  "minLines": 5,
+  "mode": "mild",
+  "format": ["javascript"],
+  "formatsExts": { "javascript": ["ts", "tsx", "js", "mjs"] }
+}

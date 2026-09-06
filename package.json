@@ -45,6 +45,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",
+    "dup": "bun scripts/dup-ratchet.ts",
+    "dup:report": "bun scripts/dup-ratchet.ts --report",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"
@@ -61,6 +63,7 @@
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
     "husky": "^9.1.7",
+    "jscpd": "^5.1.2",
     "knip": "^5",
     "lint-staged": "^15.3.0",
     "picomatch": "^2.3.1",

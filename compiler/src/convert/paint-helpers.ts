@@ -118,6 +118,13 @@ function interpolateZoomStops(v: unknown, warnings?: string[]): InterpolateZoomS
     // math to NaN at the renderer.
     const base =
       typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase !== 1 ? rawBase : 1
+    // #2329: legacy `type: "interval"` is MapLibre's STEP semantics
+    // (evaluateIntervalFunction holds the greatest stop <= the input),
+    // not a ramp between stops — lift it to the step curve instead of
+    // falling through to linear/exponential below.
+    if ((v as { type?: unknown }).type === 'interval') {
+      return { curve: 'step', base: 1, stops: legacyStops }
+    }
     return {
       curve: base === 1 ? 'linear' : 'exponential',
       base,
@@ -562,6 +569,19 @@ export function interpolateZoomCall(
 ): string | null {
   const shape = interpolateZoomStops(v, warnings)
   if (!shape) return null
+  if (shape.curve === 'step') {
+    // step(zoom, v0, z1, v1, z2, v2, …) — v0 is the value held below
+    // the first stop, mirroring the modern `["step", ["zoom"], …]`
+    // binding form (layers-helpers.ts textFieldToXgisExpr).
+    const parts: string[] = []
+    for (let i = 0; i < shape.stops.length; i++) {
+      const s = shape.stops[i]!
+      const out = emitValue(s.value, warnings)
+      if (out === null) return null
+      parts.push(i === 0 ? out : `${s.zoom}, ${out}`)
+    }
+    return `step(zoom, ${parts.join(', ')})`
+  }
   const parts: string[] = []
   for (const s of shape.stops) {
     const out = emitValue(s.value, warnings)

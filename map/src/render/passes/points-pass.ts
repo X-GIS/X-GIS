@@ -54,7 +54,10 @@ class PointsPass implements RenderPass {
       // Re-evaluate zoom-interpolated point sizes against the
       // current camera before drawing. No-op for layers without
       // zoomSizeStops; internally skipped when zoom is unchanged.
-      host.pointRenderer!.updateDynamicSizes(host.camera.zoom, performance.now())
+      // #2324 — the frame clock (ctx.elapsedMs), not performance.now(): a
+      // time-interpolated size must animate from the same clock every other
+      // time-interpolated property reads, not one that starts at navigation.
+      host.pointRenderer!.updateDynamicSizes(host.camera.zoom, ctx.elapsedMs)
       const { projType, centerLon, centerLat } = unwrapProjection(ctx.projection)
       host.pointRenderer!.renderRhi(
         ptPass,

@@ -69,6 +69,9 @@ import { emitFlowAdvectGlsl, emitFlowAdvectWgsl } from '../dsl/flow-advect'
 import { emitHeatmapAccumGlsl, emitHeatmapAccumWgsl } from '../dsl/heatmap-accum'
 import { emitHeatmapBlurGlsl, emitHeatmapBlurWgsl } from '../dsl/heatmap-blur'
 import { emitHeatmapComposeGlsl, emitHeatmapComposeWgsl } from '../dsl/heatmap-compose'
+import { emitPolygonSplitWgsl } from '../dsl/polygon-split'
+import { emitLineSplitWgsl } from '../dsl/line-split'
+import { emitOitComposeWgsl } from '../dsl/oit-compose'
 // EVERY id below is spelled by the shared LEAF `ids.ts`, not here: the consume half
 // addresses baked sources by those exact strings and cannot import this file (it would
 // drag every dsl emitter above into the runtime bundle). One authority for the string,
@@ -82,15 +85,18 @@ import {
   HILLSHADE_METHOD_FLAGS,
   LINE_GLSL_STAGES,
   LINE_GLSL_STAGE_ARGS,
+  OIT_SAMPLE_COUNTS,
   PICKED_MODULE_FAMILIES,
   PICK_STATES,
   POLYGON_FRAGMENT_ENTRIES,
   POLYGON_VERTEX_ENTRIES,
   SIMPLE_FAMILIES,
+  WGSL_ONLY_FAMILIES,
   hillshadeGlslId,
   hillshadeWgslId,
   lineGlslId,
   lineWgslId,
+  oitComposeWgslId,
   pickedModuleGlslId,
   pickedModuleWgslId,
   polygonGlslFragmentId,
@@ -98,11 +104,13 @@ import {
   polygonWgslId,
   simpleGlslId,
   simpleWgslId,
+  wgslOnlyId,
   type BakedFamily,
   type BakedGroup,
   type BakedStage,
   type PickedModuleFamily,
   type SimpleFamily,
+  type WgslOnlyFamily,
 } from './ids'
 
 export type BakedLanguage = 'glsl' | 'wgsl'
@@ -133,6 +141,8 @@ export interface BakedShaderKey {
   /** Families with a pick-pass variant (hillshade / polygon / line / raster /
    *  under-occluder). Absent where the module has no pick dimension. */
   readonly pick?: boolean
+  /** oit-compose only — the MSAA sample count its compose loop is unrolled for (1 / 2 / 4). */
+  readonly sampleCount?: number
   /** GLSL only. */
   readonly stage?: BakedStage
   /** The spelled `main`, for multi-entry families (see the id format). */
@@ -323,6 +333,36 @@ function buildKeys(): BakedShaderKey[] {
         emit: () => glsl(stage),
       })
   }
+
+  // The WGSL-only families (#2499) — the split-bind twins, pick-parameterised, no GLSL twin
+  // by construction (see `WgslOnlyFamily` in ids.ts). Each thunk is the draper's own emit with
+  // the NULL variant; `polygon-shader-cache.ts` hands both call sites these bytes through the
+  // store, and a composer variant stays a runtime emit (the open set).
+  const WGSL_ONLY_EMITTERS: Readonly<Record<WgslOnlyFamily, (pick: boolean) => string>> = {
+    'polygon-split': (pick) => emitPolygonSplitWgsl(null, pick),
+    'line-split': (pick) => emitLineSplitWgsl(null, pick),
+  }
+  for (const family of WGSL_ONLY_FAMILIES)
+    for (const pick of PICK_STATES)
+      keys.push({
+        id: wgslOnlyId(family, pick),
+        language: 'wgsl',
+        family,
+        pick,
+        emit: () => WGSL_ONLY_EMITTERS[family](pick),
+      })
+
+  // oit-compose — one module per MSAA sample count. `isMsaa` is DERIVED from the count at the
+  // call site (`compose-pipelines.ts`: `sampleCount > 1`) and derived the same way here, so the
+  // count is the one value driving both the id and the emit (ids.ts's entry-hazard rule).
+  for (const sampleCount of OIT_SAMPLE_COUNTS)
+    keys.push({
+      id: oitComposeWgslId(sampleCount),
+      language: 'wgsl',
+      family: 'oit-compose',
+      sampleCount,
+      emit: () => emitOitComposeWgsl(sampleCount, sampleCount > 1),
+    })
 
   return keys
 }

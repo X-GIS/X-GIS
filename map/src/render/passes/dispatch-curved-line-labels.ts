@@ -200,6 +200,9 @@ export interface CurvedLineLabelDeps {
     anchorDistancePx: number | undefined,
     collisionId: string | undefined,
     ground?: CurvedGroundArgs,
+    /** #2323 — the run's authored symbol-spacing (physical px); see
+     *  `TextStage.addCurvedLineLabel`'s `minLineSpacingPx` param. */
+    minLineSpacingPx?: number,
   ) => void
   /** `label-pass`'s icon dispatcher. Slot order mirrors it exactly. */
   dispatchIcon: (
@@ -347,6 +350,9 @@ export function emitCurvedLineLabels(run: CurvedLineLabelRun, deps: CurvedLineLa
       stop,
       run.lineCollisionId,
       groundArgs,
+      // #2323 — the run's own authored symbol-spacing, so the same-route
+      // window matches its cadence instead of the frame-wide 250 px default.
+      run.spacingPx,
     )
     // OFM road shield + similar: icon-along-line approximation. Dispatch the icon
     // at the line label's anchor so highway-shield-* layers (symbol-placement=line

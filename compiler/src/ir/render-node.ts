@@ -602,9 +602,11 @@ export interface LabelDef {
   sortKeyExpr?: { ast: unknown }
 
   // ── Deferred (placeholder typings; semantics defined later) ──
-  /** Map / viewport / auto. Default 'auto' — point labels follow
-   *  viewport, line labels follow map. Batch 1d. */
-  rotationAlignment?: 'map' | 'viewport' | 'auto'
+  /** Map / viewport / viewport-glyph / auto. Default 'auto' — point labels
+   *  follow viewport, line labels follow map. `viewport-glyph` (#2224) resolves
+   *  to the viewport side for placement: the label billboards instead of
+   *  following the tangent. Batch 1d. */
+  rotationAlignment?: 'map' | 'viewport' | 'viewport-glyph' | 'auto'
   /** Map / viewport / auto. Default 'auto'. Batch 1d. */
   pitchAlignment?: 'map' | 'viewport' | 'auto'
   /** When true (default), flip labels along curves so they read

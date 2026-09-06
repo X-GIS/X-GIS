@@ -27,9 +27,23 @@ import { test, expect } from '@playwright/test'
 // byte-identical and green. The marker is registered at 96x96 (not 32x32) precisely so
 // the labels cannot cover it: 2 x 96 x 96 = 18432 icon pixels are painted and 13557
 // survive the two label draws, which is what the assertion below counts.
+//
+// #2502 — THE WHITE COUNTS ABOVE WERE THE BUG, NOT THE TEXT. This fixture's label is
+// halo-less white on a dark ground, and until #2502 the no-halo text branch emitted
+// straight alpha into a premultiplied blend, so every glyph SLOT painted as a solid
+// white quad: "Alpha" alone was 2486 white px. With glyphs rendered as glyphs the
+// fully-saturated (>230 on all channels) count of two 14 px labels is 23 — the
+// thin-stroke core pixels — so the old `white > 1000` floor measured the defect and
+// reddened on its fix. The liveness witness now counts LIGHT pixels (every channel
+// > 128, i.e. glyph coverage above one half, white over the dark ground OR over the
+// magenta quad): 276 measured with the labels, 0 with the label text
+// blank (the icons contribute none — magenta has g = 0 — and neither does the
+// ground). The floor sits well below the first and well above the second.
 
 /** Floor for the icon witness — see the assertion at the bottom. */
 const MIN_ICON_PIXELS = 8000
+/** Floor for the paired-text liveness witness (light pixels, see the #2502 note). */
+const MIN_TEXT_PIXELS = 100
 
 test('symbol icons render on WebGl2Device (?forcegl2=1)', async ({ page }) => {
   test.setTimeout(120_000)
@@ -105,15 +119,16 @@ test('symbol icons render on WebGl2Device (?forcegl2=1)', async ({ page }) => {
       const buf = new Uint8Array(W * H * 4)
       gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, buf)
       // MAGENTA = the registered marker's own colour, so these pixels can only come
-      // from the icon draw sampling the host atlas (#2223). WHITE = label glyphs,
-      // counted separately as a liveness check on the paired text — it is NOT an
-      // icon witness (the icon draw contributes zero white pixels; measured).
+      // from the icon draw sampling the host atlas (#2223). LIGHT = label glyph
+      // coverage above one half (#2502 note at the top), counted separately as a
+      // liveness check on the paired text — it is NOT an icon witness (the icon draw
+      // contributes zero light pixels; measured).
       let magenta = 0
-      let white = 0
+      let light = 0
       for (let p = 0; p < W * H; p++) {
         const i = p * 4
         if (buf[i] > 200 && buf[i + 1] < 60 && buf[i + 2] > 200) magenta++
-        if (buf[i] > 230 && buf[i + 1] > 230 && buf[i + 2] > 230) white++
+        if (buf[i] > 128 && buf[i + 1] > 128 && buf[i + 2] > 128) light++
       }
       return {
         ok: true as const,
@@ -123,7 +138,7 @@ test('symbol icons render on WebGl2Device (?forcegl2=1)', async ({ page }) => {
         glError: gl.getError(),
         total: W * H,
         magenta,
-        white,
+        light,
       }
     })
 
@@ -157,6 +172,10 @@ test('symbol icons render on WebGl2Device (?forcegl2=1)', async ({ page }) => {
     }`,
   ).toBeGreaterThan(MIN_ICON_PIXELS)
   // Paired-text liveness. NOT an icon witness: with the icon draw severed this count
-  // is unchanged (4666, measured) — every white pixel is a label glyph.
-  expect(r.white, `white LABEL pixels ${r.white}/${r.total}`).toBeGreaterThan(1000)
+  // is unchanged — every light pixel is a label glyph (#2502 note: 276 with
+  // the labels, 0 with their text blank).
+  expect(
+    r.light,
+    `light LABEL pixels ${r.light}/${r.total} (floor ${MIN_TEXT_PIXELS})`,
+  ).toBeGreaterThan(MIN_TEXT_PIXELS)
 })
