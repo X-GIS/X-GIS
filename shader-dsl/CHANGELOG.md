@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: e7ced65cbb2adac36f63656a08dab56991efcc72
+  Generated from: 65f8e73822e540657a29e7c9b15133ca697aa5ee
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since e7ced65cbb2a
+    bun scripts/emit-changelog.ts --path shader-dsl --since 65f8e73822e5
 -->
 
 # Changelog — shader-dsl
@@ -35,6 +35,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **render:** the split-bind twin's eligibility is decided from the IR, not from emitted text ([#2602](https://github.com/X-GIS/X-GIS/pull/2602)) `eb417f9`
 - **map+compiler:** issue-hunt 2026-09-02 — 31 verified defects across three packages, three new real-GPU gates ([#2330](https://github.com/X-GIS/X-GIS/pull/2330)) `fdd304f`
 - **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
 - **shader-dsl:** memberFold must not forward a construct argument that is reassigned (#2354) ([#2398](https://github.com/X-GIS/X-GIS/pull/2398)) `0d74a94`
@@ -45,6 +46,10 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 #### perf
 
 - **shader-dsl:** memoise keyOf on the Expr object — the optimizer's real hot path (#2465) ([#2492](https://github.com/X-GIS/X-GIS/pull/2492)) `80a3965`
+
+#### refactor
+
+- **shader-dsl:** move the IR walkers into core/ir as one visitor set ([#2593](https://github.com/X-GIS/X-GIS/pull/2593)) `c7b074d`
 
 #### test
 
