@@ -4,7 +4,7 @@
 // language is normally written: imports, sources, symbols, presets,
 // background, then layers in Map draw order.
 
-import { XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
+import { XGIS_LANGUAGE_MAJOR, isBareIdentifierSafe } from '@xgis/compiler'
 import type { BPGraph, BPNode } from './types'
 
 function byId(g: BPGraph): Map<string, BPNode> {
@@ -68,11 +68,13 @@ function emitSource(n: BPNode): string {
   // membership predicate: `type: raster-dem` → lowered type "geojson", diagnostic
   // `X-GIS0030 … got a BinaryExpr`, while the quoted control lowers to
   // "raster-dem". `SOURCE_TYPES` stays the authority for which types EXIST; it is
-  // not the authority for how a name is SPELLED. Pinned by
+  // not the authority for how a name is SPELLED.
+  //
+  // `isBareIdentifierSafe` is that authority, and it also covers the half a
+  // hand-written regex here missed: an identifier-shaped KEYWORD. Pinned by
   // blueprint/src/__tests__/source-type-roundtrip.test.ts.
   const type = d.type?.trim() || 'geojson'
-  const identifierShaped = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(type)
-  lines.push(`  type: ${identifierShaped ? type : JSON.stringify(type)}`)
+  lines.push(`  type: ${isBareIdentifierSafe(type) ? type : JSON.stringify(type)}`)
   if (d.url?.trim()) lines.push(`  url: ${JSON.stringify(d.url.trim())}`)
   const layers = (d.layers || '')
     .split(',')

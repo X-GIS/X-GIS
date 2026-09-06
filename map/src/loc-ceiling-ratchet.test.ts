@@ -2719,7 +2719,16 @@ const CEILINGS: Record<string, number> = {
   // a literal any more — and that sharing it with `isOnMercWorldRect` is
   // deliberate, because "how close counts as ON a rect" is one physical question
   // and two equal constants would be two authorities for it.
-  'compiler/src/tiler/vector-tiler.ts': 1708,
+  // 1708->1722 (#2553 follow-up, review): the collapsed-ring guard's rationale
+  // said the ring "has no interior in this tile". That is false for one of the two
+  // rings the guard drops — a ring that IS the tile rect has FULL interior and is
+  // still dropped, correctly, because its outline coincides with the tile edge
+  // where the neighbour's geometry meets it. Measured through the real entry
+  // points: exact-rect polygon -> outline 0, the same box inset by 1 degree ->
+  // outline 980. The comment now names both rings separately and records why
+  // `onRect` must stay PURELY geometric (a narrowed one stops the guard firing —
+  // the reverted runtime patch in #2603). Comment only; no executable change.
+  'compiler/src/tiler/vector-tiler.ts': 1722,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

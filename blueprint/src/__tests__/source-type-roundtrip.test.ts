@@ -86,4 +86,20 @@ describe('blueprint round-trip: source type + options (#2549)', () => {
     expect(after.type).toBe(before.type)
     expect(after.options).toEqual(before.options)
   })
+
+  it('a custom type that is a KEYWORD is quoted too — identifier-shaped is not enough', () => {
+    // The half a bare character-class regex misses. `readIdentifier` ends with
+    // `lookupKeyword`, so an identifier-shaped keyword never reaches the parser
+    // as an Identifier. Measured across all 14 keywords emitted bare: twelve make
+    // the parser THROW (`Unexpected token: source (Source)`) and kill the file,
+    // and `true`/`false` lower to the `geojson` default with the options dropped.
+    // `layer` stands for the twelve; `true` for the silent pair, which is the
+    // worse failure and the one #2549 is about.
+    for (const name of ['layer', 'true']) {
+      const src = `xgis 1\n\nsource s {\n  type: ${JSON.stringify(name)}\n  url: "https://e.com/a"\n}\n`
+      const round = roundTrip(src)
+      expect(round, `${name} must be re-emitted quoted`).toContain(`type: ${JSON.stringify(name)}`)
+      expect(lowerXgis(round).sources?.[0]?.type).toBe(name)
+    }
+  })
 })

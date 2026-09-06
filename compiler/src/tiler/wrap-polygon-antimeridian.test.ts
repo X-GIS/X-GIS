@@ -122,10 +122,26 @@ describe('#2550 antimeridian Polygon (past-seam and folded authorings)', () => {
     const holed = tiledPolygon([shell, hole])
     const solid = tiledPolygon([shell])
     expect(holed.columns).toEqual(solid.columns)
-    // Genuinely subtracted, on BOTH the original and its world copy — per tile,
-    // because the totals can coincide while one side silently lost the hole.
-    expect(holed.counts).not.toEqual(solid.counts)
+    // Genuinely subtracted, on BOTH the original and its world copy — asserted
+    // PER TILE, because a whole-array inequality is satisfied by ONE differing
+    // element and so cannot see a copy that kept the shell and dropped the hole.
+    // Cut-verified: making `shiftPartLon` copy only `rings[0]` leaves a
+    // whole-array check green (measured [175, 182] vs solid [175, 175] — x0
+    // identical) while these per-tile assertions red on x0.
     expect(holed.counts.length).toBe(2)
+    for (let i = 0; i < 2; i++) {
+      expect(holed.counts[i], `tile ${i} kept its hole`).not.toBe(solid.counts[i])
+    }
+    // And the copy carries the same RING COUNT as the original, pinned at the
+    // producer so a future `shiftPartLon` cannot drop a ring silently.
+    const ringsPerPart = decomposeFeatures([
+      {
+        type: 'Feature',
+        properties: { name: 'holed' },
+        geometry: { type: 'Polygon', coordinates: [shell, hole] },
+      } as unknown as GeoJSONFeature,
+    ]).map((p) => p.rings?.length ?? 0)
+    expect(ringsPerPart).toEqual([2, 2])
   })
 
   it('(e) every part of a past-seam MultiPolygon gets its own world copy', () => {

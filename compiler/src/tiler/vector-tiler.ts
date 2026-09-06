@@ -777,17 +777,31 @@ export function extractNonSyntheticArcs(
     if (onRect) onRectEdges++
     edgeSynthetic[i] = onRect && !rescuesEdge(a) && !rescuesEdge(b)
   }
-  // EVERY edge on the rect: the ring has no interior in this tile, so it has no
-  // outline here either — the polygon merely TOUCHES the rect from outside (a
-  // box whose east side lies exactly on this tile's west edge clips to a
-  // collapsed run along that edge). Provenance must not rescue this one, and
-  // left to itself it does: the touching side's corners ARE the source ring's
-  // own vertices, so `rescuesEdge` rightly calls them real and the sliver
-  // strokes a line down the tile border for a feature that covers none of it.
-  // The narrowing is only ever meaningful for a ring that HAS interior here,
-  // which is exactly what this test says. Geometric, not area-based: `intersect`
-  // snaps a cut vertex's perpendicular coordinate to the tile grid, so a
-  // collapsed ring's shoelace is small but NOT zero.
+  // EVERY edge on the rect: there is no outline to draw INSIDE this tile, so
+  // emit none. Two different rings satisfy this, and the guard is right for
+  // both — but only the first is about interior, so do not restate it as an
+  // interior test (an earlier version of this comment did, and it is false):
+  //
+  //   * the COLLAPSED ring — a polygon lying outside the tile and merely
+  //     TOUCHING it (a box whose east side is exactly this tile's west edge)
+  //     clips to a run along that one edge. It has no interior here, and
+  //     provenance must not rescue it: the touching side's corners ARE the
+  //     source ring's own vertices, so `rescuesEdge` rightly calls them real
+  //     and the sliver would stroke a line down the tile border for a feature
+  //     that covers none of it.
+  //   * the ring that IS the tile rect — full interior, every edge on the
+  //     boundary. Its outline coincides with the tile edge, where the
+  //     neighbouring tile's own geometry meets it, so stroking it paints a
+  //     grid over the seams. Dropping it is the behaviour the pre-#2553
+  //     geometric predicate already had, pinned by the "a ring that is
+  //     ENTIRELY the tile rect" arm in clip-boundary-snap.test.ts.
+  //
+  // GEOMETRIC, not area-based, and that is load-bearing: `intersect` snaps a
+  // cut vertex's perpendicular coordinate to the tile grid, so a collapsed
+  // ring's shoelace is small but NOT zero — a first attempt gating on
+  // `shoelaceArea(ring) === 0` did not fix the sliver. `onRect` must therefore
+  // stay the PURELY geometric predicate; narrowing it (as a reverted runtime
+  // patch did, see #2603) stops this guard firing at all.
   if (onRectEdges === n) return []
 
   // All edges real → original polygon is fully inside the tile.
