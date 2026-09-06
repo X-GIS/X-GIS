@@ -316,9 +316,30 @@ queue is being worked from the token corner rather than from the cluster.
 
 - (+) Mechanical, ~4 s, no build, nothing committed to keep in sync. A clone this PR adds
   cannot enter unnoticed; the queue is ranked, and each cluster names its remedy.
-- (+) Immune to base movement: main can merge under an open PR all day and the gate's
-  verdict does not change, because the comparison is rebuilt from the base each run. That
-  is the property the first design lacked (Alternative 8).
+- (+) No stored state to go stale: the comparison set is rebuilt from the base each run, so
+  there is nothing to re-record and no `dup:accept` step. That is the property the first
+  design lacked (Alternative 8).
+- (−) **NOT immune to base movement — this consequence claimed it was, and CI refuted the
+  claim on 2026-09-06.** `isNew` is jscpd's own verdict from `--baseline-from-ref`, and it
+  is sensitive to where jscpd ANCHORS a clone, not only to whether the duplication exists.
+  When main gains a commit that re-anchors a region — #2563 extracted `raster-row-geom.ts`
+  out of `hillshade-renderer.ts` / `raster-renderer.ts` — a branch still carrying the older
+  copies of those files is reported as ADDING the pair, in files its diff never touches.
+  PR #2593 (a `shader-dsl/` change, zero files under `map/`) went red on exactly that, with
+  a pair that demonstrably already exists on main.
+  **Root cause, and it was this gate's own code rather than jscpd's:** `resolveBaseRef` fell
+  back to the STRING `origin/main` when `git merge-base` failed, and under
+  `actions/checkout`'s default shallow clone it always failed. CI therefore compared the
+  branch against main's TIP — a commit the branch has not merged — instead of their common
+  ancestor. Same tree, same 272 clones, different base, opposite verdict: green locally
+  against the merge base, six "new" clones in CI against the tip.
+  **Fixed** by deleting that fallback (it now deepens the fetch once and THROWS rather than
+  guessing a base) and by checking the `lint` job out with `fetch-depth: 0`, which makes the
+  merge base exact. A gate that loses its base must be loud, never quietly wrong — the rule
+  Decision 2 already states for a missing `origin/main`, which this fallback quietly broke.
+  If the symptom is ever seen again the remedy is to merge main into the branch and re-run;
+  it is never to mark the pair `jscpd:ignore`, which would record a false reason and blind
+  the gate to a future real paste in those files.
 - (+) The tokenizer finding is recorded with its reproduction instead of being rediscovered.
 - (+) The gate's blind spot is MEASURED rather than assumed: `dup:shape` puts a number on
   what the token pass cannot see (3831 lines against 3673), so "the gate is green" is never

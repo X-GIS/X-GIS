@@ -142,5 +142,9 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 60_000,
     ignoreHTTPSErrors: true,
+    // The bake-HMR plugin (dev/bake-shaders-on-edit.ts, #2535) is for a human editing
+    // shaders: a test fixture edits no sources (§7), and its dependency-learning run would
+    // share every render gate's boot with SwiftShader. Merged over process.env by Playwright.
+    env: { XGIS_BAKE_HMR: '0' },
   },
 })
