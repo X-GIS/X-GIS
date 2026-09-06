@@ -582,3 +582,67 @@ describe('hunt 2026-09-02 — re-run() keeps a `background { fill }` alive', () 
     map.destroy()
   })
 })
+
+// ═══ #2515 — setQuality() during the teardown→gpuInit reinit gap ═══
+//
+// `_teardownForReinit()` destroys renderer/rasterRenderer/hillshadeRenderer/
+// coverageRenderer synchronously but does NOT null the fields (unlike
+// heatmapRenderer/flowRenderer, which are nulled at the same call site) — the
+// fresh set only lands once run()/runBinary() reassigns them, after the
+// awaited gpuInit. A setQuality({picking:true}) call landing in that window
+// used to treat the still-truthy (but destroyed) fields as "live" and fan
+// `rebuildForQuality()` out into them.
+describe('#2515 — setQuality() during the teardown→gpuInit reinit gap', () => {
+  it('does not rebuild the just-destroyed renderer set; still applies once the fresh one lands', async () => {
+    const { gate, release } = makeGate()
+    const stub = install({ freshDevices: true, requestDeviceGate: gate })
+    const map = makeMap()
+
+    const run1 = map.run('xgis 1')
+    await waitFor(() => stub.createdDevices.length === 1) // parked at gate(0)
+    release(0)
+    await run1
+
+    const staleRenderer = map.renderer
+    const spyRenderer = vi
+      .spyOn(staleRenderer, 'rebuildForQuality')
+      .mockImplementation(() => undefined)
+    const spyRaster = vi
+      .spyOn(map.rasterRenderer, 'rebuildForQuality')
+      .mockImplementation(() => undefined)
+    const spyHillshade = vi
+      .spyOn(map.hillshadeRenderer, 'rebuildForQuality')
+      .mockImplementation(() => undefined)
+    const spyCoverage = vi
+      .spyOn(map.coverageRenderer, 'rebuildForQuality')
+      .mockImplementation(() => undefined)
+
+    // Re-run without awaiting: `_teardownForReinit()` runs synchronously
+    // (destroying the renderers spied on above, WITHOUT nulling the fields —
+    // #2515) and then parks at requestDevice(1) — this IS the teardown→
+    // gpuInit window described in the issue.
+    const rerun = map.run('xgis 1')
+    expect(map.renderer, 'the destroyed renderer is still referenced, not nulled').toBe(
+      staleRenderer,
+    )
+
+    expect(() => map.setQuality({ picking: true })).not.toThrow()
+    for (const spy of [spyRenderer, spyRaster, spyHillshade, spyCoverage]) {
+      expect(
+        spy,
+        'must not fan out into the pre-reinit (destroyed) renderer set',
+      ).not.toHaveBeenCalled()
+    }
+
+    await waitFor(() => stub.createdDevices.length === 2) // parked at gate(1)
+    release(1)
+    await rerun
+    expect(
+      map.getQuality().picking,
+      'the quality change must still land once the fresh renderer set exists',
+    ).toBe(true)
+
+    map.destroy()
+    expect(live(stub)).toBe(0)
+  })
+})

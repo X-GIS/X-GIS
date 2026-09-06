@@ -1157,7 +1157,14 @@ const CEILINGS: Record<string, number> = {
   // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
   // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
   // renderer FIELDS is #2578 and must extract, not accumulate.
-  'map/src/map.ts': 5547,
+  // 5547→5567 (#2515, this merge): the `_reinitializing` latch, its docblock, the
+  // setQuality guard and the raise at teardown. My branch had ALSO extracted the
+  // renderer-install duplication — independently, as `_adoptRendererSet`, and for the
+  // same reason #2539 gives above (adding one line to both copies tipped jscpd). main
+  // got there first, so `installRendererSet` is the one authority and my copy is gone;
+  // the latch is cleared INSIDE it. Both sides raised this key from the same base, and
+  // git resolved neither number — RE-MEASURED post-prettier with `wc -l` (§12).
+  'map/src/map.ts': 5567,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
