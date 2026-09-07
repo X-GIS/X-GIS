@@ -5,9 +5,13 @@
 // not a bare identifier ([a-zA-Z_][a-zA-Z0-9_]*) — every custom registry
 // type (`"x-kr-admin"`) and the hyphenated built-in `"raster-dem"` — MUST
 // be a quoted string, or it tokenises as a subtraction expression and
-// `lowerSource` silently keeps its `geojson` default (compiler/src/ir/
-// lower.ts:147-152). The witness is the editor round trip: lowering the
-// re-emitted text must agree with lowering the original.
+// `lowerSource` keeps its `geojson` default (compiler/src/ir/lower.ts:151-167:
+// the `type` branch takes Identifier and StringLiteral, and anything else —
+// a BinaryExpr — falls through). Since #2549 that fall-through also REPORTS
+// X-GIS0030, so the source no longer changes meaning silently; the wrong type
+// still ships, which is what this file is about. The witness is the editor
+// round trip: lowering the re-emitted text must agree with lowering the
+// original.
 
 import { describe, it, expect, vi } from 'vitest'
 import { Lexer, Parser, lower } from '@xgis/compiler'
