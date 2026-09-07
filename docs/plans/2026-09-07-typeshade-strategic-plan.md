@@ -103,7 +103,6 @@ WebGL2 was broadly available years before serious consumers dropped WebGL1: **Ma
 | **Harvest, don't invest** | (8) WebGL2 | It is why people arrive, not why they stay (§1.4) |
 | **Accept the inertia** | (3) authoring syntax | Every competitor fights there and users have opinions. Staying out is a positional decision, not a concession |
 
-
 ---
 
 ## 3. Reason to exist (the meaning) — the measured case
@@ -204,6 +203,7 @@ Without TypeShade, X-GIS hand-writes and hand-syncs ~0.88 MB of WGSL **and** GLS
 
 Leading indicators for adoption and for embedding share one instrument panel — **§6.5**.
 
+---
 
 ## 6. Ecosystem embedding — survival independent of X-GIS
 
@@ -283,7 +283,6 @@ Rungs 1–2 are code and can be done alone. **Rungs 3–4 are relationship work,
 
 The last substantive row cannot be manufactured, only prepared for — which is why the adapter and the matrix must exist *before* MapLibre's phase 4 lands.
 
-
 ---
 
 ## 7. Real options analysis — the WebGPU migration bet
@@ -323,7 +322,7 @@ L/I on 1–5; score = L×I. Trigger = the observable that fires the mitigation.
 | ID | Risk | L | I | Score | Owner | Trigger | Mitigation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **R1** | **Anchor-tenant collapse** — owner stops maintaining X-GIS, funding *and* reason vanish together | 3 | 5 | **15** | owner | Any month X-GIS ships no shader change | §6 in full: embed the reason in other libraries; reach rung 3+ on ≥1 host |
-| **R2** | **Bus factor 1** — maintainer unavailable | 3 | 5 | **15** | owner | Two consecutive months below the §11.2 floor | Publish BF-1 + 90-day dead-man switch (§11.5); mirror + provenance |
+| **R2** | **Bus factor 1** — maintainer unavailable | 3 | 5 | **15** | owner | Two consecutive months below the §11.2 floor | Publish BF-1 + 90-day dead-man switch (§11.7); mirror + provenance |
 | **R3** | Never crosses the chasm — stays a 0-star library | 4 | 3 | **12** | owner | 0 external playground sketches and 0 adapter installs at month 6 | Whole-product gaps first (playground, matrix, governance — §5.3); stop marketing until fixed |
 | **R4** | Competitor closes the gap (TypeGPU GLSL backend; Slang on the web) | 3 | 4 | **12** | owner | `@typegpu/gl` announces compute/bind groups; Slang ships JS bindings | Deepen the proof moat; S3 response (§8); do not fight on syntax |
 | **R5** | Dual-target thesis expires while it is still the headline | 3 | 4 | **12** | owner | A top-5 engine ships WebGPU-only defaults | D1: re-order the positioning **now**, not at the signpost |
@@ -376,7 +375,7 @@ Hours are a **proposed budget, not a measurement**; each line names what keeps i
 | Spec / validator review | quarterly | 2 | Batched; one page per quarter |
 | Docs · `llms.txt` · MCP tool | with each release | 2 | Generated from source where possible |
 | Adapter matrix regenerated | every commit + on each host release | (in CI) | Machine-generated; a stale cell fails the build (R12) |
-| **Floor** | — | **≈12** | Below this ⇒ declare reduced maintenance (§11.5) |
+| **Floor** | — | **≈12** | Below this ⇒ declare reduced maintenance (§11.7) |
 
 ### 11.3 Funding ladder — extending PS §3 A–F, ranked by expected value × timing
 
@@ -429,7 +428,6 @@ Semver from `0.1.0`, with `0.x` minors allowed to break and the README saying so
 | **Reduced maintenance, declared** | Below the §11.2 floor for two months, the README banner becomes "security and compile-gate fixes only". Declaring preserves trust; drifting silently destroys it |
 | **EOL that preserves users** | (a) 6 months' notice in README, changelog and site; (b) a final release with every deprecation resolved; (c) `npm deprecate` naming the successor or fork; (d) a `FROZEN.md` pinning last-verified host, browser and Tint/naga versions; (e) transfer the org, or archive it with the trademark position stated |
 | **Why users survive it** | The emitted artifacts keep working regardless — the output is plain WGSL and GLSL text with no runtime |
-
 
 ---
 
