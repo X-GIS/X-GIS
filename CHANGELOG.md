@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 9ec36b206ca20a43d3fc1e3eba72d37d26a23199
+  Generated from: 914bbfc6f015b267605db558411585a6a064b5e8
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 9ec36b206ca2
+    bun scripts/emit-changelog.ts --since 914bbfc6f015
 -->
 
 # Changelog
@@ -55,6 +55,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/render:** the windowed drape bake reaches the flat-disc trio, not just the globe (#2346) ([#2652](https://github.com/X-GIS/X-GIS/pull/2652)) `c2ba38c`
 - **site:** three typecheck fixes, 69 errors → 37 ([#2651](https://github.com/X-GIS/X-GIS/pull/2651)) `3fbb59a`
 - **map/render:** the vector drape composites its premultiplied bake with premultiplied blend (#2134) ([#2615](https://github.com/X-GIS/X-GIS/pull/2615)) `53b7d23`
 - **compiler:** the 2026-09-05 front-end / tiler hunt — antimeridian, clip provenance, and the colour shapes the lexer refused ([#2575](https://github.com/X-GIS/X-GIS/pull/2575)) `60c50de`
@@ -199,6 +200,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** TypeShade strategy office — strategic plan, ecosystem embedding, go-to-market, agent-era strategy, assessment, beyond TypeGPU ([#2656](https://github.com/X-GIS/X-GIS/pull/2656)) `914bbfc`
 - **shader-dsl:** standalone product line and monetization strategy ([#2642](https://github.com/X-GIS/X-GIS/pull/2642)) `526c186`
 - **data/tiles:** resetCompileBudget has no frame-id short-circuit — say so at all six sites, and pin it (#2277) ([#2629](https://github.com/X-GIS/X-GIS/pull/2629)) `6a9b938`
 - **claude:** the categorical palette space is 512, not 20 — correct the §12 figure ([#2618](https://github.com/X-GIS/X-GIS/pull/2618)) `1b8c03f`
