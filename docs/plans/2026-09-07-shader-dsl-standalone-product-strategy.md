@@ -504,7 +504,7 @@ clearance opinion.
 
 ### B.3 Order of operations
 
-1. ~~Domains~~ — DONE 2026-09-07: `.dev` and `.com` registered (`.app` skipped); Cloudflare zones, records, HTTPS settings, the `.com` redirect and DNSSEC configured by API (B.4). Nameserver delegation DONE 2026-09-07 (verified by DoH). OPEN at Gabia: DS entry; WHOIS privacy, auto-renew and 2FA to confirm.
+1. ~~Domains~~ — DONE 2026-09-07: `.dev` and `.com` registered (`.app` skipped); Cloudflare zones, records, HTTPS settings, the `.com` redirect and DNSSEC configured by API (B.4). Nameserver delegation DONE and both zones ACTIVE 2026-09-07; `.com` → `.dev` 301 verified. OPEN at Gabia: DS entry (optional); WHOIS privacy, auto-renew and 2FA to confirm.
 2. ~~GitHub org `typeshade`~~ — DONE 2026-09-07 (verified). The mirror repository (§1) and the adapter repositories (§6.2) go under it.
 3. ~~npm org `typeshade`, placeholders~~ — DONE 2026-09-07: `typeshade@0.0.0` and `@typeshade/core@0.0.0` published and verified on the registry.
 4. KIPRIS: 상표명칭 TN = TYPESHADE, TYPE SHADE, 타입셰이드, 타입쉐이드; 상품분류 09, 42; 유사검색 on.
@@ -532,6 +532,12 @@ from Cloudflare. The zones were still `pending` on Cloudflare's side at that mom
 and Universal SSL engage only once Cloudflare's own nameserver check passes — "Check
 nameservers" on each zone's Overview page, or its periodic re-check), so the `.com` redirect
 is not live until then; `typeshade.dev` has no address records yet by design.
+
+**Both zones ACTIVE 2026-09-07 ~08:15 UTC** (the owner ran "Check nameservers"): `typeshade.com`
+now answers with Cloudflare edge addresses and the redirect is live and verified from a public
+client — `http://typeshade.com/`, `https://typeshade.com/` and `https://www.typeshade.com/docs?x=1`
+all return **301** to `https://typeshade.dev` with path and query preserved. `typeshade.dev` still
+has no address records by design (GitHub Pages later).
 
 Still owner-side: the DS records if Gabia offers DNSSEC entry for the TLD, and — later, once a
 Pages site exists under the GitHub org — the `A` records for `typeshade.dev` (DNS only) with
