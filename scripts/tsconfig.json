@@ -1,0 +1,41 @@
+{
+  // Type-check project for the repo's own tooling. `scripts/` belongs to no
+  // package, so no `include` in the eight projects the root tsconfig.json
+  // references covers it, and CI's other explicit leg covers playground/e2e
+  // only — 36 .ts files, the duplication gate and the precheck runner among
+  // them, were type-checked by nothing (#2617). eslint's projectService gave
+  // them TYPES for its rules, which is not the same as surfacing tsc
+  // diagnostics as failures.
+  //
+  // Same shape and same reason as playground/e2e/tsconfig.json: a noEmit
+  // resolution surface, not a build target. Nothing references it from the
+  // root project graph; CI runs it explicitly.
+  //
+  // Because this file exists, eslint's project-service DISCOVERS these files
+  // (discovery walks tsconfig.json), so `scripts/*.ts` must NOT also sit in
+  // eslint.config.js's `allowDefaultProject` — typescript-eslint errors on a
+  // file claimed by both ("was included by allowDefaultProject but also was
+  // found in the project service"). That entry was removed with this project;
+  // do not restore it. Measured: with the entry, `bun run lint` reds with 36
+  // problems; without it, exit 0.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // The base sets `rootDir: "./src"`, which resolves against THIS directory
+    // and there is no scripts/src — every file would report TS6059 and tsc
+    // would abort before checking a line (#1683's lesson, same as e2e's).
+    // Scripts import from sibling packages' src/, so the root is the repo.
+    "rootDir": "..",
+    "noEmit": true,
+    // gen-example-registry.ts imports '../shader-dsl/src/core/registry.ts'
+    // with the extension; Bun resolves it, so tsc must be allowed to.
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "sourceMap": false,
+    // node for the `node:` builtins these scripts run on. @webgpu/types is not
+    // optional here despite nothing under scripts/ naming a GPU type: the
+    // probes import ../data/src/tile-select, which pulls in tile-select-types.ts
+    // and its GPUTexture — measured, not assumed.
+    "types": ["node", "@webgpu/types"]
+  },
+  "include": ["**/*.ts"]
+}

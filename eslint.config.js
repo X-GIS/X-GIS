@@ -86,14 +86,9 @@ export default tseslint.config(
             'shader-dsl/src/core/passes/lint/rules/*.test.ts',
             'shader-dsl/src/core/passes/opt/*.test.ts',
             'shader-dsl/src/core/testing/*.test.ts',
-            // Repo scripts (precheck, matrix tooling, snapshot capture) live
-            // outside every package tsconfig's `include`, so project-service
-            // discovery can't parse a newly STAGED one in pre-commit. Lint them
-            // via the default project, same as the src tests above.
-            'scripts/*.ts',
             // playground/playwright.config.ts sits at the package root, outside
             // both playground/tsconfig.json (src/** only) and e2e/tsconfig.json
-            // (e2e/** only) — same gap, same fix as the scripts above.
+            // (e2e/** only) — same gap, same fix as the src tests above.
             'playground/playwright.config.ts',
             // @xgis/pipeline offline bake tools (csv-to-odb, seoul-openapi-bake)
             // live outside the package tsconfig's `include` (src/**) for the same
@@ -101,8 +96,8 @@ export default tseslint.config(
             'pipeline/tools/*.ts',
             // The root vitest.config.ts is a workspace-level config that no
             // package tsconfig `include`s, and the root tsconfig.json only holds
-            // project references (`files: []`) — same discovery gap as the scripts
-            // and playwright config above. Lint it via the default project.
+            // project references (`files: []`) — same discovery gap as the
+            // playwright config above. Lint it via the default project.
             'vitest.config.ts',
             // The remaining project-service gaps from the #1055 lint-debt ledger
             // (Appendix A) — the same class as the entries above, closed wholesale:
@@ -129,7 +124,7 @@ export default tseslint.config(
             'playground/dev/*.ts',
             'map/vite.config.ts',
             // map's build/inspect scripts — devDep scripts outside the package
-            // tsconfig's `include`, same as the repo scripts above.
+            // tsconfig's `include`, same as pipeline/tools above.
             'map/scripts/*.ts',
             // The root vitest setup file (configureProjections), a sibling of
             // vitest.config.ts and outside every package tsconfig's `include`.
