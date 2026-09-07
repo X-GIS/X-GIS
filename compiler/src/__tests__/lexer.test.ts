@@ -65,9 +65,16 @@ describe('Lexer', () => {
     })
 
     it('colors', () => {
-      const tokens = lex('#ff0000 #ccc #00ff00ff')
-      expect(tokens.map((t) => t.value)).toEqual(['#ff0000', '#ccc', '#00ff00ff'])
+      // All four CSS Color Module 4 hex shapes. `#rgba` (#2543) was
+      // rejected here while the converter emitted it and every
+      // downstream consumer resolved it.
+      const tokens = lex('#ff0000 #ccc #00ff00ff #f00a')
+      expect(tokens.map((t) => t.value)).toEqual(['#ff0000', '#ccc', '#00ff00ff', '#f00a'])
       expect(tokens.every((t) => t.type === TokenType.Color)).toBe(true)
+    })
+
+    it('a malformed hex literal still errors (#2543)', () => {
+      expect(() => lex('#12345')).toThrow(/Invalid color literal: #12345/)
     })
 
     it('booleans', () => {

@@ -126,6 +126,53 @@ describe('X-GIS0028: modifier item with no lowering handler (#1069 slice)', () =
   })
 })
 
+describe('X-GIS0029: a `fill:` / `stroke:` value the colour resolver cannot read', () => {
+  // fail-before: `applyStyleProperties` did `if (hex) fill = …` and dropped an
+  // unresolvable value with ZERO diagnostics, which is what turned #2544's
+  // parse-shape bug (`hsl(120, 50%, 50%)` captured as `hsl(120, 50 %, 50 %)`)
+  // into an invisible one — the layer just rendered with no fill.
+  it('warns on an unresolvable `fill:` instead of silently dropping it', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        fill: notacolour(1)
+      }
+    `)
+    const d = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0029')
+    expect(d).toBeDefined()
+    expect(d!.severity).toBe('warn')
+    expect(d!.message).toContain('fill: notacolour(1)')
+    expect(d!.span.line).toBe(5)
+  })
+
+  it('warns on an unresolvable `stroke:` too', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        stroke: notacolour(1)
+      }
+    `)
+    const d = (scene.diagnostics ?? []).find((d) => d.code === 'X-GIS0029')
+    expect(d).toBeDefined()
+    expect(d!.message).toContain('stroke: notacolour(1)')
+  })
+
+  it('a resolvable CSS colour function is NOT reported', () => {
+    const scene = lowerSrc(`
+      source x { type: geojson, url: "x.geojson" }
+      layer y {
+        source: x
+        fill: hsl(120, 50%, 50%)
+        stroke: rgba(0, 0, 0, .6)
+      }
+    `)
+    const d = (scene.diagnostics ?? []).filter((d) => d.code === 'X-GIS0029')
+    expect(d.length).toBe(0)
+  })
+})
+
 describe('X-GIS0002 / 0003: missing or unknown source reference', () => {
   it('warns when layer has no `source:` declaration', () => {
     const scene = lowerSrc(`
