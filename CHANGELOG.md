@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 914bbfc6f015b267605db558411585a6a064b5e8
+  Generated from: 88a02131feb274f08ed01bda0ec68f376eca956d
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 914bbfc6f015
+    bun scripts/emit-changelog.ts --since 88a02131feb2
 -->
 
 # Changelog
@@ -254,6 +254,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 #### style
 
 - **repo:** make `format:check` green — format the 8 drifted files, ignore two generator-owned trees ([#2565](https://github.com/X-GIS/X-GIS/pull/2565)) `7520e4e`
+
+#### other
+
+- Add permissions for git commit and push `88a0213`
 
 ### 2026-08
 
