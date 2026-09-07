@@ -256,17 +256,44 @@ describe('@xgis/map published surface', () => {
     })
 
     it('sees a known exported class WITH its members', () => {
-      // The canary: `XGISMap` and `Camera` are both named outright in
-      // `map/src/public.ts`, so a reader that resolved nothing, or that found the
-      // classes but not their bodies, fails here and says which half it lost.
-      const map = surface.decls.find((d) => d.name === 'XGISMap' && d.kind === 'class')
-      expect(map, 'XGISMap is not in the bundle — the reader resolved nothing').toBeDefined()
-      expect(map?.exported, 'XGISMap is in the bundle but not re-exported').toBe(true)
+      // The canary: `Camera` is named outright in `map/src/public.ts`, so a reader
+      // that resolved nothing, or that found the class but not its body, fails
+      // here and says which half it lost.
+      //
+      // This was `XGISMap` until #2613 made that name a `Pick` alias plus a
+      // constructor `const`. The class is still bundled — as `XGISMap$1`, rollup's
+      // deconflicted name — but it is no longer EXPORTED, which is the point of
+      // that change and would have turned this canary into a false alarm. So the
+      // members half moves to a name that is still a class, and the test below
+      // pins `XGISMap`'s new shape rather than dropping the coverage.
+      const cam = surface.decls.find((d) => d.name === 'Camera' && d.kind === 'class')
+      expect(cam, 'Camera is not in the bundle — the reader resolved nothing').toBeDefined()
+      expect(cam?.exported, 'Camera is in the bundle but not re-exported').toBe(true)
       expect(
-        map?.members,
-        'XGISMap has no member `camera` — the reader saw no class body',
-      ).toContain('camera')
-      expect(surface.decls.some((d) => d.name === 'Camera' && d.kind === 'class')).toBe(true)
+        cam?.members,
+        'Camera has no member `bearing` — the reader saw no class body',
+      ).toContain('bearing')
+    })
+
+    it('publishes XGISMap as the narrowed alias, not the class (#2613)', () => {
+      // The published name is a type alias + a constructor const; the class stays
+      // in the bundle only because the alias `Pick`s from it, and must NOT be
+      // exported — re-exporting it is how all 215 of its public members reached
+      // consumers before #2613. The `surface.md` snapshot records the same fact,
+      // but a snapshot is re-baked by whoever changes it; this says out loud which
+      // property mattered.
+      const alias = surface.decls.find((d) => d.name === 'XGISMap' && d.kind === 'type')
+      const ctor = surface.decls.find((d) => d.name === 'XGISMap' && d.kind === 'const')
+      expect(alias?.exported, 'XGISMap is not exported as a type alias').toBe(true)
+      expect(ctor?.exported, 'XGISMap is not exported as a constructor value').toBe(true)
+
+      const impl = surface.decls.find((d) => d.kind === 'class' && d.name.startsWith('XGISMap$'))
+      expect(impl, 'the XGISMap implementation class left the bundle entirely').toBeDefined()
+      expect(
+        impl?.exported,
+        'the implementation class is exported again — the whole-class surface is back',
+      ).toBe(false)
+      expect(impl?.members, 'the reader saw no class body').toContain('camera')
     })
   })
 
