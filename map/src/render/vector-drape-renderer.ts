@@ -439,6 +439,13 @@ export class VectorDrapeRenderer {
           saturation: 0,
           contrast: 0,
         },
+        // #2134 — the vector-fill bake IS premultiplied (the bake RT clears to
+        // transparent and the fill/line FS emit non-premultiplied (C,α) onto
+        // it, so the stored texel is (C·α, α)); RasterDraper's colour target
+        // blends BLEND_ALPHA_PREMULT, so fs_tile must skip the second alpha
+        // multiply for this source — true, unlike every other raster_params
+        // writer.
+        true,
       )
       // #2571 — the `pick` argument reads the PASS's attachment-count authority, not
       // the bare `isPickEnabled()`: they diverge on WebGL2, where a 2-target pipeline

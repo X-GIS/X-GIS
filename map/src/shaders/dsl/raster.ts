@@ -76,7 +76,8 @@ const U = uniformStruct(
     mvp: mat4x4fT,
     // proj_params: x=type, y=centerLon, z=centerLat, w=log_depth_fc
     proj_params: vec4fT,
-    // raster_params: x=opacity (0..1), yzw reserved
+    // raster_params: x=opacity (0..1), y=1 when the sampled texture is already
+    // premultiplied (else 0, straight alpha) — #2134, zw reserved
     raster_params: vec4fT,
     // raster-* colour adjustments (Mapbox paint). raster_color0 =
     // (hueRotateDeg, brightnessMin, brightnessMax, saturation);
@@ -567,11 +568,25 @@ const buildFs = (pickEnabled: boolean) => {
         p1: U.field.raster_color1,
       })
       // raster-opacity (raster_params.x, per-show) AND the per-tile fade-in
-      // (pin.vis, from tile_ecef_center.w) multiply alpha only — premultiplied
-      // blend keeps RGB at texel value, so a fading tile cross-fades over its
-      // parent rather than darkening. Basemap tile carries no feature id → (0,0).
+      // (pin.vis, from tile_ecef_center.w) combine into f, the shared alpha
+      // factor below.
+      //
+      // #2134 — the FS always emits PREMULTIPLIED colour (rgb·alpha), because
+      // RasterDraper's colour target blends BLEND_ALPHA_PREMULT
+      // (raster-material.ts). Which lane decides whether that premultiply is a
+      // no-op is raster_params.y: a STRAIGHT-alpha source (y=0, every basemap /
+      // checker / hillshade writer) takes mix(c.a,1,0)=c.a, so rgb becomes
+      // adjRgb·c.a·f — byte-identical to the pre-#2134 (adjRgb, c.a·f) emit
+      // under the pre-#2134 BLEND_ALPHA state (both blend states share the same
+      // `alpha` sub-channel factors, so only this rgb term changes). A texture
+      // that is ALREADY premultiplied (y=1, the vector-drape bake) takes
+      // mix(c.a,1,1)=1, so rgb stays adjRgb·f with no second alpha multiply —
+      // fixing the double-premultiply darkening #2134 reported. Basemap tile
+      // carries no feature id → (0,0).
+      const f = U.field.raster_params.x.mul(rim).mul(pin.vis)
+      const premul = U.field.raster_params.y
       return RasterFragmentOutput.construct({
-        color: vec4(adjRgb, c.a.mul(U.field.raster_params.x).mul(rim).mul(pin.vis)),
+        color: vec4(adjRgb.mul(mix(c.a, f32(1), premul)).mul(f), c.a.mul(f)),
         ...(pickEnabled ? { pick: vec2u(0, 0) } : {}),
         depth: compute_log_frag_depth({ view_w: pin.view_w, fc: U.field.proj_params.w }),
       })

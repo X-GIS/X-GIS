@@ -26,12 +26,15 @@
 //
 //   CAUSE  — during the hold a source the camera can be SERVED by reports
 //            `_drapeGlobeFills === false`: the direct arm owns the held frame.
-//   EFFECT — the held frame differs from the SAME held frame under
-//            `__XGIS_FORCE_VECTOR_DRAPE` (the sever arm, a fresh page so the step
-//            tiles are un-cached again) by more than the measured capture noise
-//            floor, AND is the arm that agrees with the converged, LOD-advanced
-//            direct frame: both held arms draw the same tiles, so whichever is
-//            closer to the advanced frame is the one rendering them the same way.
+//   EFFECT — the SAME held frame under `__XGIS_FORCE_VECTOR_DRAPE` (the sever arm, a
+//            fresh page so the step tiles are un-cached again) actually PRODUCES
+//            drape bakes for every source the camera can be served by
+//            (`SourceState.bakedCount > 0`, populated at dumpState), while the
+//            direct arm's OWN held frame — `state-held-direct.json`, written by
+//            captureHeldFrame — produced none (`bakedCount === 0`) for the SAME
+//            sources: 0 bakes is a routing fact a rendered pixel cannot fake. This
+//            replaces a rendered-pixel-delta EFFECT retired by #2134; see "WHY NOT A
+//            PIXEL-DELTA BETWEEN THE ARMS" below (#2615).
 //
 // WHY NOT A SHARPNESS METRIC. This gate first asserted that the direct held frame
 // scored higher on the mean of the top 1 % of |grad luminance|. It does not, and the
@@ -44,6 +47,71 @@
 // into bands and the direct arm's at Positron's own width). It is kept as a LOGGED
 // diagnostic, never an assertion — a metric that inverts on the case the gate
 // exists for is a broken ruler (CLAUDE.md sec 12).
+//
+// WHY NOT A PIXEL-DELTA BETWEEN THE ARMS. This gate's sever test first asserted EFFECT
+// as two rendered-pixel deltas: the direct-held and forced-drape-held frames must differ
+// by more than a noise-scaled floor (EFFECT 1), and the forced frame must sit FARTHER
+// from the converged, LOD-advanced frame than the direct one does (EFFECT 2). #2615's
+// render-shard (2/6) reddened EFFECT 1 on a tree with #2134 applied: the two held frames
+// differed by 0.74 % against a computed floor of 1.90 %. This is NOT a regression —
+// #2134 removed a spurious second alpha multiply from the drape composite, and that
+// double-multiply WAS the thing EFFECT 1 measured. MEASURED, one variable (the #2134
+// diff), cut and restored by absolute path with the restore grep-asserted,
+// SwiftShader/WebGPU, this exact gate, local, reproducing CI to four decimals:
+//
+//   tree                                   armDelta  floor   forcedVsAdvanced  directVsAdvanced  gate
+//   #2134 applied (current branch)         0.0074    0.0192  0.1333            0.1333            FAIL
+//   #2134 reverted (blend premult->alpha)  0.1398    0.0163  0.2404            0.1349            PASS
+//
+// Read the middle two columns: with the defect present (cut) the drape sat 0.2404 from
+// the converged frame while direct sat 0.1349 — 78 % further away, exactly what EFFECT 2
+// was built to catch. With #2134 applied the two COLLAPSE to 0.1333 and 0.1333 —
+// identical. That residual is the held-LOD difference both arms share by construction
+// (same held tiles, coarser than the converged frame), not a routing difference: the
+// drape now renders those tiles exactly the way the direct path does, so the two paths
+// are pixel-EQUIVALENT for this held frame, and a pixel delta between them no longer
+// carries signal (0.74 % against a 0.476 % capture noise floor is 1.55× noise). Lowering
+// the floor is NOT the fix — an assertion that cannot distinguish its own two states is
+// exactly what CLAUDE.md sec 12 forbids ("an assertion carries information only if it
+// DISTINGUISHES the states of the thing it tests"). armDelta, forcedVsAdvanced, floor
+// and sharpForced are kept as LOGGED diagnostics (report-forced.json stays
+// byte-identical in shape) for the same reason sharpness is above — same treatment, same
+// reason.
+//
+// Measured, across every state this gate dumps (real SwiftShader/WebGPU runs of this
+// exact gate): `bakedCount` for the servable source `openmaptiles`.
+//
+//   state-start-direct     0     state-start-forced     10
+//   state-held-direct      0     state-held-forced      170
+//   state-advanced-direct  0
+//
+// The direct arm never bakes at any point in this scenario; the forced arm does,
+// throughout.
+//
+// The retired `armDelta` assertion could red for two different reasons: (a) the
+// forced arm did not bake at all, so there was nothing to composite differently,
+// or (b) the forced arm baked but the result looked the same as direct. #2134 made
+// (b) the normal, CORRECT case — which is what destroyed the assertion. The new
+// `bakedCount > 0` (EFFECT half 1 below) isolates (a): it keeps the half of the
+// old assertion's coverage that was worth keeping, and expresses it on the
+// mechanism instead of on pixels.
+//
+// LIMITATION, stated plainly: neither new assertion can be demonstrated by a
+// fail-before source cut, and this is structural, not an oversight. The describe
+// block is `test.describe.configure({ mode: 'serial' })`, so any regression that
+// reddens the first (direct) test SKIPS the sever test entirely — its assertions
+// never run to report anything. And inside the sever test itself, the
+// pre-existing `expect(s.drapeGlobeFills).toBe(true)` runs BEFORE
+// `expect(s.bakedCount).toBeGreaterThan(0)` in the same loop, so it always
+// speaks first. The new assertions are strictly STRONGER than the ones
+// preceding them — a decision to drape vs a bake actually produced — so they can
+// only fire on states those already pass. Their non-vacuity therefore rests on both
+// states having been MEASURED directly, the table above, not on an observed red. A
+// cut of #2094's own mechanism was tried anyway: `Math.max(ctx.currentZ,
+// ctx.targetZ)` → `ctx.currentZ` at vector-tile-renderer.ts:4014. It did NOT redden
+// the gate — it does not change the budget's decision at this camera — so it
+// proves nothing in either direction and is recorded here only so nobody retries
+// it.
 //
 // Capture note (capture-canvas skill). The held frame is captured WITHOUT
 // captureMapFrame's quiesce: the hold IS a pending-load state — that is the thing
@@ -580,28 +648,37 @@ test.describe('#2094 — the drape budget holds through the zoom-in readiness ho
       expect(s.drapeGlobeFills, `${name}: the force flag did not reach the drape routing`).toBe(
         true,
       )
+      // EFFECT, half 1 of 2 (replaces the retired pixel-delta EFFECT — see header "WHY
+      // NOT A PIXEL-DELTA BETWEEN THE ARMS", #2134 / #2615): the forced arm must have
+      // actually PRODUCED a bake, not merely claim to be draping. #2134 changed how a
+      // bake is COMPOSITED, not whether one is produced, so this survives it.
+      expect(
+        s.bakedCount,
+        `${name}: drapeGlobeFills is true but bakedCount is ${s.bakedCount} — the routing ` +
+          `claims to be draping without having produced a bake to draw`,
+      ).toBeGreaterThan(0)
     }
-    // EFFECT (1) — the two arms drew different frames at all.
+    // EFFECT, half 2 of 2: the SAME servable sources, read from the direct arm's own
+    // held-state dump — same reader idiom as report-direct.json above — must show
+    // ZERO bakes at the same camera and the same held tiles. 0 vs >0 (half 1, in the
+    // loop above) is the routing moving, a fact #2134's composite fix cannot touch
+    // (see header "WHY NOT A PIXEL-DELTA BETWEEN THE ARMS").
+    const directHeldState = JSON.parse(
+      readFileSync(join(OUT, 'state-held-direct.json'), 'utf8'),
+    ) as StateDump
+    const directHeldSources = servableSources(directHeldState)
     expect(
-      armDelta,
-      `the direct and forced-drape held frames differ by ${(armDelta * 100).toFixed(2)}% of pixels, ` +
-        `under the floor ${(floor * 100).toFixed(2)}% (${ARM_DELTA_FLOOR_MULT}× the ${(
-          directReport.noiseFloor * 100
-        ).toFixed(
-          3,
-        )}% capture noise, min ${ARM_DELTA_MIN * 100}%) — the two arms drew the same frame, ` +
-        `so the routing did not move between them`,
-    ).toBeGreaterThan(floor)
-    // EFFECT (2) — and the DIRECT one is the one that agrees with the converged
-    // frame. Same tiles, same camera, one render path apart: D(direct, advanced)
-    // must be the smaller distance, by more than the same measured floor.
-    expect(
-      forcedVsAdvanced,
-      `the forced-DRAPE held frame is ${(forcedVsAdvanced * 100).toFixed(2)}% from the converged ` +
-        `direct frame while the held DIRECT frame is ${(directReport.heldVsAdvanced * 100).toFixed(
-          2,
-        )}% from it — the drape is not the arm that differs, so this camera is not measuring the ` +
-        `routing at all`,
-    ).toBeGreaterThan(directReport.heldVsAdvanced + floor)
+      directHeldSources.length,
+      'state-held-direct.json has no servable source — the discriminator has nothing to ' +
+        'compare the forced arm against',
+    ).toBeGreaterThan(0)
+    for (const [name, s] of directHeldSources) {
+      expect(
+        s.bakedCount,
+        `${name}: the direct-held arm reports ${s.bakedCount} drape bakes at the same camera ` +
+          `and held tiles the forced arm baked for — bakedCount, not a rendered-pixel delta ` +
+          `(#2134 retired that form; see header), is what separates the two arms`,
+      ).toBe(0)
+    }
   })
 })
