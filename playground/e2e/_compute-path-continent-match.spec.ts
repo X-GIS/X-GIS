@@ -72,13 +72,23 @@ test.describe('Plan P4 — continent_match with ?compute=1', () => {
   }) => {
     test.setTimeout(PER_TEST_TIMEOUT_MS * 2 + 10_000)
 
-    // compute=0 baseline.
+    // compute=0 baseline. `requireConvergedSettle` because this test COMPARES two
+    // frames: an unconverged capture is a wrong answer here, not a slow one, and
+    // #2556 spent a cycle reading the settle arm out of band to rule exactly that
+    // out. The comment below records that both drains were measured to return
+    // `clear`; this makes that a gate rather than a note.
     await page.goto(`/demo.html?id=continent_match`, { waitUntil: 'domcontentloaded' })
-    const baselinePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+    const baselinePng = await captureCanvas(page, {
+      readyTimeoutMs: PER_TEST_TIMEOUT_MS,
+      requireConvergedSettle: true,
+    })
 
     // compute=1 candidate.
     await page.goto(`/demo.html?id=continent_match&compute=1`, { waitUntil: 'domcontentloaded' })
-    const computePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+    const computePng = await captureCanvas(page, {
+      readyTimeoutMs: PER_TEST_TIMEOUT_MS,
+      requireConvergedSettle: true,
+    })
 
     // tolerance=12 / channel + ratio threshold = 0.05 (5%). Both
     // paths deterministically pick the SAME color per CONTINENT id;
@@ -118,16 +128,23 @@ test.describe('Plan P4 — broader fixture coverage with ?compute=1', () => {
       //   income_match        4633 + 5685 + 117 ms, then 4533 + 9074 + 101 → 24.1 s
       //   continent_outlines  4452 + 8306 + 123 ms, then 4315 + 12537 + 105 → 29.8 s
       // Every drain returns `clear`, never `timeout` — the ledger converges (995 of 996
-      // rAF ticks measured with every registered kind at zero). The old 50 s therefore
+      // rAF ticks measured with every registered kind at zero), and since #2556 the
+      // captures below ASSERT that rather than assuming it. The old 50 s therefore
       // fit only the lightest fixture solo, and a shard running workers in parallel failed
       // the two heaviest deterministically. 90 s keeps a real hang loud with ~3x headroom.
       test.setTimeout(PER_TEST_TIMEOUT_MS * 4 + 10_000)
 
       await page.goto(`/demo.html?id=${id}`, { waitUntil: 'domcontentloaded' })
-      const baselinePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+      const baselinePng = await captureCanvas(page, {
+        readyTimeoutMs: PER_TEST_TIMEOUT_MS,
+        requireConvergedSettle: true,
+      })
 
       await page.goto(`/demo.html?id=${id}&compute=1`, { waitUntil: 'domcontentloaded' })
-      const computePng = await captureCanvas(page, { readyTimeoutMs: PER_TEST_TIMEOUT_MS })
+      const computePng = await captureCanvas(page, {
+        readyTimeoutMs: PER_TEST_TIMEOUT_MS,
+        requireConvergedSettle: true,
+      })
 
       const ratio = await pixelDiffRatio(page, baselinePng, computePng, 12)
       expect(
