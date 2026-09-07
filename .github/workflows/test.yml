@@ -478,6 +478,12 @@ jobs:
       # either. It is the only real consumer of @xgis/map's public surface, and
       # until this line existed a type error in it reached main silently (#2621).
       - run: ./node_modules/.bin/tsc -p playground/tsconfig.json --noEmit
+      # ...and `examples/`, the third consumer program of @xgis/map's public
+      # surface and the last one nothing ran (#2625). Its own `"// note"` field
+      # documents the command; no script, hook or workflow invoked it. Unlike the
+      # two above it resolves `@xgis/*` to `../<pkg>/dist/*.d.ts`, so it typechecks
+      # the BUILT declarations and must stay after `bun run build`.
+      - run: ./node_modules/.bin/tsc -p examples/tsconfig.json --noEmit
 
   # Lint + dead-code gate (#1565). Both tools were configured and neither ran in
   # CI: ESLint executed ONLY in the pre-commit hook (so `--no-verify`, or any
