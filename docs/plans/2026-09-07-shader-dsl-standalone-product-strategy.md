@@ -188,6 +188,8 @@ needs a coined name, checked in this order: npm unscoped name free (on 2026-09-0
 trademark search before the name is used publicly. The name is the product's one
 non-copyable asset; file the trademark before the launch post (§9).
 
+**DECIDED 2026-09-07 — the name is TypeShade.** Chosen after the screen in Appendix A and the register search in Appendix B: no software use of the word, no mark in KR / EU / US / WIPO, the package name, the GitHub org and the `.dev` / `.app` / `.com` domains all free. Korean spelling everywhere: 타입셰이드 (KIPRIS also for 타입쉐이드). The one identical live mark is Japanese and in clothing (Appendix B). Tagline: _typed shaders in TypeScript, compiled to WGSL and GLSL ES 3.00_.
+
 ---
 
 ## 5. What Tailwind's collapse means for a library launched in 2026
@@ -332,8 +334,8 @@ Checklist, not advice — confirm each with a professional before acting:
 
 ## 10. Open questions for the owner
 
-1. **The name** — and whether "by X-GIS" stays as the maker brand. Everything in §4 and §9
-   waits on this.
+1. **The name** — DECIDED 2026-09-07: **TypeShade** (§4, Appendix B). Still open: whether
+   "by X-GIS" stays as the maker brand.
 2. **Lead with services (A)?** It is the recommendation and the only line that earns before
    there is an audience; it also costs the owner's time. Confirm the appetite.
 3. **The playground runs the DSL in the browser** — a pre-bundled compiler build or
@@ -411,27 +413,99 @@ must be searched by hand** before any filing — KIPRIS with the Latin spelling 
 Korean transliterations (e.g. 트윈셰이드 / 트윈쉐이드), classes 09 and 42, plus similar-sound
 search; EUIPO eSearch plus or TMview basic search; WIPO GBD for Madrid designations.
 
-| Candidate     | Meaning                      | Web knock-out                                                                            | USPTO (Trademarkia)                                                                                          | npm · PyPI · crates                                        | `.com` / `.dev` / `.app`       | GitHub               | Verdict                                                     |
-| ------------- | ---------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------ | -------------------- | ----------------------------------------------------------- |
-| **Twinshade** | one source, twin shaders     | no software use; an Indian streetwear Instagram brand, a Witchfire spell, a book monster | 0 live; 1 DEAD (MechoShade Systems, class 20 window shades, abandoned 2013)                                  | free · free · free                                         | taken / free / free            | user exists, 0 repos | **1st** — the dead mark shows the word is registrable       |
-| **Bitgil**    | 빛길 "path of light" + bit   | none                                                                                     | 0                                                                                                            | free · free · free                                         | taken / free / free            | user exists, 0 repos | **2nd** — KIPRIS check is mandatory (common Korean word)    |
-| **Corusca**   | Latin _coruscare_, to flash  | no exact use; "Coruscate Solutions" IT consultancies                                     | CORUSCA live class 14 jewelry (2026); CORUSCA DEAD class 9 (2002); many CORUSCANT / CORUSCATE, other classes | free · free · free                                         | taken / free / free            | **free**             | **3rd** — identical live mark in an unrelated class         |
-| Yeoul         | 여울, shimmering shallows    | a Korean metal manufacturer; a personal name                                             | 0                                                                                                            | free · free · free                                         | taken / unknown / unknown      | user exists, 2 repos | hold — hard to pronounce outside Korea                      |
-| Saebit        | 새빛, new light              | Korean real-estate developers                                                            | 0                                                                                                            | free · free · free                                         | taken / free / unknown         | not checked          | hold — very common Korean word                              |
-| Isoshade      | iso-, equal shaders          | **ISOshade®** — seele's façade system (EU, registered)                                   | 0 (US)                                                                                                       | free · free · free                                         | taken (seele) / free / unknown | not checked          | no — identical registered EU mark by a 1,000-person company |
-| Diptych       | two-panel artwork            | generic noun in photo apps (Diptic etc.)                                                 | 0; DIPTYQUE (perfume, famous) is its French equivalent                                                       | free · free · free                                         | taken / taken / unknown        | not checked          | no                                                          |
-| Noeul         | 노을, sunset glow            | several Korean "Noeul Co., Ltd." incl. a medical-AI company                              | 0                                                                                                            | free · free · free                                         | taken / taken / unknown        | not checked          | no — domestic conflicts                                     |
-| Dalbit        | 달빛, moonlight              | "Dalbit: Learn Languages" app (class 9); Dalbit International (Kenya)                    | DALBIT VELUNA, DALBIT SKIN — class 3, pending 2025–26                                                        | free · free · **taken**                                    | taken / free / unknown         | not checked          | no                                                          |
-| Shadewright   | shade + -wright              | none                                                                                     | 0                                                                                                            | **npm taken** (a design system, v8, 2026-08) · free · free | taken / free / free            | user exists, 0 repos | no — active npm package in the frontend space               |
-| Paritas       | Latin, equality              | Paritas Software Solutions (IT consulting, IN/US)                                        | —                                                                                                            | —                                                          | —                              | —                    | knocked out (class 42)                                      |
-| Isomer        | same formula, two structures | Isomer framework, isomer.gov.sg, Isomer insurance software (2024)                        | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                 |
-| Gemel         | twin (archaic)               | a 2025 App Store app; Gémel Inc; Gemel Group (marine electronics + software)             | —                                                                                                            | **taken** · free · **taken**                               | taken / free / —               | —                    | knocked out                                                 |
-| Shadeon       | shade + -on                  | **SHADEON®** (Czech/EU brand); Shadeon Ltd NZ                                            | —                                                                                                            | free · free · free                                         | taken / free / —               | —                    | knocked out (EU)                                            |
-| Ambishade     | ambi-, both                  | ambishade.com, a shade product                                                           | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                 |
-| Duoshade      | duo + shade                  | DuoShade thermal blinds (UK)                                                             | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                 |
-| Bivium        | Latin, fork in the road      | Bivium (ES IT), Bivium Software (US IT), The Bivium Group                                | —                                                                                                            | —                                                          | —                              | —                    | knocked out (class 42)                                      |
+| Candidate     | Meaning                      | Web knock-out                                                                                                           | USPTO (Trademarkia)                                                                                          | npm · PyPI · crates                                        | `.com` / `.dev` / `.app`       | GitHub               | Verdict                                                                                            |
+| ------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------ | -------------------- | -------------------------------------------------------------------------------------------------- |
+| **TypeShade** | typed shaders                | no software use; "Type Shade" is a Japanese streetwear brand (typeshade.jp)                                             | 0                                                                                                            | free · free · free                                         | free / free / free             | **free**             | **CHOSEN 2026-09-07** — register screen in Appendix B                                              |
+| TShade        | TS + shade                   | TShade dental shade-matching app (class 9); Safe-T-Shade blinds; reads as a sibling of ts-shader / ts-gl-shader         | 0 exact; a hyphenated T-SHADE cannot be separated from 3,383 SHADE marks                                     | free · free · free                                         | taken / free / free            | user exists, 5 repos | no — same-class app, weak distinctiveness, ambiguous pronunciation                                 |
+| TShader       | TS + shader                  | `glslang::TShader` is the reference GLSL compiler's API class; a Delphi TMS component; the GitHub user owns tshader.dev | 0                                                                                                            | free · free · free (`ts-shader` on npm since 2019)         | taken / **taken** / free       | user exists          | no — descriptive, and the core audience reads it as glslang                                        |
+| **Twinshade** | one source, twin shaders     | no software use; an Indian streetwear Instagram brand, a Witchfire spell, a book monster                                | 0 live; 1 DEAD (MechoShade Systems, class 20 window shades, abandoned 2013)                                  | free · free · free                                         | taken / free / free            | user exists, 0 repos | runner-up; the 2026-09-07 decision went to TypeShade — the dead mark shows the word is registrable |
+| **Bitgil**    | 빛길 "path of light" + bit   | none                                                                                                                    | 0                                                                                                            | free · free · free                                         | taken / free / free            | user exists, 0 repos | **2nd** — KIPRIS check is mandatory (common Korean word)                                           |
+| **Corusca**   | Latin _coruscare_, to flash  | no exact use; "Coruscate Solutions" IT consultancies                                                                    | CORUSCA live class 14 jewelry (2026); CORUSCA DEAD class 9 (2002); many CORUSCANT / CORUSCATE, other classes | free · free · free                                         | taken / free / free            | **free**             | **3rd** — identical live mark in an unrelated class                                                |
+| Yeoul         | 여울, shimmering shallows    | a Korean metal manufacturer; a personal name                                                                            | 0                                                                                                            | free · free · free                                         | taken / unknown / unknown      | user exists, 2 repos | hold — hard to pronounce outside Korea                                                             |
+| Saebit        | 새빛, new light              | Korean real-estate developers                                                                                           | 0                                                                                                            | free · free · free                                         | taken / free / unknown         | not checked          | hold — very common Korean word                                                                     |
+| Isoshade      | iso-, equal shaders          | **ISOshade®** — seele's façade system (EU, registered)                                                                  | 0 (US)                                                                                                       | free · free · free                                         | taken (seele) / free / unknown | not checked          | no — identical registered EU mark by a 1,000-person company                                        |
+| Diptych       | two-panel artwork            | generic noun in photo apps (Diptic etc.)                                                                                | 0; DIPTYQUE (perfume, famous) is its French equivalent                                                       | free · free · free                                         | taken / taken / unknown        | not checked          | no                                                                                                 |
+| Noeul         | 노을, sunset glow            | several Korean "Noeul Co., Ltd." incl. a medical-AI company                                                             | 0                                                                                                            | free · free · free                                         | taken / taken / unknown        | not checked          | no — domestic conflicts                                                                            |
+| Dalbit        | 달빛, moonlight              | "Dalbit: Learn Languages" app (class 9); Dalbit International (Kenya)                                                   | DALBIT VELUNA, DALBIT SKIN — class 3, pending 2025–26                                                        | free · free · **taken**                                    | taken / free / unknown         | not checked          | no                                                                                                 |
+| Shadewright   | shade + -wright              | none                                                                                                                    | 0                                                                                                            | **npm taken** (a design system, v8, 2026-08) · free · free | taken / free / free            | user exists, 0 repos | no — active npm package in the frontend space                                                      |
+| Paritas       | Latin, equality              | Paritas Software Solutions (IT consulting, IN/US)                                                                       | —                                                                                                            | —                                                          | —                              | —                    | knocked out (class 42)                                                                             |
+| Isomer        | same formula, two structures | Isomer framework, isomer.gov.sg, Isomer insurance software (2024)                                                       | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                                                        |
+| Gemel         | twin (archaic)               | a 2025 App Store app; Gémel Inc; Gemel Group (marine electronics + software)                                            | —                                                                                                            | **taken** · free · **taken**                               | taken / free / —               | —                    | knocked out                                                                                        |
+| Shadeon       | shade + -on                  | **SHADEON®** (Czech/EU brand); Shadeon Ltd NZ                                                                           | —                                                                                                            | free · free · free                                         | taken / free / —               | —                    | knocked out (EU)                                                                                   |
+| Ambishade     | ambi-, both                  | ambishade.com, a shade product                                                                                          | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                                                        |
+| Duoshade      | duo + shade                  | DuoShade thermal blinds (UK)                                                                                            | —                                                                                                            | —                                                          | —                              | —                    | knocked out                                                                                        |
+| Bivium        | Latin, fork in the road      | Bivium (ES IT), Bivium Software (US IT), The Bivium Group                                                               | —                                                                                                            | —                                                          | —                              | —                    | knocked out (class 42)                                                                             |
 
 Next steps once a name is chosen: register the `.dev` domain the same day; reserve the npm
 scope `@<name>`; create the GitHub org under a variant if the bare name is held
 (`<name>-dev`, `<name>js`, `<name>-labs`); a professional similarity search in KR (classes
 09, 42), then file in Korea and extend via Madrid to US/EU (§9).
+
+---
+
+## Appendix B — TypeShade: register screen and reservation status (2026-09-07)
+
+### B.1 Register screen
+
+KIPRIS refuses connections from this environment (the page renders, the search is a
+script call, direct connections are reset), so the Korean register was searched through
+**TMview**, which carries KIPO's own data. Instrument validated first: `카카오` in office KR
+returns 1,131 marks. Newest KR application date seen in the data: **2026-07-27** — filings
+after that need the KIPRIS check in B.3.
+
+| Query                                | KR (KIPO) | JP (JPO)                                                                               | EM · US · WO |
+| ------------------------------------ | --------- | -------------------------------------------------------------------------------------- | ------------ |
+| TYPESHADE                            | 0         | 0                                                                                      | 0            |
+| TYPE SHADE                           | 0         | **1 registered** — "Type Shade", classes 14 + 25, AnyMind Japan K.K., app. 2025-079393 | 0            |
+| 타입셰이드 · 타입쉐이드 · 타입세이드 | 0         | —                                                                                      | —            |
+| タイプシェード                       | —         | the same JP mark                                                                       | —            |
+
+The JP mark is a streetwear brand (typeshade.jp; TikTok @typeshade). Different goods and
+country; it does not block a class 09 / 42 filing, but the name is not globally unique and
+the social handle is theirs.
+
+**KR similarity set for the attorney** (classes 09 / 42, marks containing SHADE). No live
+SHADE-alone mark exists in KR classes 09 / 42 (플리카's 2023 applications, 09 and 42, both
+ended). TYPE is a weak element — JUST TYPE, Typed, IM TYPE, 타입캐스트 and others are
+registered in 09 / 42. The question for the attorney is whether TYPESHADE is read as one
+coined word or dissected with SHADE as the dominant part; if dissected, these are the marks
+to compare:
+
+| Mark               | Class | Status | Applicant        | Filed   |
+| ------------------ | ----- | ------ | ---------------- | ------- |
+| ShadeTV            | 9     | Reg.   | 임팩트럼         | 2024-09 |
+| LIGHT & SHADE      | 9     | Reg.   | individual       | 2022-01 |
+| COLOR SHADE        | 9     | Reg.   | 아프리카         | 2016-07 |
+| SHADEZ             | 9     | Reg.   | MJ Steps         | 2015-11 |
+| IM SHADE CODE      | 9, 42 | Reg.   | 미미박스         | 2016-01 |
+| ShadeXense         | 42    | Reg.   | 코스맥스         | 2025-02 |
+| COSMAX SHADE ATLAS | 9, 42 | Filed  | 코스맥스비티아이 | 2026-07 |
+| Clare Shade        | 9     | Filed  | 어나더닥터       | 2025-12 |
+
+EU: SHADE-alone marks are registered in class 9 (Vortex Optics 2025, YouV Labs 2016,
+Shadelights 2018) — opposition risk is an attorney call; EUIPO does not examine relative
+grounds ex officio. US: 0 exact (Trademarkia, page 1). This is a knock-out screen, not a
+clearance opinion.
+
+### B.2 Reservation status
+
+| Asset                         | State (06:20 UTC)                                                      | Owner action                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `typeshade.dev` `.app` `.com` | all unregistered (RDAP, validated on `tailwindcss.dev` / `google.app`) | register all three the same day; `.dev` / `.app` are HSTS-preloaded (HTTPS only)                       |
+| `typeshade.io`                | unknown (rdap.org unreliable for `.io`)                                | check at the registrar                                                                                 |
+| npm `typeshade`               | free                                                                   | publish a `0.0.0` placeholder with a README pointing at the project, then ship real releases behind it |
+| npm scope `@typeshade`        | no packages; user/org existence unverifiable (npmjs.com blocks here)   | create the free org `typeshade` — success is the reservation                                           |
+| PyPI · crates.io `typeshade`  | free                                                                   | optional placeholders only if a Python / Rust artifact is ever planned                                 |
+| GitHub `typeshade`            | free (404)                                                             | create the org                                                                                         |
+| Social                        | TikTok @typeshade held by the JP brand; others not checked             | check X / Bluesky / Instagram / YouTube; fall back to `typeshade_dev`                                  |
+| Trademark KR                  | 0 (data through 2026-07-27)                                            | KIPRIS check for later filings → attorney similarity search (B.1 list) → file classes 09 + 42          |
+| Trademark abroad              | US 0 · EM 0 · WO 0 · JP identical mark in 14 / 25                      | Madrid extension to US / EU / JP within the 6-month priority window                                    |
+
+### B.3 Order of operations
+
+1. Domains (`.dev`, `.app`, `.com`) with WHOIS privacy on; nothing else costs time to redo.
+2. GitHub org `typeshade`; the mirror repository (§1) and the adapter repositories (§6.2) go under it.
+3. npm org `typeshade`; placeholder `typeshade@0.0.0` and `@typeshade/core@0.0.0`; 2FA on the account.
+4. KIPRIS: 상표명칭 TN = TYPESHADE, TYPE SHADE, 타입셰이드, 타입쉐이드; 상품분류 09, 42; 유사검색 on.
+5. Attorney similarity search with the B.1 list; file KR 09 + 42; calendar the Madrid extension.
+6. Rename in the codebase only after the tag decision (§1): `@xgis/shader-dsl` stays as an alias for one major.
