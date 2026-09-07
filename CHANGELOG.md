@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: ee49a73251f80fece4e372ae14d1b9af98a4b15c
+  Generated from: 1a7309a8398027db7b5aeccb1accf105ccad81cc
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since ee49a73251f8
+    bun scripts/emit-changelog.ts --since 1a7309a83980
 -->
 
 # Changelog
@@ -25,6 +25,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 - **shader-dsl:** **BREAKING** a fn body that returns nothing must name its return type (#2458) ([#2481](https://github.com/X-GIS/X-GIS/pull/2481)) `34efec1`
 - **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
+- **map:** **BREAKING** publish the 45 XGISMap members consumers use, not all 215 ([#2622](https://github.com/X-GIS/X-GIS/pull/2622)) `1a7309a`
 
 #### feat
 
