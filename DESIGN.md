@@ -405,7 +405,7 @@ scene.xgis    — 씬 정의: 소스, 레이어, 구조, validate, query (HTML �
 
 ```
 source terrain_dem {
-  type: raster-dem
+  type: "raster-dem"
   url: "https://tiles.example.com/terrain/{z}/{x}/{y}.png"
   encoding: mapbox
 }
@@ -7136,7 +7136,7 @@ layer buildings {
 GeoJSON                        P0        source { type: geojson }
 벡터 타일 (MVT/PBF)            P0        source { type: vector }
 래스터 타일 (PNG/JPEG/WebP)    P0        source { type: raster }
-래스터 DEM (Mapbox Terrain)    P0        source { type: raster-dem }
+래스터 DEM (Mapbox Terrain)    P0        source { type: "raster-dem" }
 3D Tiles (Cesium)              P1        source { type: 3d-tiles }
 GeoPackage (.gpkg)             P1        source { type: geopackage }
 Shapefile (.shp)               P2        변환 도구 (xgisc convert)

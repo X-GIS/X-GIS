@@ -354,7 +354,14 @@ describe('#2553 a real polygon edge lying along a tile side keeps its stroke', (
     // collinear run was not synthetic and a line was drawn down the tile
     // border for a feature with no area in the tile. The old purely geometric
     // predicate returned 0 here, so the provenance narrowing regressed it —
-    // which is why the guard is on AREA, not on provenance.
+    // which is why provenance may only narrow a ring that HAS INTERIOR here.
+    //
+    // The guard is `onRectEdges === n`: GEOMETRIC, not area-based. `intersect`
+    // snaps a cut vertex to the tile grid, so this collapsed ring's shoelace is
+    // small but NOT zero, and a first attempt gating on `shoelaceArea === 0`
+    // did not fix it (commit 9a9cac67). Do not re-derive that attempt from this
+    // comment: an earlier wording here said "on AREA", and an area test is
+    // exactly what does not work.
     const { clipped, inserted } = clipZ1(mmBox(t1West - 20, 1, t1West, 20))
     expect(clipped.length).toBe(1)
     // The fixture really is MIXED — if this ever becomes all-source or
@@ -377,8 +384,42 @@ describe('#2553 a real polygon edge lying along a tile side keeps its stroke', (
     // The control the two arms above need: the guard must not silence a
     // polygon that genuinely covers part of this tile. Same west-side-on-lon-0
     // placement as the #2553 arm, so a guard keyed on "any vertex on the rect"
-    // instead of on AREA would red here.
+    // instead of on "EVERY edge on the rect" would red here.
     const { clipped, inserted } = clipZ1(mmBox(t1West, 1, 20, 20))
     expect(strokeSegments(clipped, inserted)).toBe(4)
+  })
+
+  it('the Mercator LATITUDE clamp is a world edge too — a ring authored past it does not stroke it', () => {
+    // `isOnMercWorldRect` has two clauses, one per axis, and only the LONGITUDE
+    // one was gated (by `antimeridian-outline-seam.test.ts`). Deleting the
+    // latitude clause left 600 files / 5708 tests green, so the half that stops
+    // a full-WIDTH seam was carried by nothing. This arm is that half.
+    //
+    // This z1 tile's NORTH edge IS the clamp: `t1LatN` (85.05112877980659) is
+    // the latitude whose projection equals `MERC_WORLD_EDGE`, so a box authored
+    // to exactly that latitude has BOTH its north corners landing on the rect
+    // as SOURCE vertices — precisely the shape `rescuesEdge` would otherwise
+    // rescue. That is how the data really arrives: a producer clipping to the
+    // Web Mercator extent authors ±85.0511 literally, the way Natural Earth
+    // cuts the antimeridian at lon ±180 one axis over. Stroking that run paints
+    // a line across the top of the world.
+    //
+    // Authoring PAST the clamp (lat 89) does NOT reach this clause and is the
+    // wrong fixture: the projection saturates 0.28 mm ABOVE `MERC_WORLD_EDGE`,
+    // so the clip cuts the ring and the two north vertices come back
+    // clipper-made — `rescuesEdge` then fails on `!inserted.has(v)` and the
+    // latitude clause is never consulted. Measured, not assumed.
+    const { clipped, inserted } = clipZ1(mmBox(1, 1, 20, t1LatN))
+    expect(clipped.length).toBe(1)
+    // The clamp put the ring ON the rect, it was not cut TO it: an all-source
+    // ring is what makes this a provenance question rather than a clip one.
+    expect(inserted.size).toBe(0)
+    // Pin that the fixture really does sit on the clamp — if a future
+    // projection change moved the saturation point, the arm would still read
+    // "3" for the wrong reason.
+    const onClamp = clipped[0]!.filter((v) => Math.abs(v[1]! - t1MyN) < 1).length
+    expect(onClamp).toBe(2)
+    // West, south and east stroke; the clamp edge does not.
+    expect(strokeSegments(clipped, inserted)).toBe(3)
   })
 })
