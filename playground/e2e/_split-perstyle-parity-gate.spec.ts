@@ -296,13 +296,28 @@ test('#2042 INC-4d — per-style split fills match legacy; the twin and the walk
     legacyCounts.fills + legacyCounts.perStyle + legacyCounts.skips,
     'legacy arm recorded split draws / walk-skips — the flag gate leaks',
   ).toBe(0)
-  // #2584 — `splitCounts.perStyle` is the guard this gate WANTS, and it cannot be
-  // asserted yet: measured at ZERO across three runs while the total varied with
-  // tile selection (185/169/201), so the per-style branch is structurally never
-  // reached in this scene. The cause is open — the compiler DOES produce a
-  // per-style-composing variant for these layers — so #2584 owns finding it and
-  // turning this assertion on. Until then the gate measures the default class, and
-  // the log line above is what says so out loud instead of leaving it silent.
+  // #2584 — THE guard this gate exists for, and the only one of the three that can
+  // fail for the reason it is named after. `fills` and `skips` are both satisfied by
+  // the DEFAULT flat/ground twins (the total counts `mat === eff.flat`, and
+  // `_walkRingFree`'s `splitFillsCapable` is an OR that short-circuits before the
+  // resolver), which is how this gate stayed green through the whole period the
+  // per-style twin executed ZERO times — measured 0 across three runs while the total
+  // moved with tile selection (185/169/201).
+  //
+  // It measures 184 now. What unblocked it was NOT this spec: `mainFill`'s base-layout
+  // arm was handing every non-extruded fill the renderer-default ground pipeline and
+  // discarding the per-style one the scheduler had already resolved
+  // (`vector-tile-renderer.ts:4119-4128`). Per-style Material matches went 0 → 184 of
+  // 249 flat-path draws in the same scene; the 65 that still take the default are the
+  // shows that have no per-style pipeline at all.
+  expect(
+    splitCounts.perStyle,
+    "split arm recorded ZERO PER-STYLE split fill draws — INC-4d's twin did not " +
+      'execute, so the A/B below says nothing about it. Check that `mainFill` still ' +
+      'prefers `fillPipelineGroundOverride` on the base-layout arm (#2584): taking the ' +
+      'renderer-default ground pipeline there discards the per-style pipeline and this ' +
+      'goes silently back to 0 while `fills` and `skips` stay green',
+  ).toBeGreaterThan(0)
   expect(
     splitCounts.fills,
     'split arm recorded ZERO split FILL draws — the split path never engaged at all',

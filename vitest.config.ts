@@ -233,6 +233,9 @@ export const ISOLATED = [
   'map/src/render/passes/hillshade-pass-pick-attachment-parity.test.ts',
   'map/src/render/passes/opaque-pass-checker-arm.test.ts',
   'map/src/render/passes/overdraw-frame-truth.test.ts',
+  // (1) module mock — polygon-shader-cache, so `perStyleSplitTwin`'s eligibility probe and
+  //     its emit are stubbed and the assertion is about the pipeline LABEL alone (#2627).
+  'map/src/render/pipeline-factory-split-twin-label.test.ts',
   // (2) `configureBody` + `configureBodyConsts` — the same process-global pair
   //     #2567/#2590 are about, and `vitest.setup.ts`'s leak guard watches.
   'map/src/render/polygon-shader-cache-baked.test.ts',

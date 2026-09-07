@@ -125,6 +125,13 @@ export interface FillMaterialInputs {
    *  BOTH the ground (flat `vertexLayout` above) + extruded pattern pipelines in a single call. */
   extrudedVertexLayout?: GPUVertexBufferLayout
   pickEnabled: boolean
+  /** Prefix for this call's four pipeline labels. #2499's boot-provenance gate reads a program
+   *  as OPEN SET (style-derived, deliberately unbaked) from a `shader-` label prefix, and the
+   *  labels below are generic by design — one builder, many callers. A per-STYLE caller passes
+   *  `shader-<variant.key>/` so its program is identifiable as that style's, to the gate and in
+   *  a GPU debugger alike. Default `''` leaves every existing label byte-identical, which
+   *  `pipeline-factory-compute-layout-authority.test.ts` pins. See #2627. */
+  labelPrefix?: string
   /** Pick-attachment writeMask (default 0xf). The `pointer-events:none` no-pick twins pass 0 so the
    *  layer's pick id never lands in the pick texture (picks fall through). */
   pickWriteMask?: number
@@ -174,6 +181,7 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
         { format: 'rg32uint' as const, writeMask: inp.pickWriteMask ?? 0xf },
       ]
     : [{ format: fmt, blend: 'alpha' as const }]
+  const lp = inp.labelPrefix ?? ''
   const base = {
     shader: inp.shader,
     vsCode: inp.vsCode,
@@ -194,13 +202,13 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
         depthCompare: 'less-equal',
         depthWrite: true,
         stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
-        label: 'fill-flat-write-rhi',
+        label: `${lp}fill-flat-write-rhi`,
       },
       {
         depthCompare: 'less-equal',
         depthWrite: true,
         stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
-        label: 'fill-flat-test-rhi',
+        label: `${lp}fill-flat-test-rhi`,
       },
     ],
   })
@@ -212,13 +220,13 @@ export function buildFlatFillMaterials(inp: FillMaterialInputs): {
         depthCompare: 'always',
         depthWrite: false,
         stencil: { compare: 'always', passOp: 'replace', writeMask: 0xff, readMask: 0xff },
-        label: 'fill-ground-write-rhi',
+        label: `${lp}fill-ground-write-rhi`,
       },
       {
         depthCompare: 'always',
         depthWrite: false,
         stencil: { compare: 'equal', passOp: 'keep', writeMask: 0x00, readMask: 0xff },
-        label: 'fill-ground-test-rhi',
+        label: `${lp}fill-ground-test-rhi`,
       },
     ],
   })
