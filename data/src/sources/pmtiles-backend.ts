@@ -19,6 +19,11 @@
 
 import { xlog } from '@xgis/shared'
 import {
+  extractFeatureHeights,
+  extractFeatureWidths,
+  extractFeatureColors,
+} from '../eval/feature-expr-extract'
+import {
   tileKeyUnpack,
   decomposeFeatures,
   compileSingleTile,
@@ -37,9 +42,6 @@ import { sliceFilterAccepts } from '../eval/filter-eval'
 import { PriorityQueue, PriorityQueueItemRemovedError } from '@xgis/shared'
 import type { PMTilesFetcher, PMTilesBackendOptions } from './pmtiles-backend-types'
 import {
-  extractFeatureHeights,
-  extractFeatureWidths,
-  extractFeatureColors,
   maxInflight,
   failedKeyTtlMs,
   tileSizeMerc,
