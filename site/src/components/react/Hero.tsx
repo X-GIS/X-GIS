@@ -47,7 +47,13 @@ export default function Hero({ docsUrl, examplesUrl, convertUrl }: Props) {
     let map: XGISMapType | null = null
     let mountStarted = false
     let destroyed = false
-    let cycleTimer: ReturnType<typeof setTimeout> | null = null
+    // `number`, not `ReturnType<typeof setTimeout>`: `setTimeout` is OVERLOADED
+    // here (the DOM lib's, returning number, plus a Node global augmentation
+    // returning `Timeout`). `ReturnType` resolves to the LAST overload while the
+    // call below resolves to the FIRST match, so the inferred form and the actual
+    // value disagree — which is the error this replaces. `window.setTimeout`
+    // returns a number in a browser, and that is the only environment this runs in.
+    let cycleTimer: number | null = null
     let cycleIdx = 0
     let userTookOver = false
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
