@@ -9,6 +9,14 @@
 // #2428's preferred remedy — a data-sized palette — would have to delete the
 // assertion to pass. Pinning the constant means this file keeps working when the
 // palette grows and only stops mattering when the modulo actually goes away.
+//
+// SINCE #2579 THIS IS THE DENSE PATH'S WARNING. The pigeonhole bound is the true
+// and only bound for `deriveSeededCategoryOrder`'s ranks, which is where this
+// still fires from (`categorical-dense-index.test.ts` gates that). It was ALSO
+// wired to `buildCategoryMap`, whose ids are hashes — where it is blind, because
+// a hash collides on the birthday bound long before the count reaches the
+// palette length. That producer half is now `warnCategoricalSlotCollisions`, and
+// `categorical-hash-collision.test.ts` owns it.
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { CAT_PALETTE_SIZE } from '@xgis/compiler'
@@ -53,26 +61,6 @@ describe('#2428 — the categorical palette wrap is no longer silent', () => {
     expect(msgs).toHaveLength(1)
     warnCategoricalPaletteWrap('b', CAT_PALETTE_SIZE + 5, sink)
     expect(msgs).toHaveLength(2)
-  })
-
-  // The producer half: `buildCategoryMap` is where the distinct set exists, so the
-  // check has to fire from THERE rather than from a caller that might forget.
-  it('buildCategoryMap itself reports the wrap when handed a field name', () => {
-    const msgs: string[] = []
-    // The default sink is xlog.warn, so drive the warner directly to capture —
-    // then assert buildCategoryMap reaches the same latch, which is observable:
-    // a pre-warmed latch makes the subsequent direct call silent.
-    warnCategoricalPaletteWrap('wide', CAT_PALETTE_SIZE + 3, (m) => msgs.push(m))
-    expect(msgs).toHaveLength(1)
-
-    resetCategoricalPaletteWrapWarnings()
-    const map = buildCategoryMap(values(CAT_PALETTE_SIZE + 3), 'wide')
-    expect(map.size).toBe(CAT_PALETTE_SIZE + 3)
-    // buildCategoryMap took the latch: a direct call for the same field is now
-    // suppressed. If it had NOT warned, this would push a message.
-    const after: string[] = []
-    warnCategoricalPaletteWrap('wide', CAT_PALETTE_SIZE + 3, (m) => after.push(m))
-    expect(after).toEqual([])
   })
 
   it('buildCategoryMap without a field name still builds the same map', () => {

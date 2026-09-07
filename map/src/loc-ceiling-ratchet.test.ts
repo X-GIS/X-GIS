@@ -988,7 +988,9 @@ const CEILINGS: Record<string, number> = {
   // widened entry type, the two set() sites, and the two comments naming which
   // pointer is being asked about — the mistake was invisible precisely because
   // nothing at either site said which one it was.
-  'map/src/controller.ts': 1224,
+  // 1224→1185: #2534 folded the drag-anchor capture (written at drag start and again
+  // when a pinch drops to one finger) into one `captureDragAnchor`. LOWERED per shrink-only.
+  'map/src/controller.ts': 1185,
   // 5497→5546 (#1258, atop the #1265 bump): `_atmosphere` (the top-level style flag) + `setAtmosphere` — the SAME
   // shape `_light`/`setLight` already have in this file (a top-level style concern's field +
   // its public setter, not yet a style-spec JSON property). Nothing cohesive to extract: the
@@ -1157,7 +1159,17 @@ const CEILINGS: Record<string, number> = {
   // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
   // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
   // renderer FIELDS is #2578 and must extract, not accumulate.
-  'map/src/map.ts': 5557,
+  // 5547→5577 (#2515 + #2613, this merge). BOTH sides raised this key from the same
+  // base and git resolved neither number, so the file took both deltas — re-measured
+  // with `wc -l` post-prettier rather than carried across (§12).
+  //   main  +20 (#2515): the `_reinitializing` latch, its docblock, the setQuality
+  //         guard and the raise at teardown.
+  //   #2613 +10: `isCameraPositioned()` and its docblock — the published reader paired
+  //         with `markCameraPositioned()`, so `_cameraPositionedFlag` (whose own
+  //         docblock says "Not part of the public API") stays out of the published type.
+  // main also landed `installRendererSet`, the renderer-install extraction my #2558
+  // branch had made independently for the same reason; one authority, no duplicate.
+  'map/src/map.ts': 5577,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.

@@ -54,6 +54,14 @@ export {
 export { interpolateGreatCircle, haversineDistance } from './geodesic'
 export { type RingPolygon } from './encoding'
 export { POLYGON_FILL_FORMAT, POLYGON_EXTRUDED_FORMAT } from './polygon-vertex-format'
+// The one producer of POLYGON_FILL_FORMAT bytes (#2534 audit S15) — the polar-cap
+// packer in @xgis/data writes the same layout and must not re-derive it.
+export {
+  packFillVertices,
+  FILL_FLOATS_PER_VERT,
+  type FillVertexInputs,
+  type QuantizedFillVertices,
+} from './fill-vertex-pack'
 // The single-source vertex-format machinery relocated to @xgis/rhi (the
 // []-root) in #929 B3 so backend adapters can consume it without importing the
 // compiler; re-exported here so the compiler's existing public surface is

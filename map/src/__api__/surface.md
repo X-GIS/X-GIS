@@ -10,7 +10,7 @@ through an exported one. Members are names, not signatures — see the header of
 
 - declarations: 466
 - exported names: 51
-- members: 2626 (plus 762 `private` name slots)
+- members: 2626 (plus 763 `private` name slots)
 - `@internal` tags surviving into the bundle: 1
 
 ## Exported
@@ -3738,6 +3738,7 @@ class XGISMap$1
   private _rafTick
   private _reducedMotionOverride
   private _registerVtSource
+  private _reinitializing
   private _releaseGpuResources
   private _runEpoch
   private _runGuarded

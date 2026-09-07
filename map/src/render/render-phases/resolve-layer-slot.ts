@@ -87,13 +87,13 @@ export function resolveLayerSlot(
 
   vtr.frameCount++
   // Pass the FRAME-level id (set by beginFrame from map's
-  // _frameCount, monotonic across render-loop ticks). The
-  // catalog short-circuits if the same id has already reset
-  // its budget this frame — without this, every ShowCommand
-  // sharing the source would reset the counters → each layer
-  // would get a fresh sub-tile budget → 4× more sub-tile clips
-  // per frame than intended → GPU buffer creation burst →
-  // Chrome STATUS_BREAKPOINT at over-zoom.
+  // _frameCount, monotonic across render-loop ticks). The catalog
+  // RECORDS it so cancelStale can age the prefetch shield per FRAME
+  // (#2273); it does NOT short-circuit on it. The budget reset and
+  // the backend tick below run on every call, so a source feeding N
+  // ShowCommands resets its counters N times per frame — the gap
+  // #2277 owns, together with the throughput measurement a real
+  // short-circuit needs before the constants can be re-tuned.
   guard.source.resetCompileBudget(vtr.currentFrameId)
   vtr._drawStats.resetRenderedDraws()
   // _missedTiles is FRAME-scoped, not render-scoped — beginFrame()

@@ -13,6 +13,7 @@ import {
   extractStepZoomStops,
 } from './lower-helpers'
 import type { BindingHandler } from './lower-bindings'
+import { translateShapeHandler } from './lower-bindings'
 
 // ── Binding-form arms (item.binding present) ──
 
@@ -105,58 +106,30 @@ export const bearingBindingHandler: BindingHandler = {
 }
 
 /** `fill-translate-x/y-[interpolate(zoom, …)]` — per-axis zoom shape. */
-export const fillTranslateXBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'fill-translate-x',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.fillTranslateXShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+export const fillTranslateXBindingHandler = translateShapeHandler(
+  'fill-translate-x',
+  (acc, shape) => {
+    acc.fillTranslateXShape = shape
   },
-}
-export const fillTranslateYBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'fill-translate-y',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.fillTranslateYShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+)
+export const fillTranslateYBindingHandler = translateShapeHandler(
+  'fill-translate-y',
+  (acc, shape) => {
+    acc.fillTranslateYShape = shape
   },
-}
-export const circleTranslateXBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'circle-translate-x',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.circleTranslateXShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+)
+export const circleTranslateXBindingHandler = translateShapeHandler(
+  'circle-translate-x',
+  (acc, shape) => {
+    acc.circleTranslateXShape = shape
   },
-}
-export const circleTranslateYBindingHandler: BindingHandler = {
-  match: (ctx) => ctx.name === 'circle-translate-y',
-  apply: (ctx) => {
-    const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
-    if (!zoomStops) return false
-    ctx.acc.circleTranslateYShape = {
-      kind: 'zoom-interpolated',
-      stops: zoomStops.stops,
-      base: zoomStops.base,
-    }
-    return true
+)
+export const circleTranslateYBindingHandler = translateShapeHandler(
+  'circle-translate-y',
+  (acc, shape) => {
+    acc.circleTranslateYShape = shape
   },
-}
+)
 
 /** Binding-form fill-extrusion height/base (feature exprs). */
 export const fillExtrusionHeightBindingHandler: BindingHandler = {

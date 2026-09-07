@@ -35,6 +35,7 @@ import type {
 } from './render-node'
 import type { FillAntialiasValue } from './property-types'
 import type { LowerOptions } from './lower-types'
+import { extractInterpolateZoomStops } from './lower-helpers'
 
 /** Inline per-axis zoom-interp scalar shape (structurally a
  *  ZoomStop<number>[]). Kept local so the binding modules don't pull a
@@ -192,6 +193,34 @@ export interface BindingHandler {
   match: (ctx: BindingCtx) => boolean
   /** @returns true if the item is fully handled (original `continue`). */
   apply: (ctx: BindingCtx) => boolean
+}
+
+/** The `<name>-[interpolate(zoom, …)]` translate arm, written SIX times before
+ *  #2534 — fill / circle / stroke × x / y — differing only in the utility name
+ *  and which `TranslateShape` field it fills.
+ *
+ *  Returning `false` on a non-interpolate binding is load-bearing rather than a
+ *  detail: per `dispatch` below, a matched handler that declines must NOT stop
+ *  the scan, which is how a constant form like `fill-translate-x-[-2]` still
+ *  reaches the numeric-const arm in `bindingFallthroughHandler`. Folding the six
+ *  into one factory makes that invariant a single line instead of six. */
+export function translateShapeHandler(
+  name: string,
+  assign: (acc: LayerAccumulator, shape: TranslateShape) => void,
+): BindingHandler {
+  return {
+    match: (ctx) => ctx.name === name,
+    apply: (ctx) => {
+      const zoomStops = extractInterpolateZoomStops(ctx.item.binding!)
+      if (!zoomStops) return false
+      assign(ctx.acc, {
+        kind: 'zoom-interpolated',
+        stops: zoomStops.stops,
+        base: zoomStops.base,
+      })
+      return true
+    },
+  }
 }
 
 /**

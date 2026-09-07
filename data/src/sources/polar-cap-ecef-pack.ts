@@ -20,8 +20,7 @@
 // attribute reaches the pole.
 
 import { EARTH, lonLatToECEF } from '@xgis/shared'
-import { quantizeAxis } from '@xgis/shared'
-import { POLYGON_FILL_FORMAT, vertexField } from '@xgis/compiler'
+import { packFillVertices } from '@xgis/compiler'
 
 /** Source-honest Web-Mercator latitude clamp. Rows beyond this take their TRUE
  *  latitude (the polar cap the Mercator pipeline cannot reach); rows within it
@@ -33,15 +32,6 @@ const A = EARTH.a // WGS84 semi-major axis — matches the tiler + render-side `
 // POLYGON_FILL_FORMAT contract (compiler/src/tiler/polygon-vertex-format.ts):
 //   stride = 7 f32 = 14 u16. u16×6 position lanes 0..5 occupy bytes 0..11;
 //   f32 tail = feature_id @float3, abs_lon @float4, abs_lat @float5,
-//   true_lat @float6. Slots are DERIVED from the shared format (not
-//   hardcoded) so a future tail change cannot drift this producer.
-const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4
-const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2
-const FILL_FID_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'feature_id').offset / 4
-const FILL_LON_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4
-const FILL_LAT_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4
-const FILL_TRUELAT_FLOAT = vertexField(POLYGON_FILL_FORMAT, 'true_lat').offset / 4
-
 /** Pack a stride-2 (lon,lat) mesh into the quantized-ECEF POLYGON_FILL_FORMAT
  *  WITH source-honest polar caps.
  *
@@ -112,35 +102,22 @@ export function packECEFWithPolarCaps(
     if (m > maxAbs) maxAbs = m
   }
 
-  // Symmetric half-range + dequant params — mirrors the kernel exactly.
-  const halfRange = maxAbs + 1e-6
-  const span = 2 * halfRange
-  const dequantScale = span / 0xffffffff
-  const invSpan = 0xffffffff / span
-
-  const out = new Float32Array(vertexCount * FILL_FLOATS_PER_VERT)
-  const u16 = new Uint16Array(out.buffer)
-  for (let i = 0; i < vertexCount; i++) {
-    const [xh, xl] = quantizeAxis(rx[i], halfRange, invSpan)
-    const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
-    const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
-    const u = i * FILL_U16_PER_VERT
-    u16[u] = xh
-    u16[u + 1] = xl
-    u16[u + 2] = yh
-    u16[u + 3] = yl
-    u16[u + 4] = zh
-    u16[u + 5] = zl
-    const f = i * FILL_FLOATS_PER_VERT
-    out[f + FILL_FID_FLOAT] = 0 // single synthetic feature
-    out[f + FILL_LON_FLOAT] = localMx[i]
-    out[f + FILL_LAT_FLOAT] = localMy[i]
-    // true_lat (#398) = the UNCLAMPED latitude (±90 at the pole). The disc
-    // (flat_rel) arm projects from this, so the polar caps reach the geographic
-    // pole instead of the Merc-clamped 85.05 ring the abs_lat slot decodes to
-    // (the 550 km annular hole on ortho/azimuthal/stereographic). The abs_lon/
-    // abs_lat slots stay Merc-clamped (unchanged) for the hemisphere cull.
-    out[f + FILL_TRUELAT_FLOAT] = trueLat[i]
-  }
-  return { vertices: out, dequantScale, dequantHalf: halfRange }
+  // `fids: null` = one synthetic feature, so every fid slot is written 0.
+  //
+  // `trueLatDeg` (#398) carries the UNCLAMPED latitude (±90 at the pole). The disc
+  // (flat_rel) arm projects from it, so the polar caps reach the geographic pole
+  // instead of the Merc-clamped 85.05 ring the abs_lat slot decodes to (the 550 km
+  // annular hole on ortho/azimuthal/stereographic). The abs_lon/abs_lat slots stay
+  // Merc-clamped for the hemisphere cull.
+  return packFillVertices({
+    count: vertexCount,
+    rx,
+    ry,
+    rz,
+    maxAbs,
+    localMercX: localMx,
+    localMercY: localMy,
+    trueLatDeg: trueLat,
+    fids: null,
+  })
 }
