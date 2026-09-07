@@ -504,7 +504,7 @@ clearance opinion.
 
 ### B.3 Order of operations
 
-1. ~~Domains~~ — DONE 2026-09-07: `.dev` and `.com` registered (`.app` skipped); Cloudflare zones, records, HTTPS settings, the `.com` redirect and DNSSEC configured by API (B.4). OPEN at Gabia: nameserver delegation and DS entry; WHOIS privacy, auto-renew and 2FA to confirm.
+1. ~~Domains~~ — DONE 2026-09-07: `.dev` and `.com` registered (`.app` skipped); Cloudflare zones, records, HTTPS settings, the `.com` redirect and DNSSEC configured by API (B.4). Nameserver delegation DONE 2026-09-07 (verified by DoH). OPEN at Gabia: DS entry; WHOIS privacy, auto-renew and 2FA to confirm.
 2. ~~GitHub org `typeshade`~~ — DONE 2026-09-07 (verified). The mirror repository (§1) and the adapter repositories (§6.2) go under it.
 3. ~~npm org `typeshade`, placeholders~~ — DONE 2026-09-07: `typeshade@0.0.0` and `@typeshade/core@0.0.0` published and verified on the registry.
 4. KIPRIS: 상표명칭 TN = TYPESHADE, TYPE SHADE, 타입셰이드, 타입쉐이드; 상품분류 09, 42; 유사검색 on.
@@ -525,6 +525,14 @@ afterwards. Both zones sit on the Free plan and read `pending` until Gabia deleg
 | TLS                           | Always Use HTTPS on; min TLS 1.2; SSL mode Full (strict)                                           | same                                                                                                                                                                             |
 | DNSSEC (pending at registrar) | DS `2371 13 2 4846F54FB27CFD0E9F34979E45B0FE2ECB5706D8160CE703E6A389E844EF9C8B`                    | DS `2371 13 2 7228482597A334AAB8D57CD094B73452BB110272897EA43B062E2450F1E90439`                                                                                                  |
 
-Still owner-side: the nameserver change at Gabia (both domains), the DS records if Gabia
-offers DNSSEC entry for the TLD, and — later, once a Pages site exists under the GitHub org —
-the `A` records for `typeshade.dev` (DNS only) with Enforce HTTPS on GitHub's side.
+**Delegation confirmed 2026-09-07 ~08:05 UTC** (owner changed the nameservers at Gabia): Google
+and 1.1.1.1 DoH both return `gwen.ns.cloudflare.com` / `scott.ns.cloudflare.com` as NS for both
+domains, and the SPF / DMARC / null-MX records, the `100::` AAAA and the `www` CNAME resolve
+from Cloudflare. The zones were still `pending` on Cloudflare's side at that moment (the proxy
+and Universal SSL engage only once Cloudflare's own nameserver check passes — "Check
+nameservers" on each zone's Overview page, or its periodic re-check), so the `.com` redirect
+is not live until then; `typeshade.dev` has no address records yet by design.
+
+Still owner-side: the DS records if Gabia offers DNSSEC entry for the TLD, and — later, once a
+Pages site exists under the GitHub org — the `A` records for `typeshade.dev` (DNS only) with
+Enforce HTTPS on GitHub's side.
