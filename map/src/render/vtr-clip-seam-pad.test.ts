@@ -127,8 +127,11 @@ describe('#1087 source gate — pack site vs sentinels', () => {
   const src = renderPathSource()
 
   it('real-window arm computes the 1-CSS-px Mercator pad from the in-scope R + camera zoom', () => {
+    // #2508 step 3: the pack block reads the sphere radius off its per-call
+    // context record (`ctx.R`) instead of the tile loop's local `R`. Same value,
+    // same derivation, same camera zoom — only where the operand is spelled.
     expect(src).toMatch(
-      /const clipPad = \(2 \* Math\.PI \* R\) \/ \(512 \* Math\.pow\(2, this\.currentCameraZoom\)\)/,
+      /const clipPad = \(2 \* Math\.PI \* ctx\.R\) \/ \(512 \* Math\.pow\(2, this\.currentCameraZoom\)\)/,
     )
   })
 

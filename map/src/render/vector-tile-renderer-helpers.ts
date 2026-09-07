@@ -5,7 +5,15 @@
 // only by these functions and travel with them. Behaviour-preserving
 // structural split only; no logic or symbol renames.
 
-import { isMobileClassViewport } from '@xgis/shared'
+import { EARTH, isMobileClassViewport } from '@xgis/shared'
+
+/** 2π × Earth radius (m) — one full Mercator wrap, and the numerator of every
+ *  `tile_extent_m`. Lives here, not in `vector-tile-renderer.ts`, because both
+ *  the class and `tile-draw/pack-tile-uniforms.ts` read it: exporting it from
+ *  the class would make the tile-draw module's import of it a VALUE cycle
+ *  (the class imports those modules' functions), and a restated
+ *  `2 * Math.PI * EARTH.sphereR` would be two authorities for one derivation. */
+export const TWO_PI_R_EARTH = 2 * Math.PI * EARTH.sphereR
 
 // Per-VTR GPU tile cache cap on UNIQUE tile keys. With sliced
 // sources (PMTiles N-layer) one tile = N entries × ~7 buffers.

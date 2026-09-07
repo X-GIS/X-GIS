@@ -31,7 +31,7 @@ import { reportRhiFillGap } from './rhi-fill-gap-warning'
 import { RhiFillVariantPath, rhiVariantFillSupported } from './rhi-fill-variant'
 import { uniformBlock } from '@xgis/engine'
 import { globeEyeUniform } from './globe-eye-uniform'
-import { activeBody, EARTH } from '@xgis/shared'
+import { activeBody } from '@xgis/shared'
 import { computeTileCameraAnchor, clampMercLat, type TileCameraAnchor } from './tile-camera-anchor'
 import { packDrawSubKey } from './draw-dedup-key'
 import { TileUniformArena } from './tile-uniform-arena'
@@ -97,7 +97,7 @@ import type {
   TileClassification,
 } from './vector-tile-renderer-types'
 import type { DrawStatsSnapshot } from './frame-draw-stats'
-import { getMaxGpuTiles } from './vector-tile-renderer-helpers'
+import { getMaxGpuTiles, TWO_PI_R_EARTH } from './vector-tile-renderer-helpers'
 import { UniformRing } from '@xgis/engine'
 import { buildTilePointPackKey, hashStableKeys, worldCopyMaskOf } from './tile-point-pack-key'
 import { accumulateTilePoints } from './tile-point-emit'
@@ -111,6 +111,10 @@ import { drawPrimary } from './render-phases/draw'
 import { drawFallback } from './render-phases/draw'
 import { prefetchTiers } from './render-phases/prefetch-tiers'
 import { trackStableSetAndPoints } from './render-phases/track-stable-set-and-points'
+import { drawTileFill } from './tile-draw/draw-tile-fill'
+import { drawQueuedStrokes } from './tile-draw/draw-queued-strokes'
+import { packTileUniforms } from './tile-draw/pack-tile-uniforms'
+import type { TilePackCtx, TilePackOut } from './tile-draw/types'
 export type { BundleEncodeDescriptor }
 
 // projType (camera.projType / proj_params.x) → projection registry name,
@@ -137,7 +141,6 @@ export type { LayerDrawPhase }
 /** 2π × Earth radius (m). One full mercator wrap. tile_extent_m at
  *  any zoom z is this constant divided by 2^z (vs_main_quantized
  *  dequant scale). */
-const TWO_PI_R_EARTH = 2 * Math.PI * EARTH.sphereR
 
 /** Cesium replacement-invariant ancestor protection depth: pyramid
  *  levels above each visible tile pinned in the catalog cache. 22
@@ -348,9 +351,9 @@ export class VectorTileRenderer {
   /** #2042 INC-4c — per-queued-tile split-bind TileBlock byte offset (−1 =
    *  legacy ring bind for that tile). Parallel to the two arrays above. */
   private readonly _strokeQueueTileOff: number[] = []
-  /** Companion scratch for the per-call stroke offset pair (single-line
+  /** @internal Companion scratch for the per-call stroke offset pair (single-line
    *  `[lineLayerOffset]` vs road-casing `[lineLayerOffset, gap]`). */
-  private readonly _strokeOffsetsScratch: number[] = []
+  readonly _strokeOffsetsScratch: number[] = []
   /** #778 P1: reused scratch for world-copy offset cache-key rounding
    *  (replaces per-frame `.map()` allocs; see `_worldOffScratchKey`). */
   private readonly _worldOffScratch: number[] = []
@@ -359,16 +362,16 @@ export class VectorTileRenderer {
    *  ring stages, exactly like the raw views this replaces. u32 lanes
    *  (pick_id / light_color_packed) route through the block's raw-word view. */
   frameBlock = uniformBlock(POLYGON_U)
-  /** #2042 INC-2 — persistent per-(tile × worldCopy) TileBlock slots
+  /** @internal #2042 INC-2 — persistent per-(tile × worldCopy) TileBlock slots
    *  (tile-uniform-arena.ts): packed once at first unclipped draw, freed via
    *  _releaseTileHook. Nothing binds them until INC-4. Lazy device provider —
    *  `this.rhi` is assigned in the ctor body, after field initializers. */
-  private readonly _tileUniforms = new TileUniformArena(() => this.rhi)
-  /** #2042 INC-4b — the split-bind write path (show arena + frame block +
+  readonly _tileUniforms = new TileUniformArena(() => this.rhi)
+  /** @internal #2042 INC-4b — the split-bind write path (show arena + frame block +
    *  the native three-range bind group). Constructed in the ctor body (needs
    *  ctx.device); null until then, and inert until setFillRhi hands it the
    *  factory's split layout (which only exists under __XGIS_SPLIT_BIND). */
-  private _splitBind: UniformSplitBind | null = null
+  _splitBind: UniformSplitBind | null = null
   /** #599 I2 — dedicated pack block for bakeTileToTexture so the mid-render bake
    *  never clobbers frameBlock's frame-constant mvp/proj_params/globe_eye (which
    *  the same show's stroke draw reads after the drape). */
@@ -454,15 +457,17 @@ export class VectorTileRenderer {
   /** @internal #1080 — per render(): per-feature extruded fill draws FRONT-SHELL only
    *  (depth prepass + depth-`less-equal` colour) when resolved fill alpha < 1. */
   _extrudeTranslucentFrontShell = false
-  /** Top-level fill-extrusion light, pushed each frame from the render
+  /** @internal Top-level fill-extrusion light, pushed each frame from the render
    *  loop (host._light). Defaults = MapLibre/Mapbox default so an untouched
    *  renderer is byte-identical to the baked consts. position = [radius,
    *  azimuth°, polar°] (Mapbox spec); the packer converts it to an
    *  (East,North,Up) direction then rotates into ECEF by the camera-anchor
    *  basis. */
-  private _lightPosition: [number, number, number] = [1.15, 210, 30]
-  private _lightIntensity = 0.5
-  private _lightColor: [number, number, number] = [1, 1, 1]
+  _lightPosition: [number, number, number] = [1.15, 210, 30]
+  /** @internal */
+  _lightIntensity = 0.5
+  /** @internal */
+  _lightColor: [number, number, number] = [1, 1, 1]
   /** @internal Fill-pattern per-show flag. Set true when the current `render()`
    *  call's show has a resolved pattern UV bbox + the pattern pipeline is
    *  wired. Per-tile uniform writes use this to decide whether slot 46/47
@@ -531,7 +536,8 @@ export class VectorTileRenderer {
   // Polygon flat-fill RHI Material twins + the native pipeline refs they
   // map to (set once from PipelineFactory). recordFillDraw routes EVERY
   // fill draw through it (§4 closed; an untwinned pipeline throws).
-  private _fillRhi: FillRhiState | null = null
+  /** @internal */
+  _fillRhi: FillRhiState | null = null
   setFillRhi(state: FillRhiState | null): void {
     // #717 dual-instance mirror; released in destroy(). See fill-rhi-slot.ts.
     mirrorFillRhi(state)
@@ -2143,7 +2149,8 @@ export class VectorTileRenderer {
     return this._drawStats.getLastDecisionCounts()
   }
 
-  private allocUniformSlot(): number {
+  /** @internal */
+  allocUniformSlot(): number {
     return this.uniformRing!.allocSlot()
   }
 
@@ -2214,7 +2221,7 @@ export class VectorTileRenderer {
     )
   }
 
-  /** #2042 INC-1 — stage the ABSOLUTE tile/camera ECEF anchors beside the
+  /** @internal #2042 INC-1 — stage the ABSOLUTE tile/camera ECEF anchors beside the
    *  legacy cam_ecef_off pair, so the polygon VS can recombine the RTC offset
    *  in-shader ((tileH − camH) + (tileL − camL); precision bound:
    *  rtc-recombine-precision.test.ts). cam_ecef_center_h.w is the recombine
@@ -2222,7 +2229,7 @@ export class VectorTileRenderer {
    *  Called at every frameBlock site that writes cam_ecef_off (the _bakeBlock
    *  ortho bake stays all-zero → flag 0 → legacy, its dedicated block never
    *  carries stale lanes). */
-  private _writeRtcAnchors(anchor: TileCameraAnchor): void {
+  _writeRtcAnchors(anchor: TileCameraAnchor): void {
     const on = (globalThis as { __XGIS_RTC_RECOMBINE?: boolean }).__XGIS_RTC_RECOMBINE === true
     // The §5 witness skew is NOT applied here: it is baked into the anchor by
     // computeTileCameraAnchor, so the split-bind packer (TileUniformArena)
@@ -2245,10 +2252,10 @@ export class VectorTileRenderer {
     B.set.cam_merc_center_hl(anchor.camMercXH, anchor.camMercYH, anchor.camMercXL, anchor.camMercYL)
   }
 
-  /** Copy a per-tile uniform block into the staging mirror at the given
+  /** @internal Copy a per-tile uniform block into the staging mirror at the given
    *  ring byte offset and extend the dirty range. Replaces the old
    *  per-draw `device.queue.writeBuffer` call inside renderTileKeys. */
-  private stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
+  stageUniformSlot(slotOffset: number, src: ArrayBuffer): void {
     this.uniformRing!.stageSlot(slotOffset, src)
   }
 
@@ -3002,7 +3009,7 @@ export class VectorTileRenderer {
    *  exempted exactly there and nowhere else. */
   _lastWalkRingFree: boolean = false
 
-  /** Bundle-compatible per-tile fill draw recording. The GPU commands here
+  /** @internal Bundle-compatible per-tile fill draw recording. The GPU commands here
    *  are EXACTLY the subset accepted by both `GPURenderPassEncoder` and
    *  `GPURenderBundleEncoder`, so the caller can pass a
    *  `GPURenderBundleEncoder` to build a cached bundle without re-tracing
@@ -3018,7 +3025,7 @@ export class VectorTileRenderer {
    *  `_skipFillDrawForBundle` is true so the bundle-replay path can run
    *  renderTileKeys for state side effects without re-recording the
    *  draws. */
-  private recordTileFill(
+  recordTileFill(
     encoder: GPURenderPassEncoder | GPURenderBundleEncoder,
     pipeline: RhiPipelineHandle,
     tileBg: GPUBindGroup,
@@ -3218,7 +3225,6 @@ export class VectorTileRenderer {
       sliceLayer,
     )
     this._lastWalkRingFree = splitWalkSkip
-    let packedOnce = false
     // Per-call invariants shared by the per-tile light-rotation + clip_bounds
     // math below (the anchor math itself lives in tile-camera-anchor.ts).
     const DEG2RAD = Math.PI / 180
@@ -3229,6 +3235,28 @@ export class VectorTileRenderer {
     const camCos = Math.cos(camLatR)
     const camSinLon = Math.sin(camLonR)
     const camCosLon = Math.cos(camLonR)
+    // #2508 step 3 — what the pack step reads (fixed for the call) and what it
+    // produces (rewritten per tile). Two literals per CALL; the loop already
+    // allocates one `{ bg, tileOff, showOff }` per TILE, so this is strictly
+    // cheaper than what it sits next to.
+    const packCtx: TilePackCtx = {
+      projCenterLon,
+      projCenterLat,
+      fillBindGroupLayout,
+      visibleKeysForClip,
+      sliceLayer,
+      R,
+      camSin,
+      camCos,
+      camSinLon,
+      camCosLon,
+    }
+    const packOut: TilePackOut = {
+      slotOffset: 0,
+      currentTileBg: null,
+      splitBind: null,
+      packedOnce: false,
+    }
     for (let ki = 0; ki < keys.length; ki++) {
       const key = keys[ki]
       // For world copies: allow same key to render at different positions
@@ -3256,8 +3284,8 @@ export class VectorTileRenderer {
       // strokes are split-bound, so nothing reads the ring for it. A
       // non-resident copy (offsetOf −1) falls back to the full pack.
       let skipPack = false
-      let splitBind: { bg: GPUBindGroup; tileOff: number; showOff: number } | null = null
-      if (splitWalkSkip && packedOnce) {
+      packOut.splitBind = null
+      if (splitWalkSkip && packOut.packedOnce) {
         const tileOff = this._tileUniforms.offsetOf(sliceLayer, key, worldOff)
         if (tileOff >= 0) {
           const showOff = this._splitBind!.syncShow(
@@ -3269,7 +3297,7 @@ export class VectorTileRenderer {
           this._splitBind!.syncFrame(this.frameBlock.buffer, this.currentFrameId)
           const bg = this._splitBind!.bindGroup()
           if (bg) {
-            splitBind = { bg, tileOff, showOff }
+            packOut.splitBind = { bg, tileOff, showOff }
             skipPack = true
             // Executed-mechanism witness (§5 gate): parity alone cannot
             // distinguish "skip ran, bytes identical" from "skip never
@@ -3279,484 +3307,35 @@ export class VectorTileRenderer {
           }
         }
       }
-      let slotOffset = 0
-      let currentTileBg: GPUBindGroup | null = this._bindGroups.baseGroup()
+      packOut.slotOffset = 0
+      packOut.currentTileBg = this._bindGroups.baseGroup()
       if (!skipPack) {
-        // Tile pop-in: new tiles appear immediately at full opacity.
-        // A fade-in used to ramp alpha 0→1 over ~10 frames, but that made
-        // each newly-loaded tile visually EMPTY for 10 frames (no fallback
-        // once the child is cached), producing a continuous flicker during
-        // active zoom as tiles finish loading one by one. Instant pop-in is
-        // visually cleaner and matches the loading sequence's natural cadence.
-        const baseFillA = this.cachedFillColor[3] * (this.currentOpacity ?? 1.0)
-        const baseStrokeA = this.cachedStrokeColor[3] * (this.currentOpacity ?? 1.0)
-        // When a pattern is active, render() packed the sprite atlas UV bbox
-        // into the fill_color slot (fill, v1 = fill_color.a) / the stroke_color
-        // slot (line, v1 = stroke_color.a). The fragment shader reads
-        // fill_color.a / stroke_color.a as the pattern's v1; clobbering it with
-        // the alpha here corrupts the UV (black/garbage pattern). Same guard as
-        // the fill_translate slots below — only write the alpha when NO pattern
-        // owns the slot.
-        if (!this._patternUniformActive) {
-          // Alpha-only refresh — RGB re-written with its current cached values
-          // (the pattern guard above means the slot holds cachedFillColor RGB).
-          this.frameBlock.set.fill_color(
-            this.cachedFillColor[0]!,
-            this.cachedFillColor[1]!,
-            this.cachedFillColor[2]!,
-            baseFillA,
-          )
-        }
-        if (!this._linePatternActiveForShow) {
-          this.frameBlock.set.stroke_color(
-            this.cachedStrokeColor[0]!,
-            this.cachedStrokeColor[1]!,
-            this.cachedStrokeColor[2]!,
-            baseStrokeA,
-          )
-        }
-        // u.opacity for shader variants is written at index 34 (offset 136 in
-        // the 192-byte layout) in the DSFUN uniform block, below — keep it off
-        // the pre-tile pack so we only write it once per slot.
-
-        // DSFUN uniform pack — Mercator cam_h/cam_l + ellipsoid ECEF RTC offset,
-        // computed by the SINGLE anchor authority (tile-camera-anchor.ts, #1044:
-        // the frame-consistency rationale — ellipsoid camera term, no worldOff on
-        // ECEF, hi/lo splits — lives there; the WebGL2 twin packs share it so the
-        // seam cannot drift again).
-        const anchor = computeTileCameraAnchor(
-          cached.tileWest,
-          cached.tileSouth,
-          worldOff,
-          projCenterLon,
-          projCenterLat,
-        )
-        this.frameBlock.set.cam_h(anchor.camXH, anchor.camYH)
-        this.frameBlock.set.cam_l(anchor.camXL, anchor.camYL)
-        // Mapbox opt-out flags ride the spare .w lanes of the two cam_ecef_off
-        // vec4s (the VS only reads .xyz, so .w is free):
-        //   cam_ecef_off_h.w = fill-antialias (1 default, 0 = off)
-        //   cam_ecef_off_l.w = fill-extrusion-vertical-gradient
-        this.frameBlock.set.cam_ecef_off_h(
-          anchor.ecefXH,
-          anchor.ecefYH,
-          anchor.ecefZH,
-          this.currentFillAntialias,
-        )
-        this.frameBlock.set.cam_ecef_off_l(
-          anchor.ecefXL,
-          anchor.ecefYL,
-          anchor.ecefZL,
-          this.currentFillVerticalGradient,
-        )
-        this._writeRtcAnchors(anchor)
-        // #2042 INC-2 — establish the persistent TileBlock slot for this
-        // (slice, tile, worldCopy) on its first UNCLIPPED draw (packed once;
-        // freed via _releaseTileHook). Clip-fallback draws (visibleKey ≥ 0)
-        // keep the ring path: their clip_bounds is per visible descendant
-        // (see tile-uniform-arena.ts's header). Nothing binds the slot until
-        // INC-4 — this is the lifecycle + bytes-parity half landing first.
-        if (visibleKey < 0 && sliceLayer !== '') {
-          this._tileUniforms.ensureSlot(
-            sliceLayer,
-            key,
-            worldOff,
-            anchor,
-            TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom),
-            cached.dequantScale,
-            cached.dequantHalf,
-          )
-        }
-
-        // light_dir_ecef (60-62) — #420. On the sphere family the extrude VS
-        // dots the per-vertex ECEF face_normal against this; the raw MapLibre
-        // light (0.288,-0.498,0.996) is a tile/viewport-frame constant, so
-        // against an ECEF normal it gave arbitrary per-face brightness (roof
-        // mid, one wall spikes to 1, rest at the 0.5 dark floor). Rotating it
-        // (East,North,Up) into ECEF by the camera-anchor ENU→ECEF basis fixed
-        // that NEAR THE ANCHOR — polygon-mesh.ts builds each normal in the
-        // VERTEX's own ENU frame (East=(-sLon,cLon,0), North=(-sLat·cLon,
-        // -sLat·sLon,cLat), Up=(cLat·cLon,cLat·sLon,sLat)), so anchor-rotated
-        // light drifts at continental distance (#1198). .w (63) = intensity.
-        // Convert the Mapbox light position [radius, azimuth°, polar°] to an
-        // (East,North,Up) direction via MapLibre's sphericalToCartesian
-        // (azimuth +90° so 0° points north). The default [1.15,210,30]
-        // reproduces the old baked (0.288,-0.498,0.996).
-        const [lRad, lAz, lPol] = this._lightPosition
-        const lAzR = (lAz + 90) * DEG2RAD,
-          lPolR = lPol * DEG2RAD
-        const LE0 = lRad * Math.cos(lAzR) * Math.sin(lPolR)
-        const LN0 = lRad * Math.sin(lAzR) * Math.sin(lPolR)
-        const LU = lRad * Math.cos(lPolR)
-        // Mapbox `light.anchor` defaults to VIEWPORT: the light is fixed to the
-        // SCREEN, so rotating the map must rotate the light with it (MapLibre
-        // premultiplies u_lightpos by mat3.fromRotation(bearing) in
-        // fillExtrusionUniformValues). Without it the lit/unlit wall sets stay
-        // pinned to true north and every camera-facing wall darkens to the floor
-        // once the map turns — at bearing 90 over London, 14.6 % of the frame sat
-        // at the darkest shade against MapLibre's 2.1 %. Rotation DIRECTION is
-        // measurement-established, not frame-derived: see
-        // map/src/render/extrude-light-bearing.test.ts for the A/B. `anchor: map`
-        // is not plumbed through the style pipeline yet; when it is, it skips this.
-        const bR = this.currentBearingDeg * DEG2RAD
-        const bC = Math.cos(bR),
-          bS = Math.sin(bR)
-        const LE = LE0 * bC + LN0 * bS
-        const LN = -LE0 * bS + LN0 * bC
-        // Intensity → light_dir_ecef.w; colour → RGBA8 packed into
-        // light_color_packed (u32 lane — routed through the block's raw-word
-        // view). The extrude VS reads both; all other variants ignore them.
-        //
-        // #1198 — frame-matched packing: flat projections ship the RAW
-        // viewport-frame light (the extrude VS dots it in the vertex's own ENU
-        // frame — position-invariant, MapLibre-exact); the sphere family keeps
-        // the anchor ENU→ECEF rotation (#420 sun). The VS selects the same
-        // frame off proj_params.x < 6.5.
-        if (this.currentProjType < 6.5) {
-          this.frameBlock.set.light_dir_ecef(
-            Math.fround(LE),
-            Math.fround(LN),
-            Math.fround(LU),
-            this._lightIntensity,
-          )
-        } else {
-          this.frameBlock.set.light_dir_ecef(
-            Math.fround(LE * -camSinLon + LN * (-camSin * camCosLon) + LU * (camCos * camCosLon)),
-            Math.fround(LE * camCosLon + LN * (-camSin * camSinLon) + LU * (camCos * camSinLon)),
-            Math.fround(/* LE*0 */ LN * camCos + LU * camSin),
-            this._lightIntensity,
-          )
-        }
-        const lc = this._lightColor
-        const lr8 = Math.max(0, Math.min(255, Math.round(lc[0] * 255)))
-        const lg8 = Math.max(0, Math.min(255, Math.round(lc[1] * 255)))
-        const lb8 = Math.max(0, Math.min(255, Math.round(lc[2] * 255)))
-        // unpack4x8unorm order: .x = byte 0 (LSB) = r, … so pack r|g<<8|b<<16.
-        this.frameBlock.set.light_color_packed((lr8 | (lg8 << 8) | (lb8 << 16) | (255 << 24)) >>> 0)
-
-        // (proj_params + globe_eye are frame-invariant — written once per frame in
-        // render() via frameBlock.set.proj_params/globe_eye, and persist in the
-        // block across every per-tile slot stage, exactly like they always have.)
-
-        // tile_origin_merc (32-33) + opacity (34) + log_depth_fc (35)
-        // — offsets 128..143. log_depth_fc was cached by camera.getRTCMatrix
-        // and is shared across every tile drawn this frame.
-        this.frameBlock.set.tile_origin_merc(anchor.tileMercX, anchor.tileMercY)
-        this.frameBlock.set.opacity(this.currentOpacity ?? 1.0)
-        this.frameBlock.set.log_depth_fc(this.logDepthFc)
-        // pick_id (36) — packed (instanceId<<16)|layerId. instanceId is
-        // 0 for now; future WORLD_COPIES instancing will pack it here.
-        // Cached on the show by XGISMap after LayerIdRegistry.register().
-        this.frameBlock.set.pick_id(this.currentPickId)
-        // layer_depth_offset (37) — per-layer NDC-z bias to disambiguate
-        // coplanar fills under log-depth (filter_gdp at pitch=46.5 z-fight
-        // bug, 2026-05-04). 1e-3 per layer was empirically chosen to
-        // overcome the log-depth precision compression at moderate pitch
-        // (~10 effective bits at 85°). Layer index = pickId & 0xFFFF —
-        // pickIds are assigned in style declaration order so this matches
-        // the bucket scheduler's draw order.
-        this.frameBlock.set.layer_depth_offset((this.currentPickId & 0xffff) * 1e-3)
-        // tile_extent_m (38) — tile-local Mercator-meter extent at this
-        // tile's zoom. vs_main_quantized dequants pos_norm via this.
-        // 2π × R / 2^z; we cache R × 2π once per VTR.
-        this.frameBlock.set.tile_extent_m(TWO_PI_R_EARTH / Math.pow(2, cached.tileZoom))
-        // extrude_height_m (39) — 3D building extrusion height in
-        // metres. Set in render() from show.sourceLayer (MVP: hard-
-        // coded for `buildings`, 0 elsewhere). Per-feature heights
-        // via PropertyTable + style `extrude:` syntax are a follow-up.
-        this.frameBlock.set.extrude_height_m(this.currentExtrudeHeight)
-        // clip_bounds (40-43) — per-tile mercator clip rect (west,
-        // south, east, north). When `visibleKeysForClip` is provided
-        // (fallback path), each draw clips to the visible tile it's
-        // FILLING for — a parent z=11 ancestor rendered for a missing
-        // z=15 child only draws within the z=15 child's mercator
-        // extent, instead of overflowing into adjacent z=15 tiles
-        // that have their OWN buildings. Sentinel west=-1e30 means
-        // "no clip" for the primary path (fragment shader skips the
-        // discard test).
-        // Skip per-tile clip when the parent is z=0 root: at that
-        // zoom the tile's data covers the WHOLE world, and the visible-
-        // tile-selector's habit of returning only one z=1 child (e.g.
-        // SE quadrant) at low camera zoom would clip the parent to
-        // that quadrant — visible symptom: hero map shows only Africa
-        // + Australia. Skipping the clip lets the parent render the
-        // entire world for every visible-key fallback at z=0 (some
-        // overdraw, but visually correct). The clip mechanism remains
-        // active for higher-zoom fallback (z>0 parents do NOT contain
-        // adjacent visible tiles' data so cross-tile spill is real).
-        const parentIsRoot = cached.tileZoom === 0
-        if (visibleKeysForClip && !parentIsRoot) {
-          const visibleKey = visibleKeysForClip[ki]
-          const [vz, vx, vy] = tileKeyUnpack(visibleKey)
-          const vn = Math.pow(2, vz)
-          const vWestLon = (vx / vn) * 360 - 180 + worldOff
-          const vEastLon = ((vx + 1) / vn) * 360 - 180 + worldOff
-          const vNorthLat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * vy) / vn))) * 180) / Math.PI
-          const vSouthLat =
-            (Math.atan(Math.sinh(Math.PI * (1 - (2 * (vy + 1)) / vn))) * 180) / Math.PI
-          const clipPad = (2 * Math.PI * R) / (512 * Math.pow(2, this.currentCameraZoom)) // #1087
-          this.frameBlock.set.clip_bounds(
-            Math.fround(vWestLon * DEG2RAD * R) - clipPad,
-            Math.fround(
-              Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vSouthLat) * DEG2RAD) / 2)) * R,
-            ) - clipPad,
-            Math.fround(vEastLon * DEG2RAD * R) + clipPad,
-            Math.fround(
-              Math.log(Math.tan(Math.PI / 4 + (clampMercLat(vNorthLat) * DEG2RAD) / 2)) * R,
-            ) + clipPad,
-          )
-        } else {
-          // Sentinel: no clip. Fragment shader's `clip_bounds.x > -1e29`
-          // gate skips the discard test entirely.
-          this.frameBlock.set.clip_bounds(-1e30, 0, 0, 0)
-        }
-
-        // zoom (44) — per-frame CONTINUOUS camera zoom (camera.zoom),
-        // cached by render() into this.currentCameraZoom. Read by the
-        // palette gradient sample (P3 Step 3c) + zoom-interp fills: the
-        // variant shader maps (zoom - zMin) / span into the gradient
-        // atlas's U coord. MUST be the fractional camera zoom — using
-        // the integer this.lastZoom (tile-selection zoom) snaps fills +
-        // gradients at integer boundaries instead of interpolating.
-        this.frameBlock.set.zoom(this.currentCameraZoom)
-        // extrude_base_m (45) — wall bottom z (Mapbox
-        // `fill-extrusion-base`). Reuses the first `_pad_zoom_*` slot
-        // without growing the uniform struct past 192 bytes.
-        this.frameBlock.set.extrude_base_m(this.currentExtrudeBase)
-        // fill-translate NDC-per-px (fill_translate_x/y slots) — pre-baked at
-        // render() time using canvasWidth/Height. Vertex shader
-        // applies via clip += offset * clip.w so the pixel offset
-        // stays constant regardless of depth. Pattern shows overwrite the
-        // same slots with the pattern repeat in Mercator metres
-        // (fs_fill_pattern reads u.fill_translate as repeat_m for the
-        // world-anchored UV). Pattern shows cannot also use fill-translate.
-        // #1154 — pattern_active gates the VS fill-translate: a pattern fill packs
-        // the world repeat (Mercator metres) into fill_translate_x/y, which the VS
-        // must NOT apply as an NDC offset (it would fling the fill off-screen).
-        if (this._patternUniformActive) {
-          this.frameBlock.set.fill_translate_x(this._patternRepeatMX)
-          this.frameBlock.set.fill_translate_y(this._patternRepeatMY)
-          this.frameBlock.set.pattern_active(1)
-        } else {
-          this.frameBlock.set.fill_translate_x(this.currentFillTranslateNdcX)
-          this.frameBlock.set.fill_translate_y(this.currentFillTranslateNdcY)
-          this.frameBlock.set.pattern_active(0)
-        }
-
-        // tile_dequant_scale (48) + tile_dequant_half (49) — per-tile
-        // quantized-position dequant. The polygon VS reconstructs each ECEF
-        // RTC axis as `q = f32(hi)*65536 + f32(lo); axis = q*scale - half`.
-        // These are per-tile (flat: tiler-computed; extruded: wall-mesh-
-        // computed post-lift) so they MUST ride the per-tile uniform slot —
-        // never a batched draw (confirmed: setBindGroup uses a per-tile
-        // dynamic slotOffset, one alloc per tile in this loop).
-        this.frameBlock.set.tile_dequant_scale(cached.dequantScale)
-        this.frameBlock.set.tile_dequant_half(cached.dequantHalf)
-
-        // Allocate a fresh ring slot for this tile × layer × world-copy draw.
-        slotOffset = this.allocUniformSlot()
-        // allocUniformSlot may have grown the ring → tileBgDefault /
-        // tileBgFeature were rebuilt; re-resolve fillBg against the
-        // FILL pipeline's layout (set by render() caller). Lines always
-        // use baseBindGroupLayout, so currentLineTileBg is always the
-        // default BG.
-        //
-        // For the feature-pipeline path prefer the tile-owned bind group
-        // when present (MVT/PMTiles per-tile featureDataBuffer). The
-        // source-level `this.tileBgFeature` is the GeoJSON path's
-        // global-PropertyTable bind group; using it for MVT would index
-        // a different (zero-filled) buffer and silently mis-route every
-        // feature to the variant shader's fallback arm.
-        // Feature-layout fill: per-tile (MVT) or source-level (GeoJSON) feature bg.
-        // Either can be transiently null (e.g. a frame after a projection switch);
-        // binding null with a dynamic offset corrupts the whole encoder (every
-        // later draw + finish() fail → black screen) → resolve null, skip below.
-        currentTileBg =
-          fillBindGroupLayout === this._bindGroups.baseLayout()
-            ? this._bindGroups.baseGroup()!
-            : (cached.featureBindGroup ?? this._bindGroups.featureGroup() ?? null)
-        // Stage the slot into the CPU-side mirror instead of issuing one
-        // writeBuffer per tile; the mirror is flushed in a single call at
-        // the end of this renderTileKeys invocation.
-        this.stageUniformSlot(slotOffset, this.frameBlock.buffer)
-
-        // #2042 INC-4b/4c — resolve the split-bind draw for this tile ONCE, at
-        // tile-loop scope: the fill draw consumes it below, and the stroke
-        // queue records its tileOff so the deferred stroke pass can bind the
-        // same three-range group. Default flat/stroke only (not extrude /
-        // overdraw), unclipped, arena-resident copy. The span-copy write path
-        // lifts the show/frame lanes from the live legacy frameBlock bytes
-        // (byte-parity by construction); deliberately NOT gated on the bundle
-        // skip flags: replayed bundles read these buffers, so the per-frame
-        // content refresh must run whether or not new commands are recorded.
-        if (
-          this._fillRhi?.split &&
-          this._splitBind &&
-          visibleKey < 0 &&
-          sliceLayer !== '' &&
-          !isOverdrawActive(this.rhi.caps)
-        ) {
-          const tileOff = this._tileUniforms.offsetOf(sliceLayer, key, worldOff)
-          if (tileOff >= 0) {
-            const showOff = this._splitBind.syncShow(
-              this.frameBlock.buffer,
-              sliceLayer,
-              this.currentPickId & 0xffff,
-              this.currentFrameId,
-            )
-            this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
-            const bg = this._splitBind.bindGroup()
-            if (bg) splitBind = { bg, tileOff, showOff }
-          }
-        }
-        // The show/frame lanes are now seeded for this call — later
-        // arena-resident tiles may take the walk-skip.
-        packedOnce = true
+        packTileUniforms(this, packCtx, packOut, ki, key, worldOff, visibleKey, cached)
       }
 
-      // Polygon fills — skipped in 'strokes' phase (offscreen line-only RT).
-      // ALSO skipped when render() flagged this layer as having an
-      // effectively-invisible fill (no shader variant + zero alpha). Common
-      // case: multi_layer's `borders | stroke-* opacity-80` gets routed
-      // into the opaque bucket as fillPhase='fills' but declared no fill —
-      // the fragment shader was rasterising every covered pixel just to
-      // write α=0. Skipping the whole draw saves ~2-3 ms of GPU per frame
-      // on multi_layer-class scenes. Data-driven `fill match(...)` is NOT
-      // skipped (variant pipeline computes color in shader, cached uniform
-      // alpha may be zero even when the draw is meaningful).
-      if (drawFills && cached.indexCount > 0 && !this._skipFillDraw) {
-        // Pipeline selection — two paths, one of them phase-split:
-        //  * per-feature extrude: vs_main_ecef_extruded + the slice zBuffer. In
-        //    the 'oit-fill' phase the SAME pipeline draws into the shell pass's
-        //    offscreen target, through the Material's shell variants (#1253);
-        //    every other phase is the opaque / #1080 front-shell draw.
-        //  * uniform / ground: the pre-selected `fillPipeline`.
-        // 'oit-fill' no longer selects the weighted-blended OIT MRT pipeline —
-        // the shell pass has ONE colour attachment, not the accum/revealage
-        // pair — but `extrudedOITPipeline` stays wired (setOITPipeline) as the
-        // opt-in volumetric alternative.
-        const wantsExtrude =
-          this.currentExtrudeMode === 'per-feature' && fillPipelineExtruded !== null
-        const useExtrudedPipe = wantsExtrude && cached.extruded
-        // DIAG: log per-tile drawIndexed for the current trace if armed.
-        // Granular enough to verify the cross-tile order claim
-        // ("all tiles' 2D before any 3D") rather than just per-show
-        // sequencing. Pipeline decision is computed below — if the
-        // trace is armed we record the routing here for diagnosis.
-        if (typeof window !== 'undefined') {
-          const trace = (
-            window as unknown as {
-              __xgisDrawOrderTrace?: Array<{
-                seq: number
-                slice: string
-                phase: string
-                extrude: string
-                tileKey?: number
-                isFill?: boolean
-                pipelineRoute?: 'oit' | 'extrude' | 'fill' | 'skip'
-                hasZBuffer?: boolean
-              }>
-            }
-          ).__xgisDrawOrderTrace
-          if (trace) {
-            // Pipeline route is determined a few lines below — but the
-            // logic is mirrored here so we can record it before
-            // dispatch. Skip path: the shell phase reached a tile with no
-            // extruded slice, or a non-extruding show.
-            const willSkip = (isOitFill || wantsExtrude) && !useExtrudedPipe
-            const route: 'oit' | 'extrude' | 'fill' | 'skip' = willSkip
-              ? 'skip'
-              : useExtrudedPipe
-                ? isOitFill
-                  ? 'oit'
-                  : 'extrude'
-                : 'fill'
-            trace.push({
-              seq: trace.length,
-              slice: this._drawStats.traceSlice() ?? '?',
-              phase: this._drawStats.tracePhase() ?? '?',
-              extrude: this.currentExtrudeMode === 'none' ? 'none' : 'feature',
-              tileKey: key,
-              isFill: true,
-              pipelineRoute: route,
-              hasZBuffer: cached.extruded,
-            })
-          }
-        }
-        // Extrude skip rule: when the show declares per-feature extrude but
-        // THIS tile's slice was compiled without a zBuffer (e.g., a fallback
-        // parent slice uploaded before the extrude show wired its per-feature
-        // heights, or a parent tile whose worker compile predated the
-        // per-feature config), falling through to `fillPipeline` would
-        // render the polygons FLAT at z=0 — producing the user-visible
-        // "tile-boundary building height mismatch" bug where a child
-        // tile's 3D building meets a flat-projected fallback polygon.
-        // The flat polygon depth-tests against the 3D one and wins or
-        // loses unpredictably depending on pitch / camera angle. Skip
-        // instead: showing no fallback building briefly is far less
-        // visually broken than showing a flat one. Strokes still draw.
-        //
-        // #1253 — the SHELL phase ('oit-fill') answers to the same rule for a
-        // harder reason: its pass carries the offscreen shell colour target,
-        // which ONLY the extruded Material's shell variants are built for.
-        // Falling through to `fillPipeline` there would attach a main-target
-        // pipeline to the shell pass and trip "Attachment state of
-        // RenderPipeline is not compatible with RenderPassEncoder" at submit,
-        // so a shell-phase tile that cannot take the extruded path is skipped
-        // outright. Visual cost: a translucent building's loading frames may
-        // show no fallback ancestor until the primary tile arrives.
-        if ((isOitFill || wantsExtrude) && !useExtrudedPipe) {
-          // strokes for this tile still queue below (never in the shell phase,
-          // where drawStrokes is false) — only the fill is being skipped here.
-          if (drawStrokes) {
-            strokeQueueTiles.push(cached)
-            strokeQueueSlots.push(slotOffset)
-            strokeQueueTileOff.push(splitBind ? splitBind.tileOff : -1)
-          }
-          continue
-        }
-        // Debug=overdraw: collapse the extruded path onto the
-        // single overdraw pipeline supplied as `fillPipeline`. The
-        // extruded variant targets its own format which
-        // doesn't match the r16float accumulator attached to this pass.
-        // (The shell phase never runs under overdraw — the pass is gated off
-        // and the bucket scheduler keeps those fills in the opaque bucket.)
-        const activePipe = isOverdrawActive(this.rhi.caps)
-          ? fillPipeline
-          : useExtrudedPipe
-            ? fillPipelineExtruded!
-            : fillPipeline
-        // Bundle-compatible draw recording extracted to `recordTileFill`.
-        // (The split-bind resolve happens once at tile-loop scope above —
-        // extrude draws pass it through and recordFillDraw's !bindZBuffer
-        // guard keeps them on the legacy bind.)
-        // The 6 GPU commands below (setPipeline, setBindGroup,
-        // setVertexBuffer ×1-2, setIndexBuffer, drawIndexed) are the EXACT
-        // subset that GPURenderBundleEncoder accepts. Encapsulating them
-        // lets the caller route through a bundle encoder without re-tracing
-        // the conditionals.
-        // Skip if feature bg not ready — never bind null (see note above).
-        if (currentTileBg) {
-          this.recordTileFill(
-            pass,
-            activePipe,
-            currentTileBg,
-            slotOffset,
-            cached,
-            /* bindZBuffer */ useExtrudedPipe,
-            // #1080 — front-shell two-draw only for the solid per-feature extrude
-            // draw (exclude the shell phase + debug-overdraw; recordFillDraw
-            // no-ops otherwise). #1253 — in the shell phase the LAYER-WIDE form
-            // replaces it: one shell draw here, one composite in the pass.
-            /* translucentFrontShell */ useExtrudedPipe &&
-              !isOitFill &&
-              !isOverdrawActive(this.rhi.caps) &&
-              this._extrudeTranslucentFrontShell,
-            /* extrudeShell */ isOitFill && useExtrudedPipe,
-            splitBind,
-          )
-        }
-      }
+      // `true` = the fill step queued this tile's strokes and skipped the draw;
+      // the rest of the iteration (the stroke record, the markDrawn fold) must
+      // be skipped with it. This was a bare `continue` inside the block.
+      if (
+        drawTileFill(
+          this,
+          pass,
+          cached,
+          key,
+          packOut.slotOffset,
+          packOut.currentTileBg,
+          packOut.splitBind,
+          fillPipeline,
+          fillPipelineExtruded,
+          drawFills,
+          drawStrokes,
+          isOitFill,
+          strokeQueueTiles,
+          strokeQueueSlots,
+          strokeQueueTileOff,
+        )
+      )
+        continue
 
       // Strokes (polygon outlines + line features) deferred to a
       // SECOND pass after every fill in this layer has written depth.
@@ -3774,8 +3353,8 @@ export class VectorTileRenderer {
         (cached.outlineSegmentCount > 0 || cached.lineSegmentCount > 0)
       ) {
         strokeQueueTiles.push(cached)
-        strokeQueueSlots.push(slotOffset)
-        strokeQueueTileOff.push(splitBind ? splitBind.tileOff : -1)
+        strokeQueueSlots.push(packOut.slotOffset)
+        strokeQueueTileOff.push(packOut.splitBind ? packOut.splitBind.tileOff : -1)
       }
 
       const vc = cached.indexCount + cached.lineIndexCount
@@ -3792,92 +3371,18 @@ export class VectorTileRenderer {
         cached.tileZoom,
       )
     }
-    // Second pass: emit every queued stroke draw now that all fills
-    // for this layer have written depth. Outline + line-feature
-    // drawSegments calls run against the layer's complete depth
-    // buffer; with DEPTH_READ_ONLY they don't disturb later layers'
-    // depth tests, but their occlusion against THIS layer's own
-    // 3D geometry is now correct regardless of tile iteration order.
-    if (strokeQueueTiles.length > 0 && this.lineRenderer && !this._skipStrokeDrawForBundle) {
-      // `_skipStrokeDrawForBundle` gates these two drawSegments call sites.
-      // When set true by the bundle replay path, both calls are skipped —
-      // the cached bundle's executeBundles already replays the stroke
-      // draws. strokeQueue side effects (push from per-tile loop) remain
-      // populated for any non-bundle path or stats.
-      const currentLineTileBg2 = this._bindGroups.baseGroup()!
-      // #2042 INC-4c — one split resolve per stroke emit: the show/frame
-      // CONTENT is already frame-stamped (syncs are idempotent per frame);
-      // this re-derives the show offset + the three-range bind group for the
-      // deferred pass. Translucent (MAX-blend) and pattern strokes keep the
-      // legacy bind — the split layout carries no sprite bindings and the
-      // max material never split-routes.
-      let strokeSplitBg: GPUBindGroup | null = null
-      let strokeSplitShowOff = 0
-      if (
-        this._fillRhi?.split &&
-        this._splitBind &&
-        sliceLayer !== '' &&
-        !translucentLines &&
-        !this._linePatternActiveForShow
-      ) {
-        strokeSplitShowOff = this._splitBind.syncShow(
-          this.frameBlock.buffer,
-          sliceLayer,
-          this.currentPickId & 0xffff,
-          this.currentFrameId,
-        )
-        this._splitBind.syncFrame(this.frameBlock.buffer, this.currentFrameId)
-        strokeSplitBg = this._splitBind.bindGroup()
-      }
-      // line-gap-width double-draw: when the second offset slot was
-      // written, iterate the strokeQueue with each offset. Single-line
-      // (default) draws once. The second pass uses the SAME segment
-      // data — only the layer-slot uniform's offset_m differs.
-      const offsets = this._strokeOffsetsScratch
-      offsets.length = 0
-      offsets.push(lineLayerOffset)
-      if (lineLayerOffsetGap >= 0) offsets.push(lineLayerOffsetGap)
-      for (const lo of offsets) {
-        for (let i = 0; i < strokeQueueTiles.length; i++) {
-          const cached = strokeQueueTiles[i]!
-          const slotOffset = strokeQueueSlots[i]!
-          const sTileOff = strokeQueueTileOff[i]!
-          const strokeSplit =
-            strokeSplitBg && sTileOff >= 0
-              ? { tileOff: sTileOff, showOff: strokeSplitShowOff }
-              : null
-          const strokeTileBg = strokeSplit ? strokeSplitBg! : currentLineTileBg2
-          if (cached.outlineSegmentCount > 0 && cached.outlineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(
-              pass,
-              strokeTileBg,
-              cached.outlineSegmentBindGroup,
-              cached.outlineSegmentCount,
-              slotOffset,
-              lo,
-              translucentLines,
-              this._linePatternActiveForShow,
-              lineVariant,
-              strokeSplit,
-            )
-          }
-          if (cached.lineSegmentCount > 0 && cached.lineSegmentBindGroup) {
-            this.lineRenderer.drawSegments(
-              pass,
-              strokeTileBg,
-              cached.lineSegmentBindGroup,
-              cached.lineSegmentCount,
-              slotOffset,
-              lo,
-              translucentLines,
-              this._linePatternActiveForShow,
-              lineVariant,
-              strokeSplit,
-            )
-          }
-        }
-      }
-    }
+    drawQueuedStrokes(
+      this,
+      pass,
+      strokeQueueTiles,
+      strokeQueueSlots,
+      strokeQueueTileOff,
+      lineLayerOffset,
+      lineLayerOffsetGap,
+      lineVariant,
+      sliceLayer,
+      translucentLines,
+    )
     // Emit accumulated per-tile uniforms as one writeBuffer. Still
     // before queue.submit() — the encoded draws read the fresh ring
     // data by WebGPU's submit-ordering guarantees.

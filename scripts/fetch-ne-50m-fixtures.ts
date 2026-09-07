@@ -45,7 +45,16 @@ import { join } from 'node:path'
 // picking up new upstream data.
 const UPSTREAM_REF = 'ca96624a56bd078437bca8184e78163e5039ad19'
 const UPSTREAM = `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${UPSTREAM_REF}/geojson`
-const OUT_DIR = join(import.meta.dir, '..', 'playground', 'public', 'data')
+// Bun's module directory. The repo has no bun-types, so it is narrowed here
+// rather than paying a dependency for one string — the same narrowing
+// scripts/emit-changelog.ts uses for `import.meta.main` (#2617).
+const OUT_DIR = join(
+  (import.meta as ImportMeta & { dir: string }).dir,
+  '..',
+  'playground',
+  'public',
+  'data',
+)
 
 /** [upstream basename, committed basename] — `rivers` is upstream's
  *  `rivers_lake_centerlines`, renamed to match the 110m file already committed
