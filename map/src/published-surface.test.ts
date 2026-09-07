@@ -61,7 +61,6 @@ const PUBLISHED = [
   'setLight',
   'setAtmosphere',
   'setTerrain',
-  'getTerrain',
   'addOverlay',
   'addImage',
   'graphics',
@@ -69,7 +68,6 @@ const PUBLISHED = [
   'setCoverageTime',
   'playCoverageTime',
   'pauseCoverageTime',
-  'setLabelDebugHook',
 ] as const
 
 // A red on either line is a TYPE error, not a test failure — it stops `bun run
@@ -88,10 +86,10 @@ describe('#2613 published XGISMap surface', () => {
     expect(typeIsNarrowed).toBe(true)
   })
 
-  it('publishes 45 members, not the class’s 215', () => {
+  it('publishes 43 members, not the class’s 215', () => {
     // The number is the point of the gate: it moves only when someone edits the
     // union AND this line, which is what "deliberate" means here.
-    expect(PUBLISHED.length).toBe(45)
+    expect(PUBLISHED.length).toBe(43)
     expect(new Set(PUBLISHED).size).toBe(PUBLISHED.length)
   })
 
