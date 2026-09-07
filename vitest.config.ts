@@ -198,6 +198,19 @@ export const ISOLATED = [
   //     Surfaced when the seven entries above left the shared pass and the pool repacked:
   //     two tests hung to the 30 s budget, and the file passes ALONE in 24 ms.
   'map/src/map-device-lost-recovery.test.ts',
+  // (2) A THIRD writer mechanism the mechanical arm does not match: `vi.spyOn` on a
+  //     process-wide global. This file mocks `performance.now` (:147) for the whole
+  //     process, which is a WRITE, not the pristine-default READ the entry above is.
+  //     #2624 checked it against the assignment arm and correctly called that a false
+  //     positive — `typeof globalThis.fetch` there is a TYPE position — but the arm
+  //     looks for `vi.stubGlobal`, `globalThis.x =` and four named authorities, and
+  //     `vi.spyOn(performance, …)` is none of them. Admitted here as a MEASURED
+  //     casualty: one test hung to the 30 s budget once a new shader-dsl spec repacked
+  //     the pool, and the file passes ALONE in 22 ms. Whether the arm should grow to
+  //     cover this form is #2567's call — 39 files use `vi.spyOn` on a global and most
+  //     target `console`, a different risk class, so it needs the same false-positive
+  //     discipline that took the rule-(1) figure from 25 to 20.
+  'map/src/sprite/sprite-idle-keep-warm.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
