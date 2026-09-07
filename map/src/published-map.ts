@@ -24,11 +24,20 @@
 //      scan, and their TS2345 names neither the member nor the cause;
 //   3. map's own program (`tsc --build map/tsconfig.json`), whose tests are in
 //      `include` and reached this barrel — they now import `./map` directly.
-// Widening this list is a deliberate act, gated twice: `published-surface.test.ts`
-// fails to COMPILE if it and `keyof XGISMap` disagree in either direction, and
-// `scripts/map-public-surface.test.ts` reds on the baked `__api__/surface.md`
-// diff — the two look at the SOURCE type and the BUNDLED `.d.ts` respectively,
-// which is the pair that caught this file needing to exist at all.
+// Widening this list is a deliberate act. TWO gates watch this file, and they
+// guard DIFFERENT things — measured, because the first draft of this comment
+// claimed both watched the member list and only one does:
+//   - `published-surface.test.ts` guards the MEMBER LIST. It fails to COMPILE if
+//     its array and `keyof XGISMap` disagree in either direction, so a widening
+//     stops `bun run build` before any test runs. This is the only gate on WHICH
+//     members are published.
+//   - `scripts/map-public-surface.test.ts` guards the SHAPE, via the baked
+//     `__api__/surface.md`: that `XGISMap` is exported as an alias + a const and
+//     the implementation class is present but NOT exported. That snapshot records
+//     declaration names, kinds and member lists — a union alias has no member
+//     list, so `PublishedMapMember`'s contents are invisible to it. Dropping two
+//     members from this union produced a ZERO-line diff there.
+// Together they cover the two ways this can regress; neither covers both.
 import type { XGISMap as XGISMapImpl } from './map'
 import { XGISMap as XGISMapCtor } from './map'
 
@@ -81,7 +90,6 @@ export type PublishedMapMember =
   | 'setLight'
   | 'setAtmosphere'
   | 'setTerrain'
-  | 'getTerrain'
   // overlays + graphics
   | 'addOverlay'
   | 'addImage'
@@ -91,8 +99,6 @@ export type PublishedMapMember =
   | 'setCoverageTime'
   | 'playCoverageTime'
   | 'pauseCoverageTime'
-  // label debugging — the playground's overlay is a real consumer
-  | 'setLabelDebugHook'
 
 // No cast: a constructor's return type is COVARIANT, and the class's instance
 // type is assignable to the `Pick` of it, so a plain annotation is enough to
