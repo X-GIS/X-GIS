@@ -115,10 +115,20 @@ jobs:
       # truncated history with a different root and a different head SHA, which
       # is then either rejected as a non-fast-forward or — worse, on the very
       # first push — accepted, making the mirror permanently wrong.
+      # R7 — `persist-credentials: false` is LOAD-BEARING too. By default
+      # actions/checkout writes the job's GITHUB_TOKEN into the clone as an
+      # `http.https://github.com/.extraheader` Authorization header, and git
+      # sends that header on EVERY github.com request — it silently outranks the
+      # credential embedded in the push URL below. Measured on the first real
+      # run (2026-09-07, run 34100716714): preflight green, split green, then
+      # `Permission to typeshade/typeshade.git denied to github-actions[bot]` —
+      # the mirror token never reached GitHub. Not persisting the checkout
+      # credential is what lets the URL credential be the one that is sent.
       - if: steps.preflight.outputs.configured == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # R4 — NO `set -x` in the script below, ever: xtrace would print the
       # assembled push URL, token and all. The URL is built inside that shell,
