@@ -472,6 +472,14 @@ jobs:
       # is a standalone program), so `bun run build` never sees them — typecheck
       # them explicitly or spec-only type rot lands silently (#1683).
       - run: ./node_modules/.bin/tsc -p playground/e2e/tsconfig.json --noEmit
+      # And the repo's own tooling, for the identical reason one directory over:
+      # `scripts/` belongs to no package, so no `include` in the eight projects
+      # `bun run build` walks covers it, and 36 .ts files — the duplication gate,
+      # the precheck runner, the vitest sharder among them — were type-checked by
+      # nothing. eslint gave them TYPES for its rules; that is not tsc diagnostics
+      # (#2617). `scripts/**` is already in the `changes` filter (#1700), so a
+      # scripts-only PR actually reaches this line.
+      - run: ./node_modules/.bin/tsc -p scripts/tsconfig.json --noEmit
       # ...and `playground/src` for the SAME reason, which #1683 fixed only for
       # its sibling: playground's package build is `vite build`, which transpiles
       # per-file and typechecks nothing, so `bun run build` never sees this code
