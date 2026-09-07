@@ -275,7 +275,7 @@ export class RasterRenderer {
   /** Running sum of `tileCache`'s texture bytes (#1352) — `_cacheTile` and
    *  `evictTiles` are the only writers, so it cannot drift. */
   private _cachedBytes = 0
-  private loadingTiles = new InflightLedger()
+  private loadingTiles = new InflightLedger((key) => this.failedTiles.noteOutcome(key, false))
   private frameCount = 0
   private lastZoom = -1
   /** Visible-tile keys captured from the previous frame's render(). Used by

@@ -32,6 +32,33 @@ export function shapeNone(): ShapeRef {
   return { kind: 'none' }
 }
 
+/** One paint axis's `PropertyShape` under the precedence `buildLabelShapes`
+ *  documents below — expression, then zoom stops, then constant, then `null`
+ *  for an axis the source omitted. That docblock stays the authority for the
+ *  rule; this is the single place it is executed.
+ *
+ *  Before #2534 the ladder was written out once per property inside
+ *  `buildLabelShapes`: eight near-identical copies differing only in which
+ *  `input.*` fields they read — the shape `bun run dup:shape` flags and the
+ *  token gate cannot, since the field names are the whole difference. */
+function pickShape<T>(src: {
+  expr?: import('./render-node').DataExpr
+  stops?: import('./render-node').ZoomStop<T>[]
+  stopsBase?: number
+  value?: T
+}): import('./property-types').PropertyShape<T> | null {
+  if (src.expr) return { kind: 'data-driven', expr: src.expr }
+  if (src.stops && src.stops.length > 0) {
+    return {
+      kind: 'zoom-interpolated',
+      stops: src.stops,
+      ...(src.stopsBase !== undefined ? { base: src.stopsBase } : {}),
+    }
+  }
+  if (src.value !== undefined) return { kind: 'constant', value: src.value }
+  return null
+}
+
 /** Build the unified PropertyShape bundle for a label from explicit
  *  inputs. Pure transformation — same inputs always produce the same
  *  shapes. Precedence within each axis matches the runtime resolver
@@ -98,53 +125,34 @@ export function buildLabelShapes(input: {
   type RGBA = readonly [number, number, number, number]
   type Shape<T> = import('./property-types').PropertyShape<T>
 
-  let size: Shape<number>
-  if (input.sizeExpr) {
-    size = { kind: 'data-driven', expr: input.sizeExpr }
-  } else if (input.sizeZoomStops && input.sizeZoomStops.length > 0) {
-    size = {
-      kind: 'zoom-interpolated',
-      stops: input.sizeZoomStops,
-      ...(input.sizeZoomStopsBase !== undefined ? { base: input.sizeZoomStopsBase } : {}),
-    }
-  } else {
-    size = { kind: 'constant', value: input.size }
-  }
+  // `size`'s constant is REQUIRED, so this never falls through; the `??` arm is
+  // unreachable and is here only because pickShape's return type cannot say
+  // "non-null when `value` is".
+  const size: Shape<number> = pickShape({
+    expr: input.sizeExpr,
+    stops: input.sizeZoomStops,
+    stopsBase: input.sizeZoomStopsBase,
+    value: input.size,
+  }) ?? { kind: 'constant', value: input.size }
 
-  let color: Shape<RGBA> | null = null
-  if (input.colorExpr) {
-    color = { kind: 'data-driven', expr: input.colorExpr }
-  } else if (input.colorZoomStops && input.colorZoomStops.length > 0) {
-    color = {
-      kind: 'zoom-interpolated',
-      stops: input.colorZoomStops,
-      ...(input.colorZoomStopsBase !== undefined ? { base: input.colorZoomStopsBase } : {}),
-    }
-  } else if (input.color) {
-    color = { kind: 'constant', value: input.color }
-  }
+  const color: Shape<RGBA> | null = pickShape<RGBA>({
+    expr: input.colorExpr,
+    stops: input.colorZoomStops,
+    stopsBase: input.colorZoomStopsBase,
+    value: input.color,
+  })
 
-  let haloWidth: Shape<number> | null = null
-  if (input.haloWidthZoomStops && input.haloWidthZoomStops.length > 0) {
-    haloWidth = {
-      kind: 'zoom-interpolated',
-      stops: input.haloWidthZoomStops,
-      ...(input.haloWidthZoomStopsBase !== undefined ? { base: input.haloWidthZoomStopsBase } : {}),
-    }
-  } else if (input.halo?.width !== undefined) {
-    haloWidth = { kind: 'constant', value: input.halo.width }
-  }
+  const haloWidth: Shape<number> | null = pickShape({
+    stops: input.haloWidthZoomStops,
+    stopsBase: input.haloWidthZoomStopsBase,
+    value: input.halo?.width,
+  })
 
-  let haloColor: Shape<RGBA> | null = null
-  if (input.haloColorZoomStops && input.haloColorZoomStops.length > 0) {
-    haloColor = {
-      kind: 'zoom-interpolated',
-      stops: input.haloColorZoomStops,
-      ...(input.haloColorZoomStopsBase !== undefined ? { base: input.haloColorZoomStopsBase } : {}),
-    }
-  } else if (input.halo?.color) {
-    haloColor = { kind: 'constant', value: input.halo.color }
-  }
+  const haloColor: Shape<RGBA> | null = pickShape<RGBA>({
+    stops: input.haloColorZoomStops,
+    stopsBase: input.haloColorZoomStopsBase,
+    value: input.halo?.color,
+  })
 
   const haloBlur: Shape<number> | null =
     input.halo?.blur !== undefined ? { kind: 'constant', value: input.halo.blur } : null
@@ -165,20 +173,13 @@ export function buildLabelShapes(input: {
   // 19→1`; pre-fix the bracket-binding lower path dropped non-numeric
   // inner values and the runtime fell back to the constant 1, rendering
   // arrows 2× too large at z<=15.
-  let iconSize: Shape<number> | null = null
-  if (input.iconSizeExpr) {
-    // Data-driven icon-size (#777 I-F) — runtime applyFeatureExprs
-    // evaluates it per feature (mirror of `size`'s sizeExpr branch).
-    iconSize = { kind: 'data-driven', expr: input.iconSizeExpr }
-  } else if (input.iconSizeZoomStops && input.iconSizeZoomStops.length > 0) {
-    iconSize = {
-      kind: 'zoom-interpolated',
-      stops: input.iconSizeZoomStops,
-      ...(input.iconSizeZoomStopsBase !== undefined ? { base: input.iconSizeZoomStopsBase } : {}),
-    }
-  } else if (input.iconSize !== undefined) {
-    iconSize = { kind: 'constant', value: input.iconSize }
-  }
+  // `iconSizeExpr` is #777 I-F — applyFeatureExprs evaluates it per feature.
+  const iconSize: Shape<number> | null = pickShape({
+    expr: input.iconSizeExpr,
+    stops: input.iconSizeZoomStops,
+    stopsBase: input.iconSizeZoomStopsBase,
+    value: input.iconSize,
+  })
 
   // iter 113 — text-opacity as PropertyShape so zoom-interp + data-
   // driven both resolve per frame. Constant is still folded into
@@ -186,48 +187,31 @@ export function buildLabelShapes(input: {
   // single label-color-#rrggbbaa utility without round-tripping
   // through this shape. The shape is non-null only when the source
   // authored a non-constant form.
-  let opacity: Shape<number> | null = null
-  if (input.opacityExpr) {
-    opacity = { kind: 'data-driven', expr: input.opacityExpr }
-  } else if (input.opacityZoomStops && input.opacityZoomStops.length > 0) {
-    opacity = {
-      kind: 'zoom-interpolated',
-      stops: input.opacityZoomStops,
-      ...(input.opacityZoomStopsBase !== undefined ? { base: input.opacityZoomStopsBase } : {}),
-    }
-  }
+  // Passing no `value` is what implements that: the constant form never
+  // reaches this shape.
+  const opacity: Shape<number> | null = pickShape({
+    expr: input.opacityExpr,
+    stops: input.opacityZoomStops,
+    stopsBase: input.opacityZoomStopsBase,
+  })
 
   // iter 113 — icon-opacity. Constant ALSO lands here (unlike text-
   // opacity) because there's no equivalent of the label-color-alpha
   // fold for sprite icons — IconRenderer multiplies a per-draw
   // opacity scalar onto the sprite quad's alpha channel.
-  let iconOpacity: Shape<number> | null = null
-  if (input.iconOpacityExpr) {
-    iconOpacity = { kind: 'data-driven', expr: input.iconOpacityExpr }
-  } else if (input.iconOpacityZoomStops && input.iconOpacityZoomStops.length > 0) {
-    iconOpacity = {
-      kind: 'zoom-interpolated',
-      stops: input.iconOpacityZoomStops,
-      ...(input.iconOpacityZoomStopsBase !== undefined
-        ? { base: input.iconOpacityZoomStopsBase }
-        : {}),
-    }
-  } else if (input.iconOpacity !== undefined) {
-    iconOpacity = { kind: 'constant', value: input.iconOpacity }
-  }
+  const iconOpacity: Shape<number> | null = pickShape({
+    expr: input.iconOpacityExpr,
+    stops: input.iconOpacityZoomStops,
+    stopsBase: input.iconOpacityZoomStopsBase,
+    value: input.iconOpacity,
+  })
 
-  let iconColor: Shape<RGBA> | null = null
-  if (input.iconColorExpr) {
-    iconColor = { kind: 'data-driven', expr: input.iconColorExpr }
-  } else if (input.iconColorZoomStops && input.iconColorZoomStops.length > 0) {
-    iconColor = {
-      kind: 'zoom-interpolated',
-      stops: input.iconColorZoomStops,
-      ...(input.iconColorZoomStopsBase !== undefined ? { base: input.iconColorZoomStopsBase } : {}),
-    }
-  } else if (input.iconColor) {
-    iconColor = { kind: 'constant', value: input.iconColor }
-  }
+  const iconColor: Shape<RGBA> | null = pickShape<RGBA>({
+    expr: input.iconColorExpr,
+    stops: input.iconColorZoomStops,
+    stopsBase: input.iconColorZoomStopsBase,
+    value: input.iconColor,
+  })
 
   return {
     textPaint: { color, haloWidth, haloColor, haloBlur, opacity },

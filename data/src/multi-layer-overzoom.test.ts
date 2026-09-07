@@ -194,16 +194,16 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     expect(snapshot[snapshot.length - 1]).toBe(subKeys.length * layers.length)
   })
 
-  it('subsequent VTR renders within the same frame share the budget reset (frameId guard)', () => {
+  it('a second reset in the same frame is NOT short-circuited, and does not starve the late layer', () => {
     // After the user reported "appears and disappears", the first
     // attempt at frame-shared budget short-circuited the second
     // resetCompileBudget call so the time deadline kept ticking
     // from the FIRST call. By the time layer 4 ran, the deadline
     // had passed → budgetExceeded returned true past the floor,
-    // starving late layers. This test asserts that a second reset
-    // call WITHIN the same frame DOES still allow at least the
-    // floor-many sub-tiles to fire (count-only short-circuit, not
-    // a starve).
+    // starving late layers. So the reset stayed per CALL. This test
+    // asserts both halves of that: a second reset within the same
+    // frame is NOT short-circuited — it zeroes the counters again —
+    // and the late layer still fires.
     const source = new TileCatalog()
     const fc = squareInTile(1, 1, 0)
     decomposeFeatures(fc.features)
@@ -224,10 +224,20 @@ describe('multi-layer over-zoom: per-layer generateSubTile across one frame', ()
     const ok1 = source.generateSubTile(tileKey(2, 2, 0), parentKey, 'a')
     expect(ok1, 'layer a sub-tile').toBe(true)
 
+    expect(source.getSubTileBudgetUsed(), 'layer a charged the budget').toBeGreaterThan(0)
+
     // Layer 'b' simulates the SECOND VTR render within the same
     // frame (same frameId). It should still be able to generate at
     // least the floor — sharing the reset guard must not starve.
-    source.resetCompileBudget(1) // same frameId — short-circuits
+    //
+    // #2277 — the same frameId does NOT short-circuit: resetCompileBudget
+    // has no guard on `frameId`, so the counters go back to zero here. This
+    // is the invariant the callers' comments now state; adding a
+    // short-circuit without updating them reds THIS line rather than
+    // silently changing the compile throughput of every dense style.
+    source.resetCompileBudget(1)
+    expect(source.getSubTileBudgetUsed(), 'same frameId still resets the counter').toBe(0)
+
     const ok2 = source.generateSubTile(tileKey(2, 2, 1), parentKey, 'b')
     expect(ok2, 'layer b sub-tile (same frame)').toBe(true)
   })

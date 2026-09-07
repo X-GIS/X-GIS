@@ -409,9 +409,9 @@ export class RenderLoop {
       // different locations both pass.
       this.host._scratchEmittedPointNames.clear()
       this.host._scratchEmittedTextNames.clear()
-      // Thread the renderer's _frameCount into each VTR so its
-      // per-frame catalog budget reset can short-circuit duplicate
-      // calls from the same source feeding multiple layers.
+      // Thread the renderer's _frameCount into each VTR. The catalog
+      // records it for cancelStale's prefetch shield (#2273); it does
+      // NOT short-circuit duplicate budget resets — #2277 owns that.
       for (const [, { renderer: vtR }] of this.host.vtSources) vtR.beginFrame(this.host._frameCount)
       // WS-9 — push the top-level fill-extrusion light into every VTR. Cheap
       // (3 scalar stores); keeps each VTR's per-tile light pack current with

@@ -525,6 +525,61 @@ describe('#1264 — cooperativeGestures: touch drag (MapLibre parity)', () => {
     }
   })
 
+  it('(c5b) the handoff RE-CAPTURES the anchor at the remaining finger — no jump (#2534)', () => {
+    // (c5) above asserts only that a pan HAPPENS. A stale anchor pans too — it
+    // pans WRONGLY, by the drift between where the anchor was taken and where
+    // the finger now is, which is the "visible jump to the remaining finger's
+    // location" the re-capture exists to prevent. So (c5) cannot tell the two
+    // apart, and until #2534 folded both captures into one `captureDragAnchor`
+    // nothing did.
+    //
+    // The discriminator is an INVARIANT, not a tuned threshold: two equal
+    // post-handoff screen moves must produce equal pans, so the ratio is exactly
+    // 1. Staleness perturbs it, because the first move additionally has to work
+    // off the drift between where the anchor was taken and where the finger is.
+    //
+    // MEASURED on this fixture, both arms: re-captured -> first 172958.1,
+    // second 172958.1, ratio 1.000. Re-capture removed -> 183448.8 / 172958.1,
+    // ratio 1.061. So the tolerance below sits 12x inside the signal. Note the
+    // size: a stale anchor here is 6%, NOT the dramatic jump one might assume —
+    // an earlier draft of this test allowed ratio < 1.5 and passed with the
+    // mechanism cut out, which is the vacuous-assertion trap (CLAUDE.md §12).
+    const cam = makeMercCamera(6)
+    const { canvas, fire } = makeStubCanvas()
+    const ctrl = new PanZoomController()
+    ctrl.attach(canvas, cam, state())
+    try {
+      fire('pointerdown', ptr(1, 300, 300, { pointerType: 'touch' }))
+      fire('pointerdown', ptr(2, 500, 300, { pointerType: 'touch' }))
+      // Drift finger 1 while pinching: the drag-start anchor was taken at x=300,
+      // the finger is now at x=400. Without a re-capture that 100 px is debt.
+      fire('pointermove', ptr(1, 400, 300, { pointerType: 'touch' }))
+      fire('pointerup', ptr(2, 500, 300, { pointerType: 'touch' }))
+
+      const ax = cam.centerX,
+        ay = cam.centerY
+      fire('pointermove', ptr(1, 450, 300, { pointerType: 'touch' }))
+      const first = Math.hypot(cam.centerX - ax, cam.centerY - ay)
+
+      const bx = cam.centerX,
+        by = cam.centerY
+      fire('pointermove', ptr(1, 500, 300, { pointerType: 'touch' }))
+      const second = Math.hypot(cam.centerX - bx, cam.centerY - by)
+
+      expect(second, 'the control move produced no pan — the test proves nothing').toBeGreaterThan(
+        0,
+      )
+      expect(
+        first / second,
+        `two equal post-handoff moves panned unequally (ratio ` +
+          `${(first / second).toFixed(3)}): the anchor was not re-captured at the ` +
+          `remaining finger, so the first move also worked off the drift`,
+      ).toBeCloseTo(1, 2)
+    } finally {
+      ctrl.detach()
+    }
+  })
+
   it('(c6) enabled + pen and touch down, the PEN lifts: the remaining TOUCH finger still does not pan (#2295)', () => {
     // The 2->1 handoff used to ask the cooperativeGestures predicate about `e`,
     // the pointerup of the finger that LEFT. With a pen (or mouse) resting

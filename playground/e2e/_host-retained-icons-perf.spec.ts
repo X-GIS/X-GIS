@@ -21,7 +21,7 @@ import { captureCanvas, colorHistogram } from './helpers/visual'
 // Objective (timings + integer counters), so it needs no §5 visual read. HEADED
 // by default (real Windows GPU; headless fails WebGPU adapter enumeration);
 // `_`-prefixed → NOT in the CI SwiftShader render-gate list (local/pre-push gate,
-// like _host-sprite-atlas-parity + _icon-rhi-parity).
+// like _host-sprite-atlas-parity).
 
 interface Trial {
   n: number

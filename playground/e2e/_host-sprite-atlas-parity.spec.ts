@@ -18,8 +18,9 @@ import { test, expect } from '@playwright/test'
 // `_icons-gl2-gate` (CI-registered), which counts the marker's magenta pixels in
 // the finished frame; severing `IconDraper.draw` takes that count to 0. The
 // earlier version of this note cited `_icon-rhi-parity` as the pipeline's
-// coverage — it is not: that spec appears nowhere in .github/workflows/test.yml
-// and its only assertion is `errors.length === 0` (#2130, #2223). Objective
+// coverage — it was not, and that spec has since been deleted: it appeared
+// nowhere in .github/workflows/test.yml and its only assertion was
+// `errors.length === 0` (#2130, #2223). Objective
 // (exact bytes), so this one needs no §5 visual read and is SwiftShader-safe.
 
 interface Probe {

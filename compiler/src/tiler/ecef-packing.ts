@@ -12,8 +12,8 @@
 // the exact bytes these functions write and asserts sub-mm round-trip — any
 // drift fails deterministically on CPU, no GPU/SwiftShader/screenshot needed.
 
-import { POLYGON_FILL_FORMAT, field } from './polygon-vertex-format'
-import { WGS84, quantizeAxis, EARTH } from '@xgis/shared'
+import { packFillVertices } from './fill-vertex-pack'
+import { WGS84, EARTH } from '@xgis/shared'
 
 // ═══ DSFUN (Double-Single FUNction) helpers ═══
 // Tile vertices are stored as (high, low) f32 pairs of tile-local Mercator
@@ -167,16 +167,6 @@ export interface QuantizedPolygonVertices {
   dequantHalf: number
 }
 
-// Offsets derived from the single-source POLYGON_FILL_FORMAT spec so the
-// bytes this packer WRITES cannot drift from the WGSL @location attributes /
-// host GPUVertexBufferLayout that READ them. stride 24 B = 6 f32 = 12 u16.
-const FILL_FLOATS_PER_VERT = POLYGON_FILL_FORMAT.stride / 4 // 7
-const FILL_U16_PER_VERT = POLYGON_FILL_FORMAT.stride / 2 // 14
-const FILL_FID_FLOAT = field(POLYGON_FILL_FORMAT, 'feature_id').offset / 4 // 3
-const FILL_LON_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lon').offset / 4 // 4
-const FILL_LAT_FLOAT = field(POLYGON_FILL_FORMAT, 'abs_lat').offset / 4 // 5
-const FILL_TRUELAT_FLOAT = field(POLYGON_FILL_FORMAT, 'true_lat').offset / 4 // 6
-
 /** Pack ABSOLUTE Mercator-metre polygon vertices into the quantized ECEF
  * layout (Phase 2 PR 2f — double-u16 position).
  *
@@ -267,37 +257,17 @@ export function packECEFPolygonVertices(
     if (m > maxAbs) maxAbs = m
   }
 
-  // Per-tile symmetric half-range. Epsilon guards rounding at the extreme +
-  // a degenerate zero-extent tile (single vertex at the centre). 1e-6 m =
-  // 1 µm — far below the ≤1 mm contract and below the 2^32 step at any zoom.
-  const halfRange = maxAbs + 1e-6
-  const span = 2 * halfRange
-  const dequantScale = span / 0xffffffff
-  const invSpan = 0xffffffff / span
-
-  // Interleaved output: stride 24 bytes = 6 floats. f32 tail at float 3/4/5;
-  // u16×6 position in the first 12 bytes via a Uint16Array view of the same
-  // buffer (little-endian — matches WebGPU uint16x4/x2 component order).
-  const out = new Float32Array(count * FILL_FLOATS_PER_VERT)
-  const u16 = new Uint16Array(out.buffer)
-  for (let i = 0; i < count; i++) {
-    const [xh, xl] = quantizeAxis(rx[i], halfRange, invSpan)
-    const [yh, yl] = quantizeAxis(ry[i], halfRange, invSpan)
-    const [zh, zl] = quantizeAxis(rz[i], halfRange, invSpan)
-    const u = i * FILL_U16_PER_VERT // u16 lane base (q_xy lanes 0..3, q_z lanes 4..5)
-    u16[u] = xh
-    u16[u + 1] = xl
-    u16[u + 2] = yh
-    u16[u + 3] = yl
-    u16[u + 4] = zh
-    u16[u + 5] = zl
-    const f = i * FILL_FLOATS_PER_VERT // f32 base
-    out[f + FILL_FID_FLOAT] = fids[i]
-    out[f + FILL_LON_FLOAT] = localMercX[i]
-    out[f + FILL_LAT_FLOAT] = localMercY[i]
-    out[f + FILL_TRUELAT_FLOAT] = trueLatDeg[i]
-  }
-  return { vertices: out, dequantScale, dequantHalf: halfRange }
+  return packFillVertices({
+    count,
+    rx,
+    ry,
+    rz,
+    maxAbs,
+    localMercX,
+    localMercY,
+    trueLatDeg,
+    fids,
+  })
 }
 
 /** Project a lon/lat ring array to Mercator meters (MM). Each output

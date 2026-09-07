@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e7ced65cbb2adac36f63656a08dab56991efcc72
+  Generated from: 65f8e73822e540657a29e7c9b15133ca697aa5ee
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e7ced65cbb2a
+    bun scripts/emit-changelog.ts --since 65f8e73822e5
 -->
 
 # Changelog
@@ -51,6 +51,16 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **test:** close ISOLATED rule (2), and quarantine the eight files that were drifting ([#2624](https://github.com/X-GIS/X-GIS/pull/2624)) `cf17e5b`
+- **map/render:** a hung tile fetch loses its slot AND is recorded, so a dead host is abandoned (#2574) ([#2607](https://github.com/X-GIS/X-GIS/pull/2607)) `1d96b05`
+- **quality:** the duplication gate's verdict is the file pair's token total, not a clone fingerprint (#2570) ([#2611](https://github.com/X-GIS/X-GIS/pull/2611)) `b7a82c6`
+- **test:** quarantine the fourth event-dispatcher suite, per ISOLATED's own rule (2) ([#2610](https://github.com/X-GIS/X-GIS/pull/2610)) `2470cab`
+- **map/render:** under-occluder and vector-drape read the pass's pick-attachment authority (#2571) ([#2580](https://github.com/X-GIS/X-GIS/pull/2580)) `b3820d5`
+- **render:** the split-bind twin's eligibility is decided from the IR, not from emitted text ([#2602](https://github.com/X-GIS/X-GIS/pull/2602)) `eb417f9`
+- **blueprint+compiler:** an editor round trip keeps a custom source type and its options (#2549) ([#2589](https://github.com/X-GIS/X-GIS/pull/2589)) `c5440cb`
+- **shared:** resolve the EARTH default per module instance, not through the global slot ([#2590](https://github.com/X-GIS/X-GIS/pull/2590)) `ebc260a`
+- **compiler/format:** the format-spec separator is the colon no string or ternary owns (#2551) ([#2585](https://github.com/X-GIS/X-GIS/pull/2585)) `b12f6e2`
+- **quality:** the duplication gate must not fall back to main's tip ([#2598](https://github.com/X-GIS/X-GIS/pull/2598)) `4b50e78`
 - **compiler/parser:** replay the source's own spacing when rebuilding a fn-call (#2544) ([#2587](https://github.com/X-GIS/X-GIS/pull/2587)) `f9c4960`
 - **map/render:** bind the ECEF kernel's `a` and `e2` from the active body, not EARTH ([#2586](https://github.com/X-GIS/X-GIS/pull/2586)) `da6769e`
 - **compiler/lexer:** accept the 4-digit `#rgba` colour the converter already emits (#2543) ([#2582](https://github.com/X-GIS/X-GIS/pull/2582)) `d93e51d`
@@ -157,6 +167,14 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map:** one drag-anchor capture instead of two (audit S8) ([#2628](https://github.com/X-GIS/X-GIS/pull/2628)) `65f8e73`
+- **compiler/ir:** one factory for the six translate binding handlers ([#2619](https://github.com/X-GIS/X-GIS/pull/2619)) `d936534`
+- **compiler/ir:** one edit-distance kernel for the four suggestion sites ([#2606](https://github.com/X-GIS/X-GIS/pull/2606)) `a30cdad`
+- **compiler/ir:** one PropertyShape ladder for the eight label paint axes ([#2608](https://github.com/X-GIS/X-GIS/pull/2608)) `74cb1cc`
+- **map:** lift render()'s phases out of the class, and hide what they touch ([#2537](https://github.com/X-GIS/X-GIS/pull/2537)) `8fefb6d`
+- **shader-dsl:** move the IR walkers into core/ir as one visitor set ([#2593](https://github.com/X-GIS/X-GIS/pull/2593)) `c7b074d`
+- **compiler/ir:** one walk-expr module for the four expression walkers ([#2592](https://github.com/X-GIS/X-GIS/pull/2592)) `53ff5b3`
+- **map/render:** one factory for the retained overlay drapers ([#2591](https://github.com/X-GIS/X-GIS/pull/2591)) `c23493d`
 - **map:** turn render() into a spine of eleven named phases (#2508) ([#2573](https://github.com/X-GIS/X-GIS/pull/2573)) `9f15800`
 - **rhi:** the globe drape asks a CAPABILITY, not the backend's name (#2474) ([#2483](https://github.com/X-GIS/X-GIS/pull/2483)) `fb601cb`
 - **engine+render:** one RetireQueue the hand-mirrored deferred-destroy lists collapse into ([#2405](https://github.com/X-GIS/X-GIS/pull/2405)) `a79a44a`
@@ -165,6 +183,9 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **claude:** the categorical palette space is 512, not 20 — correct the §12 figure ([#2618](https://github.com/X-GIS/X-GIS/pull/2618)) `1b8c03f`
+- **claude:** a cause read off a condition is worth less than one counter ([#2612](https://github.com/X-GIS/X-GIS/pull/2612)) `3708e87`
+- **claude:** four ledger entries paid for in the D5 terrain session `fadb8d9`
 - **claude:** record the stale-dev-server 404 lesson in the §12 ledger ([#2595](https://github.com/X-GIS/X-GIS/pull/2595)) `2c9c2cf`
 - **quality:** retract the co-change archetype — the "no import edge" premise was false ([#2581](https://github.com/X-GIS/X-GIS/pull/2581)) `6544914`
 - **github:** add the Intent issue template — Stage-1 record of the AI-native SDLC loop ([#2562](https://github.com/X-GIS/X-GIS/pull/2562)) `3f96944`
@@ -176,6 +197,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **playground/e2e:** retire _icon-rhi-parity, and correct the coverage it was cited for (#2130) ([#2616](https://github.com/X-GIS/X-GIS/pull/2616)) `d287891`
+- **compiler/diagnostics:** assert the X-GIS code registry is a set (#2594) ([#2596](https://github.com/X-GIS/X-GIS/pull/2596)) `75e40fb`
 - **playground/e2e:** multiline-labels gate measures the wrap through the mandated helpers, and is registered (#2455) ([#2524](https://github.com/X-GIS/X-GIS/pull/2524)) `2ae9b84`
 - **e2e:** give the two-boot compute sweep the budget its own body spends (#2541) ([#2545](https://github.com/X-GIS/X-GIS/pull/2545)) `6a7257d`
 - **playground:** give the e2e-specs-load collection test the 180 s budget its own execFileSync declares (#2494) ([#2527](https://github.com/X-GIS/X-GIS/pull/2527)) `25082da`
@@ -191,6 +214,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 - **e2e:** give awaitMapIdle's decision a witness vitest can construct (#2231) ([#2254](https://github.com/X-GIS/X-GIS/pull/2254)) `b1174a2`
 - **e2e:** judge a page error by its origin, not by its message text ([#1964](https://github.com/X-GIS/X-GIS/pull/1964)) `d1a5fa9`
 - **compiler:** check spec-coverage rows against the tree they describe ([#2178](https://github.com/X-GIS/X-GIS/pull/2178)) `bc5644b`
+
+#### build
+
+- **map:** gate the published declaration surface, and honour `@internal` on the publish pass (#2601) ([#2604](https://github.com/X-GIS/X-GIS/pull/2604)) `a3f23a6`
 
 #### ci
 

@@ -342,6 +342,13 @@ export class XGISMap {
    *  still false) is still reclaimed by the next run()/destroy(). Liveness
    *  authority only — this.ctx stays the non-nullable definite-assignment field. */
   private _ctxOwned = false
+  /** #2515 — true from the synchronous `_teardownForReinit()` call in
+   *  `_runProgram()`/`runBinary()` until the fresh renderer set is assigned;
+   *  `renderer`/`rasterRenderer`/`hillshadeRenderer` are destroyed but left
+   *  non-null across that window (unlike `heatmapRenderer`/`flowRenderer`),
+   *  so a `setQuality()` landing in it must not treat their truthiness as
+   *  "live". */
+  private _reinitializing = false
   /** Consecutive renderFrame faults (P0-2); reset by a successful frame. */
   private _frameFailures = 0
 
@@ -1143,6 +1150,10 @@ export class XGISMap {
     this.hillshadeRenderer = rendererSet.hillshadeRenderer
     this.applyTerrain() // #2539 — a fresh renderer starts at 0; re-push the map's intent
     this.coverageRenderer = rendererSet.coverageRenderer
+    // #2515 — the fresh set is live from here, so setQuality() may act on it again. Cleared
+    // INSIDE this method, not at its two call sites: that is the whole point of the
+    // extraction, and a third caller inherits the invariant by construction.
+    this._reinitializing = false
     // A dropped region takes its arrows with it — including the LRU evictions the renderer
     // makes on its own, which nothing else observes (#1419).
     this.coverageRenderer.onRegionDropped = (r) => onCoverageRegionDropped(this._coverageDeps, r)
@@ -2232,7 +2243,12 @@ export class XGISMap {
     // are only assigned inside run()/runBinary(); on a constructed-but-never-run map
     // there is nothing to rebuild yet (run() reads QUALITY live via getSampleCount() /
     // isPickEnabled(), so the value above is still honoured once it boots).
-    if ((msaaChanged || pickingChanged) && this.renderer) {
+    // #2515 — truthiness alone is not enough: `_teardownForReinit()` destroys these
+    // renderers without nulling them, so a call landing in that synchronous-teardown-
+    // to-gpuInit window would otherwise fan out into a torn-down renderer. `!this.
+    // _reinitializing` closes that window; the value is still honoured once the
+    // fresh renderer set lands (same live-QUALITY-read as the #2305 case above).
+    if ((msaaChanged || pickingChanged) && this.renderer && !this._reinitializing) {
       // Force next renderFrame to recreate msaa / stencil / pick
       // textures at the new sampleCount. The existing size-change gate
       // (`msaaWidth !== w`) won't trip on its own since width/height
@@ -5206,6 +5222,10 @@ export class XGISMap {
    *  returns, run()/runBinary() rebuild ctx + renderers + stages clean.
    *  No-op when nothing was ever loaded (`?.` covers a null ctx). */
   private _teardownForReinit(): void {
+    // #2515 — set before `_releaseGpuResources()` destroys renderer/rasterRenderer/
+    // hillshadeRenderer without nulling them, so setQuality() cannot mistake their
+    // (still-truthy) fields for live renderers until run()/runBinary() reassigns them.
+    this._reinitializing = true
     this.running = false
     // Reset loaded() — set only on a successful run; a torn-down-then-failed swap
     // must not report loaded() === true on a blank corpse. (#1153 C)

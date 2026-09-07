@@ -292,8 +292,6 @@ export const KNOWN_DARK_SPECS: Readonly<Record<string, string>> = {
     "network-dependent (openfreemap / pmtiles-proxy / protomaps / OSM live tiles), no egress in CI -- same class as the #1349 census's 37 network-blocked specs (#1349)",
   '_glyph-atlas-stability.spec.ts':
     "network-dependent (openfreemap / pmtiles-proxy / protomaps / OSM live tiles), no egress in CI -- same class as the #1349 census's 37 network-blocked specs (#1349)",
-  '_icon-rhi-parity.spec.ts':
-    "network-dependent (openfreemap / pmtiles-proxy / protomaps / OSM live tiles), no egress in CI -- same class as the #1349 census's 37 network-blocked specs (#1349)",
   '_import-maplibre-demo.spec.ts':
     "network-dependent (openfreemap / pmtiles-proxy / protomaps / OSM live tiles), no egress in CI -- same class as the #1349 census's 37 network-blocked specs (#1349)",
   '_label-dump-bilingual.spec.ts':
