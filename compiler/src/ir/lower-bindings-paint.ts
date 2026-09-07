@@ -12,8 +12,51 @@ import {
   extractInterpolateZoomStops,
   extractStepZoomStops,
 } from './lower-helpers'
-import type { BindingHandler } from './lower-bindings'
+import type { BindingHandler, LayerAccumulator } from './lower-bindings'
 import { translateShapeHandler } from './lower-bindings'
+
+/** The `LayerAccumulator` fields a constant number may be written to. Derived from the
+ *  accumulator rather than listed, so a field that changes type drops out of
+ *  {@link CONST_NUMBER_BINDINGS}'s value type and the table stops compiling — the mapping
+ *  cannot outlive the shape it targets. */
+type NumericAccKey = {
+  [K in keyof LayerAccumulator]: LayerAccumulator[K] extends number | undefined ? K : never
+}[keyof LayerAccumulator]
+
+/** Bracket-binding utilities whose entire lowering is "parse a constant number, write it to
+ *  one accumulator field". This was sixteen `if (ctx.name === …) { acc.X = n; return true }`
+ *  arms differing only in the two names (#2534); the table IS the arm, so adding a paint
+ *  property is a row rather than a copied block — which is also what the X-GIS0005
+ *  diagnostic below now tells an author to do.
+ *
+ *  Grouped by WHY each utility arrives in bracket-binding form at all, because that reason
+ *  is per-group and was the only real content of the retired comments. */
+const CONST_NUMBER_BINDINGS: Readonly<Record<string, NumericAccKey>> = {
+  // Numeric paint utilities that allow NEGATIVE values: the utility-name grammar treats
+  // `-` as a segment separator, so a negative reaches the lexer only as `…-[-2]`. Literal
+  // number (or unary-minus literal) bindings only.
+  'fill-translate-x': 'fillTranslateX',
+  'fill-translate-y': 'fillTranslateY',
+  'circle-translate-x': 'circleTranslateX',
+  'circle-translate-y': 'circleTranslateY',
+  'circle-blur': 'circleBlur',
+  'stroke-translate-x': 'strokeTranslateX',
+  'stroke-translate-y': 'strokeTranslateY',
+  // Raster colour adjustments also allow negatives (hue-rotate / saturation / contrast /
+  // brightness), so they too arrive bracketed (`raster-contrast-[-0.5]`). Constant numbers
+  // only — non-constant raster colour forms aren't plumbed.
+  'raster-hue-rotate': 'rasterHueRotate',
+  'raster-brightness-min': 'rasterBrightnessMin',
+  'raster-brightness-max': 'rasterBrightnessMax',
+  'raster-saturation': 'rasterSaturation',
+  'raster-contrast': 'rasterContrast',
+  // Heatmap scalars: a bare number. The converter emits the constant form as a utility, so
+  // a `[N]` here would only arise from a negative literal, which heatmap props never are.
+  'heatmap-radius': 'heatmapRadius',
+  'heatmap-weight': 'heatmapWeight',
+  'heatmap-intensity': 'heatmapIntensity',
+  'heatmap-opacity': 'heatmapOpacity',
+}
 
 // ── Binding-form arms (item.binding present) ──
 
@@ -152,82 +195,14 @@ export const fillExtrusionBaseBindingHandler: BindingHandler = {
 export const bindingFallthroughHandler: BindingHandler = {
   match: () => true,
   apply: (ctx) => {
-    // Numeric paint utilities that allow negative values use
-    // bracket-binding form since the utility-name grammar treats
-    // `-` as a segment separator. We only accept literal-number
-    // (or unary-minus literal) bindings here.
+    // Utilities whose whole lowering is "constant number -> one accumulator field" are a
+    // TABLE, not a ladder (CONST_NUMBER_BINDINGS above); the reason each one arrives in
+    // bracket-binding form is recorded per group there.
     const n = bindingAsConstantNumber(ctx.item.binding!)
     if (n !== null) {
-      const a = ctx.acc
-      if (ctx.name === 'fill-translate-x') {
-        a.fillTranslateX = n
-        return true
-      }
-      if (ctx.name === 'fill-translate-y') {
-        a.fillTranslateY = n
-        return true
-      }
-      if (ctx.name === 'circle-translate-x') {
-        a.circleTranslateX = n
-        return true
-      }
-      if (ctx.name === 'circle-translate-y') {
-        a.circleTranslateY = n
-        return true
-      }
-      if (ctx.name === 'circle-blur') {
-        a.circleBlur = n
-        return true
-      }
-      if (ctx.name === 'stroke-translate-x') {
-        a.strokeTranslateX = n
-        return true
-      }
-      if (ctx.name === 'stroke-translate-y') {
-        a.strokeTranslateY = n
-        return true
-      }
-      // Raster colour adjustments allow negative values (hue-rotate /
-      // saturation / contrast / brightness), so they reach the lexer in
-      // bracket-binding form (`raster-contrast-[-0.5]`). Constant numbers
-      // only — non-constant raster colour forms aren't plumbed.
-      if (ctx.name === 'raster-hue-rotate') {
-        a.rasterHueRotate = n
-        return true
-      }
-      if (ctx.name === 'raster-brightness-min') {
-        a.rasterBrightnessMin = n
-        return true
-      }
-      if (ctx.name === 'raster-brightness-max') {
-        a.rasterBrightnessMax = n
-        return true
-      }
-      if (ctx.name === 'raster-saturation') {
-        a.rasterSaturation = n
-        return true
-      }
-      if (ctx.name === 'raster-contrast') {
-        a.rasterContrast = n
-        return true
-      }
-      // Heatmap scalars in bracket-binding form: a bare number (the converter
-      // emits the constant form as a utility; a `[N]` would only arise from a
-      // negative literal, which heatmap props never are).
-      if (ctx.name === 'heatmap-radius') {
-        a.heatmapRadius = n
-        return true
-      }
-      if (ctx.name === 'heatmap-weight') {
-        a.heatmapWeight = n
-        return true
-      }
-      if (ctx.name === 'heatmap-intensity') {
-        a.heatmapIntensity = n
-        return true
-      }
-      if (ctx.name === 'heatmap-opacity') {
-        a.heatmapOpacity = n
+      const field = CONST_NUMBER_BINDINGS[ctx.name]
+      if (field !== undefined) {
+        ctx.acc[field] = n
         return true
       }
     }
@@ -264,8 +239,9 @@ export const bindingFallthroughHandler: BindingHandler = {
       span: { line: ctx.stmt.line, col: 1 },
       message:
         `Bracket-binding utility "${ctx.name}-[…]" has no handler in lower.ts — ` +
-        `the expression is being dropped. Add a name==="${ctx.name}" arm in the ` +
-        `binding-form handler to thread the value into the appropriate IR field.`,
+        `the expression is being dropped. If the value is a plain constant number, add ` +
+        `"${ctx.name}" to CONST_NUMBER_BINDINGS; otherwise add a handler arm to thread ` +
+        `the value into the appropriate IR field.`,
     })
     return true
   },
