@@ -48,6 +48,28 @@ export interface CaptureOptions {
    * spec that has actually hit the hang should switch.
    */
   capture?: 'element' | 'clip'
+  /**
+   * Make the settle's own outcome an assertion instead of a hint.
+   *
+   * `settleForCapture` waits on `awaitPendingWorkClear`, which returns
+   * `'clear' | 'timeout'` — and until #2556 that value was DISCARDED. A frame
+   * captured after a timed-out settle is then indistinguishable from a
+   * converged one to every caller, so a spec whose assertion depends on
+   * convergence cannot say so, and #2556 had to read the arm out of band to
+   * rule out a premature settle as the cause of its divergence.
+   *
+   * With this set, a `'timeout'` arm THROWS before the capture, naming the
+   * budget. Opt-in on purpose: the ~350 other specs that call `captureCanvas`
+   * have never depended on the arm, and flipping the default would turn every
+   * pre-existing slow settle into a red (CLAUDE.md §3). Set it on a spec that
+   * COMPARES frames — where an unconverged capture is a wrong answer rather
+   * than a slow one.
+   *
+   * It does not make the settle faster or more likely to converge; it only
+   * stops a non-convergence from being silent. `readyTimeoutMs` still bounds
+   * both the ready wait and the settle.
+   */
+  requireConvergedSettle?: boolean
 }
 
 /**
@@ -222,7 +244,19 @@ async function settleForCapture(page: Page, opts: CaptureOptions): Promise<void>
   // loop to start: __xgisReady flips true when the loop starts, but URL/inline
   // source data loads ASYNC and paints a frame or two later via invalidate(),
   // so a fixed rAF count can screenshot the empty pre-data frame.
-  await awaitPendingWorkClear(page, readyTimeout)
+  const settled = await awaitPendingWorkClear(page, readyTimeout)
+  if (settled === 'timeout' && opts.requireConvergedSettle === true) {
+    // Thrown HERE, before the capture: a caller that opted in wants the
+    // non-convergence, and letting the run continue buries it under whatever
+    // the screenshot does next — on the element path, a stability wait that
+    // times out later and blames the screenshot (#1802's shape, #2556's
+    // symptom).
+    throw new Error(
+      `[settleForCapture] pending work did not clear within ${readyTimeout}ms (scope: all kinds) — ` +
+        'this frame is NOT converged, and this spec opted into requireConvergedSettle because it ' +
+        'compares frames. The page IS ready; it is the drain that did not finish (#2556).',
+    )
+  }
 
   // Two extra rAF ticks so any shader-variant pipeline created on the
   // first frame can compose into the visible swap chain on frame 2.
