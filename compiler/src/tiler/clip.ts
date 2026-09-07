@@ -25,6 +25,11 @@
 /**
  * Clip polygon rings to an axis-aligned rectangle.
  * @param rings Array of rings: [outer, ...holes]. Each ring is [[lon,lat], ...]
+ * @param insertedOut Optional identity set the clip fills with every vertex IT
+ *   CREATED. Only the clipper knows which vertices are its own, and
+ *   `extractNonSyntheticArcs` needs that fact: a REAL polygon edge running
+ *   ALONG a tile side is geometrically identical to the closing edge this
+ *   clip inserts, so re-deriving provenance from coordinates drops it (#2553).
  * @returns Clipped rings (empty array if entirely outside)
  */
 export function clipPolygonToRect(
@@ -34,18 +39,19 @@ export function clipPolygonToRect(
   east: number,
   north: number,
   precision?: number,
+  insertedOut?: Set<number[]>,
 ): number[][][] {
   const result: number[][][] = []
 
   for (const ring of rings) {
     let clipped = ring
-    clipped = clipRingToEdge(clipped, west, 0, true, precision) // keep lon >= west
+    clipped = clipRingToEdge(clipped, west, 0, true, precision, insertedOut) // keep lon >= west
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, east, 0, false, precision) // keep lon <= east
+    clipped = clipRingToEdge(clipped, east, 0, false, precision, insertedOut) // keep lon <= east
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, south, 1, true, precision) // keep lat >= south
+    clipped = clipRingToEdge(clipped, south, 1, true, precision, insertedOut) // keep lat >= south
     if (clipped.length < 3) continue
-    clipped = clipRingToEdge(clipped, north, 1, false, precision) // keep lat <= north
+    clipped = clipRingToEdge(clipped, north, 1, false, precision, insertedOut) // keep lat <= north
     if (clipped.length < 3) continue
     result.push(clipped)
   }
@@ -174,6 +180,9 @@ export function splitBoundaryBacktracks(
  * Closes the output ring (last vertex == first) when the input
  * crossed the range boundary.
  */
+// jscpd:ignore-start — V2 is a drop-in for V1 under flag rollout, so the two
+// signatures are deliberately identical; only the body differs. The #2553
+// `insertedOut` parameter grew the shared prologue past the clone threshold.
 export function clipPolygonToRectV2(
   rings: number[][][],
   west: number,
@@ -181,15 +190,17 @@ export function clipPolygonToRectV2(
   east: number,
   north: number,
   precision?: number,
+  insertedOut?: Set<number[]>,
 ): number[][][] {
+  // jscpd:ignore-end
   const result: number[][][] = []
 
   for (const ring of rings) {
     // First clip against the X axis range [west, east]
-    let clipped = clipRingAxisRange(ring, west, east, 0, precision)
+    let clipped = clipRingAxisRange(ring, west, east, 0, precision, insertedOut)
     if (clipped.length < 3) continue
     // Then clip the result against the Y axis range [south, north]
-    clipped = clipRingAxisRange(clipped, south, north, 1, precision)
+    clipped = clipRingAxisRange(clipped, south, north, 1, precision, insertedOut)
     if (clipped.length < 3) continue
     result.push(clipped)
   }
@@ -206,6 +217,7 @@ function clipRingAxisRange(
   k2: number,
   axis: 0 | 1,
   precision?: number,
+  insertedOut?: Set<number[]>,
 ): number[][] {
   if (ring.length === 0) return []
 
@@ -226,11 +238,11 @@ function clipRingAxisRange(
       // Start below k1
       if (b > k2) {
         // Edge spans below k1 → above k2 → emit both intersections
-        out.push(intersect(curr, next, k1, axis, precision))
-        out.push(intersect(curr, next, k2, axis, precision))
+        out.push(intersect(curr, next, k1, axis, precision, insertedOut))
+        out.push(intersect(curr, next, k2, axis, precision, insertedOut))
       } else if (b >= k1) {
         // Edge enters from below k1 and stops inside the range
-        out.push(intersect(curr, next, k1, axis, precision))
+        out.push(intersect(curr, next, k1, axis, precision, insertedOut))
         out.push(next)
       }
       // else: both below k1 — nothing
@@ -238,11 +250,11 @@ function clipRingAxisRange(
       // Start above k2
       if (b < k1) {
         // Edge spans above k2 → below k1 → emit both intersections
-        out.push(intersect(curr, next, k2, axis, precision))
-        out.push(intersect(curr, next, k1, axis, precision))
+        out.push(intersect(curr, next, k2, axis, precision, insertedOut))
+        out.push(intersect(curr, next, k1, axis, precision, insertedOut))
       } else if (b <= k2) {
         // Edge enters from above k2 and stops inside the range
-        out.push(intersect(curr, next, k2, axis, precision))
+        out.push(intersect(curr, next, k2, axis, precision, insertedOut))
         out.push(next)
       }
       // else: both above k2 — nothing
@@ -251,10 +263,10 @@ function clipRingAxisRange(
       if (b < k1) {
         // Exits below k1 — emit boundary intersection (next vertex
         // is outside, so we don't push it)
-        out.push(intersect(curr, next, k1, axis, precision))
+        out.push(intersect(curr, next, k1, axis, precision, insertedOut))
       } else if (b > k2) {
         // Exits above k2
-        out.push(intersect(curr, next, k2, axis, precision))
+        out.push(intersect(curr, next, k2, axis, precision, insertedOut))
       } else {
         // Edge stays inside the range — emit next vertex
         out.push(next)
@@ -278,6 +290,7 @@ function clipRingToEdge(
   axis: 0 | 1,
   keepAbove: boolean,
   precision?: number,
+  insertedOut?: Set<number[]>,
 ): number[][] {
   if (ring.length === 0) return []
 
@@ -295,11 +308,11 @@ function clipRingToEdge(
       if (nextInside) {
         out.push(next)
       } else {
-        out.push(intersect(curr, next, value, axis, precision))
+        out.push(intersect(curr, next, value, axis, precision, insertedOut))
       }
     } else {
       if (nextInside) {
-        out.push(intersect(curr, next, value, axis, precision))
+        out.push(intersect(curr, next, value, axis, precision, insertedOut))
         out.push(next)
       }
     }
@@ -338,6 +351,7 @@ function intersect(
   value: number,
   axis: 0 | 1,
   precision?: number,
+  insertedOut?: Set<number[]>,
 ): number[] {
   const t = (value - a[axis]) / (b[axis] - a[axis])
   const other = a[1 - axis] + t * (b[1 - axis] - a[1 - axis])
@@ -347,7 +361,13 @@ function intersect(
     const hi = Math.max(a[1 - axis], b[1 - axis])
     snapped = Math.max(lo, Math.min(hi, snapToGrid(other, precision)))
   }
-  return axis === 0 ? [value, snapped] : [snapped, value]
+  const cut = axis === 0 ? [value, snapped] : [snapped, value]
+  // Provenance (#2553): this vertex was CREATED by the clip — it is not a
+  // vertex of the source ring. Registering it HERE, at the single place any
+  // clip-made vertex is born, makes "the clipper filled the set" true by
+  // construction for both clippers above.
+  insertedOut?.add(cut)
+  return cut
 }
 
 // ═══ Line Clipping ═══

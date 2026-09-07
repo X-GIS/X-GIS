@@ -124,6 +124,10 @@ export const LANGUAGE_SCHEMA: Record<string, ConstructDef> = {
       // Referenced, never re-listed: the schema used to carry its own 9-value
       // copy, and the four corner values in it were hard PARSE errors, so an
       // editor driven by this table emitted uncompilable `.xgis` (#2548).
+      // NOTE the Mapbox converter's nine-valued VALID_ANCHORS
+      // (convert/layers-helpers.ts) stays as it is: `label-anchor-top-left` is a
+      // utility NAME, a different grammar position where the hyphen is a segment
+      // separator, so nine is correct there and is NOT the same drift.
       { key: 'anchor', valueKind: 'enum', options: SYMBOL_ANCHORS },
     ],
   },

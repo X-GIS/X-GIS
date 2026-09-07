@@ -1166,14 +1166,17 @@ const CEILINGS: Record<string, number> = {
   // jscpd threshold. `installRendererSet` is now the one authority, which is why the ceiling
   // lands 8 lines BELOW the facade-only 5555. The 373-call-site question of hiding the
   // renderer FIELDS is #2578 and must extract, not accumulate.
-  // 5547→5567 (#2515, this merge): the `_reinitializing` latch, its docblock, the
-  // setQuality guard and the raise at teardown. My branch had ALSO extracted the
-  // renderer-install duplication — independently, as `_adoptRendererSet`, and for the
-  // same reason #2539 gives above (adding one line to both copies tipped jscpd). main
-  // got there first, so `installRendererSet` is the one authority and my copy is gone;
-  // the latch is cleared INSIDE it. Both sides raised this key from the same base, and
-  // git resolved neither number — RE-MEASURED post-prettier with `wc -l` (§12).
-  'map/src/map.ts': 5567,
+  // 5547→5577 (#2515 + #2613, this merge). BOTH sides raised this key from the same
+  // base and git resolved neither number, so the file took both deltas — re-measured
+  // with `wc -l` post-prettier rather than carried across (§12).
+  //   main  +20 (#2515): the `_reinitializing` latch, its docblock, the setQuality
+  //         guard and the raise at teardown.
+  //   #2613 +10: `isCameraPositioned()` and its docblock — the published reader paired
+  //         with `markCameraPositioned()`, so `_cameraPositionedFlag` (whose own
+  //         docblock says "Not part of the public API") stays out of the published type.
+  // main also landed `installRendererSet`, the renderer-install extraction my #2558
+  // branch had made independently for the same reason; one authority, no duplicate.
+  'map/src/map.ts': 5577,
   // Baselined at 801 (#2129/#2149 increment 2): crossed NEW_FILE_CAP (was 798) by the
   // three pending-work lines — the optional `beginPendingWork` dep, the ticket checkout
   // after the synchronous `state.inFlight.add`, and its `done()` in the settle `finally`.
@@ -1720,7 +1723,20 @@ const CEILINGS: Record<string, number> = {
   // contract and the rationale were EXTRACTED to material/per-style-label-index.ts
   // rather than parked here -- that extraction is also what kept polygon-fill-material.ts
   // under the 800 new-file cap.
-  'map/src/render/pipeline-factory.ts': 1734,
+  // 1734→1741 (#2627): `perStyleSplitTwin` labels its Materials `shader-<variant.key>/…`.
+  // The +7 is one argument and the comment recording WHY a label is load-bearing — #2499's
+  // provenance gate classifies a program as open-set from that prefix, and this twin's bytes
+  // are a per-style composer variant that carried only the generic `fill-*-rhi` names. Without
+  // the note the next reader deletes a "cosmetic" label and reds a gate three files away.
+  'map/src/render/pipeline-factory.ts': 1741,
+  // FIRST ENTRY for this file (#2627) — it was unlisted at 799 because it sat under
+  // NEW_FILE_CAP, and the `labelPrefix` input crosses it (799→807). The +8 is one optional
+  // field plus the docblock that says what a caller must pass and why the default must stay
+  // `''` (a pinned label depends on it). Not extracted: the four labels are three lines of a
+  // 60-line builder, and pulling them out would put a Material's own identity in another file
+  // — the opposite of the single-authority move #2309 made when it extracted the label index
+  // to keep this file under the cap. Same measurement rule as every entry here: post-prettier.
+  'map/src/render/material/polygon-fill-material.ts': 807,
   // 1419→1442 (#1506): `setProjection` — the camera now RESOLVES its own
   // projection kind (azimuthal-when-tilted promotion → projType /
   // azimuthalProjType / globeMode) instead of being a per-frame write target for
@@ -2703,7 +2719,54 @@ const CEILINGS: Record<string, number> = {
   // one-line doc. Not extract-able: a threaded parameter has nothing to extract to,
   // and the alternative (deriving z from `precisionMM` at the leaf) would hide the
   // dependency the gate now genuinely has.
-  'compiler/src/tiler/vector-tiler.ts': 1616,
+  // 1616->1652 (#2550, measured post-prettier): antimeridian handling for polygons.
+  // The 36 lines buy `unwrapRingsToOneBranch` (11 lines of code, putting every ring
+  // of one polygon on a single 360-degree branch and each hole onto its shell's) plus
+  // the type dispatch that lets the existing world-copy emit serve polygons as well as
+  // lines — and the docblocks recording WHY, including the deletion of the "polygons
+  // clip/fill correctly through the existing path" claim that hid the bug. Not
+  // extract-able without splitting the part-decomposition step away from the part
+  // types it builds, which is the one place that decides what a GeometryPart is.
+  // 1652→1700 (#2553): +48 for the clip-provenance narrowing of
+  // `extractNonSyntheticArcs` — the `clipperInserted` parameter and its
+  // docblock, the `isOnMercWorldRect` scope guard that keeps the antimeridian
+  // seam stripped, and the per-call-site provenance Set. What it buys: a real
+  // polygon edge lying ALONG a tile side (a box on lon 0 or the equator) keeps
+  // its outline stroke instead of being mistaken for the clipper's own closing
+  // edge. Not extract-able: the classifier and the outline call site it feeds
+  // are the same single authority this file already houses.
+  // 1700->1688 (#2550): DOWN, not slack. `unwrapRingsToOneBranch` and its call in
+  // `makePolygonPart` are deleted — they read any >180 deg ring edge as a fold and
+  // rewrote it, which reinterpreted the z=0 world parent [-170..170] as a 20 deg
+  // seam crosser and collapsed its mid-world children
+  // (data/src/sub-tile-generator.test.ts). A ring bounds an AREA and is read at
+  // face value; RFC 7946 3.1.9 puts the split burden on the producer. Lowered to
+  // the measured figure rather than banked as headroom.
+  // 1688->1703 (#2553 follow-up): +15 for the all-edges-on-rect guard in
+  // `extractNonSyntheticArcs` and the docblock recording why it is GEOMETRIC.
+  // #2553 narrowed the synthetic test with clip provenance, which over-fired on
+  // a ring the clip collapsed onto ONE rect side: a box whose east side lies
+  // exactly on this tile's west edge keeps its own source corners, so
+  // `rescuesEdge` called them real and the outline strokes a line down the tile
+  // border for a feature with no area in the tile. The guard is the invariant
+  // the narrowing was missing (provenance may only narrow a ring that HAS
+  // interior here), and it cannot be an area test: `intersect` snaps a cut
+  // vertex to the tile grid, so a collapsed ring's shoelace is not zero.
+  // 1703->1708 (#2553 nit): +5 recording that BOUNDARY_EPS_MM is the DEFAULT of
+  // `makeSameBoundarySidePredicateMerc`'s `eps` — no production call site passes
+  // a literal any more — and that sharing it with `isOnMercWorldRect` is
+  // deliberate, because "how close counts as ON a rect" is one physical question
+  // and two equal constants would be two authorities for it.
+  // 1708->1722 (#2553 follow-up, review): the collapsed-ring guard's rationale
+  // said the ring "has no interior in this tile". That is false for one of the two
+  // rings the guard drops — a ring that IS the tile rect has FULL interior and is
+  // still dropped, correctly, because its outline coincides with the tile edge
+  // where the neighbour's geometry meets it. Measured through the real entry
+  // points: exact-rect polygon -> outline 0, the same box inset by 1 degree ->
+  // outline 980. The comment now names both rings separately and records why
+  // `onRect` must stay PURELY geometric (a narrowed one stops the guard firing —
+  // the reverted runtime patch in #2603). Comment only; no executable change.
+  'compiler/src/tiler/vector-tiler.ts': 1722,
   // 1409→1415 (#1066): +6 to wire validateFnCalls (unknown-callee →
   // X-GIS0012) into lower()'s diagnostics — the validation pass itself
   // lives in the new ir/validate-fncalls.ts; only the import + call +

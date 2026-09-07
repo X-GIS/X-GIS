@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 65f8e73822e540657a29e7c9b15133ca697aa5ee
+  Generated from: 1a7309a8398027db7b5aeccb1accf105ccad81cc
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 65f8e73822e5
+    bun scripts/emit-changelog.ts --since 1a7309a83980
 -->
 
 # Changelog
@@ -25,6 +25,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 - **shader-dsl:** **BREAKING** a fn body that returns nothing must name its return type (#2458) ([#2481](https://github.com/X-GIS/X-GIS/pull/2481)) `34efec1`
 - **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
+- **map:** **BREAKING** publish the 45 XGISMap members consumers use, not all 215 ([#2622](https://github.com/X-GIS/X-GIS/pull/2622)) `1a7309a`
 
 #### feat
 
@@ -51,6 +52,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **map/lifecycle:** setQuality during the reinit window no longer calls into destroyed renderers (#2515) ([#2600](https://github.com/X-GIS/X-GIS/pull/2600)) `ee49a73`
+- **map/render:** the categorical palette diagnostic watches the birthday bound, not the pigeonhole one (#2579) ([#2633](https://github.com/X-GIS/X-GIS/pull/2633)) `bf39f54`
 - **test:** close ISOLATED rule (2), and quarantine the eight files that were drifting ([#2624](https://github.com/X-GIS/X-GIS/pull/2624)) `cf17e5b`
 - **map/render:** a hung tile fetch loses its slot AND is recorded, so a dead host is abandoned (#2574) ([#2607](https://github.com/X-GIS/X-GIS/pull/2607)) `1d96b05`
 - **quality:** the duplication gate's verdict is the file pair's token total, not a clone fingerprint (#2570) ([#2611](https://github.com/X-GIS/X-GIS/pull/2611)) `b7a82c6`
@@ -167,6 +170,8 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **compiler,data:** one fill-vertex packing kernel for two producers (audit S15) ([#2632](https://github.com/X-GIS/X-GIS/pull/2632)) `1260623`
+- **shader-dsl:** one substitution-pass skeleton for three passes (audit S14) ([#2630](https://github.com/X-GIS/X-GIS/pull/2630)) `0958ccd`
 - **map:** one drag-anchor capture instead of two (audit S8) ([#2628](https://github.com/X-GIS/X-GIS/pull/2628)) `65f8e73`
 - **compiler/ir:** one factory for the six translate binding handlers ([#2619](https://github.com/X-GIS/X-GIS/pull/2619)) `d936534`
 - **compiler/ir:** one edit-distance kernel for the four suggestion sites ([#2606](https://github.com/X-GIS/X-GIS/pull/2606)) `a30cdad`
@@ -183,6 +188,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **data/tiles:** resetCompileBudget has no frame-id short-circuit — say so at all six sites, and pin it (#2277) ([#2629](https://github.com/X-GIS/X-GIS/pull/2629)) `6a9b938`
 - **claude:** the categorical palette space is 512, not 20 — correct the §12 figure ([#2618](https://github.com/X-GIS/X-GIS/pull/2618)) `1b8c03f`
 - **claude:** a cause read off a condition is worth less than one counter ([#2612](https://github.com/X-GIS/X-GIS/pull/2612)) `3708e87`
 - **claude:** four ledger entries paid for in the D5 terrain session `fadb8d9`

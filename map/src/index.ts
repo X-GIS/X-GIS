@@ -262,7 +262,8 @@ export * from './wms-xyz-adapter'
 //     via './map-types' — a blanket re-export would be an ambiguous duplicate.
 //   - backgroundPass / BackgroundPassHost / SceneView / FrameContext / lineLabelDeduped /
 //     lineIconIsIconOnly — consumed by background-opacity-wiring.test.ts / icon-cross-tile-dedup.test.ts.
-export { XGISMap, extractConversionNotes, logConversionNotes } from './map'
+export { extractConversionNotes, logConversionNotes } from './map'
+export { XGISMap, type PublishedMapMember } from './published-map'
 export { backgroundPass } from './render/passes/background-pass'
 export type { BackgroundPassHost } from './render/passes/pass-hosts'
 export type { SceneView } from './render/scene-view'

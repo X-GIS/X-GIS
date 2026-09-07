@@ -2,7 +2,12 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src",
+    // The program is typecheck-only (`noEmit`), and it spans BOTH `src` and the
+    // `e2e` helper `src/page-errors.test.ts` shares. `rootDir` only constrains emit
+    // layout, so under `noEmit` its sole effect here is TS6059 on that shared import
+    // — and dropping it outright is worse, because tsconfig.base then applies the
+    // REPO root's `src`. Point it at the package instead (#2621).
+    "rootDir": ".",
     "types": ["@webgpu/types", "node", "vite/client"],
     "noEmit": true
   },

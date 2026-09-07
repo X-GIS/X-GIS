@@ -553,7 +553,9 @@ describe('Mapbox → xgis converter', () => {
         },
         layers: [],
       })
-      expect(out).toContain('type: raster-dem')
+      // Quoted since #2549 — a bare `raster-dem` re-parses as `raster - dem`, so
+      // `parses(out)` below was true while the source lowered as geojson.
+      expect(out).toContain('type: "raster-dem"')
       // Until #2520 this asserted `toContain('Batch 4')` — it PINNED an inline NOTE
       // telling the author raster-dem rendering was a future roadmap batch. That
       // shipped in #777 (hillshade, both backends), so the note was false and this

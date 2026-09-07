@@ -89,11 +89,10 @@ describe('#1522 parallel arc fidelity', () => {
     // (b) The SAME 20° span authored as the folded pair. A naive lon lerp of the
     //     raw −340° delta would walk every MIDPOINT the long way round; the delta
     //     is unwrapped to +20 instead, so no vertex ever reaches the far side of
-    //     the globe — which is exactly (and only) what the per-vertex check below
-    //     proves. The raw endpoint keeps its authored −170 (same output as the old
-    //     great-circle interpolant), so the last adjacent-pair lon delta is still
-    //     ~359° in raw coords; the antimeridian SPLIT downstream owns that seam
-    //     (wrap-line-antimeridian.test.ts), not this assertion.
+    //     the globe. The ENDPOINT rides the same unwrapped branch (#2547) — it
+    //     used to keep its authored −170, leaving a 359° step that the per-tile
+    //     clip then swept across the whole equator, so this authoring tiled into
+    //     every z2 column (wrap-line-antimeridian.test.ts owns that oracle).
     const folded = subdivideLine([
       [170, 0],
       [-170, 0],
@@ -101,6 +100,16 @@ describe('#1522 parallel arc fidelity', () => {
     expect(folded.length, 'densification did not fire').toBeGreaterThan(10)
     for (const [lon] of folded) {
       expect(Math.abs(lon), `lon ${lon} walked the long way round`).toBeGreaterThan(90)
+    }
+
+    // (c) Neither authoring may leave a step a downstream clip would read as a
+    //     segment sweeping the globe. FAIL-BEFORE: the folded arm's last step
+    //     was 189 → −170 = 359°.
+    for (const out of [past, folded]) {
+      for (let i = 1; i < out.length; i++) {
+        const step = Math.abs(out[i][0] - out[i - 1][0])
+        expect(step, `step ${out[i - 1][0]} → ${out[i][0]} spans more than 180°`).toBeLessThan(180)
+      }
     }
   })
 

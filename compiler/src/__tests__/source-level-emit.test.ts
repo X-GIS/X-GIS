@@ -85,7 +85,8 @@ describe('#1983 W2 — raster-dem source: same three properties, DEM props untou
   it('emits `tileSize: 512` + `maxzoom: 12` on the raster-dem block', () => {
     const { code, warnings } = convert(demStyle({ tileSize: 512, maxzoom: 12 }))
     const block = sourceBlock(code, 'terrain')
-    expect(block).toContain('type: raster-dem')
+    // Quoted since #2549 — a bare `raster-dem` re-parses as `raster - dem`.
+    expect(block).toContain('type: "raster-dem"')
     expect(block).toContain('tileSize: 512')
     expect(block).toContain('maxzoom: 12')
     expect(warnings.filter((w) => /minzoom|maxzoom|tileSize/.test(w))).toEqual([])

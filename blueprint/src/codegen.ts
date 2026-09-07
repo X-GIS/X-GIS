@@ -4,7 +4,7 @@
 // language is normally written: imports, sources, symbols, presets,
 // background, then layers in Map draw order.
 
-import { SOURCE_TYPES, XGIS_LANGUAGE_MAJOR } from '@xgis/compiler'
+import { XGIS_LANGUAGE_MAJOR, isBareIdentifierSafe } from '@xgis/compiler'
 import type { BPGraph, BPNode } from './types'
 
 function byId(g: BPGraph): Map<string, BPNode> {
@@ -55,17 +55,26 @@ function pipeLines(raw: string | undefined): string[] {
 function emitSource(n: BPNode): string {
   const d = n.data
   const lines: string[] = [`source ${nameOf(n, 'source')} {`]
-  // Quoting is load-bearing here (#2549). A BUILT-IN type is a bare identifier
-  // (`type: geojson`); a CUSTOM registry type must be a QUOTED STRING
-  // (`type: "x-kr-admin"`) because the identifier grammar has no hyphen, so the
+  // Quoting is load-bearing here (#2549). A type whose name is IDENTIFIER-SHAPED
+  // is emitted bare (`type: geojson`); anything else must be a QUOTED STRING
+  // (`type: "x-kr-admin"`), because the identifier grammar has no hyphen, so the
   // bare form tokenises as the expression `x - kr - admin` — which lower.ts
-  // reads as neither an Identifier nor a StringLiteral and silently keeps its
-  // `geojson` default. SOURCE_TYPES (@xgis/compiler) is the single authority
-  // for which spelling a type gets.
+  // reads as neither an Identifier nor a StringLiteral, leaving its `geojson`
+  // default standing (now loudly, via X-GIS0030).
+  //
+  // The test is the GRAMMAR's, NOT `SOURCE_TYPES` membership: `raster-dem` is a
+  // BUILT-IN that is also not identifier-shaped — the only such member — so a
+  // membership test emits it bare and it lowers as `geojson`. Measured on the
+  // membership predicate: `type: raster-dem` → lowered type "geojson", diagnostic
+  // `X-GIS0030 … got a BinaryExpr`, while the quoted control lowers to
+  // "raster-dem". `SOURCE_TYPES` stays the authority for which types EXIST; it is
+  // not the authority for how a name is SPELLED.
+  //
+  // `isBareIdentifierSafe` is that authority, and it also covers the half a
+  // hand-written regex here missed: an identifier-shaped KEYWORD. Pinned by
+  // blueprint/src/__tests__/source-type-roundtrip.test.ts.
   const type = d.type?.trim() || 'geojson'
-  lines.push(
-    `  type: ${(SOURCE_TYPES as readonly string[]).includes(type) ? type : JSON.stringify(type)}`,
-  )
+  lines.push(`  type: ${isBareIdentifierSafe(type) ? type : JSON.stringify(type)}`)
   if (d.url?.trim()) lines.push(`  url: ${JSON.stringify(d.url.trim())}`)
   const layers = (d.layers || '')
     .split(',')

@@ -103,17 +103,17 @@ export function decomposeFeatures(
     if (!geom) return
     if (geom.type === 'Polygon') {
       const rings = geom.coordinates as number[][][]
-      parts.push(makePolygonPart(rings, id))
+      pushPartWithWrap(parts, makePolygonPart(rings, id))
     } else if (geom.type === 'MultiPolygon') {
       for (const poly of geom.coordinates as number[][][][]) {
-        parts.push(makePolygonPart(poly, id))
+        pushPartWithWrap(parts, makePolygonPart(poly, id))
       }
     } else if (geom.type === 'LineString') {
       const coords = geom.coordinates as number[][]
-      pushLinePartWithWrap(parts, makeLinePart(coords, id))
+      pushPartWithWrap(parts, makeLinePart(coords, id))
     } else if (geom.type === 'MultiLineString') {
       for (const line of geom.coordinates as number[][][]) {
-        pushLinePartWithWrap(parts, makeLinePart(line, id))
+        pushPartWithWrap(parts, makeLinePart(line, id))
       }
     } else if (geom.type === 'Point') {
       const coord = geom.coordinates as number[]
@@ -165,6 +165,22 @@ function makePolygonPart(rings: number[][][], featureIndex: number): GeometryPar
   // makeLinePart). Polygon fill and outline both derive from the same
   // un-simplified `clipped` ring per tile (see processZoomLevelShared /
   // compileSingleTile), so they coincide by construction (d34aed2).
+  //
+  // Longitude is NOT unwrapped here, and that asymmetry with the line path is
+  // deliberate (#2550). A ring bounds an AREA, so it is read at face value: an
+  // edge of 340° is a 340°-wide box, NOT a 20° box folded across the seam. The
+  // two are indistinguishable from any single edge — `box(-170, 170)` and
+  // `box(170, -170)` differ only in winding — so a fold cannot be inferred, and
+  // guessing costs real geometry: data/src/sub-tile-generator.test.ts tiles a
+  // z=0 world parent whose ring is exactly [-170 … 170] and requires a
+  // mid-world z=2 child to receive fill. RFC 7946 §3.1.9 puts the burden on the
+  // producer to split at the antimeridian for the same reason. A polygon
+  // authored PAST the seam (170 → 190) is unambiguous and is served by the
+  // ±360 world copy `pushPartWithWrap` emits below, which is what #2550's
+  // actual defect — the beyond-180 half reaching no tile — needed.
+  // Lines are the opposite (subdivideLine carries them onto one branch,
+  // pinned by parallel-arc-fidelity.test.ts): a LineString's vertices are a
+  // path, and the short way is the interpolation a reader expects.
   const bbox = ringsBBox(rings[0])
   const mmRings = projectRingsToMM(rings)
   return { type: 'polygon', rings: mmRings, featureIndex, ...bbox }
@@ -179,10 +195,10 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
   return { type: 'line', coords: subdivided, featureIndex, ...bbox }
 }
 
-/** Push a line part plus, when it was authored past the antimeridian,
+/** Push a line or polygon part plus, when it reaches past the antimeridian,
  *  its ±360-shifted world-copy continuation — the inline-tiler equivalent
  *  of geojson-vt's `wrap()` (geojsonvt/wrap.ts: centre clip + shifted
- *  left/right buffer copies). #1221 round 2.
+ *  left/right buffer copies). #1221 round 2; polygons since #2550.
  *
  *  WHY: subdivideLine keeps a >±180-authored line MONOTONE
  *  (round 1), but every per-tile clip (clipLineToRect / compileSingleTile)
@@ -196,28 +212,36 @@ function makeLinePart(coords: number[][], featureIndex: number): GeometryPart {
  *  puts it exactly there (mirror: a <−180 line gets a +360 copy).
  *
  *  Shifting by an exact 360° multiple preserves the already-densified
- *  line geometry (Mercator x shifts by exactly one world width),
- *  so no re-subdivision is needed. Lines only — polygons clip/fill
- *  correctly through the existing path (task scope §3). */
-function pushLinePartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
+ *  line geometry / the tessellation-free ring (Mercator x shifts by exactly
+ *  one world width), so no re-subdivision and no re-tessellation is needed.
+ *
+ *  A polygon needs exactly the same treatment (#2550): the per-tile clip cuts
+ *  a ring at merc(±180) just as it cuts a line, so a box authored 170…190 had
+ *  its 180…190 half in NO tile at all. */
+function pushPartWithWrap(parts: GeometryPart[], part: GeometryPart): void {
   parts.push(part)
-  if (part.maxLon > 180) parts.push(shiftLinePartLon(part, -360))
-  else if (part.minLon < -180) parts.push(shiftLinePartLon(part, 360))
+  if (part.maxLon > 180) parts.push(shiftPartLon(part, -360))
+  else if (part.minLon < -180) parts.push(shiftPartLon(part, 360))
 }
 
-/** Shift a line part's longitudes (and lon bbox) by `offsetDeg` (an exact
- *  ±360° multiple). Latitude and vertex count are unchanged. */
-function shiftLinePartLon(part: GeometryPart, offsetDeg: number): GeometryPart {
-  const coords = part.coords!.map((c) => [c[0] + offsetDeg, c[1], ...c.slice(2)])
-  return {
-    type: 'line',
-    coords,
-    featureIndex: part.featureIndex,
+/** Shift a part's longitudes (and lon bbox) by `offsetDeg` (an exact ±360°
+ *  multiple). Latitude and vertex count are unchanged. Line coords are stored
+ *  in authored degrees, polygon rings in Mercator metres — and Mercator x is
+ *  linear in longitude, so the ring offset is `lonLatToMercF64(offsetDeg, 0).x`
+ *  read off the same projection authority the rings were built with. */
+function shiftPartLon(part: GeometryPart, offsetDeg: number): GeometryPart {
+  const shifted: GeometryPart = {
+    ...part,
     minLon: part.minLon + offsetDeg,
-    minLat: part.minLat,
     maxLon: part.maxLon + offsetDeg,
-    maxLat: part.maxLat,
   }
+  if (part.type === 'polygon') {
+    const offsetMM = lonLatToMercF64(offsetDeg, 0)[0]
+    shifted.rings = part.rings!.map((ring) => ring.map((c) => [c[0] + offsetMM, c[1]]))
+  } else {
+    shifted.coords = part.coords!.map((c) => [c[0] + offsetDeg, c[1], ...c.slice(2)])
+  }
+  return shifted
 }
 
 function ringsBBox(ring: number[][]): {
@@ -712,10 +736,21 @@ export function augmentRingWithArc(ring: number[][], opts?: { mmInput?: boolean 
  *    polylines (each representing a contiguous run of original
  *    polygon edges inside this tile). When the polygon is
  *    entirely inside the tile, a single closed ring is returned.
+ *
+ *  @param clipperInserted Identity set of the vertices the CLIP created
+ *    (`clipPolygonToRect`'s `insertedOut`). Pass it whenever the caller
+ *    still holds it: the geometry alone cannot tell a synthetic closing
+ *    edge from a REAL polygon edge that runs ALONG a tile side — a box on
+ *    lon 0 or on the equator is at distance 0 from the rect axis exactly
+ *    like the closing edge, and lost that side from its outline (#2553).
+ *    Omitted, the geometric predicate decides alone — the fallback for
+ *    rings that arrive without provenance (the runtime sub-tilers re-clip
+ *    a parent tile's STORED rings).
  */
 export function extractNonSyntheticArcs(
   ring: number[][],
   isSameBoundarySide: (a: number[], b: number[]) => boolean,
+  clipperInserted?: ReadonlySet<number[]>,
 ): number[][][] {
   const n = ring.length
   if (n < 2) return []
@@ -727,10 +762,47 @@ export function extractNonSyntheticArcs(
   // both endpoints can land on boundary lines but on DIFFERENT sides
   // (e.g. enters at x=west, exits at y=north). Those are real edges
   // of the source polygon and MUST keep rendering as stroke.
+  // With provenance the geometric verdict is NARROWED, never widened: an
+  // edge the clip did not create at BOTH ends is a real polygon edge, even
+  // when it lies flat on a rect axis (#2553). A vertex on the MERCATOR
+  // WORLD rect never narrows it — see `isOnMercWorldRect`.
+  const rescuesEdge = (v: number[]): boolean =>
+    clipperInserted !== undefined && !clipperInserted.has(v) && !isOnMercWorldRect(v)
   const edgeSynthetic: boolean[] = new Array(n)
+  let onRectEdges = 0
   for (let i = 0; i < n; i++) {
-    edgeSynthetic[i] = isSameBoundarySide(ring[i], ring[(i + 1) % n])
+    const a = ring[i],
+      b = ring[(i + 1) % n]
+    const onRect = isSameBoundarySide(a, b)
+    if (onRect) onRectEdges++
+    edgeSynthetic[i] = onRect && !rescuesEdge(a) && !rescuesEdge(b)
   }
+  // EVERY edge on the rect: there is no outline to draw INSIDE this tile, so
+  // emit none. Two different rings satisfy this, and the guard is right for
+  // both — but only the first is about interior, so do not restate it as an
+  // interior test (an earlier version of this comment did, and it is false):
+  //
+  //   * the COLLAPSED ring — a polygon lying outside the tile and merely
+  //     TOUCHING it (a box whose east side is exactly this tile's west edge)
+  //     clips to a run along that one edge. It has no interior here, and
+  //     provenance must not rescue it: the touching side's corners ARE the
+  //     source ring's own vertices, so `rescuesEdge` rightly calls them real
+  //     and the sliver would stroke a line down the tile border for a feature
+  //     that covers none of it.
+  //   * the ring that IS the tile rect — full interior, every edge on the
+  //     boundary. Its outline coincides with the tile edge, where the
+  //     neighbouring tile's own geometry meets it, so stroking it paints a
+  //     grid over the seams. Dropping it is the behaviour the pre-#2553
+  //     geometric predicate already had, pinned by the "a ring that is
+  //     ENTIRELY the tile rect" arm in clip-boundary-snap.test.ts.
+  //
+  // GEOMETRIC, not area-based, and that is load-bearing: `intersect` snaps a
+  // cut vertex's perpendicular coordinate to the tile grid, so a collapsed
+  // ring's shoelace is small but NOT zero — a first attempt gating on
+  // `shoelaceArea(ring) === 0` did not fix the sliver. `onRect` must therefore
+  // stay the PURELY geometric predicate; narrowing it (as a reverted runtime
+  // patch did, see #2603) stops this guard firing at all.
+  if (onRectEdges === n) return []
 
   // All edges real → original polygon is fully inside the tile.
   // Return the whole CLOSED ring (downstream treats closed=true so
@@ -768,13 +840,43 @@ export function extractNonSyntheticArcs(
   return arcs
 }
 
+/** Boundary-coincidence tolerance in Mercator metres — how close a vertex
+ *  must be to a rect axis to count as lying ON it. The DEFAULT of
+ *  `makeSameBoundarySidePredicateMerc`'s `eps`, so every caller inherits it by
+ *  omission; no production call site passes a literal. Deliberately shared with
+ *  `isOnMercWorldRect`: the world rect is a rect too, and "how close is ON" is
+ *  one physical question, so two equal constants would be two authorities for
+ *  it. */
+const BOUNDARY_EPS_MM = 1.0
+
+/** Half the Mercator world extent: lon ±180 and lat ±85.05 both project to
+ *  this magnitude. Derived from the SAME forward projection the rings are
+ *  built with, so a vertex authored at lon 180 lands on it exactly. */
+const MERC_WORLD_EDGE = lonLatToMercF64(180, 0)[0]
+
+/** Is this vertex on the Mercator WORLD rect (as opposed to some interior
+ *  tile boundary)? Provenance may not rescue an edge lying there: such an
+ *  edge was put there by the dataset's dateline split (Natural Earth cuts
+ *  every antimeridian-crossing country at lon ±180) or by the projection's
+ *  own latitude clamp, never by a polygon that continues past it — stroking
+ *  it draws the full-height seam line the user reported
+ *  (compiler/src/__tests__/antimeridian-outline-seam.test.ts). The clip
+ *  cannot supply provenance for those vertices because it never touches
+ *  them: they arrive already sitting on the tile rect. */
+function isOnMercWorldRect(v: number[]): boolean {
+  return (
+    Math.abs(Math.abs(v[0]) - MERC_WORLD_EDGE) < BOUNDARY_EPS_MM ||
+    Math.abs(Math.abs(v[1]) - MERC_WORLD_EDGE) < BOUNDARY_EPS_MM
+  )
+}
+
 /** Build the `isSameBoundarySide` predicate for a MM tile rect. */
 export function makeSameBoundarySidePredicateMerc(
   mxW: number,
   myS: number,
   mxE: number,
   myN: number,
-  eps: number = 1.0,
+  eps: number = BOUNDARY_EPS_MM,
 ): (a: number[], b: number[]) => boolean {
   return (a, b) => {
     // Both on x=mxW (tile west edge)
@@ -1116,6 +1218,9 @@ function processZoomLevelShared(
         // simplified fill at z<maxZoom diverged from its own stroke by
         // up to the tolerance (km at low zoom). simplify∘clip ≠
         // clip∘simplify, so simplifying the outline can't fix it either.
+        // The outline classifier needs to know which vertices the CLIP made
+        // (#2553) — see `extractNonSyntheticArcs`.
+        const clipInserted = new Set<number[]>()
         const clipped = clipPolygonToRect(
           sp.rings,
           tbMxW,
@@ -1123,6 +1228,7 @@ function processZoomLevelShared(
           tbMxE,
           tbMyN,
           precisionForZoomMM(z),
+          clipInserted,
         )
         if (clipped.length > 0 && clipped[0].length >= 3) {
           tileClippedRings.push(...clipped)
@@ -1200,10 +1306,10 @@ function processZoomLevelShared(
           // the outline strokes a seam at every internal tile boundary),
           // returning open boundary arcs or the whole closed ring when
           // fully interior.
-          const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN, 1.0)
+          const sidePred = makeSameBoundarySidePredicateMerc(tbMxW, tbMyS, tbMxE, tbMyN)
           for (const ring of clipped) {
             if (ring.length < 2) continue
-            for (const arc of extractNonSyntheticArcs(ring, sidePred)) {
+            for (const arc of extractNonSyntheticArcs(ring, sidePred, clipInserted)) {
               // mmInput augment adds per-tile arc + tangents WITHOUT
               // moving any vertex, so coincidence holds. Cross-tile
               // GLOBAL arc (3227174) is traded for exact coincidence:

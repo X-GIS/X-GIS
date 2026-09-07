@@ -273,6 +273,14 @@ export class PipelineFactory {
       bindGroupLayout: this._fillSplitLayout,
       vertexLayout: toVertexBufferLayout(POLYGON_FILL_FORMAT),
       pickEnabled,
+      // #2627 — these bytes are a per-STYLE composer variant (the emitted module carries the
+      // compiler's FILL_COLOR / STROKE_COLOR / OPACITY consts beside #2042's split blocks), so
+      // #2499's provenance gate must read them as OPEN SET. This is the one per-style caller
+      // whose program carried no `shader-<key>` label: `registerFillMaterials` reuses bytes the
+      // variant pipeline path already compiled under one (line ~1369), while this twin's only
+      // labels came from the generic `fill-*-rhi` set — which reads as a CLOSED-set family
+      // emitting at runtime, and reds the gate the moment this twin stops being dead code.
+      labelPrefix: `shader-${info.variant.key}/`,
     })
     this._fillPerStyleSplit.set(pipelines.fillPipeline, { mat: flat, variant: 0 })
     this._fillPerStyleSplit.set(pipelines.fillPipelineFallback, { mat: flat, variant: 1 })

@@ -106,7 +106,7 @@ export interface Demo {
    *
    *  Demo metadata for the same reason `pitch` is: the `.xgis` carries only style,
    *  and the Mapbox `terrain` block that would carry this is not lowered yet, so the
-   *  runtime lever (`map.hillshadeRenderer.setTerrainExaggeration`) is what a demo has.
+   *  runtime lever (`map.setTerrain({ exaggeration })`) is what a demo has.
    *  When that block lands this field goes away and the style owns it — it is a
    *  stopgap with a named end, not a second authority.
    *
