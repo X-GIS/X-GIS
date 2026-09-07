@@ -7,53 +7,25 @@
 // Mercator DSFUN math as the point/icon/arrow packers, so the shader's shared geo→clip ladder
 // applies unchanged.
 
-import { worldCopyMercX } from '../render/point-feature-packer'
-import { hexToRgba } from '../feature-helpers'
-import { lonLatToECEF } from '@xgis/shared'
-import { latToMercatorY } from '@xgis/geo'
 import {
-  CIRCLE_RETAINED_FEAT,
-  CIRCLE_RETAINED_TINT_STRIDE,
-} from '../shaders/dsl/circle-retained-feat-layout'
-import type { CircleDrawSpec, IconColor, Position, Packed } from './graphics-types'
+  WHITE_RGBA,
+  normColor,
+  packGeoPointDsfun,
+  packRetainedTint,
+  resolve,
+} from './retained-pack-common'
+import { CIRCLE_RETAINED_FEAT } from '../shaders/dsl/circle-retained-feat-layout'
+import type { CircleDrawSpec, Position } from './graphics-types'
 
 const F = CIRCLE_RETAINED_FEAT.slot
 const STRIDE = CIRCLE_RETAINED_FEAT.stride
-
-function resolve<T, D>(acc: Packed<T, D> | undefined, d: D, i: number): T | undefined {
-  return typeof acc === 'function' ? (acc as (d: D, i: number) => T)(d, i) : acc
-}
-
-/** Fill defaults to WHITE (opaque); stroke defaults to TRANSPARENT (no ring). */
-function normColor(
-  c: IconColor | undefined,
-  dflt: [number, number, number, number],
-): [number, number, number, number] {
-  if (c === undefined) return dflt
-  if (typeof c === 'string') {
-    // #1666 — this fallback used to be DEAD: the parser was total and answered opaque
-    // BLACK for a caller-supplied `'red'` / `'rebeccapurple'` / typo, so the default the
-    // next line asks for was unreachable. `hexToRgba` answers null and it runs.
-    const parsed = hexToRgba(c)
-    return parsed ? [parsed[0], parsed[1], parsed[2], parsed[3]] : dflt
-  }
-  return [c[0], c[1], c[2], c[3] ?? 1]
-}
+/** A circle's stroke defaults to TRANSPARENT (no ring) — unlike every other retained
+ *  colour, whose default is opaque white. */
+const NO_STROKE: readonly [number, number, number, number] = [0, 0, 0, 0]
 
 /** Pack the per-instance `tint` buffer (fill rgba). Runs getColor once per item. */
 export function packRetainedCircleTint<D>(spec: CircleDrawSpec<D>): Float32Array {
-  const data = spec.data
-  const n = data.length
-  const tint = new Float32Array(n * CIRCLE_RETAINED_TINT_STRIDE)
-  for (let i = 0; i < n; i++) {
-    const [r, g, b, a] = normColor(resolve(spec.getColor, data[i]!, i), [1, 1, 1, 1])
-    const o = i * CIRCLE_RETAINED_TINT_STRIDE
-    tint[o] = r
-    tint[o + 1] = g
-    tint[o + 2] = b
-    tint[o + 3] = a
-  }
-  return tint
+  return packRetainedTint(spec.data, spec.getColor, WHITE_RGBA)
 }
 
 /** Pack the per-instance `feat` buffer (geo anchor DSFUN + radius + stroke). Runs getPosition /
@@ -70,30 +42,11 @@ export function packRetainedCircleFeat<D>(spec: CircleDrawSpec<D>, dpr: number):
     const lon = pos ? pos[0] : 0
     const lat = pos ? pos[1] : 0
 
-    const ecef = lonLatToECEF(lon, lat)
-    const exH = Math.fround(ecef[0])
-    const eyH = Math.fround(ecef[1])
-    const ezH = Math.fround(ecef[2])
-    feat[o + F.ecef_x_h] = exH
-    feat[o + F.ecef_y_h] = eyH
-    feat[o + F.ecef_z_h] = ezH
-    feat[o + F.ecef_x_l] = ecef[0] - exH
-    feat[o + F.ecef_y_l] = ecef[1] - eyH
-    feat[o + F.ecef_z_l] = ecef[2] - ezH
-    feat[o + F.abs_lon] = lon
-    feat[o + F.abs_lat] = lat
-    const mx = worldCopyMercX(lon, 0)
-    const my = latToMercatorY(lat)
-    const mxH = Math.fround(mx)
-    const myH = Math.fround(my)
-    feat[o + F.merc_x_h] = mxH
-    feat[o + F.merc_x_l] = Math.fround(mx - mxH)
-    feat[o + F.merc_y_h] = myH
-    feat[o + F.merc_y_l] = Math.fround(my - myH)
+    packGeoPointDsfun(feat, o + F.ecef_x_h, lon, lat)
 
     feat[o + F.radius_px] = (resolve<number, D>(spec.getRadius, d, i) ?? 4) * dpr
     feat[o + F.stroke_width_px] = (resolve<number, D>(spec.getStrokeWidth, d, i) ?? 0) * dpr
-    const [sr, sg, sb, sa] = normColor(resolve(spec.getStrokeColor, d, i), [0, 0, 0, 0])
+    const [sr, sg, sb, sa] = normColor(resolve(spec.getStrokeColor, d, i), NO_STROKE)
     feat[o + F.stroke_r] = sr
     feat[o + F.stroke_g] = sg
     feat[o + F.stroke_b] = sb
