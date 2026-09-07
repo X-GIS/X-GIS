@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 526c18623cc0edff46bbe89dd8321d65977b96e3
+  Generated from: 9ec36b206ca20a43d3fc1e3eba72d37d26a23199
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 526c18623cc0
+    bun scripts/emit-changelog.ts --since 9ec36b206ca2
 -->
 
 # Changelog
@@ -240,6 +240,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### ci
 
+- **mirror:** stop actions/checkout's credential from outranking the mirror token ([#2654](https://github.com/X-GIS/X-GIS/pull/2654)) `9ec36b2`
 - **render:** keep the failing frames and traces the render gates already write (#2282) ([#2285](https://github.com/X-GIS/X-GIS/pull/2285)) `17c1bf8`
 - patrol main's tip for base-red, and stop a push run being evicted while pending (#2135) ([#2220](https://github.com/X-GIS/X-GIS/pull/2220)) `c68f0e2`
 - **render:** record the runner's font families, so a red glyph gate names its own cause ([#1965](https://github.com/X-GIS/X-GIS/pull/1965)) `85a94ca`
