@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 1a7309a8398027db7b5aeccb1accf105ccad81cc
+  Generated from: 526c18623cc0edff46bbe89dd8321d65977b96e3
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 1a7309a83980
+    bun scripts/emit-changelog.ts --since 526c18623cc0
 -->
 
 # Changelog
@@ -25,10 +25,13 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 - **shader-dsl:** **BREAKING** a fn body that returns nothing must name its return type (#2458) ([#2481](https://github.com/X-GIS/X-GIS/pull/2481)) `34efec1`
 - **shader-dsl:** **BREAKING** KeyOf gains its struct, array and void arms (#2456) ([#2467](https://github.com/X-GIS/X-GIS/pull/2467)) `cab3996`
+- **map:** **BREAKING** drop two members from the published surface, and typecheck the examples that consume it ([#2638](https://github.com/X-GIS/X-GIS/pull/2638)) `a4e7371`
 - **map:** **BREAKING** publish the 45 XGISMap members consumers use, not all 215 ([#2622](https://github.com/X-GIS/X-GIS/pull/2622)) `1a7309a`
 
 #### feat
 
+- **ci:** type-check scripts/, which no tsconfig program covered (#2617) ([#2644](https://github.com/X-GIS/X-GIS/pull/2644)) `5a312a8`
+- **e2e:** a capture can require its settle to have converged (#2556) ([#2640](https://github.com/X-GIS/X-GIS/pull/2640)) `7edf967`
 - **playground:** re-bake the shader artifacts in the dev server on every edit they depend on ([#2588](https://github.com/X-GIS/X-GIS/pull/2588)) `e7ced65`
 - **map/terrain:** D5 INC-1→3 — the DEM reaches the vertex, and the ground moves (#2525, #2532, #2539) `de40fba`
 - **quality:** add the shape lens — the Type-2 duplication the token gate cannot see ([#2566](https://github.com/X-GIS/X-GIS/pull/2566)) `7603a1b`
@@ -52,6 +55,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **site:** three typecheck fixes, 69 errors → 37 ([#2651](https://github.com/X-GIS/X-GIS/pull/2651)) `3fbb59a`
+- **map/render:** the vector drape composites its premultiplied bake with premultiplied blend (#2134) ([#2615](https://github.com/X-GIS/X-GIS/pull/2615)) `53b7d23`
+- **compiler:** the 2026-09-05 front-end / tiler hunt — antimeridian, clip provenance, and the colour shapes the lexer refused ([#2575](https://github.com/X-GIS/X-GIS/pull/2575)) `60c50de`
+- **render:** a draped base-layout show keeps its per-style pipeline (#2584) ([#2620](https://github.com/X-GIS/X-GIS/pull/2620)) `7c1ade7`
 - **map/lifecycle:** setQuality during the reinit window no longer calls into destroyed renderers (#2515) ([#2600](https://github.com/X-GIS/X-GIS/pull/2600)) `ee49a73`
 - **map/render:** the categorical palette diagnostic watches the birthday bound, not the pigeonhole one (#2579) ([#2633](https://github.com/X-GIS/X-GIS/pull/2633)) `bf39f54`
 - **test:** close ISOLATED rule (2), and quarantine the eight files that were drifting ([#2624](https://github.com/X-GIS/X-GIS/pull/2624)) `cf17e5b`
@@ -170,6 +177,10 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map:** lift `renderTileKeys()`'s three blocks out of the class (#2508 step 3) `7664ea2`
+- **geo:** delete the private invert4x4 — shared's already does what its docblock asks ([#2643](https://github.com/X-GIS/X-GIS/pull/2643)) `4236992`
+- **data:** one home for the three feature-expression extractors (row 4) ([#2645](https://github.com/X-GIS/X-GIS/pull/2645)) `e452818`
+- **shared:** one hex-colour parser for the three that existed ([#2639](https://github.com/X-GIS/X-GIS/pull/2639)) `dbf09fe`
 - **compiler,data:** one fill-vertex packing kernel for two producers (audit S15) ([#2632](https://github.com/X-GIS/X-GIS/pull/2632)) `1260623`
 - **shader-dsl:** one substitution-pass skeleton for three passes (audit S14) ([#2630](https://github.com/X-GIS/X-GIS/pull/2630)) `0958ccd`
 - **map:** one drag-anchor capture instead of two (audit S8) ([#2628](https://github.com/X-GIS/X-GIS/pull/2628)) `65f8e73`
@@ -188,6 +199,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **shader-dsl:** standalone product line and monetization strategy ([#2642](https://github.com/X-GIS/X-GIS/pull/2642)) `526c186`
 - **data/tiles:** resetCompileBudget has no frame-id short-circuit — say so at all six sites, and pin it (#2277) ([#2629](https://github.com/X-GIS/X-GIS/pull/2629)) `6a9b938`
 - **claude:** the categorical palette space is 512, not 20 — correct the §12 figure ([#2618](https://github.com/X-GIS/X-GIS/pull/2618)) `1b8c03f`
 - **claude:** a cause read off a condition is worth less than one counter ([#2612](https://github.com/X-GIS/X-GIS/pull/2612)) `3708e87`
@@ -203,6 +215,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** gate the hung-tile-host path nothing could see (#2626) ([#2647](https://github.com/X-GIS/X-GIS/pull/2647)) `2a37212`
 - **playground/e2e:** retire _icon-rhi-parity, and correct the coverage it was cited for (#2130) ([#2616](https://github.com/X-GIS/X-GIS/pull/2616)) `d287891`
 - **compiler/diagnostics:** assert the X-GIS code registry is a set (#2594) ([#2596](https://github.com/X-GIS/X-GIS/pull/2596)) `75e40fb`
 - **playground/e2e:** multiline-labels gate measures the wrap through the mandated helpers, and is registered (#2455) ([#2524](https://github.com/X-GIS/X-GIS/pull/2524)) `2ae9b84`
