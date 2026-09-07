@@ -27,7 +27,7 @@
 
 import { tileKey } from '@xgis/compiler'
 import { globeVisibleTiles } from '@xgis/data'
-import { isGlobeProj } from '@xgis/geo'
+import { routeToSphereSelector } from '@xgis/geo'
 import { activeBody } from '@xgis/shared'
 import type { DrapeOverzoomTile } from './vector-drape-renderer'
 
@@ -82,9 +82,11 @@ export interface DrapeOverzoomSource {
  *  darken translucent fills). Side effects on the miss path only: GPU-uploads
  *  an ancestor the catalog already holds, and requests the ones it doesn't.
  *
- *  Globe route only: the virtual set must come from the selector that owns
- *  globe visibility; the flat-disc drape trio (3/4/5) selects via SSE and
- *  keeps the parent-magnified behaviour for now (follow-up noted on #2024). */
+ *  Sphere-routed projections only: the virtual set enumerates via
+ *  `globeVisibleTiles`, gated on `routeToSphereSelector` — the same predicate
+ *  `tile-selection-cache.ts:739` uses to pick that selector. The only caller
+ *  (`vector-tile-renderer.ts`) further restricts to `bakesVectorDrape`, so
+ *  oblique_mercator(6) never arrives here. */
 export function computeDrapeOverzoom(a: {
   camera: {
     zoom: number
@@ -92,6 +94,10 @@ export function computeDrapeOverzoom(a: {
     centerLatDeg: number
     pitch?: number
     bearing?: number
+    /** `routeToSphereSelector`'s second argument (camera.ts:163) — needed
+     *  because the disc trio (3/4/5) sphere-routes at pitch 0 without ever
+     *  setting `projType` to globe(7) (#2346 disc half). */
+    globeMode: boolean
   }
   projType: number
   /** The selection's resolved LOD — maxLevel-clamped at overzoom. */
@@ -166,10 +172,11 @@ export function computeDrapeOverzoom(a: {
   // The trigger reads the EFFECTIVE level — the one the frame actually bakes at,
   // after the split. Comparing the pre-split level here is what turned the
   // exact-integer deviceZoom into a silent no-op.
-  if (!isGlobeProj(a.projType) || srcMaxLevel <= 0 || effectiveZ <= a.currentZ) {
+  const sphereRouted = routeToSphereSelector(a.projType, a.camera.globeMode)
+  if (!sphereRouted || srcMaxLevel <= 0 || effectiveZ <= a.currentZ) {
     if (diag)
-      diag.reason = !isGlobeProj(a.projType)
-        ? 'not-globe'
+      diag.reason = !sphereRouted
+        ? 'not-sphere-routed'
         : srcMaxLevel <= 0
           ? 'no-levels'
           : 'no-deeper-level'

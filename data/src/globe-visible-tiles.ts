@@ -119,9 +119,11 @@ export function globeVisibleTiles(
   // 5-sample descent/cull below is geometrically meaningless — the
   // descent prune (`!anyFront` under a ~0° cone) collapses the set
   // to ~1 tile and globe/oblique go near-blank past z≈15. (ortho/
-  // azi/stereo are unaffected: vtr.ts:2951 routes only globe(7) /
-  // oblique(6) / nearAntimeridian here; the others use the overzoom-
-  // capable visibleTilesSSE.) Bypass the heuristic entirely in the
+  // azi/stereo sphere-route through this SAME function:
+  // tile-selection-cache.ts:739's routeToSphereSelector sends the whole
+  // disc trio through globeVisibleTiles too, not only
+  // globe(7)/oblique(6)/nearAntimeridian.)
+  // Bypass the heuristic entirely in the
   // overzoom regime: unproject the viewport corners + edges onto the
   // sphere, take the lon/lat bbox, emit every maxZ tile covering it
   // — the same overzoom set visibleTilesSSE yields for the flat
