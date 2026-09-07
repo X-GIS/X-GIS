@@ -7,6 +7,7 @@
 // without re-export.
 
 import type { Easing, ShaderVariantInfo } from './renderer-types'
+import { parseHexRgba } from '@xgis/shared'
 
 // ═══ Polygon skip-fill-draw predicate ═══
 //
@@ -33,46 +34,9 @@ export function variantProducesFill(v: ShaderVariantInfo | null | undefined): bo
 // ═══ Color parsing ═══
 
 export function parseColor(hex: string): [number, number, number, number] {
-  let r = 0,
-    g = 0,
-    b = 0,
-    a = 1
-  // Reject non-hex content early. Mirror of the feature-helpers
-  // hexToRgba regex gate (caad699) — without it `parseInt('zz',
-  // 16)` = NaN propagated to colour channels and the GPU sampled
-  // undefined behaviour. NOTE (#1666): this is the FOURTH copy of that
-  // gate and the last total parser in map/src — feature-helpers folded
-  // its two into one null-returning `hexToRgba`; `parseColor` still
-  // answers opaque black and has one caller (renderer.ts:82).
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-    return [0, 0, 0, 1]
-  }
-  if (hex.length === 4) {
-    // #RGB
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-  } else if (hex.length === 5) {
-    // #RGBA — CSS Color Module 4 short-alpha. Pre-fix this length
-    // fell to the [0,0,0,1] default; mirror of the feature-helpers
-    // hexToRgba fix (6acc299).
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-    a = parseInt(hex[4] + hex[4], 16) / 255
-  } else if (hex.length === 7) {
-    // #RRGGBB
-    r = parseInt(hex.substring(1, 3), 16) / 255
-    g = parseInt(hex.substring(3, 5), 16) / 255
-    b = parseInt(hex.substring(5, 7), 16) / 255
-  } else if (hex.length === 9) {
-    // #RRGGBBAA
-    r = parseInt(hex.substring(1, 3), 16) / 255
-    g = parseInt(hex.substring(3, 5), 16) / 255
-    b = parseInt(hex.substring(5, 7), 16) / 255
-    a = parseInt(hex.substring(7, 9), 16) / 255
-  }
-  return [r, g, b, a]
+  // Total by contract — one caller (renderer.ts:82) has no branch for a rejected
+  // colour, so an unparseable hex answers opaque black rather than propagating.
+  return parseHexRgba(hex) ?? [0, 0, 0, 1]
 }
 
 /** Interpolate between sorted zoom stops.

@@ -8,6 +8,7 @@
 import { evaluate, makeEvalProps } from '@xgis/compiler'
 import type * as AST from '@xgis/compiler'
 import type { GeoJSONFeatureCollection } from '@xgis/data'
+import { parseHexRgba } from '@xgis/shared'
 
 // ─── Color helpers ─────────────────────────────────────────────────
 
@@ -31,38 +32,11 @@ import type { GeoJSONFeatureCollection } from '@xgis/data'
  *  SITE (`?? [1, 1, 1, 1]`, `?? dflt`, `?? layerConstant`), where the
  *  reliance is visible in review instead of buried in this function. */
 export function hexToRgba(hex: string | null | undefined): [number, number, number, number] | null {
+  // Partial by contract, unlike its two siblings: callers here distinguish "no colour"
+  // from "black", so a rejected shape stays null. The nullish input guard is this
+  // site's own — the shared kernel takes a string.
   if (typeof hex !== 'string') return null
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-    return null
-  }
-  let r = 0,
-    g = 0,
-    b = 0,
-    a = 1
-  if (hex.length === 4) {
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-  } else if (hex.length === 5) {
-    // CSS Color Module 4 short-alpha form `#rgba` — each digit doubles
-    // to a full byte. Pre-fix this length fell to the default
-    // [0,0,0,1] and the colour silently turned black on any style
-    // emitting `#xxxa`.
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-    a = parseInt(hex[4] + hex[4], 16) / 255
-  } else if (hex.length === 7) {
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-  } else if (hex.length === 9) {
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-    a = parseInt(hex.slice(7, 9), 16) / 255
-  }
-  return [r, g, b, a]
+  return parseHexRgba(hex)
 }
 
 // ─── Geometry helpers ──────────────────────────────────────────────
