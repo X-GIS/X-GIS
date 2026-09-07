@@ -1,4 +1,5 @@
 import { resolveColor } from '../tokens/colors'
+import { HEX_COLOR_RE } from '@xgis/shared'
 
 /** Mapbox colour value → xgis colour fragment (the bit between
  *  `fill-` / `stroke-` and any trailing modifiers).
@@ -66,7 +67,7 @@ export function colorToXgis(v: unknown, warnings: string[]): string | null {
       // diagnostic. Warn + fall through to null so the caller can
       // skip emission and the layer doesn't masquerade as solid
       // black.
-      if (/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v)) {
+      if (HEX_COLOR_RE.test(v)) {
         return v.toLowerCase()
       }
       warnings.push(

@@ -5,6 +5,7 @@
 export * from './body'
 export * from './ecef'
 export * from './quantize'
+export { parseHexRgba, HEX_COLOR_RE } from './color'
 // Cross-cutting content/data utils extracted from the pre-split engine tree (P3): logging,
 // debug flags, and the safety guards — dependency-free, used by @xgis/map + @xgis/data.
 export * from './log'
