@@ -69,9 +69,9 @@ export const DEMOS_THEMATIC: Record<string, Demo> = {
     bearing: 20,
     terrainExaggeration: 1.5,
     actions: [
-      { label: 'Flat (0×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(0) },
-      { label: 'Real (1×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(1) },
-      { label: 'Exaggerated (3×)', run: (m) => m.hillshadeRenderer.setTerrainExaggeration(3) },
+      { label: 'Flat (0×)', run: (m) => m.setTerrain({ exaggeration: 0 }) },
+      { label: 'Real (1×)', run: (m) => m.setTerrain({ exaggeration: 1 }) },
+      { label: 'Exaggerated (3×)', run: (m) => m.setTerrain({ exaggeration: 3 }) },
     ],
   },
 

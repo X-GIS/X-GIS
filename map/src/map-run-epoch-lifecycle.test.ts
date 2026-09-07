@@ -8,7 +8,7 @@
 // GPU surface can't trip the 3-strike halt and flip `running` mid-assertion (A11).
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { XGISMap } from '@xgis/map'
+import { XGISMap } from './map'
 import { serializeXGB } from '@xgis/compiler'
 import { CoverageRenderer } from './render/coverage-renderer'
 import { SYNTHETIC_EARTH_SURFACE_SOURCE } from './synthetic-earth-surface-show'

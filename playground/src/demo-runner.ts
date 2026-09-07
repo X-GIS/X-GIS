@@ -1915,7 +1915,7 @@ async function loadDemo(idx: number) {
   // demo must not flatten it. 0 (every other demo) leaves the ground bit-identical —
   // `dem_sub.w` is the multiplier, so "no terrain" is a multiply by exactly 0.0.
   if (currentMap && demo.terrainExaggeration !== undefined) {
-    currentMap.hillshadeRenderer.setTerrainExaggeration(demo.terrainExaggeration)
+    currentMap.setTerrain({ exaggeration: demo.terrainExaggeration })
   }
 
   // Post-run hook: inline-source fixtures need the host to push
@@ -2218,7 +2218,7 @@ selectEl.addEventListener('change', () => loadDemo(parseInt(selectEl.value)))
       // bounds-fit) explicitly positioned us yet. URL hash camera
       // (parseHash → markCameraPositioned at boot) wins because the
       // flag check below short-circuits.
-      if (currentMap && !currentMap._cameraPositionedFlag) {
+      if (currentMap && !currentMap.isCameraPositioned()) {
         const cam = currentMap.getCamera()
         let anyApplied = false
         if (Array.isArray(styleCenter) && styleCenter.length === 2) {
