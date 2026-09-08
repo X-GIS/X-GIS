@@ -20,15 +20,9 @@
 // two-point trick, so the drift direction is geographic. Position packing reuses the SAME ECEF/
 // Mercator DSFUN math as the point/icon/arrow/circle packers.
 
-import { worldCopyMercX } from '../render/point-feature-packer'
-import { hexToRgba } from '../feature-helpers'
-import { lonLatToECEF } from '@xgis/shared'
-import { latToMercatorY } from '@xgis/geo'
-import {
-  PARTICLE_RETAINED_FEAT,
-  PARTICLE_RETAINED_TINT_STRIDE,
-} from '../shaders/dsl/particle-retained-feat-layout'
-import type { ParticleFlowDrawSpec, IconColor, Position, Packed } from './graphics-types'
+import { WHITE_RGBA, packGeoPointDsfun, packRetainedTint, resolve } from './retained-pack-common'
+import { PARTICLE_RETAINED_FEAT } from '../shaders/dsl/particle-retained-feat-layout'
+import type { ParticleFlowDrawSpec, Position } from './graphics-types'
 
 const F = PARTICLE_RETAINED_FEAT.slot
 const STRIDE = PARTICLE_RETAINED_FEAT.stride
@@ -50,22 +44,6 @@ const DEFAULT_DRIFT_PX = 40 // drift length over one lifetime
 const DEFAULT_LIFETIME_S = 2.5 // drift-and-respawn period
 const DEFAULT_RADIUS_PX = 2 // disc radius (small dots read as flow)
 const DEFAULT_SEED = 1 // deterministic PRNG seed (§5 reproducibility)
-
-function resolve<T, D>(acc: Packed<T, D> | undefined, d: D, i: number): T | undefined {
-  return typeof acc === 'function' ? (acc as (d: D, i: number) => T)(d, i) : acc
-}
-
-function normColor(c: IconColor | undefined): [number, number, number, number] {
-  if (c === undefined) return [1, 1, 1, 1]
-  if (typeof c === 'string') {
-    // #1666 — this fallback used to be DEAD: the parser was total and answered opaque
-    // BLACK for a caller-supplied `'red'` / `'rebeccapurple'` / typo, so the default the
-    // next line asks for was unreachable. `hexToRgba` answers null and it runs.
-    const parsed = hexToRgba(c)
-    return parsed ? [parsed[0], parsed[1], parsed[2], parsed[3]] : [1, 1, 1, 1]
-  }
-  return [c[0], c[1], c[2], c[3] ?? 1]
-}
 
 /** mulberry32 — a tiny deterministic PRNG. Seeded per pack so a given spec always yields the
  *  identical jitter + phase (the §5 pinned-`t` reproducibility contract). */
@@ -169,31 +147,6 @@ export function allocateParticleCounts<D>(spec: ParticleFlowDrawSpec<D>): number
   return counts
 }
 
-/** Write one geo point's ECEF + Mercator DSFUN into feat[base .. base+11] — the 12-slot block
- *  shared by the origin (base 0) and the direction tip (base 12). Mirrors the arrow/point packers. */
-function packGeoPoint(feat: Float32Array, base: number, lon: number, lat: number): void {
-  const ecef = lonLatToECEF(lon, lat)
-  const exH = Math.fround(ecef[0])
-  const eyH = Math.fround(ecef[1])
-  const ezH = Math.fround(ecef[2])
-  feat[base + 0] = exH
-  feat[base + 1] = eyH
-  feat[base + 2] = ezH
-  feat[base + 3] = ecef[0] - exH
-  feat[base + 4] = ecef[1] - eyH
-  feat[base + 5] = ecef[2] - ezH
-  feat[base + 6] = lon
-  feat[base + 7] = lat
-  const mx = worldCopyMercX(lon, 0)
-  const my = latToMercatorY(lat)
-  const mxH = Math.fround(mx)
-  const myH = Math.fround(my)
-  feat[base + 8] = mxH
-  feat[base + 9] = Math.fround(mx - mxH)
-  feat[base + 10] = myH
-  feat[base + 11] = Math.fround(my - myH)
-}
-
 /** Pack the per-particle `feat` buffer (jittered origin + direction tip + drift params). Runs
  *  getPosition / getBearing / getVolume once per gu cell; `dpr` scales the px sizes to physical px.
  *  DETERMINISTIC: the seeded PRNG + the fixed cell-then-particle walk order make every pack of the
@@ -230,11 +183,11 @@ export function packRetainedParticleFeat<D>(
       const r = Math.sqrt(rng()) * seedRadiusM
       const lat = clat + (r * Math.cos(ang)) / M_PER_DEG
       const lon = clon + (r * Math.sin(ang)) / (M_PER_DEG * cosLat)
-      packGeoPoint(feat, o + F.ecef_x_h, lon, lat) // origin block (base 0)
+      packGeoPointDsfun(feat, o + F.ecef_x_h, lon, lat) // origin block (base 0)
       // Tip = origin stepped one bearing-step along the gu outflow direction (0=N, CW). East → lon.
       const tLat = lat + cosB * TIP_STEP_DEG
       const tLon = lon + (sinB * TIP_STEP_DEG) / (Math.cos(lat * DEG2RAD) || 1)
-      packGeoPoint(feat, o + F.tip_ecef_x_h, tLon, tLat) // tip block (base 12)
+      packGeoPointDsfun(feat, o + F.tip_ecef_x_h, tLon, tLat) // tip block (base 12)
       feat[o + F.radius_px] = radiusPx
       feat[o + F.drift_px] = driftPx
       feat[o + F.lifetime_s] = lifetime
@@ -249,21 +202,5 @@ export function packRetainedParticleFeat<D>(
  *  getColor once per gu cell. Uses the SAME deterministic allocation as the feat pack, so tint slot
  *  i lines up with feat particle i. */
 export function packRetainedParticleTint<D>(spec: ParticleFlowDrawSpec<D>): Float32Array {
-  const cells = spec.data
-  const counts = allocateParticleCounts(spec)
-  const total = counts.reduce((a, b) => a + b, 0)
-  const tint = new Float32Array(total * PARTICLE_RETAINED_TINT_STRIDE)
-  let p = 0
-  for (let c = 0; c < cells.length; c++) {
-    const [r, g, b, a] = normColor(resolve(spec.getColor, cells[c]!, c))
-    for (let k = 0; k < counts[c]!; k++) {
-      const o = p * PARTICLE_RETAINED_TINT_STRIDE
-      tint[o] = r
-      tint[o + 1] = g
-      tint[o + 2] = b
-      tint[o + 3] = a
-      p++
-    }
-  }
-  return tint
+  return packRetainedTint(spec.data, spec.getColor, WHITE_RGBA, allocateParticleCounts(spec))
 }

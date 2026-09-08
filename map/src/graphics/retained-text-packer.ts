@@ -13,15 +13,9 @@
 // TextStage internals, and never forks glyph layout. The per-glyph pen-walk + quad + UV arithmetic
 // mirrors TextRenderer.setDraws (the single-line, no-per-glyph-offset branch) read-only.
 
-import { worldCopyMercX } from '../render/point-feature-packer'
-import { hexToRgba } from '../feature-helpers'
-import { lonLatToECEF } from '@xgis/shared'
-import { latToMercatorY } from '@xgis/geo'
-import {
-  TEXT_RETAINED_FEAT,
-  TEXT_RETAINED_TINT_STRIDE,
-} from '../shaders/dsl/text-retained-feat-layout'
-import type { TextDrawSpec, IconColor, IconAnchor, Position, Packed } from './graphics-types'
+import { WHITE_RGBA, packGeoPointDsfun, packRetainedTint, resolve } from './retained-pack-common'
+import { TEXT_RETAINED_FEAT } from '../shaders/dsl/text-retained-feat-layout'
+import type { TextDrawSpec, IconAnchor, Position } from './graphics-types'
 
 const F = TEXT_RETAINED_FEAT.slot
 const STRIDE = TEXT_RETAINED_FEAT.stride
@@ -90,50 +84,6 @@ const VFACTOR: Record<IconAnchor, number> = {
   top: 1,
   'top-left': 1,
   'top-right': 1,
-}
-
-/** Resolve a `Packed<T,D>` accessor for item `i` — a function runs ONCE, a constant is returned
- *  as-is. Never invoked per frame. */
-function resolve<T, D>(acc: Packed<T, D> | undefined, d: D, i: number): T | undefined {
-  return typeof acc === 'function' ? (acc as (d: D, i: number) => T)(d, i) : acc
-}
-
-/** Normalise an IconColor to an rgba tuple in 0..1 (default white = opaque fill). */
-function normColor(c: IconColor | undefined): [number, number, number, number] {
-  if (c === undefined) return [1, 1, 1, 1]
-  if (typeof c === 'string') {
-    // #1666 — this fallback used to be DEAD: the parser was total and answered opaque
-    // BLACK for a caller-supplied `'red'` / `'rebeccapurple'` / typo, so the default the
-    // next line asks for was unreachable. `hexToRgba` answers null and it runs.
-    const parsed = hexToRgba(c)
-    return parsed ? [parsed[0], parsed[1], parsed[2], parsed[3]] : [1, 1, 1, 1]
-  }
-  return [c[0], c[1], c[2], c[3] ?? 1]
-}
-
-/** Write the 12-slot ECEF/abs/Mercator DSFUN anchor block at feat offset `o` (identical to the
- *  point/icon/circle packers — the shader's shared geo→clip ladder reads it verbatim). */
-function writeAnchorDsfun(feat: Float32Array, o: number, lon: number, lat: number): void {
-  const ecef = lonLatToECEF(lon, lat)
-  const exH = Math.fround(ecef[0])
-  const eyH = Math.fround(ecef[1])
-  const ezH = Math.fround(ecef[2])
-  feat[o + F.ecef_x_h] = exH
-  feat[o + F.ecef_y_h] = eyH
-  feat[o + F.ecef_z_h] = ezH
-  feat[o + F.ecef_x_l] = ecef[0] - exH
-  feat[o + F.ecef_y_l] = ecef[1] - eyH
-  feat[o + F.ecef_z_l] = ecef[2] - ezH
-  feat[o + F.abs_lon] = lon
-  feat[o + F.abs_lat] = lat
-  const mx = worldCopyMercX(lon, 0)
-  const my = latToMercatorY(lat)
-  const mxH = Math.fround(mx)
-  const myH = Math.fround(my)
-  feat[o + F.merc_x_h] = mxH
-  feat[o + F.merc_x_l] = Math.fround(mx - mxH)
-  feat[o + F.merc_y_h] = myH
-  feat[o + F.merc_y_l] = Math.fround(my - myH)
 }
 
 /** A datum shaped once in the first pass — cached so the second (fill) pass never re-runs accessors
@@ -225,7 +175,7 @@ export function packRetainedTextFeat<D>(
       const gx = baseX + pen + gl.bearingX * sc - (drawW - gl.width * sc) * 0.5
       const gy = baseY - gl.bearingY * sc - (drawH - gl.height * sc) * 0.5
 
-      writeAnchorDsfun(feat, o, s.lon, s.lat)
+      packGeoPointDsfun(feat, o + F.ecef_x_h, s.lon, s.lat)
       feat[o + F.off_x] = gx * dpr
       feat[o + F.off_y] = gy * dpr
       feat[o + F.size_w] = drawW * dpr
@@ -250,23 +200,5 @@ export function packRetainedTextTint<D>(
   spec: TextDrawSpec<D>,
   glyphCounts: Uint32Array,
 ): Float32Array {
-  const data = spec.data
-  const n = Math.min(data.length, glyphCounts.length)
-  let total = 0
-  for (let i = 0; i < n; i++) total += glyphCounts[i]!
-  const tint = new Float32Array(total * TEXT_RETAINED_TINT_STRIDE)
-  let o = 0
-  for (let i = 0; i < n; i++) {
-    const count = glyphCounts[i]!
-    if (count === 0) continue
-    const [r, g, b, a] = normColor(resolve(spec.getColor, data[i]!, i))
-    for (let k = 0; k < count; k++) {
-      tint[o] = r
-      tint[o + 1] = g
-      tint[o + 2] = b
-      tint[o + 3] = a
-      o += TEXT_RETAINED_TINT_STRIDE
-    }
-  }
-  return tint
+  return packRetainedTint(spec.data, spec.getColor, WHITE_RGBA, glyphCounts)
 }
