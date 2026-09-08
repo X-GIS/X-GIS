@@ -1,7 +1,7 @@
 import type { VectorTileRenderer, GuardedFrame } from '../vector-tile-renderer'
 import type { RenderArgs, LayerSlot, TileSelection } from '../vector-tile-renderer-types'
-import { SELECTOR_PROJ_NAMES, getProjection, mercator as mercatorProj } from '@xgis/geo'
 import type { Projection } from '@xgis/geo'
+import { flatSelectorProjection } from '../flat-tile-selector'
 
 /** #2508 phase 2 — select the visible tiles: the camera's view for this
  *  projection, the selector projection and frustum margins, then the cached
@@ -40,25 +40,13 @@ export function selectVisibleTiles(
       ? strokeWidthPx_h / 2
       : 0
   const offsetMarginPx = Math.ceil(strokeOffsetPx_h + alignDeltaPx_h + strokeWidthPx_h / 2 + 2)
-  // jscpd:ignore-start — twin of `tile-selection-cache.ts`'s selector-projection
-  // rationale, which is the authority for it; both sites must build the projection the
-  // same way and the prose says why. Pre-exists on main (VTR:2871); #2508 only moved it
-  // here, which re-fingerprints the pair for the dup ratchet (#2577).
-  // Projection-aware tile selection: the flat selectors project tile
-  // corners through THIS projection's forward (relative to the projected
-  // centre), matching the GPU vertex path, so equirect / natural_earth
-  // select the right tiles at the poles + dateline (previously they used
-  // Mercator's forward and went blank at high latitude — user report
-  // project_projection_issues_2026_05_18 #4). Built with the same centre
-  // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
-  // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
-  // selectorProj is unused — fall back to mercatorProj (globe has no
-  // flat-projection entry in the registry).
-  const selectorProj: Projection =
-    args.projType >= 1 && args.projType <= 6
-      ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, args.projCenterLon, args.projCenterLat)
-      : mercatorProj
-  // jscpd:ignore-end
+  // Projection-aware tile selection, through the ONE derivation
+  // (flat-tile-selector.ts, which owns the prose for why).
+  const selectorProj: Projection = flatSelectorProjection(
+    args.projType,
+    args.projCenterLon,
+    args.projCenterLat,
+  )
 
   // Per-frame visible-tile selection + zoom-transition hysteresis +
   // readiness gate. The selection collaborator owns the cross-frame

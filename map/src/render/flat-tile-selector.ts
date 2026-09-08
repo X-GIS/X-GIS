@@ -40,7 +40,20 @@ import {
  *  centre the GPU receives as `proj_params.y/z` — so a tile's cull position is
  *  its draw position. projType 0 → mercator; 1..6 → the table's projection at
  *  that centre (3..6 sphere-route before reaching a flat selector, so in
- *  practice this serves 1 equirectangular and 2 natural_earth). */
+ *  practice this serves 1 equirectangular and 2 natural_earth).
+ *
+ *  The mercator arm is the fallback for the families that never reach a flat
+ *  selector — azimuthal (3/4/5), oblique (6) and globe (7) sphere-route, and
+ *  globe has no flat-projection entry in the registry at all.
+ *
+ *  Why the centre matters, carried here from the two call sites that used to
+ *  restate it (#2577): the flat selectors project tile corners through THIS
+ *  projection's forward, relative to the projected centre, matching the GPU
+ *  vertex path — so equirect / natural_earth select the right tiles at the
+ *  poles and the dateline. Building it any other way is what made them use
+ *  Mercator's forward and go blank at high latitude (user report
+ *  project_projection_issues_2026_05_18 #4). Gate-11 in
+ *  `architecture-invariants.test.ts` keeps this the only derivation. */
 export function flatSelectorProjection(
   projType: number,
   projCenterLon: number,
