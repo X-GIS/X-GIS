@@ -30,8 +30,40 @@ export interface CaptureOptions {
    * Per-test timeout for waiting on `__xgisReady`. The smoke harness
    * default is 15s — visual baselines pay extra in cold-start cases
    * so 20s is a safer cap.
+   *
+   * This bounds the BOOT check only. The pending-work drain that follows it is
+   * a different quantity — see {@link settleTimeoutMs}.
    */
   readyTimeoutMs?: number
+  /**
+   * Budget for the pending-work DRAIN, separate from the `__xgisReady` boot wait.
+   *
+   * These are different quantities and were accidentally the same number. `__xgisReady`
+   * flips when the render loop starts — a fixed cost that fails fast when the app is
+   * broken. The drain that follows waits for registered work (tile fetches, glyph
+   * ranges) to reach zero, which scales with the SCENE and with how much else the
+   * machine is doing. `_compute-path-continent-match.spec.ts` measured its own drains
+   * solo in this container at 9 074 ms (income_match) and 12 537 ms (continent_outlines)
+   * — comfortably inside a 20 s budget alone, and not inside it when six render shards
+   * run in parallel.
+   *
+   * That mattered once `requireConvergedSettle` made the drain's outcome fatal: the
+   * assertion then reported machine LOAD rather than non-convergence, and reported it
+   * on whichever fixture happened to be slowest in that run (observed on two PRs with
+   * disjoint diffs, failing on different fixtures — #2534 campaign).
+   *
+   * Defaults to `readyTimeoutMs * 2` when {@link requireConvergedSettle} is set, and to
+   * `readyTimeoutMs` (today's behaviour, unchanged) otherwise — a longer ceiling is only
+   * worth paying where the drain's outcome is an assertion rather than a hint. Either
+   * way it changes nothing on the normal path: a converging drain returns as soon as
+   * work hits zero.
+   *
+   * A spec that has measured its drains should pass its own value. The Playwright test
+   * timeout remains the backstop for a genuine hang, so a caller wanting the named
+   * `requireConvergedSettle` throw to win the race must keep `boots x (ready + settle)`
+   * under it.
+   */
+  settleTimeoutMs?: number
   /**
    * Screenshot strategy for the final capture. Defaults to `'element'`:
    * `page.locator('#map').screenshot()`, which performs a scroll-into-view
@@ -66,8 +98,9 @@ export interface CaptureOptions {
    * than a slow one.
    *
    * It does not make the settle faster or more likely to converge; it only
-   * stops a non-convergence from being silent. `readyTimeoutMs` still bounds
-   * both the ready wait and the settle.
+   * stops a non-convergence from being silent. The budget it reports is
+   * {@link settleTimeoutMs} — which is what this assertion is actually about, and
+   * which is why the drain no longer shares the ready wait's number.
    */
   requireConvergedSettle?: boolean
 }
@@ -244,7 +277,14 @@ async function settleForCapture(page: Page, opts: CaptureOptions): Promise<void>
   // loop to start: __xgisReady flips true when the loop starts, but URL/inline
   // source data loads ASYNC and paints a frame or two later via invalidate(),
   // so a fixed rAF count can screenshot the empty pre-data frame.
-  const settled = await awaitPendingWorkClear(page, readyTimeout)
+  // The default doubles ONLY where the drain's outcome is fatal. Where it is advisory
+  // (the ~350 callers that never set `requireConvergedSettle`, whose result is discarded
+  // and the capture proceeds), a longer ceiling buys nothing and costs wall-clock on
+  // exactly the specs already struggling to converge — CLAUDE.md §12's "a gate that
+  // inherits a global default silently changes subject when the default flips".
+  const settleTimeout =
+    opts.settleTimeoutMs ?? (opts.requireConvergedSettle === true ? readyTimeout * 2 : readyTimeout)
+  const settled = await awaitPendingWorkClear(page, settleTimeout)
   if (settled === 'timeout' && opts.requireConvergedSettle === true) {
     // Thrown HERE, before the capture: a caller that opted in wants the
     // non-convergence, and letting the run continue buries it under whatever
@@ -252,7 +292,7 @@ async function settleForCapture(page: Page, opts: CaptureOptions): Promise<void>
     // times out later and blames the screenshot (#1802's shape, #2556's
     // symptom).
     throw new Error(
-      `[settleForCapture] pending work did not clear within ${readyTimeout}ms (scope: all kinds) — ` +
+      `[settleForCapture] pending work did not clear within ${settleTimeout}ms (scope: all kinds) — ` +
         'this frame is NOT converged, and this spec opted into requireConvergedSettle because it ' +
         'compares frames. The page IS ready; it is the drain that did not finish (#2556).',
     )
