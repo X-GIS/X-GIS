@@ -42,17 +42,41 @@ function fmt(ms: number): string {
   return `${Math.floor(ms / 60_000)}m ${(((ms % 60_000) / 1000) | 0).toString()}s`
 }
 
+/** The worker->main RPC teardown race, and ONLY it. Vitest 3.2.6 emits this string from
+ *  `onTimeoutError(functionName, args)` in `vitest/dist/chunks/rpc.*.js`, as
+ *  `` `[vitest-worker]: Timeout calling "${functionName}"` ``. */
+const RPC_TEARDOWN = /\[vitest-worker\]: Timeout calling "on\w+"/
+
 /**
- * Treats `1 error / 0 failed` as success. Vitest's "Unhandled Errors" bucket
- * fires on long-running suites through a worker->main rpc teardown race
- * (`Timeout calling "onTaskUpdate"`); it does not reflect a test outcome, and
- * without this gate a full run would false-fail. Lifted verbatim from
- * precheck.ts, which used to own it when it spawned vitest itself.
+ * Treats `1 error / 0 failed` as success, but ONLY when vitest's "Unhandled Errors" bucket
+ * holds the worker->main RPC teardown race. Without any such gate a full run would
+ * false-fail; keyed on the BANNER rather than on the race, it false-PASSES, and that was
+ * the bug (#2265).
+ *
+ * The banner (`Unhandled Errors`, `Vitest caught N unhandled error(s)` --
+ * `vitest/dist/chunks/cli-api.*.js`) is printed for EVERY entry in that bucket, while the
+ * race is one specific message inside it. So an all-passing run whose bucket held a genuine
+ * unhandled rejection satisfied the old `\/Unhandled Error\/` test, and this script printed
+ * PASSED on a run vitest had exited 1 for. The CI matrix never saw it: it invokes vitest
+ * directly and avoids the race by sharding (`.github/workflows/test.yml:277-287`), so the
+ * old behaviour was a LOCAL-gate lie -- the kind nothing reds on.
+ *
+ * NOT narrowed all the way to zero suppression, deliberately. This repo holds two accounts
+ * of what produces the string, and they disagree about whether it is ever benign:
+ * `shader-dsl/src/core/fp64/df64-int-property.test.ts:85-95` (#2665/#2666) calls it ONE
+ * file's >60 s synchronous span -- a test defect that should red -- while `test.yml:277-287`
+ * calls it RPC state ACCUMULATED across ~590 files in a single combined run, which is the
+ * shape `bun run test` has and the CI matrix deliberately does not. Removing the arm is
+ * right under the first account and wrong under the second; nothing measured here settles
+ * it, and narrowing is strictly stricter than the status quo under BOTH. #2265 carries the
+ * open question.
+ *
+ * Lifted originally from precheck.ts, which owned it when it spawned vitest itself.
  */
-function outcomeFromStdout(combined: string): boolean {
+export function outcomeFromStdout(combined: string): boolean {
   const m = /Tests\s+\S*\s*(\d+)\s+failed/.exec(combined)
   if (m) return Number(m[1]) === 0
-  return /Tests\s+[^\n]*passed/.test(combined) && /Unhandled Error/.test(combined)
+  return /Tests\s+[^\n]*passed/.test(combined) && RPC_TEARDOWN.test(combined)
 }
 
 function runPass(pass: Pass): Promise<{ ok: boolean; ms: number }> {
@@ -84,16 +108,22 @@ function runPass(pass: Pass): Promise<{ ok: boolean; ms: number }> {
   })
 }
 
-let failed = false
-let totalMs = 0
-// Both passes always run, even after a failure: the isolated half is ~47s and a
-// developer who has just broken something wants the whole picture, not the first
-// half of it.
-for (const pass of PASSES) {
-  const { ok, ms } = await runPass(pass)
-  totalMs += ms
-  if (!ok) failed = true
-}
+// Guarded so `outcomeFromStdout` can be imported by its test WITHOUT spawning the very
+// suite that test runs inside. Same idiom as dup-ratchet / flaky-report / session-check /
+// lint-pr-title / gen-example-registry / fetch-demo-data; emit-changelog.test.ts:568 makes
+// the guard itself the mechanism under test.
+if (import.meta.main) {
+  let failed = false
+  let totalMs = 0
+  // Both passes always run, even after a failure: the isolated half is ~47s and a
+  // developer who has just broken something wants the whole picture, not the first
+  // half of it.
+  for (const pass of PASSES) {
+    const { ok, ms } = await runPass(pass)
+    totalMs += ms
+    if (!ok) failed = true
+  }
 
-console.log(`\n${failed ? '✗ unit suite FAILED' : '✓ unit suite PASSED'} (${fmt(totalMs)})`)
-process.exit(failed ? 1 : 0)
+  console.log(`\n${failed ? '✗ unit suite FAILED' : '✓ unit suite PASSED'} (${fmt(totalMs)})`)
+  process.exit(failed ? 1 : 0)
+}
