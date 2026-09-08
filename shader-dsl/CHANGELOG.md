@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: 88a02131feb274f08ed01bda0ec68f376eca956d
+  Generated from: e5d9acb13ab64cf572799c12276446cae0542298
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since 88a02131feb2
+    bun scripts/emit-changelog.ts --path shader-dsl --since e5d9acb13ab6
 -->
 
 # Changelog — shader-dsl
@@ -30,6 +30,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### feat
 
+- **shader-dsl:** the mirror carries its own CI, a compile gate and public docs that name no other project ([#2662](https://github.com/X-GIS/X-GIS/pull/2662)) `e5d9acb`
 - **shader-dsl:** profile the emit pipeline stage by stage and pass by pass (#2449) ([#2459](https://github.com/X-GIS/X-GIS/pull/2459)) `b066fa1`
 - **shader-dsl:** an f32 oracle mode, replacing seven copy-pasted froundWrap wrappers ([#2432](https://github.com/X-GIS/X-GIS/pull/2432)) `6357942`
 
