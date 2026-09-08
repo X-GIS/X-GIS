@@ -13,5 +13,8 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": ["Bash(git commit:*)", "Bash(git push:*)"]
   }
 }

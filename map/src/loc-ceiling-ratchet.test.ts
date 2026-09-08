@@ -455,7 +455,14 @@ const CEILINGS: Record<string, number> = {
   // the #991 ratchets. The members the moved bodies touch became `@internal`, which the
   // publish pass strips (#2601), so the published `.d.ts` narrows by 87 name slots.
   // Measured with `wc -l` on the post-prettier tree.
-  'map/src/render/vector-tile-renderer.ts': 3886,
+  // 3886→3395 (#2508 step 3): `renderTileKeys()`'s three blocks — the per-tile
+  // uniform pack, the per-tile fill draw, the deferred stroke pass — moved to
+  // `render/tile-draw/`. The method goes 798→251 body lines, and the largest
+  // member left in the file is `renderFillsRhi` at 297: the first time since
+  // #2508 opened that nothing here is over ~350 lines. Second consecutive DOWN.
+  // (3395→3391: TWO_PI_R_EARTH moved to vector-tile-renderer-helpers.ts so the
+  // pack module reads it without a VALUE import cycle back into the class.)
+  'map/src/render/vector-tile-renderer.ts': 3391,
   // Baselined 801: #1602 (the drape's overlap winner is relevance, not re-arm recency)
   // brought the file to exactly NEW_FILE_CAP (800), and the independent #1603 material-
   // release fix landed on main one line above it in the same file, pushing it to 801 on
@@ -2226,7 +2233,13 @@ const CEILINGS: Record<string, number> = {
   // existed anywhere in the tree (#2520's shape); a reader asking "can I set terrain
   // from JS?" now gets the answer at the method they would call. Measured on the
   // POST-prettier tree, not the working copy.
-  'map/src/render/hillshade-renderer.ts': 813,
+  // 813→814 (#2134): `writeRasterFrameUniform`'s new required `premultiplied`
+  // argument (DEM tiles are a straight-alpha source, and fs_hillshade never reads
+  // this shared lane at all) is one `false,` line under prettier's one-argument-
+  // per-line, multi-line-call format — the sole irreducible line. The five-line
+  // rationale this call site carried moved to raster-frame-uniform.test.ts, and
+  // the call site keeps a one-line pointer to it.
+  'map/src/render/hillshade-renderer.ts': 814,
   // Merge union (#1060 <- main): stacked growth — measured 1174.
   // 1174→1167 (#1581, main merge): leg B extracted the tile-point pack-key/uniform-
   // refresh/draw tail into tile-point-pack-key.ts + tile-point-draw.ts (this file keeps
@@ -2634,7 +2647,18 @@ const CEILINGS: Record<string, number> = {
   // side's number. The arithmetic 1062 + 12 happens to agree, but it was read off the
   // ratchet's own failure message, not computed — a carried number is how this key
   // reached main too low once already.
-  'map/src/render/raster-renderer.ts': 1074,
+  // 1074→1077 (#2134): `writeRasterFrameUniform` gained a REQUIRED `premultiplied`
+  // parameter (raster_params.y — true only for the already-premultiplied vector-
+  // drape bake; see raster-frame-uniform.test.ts for the full source-kind and
+  // algebraic-invariance argument) that must sit BEFORE the D5 INC-3 `demUnpack`
+  // parameter, which carries a default (TypeScript forbids a required parameter
+  // after an optional one — that constraint's own explanation lives at the same
+  // test file now too). +3 is exactly three unavoidable one-argument-per-line
+  // lines under prettier's multi-line-call format: the new parameter itself, plus
+  // the two pre-existing call sites (checker, fetched tiles) each gaining their own
+  // `false,` line. The ~14-line docblock this used to carry is gone; the parameter
+  // keeps a one-line pointer to its new home.
+  'map/src/render/raster-renderer.ts': 1077,
   // 889→906 (#1155 F3): cold-start burst enqueue cap — the `_coldStartBurst`
   // field + `setColdStartBurst` + the burst-selected 8/4 cap in enqueue().
   // 906→910 (#1155 F3 adjudication): the burst 8/4 pair now comes from the

@@ -25,14 +25,17 @@ const CENTER_LON = 126.81412
 const CENTER_LAT = 37.54704
 
 /** camera.centerX is Mercator metres on the sphere radius; the globe reads its
- *  true centre latitude from `centerLatDeg` (representsCenterAs(7)). */
-function globeCamera(zoom: number) {
+ *  true centre latitude from `centerLatDeg` (representsCenterAs(7)). `globeMode`
+ *  mirrors camera.ts:163 (`this.globeMode = isGlobeProj(resolved)`), so a disc
+ *  projType (3/4/5) gets `globeMode: false` here exactly as it would at pitch 0. */
+function globeCamera(zoom: number, projType: number) {
   return {
     zoom,
     centerX: (CENTER_LON * Math.PI * activeBody().sphereR) / 180,
     centerLatDeg: CENTER_LAT,
     pitch: 0,
     bearing: 0,
+    globeMode: projType === PROJ_GLOBE,
   }
 }
 
@@ -57,13 +60,14 @@ function run(
   },
   diag?: DrapeOverzoomDiag,
 ) {
+  const projType = o.projType ?? PROJ_GLOBE
   const needed = o.neededKeys ?? drawnKeys(o.zoom, o.currentZ)
   const resident = o.resident ?? new Set(needed)
   const requested: number[] = []
   const uploaded: number[] = []
   const out = computeDrapeOverzoom({
-    camera: globeCamera(o.zoom),
-    projType: o.projType ?? PROJ_GLOBE,
+    camera: globeCamera(o.zoom, projType),
+    projType,
     currentZ: o.currentZ,
     cssWidth: W,
     cssHeight: H,
@@ -184,9 +188,52 @@ describe('#2346 — the drape windows by device-pixel density', () => {
     expect(r.uploaded.length + r.requested.length).toBeGreaterThan(0)
   })
 
-  it('never engages off the globe route, or on a source with no levels', () => {
-    expect(run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14, projType: 0 }).out).toBeUndefined()
+  // #2346 disc half — the bail predicate is `routeToSphereSelector`, not
+  // `isGlobeProj` (drape-overzoom-dispatch.ts:169): routeToSphereSelector =
+  // {3,4,5,6} ∪ globeMode, so the flat-cylindrical family (0/1/2) is the only
+  // one still outside it. Extends the single projType-0 bail this `it` used
+  // to pin (pre-#2346) to the whole family, rather than duplicating it.
+  it.each([0, 1, 2])('never engages off the sphere route (projType %i)', (projType) => {
+    const diag: DrapeOverzoomDiag = {}
+    const { out } = run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14, projType }, diag)
+    expect(out).toBeUndefined()
+    expect(diag.reason).toBe('not-sphere-routed')
+  })
+
+  it('never engages on a source with no levels', () => {
     expect(run({ zoom: 4.4, currentZ: 0, dpr: 2, maxLevel: 0 }).out).toBeUndefined()
+  })
+
+  // The gap #2346 closes: at pitch 0 the flat-disc trio (ortho/azimuthal_eq/
+  // stereographic) never promotes to projType 7 (camera.ts:159-163), yet it
+  // sphere-routes its tiles just as globe(7) does (routeToSphereSelector({3,4,5},
+  // false) === true) — so it must engage identically to the globe arm run at the
+  // same camera.
+  it.each([3, 4, 5])('engages on the flat-disc trio at pitch 0 (projType %i)', (projType) => {
+    const globeDiag: DrapeOverzoomDiag = {}
+    const globeRun = run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14 }, globeDiag)
+    const discDiag: DrapeOverzoomDiag = {}
+    const discRun = run({ zoom: 4.4, currentZ: 4, dpr: 2, maxLevel: 14, projType }, discDiag)
+    expect(discRun.out, `projType ${projType} must engage at pitch 0`).toBeDefined()
+    // Vacuity guard: `toBeDefined()` alone would also pass on an empty array.
+    expect(discRun.out!.length, 'an empty set must not report engaged').toBeGreaterThan(0)
+    expect(discDiag.reason).toBe('engaged')
+    expect(discDiag.virtualZ).toBe(globeDiag.virtualZ)
+    expect(discDiag.selected).toBe(globeDiag.selected)
+    // Direct proof, not just the virtualZ/selected echoes above: every argument
+    // `computeDrapeOverzoom` passes to `globeVisibleTiles` (drape-overzoom-dispatch.ts's
+    // `vTiles` call — lon/lat/deviceZoom/virtualZ/size/pitch/bearing) is projType-free, so
+    // for one camera state the disc and globe arms enumerate the identical virtual tile set.
+    expect(
+      globeRun.out,
+      'globe(7) is the reference arm here — if IT fails to engage, the shared harness broke, ' +
+        'not the disc predicate',
+    ).toBeDefined()
+    expect(
+      discRun.out!.length,
+      'globeVisibleTiles never receives projType, so one camera state yields one virtual ' +
+        'tile set for both arms',
+    ).toBe(globeRun.out!.length)
   })
 })
 

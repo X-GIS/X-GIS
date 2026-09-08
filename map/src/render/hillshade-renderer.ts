@@ -616,6 +616,7 @@ export class HillshadeRenderer {
         saturation: 0,
         contrast: 0,
       },
+      false, // #2134 — straight-alpha DEM source; full rationale: raster-frame-uniform.test.ts
       // #2539 — the VERTEX stage decodes with the same four factors the fragment does.
       // Read from `_params.unpack`, the one place the encoding was resolved
       // (`demUnpack()`), so a source that declares `terrarium` displaces by the same

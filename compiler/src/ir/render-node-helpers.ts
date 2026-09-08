@@ -7,6 +7,7 @@
 // (`import { colorConstant } from './render-node'`) keep working.
 
 import type { ColorValue, OpacityValue, SizeValue, ShapeRef } from './render-node'
+import { parseHexRgba } from '@xgis/shared'
 
 export function colorNone(): ColorValue {
   return { kind: 'none' }
@@ -224,44 +225,11 @@ export function buildLabelShapes(input: {
  * Parse hex color string to RGBA tuple (0-1 range).
  */
 export function hexToRgba(hex: string): [number, number, number, number] {
-  let r = 0,
-    g = 0,
-    b = 0,
-    a = 1
-  // Reject non-hex content before parseInt — mirror of feature-helpers
-  // parseHexColor regex gate (caad699). Without it `parseInt('zz',
-  // 16)` = NaN propagated through and downstream consumers (shader-gen
-  // resolveColorFromAST, fold-trivial-case foldColor) stored NaN
-  // tuples.
-  if (!/^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
-    return [0, 0, 0, 1]
-  }
-
-  if (hex.length === 4) {
-    // #RGB
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-  } else if (hex.length === 5) {
-    // #RGBA
-    r = parseInt(hex[1] + hex[1], 16) / 255
-    g = parseInt(hex[2] + hex[2], 16) / 255
-    b = parseInt(hex[3] + hex[3], 16) / 255
-    a = parseInt(hex[4] + hex[4], 16) / 255
-  } else if (hex.length === 7) {
-    // #RRGGBB
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-  } else if (hex.length === 9) {
-    // #RRGGBBAA
-    r = parseInt(hex.slice(1, 3), 16) / 255
-    g = parseInt(hex.slice(3, 5), 16) / 255
-    b = parseInt(hex.slice(5, 7), 16) / 255
-    a = parseInt(hex.slice(7, 9), 16) / 255
-  }
-
-  return [r, g, b, a]
+  // Opaque black on a shape this codebase does not accept. The fallback is the
+  // contract, not an oversight: downstream (shader-gen resolveColorFromAST,
+  // fold-trivial-case foldColor) stores the tuple, so answering NaN was the bug the
+  // gate inside parseHexRgba exists to stop.
+  return parseHexRgba(hex) ?? [0, 0, 0, 1]
 }
 
 /**

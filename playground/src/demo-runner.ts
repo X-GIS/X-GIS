@@ -707,7 +707,18 @@ const TAG_LABELS_DROPDOWN: Record<string, string> = {
 // browser console — useful when iOS/Android lack devtools. Pure
 // overlay; no rendering pipeline changes. Activated by `?debug=labels`
 // in the playground URL so it's opt-in and stays out of normal runs.
-function installLabelDebugOverlay(map: XGISMap): void {
+/** The slice of the map this overlay needs. `setLabelDebugHook` is a DEBUG hook,
+ *  so #2613 kept it out of the published `XGISMap` surface — the same call this
+ *  file's siblings already make for their debug reaches (`perf-overlay.ts`'s
+ *  `PerfMap`, `debug-labels.ts`'s `DebugMap`). Declaring the slice here keeps the
+ *  overlay working without putting a debug seam in a 5-year public API. */
+interface LabelDebugMap {
+  setLabelDebugHook(
+    hook: ((text: string, ax: number, ay: number, kind: 'point' | 'curve') => void) | undefined,
+  ): void
+}
+
+function installLabelDebugOverlay(map: LabelDebugMap): void {
   // Reuse a previously-injected overlay if the demo is being
   // reloaded — prevents stacked z-index ghosts across demo swaps.
   let overlay = document.getElementById('xgis-labels-debug')
@@ -1747,7 +1758,7 @@ async function runSource(source: string, label: string) {
     // count. Lets users SEE which labels are firing where on mobile
     // where console scripts aren't an option.
     if (new URL(window.location.href).searchParams.get('debug') === 'labels') {
-      installLabelDebugOverlay(currentMap)
+      installLabelDebugOverlay(currentMap as unknown as LabelDebugMap)
     }
     // ?profile=1 — render the X-GIS Inspector (tabbed live diag panel).
     // Pair with ?gpuprof=1 for WebGPU timestamp-query GPU-pass timing.
