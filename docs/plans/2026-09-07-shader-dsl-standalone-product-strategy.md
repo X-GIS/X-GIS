@@ -605,3 +605,29 @@ not a drift to fix — **Phase 1 (#2660) is what moves it**, since the site's pr
 to the mirror's own CI only once that CI exists at the pinned commit. (5) ADR-0014's decision
 means the site's copy is being re-sourced away from X-GIS in the next PR, so the QA table above
 is a verdict on the **deployed v2 page**, not on the one that replaces it.
+
+### B.6 typeshade.dev — the decoupled page, deployed (2026-09-08, 04:04 UTC)
+
+Phase 1 of ADR-0014 is live. The site PR (`typeshade/typeshade.github.io#1`, squash `6c7f6eb`)
+re-sourced every proof route to the mirror and pinned `vendor/shader-dsl` at `d894fc0` — the
+first mirror commit whose own CI is green (`typeshade/typeshade` run 34185046925:
+`typecheck + unit` 146 / 146 files, 1677 passed / 6 skipped; `compile gate (Tint + WebGL2)`
+36 / 36 WGSL, 33 GLSL ES 3.00, 0 failures). `deploy.yml` run 34185657670 was green end to end:
+`bun run build` 7 s, `qa:links` 19 destinations / 0 broken, `deploy-pages` finished 04:04:34 UTC.
+
+**Measured on the live site at 04:05 UTC:** `index.html` (62 378 B), `404.html` and `llms.txt`
+are byte-identical to a local `bun run build` of `6c7f6eb`; `/x-?gis/i` occurs **0** times in
+all three (the deployed v2 page had 27 / 9 / 13); the page prints `pinned d894fc0`;
+`last-modified` 04:04:29 UTC, `server: GitHub.com`.
+
+**Between the two deploys.** The mirror's first `ci` run (34183550396, `f59f83f`) was red on
+`typecheck + unit` with every test green — `[vitest-worker]: Timeout calling "onTaskUpdate"`:
+`df64-int-property.test.ts`'s six 20 000-sample sweeps starved the worker's event loop past
+birpc's 60 s reply window (65 s on the mirror's runner; 58 s on this repository's own
+`shader-dsl-b` shard, two seconds under the same cliff). Fixed in #2665 / #2666 — the sweeps
+yield once per 1000 samples — after which the same file ran 65.7 s on the mirror and passed.
+
+**What this closes from B.5's list.** (4) the pin moved, by #2660 and the site PR, as that item
+said it would; (5) the replacement page is the deployed one, so the B.5 QA table is historical.
+Still owner-side: (1) Enforce HTTPS — `http://typeshade.dev/` still answered 200 in clear at
+04:05 UTC; (2) the B.3 items; (3) the manual checks. The move itself continues under #2661.
