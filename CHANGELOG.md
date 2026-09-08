@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: c2300950fda27e12601681bd5ab135b360727136
+  Generated from: a9c1d4a4e62e31dd66b66375653144c388148096
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since c2300950fda2
+    bun scripts/emit-changelog.ts --since a9c1d4a4e62e
 -->
 
 # Changelog
@@ -56,6 +56,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **scripts:** the local unit gate stops laundering real failures into success (#2265) ([#2676](https://github.com/X-GIS/X-GIS/pull/2676)) `a9c1d4a`
 - **e2e:** the pending-work drain gets its own budget, not the ready wait's (#2556) ([#2664](https://github.com/X-GIS/X-GIS/pull/2664)) `e30654b`
 - **shader-dsl:** df64 int property sweeps yield to the event loop so the vitest worker RPC cannot time out ([#2666](https://github.com/X-GIS/X-GIS/pull/2666)) `599d16f`
 - **map/render:** the windowed drape bake reaches the flat-disc trio, not just the globe (#2346) ([#2652](https://github.com/X-GIS/X-GIS/pull/2652)) `c2ba38c`
