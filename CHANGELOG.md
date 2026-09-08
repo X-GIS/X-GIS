@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: cce598cd3490a67e499dc68352f2226355ad8059
+  Generated from: c2300950fda27e12601681bd5ab135b360727136
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since cce598cd3490
+    bun scripts/emit-changelog.ts --since c2300950fda2
 -->
 
 # Changelog
@@ -181,6 +181,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map/render:** one derivation for the flat selector projection (#2577) ([#2674](https://github.com/X-GIS/X-GIS/pull/2674)) `c230095`
 - **compiler:** the constant-number binding ladder becomes a table (#2534) ([#2650](https://github.com/X-GIS/X-GIS/pull/2650)) `cce598c`
 - **map:** one base for the five retained packers (#2534 audit S11) ([#2649](https://github.com/X-GIS/X-GIS/pull/2649)) `59772a0`
 - **map:** lift `renderTileKeys()`'s three blocks out of the class (#2508 step 3) `7664ea2`
