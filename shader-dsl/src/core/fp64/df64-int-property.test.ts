@@ -83,6 +83,23 @@ const relErr = (got: number, ref: number): number =>
 
 const N = 20000
 
+/** Runs `body` n times, turning the event loop once every 1000 samples.
+ *
+ *  Each sweep below is 5–25 s of synchronous interpreter work on a CI runner, and the tests of
+ *  a file run back to back with no macrotask between them. Vitest's worker reports test state
+ *  to its host over an RPC whose REPLY is read only when the loop turns, and the call times
+ *  out at 60 s (birpc's default; vitest 3 exposes no setting for it) — this file measured
+ *  58 s on one runner and 65 s on another, where all 15 tests passed and `vitest run` still
+ *  exited 1 with `[vitest-worker]: Timeout calling "onTaskUpdate"` (#2665). A turn per 1000
+ *  samples reads the reply in time, and lets `testTimeout` interrupt a wedged sweep, which a
+ *  synchronous loop never allows. Samples, seeds and assertions are unchanged. */
+async function sweep(n: number, body: () => void): Promise<void> {
+  for (let i = 0; i < n; i++) {
+    if (i % 1000 === 0) await new Promise<void>((resolve) => setImmediate(resolve))
+    body()
+  }
+}
+
 // ── Random sweeps: same bar as the float flavor ──
 
 type Binop = {
@@ -99,30 +116,30 @@ const BINOPS: Binop[] = [
 ]
 
 describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () => {
-  it.each(BINOPS)('$name: worst error inside the float-flavor tolerance', (op) => {
+  it.each(BINOPS)('$name: worst error inside the float-flavor tolerance', async (op) => {
     const ra = sampler(0x1234 ^ op.name.charCodeAt(0), -28, 28)
     const rb = sampler(0x9abc ^ op.name.charCodeAt(1), -28, 28)
     let maxDf = 0
-    for (let i = 0; i < N; i++) {
+    await sweep(N, () => {
       const a = asDf(ra()),
         b = asDf(rb())
-      if (op.kind === 'k_div' && b.val === 0) continue
+      if (op.kind === 'k_div' && b.val === 0) return
       const ref = op.ref(a.val, b.val)
-      if (!isFinite(ref)) continue
+      if (!isFinite(ref)) return
       maxDf = Math.max(maxDf, relErr(val(cpu.fns[op.kind]!(a.pair, b.pair)), ref))
-    }
+    })
     expect(maxDf).toBeLessThan(op.tol)
   })
 
-  it('sqrt: worst error < 2^-43', () => {
+  it('sqrt: worst error < 2^-43', async () => {
     const r = sampler(0x5eed, -24, 40)
     let maxDf = 0
-    for (let i = 0; i < N; i++) {
+    await sweep(N, () => {
       const a = asDf(Math.abs(r()))
       const ref = Math.sqrt(a.val)
-      if (!isFinite(ref) || ref === 0) continue
+      if (!isFinite(ref) || ref === 0) return
       maxDf = Math.max(maxDf, relErr(val(cpu.fns.k_sqrt!(a.pair)), ref))
-    }
+    })
     expect(maxDf).toBeLessThan(2 ** -43)
   })
 
@@ -146,16 +163,16 @@ describe('integer-flavor df64 arithmetic tracks f64 across random inputs', () =>
 // ── Selection / comparison / floor·fract ──
 
 describe('integer-flavor selection, comparison, floor/fract', () => {
-  it('abs / min / max are exact', () => {
+  it('abs / min / max are exact', async () => {
     const ra = sampler(0xa11, -28, 28),
       rb = sampler(0xb22, -28, 28)
-    for (let i = 0; i < N; i++) {
+    await sweep(N, () => {
       const a = asDf(ra()),
         b = asDf(rb())
       expect(val(cpu.fns.k_abs!(a.pair))).toBe(Math.abs(a.val))
       expect(val(cpu.fns.k_min!(a.pair, b.pair))).toBe(Math.min(a.val, b.val))
       expect(val(cpu.fns.k_max!(a.pair, b.pair))).toBe(Math.max(a.val, b.val))
-    }
+    })
   })
 
   it('lt/eq agree with f64 ordering (sub-f32-ulp pairs included)', () => {
@@ -170,10 +187,10 @@ describe('integer-flavor selection, comparison, floor/fract', () => {
     }
   })
 
-  it('floor / fract match f64 up to 2^40', () => {
+  it('floor / fract match f64 up to 2^40', async () => {
     const r = sampler(0xf66, -6, 40)
     let maxFractErr = 0
-    for (let i = 0; i < N; i++) {
+    await sweep(N, () => {
       const a = asDf(r())
       const refFloor = Math.floor(a.val)
       expect(val(cpu.fns.k_floor!(a.pair))).toBe(refFloor)
@@ -185,7 +202,7 @@ describe('integer-flavor selection, comparison, floor/fract', () => {
             : val(cpu.fns.k_fract!(a.pair)) - (a.val - refFloor),
         ),
       )
-    }
+    })
     expect(maxFractErr).toBeLessThan(2 ** -45)
   })
 })
