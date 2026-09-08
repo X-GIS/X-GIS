@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 599d16fea612d4eee70eb6e6faecfc42ebdbdd64
+  Generated from: 4f91d0b10bda3ba37e8f350918e00bfb9cb39300
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 599d16fea612
+    bun scripts/emit-changelog.ts --since 4f91d0b10bda
 -->
 
 # Changelog
@@ -202,6 +202,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### docs
 
+- **plans:** Appendix B.6 — typeshade.dev's decoupled page deployed at mirror pin d894fc0 ([#2669](https://github.com/X-GIS/X-GIS/pull/2669)) `4f91d0b`
 - **plans:** TypeShade strategy office — strategic plan, ecosystem embedding, go-to-market, agent-era strategy, assessment, beyond TypeGPU ([#2656](https://github.com/X-GIS/X-GIS/pull/2656)) `914bbfc`
 - **shader-dsl:** standalone product line and monetization strategy ([#2642](https://github.com/X-GIS/X-GIS/pull/2642)) `526c186`
 - **data/tiles:** resetCompileBudget has no frame-id short-circuit — say so at all six sites, and pin it (#2277) ([#2629](https://github.com/X-GIS/X-GIS/pull/2629)) `6a9b938`
