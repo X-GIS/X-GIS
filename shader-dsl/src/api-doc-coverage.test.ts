@@ -67,8 +67,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { monorepoRoot } from '../scripts/monorepo-context.js'
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..')
+/** The monorepo root, or `null` in the standalone tree (the mirror clone) — the generator arm A8
+ *  agrees with lives there, so that arm runs only where it is. See scripts/monorepo-context.ts. */
+const MONOREPO = monorepoRoot(PKG)
 const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
   exports: Record<string, string>
 }
@@ -449,19 +453,22 @@ describe('#1695 — the public surface is fully accounted for', () => {
     ).toEqual([])
   })
 
-  it('A8: the stub sentinel matches the generator, and no stub counts as documented', () => {
+  it.runIf(MONOREPO !== null)('A8: the stub sentinel matches the generator', () => {
     // The sentinel lives in TWO files and means nothing unless they agree. If the generator
     // stops writing it, every stub it produces starts reading as real prose here — the debt
     // list empties, 167 rows go green, and the reference publishes 167 pages that say
-    // nothing. That failure is silent in both directions, so it gets an arm.
-    const gen = readFileSync(join(PKG, '..', 'scripts', 'add-tsdoc-templates.ts'), 'utf8')
+    // nothing. That failure is silent in both directions, so it gets an arm. The generator is
+    // the monorepo's, so the arm runs there; the filter it protects is checked next, everywhere.
+    const gen = readFileSync(join(MONOREPO!, 'scripts', 'add-tsdoc-templates.ts'), 'utf8')
     expect(
       gen,
       'scripts/add-tsdoc-templates.ts no longer declares the sentinel this gate filters on. ' +
         'Its stubs would then count as documentation and silently retire real debt.',
     ).toContain(`const SENTINEL = '${STUB_SENTINEL}'`)
+  })
 
-    // And the filter must actually bite: a symbol whose only prose IS the sentinel is
+  it('A8: no stub counts as documented', () => {
+    // The filter must actually bite: a symbol whose only prose IS the sentinel is
     // undocumented, so it must still hold a row rather than having quietly gone green.
     const stubbed = [...DEFS].filter(([, d]) => d).length
     expect(

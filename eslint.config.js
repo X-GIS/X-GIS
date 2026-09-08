@@ -86,6 +86,12 @@ export default tseslint.config(
             'shader-dsl/src/core/passes/lint/rules/*.test.ts',
             'shader-dsl/src/core/passes/opt/*.test.ts',
             'shader-dsl/src/core/testing/*.test.ts',
+            // shader-dsl's package-root vitest config (the STANDALONE tree's — the mirror
+            // repository runs from it) and its scripts/ — the compile gate and the
+            // monorepo-context helper (#2660) — sit outside the package tsconfig.json's
+            // `include` (src/**), the same gap as the playwright config below.
+            'shader-dsl/vitest.config.ts',
+            'shader-dsl/scripts/*.ts',
             // playground/playwright.config.ts sits at the package root, outside
             // both playground/tsconfig.json (src/** only) and e2e/tsconfig.json
             // (e2e/** only) — same gap, same fix as the src tests above.

@@ -27,7 +27,8 @@
     "declaration": false,
     "sourceMap": false,
     "rootDir": ".",
-    "types": ["node"]
+    // `@webgpu/types` for scripts/compile-gate.ts, whose in-page half names `navigator.gpu`.
+    "types": ["node", "@webgpu/types"]
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts"]
+  "include": ["src/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts"]
 }

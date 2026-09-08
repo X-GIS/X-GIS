@@ -24,12 +24,17 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import { dirname, resolve, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { monorepoRoot } from '../scripts/monorepo-context.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url)) // shader-dsl/src
 const PKG_DIR = resolve(HERE, '..') // shader-dsl
-const REPO_ROOT = resolve(PKG_DIR, '..')
+/** The monorepo root, or `null` in the standalone tree (the mirror clone, a consumer's submodule
+ *  checkout) — see scripts/monorepo-context.ts. Invariant (1) is about the package and runs in
+ *  both trees; invariant (2) pins the package copy to the monorepo's baseline and has no
+ *  subject without one. */
+const REPO_ROOT = monorepoRoot(PKG_DIR)
 
-const ROOT_BASE = resolve(REPO_ROOT, 'tsconfig.base.json')
+const ROOT_BASE = REPO_ROOT === null ? null : resolve(REPO_ROOT, 'tsconfig.base.json')
 const PKG_BASE = resolve(PKG_DIR, 'tsconfig.base.json')
 
 /** Every tsconfig this package owns. Listed explicitly (not globbed) so ADDING one
@@ -175,52 +180,56 @@ describe('#1681 B1 — shader-dsl tsconfig self-containment + baseline drift', (
     ).toEqual([])
   })
 
-  it('the package baseline is at least as strict as the repo root baseline', () => {
-    const root = readTsconfig(ROOT_BASE).compilerOptions ?? {}
-    const pkg = readTsconfig(PKG_BASE).compilerOptions ?? {}
+  it.runIf(ROOT_BASE !== null)(
+    'the package baseline is at least as strict as the repo root baseline',
+    () => {
+      const root = readTsconfig(ROOT_BASE!).compilerOptions ?? {}
+      const pkg = readTsconfig(PKG_BASE).compilerOptions ?? {}
 
-    // Scanner sanity — a reader that returned {} (or a stripper that ate the file)
-    // would make every comparison below vacuously true over an EMPTY key set.
-    const rootKeys = Object.keys(root)
-    expect(
-      rootKeys.length,
-      `read 0 compilerOptions from ${ROOT_BASE} — the JSONC reader is broken, not the config`,
-    ).toBeGreaterThanOrEqual(10)
-    expect(root['strict'], 'the repo baseline no longer sets `strict` — re-derive this gate').toBe(
-      true,
-    )
-    expect(typeof root['target']).toBe('string')
-
-    const drift: string[] = []
-    for (const key of rootKeys) {
-      const want = root[key]
-      const got = pkg[key]
-      if (STRICTNESS_BOOLEANS.has(key)) {
-        if (want === true && got !== true)
-          drift.push(`${key}: root=true, package=${JSON.stringify(got)} (weaker — must be true)`)
-        continue
-      }
-      if (JSON.stringify(got) !== JSON.stringify(want))
-        drift.push(`${key}: root=${JSON.stringify(want)}, package=${JSON.stringify(got)}`)
-    }
-    expect(
-      drift,
-      `shader-dsl/tsconfig.base.json has drifted from ${relative(REPO_ROOT, ROOT_BASE)}:\n  ${drift.join('\n  ')}`,
-    ).toEqual([])
-
-    // …and the load-bearing options the two files exist to agree on are actually
-    // COMPARED, not merely absent from both.
-    const loadBearing = [...VALUE_OPTIONS, ...STRICTNESS_BOOLEANS].filter((k) => k in root)
-    expect(
-      loadBearing.length,
-      'no load-bearing option was compared — the option lists no longer intersect the baseline',
-    ).toBeGreaterThanOrEqual(6)
-    for (const key of loadBearing)
+      // Scanner sanity — a reader that returned {} (or a stripper that ate the file)
+      // would make every comparison below vacuously true over an EMPTY key set.
+      const rootKeys = Object.keys(root)
       expect(
-        pkg,
-        `load-bearing option '${key}' is set in the root baseline but not the package copy`,
-      ).toHaveProperty(key)
-  })
+        rootKeys.length,
+        `read 0 compilerOptions from ${ROOT_BASE} — the JSONC reader is broken, not the config`,
+      ).toBeGreaterThanOrEqual(10)
+      expect(
+        root['strict'],
+        'the repo baseline no longer sets `strict` — re-derive this gate',
+      ).toBe(true)
+      expect(typeof root['target']).toBe('string')
+
+      const drift: string[] = []
+      for (const key of rootKeys) {
+        const want = root[key]
+        const got = pkg[key]
+        if (STRICTNESS_BOOLEANS.has(key)) {
+          if (want === true && got !== true)
+            drift.push(`${key}: root=true, package=${JSON.stringify(got)} (weaker — must be true)`)
+          continue
+        }
+        if (JSON.stringify(got) !== JSON.stringify(want))
+          drift.push(`${key}: root=${JSON.stringify(want)}, package=${JSON.stringify(got)}`)
+      }
+      expect(
+        drift,
+        `shader-dsl/tsconfig.base.json has drifted from ${relative(REPO_ROOT!, ROOT_BASE!)}:\n  ${drift.join('\n  ')}`,
+      ).toEqual([])
+
+      // …and the load-bearing options the two files exist to agree on are actually
+      // COMPARED, not merely absent from both.
+      const loadBearing = [...VALUE_OPTIONS, ...STRICTNESS_BOOLEANS].filter((k) => k in root)
+      expect(
+        loadBearing.length,
+        'no load-bearing option was compared — the option lists no longer intersect the baseline',
+      ).toBeGreaterThanOrEqual(6)
+      for (const key of loadBearing)
+        expect(
+          pkg,
+          `load-bearing option '${key}' is set in the root baseline but not the package copy`,
+        ).toHaveProperty(key)
+    },
+  )
 
   it('the JSONC reader recovers known witnesses from a COMMENTED config', () => {
     // tsconfig.json carries both a leading `//` block and a trailing one; if the
