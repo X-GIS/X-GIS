@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 88a02131feb274f08ed01bda0ec68f376eca956d
+  Generated from: e5d9acb13ab64cf572799c12276446cae0542298
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 88a02131feb2
+    bun scripts/emit-changelog.ts --since e5d9acb13ab6
 -->
 
 # Changelog
@@ -30,6 +30,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### feat
 
+- **shader-dsl:** the mirror carries its own CI, a compile gate and public docs that name no other project ([#2662](https://github.com/X-GIS/X-GIS/pull/2662)) `e5d9acb`
 - **ci:** type-check scripts/, which no tsconfig program covered (#2617) ([#2644](https://github.com/X-GIS/X-GIS/pull/2644)) `5a312a8`
 - **e2e:** a capture can require its settle to have converged (#2556) ([#2640](https://github.com/X-GIS/X-GIS/pull/2640)) `7edf967`
 - **playground:** re-bake the shader artifacts in the dev server on every edit they depend on ([#2588](https://github.com/X-GIS/X-GIS/pull/2588)) `e7ced65`
@@ -257,6 +258,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### other
 
+- Remove unnecessary permissions from settings.json `419a1ba`
 - Add permissions for git commit and push `88a0213`
 
 ### 2026-08
