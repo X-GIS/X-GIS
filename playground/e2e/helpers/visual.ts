@@ -245,6 +245,25 @@ export async function awaitPendingWorkClear(
     [timeoutMs, scope] as [number, readonly string[] | undefined],
   )) as 'clear' | 'timeout'
   if (arm === 'timeout') {
+    // WHICH kinds, not just "some work". A budget that expires with an unnamed remainder
+    // sends the reader to the whole registry; naming the arm points at one. Enumerated
+    // from the registry rather than against a hardcoded kind list, so a kind added to
+    // `PENDING_WORK_KINDS` appears here by construction (#996's path-keyed failure is
+    // exactly a list that stops matching what it describes).
+    const stillPending = await page
+      .evaluate(() => {
+        const reg = (
+          window as unknown as {
+            __xgisMap?: { _pendingWork?: { sources?: Record<string, { count(): number }> } }
+          }
+        ).__xgisMap?._pendingWork?.sources
+        if (!reg) return null
+        return Object.entries(reg)
+          .map(([kind, probe]) => [kind, probe.count()] as [string, number])
+          .filter(([, n]) => n > 0)
+          .map(([kind, n]) => `${kind}=${n}`)
+      })
+      .catch(() => null)
     // #2370 — SAY WHICH ARM ENDED THE WAIT. Silence here is how a fixed wait
     // passes for a convergence: `_import-glyphs-wired-gate` documented its
     // settle as "a frame is not captured while a glyph range is still in
@@ -255,7 +274,13 @@ export async function awaitPendingWorkClear(
     console.warn(
       `[awaitPendingWorkClear] budget ${timeoutMs}ms EXPIRED with work still pending` +
         `${scope ? ` (scope: ${scope.join(', ')})` : ' (scope: all kinds)'}` +
-        ' — this settle did NOT converge; it timed out (#2370).',
+        ' — this settle did NOT converge; it timed out (#2370).' +
+        (stillPending === null
+          ? ' Per-kind probe unavailable (no map, or the page navigated).'
+          : stillPending.length === 0
+            ? ' NO kind reports work now — the remainder cleared between the last tick and' +
+              ' this read, so the budget expired on the 5-tick stability requirement.'
+            : ` STILL PENDING: ${stillPending.join(' ')}`),
     )
   }
   return arm
