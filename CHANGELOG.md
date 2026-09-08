@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: 4f91d0b10bda3ba37e8f350918e00bfb9cb39300
+  Generated from: e30654b1688091e7a598c84b9e7d31574332ce62
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since 4f91d0b10bda
+    bun scripts/emit-changelog.ts --since e30654b16880
 -->
 
 # Changelog
@@ -56,6 +56,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **e2e:** the pending-work drain gets its own budget, not the ready wait's (#2556) ([#2664](https://github.com/X-GIS/X-GIS/pull/2664)) `e30654b`
 - **shader-dsl:** df64 int property sweeps yield to the event loop so the vitest worker RPC cannot time out ([#2666](https://github.com/X-GIS/X-GIS/pull/2666)) `599d16f`
 - **map/render:** the windowed drape bake reaches the flat-disc trio, not just the globe (#2346) ([#2652](https://github.com/X-GIS/X-GIS/pull/2652)) `c2ba38c`
 - **site:** three typecheck fixes, 69 errors → 37 ([#2651](https://github.com/X-GIS/X-GIS/pull/2651)) `3fbb59a`
@@ -220,6 +221,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **vitest:** quarantine the idle-decision victim, and stop ISOLATED listing a path twice (#2641) ([#2668](https://github.com/X-GIS/X-GIS/pull/2668)) `b1375ad`
 - **e2e:** gate the hung-tile-host path nothing could see (#2626) ([#2647](https://github.com/X-GIS/X-GIS/pull/2647)) `2a37212`
 - **playground/e2e:** retire _icon-rhi-parity, and correct the coverage it was cited for (#2130) ([#2616](https://github.com/X-GIS/X-GIS/pull/2616)) `d287891`
 - **compiler/diagnostics:** assert the X-GIS code registry is a set (#2594) ([#2596](https://github.com/X-GIS/X-GIS/pull/2596)) `75e40fb`
