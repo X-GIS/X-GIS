@@ -318,6 +318,19 @@ export const ISOLATED = [
   //     `attachShadow` never applies (#2327).
   'map/src/web/component.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
+  // (2) SECOND clause — a MEASURED casualty, not a mechanical match: the file writes
+  //     nothing and mocks nothing. Its `flush()` is a REAL `setTimeout(r, 0)` inside a
+  //     suite whose subject is fake timers, so it is a pure VICTIM — some other file in
+  //     the shared worker replaces the timer it waits on and the flush never fires.
+  //     Five tests hang to the 30 s budget; the file passes ALONE in 20 ms, and green
+  //     in CI's own `vitest run playground/` partition, which packs differently (#2641).
+  //     The polluter was never identified: eight timer-replacing siblings were each run
+  //     PAIRED with it under `XGIS_VITEST_MODE=shared` and all eight came back clean, so
+  //     the pairwise hypothesis is refuted and the cause is either outside that pattern
+  //     set or needs more than two files (#1991 carries the measurements). Quarantining
+  //     the victim is therefore the remedy available, not the preferred one — the
+  //     preferred one is finding the writer, and #2634 is where that criterion lives.
+  'playground/e2e/helpers/idle-decision.test.ts',
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).
   'playground/e2e/helpers/validation.test.ts',
