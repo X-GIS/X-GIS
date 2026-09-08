@@ -18,9 +18,9 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 > import { ioStruct, uniformStruct, structDecl, builtin, location, storageBuffer, resource } from '@xgis/shader-dsl'
 > ```
 >
-> The X-GIS-specific shader graphs that used to live in `shader-dsl/src/shaders/*.ts`
-> moved to the map package (`map/src/shaders/dsl/` — #763 A3); they author through this same
-> barrel like any other consumer. Inside the package, the barrel re-exports the IR via the
+> Application shader graphs live in the consuming project and author through this same
+> barrel like any other consumer — this package ships the authoring surface, never a
+> project's shaders. Inside the package, the barrel re-exports the IR via the
 > `core/ir` barrel and the layout helpers via `core/sot` — never import a deep file directly.
 >
 > **Reflection.** `reflect(module)` recovers the pipeline metadata (bind groups, std140/std430
@@ -37,7 +37,7 @@ or `f32()` wrappers around literals. This guide documents the surface that lande
 `fn` authors **all** functions: plain helpers and `@vertex` / `@fragment` / `@compute`
 entry points. There is no separate `entryFn` / `computeFn`.
 
-Full signature: [`fn`](https://x-gis.github.io/X-GIS/api/index/functions/fn).
+Full signature: [`fn`](./src/core/ir/builder.ts).
 
 - **`name`** — optional. Omit it for an auto `_fn{n}` name. Keep an explicit name for any
   fn referenced by a _string_ (an `externFn`, a placeholder-swap lookup) or compared in a
@@ -410,7 +410,7 @@ Loop(
 )
 ```
 
-[`Loop`](https://x-gis.github.io/X-GIS/api/index/functions/Loop) (optional leading name
+[`Loop`](./src/core/ir/builder.ts) (optional leading name
 string names the WGSL counter; `step` defaults to `+1`). **Both** callbacks receive the
 counter — a body written `() => {}`
 that references `i` compiles as JS closure syntax but `i` is not in scope: `tsc` flags it
@@ -520,7 +520,7 @@ A `fn` body's **final** `return value` is native TS (the body's terminal `return
 one is fine and is type-checked. `Return()` / `ReturnIf()` are for early exits inside
 `If` / `Loop` / `Switch`. (`fn` with an early `Return` needs `opts.allowEarlyReturn`.)
 
-[`Loop`](https://x-gis.github.io/X-GIS/api/index/functions/Loop) is the C-style for loop;
+[`Loop`](./src/core/ir/builder.ts) is the C-style for loop;
 `Continue()` / `Break()` / `Discard()` are the loop/fragment terminators.
 
 ---
@@ -548,7 +548,7 @@ const VsOut = ioStruct('VsOut', {
   `'global_invocation_id'`, …), passed through verbatim — typed as the closed
   `WgslBuiltinName` union, so a typo or a GLSL-only spelling is a `tsc` error at the
   authoring line, not a naga error at pipeline creation.
-- [**`location`**](https://x-gis.github.io/X-GIS/api/index/functions/location) → a
+- [**`location`**](./src/core/sot.ts) → a
   `@location(n)` field, optionally `@interpolate(<mode>)` with
   `mode ∈ 'flat' | 'linear' | 'perspective'` — `'flat'` is
   the mode the GLSL backend also honors (emits the `flat` qualifier on both sides).
@@ -1097,7 +1097,7 @@ const fs = emitGlslModule(m, 'fragment', { parens: 'minimal', plugins: obfuscate
   canonicalisation for any shader mentioning `f16`. `obfuscate()` uses it. Pass
   `{ numbers: false }` to leave literals as emitted when diffing against a
   hand-checked baseline.
-  [`minifyShaderText`](https://x-gis.github.io/X-GIS/api/emit-prod/functions/minifyShaderText)
+  [`minifyShaderText`](./src/core/emit-minify.ts)
   is the raw function it wraps, for a string you already hold.
 - **`inline()`** — an `EmitPlugin` that flattens the call graph (obfuscation):
   every safely-inlinable helper is inlined at all its call sites, so those
@@ -1580,7 +1580,7 @@ Two honesty notes a reader needs before trusting a row:
 
 | Need                           | Write                                                                                                     |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| A function                     | [`fn`](https://x-gis.github.io/X-GIS/api/index/functions/fn) — return type inferred                       |
+| A function                     | [`fn`](./src/core/ir/builder.ts) — return type inferred                                                   |
 | An entry point                 | `fn(name, { vid: builtin('vertex_index', u32T) }, body, { stage: 'vertex' })`                             |
 | A module                       | `module({ consts, structs, bindings, funcs })`                                                            |
 | An intermediate value          | plain `const x = expr`                                                                                    |

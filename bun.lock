@@ -178,6 +178,13 @@
     "shader-dsl": {
       "name": "@xgis/shader-dsl",
       "version": "0.0.1",
+      "devDependencies": {
+        "@types/node": "^25.6.0",
+        "@webgpu/types": "^0.1.69",
+        "playwright": "^1.59.1",
+        "typescript": "5.6.3",
+        "vitest": "^3.0.0",
+      },
     },
     "shared": {
       "name": "@xgis/shared",

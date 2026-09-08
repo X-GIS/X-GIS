@@ -1,0 +1,60 @@
+name: ci
+
+# TypeShade's own gate — the one that runs in THIS repository, on this tree alone:
+#
+#   check         `tsc --build` (the emitting project) + `tsc -p tsconfig.tests.json` (the
+#                 noEmit pass over tests, examples and scripts), then the unit suite.
+#   compile-gate  every registered example is emitted and COMPILED by real compilers —
+#                 the WGSL on Tint (Chromium's WebGPU, on SwiftShader: no GPU needed for
+#                 compile / validate correctness) and both GLSL ES 3.00 stages on a real
+#                 WebGL2 context. See scripts/compile-gate.ts for what it asserts and how
+#                 it proves the instrument can see an error at all.
+#
+# Inside the monorepo this file is inert (GitHub reads workflows from the repository root
+# only); it becomes live where the subtree split puts it — at the mirror's root (#2660).
+#
+# The browser is installed with the PROJECT-LOCAL playwright bin, never `bunx playwright`:
+# bunx fetches the standalone package at whatever version is newest, installs THAT
+# revision's browser, and the script (resolving through node_modules) then cannot find its
+# own revision's binary. `--only-shell` installs chromium-headless-shell, which is what a
+# headless `chromium.launch()` resolves to.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck + unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build
+      - run: bun run test
+
+  compile-gate:
+    name: compile gate (Tint + WebGL2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - run: bun run gate:compile
