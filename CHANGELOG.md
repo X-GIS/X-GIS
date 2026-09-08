@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e30654b1688091e7a598c84b9e7d31574332ce62
+  Generated from: 59772a0804fc2f997b1f7a16f62622ec44d16ca5
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e30654b16880
+    bun scripts/emit-changelog.ts --since 59772a0804fc
 -->
 
 # Changelog
@@ -181,6 +181,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### refactor
 
+- **map:** one base for the five retained packers (#2534 audit S11) ([#2649](https://github.com/X-GIS/X-GIS/pull/2649)) `59772a0`
 - **map:** lift `renderTileKeys()`'s three blocks out of the class (#2508 step 3) `7664ea2`
 - **geo:** delete the private invert4x4 — shared's already does what its docblock asks ([#2643](https://github.com/X-GIS/X-GIS/pull/2643)) `4236992`
 - **data:** one home for the three feature-expression extractors (row 4) ([#2645](https://github.com/X-GIS/X-GIS/pull/2645)) `e452818`
