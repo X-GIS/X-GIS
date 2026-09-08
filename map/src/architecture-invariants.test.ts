@@ -431,3 +431,92 @@ describe('arch ratchet: Gate-10 — every safeFetch caller is a classified async
     )
   })
 })
+
+// ── Gate 11: the flat selector projection has ONE derivation ─────────
+describe('arch ratchet: Gate-11 — only flat-tile-selector.ts derives the flat selector projection (#2577)', () => {
+  /** The ONE module allowed to spell the derivation out. Everything else calls
+   *  `flatSelectorProjection` from it. */
+  const AUTHORITY = 'map/src/render/flat-tile-selector.ts'
+
+  /** The guarded ternary that IS `flatSelectorProjection`'s body:
+   *
+   *    projType >= 1 && projType <= 6 ? getProjection(SELECTOR_PROJ_NAMES[…], lon, lat) : mercator
+   *
+   *  Keyed on the SHAPE, not on the `SELECTOR_PROJ_NAMES` token, and that distinction is
+   *  the whole design. A census over the bare token finds five sites under `map/src`, and
+   *  two of them are NOT copies: `map/src/camera/unproject.ts:106` has already narrowed to
+   *  `pt ∈ {1,2,6}` at `:98`, so its mercator arm is unreachable by construction, and
+   *  `map/src/render/field-lattice-uniform.ts:404` runs after the globe branch has
+   *  returned. Both are legitimately narrower contracts. A token-keyed gate would have
+   *  demanded edits to two correct call sites — §12's "a verdict is not finished at the
+   *  first consumer", caught here by reading them rather than by counting.
+   *
+   *  Comments are stripped first: this file and the authority both QUOTE the shape in
+   *  prose, and a gate that matched its own documentation would be reporting itself. */
+  function derivesSelectorProjection(src: string): boolean {
+    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+    return />=\s*1\s*&&\s*[\w.]+\s*<=\s*6\s*\?\s*getProjection\s*\(\s*SELECTOR_PROJ_NAMES/.test(
+      stripped,
+    )
+  }
+
+  it('no module restates the derivation — every other site calls flatSelectorProjection', () => {
+    const restating = walkTs(join(ROOT, 'map/src'))
+      .filter((abs) => derivesSelectorProjection(readFileSync(abs, 'utf8')))
+      .map(rel)
+      .sort()
+
+    // Non-vacuity, and it is the near half: a regex that matched nothing would pass the
+    // assertion below over an empty list forever. The authority must be IN the census.
+    expect(
+      restating,
+      'the detector no longer finds the authority itself — the regex or the file moved, and ' +
+        'everything below is vacuous',
+    ).toContain(AUTHORITY)
+
+    const copies = restating.filter((f) => f !== AUTHORITY)
+    expect(
+      copies,
+      `${copies.length} module(s) rebuild the flat selector projection inline instead of calling ` +
+        `\`flatSelectorProjection\` (${AUTHORITY}:44):\n${copies.join('\n')}\n\n` +
+        `Both sites must build the projection from the SAME centre the GPU receives as ` +
+        `proj_params.y/z, or a tile is culled somewhere it is not drawn — the #2302 blank ` +
+        `poleward band. Three copies drifted that way once; the prose says why, and the ` +
+        `helper's docblock is where it says it.`,
+    ).toEqual([])
+  })
+
+  it('the detector is live — it distinguishes the derivation from a narrower use', () => {
+    // The authority is a known positive, asserted directly rather than through the census.
+    expect(
+      derivesSelectorProjection(readFileSync(join(ROOT, AUTHORITY), 'utf8')),
+      'flat-tile-selector.ts IS the derivation; a detector that misses it greens everything',
+    ).toBe(true)
+
+    // A REAL negative control from the tree, not a synthetic one: unproject.ts uses both
+    // `getProjection` and `SELECTOR_PROJ_NAMES` and is not this derivation. A token-keyed
+    // detector cannot tell them apart; this one must.
+    expect(
+      derivesSelectorProjection(readFileSync(join(ROOT, 'map/src/camera/unproject.ts'), 'utf8')),
+      'unproject.ts narrows to pt ∈ {1,2,6} before projecting — not a copy, and a gate that ' +
+        'calls it one would send someone to break it',
+    ).toBe(false)
+
+    // A planted copy must be caught wherever it is spelled, including through `args.`.
+    expect(
+      derivesSelectorProjection(
+        'const p = args.projType >= 1 && args.projType <= 6\n' +
+          '  ? getProjection(SELECTOR_PROJ_NAMES[args.projType]!, a, b)\n  : mercatorProj',
+      ),
+      'a fresh inline copy must be caught',
+    ).toBe(true)
+
+    // …and prose about it must not be, or the gate reddens on its own documentation.
+    expect(
+      derivesSelectorProjection(
+        '// projType >= 1 && projType <= 6 ? getProjection(SELECTOR_PROJ_NAMES[projType]!, a, b)',
+      ),
+      'a commented-out copy is documentation, not a copy',
+    ).toBe(false)
+  })
+})

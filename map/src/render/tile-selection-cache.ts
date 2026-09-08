@@ -36,8 +36,9 @@ import { visibleTilesSSE } from '@xgis/data'
 import { globeVisibleTiles } from '@xgis/data'
 import { tileKey, tileKeyParent } from '@xgis/compiler'
 import { enumerateWorldCopies, routeToSphereSelector, isGlobeProj, isMercatorProj } from '@xgis/geo'
-import { mercator as mercatorProj, getProjection, type Projection, mercatorYToLat } from '@xgis/geo'
-import { SELECTOR_PROJ_NAMES, promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
+import { type Projection, mercatorYToLat } from '@xgis/geo'
+import { promotesToGlobeWhenTilted, representsCenterAs } from '@xgis/geo'
+import { flatSelectorProjection } from './flat-tile-selector'
 import { frameCenterLatOf } from '../camera/view-matrix'
 import type { TileCatalog } from '@xgis/data'
 import type { FrameDrawStats } from './frame-draw-stats'
@@ -288,20 +289,9 @@ export class TileSelectionCache {
     // to match the camera's universal maxZoom, not the old maxLevel+6.
     const maxSubTileZ = 22
 
-    // Projection-aware tile selection: the flat selectors project tile
-    // corners through THIS projection's forward (relative to the projected
-    // centre), matching the GPU vertex path, so equirect / natural_earth
-    // select the right tiles at the poles + dateline (previously they used
-    // Mercator's forward and went blank at high latitude — user report
-    // project_projection_issues_2026_05_18 #4). Built with the same centre
-    // (projCenterLon/Lat) the GPU uses as proj_params.y/z. The azimuthal
-    // family (3/4/5), oblique (6) and globe (7) sphere-route, so their
-    // selectorProj is unused — fall back to mercatorProj (globe has no
-    // flat-projection entry in the registry).
-    const selectorProj: Projection =
-      projType >= 1 && projType <= 6
-        ? getProjection(SELECTOR_PROJ_NAMES[projType]!, projCenterLon, projCenterLat)
-        : mercatorProj
+    // Projection-aware tile selection, through the ONE derivation
+    // (flat-tile-selector.ts, which owns the prose for why).
+    const selectorProj: Projection = flatSelectorProjection(projType, projCenterLon, projCenterLat)
 
     // #1393 — the adaptive ladder's far-field notch, read ONCE for this selection so the
     // readiness gate, the drawing walk, and the memo's validity check cannot disagree

@@ -2512,7 +2512,10 @@ const CEILINGS: Record<string, number> = {
   // (currentZ trailing the camera) from the LOD the camera asks for.
   // 1074->1073 (#2500): the open-coded sphere-family centre-lat branch became one
   // frameCenterLatOf call (the frame token's authority). A LOWERING.
-  'map/src/render/tile-selection-cache.ts': 1073,
+  // 1073->1063 (#2577): the inline selector-projection ternary and its 10 lines of
+  // rationale became one flatSelectorProjection call; the prose moved to that helper's
+  // docblock, which is now the single authority Gate-11 pins. A LOWERING.
+  'map/src/render/tile-selection-cache.ts': 1063,
   // 870→876 (#1083): +6 for the tile-rect NE-corner Mercator calc threaded
   // into generateWallMeshExtrudedECEF so it drops clip-synthetic seam walls.
   // 876→889: visible-first cap-deferral — `_distSq` field + `resetFrameCap`
