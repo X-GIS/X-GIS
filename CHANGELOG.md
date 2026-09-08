@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: a9c1d4a4e62e31dd66b66375653144c388148096
+  Generated from: deedb288508cb664d65585553e56a70eb182e4cd
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since a9c1d4a4e62e
+    bun scripts/emit-changelog.ts --since deedb288508c
 -->
 
 # Changelog
@@ -225,6 +225,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### test
 
+- **e2e:** the expired-settle warning names which kinds are still pending (#2468) ([#2678](https://github.com/X-GIS/X-GIS/pull/2678)) `deedb28`
 - **vitest:** quarantine the idle-decision victim, and stop ISOLATED listing a path twice (#2641) ([#2668](https://github.com/X-GIS/X-GIS/pull/2668)) `b1375ad`
 - **e2e:** gate the hung-tile-host path nothing could see (#2626) ([#2647](https://github.com/X-GIS/X-GIS/pull/2647)) `2a37212`
 - **playground/e2e:** retire _icon-rhi-parity, and correct the coverage it was cited for (#2130) ([#2616](https://github.com/X-GIS/X-GIS/pull/2616)) `d287891`
