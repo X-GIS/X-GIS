@@ -656,6 +656,14 @@ of 60000ms exceeded while setting up "context"`). A CLI `--timeout` does not ove
   where it covers setup: `test.describe.configure({ timeout })` or the per-test options object.
   (Body-scope is the repo's prevailing idiom in 320 of 351 specs and is fine where fixtures are
   cheap — this is about the heavy ones, not a ban.)
+- A vitest WORKER must turn its event loop at least once per 60 s of synchronous work, or
+  the run exits 1 with every test green. The worker reports test state to its host over an
+  RPC whose REPLY is read only at a loop turn; birpc times the call out at 60 s (vitest 3
+  exposes no setting), and the runner puts no macrotask between one file's tests — so six
+  20 000-sample sweeps totalling 58 s (main's own shard) / 65 s (the mirror's runner)
+  reddened `df64-int-property` with `[vitest-worker]: Timeout calling "onTaskUpdate"`.
+  Yield INSIDE the sweep (`sweep()` there: `setImmediate` per 1000 samples), and never read
+  that string as a host or infrastructure failure — it is the test file's own span. → `#2665`
 - A diagnostic nothing can reach is not a diagnostic. `adaptiveQualityStep()` was documented
   "exposed so a gate can assert the controller ACTED" and was surfaced on no public object —
   three rounds of inference circled a question the system already knew. Intent in a comment
