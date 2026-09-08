@@ -229,19 +229,6 @@ export const ISOLATED = [
   //     Surfaced when the seven entries above left the shared pass and the pool repacked:
   //     two tests hung to the 30 s budget, and the file passes ALONE in 24 ms.
   'map/src/map-device-lost-recovery.test.ts',
-  // (2) A THIRD writer mechanism the mechanical arm does not match: `vi.spyOn` on a
-  //     process-wide global. This file mocks `performance.now` (:147) for the whole
-  //     process, which is a WRITE, not the pristine-default READ the entry above is.
-  //     #2624 checked it against the assignment arm and correctly called that a false
-  //     positive — `typeof globalThis.fetch` there is a TYPE position — but the arm
-  //     looks for `vi.stubGlobal`, `globalThis.x =` and four named authorities, and
-  //     `vi.spyOn(performance, …)` is none of them. Admitted here as a MEASURED
-  //     casualty: one test hung to the 30 s budget once a new shader-dsl spec repacked
-  //     the pool, and the file passes ALONE in 22 ms. Whether the arm should grow to
-  //     cover this form is #2567's call — 39 files use `vi.spyOn` on a global and most
-  //     target `console`, a different risk class, so it needs the same false-positive
-  //     discipline that took the rule-(1) figure from 25 to 20.
-  'map/src/sprite/sprite-idle-keep-warm.test.ts',
   'map/src/map-run-epoch-lifecycle.test.ts',
   'map/src/overdraw-picking-caps-correction.test.ts',
   'map/src/p0-quartet.test.ts',
@@ -331,6 +318,19 @@ export const ISOLATED = [
   //     `attachShadow` never applies (#2327).
   'map/src/web/component.test.ts',
   'map/src/text/sdf/pbf/pbf-to-slot-dos.test.ts',
+  // (2) SECOND clause — a MEASURED casualty, not a mechanical match: the file writes
+  //     nothing and mocks nothing. Its `flush()` is a REAL `setTimeout(r, 0)` inside a
+  //     suite whose subject is fake timers, so it is a pure VICTIM — some other file in
+  //     the shared worker replaces the timer it waits on and the flush never fires.
+  //     Five tests hang to the 30 s budget; the file passes ALONE in 20 ms, and green
+  //     in CI's own `vitest run playground/` partition, which packs differently (#2641).
+  //     The polluter was never identified: eight timer-replacing siblings were each run
+  //     PAIRED with it under `XGIS_VITEST_MODE=shared` and all eight came back clean, so
+  //     the pairwise hypothesis is refuted and the cause is either outside that pattern
+  //     set or needs more than two files (#1991 carries the measurements). Quarantining
+  //     the victim is therefore the remedy available, not the preferred one — the
+  //     preferred one is finding the writer, and #2634 is where that criterion lives.
+  'playground/e2e/helpers/idle-decision.test.ts',
   // (2) globalThis write — the fake Playwright page points `globalThis.window` at the
   //     realm under test for the duration of each `evaluate` (#2352).
   'playground/e2e/helpers/validation.test.ts',

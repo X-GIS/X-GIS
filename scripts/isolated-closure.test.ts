@@ -141,6 +141,37 @@ describe('vitest.config.ts ISOLATED — rule (1) + (2) closure (#1958, #2567)', 
     expect(stray, `ISOLATED entries outside the INCLUDE corpus:\n${stray.join('\n')}`).toEqual([])
   })
 
+  it('no path is listed twice — every consumer of ISOLATED funnels it through a set', () => {
+    // A duplicate is invisible to everything that reads this list. `vitest.config.ts` hands
+    // it to `exclude`/`include`, whose glob matcher is order- and count-blind; the `barren`
+    // guard maps entries to `existsSync`; `expand` above drops them into a `Set`. So the
+    // second copy changes no behaviour, fails no gate, and stays.
+    //
+    // What it costs is the RATIONALE. Each entry here carries a comment saying which rule
+    // admitted it and why, and two entries means two comments that drift apart: the pair
+    // this assertion was written against disagreed outright — one said the mechanical arm
+    // could not match `vi.spyOn(performance, …)` and deferred growing it to #2567, which
+    // had since closed and grown exactly that arm; the other, correct one, called the same
+    // file the measured casualty that widened the criterion. A reader who lands on the
+    // stale copy is reading a rule that no longer exists.
+    const seen = new Map<string, number>()
+    for (const p of ISOLATED) seen.set(p, (seen.get(p) ?? 0) + 1)
+    const dupes = [...seen]
+      .filter(([, n]) => n > 1)
+      .map(([p, n]) => `  '${p}' — listed ${n}×`)
+      .sort()
+
+    // Non-vacuity: a list that failed to import would make the scan above pass over nothing.
+    expect(ISOLATED.length).toBeGreaterThan(50)
+
+    expect(
+      dupes,
+      `${dupes.length} path(s) appear more than once in ISOLATED:\n${dupes.join('\n')}\n\n` +
+        `Keep ONE, and keep the copy whose comment describes the rule as it stands today —\n` +
+        `the duplicate is harmless to the run and harmful to the next reader.`,
+    ).toEqual([])
+  })
+
   it('every file that writes a process global is quarantined', () => {
     const writers = [...corpus]
       .filter((f) => GLOBAL_WRITE.test(stripComments(readFileSync(join(ROOT, f), 'utf8'))))
