@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts --path shader-dsl > shader-dsl/CHANGELOG.md
     bunx prettier --write shader-dsl/CHANGELOG.md
 
-  Generated from: e5d9acb13ab64cf572799c12276446cae0542298
+  Generated from: 599d16fea612d4eee70eb6e6faecfc42ebdbdd64
   History walked: first-parent of main
   Scope: commits touching shader-dsl/
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --path shader-dsl --since e5d9acb13ab6
+    bun scripts/emit-changelog.ts --path shader-dsl --since 599d16fea612
 -->
 
 # Changelog — shader-dsl
@@ -36,6 +36,7 @@ _Entries are the commits touching `shader-dsl/`; a listed commit may also touch 
 
 #### fix
 
+- **shader-dsl:** df64 int property sweeps yield to the event loop so the vitest worker RPC cannot time out ([#2666](https://github.com/X-GIS/X-GIS/pull/2666)) `599d16f`
 - **render:** the split-bind twin's eligibility is decided from the IR, not from emitted text ([#2602](https://github.com/X-GIS/X-GIS/pull/2602)) `eb417f9`
 - **map+compiler:** issue-hunt 2026-09-02 — 31 verified defects across three packages, three new real-GPU gates ([#2330](https://github.com/X-GIS/X-GIS/pull/2330)) `fdd304f`
 - **shader-dsl:** the WebGL2 compute tier gives the host's GL state back (#2355) ([#2404](https://github.com/X-GIS/X-GIS/pull/2404)) `d965a38`
