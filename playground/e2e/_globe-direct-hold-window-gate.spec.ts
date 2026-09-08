@@ -342,18 +342,7 @@ async function captureHeldFrame(
   })
   // Converge the START_ZOOM scene (its z8 set is served by the proxy) before the move,
   // so the only pending work inside the hold window is the stalled step LOD.
-  // settleTimeoutMs pinned to the helper default (#2468): the READY wait needs 120 s here,
-  // the pending-work DRAIN must not inherit it. Measured on this spec, all four drains
-  // expire with `vt-upload=1` constant across every one of them -- #2370's signature, a
-  // ticket that never clears -- so the union can NEVER go clear and the budget is spent
-  // waiting for something that cannot happen. 4 x 120 s = 8.0 min of a 15.4 min file.
-  // 20 s is not a guess: it is what a converging drain measures (9 074 / 12 537 ms,
-  // helpers/visual.ts), so this still converges the day #2370 is fixed.
-  await captureMapFrame(page, {
-    readyTimeoutMs: 120_000,
-    settleTimeoutMs: 20_000,
-    capture: 'clip',
-  })
+  await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   const startState = await dumpState(page)
   writeFileSync(join(OUT, `state-start-${tag}.json`), JSON.stringify(startState, null, 2))
   // Chrome off BEFORE the move — nothing inside the window but the shot.
@@ -498,23 +487,8 @@ async function captureAdvancedFrame(
     { stepLod: STEP_LOD, minMaxLevel: minServableMaxLevel(HOLD_ZOOM) },
     { timeout: 180_000, polling: 100 },
   )
-  // settleTimeoutMs pinned to the helper default (#2468): the READY wait needs 120 s here,
-  // the pending-work DRAIN must not inherit it. Measured on this spec, all four drains
-  // expire with `vt-upload=1` constant across every one of them -- #2370's signature, a
-  // ticket that never clears -- so the union can NEVER go clear and the budget is spent
-  // waiting for something that cannot happen. 4 x 120 s = 8.0 min of a 15.4 min file.
-  // 20 s is not a guess: it is what a converging drain measures (9 074 / 12 537 ms,
-  // helpers/visual.ts), so this still converges the day #2370 is fixed.
-  const png = await captureMapFrame(page, {
-    readyTimeoutMs: 120_000,
-    settleTimeoutMs: 20_000,
-    capture: 'clip',
-  })
-  const png2 = await captureMapFrame(page, {
-    readyTimeoutMs: 120_000,
-    settleTimeoutMs: 20_000,
-    capture: 'clip',
-  })
+  const png = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
+  const png2 = await captureMapFrame(page, { readyTimeoutMs: 120_000, capture: 'clip' })
   const state = await dumpState(page)
   writeFileSync(join(OUT, `advanced-${tag}.png`), png)
   writeFileSync(join(OUT, `state-advanced-${tag}.json`), JSON.stringify(state, null, 2))
