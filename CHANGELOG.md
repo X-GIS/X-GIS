@@ -7,12 +7,12 @@
     bun scripts/emit-changelog.ts > CHANGELOG.md
     bunx prettier --write CHANGELOG.md
 
-  Generated from: e5d9acb13ab64cf572799c12276446cae0542298
+  Generated from: 599d16fea612d4eee70eb6e6faecfc42ebdbdd64
   History walked: first-parent of main
   Scope: whole repository
   Repository: https://github.com/X-GIS/X-GIS
   What changed since this file was generated (run from a repo checkout):
-    bun scripts/emit-changelog.ts --since e5d9acb13ab6
+    bun scripts/emit-changelog.ts --since 599d16fea612
 -->
 
 # Changelog
@@ -56,6 +56,7 @@ This repo ships no versioned releases and carries no git tags, so changes are gr
 
 #### fix
 
+- **shader-dsl:** df64 int property sweeps yield to the event loop so the vitest worker RPC cannot time out ([#2666](https://github.com/X-GIS/X-GIS/pull/2666)) `599d16f`
 - **map/render:** the windowed drape bake reaches the flat-disc trio, not just the globe (#2346) ([#2652](https://github.com/X-GIS/X-GIS/pull/2652)) `c2ba38c`
 - **site:** three typecheck fixes, 69 errors → 37 ([#2651](https://github.com/X-GIS/X-GIS/pull/2651)) `3fbb59a`
 - **map/render:** the vector drape composites its premultiplied bake with premultiplied blend (#2134) ([#2615](https://github.com/X-GIS/X-GIS/pull/2615)) `53b7d23`
